@@ -160,44 +160,14 @@ public static class ConnectorBindingResolver
 
     private static Dictionary<string, HashSet<string>> ParseUnitOptOuts(ResolvedPackage package)
     {
-        var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var u in package.Units.Where(u => !u.IsCrossPackage && u.Content is not null))
-        {
-            UnitManifest? manifest;
-            try
-            {
-                var deserializer = new DeserializerBuilder()
-                    .WithNamingConvention(UnderscoredNamingConvention.Instance)
-                    .IgnoreUnmatchedProperties()
-                    .Build();
-                var doc = deserializer.Deserialize<ManifestDocument>(u.Content!);
-                manifest = doc?.Unit;
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (manifest?.Connectors is not { Count: > 0 } unitConnectors)
-            {
-                continue;
-            }
-
-            var optOut = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var c in unitConnectors)
-            {
-                if (string.IsNullOrWhiteSpace(c?.Type)) continue;
-                if (!c!.Inherit)
-                {
-                    optOut.Add(c.Type!);
-                }
-            }
-            if (optOut.Count > 0)
-            {
-                result[u.Name] = optOut;
-            }
-        }
-        return result;
+        // ADR-0037 decision 3: per-unit connector inheritance opt-outs are
+        // gone — every artefact declares its own requires:, the install
+        // pipeline injects bindings 1:1, and there is no opt-out to honour.
+        // This method survives only as a transitional surface for #1726;
+        // it returns an empty map so callers that consult it pass through
+        // untouched.
+        _ = package;
+        return new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
     }
 }
 

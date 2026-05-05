@@ -224,23 +224,29 @@ public static class PackageValidator
                 }
             }
 
-            // connectors[].type must be a known v0.1 slug. Unknown slug is a
+            // requires[].connector must be a known v0.1 slug. Unknown slug is a
             // warning by default (the platform will reject it at install
             // time, but we surface it earlier); --strict promotes it to an
-            // error in the CLI layer.
-            if (unit.Connectors is { Count: > 0 })
+            // error in the CLI layer. ADR-0037 decision 3 — the per-unit
+            // requirements block is `requires:` and each entry is a
+            // single-key map keyed by requirement type.
+            if (unit.Requires is { Count: > 0 })
             {
-                for (var i = 0; i < unit.Connectors.Count; i++)
+                for (var i = 0; i < unit.Requires.Count; i++)
                 {
-                    var c = unit.Connectors[i];
-                    var slug = c.Type;
+                    var req = unit.Requires[i];
+                    if (req.Type != RequirementType.Connector)
+                    {
+                        continue;
+                    }
+                    var slug = req.Identifier;
                     if (string.IsNullOrWhiteSpace(slug))
                     {
                         diagnostics.Add(new PackageValidationDiagnostic(
                             unitFile,
                             PackageValidationSeverity.Error,
-                            "connector-missing-type",
-                            $"unit '{unit.Name ?? "<unnamed>"}': connectors[{i}].type is required."));
+                            "requires-missing-identifier",
+                            $"unit '{unit.Name ?? "<unnamed>"}': requires[{i}].connector is required."));
                         continue;
                     }
                     if (!KnownConnectorSlugs.Contains(slug, StringComparer.OrdinalIgnoreCase))
@@ -249,7 +255,7 @@ public static class PackageValidator
                             unitFile,
                             PackageValidationSeverity.Warning,
                             "connector-unknown-slug",
-                            $"unit '{unit.Name ?? "<unnamed>"}': connectors[{i}].type '{slug}' is not a " +
+                            $"unit '{unit.Name ?? "<unnamed>"}': requires[{i}].connector '{slug}' is not a " +
                             $"known connector slug (known: {string.Join(", ", KnownConnectorSlugs)})."));
                     }
                 }

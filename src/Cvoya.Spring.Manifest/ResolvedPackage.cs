@@ -13,11 +13,18 @@ using System.Collections.Generic;
 /// </summary>
 public class ResolvedPackage
 {
-    /// <summary>Package name (from <c>metadata.name</c>).</summary>
+    /// <summary>Package name (from top-level <c>name</c>).</summary>
     public required string Name { get; init; }
 
-    /// <summary>Optional description (from <c>metadata.description</c>).</summary>
+    /// <summary>Optional description (from top-level <c>description</c>).</summary>
     public string? Description { get; init; }
+
+    /// <summary>
+    /// Package version (from top-level <c>version</c>). ADR-0037
+    /// decision 5 — opaque string for v0.1; the catalog keys entries by
+    /// <c>(Name, Version)</c>.
+    /// </summary>
+    public string? Version { get; init; }
 
     /// <summary>Package kind (unit or agent).</summary>
     public required PackageKind Kind { get; init; }

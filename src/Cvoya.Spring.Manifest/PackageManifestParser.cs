@@ -66,10 +66,9 @@ public static class PackageManifestParser
             throw new PackageParseException("Package manifest is empty.");
         }
 
-        ValidateRequiredFields(doc);
         ValidateLegacyFields(yamlText, doc);
+        ValidateRequiredFields(doc);
         ValidatePackageGrammar(doc);
-        NormaliseConnectorBlock(doc);
         return doc;
     }
 
@@ -164,32 +163,54 @@ public static class PackageManifestParser
     }
 
     /// <summary>
-    /// #1718 items 1+2: reject the historical <c>kind:</c> top-level scalar
-    /// and the historical flat artefact lists (<c>unit:</c>,
-    /// <c>agent:</c>, <c>subUnits:</c>, <c>skills:</c>, <c>workflows:</c>)
-    /// with actionable migration messages. v0.1 has no external consumers,
-    /// so the parser is a clean break — operators see exactly which line
-    /// is offending instead of a silent drop into the activator.
+    /// ADR-0037 decision 6: reject every legacy-shape signal with a precise
+    /// migration hint. Covers items 1+2 from #1718 (already shipped in PR #1719)
+    /// plus the per-artefact decomposition from ADR-0037.
     /// </summary>
     private static void ValidateLegacyFields(string yamlText, PackageManifest doc)
     {
-        // #1718 item 1: the captured Kind property only exists so the
-        // parser can throw a precise error when a legacy manifest still
-        // declares `kind:`. Production consumers key off
-        // ResolvedPackage.Kind (computed from Content) instead.
-        if (!string.IsNullOrWhiteSpace(doc.Kind))
+        // ADR-0037 decision 2 + #1718 item 1: kind: must be the literal
+        // string Package. Old-shape values (UnitPackage / AgentPackage,
+        // or any other) are rejected.
+        if (!string.IsNullOrWhiteSpace(doc.Kind)
+            && !string.Equals(doc.Kind.Trim(), "Package", StringComparison.Ordinal))
         {
             throw new PackageParseException(
-                "Package manifest declares the obsolete 'kind:' field. " +
-                "v0.1 infers package kind from the artefacts declared under 'content:' " +
-                "(#1718 item 1) — remove 'kind:' from the manifest.");
+                $"LegacyPackageKind: 'kind:' must be 'Package' in ADR-0037 (got '{doc.Kind}'). " +
+                "The container manifest is the only kind of YAML at the package root.");
         }
 
-        // #1718 item 2: flat lists are gone. Detect them at the YAML level
-        // since the model classes no longer carry properties for them, so
-        // YamlDotNet's IgnoreUnmatchedProperties would otherwise swallow
-        // the field silently. The check is lightweight string-matching on
-        // top-level keys (a leading non-whitespace key followed by ':').
+        // ADR-0037 decision 2: metadata: nesting is removed; name and
+        // description live at the top level.
+        if (doc.Metadata is not null)
+        {
+            throw new PackageParseException(
+                "LegacyMetadataNesting: 'metadata:' nesting is removed in ADR-0037. " +
+                "Hoist 'name', 'description', and 'readme' to the top level of package.yaml.");
+        }
+
+        // ADR-0037 decision 2: inputs: is removed; connector-binding
+        // parameters move into per-artefact requires:.
+        if (doc.RawInputs is not null)
+        {
+            throw new PackageParseException(
+                "LegacyInputsField: 'inputs:' is removed in ADR-0037. " +
+                "Move connector-binding parameters into per-artefact 'requires:' blocks; " +
+                "behaviour parameters move to per-unit 'policies:'.");
+        }
+
+        // ADR-0037 decision 2: package-level connectors: is removed.
+        if (doc.RawConnectors is not null)
+        {
+            throw new PackageParseException(
+                "LegacyPackageConnectorsField: package-level 'connectors:' is removed in ADR-0037. " +
+                "Declare requirements on per-artefact YAMLs as 'requires: [{ connector: <slug> }]'. " +
+                "The package's effective requirement set is the union of every artefact's requires.");
+        }
+
+        // #1718 item 2: flat artefact lists are gone (already shipped
+        // pre-ADR-0037; kept here for the comprehensive D6 migration
+        // surface).
         var legacyKeys = new[] { "unit", "agent", "subUnits", "skills", "workflows" };
         foreach (var key in legacyKeys)
         {
@@ -373,7 +394,7 @@ public static class PackageManifestParser
         // AgentPackage so the install pipeline's discriminator-driven
         // codepaths keep working unchanged.
         var kind = InferKind(manifest);
-        var name = manifest.Metadata!.Name!;
+        var name = manifest.Name!;
 
         // Build resolved artefact lists per kind.
         var units = resolved
@@ -399,7 +420,8 @@ public static class PackageManifestParser
         return new ResolvedPackage
         {
             Name = name,
-            Description = manifest.Metadata.Description,
+            Description = manifest.Description,
+            Version = manifest.Version,
             Kind = kind,
             InputValues = finalInputValues,
             Units = units,
@@ -605,15 +627,15 @@ public static class PackageManifestParser
         {
             // Inline body: synthesise a within-package ArtefactReference so
             // name-uniqueness + cycle checks still operate on a stable name.
-            // The body is captured verbatim and re-wrapped under the kind
-            // root key so the install activator can consume it through the
-            // same `ManifestParser.Parse` path as a disk-resolved reference.
+            // ADR-0037 decision 1: per-artefact YAMLs are kind-discriminated
+            // top-level documents. The captured inline body already carries
+            // its own apiVersion/kind/name headers (or should — the parser
+            // surfaces the missing-headers error downstream), so the body is
+            // emitted verbatim with no wrapping key.
             var inlineName = slot.InlineName ?? "<inline>";
-            var rootKey = kind == ArtefactKind.Agent ? "agent" : "unit";
-            var wrapped = WrapInlineBody(rootKey, slot.InlineBody!);
             refs.Add(new ArtefactCollectEntry(
                 new ArtefactReference(inlineName, PackageName: null, inlineName, kind),
-                InlineBody: wrapped));
+                InlineBody: slot.InlineBody!));
             return;
         }
 
@@ -886,28 +908,27 @@ public static class PackageManifestParser
 
     /// <summary>
     /// Pulls each <c>members[].unit</c> / <c>members[].agent</c> entry from
-    /// a resolved unit YAML body. Re-uses <see cref="ManifestDocument"/>
-    /// (the same shape <see cref="ManifestParser"/> consumes) so the
-    /// descent walker sees the same wrapper-handling the install activator
-    /// will see post-resolution.
+    /// a resolved unit YAML body (ADR-0037 decision 1 — kind-discriminated
+    /// top-level documents).
     /// </summary>
     private static IEnumerable<(ArtefactKind Kind, string Reference)> ExtractMemberRefs(string unitYaml)
     {
-        ManifestDocument? doc;
+        UnitManifest? manifest;
         try
         {
             var deserializer = new DeserializerBuilder()
-                .WithNamingConvention(UnderscoredNamingConvention.Instance)
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .WithTypeConverter(new RequirementEntryYamlConverter())
                 .IgnoreUnmatchedProperties()
                 .Build();
-            doc = deserializer.Deserialize<ManifestDocument>(unitYaml);
+            manifest = deserializer.Deserialize<UnitManifest>(unitYaml);
         }
         catch
         {
             yield break;
         }
 
-        var members = doc?.Unit?.Members;
+        var members = manifest?.Members;
         if (members is null) yield break;
 
         foreach (var m in members)
@@ -1107,45 +1128,15 @@ public static class PackageManifestParser
             pkgConnectors.Where(c => !string.IsNullOrWhiteSpace(c?.Type)).Select(c => c!.Type!),
             StringComparer.OrdinalIgnoreCase);
 
-        // Inspect each resolved unit's own `connectors:` block. We re-parse
-        // the resolved YAML so the validator runs after input substitution
-        // (matching what the activator sees).
-        foreach (var r in resolved.Where(r => r.Reference.Kind == ArtefactKind.Unit && r.Artefact.Content is not null))
-        {
-            UnitManifest? unitManifest;
-            try
-            {
-                var deserializer = new DeserializerBuilder()
-                    .WithNamingConvention(UnderscoredNamingConvention.Instance)
-                    .IgnoreUnmatchedProperties()
-                    .Build();
-                var doc = deserializer.Deserialize<ManifestDocument>(r.Artefact.Content!);
-                unitManifest = doc?.Unit;
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (unitManifest?.Connectors is not { Count: > 0 } unitConnectors)
-            {
-                continue;
-            }
-
-            foreach (var conn in unitConnectors)
-            {
-                if (string.IsNullOrWhiteSpace(conn?.Type))
-                {
-                    continue;
-                }
-                if (!conn!.Inherit && !declaredSlugs.Contains(conn.Type!))
-                {
-                    throw new PackageParseException(
-                        $"unit '{r.Artefact.Name}' opts out of connector '{conn.Type}' " +
-                        $"(inherit: false), but the package does not declare that connector.");
-                }
-            }
-        }
+        // ADR-0037 decision 3: package-level connector inheritance is gone.
+        // The unit-level legacy connectors:/inherit:false opt-out path is
+        // dead under the new schema — every artefact declares its own
+        // requires:, the install pipeline injects bindings 1:1, and the
+        // resolved unit graph never reaches this branch because
+        // pkgConnectors is empty. Logic preserved as a no-op for the
+        // transitional period; #1726 deletes ValidateConnectorBlock and
+        // the legacy types entirely.
+        _ = declaredSlugs;
     }
 
     // ---- Cycle detection -----------------------------------------------
@@ -1198,22 +1189,21 @@ public static class PackageManifestParser
         // We only look at unit members that are sub-units (unit: xxx) to
         // detect cross-unit cycles at the within-package level.
         //
-        // Unit files have the format:
-        //   unit:
-        //     name: ...
-        //     members:
-        //       - unit: other-unit
-        // We deserialize via ManifestDocument (same as ManifestParser) so the
-        // outer `unit:` wrapper is handled correctly.
+        // Unit files (ADR-0037) are kind-discriminated top-level documents:
+        //   apiVersion: spring.voyage/v1
+        //   kind: Unit
+        //   name: ...
+        //   members:
+        //     - unit: other-unit
         var refs = new List<string>();
         try
         {
             var deserializer = new DeserializerBuilder()
-                .WithNamingConvention(UnderscoredNamingConvention.Instance)
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .WithTypeConverter(new RequirementEntryYamlConverter())
                 .IgnoreUnmatchedProperties()
                 .Build();
-            var doc = deserializer.Deserialize<ManifestDocument>(unitYaml);
-            var manifest = doc?.Unit;
+            var manifest = deserializer.Deserialize<UnitManifest>(unitYaml);
             if (manifest?.Members is { Count: > 0 })
             {
                 foreach (var m in manifest.Members)
@@ -1272,9 +1262,22 @@ public static class PackageManifestParser
 
     private static void ValidateRequiredFields(PackageManifest doc)
     {
-        if (doc.Metadata is null || string.IsNullOrWhiteSpace(doc.Metadata.Name))
+        if (string.IsNullOrWhiteSpace(doc.Name))
         {
-            throw new PackageParseException("Package manifest is missing the required 'metadata.name' field.");
+            throw new PackageParseException(
+                "Package manifest is missing the required top-level 'name:' field (ADR-0037 decision 2).");
+        }
+
+        if (string.IsNullOrWhiteSpace(doc.Description))
+        {
+            throw new PackageParseException(
+                "Package manifest is missing the required top-level 'description:' field (ADR-0037 decision 2).");
+        }
+
+        if (string.IsNullOrWhiteSpace(doc.Version))
+        {
+            throw new PackageParseException(
+                "MissingPackageVersion: every package declares a 'version:' scalar (ADR-0037 decision 5).");
         }
     }
 
@@ -1344,6 +1347,7 @@ public static class PackageManifestParser
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .WithTypeConverter(new ContentEntryYamlConverter())
             .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
+            .WithTypeConverter(new RequirementEntryYamlConverter())
             .IgnoreUnmatchedProperties()
             .Build();
 }
