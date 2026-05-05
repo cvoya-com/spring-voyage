@@ -145,7 +145,6 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
             Path.Combine(pkg, "package.yaml"),
             """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: with-inputs
               description: example
@@ -163,7 +162,8 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
                 required: true
                 secret: true
                 description: API key.
-            unit: alpha
+            content:
+              - unit: alpha
             """);
         File.WriteAllText(
             Path.Combine(pkg, "units", "alpha.yaml"),
@@ -198,11 +198,11 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
             Path.Combine(pkg, "package.yaml"),
             """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: no-inputs
               description: example
-            unit: alpha
+            content:
+              - unit: alpha
             """);
         File.WriteAllText(
             Path.Combine(pkg, "units", "alpha.yaml"),
@@ -212,6 +212,43 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
 
         detail.ShouldNotBeNull();
         detail!.Inputs.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GetPackageAsync_PopulatesContentEntries_FromManifest()
+    {
+        // #1718 item 2: PackageDetail.Content surfaces the parsed
+        // `content:` list so the wizard / CLI can render the package's
+        // top-level artefacts as one ordered "what gets installed" view
+        // instead of stitching it from the per-kind filesystem scan.
+        var pkg = SeedPackage("with-content");
+        File.WriteAllText(
+            Path.Combine(pkg, "package.yaml"),
+            """
+            apiVersion: spring.voyage/v1
+            metadata:
+              name: with-content
+            content:
+              - unit: alpha
+              - skill: triage
+            """);
+        File.WriteAllText(
+            Path.Combine(pkg, "units", "alpha.yaml"),
+            "unit:\n  name: alpha\n");
+        var skillsDir = Path.Combine(pkg, "skills");
+        Directory.CreateDirectory(skillsDir);
+        File.WriteAllText(
+            Path.Combine(skillsDir, "triage.md"),
+            "# Triage skill body.");
+
+        var detail = await _service.GetPackageAsync("with-content", CancellationToken.None);
+
+        detail.ShouldNotBeNull();
+        detail!.Content.Count.ShouldBe(2);
+        detail.Content[0].Kind.ShouldBe("unit");
+        detail.Content[0].Name.ShouldBe("alpha");
+        detail.Content[1].Kind.ShouldBe("skill");
+        detail.Content[1].Name.ShouldBe("triage");
     }
 
     [Fact]

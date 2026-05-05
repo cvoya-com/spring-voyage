@@ -77,7 +77,6 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
     // sufficient to test the endpoint plumbing (201 Created, status=active, etc.).
     private const string SelfContainedPackageYamlTemplate = """
         apiVersion: spring.voyage/v1
-        kind: UnitPackage
         metadata:
           name: {0}
         """;
@@ -190,10 +189,10 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
         // nor installed; any catalog lookup returns not-found → 400.
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: pkg-missingdep
-            unit: nonexistent-pkg/some-unit
+            content:
+              - unit: nonexistent-pkg/some-unit
             """;
 
         var response = await PostFileInstallAsync(Yaml, ct);
@@ -460,10 +459,10 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
         // PackageParseException) → endpoint maps it to 400.
         const string YamlWithLocalRef = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: multi-file-upload-pkg
-            unit: my-local-unit
+            content:
+              - unit: my-local-unit
             """;
 
         var response = await PostFileInstallAsync(YamlWithLocalRef, ct);
@@ -590,10 +589,10 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
                 Path.Combine(pkgDir, "package.yaml"),
                 $"""
                 apiVersion: spring.voyage/v1
-                kind: UnitPackage
                 metadata:
                   name: {pkgName}
-                unit: {unitSlug}
+                content:
+                  - unit: {unitSlug}
                 """);
 
             File.WriteAllText(
@@ -630,12 +629,11 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
                 Path.Combine(pkgDir, "package.yaml"),
                 $"""
                 apiVersion: spring.voyage/v1
-                kind: UnitPackage
                 metadata:
                   name: {PkgTopoA}
-                unit: local-a
-                subUnits:
-                  - {PkgTopoB}/{topoBUnit}
+                content:
+                  - unit: local-a
+                  - unit: {PkgTopoB}/{topoBUnit}
                 """);
 
             File.WriteAllText(

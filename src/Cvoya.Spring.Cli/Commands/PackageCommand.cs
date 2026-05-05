@@ -100,6 +100,20 @@ public static class PackageCommand
     };
 
     /// <summary>
+    /// Columns for the manifest's <c>content:</c> list surfaced by
+    /// <c>spring package show</c> (#1718 item 2). Replaces the old
+    /// per-kind sections (unit templates, agent templates, skills,
+    /// workflows) that the manifest no longer enumerates as flat lists —
+    /// the wizard / operator now sees a single ordered "what gets
+    /// installed" list with the artefact discriminator.
+    /// </summary>
+    private static readonly OutputFormatter.Column<PackageContentEntry>[] ContentColumns =
+    {
+        new("kind", c => c.Kind),
+        new("name", c => c.Name),
+    };
+
+    /// <summary>
     /// Creates the <c>package</c> command root with all subcommands.
     /// </summary>
     public static Command Create(Option<string> outputOption)
@@ -593,6 +607,12 @@ public static class PackageCommand
 
             WriteSection("Inputs", detail.Inputs, InputColumns);
             WriteSection("Required connectors", detail.ConnectorDeclarations, RequiredConnectorColumns);
+            // #1718 item 2: the manifest's `content:` list is the
+            // canonical "what gets installed" view. Render it first so
+            // operators see the install footprint before the on-disk
+            // template browse (which lists everything in units/ /
+            // agents/ / skills/ / etc., not just what's declared).
+            WriteSection("Content", detail.Content, ContentColumns);
             WriteSection("Unit templates", detail.UnitTemplates, UnitTemplateColumns);
             WriteSection("Agent templates", detail.AgentTemplates, AgentTemplateColumns);
             WriteSection("Skills", detail.Skills, SkillColumns);

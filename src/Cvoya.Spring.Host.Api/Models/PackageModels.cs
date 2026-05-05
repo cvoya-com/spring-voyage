@@ -57,6 +57,16 @@ public record PackageSummary(
 /// its binding inherits to member units. Empty when the package declares
 /// no connectors.
 /// </param>
+/// <param name="Content">
+/// Top-level artefacts declared in the manifest's <c>content:</c> list
+/// (#1718 item 2). Each entry carries the artefact discriminator
+/// (<c>unit</c>, <c>agent</c>, <c>skill</c>, <c>workflow</c>) and the
+/// reference value the manifest declares. Surfaces the parser's view
+/// of "what the package installs" so the wizard / CLI can decide which
+/// install steps to render alongside connector configuration. Empty
+/// when the manifest declares no content (e.g. an inputs-only package
+/// in upload mode).
+/// </param>
 public record PackageDetail(
     string Name,
     string? Description,
@@ -67,7 +77,27 @@ public record PackageDetail(
     IReadOnlyList<SkillSummary> Skills,
     IReadOnlyList<ConnectorSummary> Connectors,
     IReadOnlyList<WorkflowSummary> Workflows,
-    IReadOnlyList<RequiredConnectorSummary> ConnectorDeclarations);
+    IReadOnlyList<RequiredConnectorSummary> ConnectorDeclarations,
+    IReadOnlyList<PackageContentEntry> Content);
+
+/// <summary>
+/// Wire-shape for one entry in <see cref="PackageDetail.Content"/> —
+/// the parsed <c>content:</c> list on the package manifest (#1718 item 2).
+/// </summary>
+/// <param name="Kind">
+/// Artefact discriminator: <c>unit</c>, <c>agent</c>, <c>skill</c>, or
+/// <c>workflow</c>. Lower-cased to match the YAML key the manifest
+/// declares.
+/// </param>
+/// <param name="Name">
+/// The reference string declared in the manifest. For inline bodies
+/// this is the inline artefact's <c>id</c> / <c>name</c>; for bare
+/// references it's the bare name (<c>my-unit</c>); for cross-package
+/// references it's the qualified <c>pkg/name</c> form.
+/// </param>
+public record PackageContentEntry(
+    string Kind,
+    string Name);
 
 /// <summary>
 /// Wire shape for one entry in <see cref="PackageDetail.ConnectorDeclarations"/>

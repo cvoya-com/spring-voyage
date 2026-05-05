@@ -49,17 +49,16 @@ public class PackageExportServiceTests
     // A minimal valid UnitPackage YAML with no inputs. {0} = package name.
     private const string MinimalPackageYaml = """
         apiVersion: spring.voyage/v1
-        kind: UnitPackage
         metadata:
           name: {0}
-        unit: main
+        content:
+          - unit: main
         """;
 
     // A package YAML with a comment and one non-secret input.
     private const string PackageWithInputYaml = """
         # This comment should survive a round-trip
         apiVersion: spring.voyage/v1
-        kind: UnitPackage
         metadata:
           name: {0}
           # description follows
@@ -69,13 +68,13 @@ public class PackageExportServiceTests
             type: string
             required: true
             description: GitHub repository name
-        unit: main
+        content:
+          - unit: main
         """;
 
     // A package YAML with a secret input.
     private const string PackageWithSecretInputYaml = """
         apiVersion: spring.voyage/v1
-        kind: UnitPackage
         metadata:
           name: {0}
         inputs:
@@ -85,7 +84,8 @@ public class PackageExportServiceTests
           - name: team_name
             type: string
             required: true
-        unit: main
+        content:
+          - unit: main
         """;
 
     private const string MinimalUnitYaml = """
@@ -446,7 +446,7 @@ public class PackageExportServiceTests
     [Fact]
     public void SpliceInputValues_EmptyInputs_ReturnsOriginalYaml()
     {
-        const string yaml = "apiVersion: spring.voyage/v1\nkind: UnitPackage\n";
+        const string yaml = "apiVersion: spring.voyage/v1\nmetadata:\n  name: pkg\n";
         var result = PackageExportService.SpliceInputValues(yaml, "{}");
         result.ShouldBe(yaml);
     }
@@ -461,7 +461,8 @@ public class PackageExportServiceTests
             inputs:
               - name: foo
                 type: string
-            unit: main
+            content:
+              - unit: main
             """;
 
         const string replacement = "inputs:\n  foo: bar";
@@ -497,14 +498,14 @@ public class PackageExportServiceTests
         var root = CreatePackageDir();
         var yamlRaw = $$$"""
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: {{{packageName}}}
             inputs:
               - name: team_name
                 type: string
                 required: true
-            unit: main
+            content:
+              - unit: main
             """;
 
         // Seed directly (simulates the install service having done its work).

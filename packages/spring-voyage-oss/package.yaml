@@ -1,5 +1,4 @@
 apiVersion: spring.voyage/v1
-kind: UnitPackage
 metadata:
   name: spring-voyage-oss
   description: The Spring Voyage OSS dogfooding organisation — software engineering, design, product management, and program management operating on the Spring Voyage platform itself.
@@ -12,9 +11,9 @@ connectors:
   - type: github
     required: true
 
-unit: spring-voyage-oss
-subUnits:
-  - sv-oss-software-engineering
-  - sv-oss-design
-  - sv-oss-product-management
-  - sv-oss-program-management
+# #1718 item 2: top-level artefacts only. Sub-units (sv-oss-software-
+# engineering / -design / -product-management / -program-management) are
+# discovered automatically from the umbrella unit's `members:` list — the
+# old `subUnits:` enumeration was redundant and is gone.
+content:
+  - unit: spring-voyage-oss

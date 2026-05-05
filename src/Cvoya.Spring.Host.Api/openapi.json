@@ -11043,6 +11043,21 @@
           }
         }
       },
+      "PackageContentEntry": {
+        "required": [
+          "kind",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "PackageDetail": {
         "required": [
           "name",
@@ -11054,7 +11069,8 @@
           "skills",
           "connectors",
           "workflows",
-          "connectorDeclarations"
+          "connectorDeclarations",
+          "content"
         ],
         "type": "object",
         "properties": {
@@ -11113,6 +11129,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RequiredConnectorSummary"
+            }
+          },
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PackageContentEntry"
             }
           }
         }

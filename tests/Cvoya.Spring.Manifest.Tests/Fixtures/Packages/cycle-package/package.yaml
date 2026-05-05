@@ -1,9 +1,8 @@
 apiVersion: spring.voyage/v1
-kind: UnitPackage
 metadata:
   name: cycle-package
   description: Package with a circular unit reference.
-unit: unit-a
-subUnits:
-  - unit-b
-  - unit-c
+content:
+  - unit: unit-a
+  - unit: unit-b
+  - unit: unit-c

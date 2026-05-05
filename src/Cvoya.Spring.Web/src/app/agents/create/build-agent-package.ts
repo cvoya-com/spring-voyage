@@ -7,33 +7,33 @@
  * submits it through `POST /api/v1/packages/install/file`, the same
  * endpoint the CLI uses).
  *
- * The generated YAML shape:
+ * The generated YAML shape (#1718 items 1+2):
  * ```yaml
  * apiVersion: spring.cvoya.com/v1
- * kind: AgentPackage
  * metadata:
  *   name: <id>
  *   displayName: <displayName>
- * agent:
- *   id: <id>
- *   name: <displayName>
- *   role: <role>        # omitted when empty
- *   description: <description>  # omitted when empty
- *   execution:
- *     image: <image>    # omitted when empty
- *     runtime: <runtime> # omitted when empty
- *     hosting: <hosting> # omitted when empty
- *   ai:
- *     tool: <tool>      # omitted when empty
- *     model: <model>    # omitted when empty
+ * content:
+ *   - agent:
+ *       id: <id>
+ *       name: <displayName>
+ *       role: <role>        # omitted when empty
+ *       description: <description>  # omitted when empty
+ *       execution:
+ *         image: <image>    # omitted when empty
+ *         runtime: <runtime> # omitted when empty
+ *         hosting: <hosting> # omitted when empty
+ *       ai:
+ *         tool: <tool>      # omitted when empty
+ *         model: <model>    # omitted when empty
  * ```
  *
- * Note: the `agent` field in PackageManifest is a string reference
- * (the artefact name). For the scratch wizard we embed the full agent
- * definition inline under an `agent:` block rather than a bare-name
- * reference. The backend install pipeline resolves this via the file-
- * upload path (ADR-0035 decision 13). Full AgentPackage activation is
- * tracked in #1559.
+ * The wizard embeds the full agent definition inline as the value of
+ * the `content[].agent` entry. The backend install pipeline resolves
+ * this via the file-upload path (ADR-0035 decision 13) and the
+ * activator consumes the inline body the same way it would a
+ * disk-resolved reference. Full AgentPackage activation is tracked in
+ * #1559.
  */
 
 export interface AgentPackageFormState {
@@ -82,7 +82,6 @@ export function buildAgentPackageYaml(state: AgentPackageFormState): string {
 
   const lines: string[] = [
     "apiVersion: spring.cvoya.com/v1",
-    "kind: AgentPackage",
     "metadata:",
     `  name: ${yamlScalar(id)}`,
   ];
@@ -91,33 +90,37 @@ export function buildAgentPackageYaml(state: AgentPackageFormState): string {
     lines.push(`  displayName: ${yamlScalar(displayName)}`);
   }
 
-  lines.push("agent:");
-  lines.push(`  id: ${yamlScalar(id)}`);
-  lines.push(`  name: ${yamlScalar(displayName)}`);
+  // #1718 item 2: the agent body lives inline under a single content
+  // entry. The activator consumes the inline mapping the same way it
+  // would a disk-resolved reference (#1559).
+  lines.push("content:");
+  lines.push("  - agent:");
+  lines.push(`      id: ${yamlScalar(id)}`);
+  lines.push(`      name: ${yamlScalar(displayName)}`);
 
   if (role) {
-    lines.push(`  role: ${yamlScalar(role)}`);
+    lines.push(`      role: ${yamlScalar(role)}`);
   }
 
   if (description) {
-    lines.push(`  description: ${yamlScalar(description)}`);
+    lines.push(`      description: ${yamlScalar(description)}`);
   }
 
   // Execution block
   const hasExecution = image || runtime || hosting;
   if (hasExecution) {
-    lines.push("  execution:");
-    if (image) lines.push(`    image: ${yamlScalar(image)}`);
-    if (runtime) lines.push(`    runtime: ${yamlScalar(runtime)}`);
-    if (hosting) lines.push(`    hosting: ${yamlScalar(hosting)}`);
+    lines.push("      execution:");
+    if (image) lines.push(`        image: ${yamlScalar(image)}`);
+    if (runtime) lines.push(`        runtime: ${yamlScalar(runtime)}`);
+    if (hosting) lines.push(`        hosting: ${yamlScalar(hosting)}`);
   }
 
   // AI block
   const hasAi = tool || model;
   if (hasAi) {
-    lines.push("  ai:");
-    if (tool) lines.push(`    tool: ${yamlScalar(tool)}`);
-    if (model) lines.push(`    model: ${yamlScalar(model)}`);
+    lines.push("      ai:");
+    if (tool) lines.push(`        tool: ${yamlScalar(tool)}`);
+    if (model) lines.push(`        model: ${yamlScalar(model)}`);
   }
 
   return lines.join("\n") + "\n";

@@ -1,5 +1,4 @@
 apiVersion: spring.voyage/v1
-kind: UnitPackage
 metadata:
   name: ${{ inputs.package_name }}
   description: A package for ${{ inputs.team_name }}.
@@ -26,4 +25,5 @@ inputs:
     secret: true
     required: false
     description: API key stored as a secret.
-unit: root-unit
+content:
+  - unit: root-unit

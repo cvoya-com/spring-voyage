@@ -114,6 +114,7 @@ public class FileSystemPackageCatalogService(
         var workflows = ReadWorkflows(packageDir, name, cancellationToken);
 
         var connectorDeclarations = ReadConnectorDeclarations(packageDir);
+        var content = ReadContentEntries(packageDir);
 
         var detail = new PackageDetail(
             Name: name,
@@ -125,9 +126,70 @@ public class FileSystemPackageCatalogService(
             Skills: skills,
             Connectors: connectors,
             Workflows: workflows,
-            ConnectorDeclarations: connectorDeclarations);
+            ConnectorDeclarations: connectorDeclarations,
+            Content: content);
 
         return Task.FromResult<PackageDetail?>(detail);
+    }
+
+    /// <summary>
+    /// Reads the package manifest's <c>content:</c> list (#1718 item 2) so
+    /// the wizard / CLI can render "what this package installs" alongside
+    /// the inputs and connector-declaration sections. Failures fall back
+    /// to an empty list — best-effort metadata, like
+    /// <see cref="ReadConnectorDeclarations"/> and
+    /// <see cref="ReadPackageInputs"/>.
+    /// </summary>
+    private List<PackageContentEntry> ReadContentEntries(string packageDir)
+    {
+        var manifestPath = FindManifestPath(packageDir);
+        if (manifestPath is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            var yaml = File.ReadAllText(manifestPath);
+            var manifest = PackageManifestParser.ParseRaw(yaml);
+            if (manifest.Content is null || manifest.Content.Count == 0)
+            {
+                return [];
+            }
+
+            var result = new List<PackageContentEntry>(manifest.Content.Count);
+            foreach (var entry in manifest.Content)
+            {
+                if (entry?.Definition is null)
+                {
+                    continue;
+                }
+                var kindKey = entry.Kind switch
+                {
+                    ArtefactKind.Unit => "unit",
+                    ArtefactKind.Agent => "agent",
+                    ArtefactKind.Skill => "skill",
+                    ArtefactKind.Workflow => "workflow",
+                    _ => entry.Kind.ToString().ToLowerInvariant(),
+                };
+                // The wire shape carries the reference string the manifest
+                // declares (bare name for within-package, qualified for
+                // cross-package, or the inline body's identifier).
+                var name = entry.Definition.IsInline
+                    ? (entry.Definition.InlineName ?? "<inline>")
+                    : (entry.Definition.Reference ?? string.Empty);
+                if (string.IsNullOrEmpty(name)) continue;
+                result.Add(new PackageContentEntry(kindKey, name));
+            }
+            return result;
+        }
+        catch (Exception ex) when (ex is PackageParseException or YamlDotNet.Core.YamlException or IOException)
+        {
+            logger.LogWarning(ex,
+                "Skipping content entries for package manifest '{Path}' because it could not be parsed.",
+                manifestPath);
+            return [];
+        }
     }
 
     /// <summary>

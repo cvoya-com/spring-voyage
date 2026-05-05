@@ -144,14 +144,14 @@ public class ManifestGrammarRejectionTests
     // ── Package-manifest layer ─────────────────────────────────────────────
 
     [Fact]
-    public async Task PackageManifestParser_PathStyleUnitSlot_Throws()
+    public async Task PackageManifestParser_PathStyleUnitContentEntry_Throws()
     {
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: my-pkg
-            unit: unit://eng/backend
+            content:
+              - unit: unit://eng/backend
             """;
 
         var ex = await Should.ThrowAsync<PackageParseException>(
@@ -162,59 +162,59 @@ public class ManifestGrammarRejectionTests
     }
 
     [Fact]
-    public async Task PackageManifestParser_PathStyleSubUnitEntry_Throws()
+    public async Task PackageManifestParser_PathStyleNestedUnitContentEntry_Throws()
     {
+        // Post-#1718 item 2: there is no separate `subUnits:` block — every
+        // top-level unit reference rides through `content:`. Still must
+        // reject path-style values.
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: my-pkg
-            unit: root
-            subUnits:
-              - unit://eng/backend
+            content:
+              - unit: root
+              - unit: unit://eng/backend
             """;
 
         var ex = await Should.ThrowAsync<PackageParseException>(
             () => PackageManifestParser.ParseAndResolveAsync(Yaml, "/tmp/fake"));
 
-        ex.Message.ShouldContain("subUnits[0]");
+        ex.Message.ShouldContain("content[1].unit");
     }
 
     [Fact]
-    public async Task PackageManifestParser_PathStyleSkillEntry_Throws()
+    public async Task PackageManifestParser_PathStyleSkillContentEntry_Throws()
     {
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: my-pkg
-            unit: root
-            skills:
-              - skill://my-skill
+            content:
+              - unit: root
+              - skill: skill://my-skill
             """;
 
         var ex = await Should.ThrowAsync<PackageParseException>(
             () => PackageManifestParser.ParseAndResolveAsync(Yaml, "/tmp/fake"));
 
-        ex.Message.ShouldContain("skills[0]");
+        ex.Message.ShouldContain("content[1].skill");
     }
 
     [Fact]
-    public async Task PackageManifestParser_PathStyleWorkflowEntry_Throws()
+    public async Task PackageManifestParser_PathStyleWorkflowContentEntry_Throws()
     {
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: my-pkg
-            unit: root
-            workflows:
-              - workflow://ci
+            content:
+              - unit: root
+              - workflow: workflow://ci
             """;
 
         var ex = await Should.ThrowAsync<PackageParseException>(
             () => PackageManifestParser.ParseAndResolveAsync(Yaml, "/tmp/fake"));
 
-        ex.Message.ShouldContain("workflows[0]");
+        ex.Message.ShouldContain("content[1].workflow");
     }
 }

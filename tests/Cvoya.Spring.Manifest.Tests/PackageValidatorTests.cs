@@ -87,10 +87,10 @@ public class PackageValidatorTests : IDisposable
     {
         Write("package.yaml", """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: pkg
-            unit: u
+            content:
+              - unit: u
             """);
         Write("units/u.yaml", """
             unit:
@@ -114,10 +114,10 @@ public class PackageValidatorTests : IDisposable
     {
         Write("package.yaml", """
             apiVersion: spring.voyage/v1
-            kind: AgentPackage
             metadata:
               name: pkg
-            agent: a
+            content:
+              - agent: a
             """);
         Write("agents/a.yaml", """
             agent:
@@ -142,10 +142,10 @@ public class PackageValidatorTests : IDisposable
     {
         Write("package.yaml", """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: pkg
-            unit: u
+            content:
+              - unit: u
             """);
         Write("units/u.yaml", """
             unit:
@@ -171,10 +171,10 @@ public class PackageValidatorTests : IDisposable
     {
         Write("package.yaml", """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: pkg
-            unit: u
+            content:
+              - unit: u
             """);
         Write("units/u.yaml", """
             unit:
@@ -200,10 +200,10 @@ public class PackageValidatorTests : IDisposable
     {
         Write("package.yaml", """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: pkg
-            unit: u
+            content:
+              - unit: u
             """);
         // 32-char no-dash hex Guid form — the production cross-package shape.
         Write("units/u.yaml", """
@@ -228,10 +228,10 @@ public class PackageValidatorTests : IDisposable
     {
         Write("package.yaml", """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: pkg
-            unit: u
+            content:
+              - unit: u
             """);
         Write("units/u.yaml", """
             unit:
@@ -258,14 +258,14 @@ public class PackageValidatorTests : IDisposable
     {
         Write("package.yaml", """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: pkg
             inputs:
               - name: declared_input
                 type: string
                 required: true
-            unit: u
+            content:
+              - unit: u
             """);
         Write("units/u.yaml", """
             unit:
@@ -309,10 +309,10 @@ public class PackageValidatorTests : IDisposable
     {
         Write("package.yaml", """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: clean
-            unit: u
+            content:
+              - unit: u
             """);
         Write("units/u.yaml", """
             unit:

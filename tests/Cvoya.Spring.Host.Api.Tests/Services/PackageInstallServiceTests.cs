@@ -46,10 +46,10 @@ public class PackageInstallServiceTests
     // A minimal valid UnitPackage YAML with no inputs. {0} = package name.
     private const string MinimalPackageYaml = """
         apiVersion: spring.voyage/v1
-        kind: UnitPackage
         metadata:
           name: {0}
-        unit: main
+        content:
+          - unit: main
         """;
 
     private const string MinimalUnitYaml = """
@@ -60,12 +60,12 @@ public class PackageInstallServiceTests
     private const string YamlWithComments = """
         # This comment should be preserved
         apiVersion: spring.voyage/v1
-        kind: UnitPackage
         metadata:
           name: my-package
           # description follows
           description: test package
-        unit: main
+        content:
+          - unit: main
         """;
 
     // ── Fixture helpers ────────────────────────────────────────────────────
@@ -388,10 +388,10 @@ public class PackageInstallServiceTests
         var rootA = CreatePackageDir();
         var aYaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: pkg-a
-            unit: pkg-b/main
+            content:
+              - unit: pkg-b/main
             """;
 
         var targetA = new InstallTarget(
