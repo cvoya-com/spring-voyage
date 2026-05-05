@@ -62,6 +62,10 @@ function makePackage(overrides?: Partial<PackageDetail>): PackageDetail {
     connectors: [],
     workflows: [],
     connectorDeclarations: [],
+    // #1718 item 2: PackageDetail.content surfaces the parsed
+    // `content:` list. Empty in fixtures that don't exercise the
+    // install footprint section.
+    content: [],
     ...overrides,
   };
 }
