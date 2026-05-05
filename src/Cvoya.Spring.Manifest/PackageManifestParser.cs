@@ -417,6 +417,13 @@ public static class PackageManifestParser
         // Build the resolved input values map (with defaults applied).
         var finalInputValues = BuildFinalInputValues(manifest.Inputs ?? [], inputValues);
 
+        // ADR-0037 D3: compute the package-level requires union from each
+        // artefact's per-artefact `requires:` block. The install pipeline
+        // asks the operator for one binding per unique slug and applies it
+        // to every artefact that declared it.
+        var (requiredConnectorSlugs, connectorRequiresByArtefact) =
+            ComputeRequiresUnion(units, agents, skills, workflows);
+
         return new ResolvedPackage
         {
             Name = name,
@@ -428,8 +435,101 @@ public static class PackageManifestParser
             Agents = agents,
             Skills = skills,
             Workflows = workflows,
+            RequiredConnectorSlugs = requiredConnectorSlugs,
+            ConnectorRequiresByArtefact = connectorRequiresByArtefact,
             Connectors = manifest.Connectors ?? new List<RequiredConnector>(),
         };
+    }
+
+    /// <summary>
+    /// Computes the per-package union of artefact <c>requires:</c> blocks
+    /// (ADR-0037 D3). For every contained artefact, deserialises its
+    /// resolved YAML content and reads its <c>requires:</c> list, then
+    /// dedupes by slug. Returns the union slug list plus a per-artefact
+    /// map of which slugs each artefact declared so the install pipeline
+    /// can inject the resolved binding into exactly the artefacts that
+    /// asked for it.
+    /// </summary>
+    private static (IReadOnlyList<string> Slugs, IReadOnlyDictionary<string, IReadOnlyList<string>> ByArtefact) ComputeRequiresUnion(
+        IReadOnlyList<ResolvedArtefact> units,
+        IReadOnlyList<ResolvedArtefact> agents,
+        IReadOnlyList<ResolvedArtefact> skills,
+        IReadOnlyList<ResolvedArtefact> workflows)
+    {
+        var union = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var byArtefact = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var artefact in units)
+        {
+            ExtractRequires<UnitManifest>(artefact, m => m?.Requires, union, seen, byArtefact);
+        }
+        foreach (var artefact in agents)
+        {
+            ExtractRequires<AgentManifest>(artefact, m => m?.Requires, union, seen, byArtefact);
+        }
+        // Skills and workflows: typed view for SkillManifest/WorkflowManifest
+        // also has Requires; for v0.1 the resolved content path for skills
+        // is markdown (no Requires reachable here), so we conservatively
+        // skip them. The portal/cli pipeline will still surface union
+        // accurately for the unit/agent shapes that matter today.
+        _ = skills;
+        _ = workflows;
+
+        return (union, byArtefact);
+    }
+
+    private static void ExtractRequires<TManifest>(
+        ResolvedArtefact artefact,
+        Func<TManifest?, List<RequirementEntry>?> getRequires,
+        List<string> union,
+        HashSet<string> seen,
+        Dictionary<string, IReadOnlyList<string>> byArtefact)
+        where TManifest : class
+    {
+        if (string.IsNullOrEmpty(artefact.Content))
+        {
+            return;
+        }
+
+        TManifest? manifest;
+        try
+        {
+            var deserializer = new DeserializerBuilder()
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .WithTypeConverter(new RequirementEntryYamlConverter())
+                .IgnoreUnmatchedProperties()
+                .Build();
+            manifest = deserializer.Deserialize<TManifest>(artefact.Content);
+        }
+        catch
+        {
+            return;
+        }
+
+        var requires = getRequires(manifest);
+        if (requires is null || requires.Count == 0)
+        {
+            return;
+        }
+
+        var slugs = new List<string>();
+        foreach (var entry in requires)
+        {
+            if (entry.Type != RequirementType.Connector) continue;
+            var slug = entry.Identifier?.Trim();
+            if (string.IsNullOrEmpty(slug)) continue;
+            slugs.Add(slug);
+            if (seen.Add(slug))
+            {
+                union.Add(slug);
+            }
+        }
+
+        if (slugs.Count > 0)
+        {
+            byArtefact[artefact.Name] = slugs;
+        }
     }
 
     // ---- Input validation & substitution --------------------------------

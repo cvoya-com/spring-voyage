@@ -49,18 +49,38 @@ public class ResolvedPackage
     public required IReadOnlyList<ResolvedArtefact> Workflows { get; init; }
 
     /// <summary>
-    /// Package-level connector declarations (#1670), normalised so the
-    /// install pipeline can compute per-unit inheritance without re-walking
-    /// the raw YAML. Empty when the package declares no connectors.
+    /// Connector slugs the package effectively requires — the union of
+    /// every contained artefact's <c>requires:</c> block, deduplicated by
+    /// slug (ADR-0037 D3). The install pipeline asks the operator for one
+    /// binding per slug at install time and applies it to every artefact
+    /// that declared it. Empty when no artefact declares a connector
+    /// requirement.
+    /// </summary>
+    public IReadOnlyList<string> RequiredConnectorSlugs { get; init; } =
+        System.Array.Empty<string>();
+
+    /// <summary>
+    /// Per-artefact map: artefact name → list of connector slugs that
+    /// artefact declared. Used by the install pipeline to inject the
+    /// resolved binding into exactly the artefacts that asked for it
+    /// (ADR-0037 D3). Empty for artefacts that declared no requires.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> ConnectorRequiresByArtefact { get; init; } =
+        new Dictionary<string, IReadOnlyList<string>>();
+
+    /// <summary>
+    /// Transitional surface — empty under ADR-0037. Package-level
+    /// connector declarations were removed in D2; the install pipeline
+    /// reads <see cref="RequiredConnectorSlugs"/> instead. Survives only
+    /// so consumers from the previous schema compile during the staged
+    /// refactor; deleted alongside <see cref="RequiredConnector"/> in
+    /// the final cleanup.
     /// </summary>
     public IReadOnlyList<RequiredConnector> Connectors { get; init; } =
         System.Array.Empty<RequiredConnector>();
 
     /// <summary>
-    /// Non-fatal warnings produced during parse / resolve. Used today by the
-    /// connector-block validator to surface "unit's connectors entry is
-    /// identical to the inherited one" so an operator notices a redundant
-    /// override without failing the install.
+    /// Non-fatal warnings produced during parse / resolve.
     /// </summary>
     public IReadOnlyList<string> Warnings { get; init; } =
         System.Array.Empty<string>();
