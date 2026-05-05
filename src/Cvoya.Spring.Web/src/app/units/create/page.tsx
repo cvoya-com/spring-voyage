@@ -63,6 +63,7 @@ import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
 import type {
   InstalledAgentRuntimeResponse,
   InstallStatusResponse,
+  PackageConnectorBindings,
   PackageInputSummary,
   UnitConnectorBindingRequest,
   UnitStatus,
@@ -1278,7 +1279,7 @@ export default function CreateUnitPage() {
   // `undefined` so the field is omitted from the request body when no
   // connector is configured.
   const buildCatalogConnectorBindings = ():
-    | import("@/lib/api/types").PackageConnectorBindings
+    | PackageConnectorBindings
     | undefined => {
     if (!form.connectorSlug || form.connectorConfig === null) {
       return undefined;
