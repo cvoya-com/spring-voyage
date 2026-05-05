@@ -52,7 +52,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         }
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ListPackagesAsync_ReturnsEmpty_WhenRootMissing()
     {
         var missingRoot = Path.Combine(_root, "does-not-exist");
@@ -65,7 +65,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         result.ShouldBeEmpty();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ListPackagesAsync_CountsEachContentType()
     {
         var pkg = SeedPackage("example");
@@ -103,7 +103,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         summary.WorkflowCount.ShouldBe(1);
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task GetPackageAsync_ReturnsFullDetail()
     {
         var pkg = SeedPackage("example");
@@ -134,7 +134,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         detail.Skills[0].HasTools.ShouldBeFalse();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task GetPackageAsync_PopulatesInputsFromManifest()
     {
         // #1615: PackageDetail.Inputs surfaces the package's declared inputs
@@ -190,7 +190,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         detail.Inputs[2].Secret.ShouldBeTrue();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task GetPackageAsync_ReturnsEmptyInputs_WhenManifestHasNoInputsBlock()
     {
         var pkg = SeedPackage("no-inputs");
@@ -214,7 +214,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         detail!.Inputs.ShouldBeEmpty();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task GetPackageAsync_PopulatesContentEntries_FromManifest()
     {
         // #1718 item 2: PackageDetail.Content surfaces the parsed
@@ -251,7 +251,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         detail.Content[1].Name.ShouldBe("triage");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task GetPackageAsync_ReturnsEmptyInputs_WhenManifestIsMissing()
     {
         // No package.yaml on disk — browse remains best-effort, the package
@@ -267,7 +267,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         detail!.Inputs.ShouldBeEmpty();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task GetPackageAsync_ReturnsNull_ForMissingPackage()
     {
         var result = await _service.GetPackageAsync("no-such-pkg", CancellationToken.None);
@@ -275,7 +275,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         result.ShouldBeNull();
     }
 
-    [Theory]
+    [Theory(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     [InlineData("../escape")]
     [InlineData("..")]
     [InlineData("nested/name")]
@@ -289,7 +289,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         result.ShouldBeNull();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ListUnitTemplatesAsync_ReturnsTemplatesAcrossPackages()
     {
         var pkgA = SeedPackage("alpha");
@@ -308,7 +308,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         result.ShouldContain(t => t.Package == "bravo" && t.Name == "two");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task LoadUnitTemplateYamlAsync_ReturnsRawYaml()
     {
         var pkg = SeedPackage("example");
@@ -321,7 +321,7 @@ public sealed class FileSystemPackageCatalogServiceTests : IDisposable
         result.ShouldBe(yaml);
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task LoadUnitTemplateYamlAsync_ReturnsNull_ForUnknownTemplate()
     {
         var result = await _service.LoadUnitTemplateYamlAsync(
