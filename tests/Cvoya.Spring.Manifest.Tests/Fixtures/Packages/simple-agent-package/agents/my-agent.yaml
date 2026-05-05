@@ -1,6 +1,8 @@
-agent:
-  id: my-agent
-  name: My Agent
-  role: worker
-  instructions: |
-    You are a test agent.
+apiVersion: spring.voyage/v1
+kind: Agent
+name: My Agent
+description: My Agent — worker agent.
+id: my-agent
+role: worker
+instructions: |
+  You are a test agent.

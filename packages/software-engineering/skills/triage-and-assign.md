@@ -1,3 +1,10 @@
+---
+apiVersion: spring.voyage/v1
+kind: Skill
+name: triage-and-assign
+description: Triage & Assignment
+---
+
 ## Triage & Assignment
 
 When you receive a new work item:

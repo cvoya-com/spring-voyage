@@ -1,3 +1,10 @@
+---
+apiVersion: spring.voyage/v1
+kind: Skill
+name: coding-standards
+description: Coding Standards
+---
+
 ## Coding Standards
 
 When writing or reviewing code, ensure the following standards are met:

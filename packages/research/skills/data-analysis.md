@@ -1,3 +1,10 @@
+---
+apiVersion: spring.voyage/v1
+kind: Skill
+name: data-analysis
+description: Data Analysis
+---
+
 ## Data Analysis
 
 When you receive a data-analysis request:

@@ -1,3 +1,10 @@
+---
+apiVersion: spring.voyage/v1
+kind: Skill
+name: issue-triage
+description: Issue Triage
+---
+
 ## Issue Triage
 
 When you receive a new incoming item from the configured issue tracker:

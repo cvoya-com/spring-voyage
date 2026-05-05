@@ -1,3 +1,10 @@
+---
+apiVersion: spring.voyage/v1
+kind: Skill
+name: sprint-planning
+description: Sprint Planning
+---
+
 ## Sprint Planning
 
 When planning an upcoming sprint:

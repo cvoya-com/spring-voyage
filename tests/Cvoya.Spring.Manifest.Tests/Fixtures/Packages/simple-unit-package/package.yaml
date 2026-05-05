@@ -1,7 +1,8 @@
 apiVersion: spring.voyage/v1
-metadata:
-  name: simple-unit-package
-  description: A test package with one root unit and all four artefact types.
+kind: Package
+name: simple-unit-package
+description: A test package with one root unit and all four artefact types.
+version: 1.0.0
 content:
   - unit: root-unit
   - unit: sub-unit

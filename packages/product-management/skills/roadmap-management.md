@@ -1,3 +1,10 @@
+---
+apiVersion: spring.voyage/v1
+kind: Skill
+name: roadmap-management
+description: Roadmap Management
+---
+
 ## Roadmap Management
 
 When maintaining the product roadmap:

@@ -1,4 +1,6 @@
-unit:
-  name: unit-c
-  members:
-    - unit: unit-a
+apiVersion: spring.voyage/v1
+kind: Unit
+name: unit-c
+description: Third unit in a circular reference chain — cycles back to unit-a.
+members:
+  - unit: unit-a

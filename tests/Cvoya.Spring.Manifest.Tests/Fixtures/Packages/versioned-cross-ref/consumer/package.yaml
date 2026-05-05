@@ -1,0 +1,8 @@
+apiVersion: spring.voyage/v1
+kind: Package
+name: consumer
+description: Consumer package that references producer artefacts both with explicit version pinning and with default-latest semantics (ADR-0037 D5).
+version: 1.0.0
+content:
+  - unit: producer/shared-router@1.0.0      # explicit version pin
+  - unit: producer/shared-router            # default-latest

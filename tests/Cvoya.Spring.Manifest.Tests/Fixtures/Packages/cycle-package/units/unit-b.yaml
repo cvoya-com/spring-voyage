@@ -1,4 +1,6 @@
-unit:
-  name: unit-b
-  members:
-    - unit: unit-c
+apiVersion: spring.voyage/v1
+kind: Unit
+name: unit-b
+description: Second unit in a circular reference chain.
+members:
+  - unit: unit-c

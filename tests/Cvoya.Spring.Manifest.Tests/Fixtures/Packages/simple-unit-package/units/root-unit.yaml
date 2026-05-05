@@ -1,5 +1,6 @@
-unit:
-  name: root-unit
-  description: The root unit.
-  members:
-    - agent: worker
+apiVersion: spring.voyage/v1
+kind: Unit
+name: root-unit
+description: The root unit.
+members:
+  - agent: worker
