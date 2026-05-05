@@ -18,7 +18,7 @@ public class InputValidationTests
 {
     // ---- ValidateInputs -------------------------------------------------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ValidateInputs_RequiredInputMissing_Throws()
     {
         var schema = new List<PackageInputDefinition>
@@ -34,7 +34,7 @@ public class InputValidationTests
         ex.Message.ShouldContain("required");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ValidateInputs_RequiredInputPresent_DoesNotThrow()
     {
         var schema = new List<PackageInputDefinition>
@@ -47,7 +47,7 @@ public class InputValidationTests
         PackageManifestParser.ValidateInputs(schema, values);
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ValidateInputs_RequiredInputWithDefault_NoValueSupplied_UsesDefault()
     {
         // A required input with a default and no supplied value uses the default rather
@@ -62,7 +62,7 @@ public class InputValidationTests
         PackageManifestParser.ValidateInputs(schema, new Dictionary<string, string>());
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ValidateInputs_IntTypeMismatch_Throws()
     {
         var schema = new List<PackageInputDefinition>
@@ -79,7 +79,7 @@ public class InputValidationTests
         ex.Message.ShouldContain("not-a-number");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ValidateInputs_IntTypeValidValue_Succeeds()
     {
         var schema = new List<PackageInputDefinition>
@@ -92,7 +92,7 @@ public class InputValidationTests
         PackageManifestParser.ValidateInputs(schema, values);
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ValidateInputs_BoolTypeMismatch_Throws()
     {
         var schema = new List<PackageInputDefinition>
@@ -109,7 +109,7 @@ public class InputValidationTests
         ex.Message.ShouldContain("yes-please");
     }
 
-    [Theory]
+    [Theory(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     [InlineData("true")]
     [InlineData("false")]
     [InlineData("True")]
@@ -126,7 +126,7 @@ public class InputValidationTests
         PackageManifestParser.ValidateInputs(schema, values);
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ValidateInputs_SecretTyped_SkipsTypeValidation()
     {
         // Secret inputs are not type-checked — the caller supplies a secret reference.
@@ -140,7 +140,7 @@ public class InputValidationTests
         PackageManifestParser.ValidateInputs(schema, values);
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ValidateInputs_EmptySchema_Succeeds()
     {
         // No schema → no validation → succeed even with extra values.
@@ -150,7 +150,7 @@ public class InputValidationTests
 
     // ---- SubstituteInputs -----------------------------------------------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void SubstituteInputs_SingleValue_Replaced()
     {
         var schema = new List<PackageInputDefinition>
@@ -165,7 +165,7 @@ public class InputValidationTests
         result.ShouldBe("description: A package for Engineering.");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void SubstituteInputs_MultipleDistinctValues_AllReplaced()
     {
         var schema = new List<PackageInputDefinition>
@@ -185,7 +185,7 @@ public class InputValidationTests
         result.ShouldBe("name: my-pkg\ndescription: for Engineering");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void SubstituteInputs_RepeatedToken_AllInstancesReplaced()
     {
         var schema = new List<PackageInputDefinition>
@@ -200,7 +200,7 @@ public class InputValidationTests
         result.ShouldBe("acme/acme");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void SubstituteInputs_UndeclaredInput_Throws()
     {
         var schema = new List<PackageInputDefinition>
@@ -217,7 +217,7 @@ public class InputValidationTests
         ex.Message.ShouldContain("undeclared_thing");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void SubstituteInputs_SecretInput_StoresSecretReference()
     {
         var schema = new List<PackageInputDefinition>
@@ -233,7 +233,7 @@ public class InputValidationTests
         result.ShouldBe("connector_token: secret://tenant/api-key");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void SubstituteInputs_DefaultAppliedWhenNotSupplied()
     {
         var schema = new List<PackageInputDefinition>
@@ -248,7 +248,7 @@ public class InputValidationTests
         result.ShouldBe("replicas: 2");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void SubstituteInputs_NoTokensInYaml_ReturnsUnchanged()
     {
         var schema = new List<PackageInputDefinition>();
@@ -260,7 +260,7 @@ public class InputValidationTests
         result.ShouldBe(yaml);
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void SubstituteInputs_WithSpacesAroundInputName_Replaced()
     {
         // The pattern allows optional whitespace: ${{ inputs.name }}

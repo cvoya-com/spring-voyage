@@ -1,19 +1,19 @@
 apiVersion: spring.voyage/v1
-metadata:
-  name: spring-voyage-oss
-  description: The Spring Voyage OSS dogfooding organisation — software engineering, design, product management, and program management operating on the Spring Voyage platform itself.
+kind: Package
+name: spring-voyage-oss
+description: The Spring Voyage OSS dogfooding organisation — software engineering, design, product management, and program management operating on the Spring Voyage platform itself.
+version: 1.0.0
+readme: README.md
 
-# #1670: declarative connector dependency. Operators configure the GitHub
-# binding once at install time (via the wizard's forced connector step or
-# `spring package install --connector github=<owner>/<repo>@<installation-id>`);
-# every member unit inherits the binding by default.
-connectors:
-  - type: github
-    required: true
+# ADR-0037 decision 2: per-artefact YAMLs declare their own `requires:` blocks.
+# Each member unit that needs the GitHub connector binds it via
+# `requires: [{ connector: github }]`; the package's effective requirement set
+# is the union, computed at install time. Operators configure the GitHub
+# binding once via the wizard's connector step or `spring package install
+# --connector github=<owner>/<repo>@<installation-id>`.
 
-# #1718 item 2: top-level artefacts only. Sub-units (sv-oss-software-
-# engineering / -design / -product-management / -program-management) are
-# discovered automatically from the umbrella unit's `members:` list — the
-# old `subUnits:` enumeration was redundant and is gone.
+# Sub-units (sv-oss-software-engineering / -design / -product-management /
+# -program-management) are discovered automatically from the umbrella unit's
+# `members:` list — the old `subUnits:` enumeration was redundant and is gone.
 content:
   - unit: spring-voyage-oss

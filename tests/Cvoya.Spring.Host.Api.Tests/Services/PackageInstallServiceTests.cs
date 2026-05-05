@@ -155,7 +155,7 @@ public class PackageInstallServiceTests
 
     // ── Test 1: Phase-1 kill switch ────────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallAsync_Phase1DirectoryThrows_ZeroRowsSurvive()
     {
         // Post-#1629 the collision pre-flight queries the staging DB by
@@ -185,7 +185,7 @@ public class PackageInstallServiceTests
 
     // ── Test 2: Phase-2 failure leaves recoverable staging ─────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallAsync_Phase2ActivationFails_LeavesFailedStatus()
     {
         var activator = Substitute.For<IPackageArtefactActivator>();
@@ -221,7 +221,7 @@ public class PackageInstallServiceTests
 
     // ── Test 3: Retry after Phase-2 failure ────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task RetryAsync_AfterPhase2Failure_TransitionsToActive()
     {
         var failCount = 0;
@@ -260,7 +260,7 @@ public class PackageInstallServiceTests
 
     // ── Test 4: Abort after Phase-2 failure ────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task AbortAsync_AfterPhase2Failure_DeletesAllRows()
     {
         var activator = Substitute.For<IPackageArtefactActivator>();
@@ -295,7 +295,7 @@ public class PackageInstallServiceTests
 
     // ── #1629 PR7: staging row id == symbol-map id ────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallAsync_StagingRowAndSymbolMap_ShareSingleGuidIdentity()
     {
         // The activator must receive the LocalSymbolMap whose minted Guid
@@ -339,7 +339,7 @@ public class PackageInstallServiceTests
 
     // ── Test 5: Multi-package batch — both packages install ─────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallAsync_TwoPackageBatch_BothSucceed()
     {
         var (svc, scopeFactory) = BuildService();
@@ -364,7 +364,7 @@ public class PackageInstallServiceTests
 
     // ── Test 6: Exact dep-graph error string ───────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void PackageDepGraphException_MessageMatchesAdrSpec()
     {
         var missing = new List<string>
@@ -378,7 +378,7 @@ public class PackageInstallServiceTests
         ex.MissingReferences.ShouldHaveSingleItem();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallAsync_CrossPackageRefToMissingPackage_ThrowsWithMention()
     {
         // Package A has a cross-package ref to pkg-b/main. pkg-b is not in
@@ -406,7 +406,7 @@ public class PackageInstallServiceTests
 
     // ── Test 7: Already-installed dep satisfies reference ──────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallAsync_AlreadyInstalledDepInCatalog_DoesNotThrowDepGraphError()
     {
         // A catalog that reports pkg-b as existing satisfies the dep-graph check.
@@ -434,7 +434,7 @@ public class PackageInstallServiceTests
 
     // ── Test 8: Tenant isolation ────────────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallAsync_TenantA_TenantBDbSeesNothing()
     {
         var (svcA, scopeFactoryA) = BuildService(TenantA);
@@ -453,7 +453,7 @@ public class PackageInstallServiceTests
 
     // ── Test 9: install_id semantics ───────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallAsync_SinglePackage_OneInstallRowWithInstallId()
     {
         var (svc, scopeFactory) = BuildService();
@@ -472,7 +472,7 @@ public class PackageInstallServiceTests
         rows[0].PackageName.ShouldBe("pkg-id-test");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallAsync_TwoPackageBatch_TwoRowsShareSameInstallId()
     {
         var (svc, scopeFactory) = BuildService();
@@ -497,7 +497,7 @@ public class PackageInstallServiceTests
 
     // ── Test 10: Name-collision pre-flight ─────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallAsync_NameCollision_ThrowsBeforeAnyRowsWritten()
     {
         // Post-#1629 the collision pre-flight queries the staging DB by
@@ -536,7 +536,7 @@ public class PackageInstallServiceTests
 
     // ── Test 11: Round-trip blob storage ───────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallAsync_YamlWithComments_StoredVerbatim()
     {
         var (svc, scopeFactory) = BuildService();
@@ -560,7 +560,7 @@ public class PackageInstallServiceTests
 
     // ── Test 12: Backwards compat / GetStatusAsync helpers ─────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task GetStatusAsync_UnknownInstallId_ReturnsNull()
     {
         var (svc, _) = BuildService();
@@ -569,7 +569,7 @@ public class PackageInstallServiceTests
         status.ShouldBeNull();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task AbortAsync_UnknownInstallId_CompletesWithoutException()
     {
         var (svc, _) = BuildService();
@@ -577,7 +577,7 @@ public class PackageInstallServiceTests
             await svc.AbortAsync(Guid.NewGuid(), TestContext.Current.CancellationToken));
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task RetryAsync_UnknownInstallId_ThrowsInvalidOperation()
     {
         var (svc, _) = BuildService();

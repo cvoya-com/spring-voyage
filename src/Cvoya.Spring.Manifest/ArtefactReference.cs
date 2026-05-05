@@ -5,29 +5,30 @@ namespace Cvoya.Spring.Manifest;
 
 /// <summary>
 /// Represents a parsed artefact reference from a <c>package.yaml</c>. The
-/// reference grammar is a flat string (ADR-0035 decision 3):
+/// reference grammar is a flat string (ADR-0035 decision 3, extended by
+/// ADR-0037 decision 5):
 /// <list type="bullet">
 ///   <item><description>
 ///     <b>Bare name</b> — <c>sv-oss-design</c> — a local symbol scoped to
-///     the current package (#1629 PR7). Resolves to a sibling artefact file
-///     (units → <c>./units/sv-oss-design.yaml</c>, agents →
+///     the current package. Resolves to a sibling artefact file (units →
+///     <c>./units/sv-oss-design.yaml</c>, agents →
 ///     <c>./agents/sv-oss-design.yaml</c>, skills →
 ///     <c>./skills/sv-oss-design.md</c>, workflows →
 ///     <c>./workflows/sv-oss-design/</c>) and is mapped to a fresh Guid at
-///     install time. Local symbols never persist past Phase 2.
+///     install time.
 ///   </description></item>
 ///   <item><description>
 ///     <b>Qualified name</b> — <c>spring-voyage-oss/architect</c> — resolves
-///     cross-package via the catalog. The package portion (before the
-///     <c>/</c>) and artefact portion (after the <c>/</c>) are both
-///     content-addressable identifiers — they target a specific file inside
-///     the referenced package's source tree, not a live entity row.
+///     cross-package via the catalog.
+///   </description></item>
+///   <item><description>
+///     <b>Qualified + version</b> — <c>spring-voyage-oss/architect@1.0.0</c>
+///     (ADR-0037 decision 5) — resolves cross-package to the named version
+///     of the named package via the catalog. When <c>@&lt;version&gt;</c>
+///     is omitted the catalog picks the most recently installed version
+///     for the tenant.
 ///   </description></item>
 /// </list>
-/// References to live entities created by a different package use Guid form
-/// at the field level (e.g. <c>members[].agent: 8c5fab2a8e7e…</c>); those
-/// never reach this parser because they are intercepted earlier by the
-/// member-grammar validator.
 /// </summary>
 /// <param name="RawValue">The original string from the manifest.</param>
 /// <param name="PackageName">
@@ -36,14 +37,22 @@ namespace Cvoya.Spring.Manifest;
 /// </param>
 /// <param name="ArtefactName">
 /// The artefact name. For bare references this is the whole raw value; for
-/// qualified references it is the part after the <c>/</c>.
+/// qualified references it is the part after the <c>/</c> and before any
+/// <c>@&lt;version&gt;</c> suffix.
 /// </param>
 /// <param name="Kind">The artefact type this reference points at.</param>
+/// <param name="Version">
+/// For cross-package references the version portion (after the <c>@</c>).
+/// <c>null</c> when no <c>@&lt;version&gt;</c> suffix is present —
+/// catalog resolves to the most recently installed version (ADR-0037
+/// decision 5 default-latest).
+/// </param>
 public record ArtefactReference(
     string RawValue,
     string? PackageName,
     string ArtefactName,
-    ArtefactKind Kind)
+    ArtefactKind Kind,
+    string? Version = null)
 {
     /// <summary>
     /// <c>true</c> when this reference points to another package (i.e.
@@ -58,8 +67,8 @@ public record ArtefactReference(
     /// <param name="kind">The artefact type implied by the field name.</param>
     /// <returns>A parsed <see cref="ArtefactReference"/>.</returns>
     /// <exception cref="PackageParseException">
-    /// Thrown when <paramref name="rawValue"/> is null, empty, or contains
-    /// more than one <c>/</c> segment (which would be ambiguous).
+    /// Thrown when <paramref name="rawValue"/> is null, empty, or
+    /// malformed.
     /// </exception>
     public static ArtefactReference Parse(string rawValue, ArtefactKind kind)
     {
@@ -71,14 +80,30 @@ public record ArtefactReference(
             throw new PackageParseException($"Artefact reference cannot be empty.");
         }
 
+        // ADR-0037 decision 5: split off the optional @<version> suffix
+        // before splitting on /. Versions only apply to cross-package
+        // references (the bare-form @ is not currently meaningful).
+        string? version = null;
+        var atIdx = trimmed.IndexOf('@');
+        if (atIdx >= 0)
+        {
+            version = trimmed[(atIdx + 1)..].Trim();
+            trimmed = trimmed[..atIdx].Trim();
+            if (string.IsNullOrEmpty(version))
+            {
+                throw new PackageParseException(
+                    $"Artefact reference '{rawValue}' has an empty version after '@'.");
+            }
+        }
+
         var parts = trimmed.Split('/', 3);
         return parts.Length switch
         {
-            1 => new ArtefactReference(trimmed, null, parts[0], kind),
-            2 => new ArtefactReference(trimmed, parts[0], parts[1], kind),
+            1 => new ArtefactReference(rawValue.Trim(), null, parts[0], kind, version),
+            2 => new ArtefactReference(rawValue.Trim(), parts[0], parts[1], kind, version),
             _ => throw new PackageParseException(
                 $"Artefact reference '{trimmed}' is invalid: only one '/' separator is allowed " +
-                $"(format: '<name>' or '<package>/<name>').")
+                $"(format: '<name>', '<package>/<name>', or '<package>/<name>@<version>').")
         };
     }
 }

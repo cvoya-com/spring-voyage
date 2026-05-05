@@ -8,22 +8,37 @@ using System.Collections.Generic;
 using YamlDotNet.Serialization;
 
 /// <summary>
-/// Typed view of the <c>unit</c> section in a manifest YAML.
-/// Only <see cref="Name"/> is required; all other sections are tolerated when missing.
+/// Typed view of an <c>./units/&lt;name&gt;.yaml</c> document under
+/// ADR-0037. Each unit YAML is a kind-discriminated top-level document
+/// with its own <c>apiVersion</c>, <c>kind: Unit</c>, <c>name</c>,
+/// <c>description</c>, optional <c>readme</c>, optional <c>requires</c>,
+/// and unit body fields. The wrapping <c>unit:</c> key from the
+/// pre-ADR-0037 grammar is gone.
 /// </summary>
 public class UnitManifest
 {
+    /// <summary>API version string (e.g. <c>spring.voyage/v1</c>).</summary>
+    [YamlMember(Alias = "apiVersion")]
+    public string? ApiVersion { get; set; }
+
+    /// <summary>Document kind. Must be the literal string <c>Unit</c>.</summary>
+    [YamlMember(Alias = "kind")]
+    public string? Kind { get; set; }
+
     /// <summary>The unit's unique name / address path.</summary>
     [YamlMember(Alias = "name")]
     public string? Name { get; set; }
 
-    /// <summary>Human-readable description of the unit's purpose.</summary>
+    /// <summary>Human-readable single-line description of the unit's purpose.</summary>
     [YamlMember(Alias = "description")]
     public string? Description { get; set; }
 
-    /// <summary>Organisational structure hint (e.g. <c>hierarchical</c>).</summary>
-    [YamlMember(Alias = "structure")]
-    public string? Structure { get; set; }
+    /// <summary>
+    /// Optional relative path to a markdown file with long-form prose for
+    /// UIs (ADR-0037 decision 2).
+    /// </summary>
+    [YamlMember(Alias = "readme")]
+    public string? Readme { get; set; }
 
     /// <summary>
     /// Optional AI/orchestration configuration. Parsed but not yet applied
@@ -33,15 +48,7 @@ public class UnitManifest
     public AiManifest? Ai { get; set; }
 
     /// <summary>
-    /// Optional orchestration configuration for the unit. Today this only
-    /// carries the <c>strategy</c> key — see #491 — so the unit actor can
-    /// resolve the right <c>IOrchestrationStrategy</c> implementation at
-    /// dispatch time instead of always binding to the unkeyed default.
-    /// Parsed and auto-applied; a <c>null</c> section leaves the unit on the
-    /// platform default (inferred to <c>label-routed</c> when the unit also
-    /// carries a <c>UnitPolicy.LabelRouting</c> slot, otherwise the
-    /// <c>ai</c> default — see
-    /// <c>docs/architecture/units.md § Manifest-driven strategy selection</c>).
+    /// Optional orchestration configuration for the unit (#491).
     /// </summary>
     [YamlMember(Alias = "orchestration")]
     public OrchestrationManifest? Orchestration { get; set; }
@@ -54,9 +61,15 @@ public class UnitManifest
     [YamlMember(Alias = "execution")]
     public ExecutionManifest? Execution { get; set; }
 
-    /// <summary>Connector configurations. Parsed but not yet applied.</summary>
-    [YamlMember(Alias = "connectors")]
-    public List<ConnectorManifest>? Connectors { get; set; }
+    /// <summary>
+    /// Optional <c>requires:</c> block declaring this unit's own
+    /// requirements (ADR-0037 decision 3). Each entry is a single-key
+    /// mapping (<c>connector: github</c>, etc.). The package's effective
+    /// requirement set is the union of every contained artefact's
+    /// <see cref="Requires"/>.
+    /// </summary>
+    [YamlMember(Alias = "requires")]
+    public List<RequirementEntry>? Requires { get; set; }
 
     /// <summary>Unit-level policies. Parsed but not yet applied.</summary>
     [YamlMember(Alias = "policies")]
@@ -67,27 +80,43 @@ public class UnitManifest
     public List<HumanManifest>? Humans { get; set; }
 
     /// <summary>
-    /// Optional seed own-expertise entries for the unit (#488). Each entry
-    /// declares a domain the unit advertises in its own right, independent of
-    /// its members. Auto-applied to actor state on first activation; runtime
-    /// edits through the HTTP / CLI surface remain authoritative thereafter
-    /// (see <c>docs/architecture/units.md § Seeding from YAML</c>).
+    /// Optional seed own-expertise entries for the unit (#488).
     /// </summary>
     [YamlMember(Alias = "expertise")]
     public List<ExpertiseManifestEntry>? Expertise { get; set; }
 
     /// <summary>
-    /// Optional boundary configuration for the unit (#494 / PR-PLAT-BOUND-2b).
-    /// Mirrors the CLI <c>-f</c> YAML shape consumed by
-    /// <c>spring unit boundary set</c> and the HTTP
-    /// <c>PUT /api/v1/units/{id}/boundary</c> body, so a <c>boundary:</c>
-    /// block in a <c>spring apply</c> manifest is wire-equivalent to a
-    /// subsequent API call. An absent or empty block leaves the unit with no
-    /// boundary rules — the default "transparent" view. See
-    /// <c>docs/architecture/units.md § Unit Boundary</c>.
+    /// Optional boundary configuration for the unit (#494).
     /// </summary>
     [YamlMember(Alias = "boundary")]
     public BoundaryManifest? Boundary { get; set; }
+
+    /// <summary>
+    /// Captured legacy wrapping <c>unit:</c> map. Present only so the
+    /// parser can surface an actionable <c>LegacyArtefactWrapper</c>
+    /// error per ADR-0037 decision 6 when an old-shape file still wraps
+    /// the body.
+    /// </summary>
+    [YamlMember(Alias = "unit")]
+    public object? LegacyUnitWrapper { get; set; }
+
+    /// <summary>
+    /// Captured legacy <c>structure:</c> field. Present only so the
+    /// parser can surface an actionable <c>LegacyStructureField</c>
+    /// error per ADR-0037 decision 6. The membership graph already
+    /// encodes the structure.
+    /// </summary>
+    [YamlMember(Alias = "structure")]
+    public string? LegacyStructure { get; set; }
+
+    /// <summary>
+    /// Captured legacy <c>connectors:</c> block. Present only so the
+    /// parser can surface an actionable <c>LegacyUnitConnectorsField</c>
+    /// error per ADR-0037 decision 6. Use <see cref="Requires"/>
+    /// instead.
+    /// </summary>
+    [YamlMember(Alias = "connectors")]
+    public List<object>? LegacyConnectors { get; set; }
 }
 
 /// <summary>
@@ -127,24 +156,14 @@ public class ExpertiseManifestEntry
 /// <summary>
 /// Orchestration configuration for a unit (#491). Today only carries the
 /// <c>strategy</c> key that names the <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationStrategy"/>
-/// DI registration the unit should resolve at dispatch time. Shipped as its
-/// own class rather than a bare <c>string</c> so follow-up work can
-/// layer per-strategy options (e.g. workflow image digest, label-routed
-/// default timeout) on top without reshaping the manifest grammar.
+/// DI registration the unit should resolve at dispatch time.
 /// </summary>
 public class OrchestrationManifest
 {
     /// <summary>
     /// The DI key naming the <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationStrategy"/>
     /// implementation this unit should use. Expected values today:
-    /// <c>ai</c> (default), <c>workflow</c>, <c>label-routed</c>. A host that
-    /// registers additional strategies via
-    /// <c>AddKeyedScoped&lt;IOrchestrationStrategy, ...&gt;</c> can surface
-    /// their keys here without touching the manifest class — the selector
-    /// resolves by string key. Unknown keys are rejected at dispatch time
-    /// and the unit falls back to the platform default (the
-    /// <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationStrategy"/>
-    /// registered unkeyed, which is <c>ai</c> in the OSS stack).
+    /// <c>ai</c> (default), <c>workflow</c>, <c>label-routed</c>.
     /// </summary>
     [YamlMember(Alias = "strategy")]
     public string? Strategy { get; set; }
@@ -221,74 +240,30 @@ public class MemberManifest
 
 /// <summary>
 /// Unit-level execution defaults (#601 / #603 / #409 — "B-wide" shape).
-/// A unit's execution block declares the fallback container runtime
-/// configuration inherited by member agents that don't declare their own.
-/// Every field is independent and independently clearable — a unit may
-/// declare only <c>runtime: podman</c> and leave <c>image</c>, <c>tool</c>,
-/// etc. to each member agent.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Resolution chain (see <c>docs/architecture/units.md</c>): agent.X →
-/// unit.X → fail-clean at dispatch / save time. Agent wins on conflict;
-/// a missing field on the agent pulls from the unit; when neither
-/// declares a required field (image for ephemeral hosting, tool) the
-/// platform rejects the configuration at save time rather than waiting
-/// for dispatch.
-/// </para>
-/// <para>
-/// <see cref="Provider"/> and <see cref="Model"/> are Dapr-Agent-tool
-/// specific (#598 gating) — they're only meaningful when
-/// <see cref="Tool"/> = <c>spring-voyage</c>. The portal hides them for
-/// other tool selections.
-/// </para>
-/// </remarks>
 public class ExecutionManifest
 {
-    /// <summary>Container image reference (e.g. <c>ghcr.io/...</c>, <c>localhost/spring-voyage-agent-claude-code:latest</c>).</summary>
+    /// <summary>Container image reference.</summary>
     [YamlMember(Alias = "image")]
     public string? Image { get; set; }
 
-    /// <summary>
-    /// Container runtime identifier (<c>docker</c> or <c>podman</c>).
-    /// Default: <c>podman</c>. The dispatcher's
-    /// <c>ProcessContainerRuntime</c> uses whichever binary it was
-    /// configured with at host startup; this slot records the operator's
-    /// declared intent. Note: this slot is NOT the agent-runtime registry
-    /// id — that lives in <c>ai.agent</c> on the unit / agent manifest
-    /// and is persisted via
-    /// <see cref="Cvoya.Spring.Core.Execution.UnitExecutionDefaults.Agent"/>.
-    /// </summary>
+    /// <summary>Container runtime identifier (<c>docker</c> or <c>podman</c>).</summary>
     [YamlMember(Alias = "runtime")]
     public string? Runtime { get; set; }
 
-    /// <summary>
-    /// Default external agent tool identifier inherited by member agents
-    /// that do not declare their own (e.g. <c>claude-code</c>,
-    /// <c>codex</c>, <c>gemini</c>, <c>spring-voyage</c>).
-    /// </summary>
+    /// <summary>Default external agent tool identifier.</summary>
     [YamlMember(Alias = "tool")]
     public string? Tool { get; set; }
 
-    /// <summary>
-    /// Default LLM provider (Dapr-Agent-tool-specific; see class remarks).
-    /// Forwarded to the agent runtime by Dapr-Conversation-backed launchers.
-    /// </summary>
+    /// <summary>Default LLM provider.</summary>
     [YamlMember(Alias = "provider")]
     public string? Provider { get; set; }
 
-    /// <summary>
-    /// Default model identifier (Dapr-Agent-tool-specific; see class remarks).
-    /// Forwarded to the provider by Dapr-Conversation-backed launchers.
-    /// </summary>
+    /// <summary>Default model identifier.</summary>
     [YamlMember(Alias = "model")]
     public string? Model { get; set; }
 
-    /// <summary>
-    /// True when every field is null / whitespace. Used by the manifest
-    /// applier and portal to decide whether a unit execution write is a
-    /// "clear" rather than a "set".
-    /// </summary>
+    /// <summary>True when every field is null / whitespace.</summary>
     [YamlIgnore]
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
@@ -298,68 +273,24 @@ public class ExecutionManifest
         && string.IsNullOrWhiteSpace(Model);
 }
 
-/// <summary>Connector configuration entry.</summary>
-public class ConnectorManifest
-{
-    /// <summary>Connector type (e.g. <c>github</c>).</summary>
-    [YamlMember(Alias = "type")]
-    public string? Type { get; set; }
-
-    /// <summary>Free-form connector configuration.</summary>
-    [YamlMember(Alias = "config")]
-    public Dictionary<string, object>? Config { get; set; }
-
-    /// <summary>
-    /// Per-unit inheritance opt-out for the package-level connector
-    /// declaration of the same <see cref="Type"/> (#1670). Defaults to
-    /// <c>true</c> — the unit inherits the package-level binding. Setting
-    /// this to <c>false</c> requires the install caller to supply a
-    /// <c>units.&lt;name&gt;.&lt;slug&gt;</c> binding for this unit; the
-    /// pre-flight validator rejects the install with
-    /// <c>ConnectorBindingMissing</c> otherwise.
-    /// </summary>
-    [YamlMember(Alias = "inherit")]
-    public bool Inherit { get; set; } = true;
-}
-
 /// <summary>
-/// Boundary configuration for a unit (#494). Matches the three-list YAML
-/// grammar consumed by <c>spring unit boundary set -f</c> and the HTTP
-/// <c>PUT /api/v1/units/{id}/boundary</c> body, so the same fragment can be
-/// authored once and persisted through either path without loss. Each slot
-/// is optional; an all-null or all-empty block is equivalent to "no
-/// boundary" (the transparent view). Shipped as its own class rather than a
-/// bare dictionary so a schema validator / portal form can bind directly to
-/// the typed shape.
+/// Boundary configuration for a unit (#494).
 /// </summary>
 public class BoundaryManifest
 {
-    /// <summary>
-    /// Opacity rules — every matching <c>ExpertiseEntry</c> is stripped from
-    /// the outside view. Rules OR together.
-    /// </summary>
+    /// <summary>Opacity rules.</summary>
     [YamlMember(Alias = "opacities")]
     public List<BoundaryOpacityManifestEntry>? Opacities { get; set; }
 
-    /// <summary>
-    /// Projection rules — every matching entry is rewritten (new name /
-    /// description / level). First matching rule wins.
-    /// </summary>
+    /// <summary>Projection rules.</summary>
     [YamlMember(Alias = "projections")]
     public List<BoundaryProjectionManifestEntry>? Projections { get; set; }
 
-    /// <summary>
-    /// Synthesis rules — every matching set of entries is collapsed into a
-    /// single synthesised entry attributed to the unit.
-    /// </summary>
+    /// <summary>Synthesis rules.</summary>
     [YamlMember(Alias = "syntheses")]
     public List<BoundarySynthesisManifestEntry>? Syntheses { get; set; }
 
-    /// <summary>
-    /// True when every slot is absent or empty. Consumers use this to decide
-    /// whether a boundary write needs to fire at all — a unit with an empty
-    /// manifest block is indistinguishable from one that declared no boundary.
-    /// </summary>
+    /// <summary>True when every slot is absent or empty.</summary>
     [YamlIgnore]
     public bool IsEmpty =>
         (Opacities is null || Opacities.Count == 0)
@@ -367,93 +298,62 @@ public class BoundaryManifest
         && (Syntheses is null || Syntheses.Count == 0);
 }
 
-/// <summary>
-/// One opacity rule inside a <see cref="BoundaryManifest.Opacities"/> list.
-/// A matched entry is removed from the outside view.
-/// </summary>
+/// <summary>One opacity rule.</summary>
 public class BoundaryOpacityManifestEntry
 {
-    /// <summary>
-    /// Case-insensitive exact-match or <c>*</c>-suffix pattern on the
-    /// aggregated entry's domain name. <c>null</c> matches any domain.
-    /// </summary>
+    /// <summary>Domain pattern.</summary>
     [YamlMember(Alias = "domain_pattern")]
     public string? DomainPattern { get; set; }
 
-    /// <summary>
-    /// Optional <c>scheme://path</c> pattern matched against the entry's
-    /// origin. <c>null</c> matches any origin.
-    /// </summary>
+    /// <summary>Origin pattern.</summary>
     [YamlMember(Alias = "origin_pattern")]
     public string? OriginPattern { get; set; }
 }
 
-/// <summary>
-/// One projection rule inside a <see cref="BoundaryManifest.Projections"/>
-/// list. A matched entry is rewritten — rename / retag / relevel — and still
-/// emitted to outside callers.
-/// </summary>
+/// <summary>One projection rule.</summary>
 public class BoundaryProjectionManifestEntry
 {
-    /// <summary>Same semantics as <see cref="BoundaryOpacityManifestEntry.DomainPattern"/>.</summary>
+    /// <summary>Domain pattern.</summary>
     [YamlMember(Alias = "domain_pattern")]
     public string? DomainPattern { get; set; }
 
-    /// <summary>Same semantics as <see cref="BoundaryOpacityManifestEntry.OriginPattern"/>.</summary>
+    /// <summary>Origin pattern.</summary>
     [YamlMember(Alias = "origin_pattern")]
     public string? OriginPattern { get; set; }
 
-    /// <summary>Optional replacement for the domain name. <c>null</c> leaves it unchanged.</summary>
+    /// <summary>Optional rename target.</summary>
     [YamlMember(Alias = "rename_to")]
     public string? RenameTo { get; set; }
 
-    /// <summary>Optional replacement for the domain description. <c>null</c> leaves it unchanged.</summary>
+    /// <summary>Optional retag value.</summary>
     [YamlMember(Alias = "retag")]
     public string? Retag { get; set; }
 
-    /// <summary>
-    /// Optional replacement for the domain level — one of
-    /// <c>beginner | intermediate | advanced | expert</c> (case-insensitive).
-    /// Unrecognised values are persisted as-is but resolved to <c>null</c>
-    /// at read time, matching the HTTP DTO's tolerance.
-    /// </summary>
+    /// <summary>Optional level override.</summary>
     [YamlMember(Alias = "override_level")]
     public string? OverrideLevel { get; set; }
 }
 
-/// <summary>
-/// One synthesis rule inside a <see cref="BoundaryManifest.Syntheses"/>
-/// list. Matching entries are removed and replaced with a single synthesised
-/// entry attributed to the unit.
-/// </summary>
+/// <summary>One synthesis rule.</summary>
 public class BoundarySynthesisManifestEntry
 {
-    /// <summary>
-    /// Name of the synthesised domain. Required — a synthesis rule with no
-    /// name is silently skipped by the persistence layer so a malformed
-    /// entry never fabricates an empty team capability.
-    /// </summary>
+    /// <summary>Synthesised domain name.</summary>
     [YamlMember(Alias = "name")]
     public string? Name { get; set; }
 
-    /// <summary>Same semantics as <see cref="BoundaryOpacityManifestEntry.DomainPattern"/>.</summary>
+    /// <summary>Domain pattern.</summary>
     [YamlMember(Alias = "domain_pattern")]
     public string? DomainPattern { get; set; }
 
-    /// <summary>Same semantics as <see cref="BoundaryOpacityManifestEntry.OriginPattern"/>.</summary>
+    /// <summary>Origin pattern.</summary>
     [YamlMember(Alias = "origin_pattern")]
     public string? OriginPattern { get; set; }
 
-    /// <summary>Optional description attached to the synthesised domain.</summary>
+    /// <summary>Optional description.</summary>
     [YamlMember(Alias = "description")]
     public string? Description { get; set; }
 
-    /// <summary>
-    /// Optional explicit level for the synthesised capability. When
-    /// <c>null</c> the server uses the strongest level observed across
-    /// matched entries. Same tolerance rule as
-    /// <see cref="BoundaryProjectionManifestEntry.OverrideLevel"/>.
-    /// </summary>
+    /// <summary>Optional explicit level.</summary>
     [YamlMember(Alias = "level")]
     public string? Level { get; set; }
 }

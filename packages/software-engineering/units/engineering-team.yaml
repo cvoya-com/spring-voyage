@@ -1,40 +1,35 @@
-unit:
-  name: engineering-team
-  description: A software engineering team with a tech lead, backend engineers, and QA.
-  structure: hierarchical
-  ai:
-    agent: claude
-    model: claude-sonnet-4-6
-    prompt: |
-      You coordinate a software engineering team.
-      Route incoming work to the most appropriate team member based on their expertise.
-      Monitor progress and ensure quality standards are met.
-    skills:
-      - package: spring-voyage/software-engineering
-        skill: triage-and-assign
-      - package: spring-voyage/software-engineering
-        skill: pr-review-cycle
-  members:
-    - agent: tech-lead
-    - agent: backend-engineer
-    - agent: qa-engineer
-  execution:
-    image: localhost/spring-voyage-agent-claude-code:latest
-  connectors:
-    - type: github
-      config:
-        owner: ${{ inputs.github_owner }}
-        repo: ${{ inputs.github_repo }}
-        installation_id: ${{ inputs.github_installation_id }}
-        events: ["issues", "pull_request", "issue_comment"]
-  policies:
-    communication: through-unit
-    work_assignment: capability-match
-    expertise_sharing: advertise
-    initiative:
-      max_level: attentive
-      max_actions_per_hour: 10
-  humans:
-    - identity: owner
-      permission: owner
-      notifications: ["escalation", "completion"]
+apiVersion: spring.voyage/v1
+kind: Unit
+name: engineering-team
+description: A software engineering team with a tech lead, backend engineers, and QA.
+ai:
+  agent: claude
+  model: claude-sonnet-4-6
+  prompt: |
+    You coordinate a software engineering team.
+    Route incoming work to the most appropriate team member based on their expertise.
+    Monitor progress and ensure quality standards are met.
+  skills:
+    - package: spring-voyage/software-engineering
+      skill: triage-and-assign
+    - package: spring-voyage/software-engineering
+      skill: pr-review-cycle
+members:
+  - agent: tech-lead
+  - agent: backend-engineer
+  - agent: qa-engineer
+execution:
+  image: localhost/spring-voyage-agent-claude-code:latest
+requires:
+  - connector: github
+policies:
+  communication: through-unit
+  work_assignment: capability-match
+  expertise_sharing: advertise
+  initiative:
+    max_level: attentive
+    max_actions_per_hour: 10
+humans:
+  - identity: owner
+    permission: owner
+    notifications: ["escalation", "completion"]

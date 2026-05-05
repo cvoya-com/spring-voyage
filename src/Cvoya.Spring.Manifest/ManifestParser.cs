@@ -10,88 +10,106 @@ using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
 /// <summary>
-/// Parses unit manifest YAML into <see cref="UnitManifest"/> instances and
-/// reports which tolerated-but-unapplied sections are present. Shared by the
-/// <c>spring apply</c> CLI and the package-install activator so both code
-/// paths use the same grammar and warning text.
+/// Parses a per-artefact unit YAML document (ADR-0037 decision 1) into a
+/// <see cref="UnitManifest"/>. Each unit YAML is a kind-discriminated
+/// top-level document (<c>apiVersion: spring.voyage/v1</c>,
+/// <c>kind: Unit</c>, <c>name</c>, <c>description</c>, …) with no
+/// wrapping <c>unit:</c> key.
 /// </summary>
 public static class ManifestParser
 {
     /// <summary>
     /// Sections of the unit manifest grammar that are parsed but not yet
-    /// applied by the platform. Listed here so consumers emit a consistent
-    /// warning per section.
+    /// applied by the platform.
     /// </summary>
-    /// <remarks>
-    /// <c>execution</c> left this list in the B-wide implementation of
-    /// #601 / #603 / #409 — the unit's execution block is now persisted
-    /// and resolved as agent-level default (see
-    /// <c>UnitCreationService.PersistUnitDefinitionExecutionAsync</c> and
-    /// <c>IUnitExecutionStore</c>).
-    /// </remarks>
     public static readonly IReadOnlyList<string> UnsupportedSections = new[]
     {
-        "ai", "connectors", "policies", "humans",
+        "ai", "requires", "policies", "humans",
     };
 
     /// <summary>
     /// Parses the manifest YAML text into a <see cref="UnitManifest"/>.
-    /// Throws <see cref="ManifestParseException"/> if the document is malformed
-    /// or the required <c>unit.name</c> field is missing.
+    /// Throws <see cref="ManifestParseException"/> if the document is
+    /// malformed, the required header fields are missing, or the document
+    /// is in the pre-ADR-0037 wrapped shape.
     /// </summary>
     public static UnitManifest Parse(string yamlText)
     {
-        ManifestDocument? doc;
+        UnitManifest? manifest;
         try
         {
             var deserializer = new DeserializerBuilder()
-                .WithNamingConvention(UnderscoredNamingConvention.Instance)
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .WithTypeConverter(new RequirementEntryYamlConverter())
                 .IgnoreUnmatchedProperties()
                 .Build();
-            doc = deserializer.Deserialize<ManifestDocument>(yamlText);
+            manifest = deserializer.Deserialize<UnitManifest>(yamlText);
         }
         catch (YamlDotNet.Core.YamlException ex)
         {
             throw new ManifestParseException($"Invalid YAML: {ex.Message}", ex);
         }
 
-        if (doc?.Unit is null)
+        if (manifest is null)
         {
-            throw new ManifestParseException("Manifest is missing the required 'unit' root section.");
+            throw new ManifestParseException("Manifest is empty.");
         }
 
-        if (string.IsNullOrWhiteSpace(doc.Unit.Name))
+        // ADR-0037 decision 6: detect legacy wrapper / structure / connectors
+        // and surface a precise migration hint.
+        if (manifest.LegacyUnitWrapper is not null)
         {
-            throw new ManifestParseException("Manifest is missing the required 'unit.name' field.");
+            throw new ManifestParseException(
+                "LegacyArtefactWrapper: unit YAML wraps the body in a 'unit:' key. " +
+                "ADR-0037 decision 1 — drop the wrapping 'unit:' key; hoist the body to the " +
+                "top level with apiVersion: spring.voyage/v1, kind: Unit, name, description.");
         }
 
-        // #1629 PR7: validate the manifest grammar — reject path-style refs
-        // (the slug-as-PK era is over) and ensure member symbols are unique
-        // within the file. Cross-package references that parse as Guids are
-        // accepted; bare strings are treated as local symbols.
-        ValidateUnitMemberGrammar(doc.Unit);
+        if (manifest.LegacyStructure is not null)
+        {
+            throw new ManifestParseException(
+                "LegacyStructureField: 'structure:' is removed in ADR-0037 decision 1; " +
+                "the membership graph already encodes the structure.");
+        }
 
-        return doc.Unit;
+        if (manifest.LegacyConnectors is not null)
+        {
+            throw new ManifestParseException(
+                "LegacyUnitConnectorsField: unit-level 'connectors:' is renamed to 'requires:' in ADR-0037 decision 3. " +
+                "Each entry is a single-key mapping ('- connector: <slug>').");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.ApiVersion))
+        {
+            throw new ManifestParseException(
+                "MissingApiVersion: every artefact YAML declares apiVersion: spring.voyage/v1 (ADR-0037 decision 1).");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.Kind))
+        {
+            throw new ManifestParseException(
+                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill/Workflow (ADR-0037 decision 1).");
+        }
+
+        if (!string.Equals(manifest.Kind.Trim(), "Unit", System.StringComparison.Ordinal))
+        {
+            throw new ManifestParseException(
+                $"Unit YAML declares kind: '{manifest.Kind}' but expected 'Unit'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.Name))
+        {
+            throw new ManifestParseException(
+                "Manifest is missing the required top-level 'name' field.");
+        }
+
+        ValidateUnitMemberGrammar(manifest);
+
+        return manifest;
     }
 
     /// <summary>
-    /// Validates the <c>members:</c> list against the v0.1 manifest grammar:
-    /// <list type="bullet">
-    ///   <item><description>
-    ///     Path-style references (<c>scheme://...</c>) are rejected — the
-    ///     slug-as-PK era is over (#1629). Authors use local symbols within
-    ///     the manifest and 32-char no-dash hex Guids across packages.
-    ///   </description></item>
-    ///   <item><description>
-    ///     Each member resolves to either an <c>agent:</c> or <c>unit:</c>
-    ///     reference, not both, not neither.
-    ///   </description></item>
-    ///   <item><description>
-    ///     Within a single unit's member list, the resolved symbol (the
-    ///     reference value) must be unique — two entries naming the same
-    ///     peer artefact is a manifest authoring error.
-    ///   </description></item>
-    /// </list>
+    /// Validates the <c>members:</c> list against the v0.1 manifest grammar.
     /// </summary>
     private static void ValidateUnitMemberGrammar(UnitManifest unit)
     {
@@ -147,8 +165,7 @@ public static class ManifestParser
 
     /// <summary>
     /// Returns the list of <see cref="UnsupportedSections"/> that are actually
-    /// populated on <paramref name="manifest"/>. Both the CLI and the API use
-    /// this to surface "parsed but not yet applied" warnings.
+    /// populated on <paramref name="manifest"/>.
     /// </summary>
     public static IReadOnlyList<string> CollectUnsupportedSections(UnitManifest manifest)
     {
@@ -166,7 +183,7 @@ public static class ManifestParser
     private static bool IsSectionPresent(UnitManifest manifest, string section) => section switch
     {
         "ai" => manifest.Ai is not null,
-        "connectors" => manifest.Connectors is { Count: > 0 },
+        "requires" => manifest.Requires is { Count: > 0 },
         "policies" => manifest.Policies is { Count: > 0 },
         "humans" => manifest.Humans is { Count: > 0 },
         _ => false,

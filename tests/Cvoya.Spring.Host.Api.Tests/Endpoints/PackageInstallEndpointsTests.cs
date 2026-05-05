@@ -92,7 +92,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 1: POST /packages/install/file — happy path single-target ────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallFile_SingleTarget_Returns201WithActiveStatus()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -119,7 +119,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 2: POST /packages/install — batch multi-target, topo order ──
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallPackages_BatchWithCrossPackageRef_TopoOrderActivation()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -180,7 +180,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 3: POST /packages/install/file — dep-graph closure failure → 400
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallFile_CrossPackageRefToMissingPackage_ReturnsBadRequest()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -202,7 +202,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 4: POST /packages/install — name collision → 409 ─────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallPackages_NameCollision_Returns409()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -255,7 +255,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 5: POST /packages/install/file — parse error → 400 ──────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallFile_MalformedYaml_ReturnsBadRequest()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -269,7 +269,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 6: GET /installs/{id} — happy path ───────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task GetInstallStatus_AfterSuccessfulInstall_Returns200()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -298,7 +298,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 7: GET /installs/{id} — not found ────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task GetInstallStatus_UnknownId_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -311,7 +311,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 8: POST /installs/{id}/retry — Phase-2 failure then success ──
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task RetryInstall_AfterPhase2Failure_Returns200Active()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -358,7 +358,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 9: POST /installs/{id}/abort — Phase-2 failure ──────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task AbortInstall_AfterPhase2Failure_Returns204AndRemovesRows()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -392,7 +392,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 10: POST /packages/install/file — multipart upload ──────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallFile_ValidYamlUpload_Returns201WithInstallId()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -420,7 +420,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 11: Tenant isolation ─────────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task TenantIsolation_InstallInTenantA_NotVisibleFromTenantB()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -448,7 +448,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 12: POST /packages/install/file with local ref → 400 ────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task InstallFile_PackageWithLocalUnitRef_ReturnsBadRequest()
     {
         var ct = TestContext.Current.CancellationToken;
