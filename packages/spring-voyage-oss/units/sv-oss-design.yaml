@@ -1,33 +1,33 @@
-unit:
-  name: Design
-  description: Design team for Spring Voyage OSS — owns visual design, accessibility, and DESIGN.md alignment for the portal.
-  structure: hierarchical
-  ai:
-    agent: claude
-    model: claude-sonnet-4-6
-    prompt: |
-      You orchestrate the Spring Voyage OSS design team. Focus on visual
-      review of portal changes, accessibility audits (contrast, keyboard
-      navigation, focus rings, ARIA), mockup production for new surfaces,
-      and alignment with the patterns in `docs/concepts/` and the
-      portal's `DESIGN.md` visual contract. Identity: all GitHub writes
-      go through this unit's binding to the **Spring Voyage** GitHub
-      App; no other identity is referenced.
-  members:
-    - agent: design-engineer
-  execution:
-    image: ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest
-    hosting: permanent
-  # #1670: github connector inherited from package.yaml — operator configures
-  # it once at install time and every member unit picks it up.
-  policies:
-    communication: through-unit
-    work_assignment: capability-match
-    expertise_sharing: advertise
-    initiative:
-      max_level: attentive
-      max_actions_per_hour: 10
-  humans:
-    - identity: owner
-      permission: owner
-      notifications: ["escalation", "completion"]
+apiVersion: spring.voyage/v1
+kind: Unit
+name: Design
+description: Design team for Spring Voyage OSS — owns visual design, accessibility, and DESIGN.md alignment for the portal.
+ai:
+  agent: claude
+  model: claude-sonnet-4-6
+  prompt: |
+    You orchestrate the Spring Voyage OSS design team. Focus on visual
+    review of portal changes, accessibility audits (contrast, keyboard
+    navigation, focus rings, ARIA), mockup production for new surfaces,
+    and alignment with the patterns in `docs/concepts/` and the
+    portal's `DESIGN.md` visual contract. Identity: all GitHub writes
+    go through this unit's binding to the **Spring Voyage** GitHub
+    App; no other identity is referenced.
+members:
+  - agent: design-engineer
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest
+  hosting: permanent
+requires:
+  - connector: github
+policies:
+  communication: through-unit
+  work_assignment: capability-match
+  expertise_sharing: advertise
+  initiative:
+    max_level: attentive
+    max_actions_per_hour: 10
+humans:
+  - identity: owner
+    permission: owner
+    notifications: ["escalation", "completion"]

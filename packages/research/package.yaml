@@ -1,6 +1,8 @@
 apiVersion: spring.voyage/v1
-metadata:
-  name: research
-  description: Research team — generalist researcher, literature reviewer, and data analyst.
+kind: Package
+name: research
+description: Research team — generalist researcher, literature reviewer, and data analyst.
+version: 1.0.0
+readme: README.md
 content:
   - unit: research-team

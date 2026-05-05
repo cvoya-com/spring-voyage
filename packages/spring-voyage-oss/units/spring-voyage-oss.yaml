@@ -1,42 +1,44 @@
-unit:
-  name: Spring Voyage OSS
-  description: The Spring Voyage OSS dogfooding unit — software engineering, design, product management, and program management teams collaborating on the Spring Voyage platform itself.
-  structure: hierarchical
-  ai:
-    agent: claude
-    model: claude-opus-4-7
-    prompt: |
-      You coordinate the Spring Voyage OSS organisation. Route incoming work
-      to the right sub-unit (software engineering, design, product management,
-      program management) based on the kind of work and the file paths or
-      milestones touched. Hold the line on scope and identity:
-      - Plan-of-record is `docs/plan/v0.1/README.md`. Always say "v0.1", never
-        "V2" / "V2.1".
-      - All GitHub writes go through this organisation's binding to the
-        **Spring Voyage** GitHub App. No other identity is referenced.
-  members:
-    - unit: sv-oss-software-engineering
-    - unit: sv-oss-design
-    - unit: sv-oss-product-management
-    - unit: sv-oss-program-management
-  execution:
-    # The umbrella runs claude-opus-4-7 to route incoming work to the right
-    # sub-unit; routing is agent reasoning, not just dispatch, so it needs a
-    # container of its own. The platform-default omnibus image bundles every
-    # supported CLI runtime and is the right baseline for an orchestration
-    # role that doesn't need team-specific tooling. Once package-level
-    # `execution:` inheritance ships (#1679), this declaration moves up to
-    # package.yaml and member units inherit unless they override.
-    image: ghcr.io/cvoya-com/spring-voyage-agents:latest
-    hosting: permanent
-  policies:
-    communication: through-unit
-    work_assignment: capability-match
-    expertise_sharing: advertise
-    initiative:
-      max_level: attentive
-      max_actions_per_hour: 10
-  humans:
-    - identity: owner
-      permission: owner
-      notifications: ["escalation", "completion"]
+apiVersion: spring.voyage/v1
+kind: Unit
+name: Spring Voyage OSS
+description: The Spring Voyage OSS dogfooding unit — software engineering, design, product management, and program management teams collaborating on the Spring Voyage platform itself.
+ai:
+  agent: claude
+  model: claude-opus-4-7
+  prompt: |
+    You coordinate the Spring Voyage OSS organisation. Route incoming work
+    to the right sub-unit (software engineering, design, product management,
+    program management) based on the kind of work and the file paths or
+    milestones touched. Hold the line on scope and identity:
+    - Plan-of-record is `docs/plan/v0.1/README.md`. Always say "v0.1", never
+      "V2" / "V2.1".
+    - All GitHub writes go through this organisation's binding to the
+      **Spring Voyage** GitHub App. No other identity is referenced.
+members:
+  - unit: sv-oss-software-engineering
+  - unit: sv-oss-design
+  - unit: sv-oss-product-management
+  - unit: sv-oss-program-management
+execution:
+  # The umbrella runs claude-opus-4-7 to route incoming work to the right
+  # sub-unit; routing is agent reasoning, not just dispatch, so it needs a
+  # container of its own. The platform-default omnibus image bundles every
+  # supported CLI runtime and is the right baseline for an orchestration
+  # role that doesn't need team-specific tooling. Once package-level
+  # `execution:` inheritance ships (#1679), this declaration moves up to
+  # package.yaml and member units inherit unless they override.
+  image: ghcr.io/cvoya-com/spring-voyage-agents:latest
+  hosting: permanent
+requires:
+  - connector: github
+policies:
+  communication: through-unit
+  work_assignment: capability-match
+  expertise_sharing: advertise
+  initiative:
+    max_level: attentive
+    max_actions_per_hour: 10
+humans:
+  - identity: owner
+    permission: owner
+    notifications: ["escalation", "completion"]

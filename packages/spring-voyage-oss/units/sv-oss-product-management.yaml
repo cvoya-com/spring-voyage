@@ -1,32 +1,33 @@
-unit:
-  name: Product Management
-  description: Product management team for Spring Voyage OSS — triage, roadmap, and sprint planning against the v0.1 plan-of-record.
-  structure: hierarchical
-  ai:
-    agent: claude
-    model: claude-sonnet-4-6
-    prompt: |
-      You orchestrate the Spring Voyage OSS product management team.
-      Drive issue triage (close / route / park), maintain the roadmap
-      against `docs/plan/v0.1/README.md`, and plan sprints by scoping
-      and sequencing the highest-value work. Always say "v0.1" in new
-      artefacts; never "V2" / "V2.1". Identity: all GitHub writes go
-      through this unit's binding to the **Spring Voyage** GitHub App;
-      no other identity is referenced.
-  members:
-    - agent: pm
-  execution:
-    image: ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:latest
-    hosting: permanent
-  # #1670: github connector inherited from package.yaml.
-  policies:
-    communication: through-unit
-    work_assignment: capability-match
-    expertise_sharing: advertise
-    initiative:
-      max_level: attentive
-      max_actions_per_hour: 10
-  humans:
-    - identity: owner
-      permission: owner
-      notifications: ["escalation", "completion"]
+apiVersion: spring.voyage/v1
+kind: Unit
+name: Product Management
+description: Product management team for Spring Voyage OSS — triage, roadmap, and sprint planning against the v0.1 plan-of-record.
+ai:
+  agent: claude
+  model: claude-sonnet-4-6
+  prompt: |
+    You orchestrate the Spring Voyage OSS product management team.
+    Drive issue triage (close / route / park), maintain the roadmap
+    against `docs/plan/v0.1/README.md`, and plan sprints by scoping
+    and sequencing the highest-value work. Always say "v0.1" in new
+    artefacts; never "V2" / "V2.1". Identity: all GitHub writes go
+    through this unit's binding to the **Spring Voyage** GitHub App;
+    no other identity is referenced.
+members:
+  - agent: pm
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:latest
+  hosting: permanent
+requires:
+  - connector: github
+policies:
+  communication: through-unit
+  work_assignment: capability-match
+  expertise_sharing: advertise
+  initiative:
+    max_level: attentive
+    max_actions_per_hour: 10
+humans:
+  - identity: owner
+    permission: owner
+    notifications: ["escalation", "completion"]
