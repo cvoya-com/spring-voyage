@@ -8,7 +8,6 @@ capabilities: ["triage", "milestone-management", "sub-issue-relationships", "blo
 ai:
   agent: claude
   model: claude-sonnet-4-6
-  tool: claude-code
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest
 instructions: |

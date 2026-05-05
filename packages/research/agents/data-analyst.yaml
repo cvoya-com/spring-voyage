@@ -8,7 +8,6 @@ capabilities: ["data-analysis", "statistics", "visualization", "experiment-track
 ai:
   agent: claude
   model: claude-sonnet-4-6
-  tool: claude-code
   environment:
     image: localhost/spring-voyage-agent-claude-code:latest
 instructions: |

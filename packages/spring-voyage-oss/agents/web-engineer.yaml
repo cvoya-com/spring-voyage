@@ -8,7 +8,6 @@ capabilities: ["web-development", "nextjs", "typescript", "portal-ux", "openapi-
 ai:
   agent: claude
   model: claude-opus-4-7
-  tool: claude-code
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
 instructions: |

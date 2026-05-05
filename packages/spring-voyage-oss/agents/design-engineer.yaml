@@ -8,7 +8,6 @@ capabilities: ["visual-design", "ui-ux", "accessibility", "design-system", "inte
 ai:
   agent: claude
   model: claude-opus-4-7
-  tool: claude-code
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest
 instructions: |

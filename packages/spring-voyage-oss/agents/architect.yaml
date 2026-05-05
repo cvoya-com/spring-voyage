@@ -8,7 +8,6 @@ capabilities: ["architecture", "adr-authoring", "boundary-design", "contract-rev
 ai:
   agent: claude
   model: claude-opus-4-7
-  tool: claude-code
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
 instructions: |
