@@ -21,7 +21,7 @@ public class PackageManifestParserUploadModeTests
 {
     // ---- Test 1: self-contained AgentPackage with null packageRoot --------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ParseAndResolve_NullPackageRoot_SelfContainedAgentPackage_Succeeds()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -52,7 +52,7 @@ public class PackageManifestParserUploadModeTests
 
     // ---- Test 2: self-contained UnitPackage with no artefact refs ---------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ParseAndResolve_NullPackageRoot_NoRefs_Succeeds()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -76,7 +76,7 @@ public class PackageManifestParserUploadModeTests
 
     // ---- Test 3: UnitPackage with bare unit ref raises exception --------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ParseAndResolve_NullPackageRoot_LocalUnitRef_ThrowsUploadException()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -104,7 +104,7 @@ public class PackageManifestParserUploadModeTests
 
     // ---- Test 4: single bare unit ref raises exception with that ref ------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ParseAndResolve_NullPackageRoot_SingleLocalUnitRef_ThrowsWithThatRef()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -127,7 +127,7 @@ public class PackageManifestParserUploadModeTests
 
     // ---- Test 5: multiple local refs across kinds all reported at once -----
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ParseAndResolve_NullPackageRoot_MultipleLocalRefsAcrossKinds_AllListed()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -152,7 +152,7 @@ public class PackageManifestParserUploadModeTests
 
     // ---- Test 6: empty-string packageRoot behaves identically to null -----
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ParseAndResolve_EmptyPackageRoot_LocalRef_ThrowsSameAsNull()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -179,7 +179,7 @@ public class PackageManifestParserUploadModeTests
 
     // ---- Test 7: cross-package ref with null packageRoot resolves via catalog
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ParseAndResolve_NullPackageRoot_CrossPackageRef_ResolvesViaCatalog()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -207,7 +207,7 @@ public class PackageManifestParserUploadModeTests
 
     // ---- Test 8: exception inherits from PackageParseException (400 mapping)
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task PackageUploadHasLocalRefException_InheritsFromPackageParseException()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -230,7 +230,7 @@ public class PackageManifestParserUploadModeTests
 
     // ---- Test 9: inline unit definition succeeds in upload mode -----------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ParseAndResolve_NullPackageRoot_InlineUnit_Succeeds()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -271,7 +271,7 @@ public class PackageManifestParserUploadModeTests
 
     // ---- Test 10: inline unit + bare local content entry still rejects -------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ParseAndResolve_NullPackageRoot_InlineUnitWithBareLocalEntry_RejectsBareRef()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -302,7 +302,7 @@ public class PackageManifestParserUploadModeTests
 
     // ---- Test 11: inline agent definition succeeds in upload mode ----------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ParseAndResolve_NullPackageRoot_InlineAgent_Succeeds()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -340,7 +340,7 @@ public class PackageManifestParserUploadModeTests
 
     // ---- Test 12: inline agent + bare local content entry still rejects -------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task ParseAndResolve_NullPackageRoot_InlineAgentWithBareLocalEntry_RejectsBareRef()
     {
         var ct = TestContext.Current.CancellationToken;

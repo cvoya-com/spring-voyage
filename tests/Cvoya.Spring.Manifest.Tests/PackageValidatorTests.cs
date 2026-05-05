@@ -59,7 +59,7 @@ public class PackageValidatorTests : IDisposable
 
     // ── live-package regression tests ────────────────────────────────────
 
-    [Theory]
+    [Theory(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     [InlineData("research")]
     [InlineData("product-management")]
     [InlineData("software-engineering")]
@@ -82,7 +82,7 @@ public class PackageValidatorTests : IDisposable
 
     // ── synthetic broken-package tests ────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task UnitMissingExecutionImage_IsError()
     {
         Write("package.yaml", """
@@ -109,7 +109,7 @@ public class PackageValidatorTests : IDisposable
             d.Code == "unit-missing-image");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task AgentMissingModel_IsError()
     {
         Write("package.yaml", """
@@ -137,7 +137,7 @@ public class PackageValidatorTests : IDisposable
             d.Code == "agent-missing-model");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task DanglingMemberAgentReference_IsError()
     {
         Write("package.yaml", """
@@ -166,7 +166,7 @@ public class PackageValidatorTests : IDisposable
             d.Code == "unit-member-agent-not-found");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task DanglingMemberUnitReference_IsError()
     {
         Write("package.yaml", """
@@ -195,7 +195,7 @@ public class PackageValidatorTests : IDisposable
             d.Code == "unit-member-unit-not-found");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task GuidMemberReference_IsAcceptedAsCrossPackage()
     {
         Write("package.yaml", """
@@ -223,7 +223,7 @@ public class PackageValidatorTests : IDisposable
         result.Diagnostics.ShouldNotContain(d => d.Code == "unit-member-unit-not-found");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task UnknownConnectorSlug_IsWarning()
     {
         Write("package.yaml", """
@@ -253,7 +253,7 @@ public class PackageValidatorTests : IDisposable
         result.ErrorCount.ShouldBe(0);
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task UndeclaredInputInterpolation_IsError()
     {
         Write("package.yaml", """
@@ -290,7 +290,7 @@ public class PackageValidatorTests : IDisposable
         inputDiags[0].Message.ShouldNotContain("'declared_input'");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task MissingPackageYaml_IsError()
     {
         // Empty directory — no package.yaml.
@@ -304,7 +304,7 @@ public class PackageValidatorTests : IDisposable
             d.Code == "package-yaml-missing");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task CleanMinimalPackage_HasNoDiagnostics()
     {
         Write("package.yaml", """

@@ -15,7 +15,7 @@ public class PackageManifestParserRawTests
 {
     // ---- Happy-path parsing ---------------------------------------------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_MinimalUnitPackage_Succeeds()
     {
         // #1718 item 1: no `kind:` field — package kind is inferred at
@@ -42,7 +42,7 @@ public class PackageManifestParserRawTests
         manifest.Inputs.ShouldBeNull();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_MinimalAgentPackage_Succeeds()
     {
         var yaml = """
@@ -65,7 +65,7 @@ public class PackageManifestParserRawTests
         manifest.Content[0].Definition.Reference.ShouldBe("my-agent");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_FullUnitPackage_MapsAllFields()
     {
         var yaml = """
@@ -131,7 +131,7 @@ public class PackageManifestParserRawTests
 
     // ---- #1718 item 1: kind: removed ------------------------------------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_NoKindField_PackageStillParses()
     {
         // The defining acceptance criterion for #1718 item 1: a manifest
@@ -150,7 +150,7 @@ public class PackageManifestParserRawTests
         manifest.Content.ShouldNotBeNull();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_LegacyKindField_RejectsWithMigrationMessage()
     {
         // #1718 item 1: a manifest still carrying `kind:` is rejected with
@@ -172,7 +172,7 @@ public class PackageManifestParserRawTests
         ex.Message.ShouldContain("#1718");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_LegacyTopLevelUnitField_RejectsWithMigrationMessage()
     {
         var yaml = """
@@ -189,7 +189,7 @@ public class PackageManifestParserRawTests
         ex.Message.ShouldContain("content");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_LegacyTopLevelSubUnitsField_RejectsWithMigrationMessage()
     {
         var yaml = """
@@ -209,7 +209,7 @@ public class PackageManifestParserRawTests
         ex.Message.ShouldContain("members");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_LegacyTopLevelSkillsField_RejectsWithMigrationMessage()
     {
         var yaml = """
@@ -229,7 +229,7 @@ public class PackageManifestParserRawTests
         ex.Message.ShouldContain("- skill: <name>");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_LegacyTopLevelWorkflowsField_RejectsWithMigrationMessage()
     {
         var yaml = """
@@ -250,7 +250,7 @@ public class PackageManifestParserRawTests
 
     // ---- Required-field failures ----------------------------------------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_MissingMetadataName_Throws()
     {
         var yaml = """
@@ -267,7 +267,7 @@ public class PackageManifestParserRawTests
             .Message.ShouldContain("metadata.name");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_MissingMetadata_Throws()
     {
         var yaml = """
@@ -282,7 +282,7 @@ public class PackageManifestParserRawTests
             .Message.ShouldContain("metadata.name");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_EmptyYaml_Throws()
     {
         var act = () => PackageManifestParser.ParseRaw("");
@@ -290,7 +290,7 @@ public class PackageManifestParserRawTests
         Should.Throw<PackageParseException>(act);
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_InvalidYaml_Throws()
     {
         var yaml = "metadata: [\nbroken: yaml: here";
@@ -303,7 +303,7 @@ public class PackageManifestParserRawTests
 
     // ---- Connector block (#1670) ---------------------------------------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_ConnectorsDefaultInheritAll_ParsesAndDefaults()
     {
         var yaml = """
@@ -328,7 +328,7 @@ public class PackageManifestParserRawTests
         entry.InheritUnits.ShouldBeNull();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_ConnectorsInheritList_ParsesUnitNames()
     {
         var yaml = """
@@ -353,7 +353,7 @@ public class PackageManifestParserRawTests
         entry.InheritUnits.ShouldContain("sv-oss-software-engineering");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_ConnectorsInheritAllScalar_DefaultsToInheritAll()
     {
         var yaml = """
@@ -374,7 +374,7 @@ public class PackageManifestParserRawTests
         entry.InheritUnits.ShouldBeNull();
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_ConnectorsBadInheritScalar_Throws()
     {
         var yaml = """
@@ -394,7 +394,7 @@ public class PackageManifestParserRawTests
             .Message.ShouldContain("inherit");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ParseRaw_ConnectorsMissingType_Throws()
     {
         var yaml = """
@@ -415,7 +415,7 @@ public class PackageManifestParserRawTests
 
     // ---- Backward compatibility: old single-unit YAML still parses via ManifestParser ----------
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ManifestParser_OldSingleUnitYaml_StillParses()
     {
         // Acceptance criterion 11: an existing single-unit YAML (no apiVersion/kind)

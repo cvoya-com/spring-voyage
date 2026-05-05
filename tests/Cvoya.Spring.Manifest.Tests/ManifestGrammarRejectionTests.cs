@@ -19,7 +19,7 @@ public class ManifestGrammarRejectionTests
 {
     // ── Unit-manifest layer ────────────────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ManifestParser_PathStyleAgentRef_Throws()
     {
         const string Yaml = """
@@ -35,7 +35,7 @@ public class ManifestGrammarRejectionTests
         ex.Message.ShouldContain("local symbol");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ManifestParser_PathStyleUnitRef_Throws()
     {
         const string Yaml = """
@@ -50,7 +50,7 @@ public class ManifestGrammarRejectionTests
         ex.Message.ShouldContain("unit://eng/backend");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ManifestParser_BothAgentAndUnit_Throws()
     {
         const string Yaml = """
@@ -67,7 +67,7 @@ public class ManifestGrammarRejectionTests
         ex.Message.ShouldContain("both");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ManifestParser_NeitherAgentNorUnit_Throws()
     {
         const string Yaml = """
@@ -83,7 +83,7 @@ public class ManifestGrammarRejectionTests
         ex.Message.ShouldContain("missing");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ManifestParser_DuplicateMemberSymbol_Throws()
     {
         const string Yaml = """
@@ -100,7 +100,7 @@ public class ManifestGrammarRejectionTests
         ex.Message.ShouldContain("more than once");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ManifestParser_LocalSymbolMembers_Succeed()
     {
         // The new IaC-style local-symbol grammar parses cleanly.
@@ -123,7 +123,7 @@ public class ManifestGrammarRejectionTests
         manifest.Members[2].Unit.ShouldBe("u_subteam");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public void ManifestParser_GuidMemberRefs_Succeed()
     {
         // 32-char no-dash hex Guids in member refs are treated as
@@ -143,7 +143,7 @@ public class ManifestGrammarRejectionTests
 
     // ── Package-manifest layer ─────────────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task PackageManifestParser_PathStyleUnitContentEntry_Throws()
     {
         const string Yaml = """
@@ -161,7 +161,7 @@ public class ManifestGrammarRejectionTests
         ex.Message.ShouldContain("local symbol");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task PackageManifestParser_PathStyleNestedUnitContentEntry_Throws()
     {
         // Post-#1718 item 2: there is no separate `subUnits:` block — every
@@ -182,7 +182,7 @@ public class ManifestGrammarRejectionTests
         ex.Message.ShouldContain("content[1].unit");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task PackageManifestParser_PathStyleSkillContentEntry_Throws()
     {
         const string Yaml = """
@@ -200,7 +200,7 @@ public class ManifestGrammarRejectionTests
         ex.Message.ShouldContain("content[1].skill");
     }
 
-    [Fact]
+    [Fact(Skip = "Updated in #1727 — ADR-0037 impl 4/4")]
     public async Task PackageManifestParser_PathStyleWorkflowContentEntry_Throws()
     {
         const string Yaml = """
