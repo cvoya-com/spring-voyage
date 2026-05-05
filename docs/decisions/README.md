@@ -48,6 +48,7 @@ For open design questions that have **not** yet been decided, see [`../architect
 | [0034](0034-oss-dogfooding-unit.md) | Spring Voyage OSS dogfooding unit (role decomposition, image strategy, hosting, identity) | Accepted — four role sub-units, omnibus-derivative images, `permanent` hosting, atomic GitHub-App binding |
 | [0035](0035-package-as-bundling-unit.md) | Package as the unit of bundling, installation, and export | Accepted — one concept, two-phase atomic install, uniform cross-package composition, global catalog / tenant-scoped installs, multi-package batch |
 | [0036](0036-single-identity-model.md) | Single-identity model: Guid identity, display_name as presentation only | Accepted — Guid end-to-end, no slugs, membership graph as addressing fabric, `scheme:<32-hex>` wire form, v5 UUID for OSS default tenant |
+| [0037](0037-package-schema-decomposition.md) | Package schema decomposition: per-artefact YAMLs as kind-discriminated documents | Accepted — `kind: Package/Unit/Agent/Skill/Workflow` on every YAML; per-artefact `requires:`; flat metadata; `<pkg>/<name>@<version>` addressing with default-latest; cross-package cycle detection; pre-v1.0 hard rename |
 
 ## Format
 
