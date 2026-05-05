@@ -11063,7 +11063,7 @@
           "name",
           "description",
           "readme",
-          "inputs",
+          "version",
           "unitTemplates",
           "agentTemplates",
           "skills",
@@ -11089,11 +11089,11 @@
               "string"
             ]
           },
-          "inputs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PackageInputSummary"
-            }
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "unitTemplates": {
             "type": "array",
@@ -11157,43 +11157,6 @@
           },
           "withValues": {
             "type": "boolean"
-          }
-        }
-      },
-      "PackageInputSummary": {
-        "required": [
-          "name",
-          "type",
-          "required",
-          "secret",
-          "description",
-          "default"
-        ],
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          },
-          "required": {
-            "type": "boolean"
-          },
-          "secret": {
-            "type": "boolean"
-          },
-          "description": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "default": {
-            "type": [
-              "null",
-              "string"
-            ]
           }
         }
       },
@@ -11282,6 +11245,12 @@
           "workflowCount": {
             "type": "integer",
             "format": "int32"
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -11554,9 +11523,7 @@
       "RequiredConnectorSummary": {
         "required": [
           "type",
-          "required",
-          "inheritAll",
-          "inheritUnits"
+          "required"
         ],
         "type": "object",
         "properties": {
@@ -11565,18 +11532,6 @@
           },
           "required": {
             "type": "boolean"
-          },
-          "inheritAll": {
-            "type": "boolean"
-          },
-          "inheritUnits": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
           }
         }
       },

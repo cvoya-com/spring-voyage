@@ -73,30 +73,17 @@ public static class PackageCommand
         new("path", w => w.Path),
     };
 
-    private static readonly OutputFormatter.Column<PackageInputSummary>[] InputColumns =
-    {
-        new("name", i => i.Name),
-        new("type", i => i.Type),
-        new("required", i => i.Required == true ? "yes" : "no"),
-        new("secret", i => i.Secret == true ? "yes" : "no"),
-        new("default", i => i.Default),
-        new("description", i => i.Description),
-    };
-
     /// <summary>
     /// Columns for the <c>connectorDeclarations:</c> block surfaced by
-    /// <c>spring package show</c> (#1673). Operators read this to discover
-    /// which <c>--connector</c> flags they need at install time.
+    /// <c>spring package show</c>. Operators read this to discover which
+    /// <c>--connector</c> flags they need at install time. ADR-0037 D3 —
+    /// the slug list is the union of every artefact's <c>requires:</c>
+    /// block; every entry is required (no optional flag).
     /// </summary>
     private static readonly OutputFormatter.Column<RequiredConnectorSummary>[] RequiredConnectorColumns =
     {
         new("type", c => c.Type),
         new("required", c => c.Required == true ? "yes" : "no"),
-        new("inherit", c => c.InheritAll == true
-            ? "all"
-            : (c.InheritUnits is { Count: > 0 } list
-                ? string.Join(",", list)
-                : "none")),
     };
 
     /// <summary>
@@ -604,8 +591,11 @@ public static class PackageCommand
             {
                 Console.WriteLine($"  {detail.Description}");
             }
+            if (!string.IsNullOrWhiteSpace(detail.Version))
+            {
+                Console.WriteLine($"  Version: {detail.Version}");
+            }
 
-            WriteSection("Inputs", detail.Inputs, InputColumns);
             WriteSection("Required connectors", detail.ConnectorDeclarations, RequiredConnectorColumns);
             // #1718 item 2: the manifest's `content:` list is the
             // canonical "what gets installed" view. Render it first so
