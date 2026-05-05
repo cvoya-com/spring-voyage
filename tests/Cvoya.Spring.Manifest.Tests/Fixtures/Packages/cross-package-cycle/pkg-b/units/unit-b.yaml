@@ -1,0 +1,6 @@
+apiVersion: spring.voyage/v1
+kind: Unit
+name: unit-b
+description: References pkg-a/unit-a back, closing the cross-package cycle.
+members:
+  - unit: pkg-a/unit-a

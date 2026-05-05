@@ -1,3 +1,10 @@
+---
+apiVersion: spring.voyage/v1
+kind: Skill
+name: research-triage
+description: Research Triage
+---
+
 ## Research Triage
 
 When you receive a new research request:

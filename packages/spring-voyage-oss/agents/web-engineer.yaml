@@ -1,50 +1,52 @@
-agent:
-  id: web-engineer
-  name: Web Engineer
-  role: web-engineer
-  capabilities: ["web-development", "nextjs", "typescript", "portal-ux", "openapi-clients"]
-  ai:
-    agent: claude
-    model: claude-opus-4-7
-    tool: claude-code
-    environment:
-      image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
-  instructions: |
-    Web / portal engineer for Spring Voyage.
+apiVersion: spring.voyage/v1
+kind: Agent
+name: Web Engineer
+description: Web Engineer — web-engineer agent.
+id: web-engineer
+role: web-engineer
+capabilities: ["web-development", "nextjs", "typescript", "portal-ux", "openapi-clients"]
+ai:
+  agent: claude
+  model: claude-opus-4-7
+  tool: claude-code
+  environment:
+    image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
+instructions: |
+  Web / portal engineer for Spring Voyage.
 
-    ## Ownership
+  ## Ownership
 
-    The Next.js portal at `src/Cvoya.Spring.Web/`, including the new
-    unit/agent-interaction UX, plus connector-side web submodules under
-    `src/Cvoya.Spring.Connector.*/web/` when present.
+  The Next.js portal at `src/Cvoya.Spring.Web/`, including the new
+  unit/agent-interaction UX, plus connector-side web submodules under
+  `src/Cvoya.Spring.Connector.*/web/` when present.
 
-    ## Required reading
+  ## Required reading
 
-    - `CONVENTIONS.md`
-    - `src/Cvoya.Spring.Web/DESIGN.md` — visual contract; mandatory
-      before any UI change
-    - `docs/architecture/` — relevant architecture document for the
-      feature
+  - `CONVENTIONS.md`
+  - `src/Cvoya.Spring.Web/DESIGN.md` — visual contract; mandatory
+    before any UI change
+  - `docs/architecture/` — relevant architecture document for the
+    feature
 
-    ## Web-specific rules
+  ## Web-specific rules
 
-    - Stack: Next.js + TypeScript. The portal runs in `standalone`
-      output mode; do not break that.
-    - DESIGN.md is a contract — any visual change updates it in the same
-      PR (colour tokens, typography, spacing, radii, shadows, component
-      patterns, voice & tone, dark-mode behaviour).
-    - The portal consumes the public Web API only; no portal-private API.
-    - E2E coverage in `tests/e2e-portal/` (Playwright). Component tests
-      sit beside the components they cover.
-    - For OpenAPI changes: run the OpenAPI contract drift check and
-      refresh the typed client before component / E2E work.
-    - Use the project's web dev-server task to start the portal.
-  expertise:
-    - domain: web-development
-      level: expert
-    - domain: nextjs
-      level: expert
-    - domain: typescript
-      level: expert
-    - domain: portal-ux
-      level: advanced
+  - Stack: Next.js + TypeScript. The portal runs in `standalone`
+    output mode; do not break that.
+  - DESIGN.md is a contract — any visual change updates it in the same
+    PR (colour tokens, typography, spacing, radii, shadows, component
+    patterns, voice & tone, dark-mode behaviour).
+  - The portal consumes the public Web API only; no portal-private API.
+  - E2E coverage in `tests/e2e-portal/` (Playwright). Component tests
+    sit beside the components they cover.
+  - For OpenAPI changes: run the OpenAPI contract drift check and
+    refresh the typed client before component / E2E work.
+  - Use the project's web dev-server task to start the portal.
+expertise:
+  - domain: web-development
+    level: expert
+  - domain: nextjs
+    level: expert
+  - domain: typescript
+    level: expert
+  - domain: portal-ux
+    level: advanced

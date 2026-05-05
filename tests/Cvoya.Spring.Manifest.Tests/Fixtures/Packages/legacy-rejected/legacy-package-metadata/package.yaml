@@ -1,0 +1,7 @@
+apiVersion: spring.voyage/v1
+kind: Package
+metadata:
+  name: legacy-metadata-nesting
+  description: Pre-ADR-0037 metadata: nesting that the parser must reject with LegacyMetadataNesting.
+version: 1.0.0
+content: []

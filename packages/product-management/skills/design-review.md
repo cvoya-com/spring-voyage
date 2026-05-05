@@ -1,3 +1,10 @@
+---
+apiVersion: spring.voyage/v1
+kind: Skill
+name: design-review
+description: Design Review
+---
+
 ## Design Review
 
 When reviewing a design proposal:

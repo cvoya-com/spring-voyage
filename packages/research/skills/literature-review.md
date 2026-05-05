@@ -1,3 +1,10 @@
+---
+apiVersion: spring.voyage/v1
+kind: Skill
+name: literature-review
+description: Literature Review
+---
+
 ## Literature Review
 
 When you receive a literature review request:

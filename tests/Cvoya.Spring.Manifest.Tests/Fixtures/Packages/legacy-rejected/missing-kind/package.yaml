@@ -1,0 +1,7 @@
+apiVersion: spring.voyage/v1
+kind: Package
+name: missing-kind
+description: Package whose unit YAML omits kind: — parser must reject with MissingKind.
+version: 1.0.0
+content:
+  - unit: no-kind

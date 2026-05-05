@@ -1,0 +1,6 @@
+apiVersion: spring.voyage/v1
+kind: Unit
+name: unit-a
+description: References pkg-b/unit-b across a package boundary; pkg-b/unit-b references back to pkg-a/unit-a, forming a cross-package cycle.
+members:
+  - unit: pkg-b/unit-b

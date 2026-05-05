@@ -1,3 +1,10 @@
+---
+apiVersion: spring.voyage/v1
+kind: Skill
+name: pr-review-cycle
+description: PR Review Cycle
+---
+
 ## PR Review Cycle
 
 When a pull request is ready for review:

@@ -1,0 +1,7 @@
+apiVersion: spring.voyage/v1
+kind: Package
+name: pkg-b
+description: Second half of a cross-package cycle pair (ADR-0037 D4).
+version: 1.0.0
+content:
+  - unit: unit-b

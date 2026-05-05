@@ -1,0 +1,4 @@
+apiVersion: spring.voyage/v1
+kind: Unit
+name: shared-router
+description: A reusable router unit referenced from other packages.

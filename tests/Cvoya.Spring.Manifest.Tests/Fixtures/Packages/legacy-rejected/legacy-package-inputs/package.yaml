@@ -1,0 +1,10 @@
+apiVersion: spring.voyage/v1
+kind: Package
+name: legacy-package-inputs
+description: Pre-ADR-0037 inputs: block that the parser must reject with LegacyInputsField.
+version: 1.0.0
+inputs:
+  - name: foo
+    type: string
+    required: true
+content: []

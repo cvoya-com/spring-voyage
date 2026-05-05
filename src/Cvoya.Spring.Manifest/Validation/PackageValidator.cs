@@ -262,7 +262,10 @@ public static class PackageValidator
             }
         }
 
-        // Walk agents. Schema parse + ai.model required + input interpolations.
+        // Walk agents. ADR-0037 D1: agent YAMLs are kind-discriminated
+        // top-level documents (apiVersion / kind: Agent / name / description)
+        // — the legacy `agent:` wrapper is gone. Validate headers, then
+        // ai.model, then input interpolations.
         foreach (var agentFile in agentFiles)
         {
             visitedFiles.Add(agentFile);
@@ -273,7 +276,7 @@ public static class PackageValidator
             try
             {
                 var deserializer = new DeserializerBuilder()
-                    .WithNamingConvention(UnderscoredNamingConvention.Instance)
+                    .WithNamingConvention(CamelCaseNamingConvention.Instance)
                     .IgnoreUnmatchedProperties()
                     .Build();
                 doc = deserializer.Deserialize<AgentDocument>(agentYaml);
@@ -289,26 +292,62 @@ public static class PackageValidator
 
             ValidateInputInterpolations(agentYaml, agentFile, declaredInputs, diagnostics);
 
-            if (doc?.Agent is null)
+            if (doc is null)
             {
-                if (doc is not null)
-                {
-                    diagnostics.Add(new PackageValidationDiagnostic(
-                        agentFile,
-                        PackageValidationSeverity.Error,
-                        "agent-missing-root",
-                        "Agent manifest is missing the required 'agent' root section."));
-                }
                 continue;
             }
 
-            if (string.IsNullOrWhiteSpace(doc.Agent.Ai?.Model))
+            // ADR-0037 D6: detect legacy `agent:` wrapper and surface a
+            // precise migration hint.
+            if (doc.LegacyAgentWrapper is not null)
+            {
+                diagnostics.Add(new PackageValidationDiagnostic(
+                    agentFile,
+                    PackageValidationSeverity.Error,
+                    "agent-legacy-wrapper",
+                    "LegacyArtefactWrapper: agent YAML wraps the body in an 'agent:' key. " +
+                    "ADR-0037 decision 1 — drop the wrapping 'agent:' key; hoist the body to the " +
+                    "top level with apiVersion: spring.voyage/v1, kind: Agent, name, description."));
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(doc.ApiVersion))
+            {
+                diagnostics.Add(new PackageValidationDiagnostic(
+                    agentFile,
+                    PackageValidationSeverity.Error,
+                    "agent-missing-apiversion",
+                    "MissingApiVersion: every artefact YAML declares apiVersion: spring.voyage/v1 (ADR-0037 decision 1)."));
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(doc.Kind))
+            {
+                diagnostics.Add(new PackageValidationDiagnostic(
+                    agentFile,
+                    PackageValidationSeverity.Error,
+                    "agent-missing-kind",
+                    "MissingKind: every artefact YAML declares kind: Agent (ADR-0037 decision 1)."));
+                continue;
+            }
+
+            if (!string.Equals(doc.Kind.Trim(), "Agent", StringComparison.Ordinal))
+            {
+                diagnostics.Add(new PackageValidationDiagnostic(
+                    agentFile,
+                    PackageValidationSeverity.Error,
+                    "agent-wrong-kind",
+                    $"Agent YAML declares kind: '{doc.Kind}' but expected 'Agent'."));
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(doc.Ai?.Model))
             {
                 diagnostics.Add(new PackageValidationDiagnostic(
                     agentFile,
                     PackageValidationSeverity.Error,
                     "agent-missing-model",
-                    $"agent '{doc.Agent.Id ?? doc.Agent.Name ?? "<unnamed>"}': ai.model is required."));
+                    $"agent '{doc.Id ?? doc.Name ?? "<unnamed>"}': ai.model is required."));
             }
         }
 
@@ -362,17 +401,35 @@ public static class PackageValidator
     }
 
     // ── local YAML shapes for tolerant agent parsing ──────────────────────
+    //
+    // ADR-0037 D1: agent YAMLs are kind-discriminated top-level documents
+    // (apiVersion / kind: Agent / name / description / id / ai / …). The
+    // wrapping `agent:` key from the pre-ADR-0037 grammar is captured
+    // separately so the validator can surface a precise
+    // LegacyArtefactWrapper migration hint.
 
     private sealed class AgentDocument
     {
-        public AgentDefinitionDoc? Agent { get; set; }
-    }
+        [YamlDotNet.Serialization.YamlMember(Alias = "apiVersion")]
+        public string? ApiVersion { get; set; }
 
-    private sealed class AgentDefinitionDoc
-    {
-        public string? Id { get; set; }
+        [YamlDotNet.Serialization.YamlMember(Alias = "kind")]
+        public string? Kind { get; set; }
+
+        [YamlDotNet.Serialization.YamlMember(Alias = "name")]
         public string? Name { get; set; }
+
+        [YamlDotNet.Serialization.YamlMember(Alias = "description")]
+        public string? Description { get; set; }
+
+        [YamlDotNet.Serialization.YamlMember(Alias = "id")]
+        public string? Id { get; set; }
+
+        [YamlDotNet.Serialization.YamlMember(Alias = "ai")]
         public AgentAiDoc? Ai { get; set; }
+
+        [YamlDotNet.Serialization.YamlMember(Alias = "agent")]
+        public object? LegacyAgentWrapper { get; set; }
     }
 
     private sealed class AgentAiDoc

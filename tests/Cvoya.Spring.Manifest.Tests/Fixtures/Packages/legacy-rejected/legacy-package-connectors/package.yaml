@@ -1,0 +1,9 @@
+apiVersion: spring.voyage/v1
+kind: Package
+name: legacy-package-connectors
+description: Pre-ADR-0037 package-level connectors: block that the parser must reject with LegacyPackageConnectorsField.
+version: 1.0.0
+connectors:
+  - type: github
+    required: true
+content: []
