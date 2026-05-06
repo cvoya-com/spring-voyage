@@ -29,6 +29,7 @@ import {
   EXECUTION_TOOL_KEYS,
 } from "@/lib/api/types";
 import { getToolRuntimeId, type ExecutionTool } from "@/lib/ai-models";
+import { loadImageHistory } from "@/lib/image-history";
 
 /**
  * #735: collapse the canonical provider string space
@@ -93,6 +94,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
   // whenever the server identity changes (keyed remount below).
   const [form, setForm] = useState<UnitExecutionResponse>({});
   const [seededFor, setSeededFor] = useState<string | null>(null);
+  const [imageHistory] = useState(() => loadImageHistory());
   const fingerprint = useMemo(
     () => JSON.stringify(persisted ?? null),
     [persisted],
@@ -268,8 +270,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
             <code>spring unit execution set</code>.
           </p>
 
-          {/* Image — plain text input (Shape 1). Autocomplete / registry
-              discovery are tracked follow-ups (#622, #623). */}
+          {/* Image — text input with built-in image suggestions (#622). */}
           <FieldRow
             label="Image"
             help="Default container image used to launch member agents. Individual agents can override this on their Execution panel."
@@ -278,12 +279,18 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
             }
             busy={setMutation.isPending}
           >
+            <datalist id="unit-execution-image-suggestions">
+              {imageHistory.map((ref) => (
+                <option key={ref} value={ref} />
+              ))}
+            </datalist>
             <Input
               value={form.image ?? ""}
               onChange={(e) =>
                 setField("image", e.target.value ? e.target.value : null)
               }
               placeholder="ghcr.io/... or localhost/spring-voyage-agent-claude-code:latest"
+              list={imageHistory.length > 0 ? "unit-execution-image-suggestions" : undefined}
               aria-label="Execution image"
               data-testid="execution-image-input"
             />
