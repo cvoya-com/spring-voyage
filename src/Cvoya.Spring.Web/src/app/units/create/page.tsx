@@ -68,7 +68,6 @@ import type {
   UnitConnectorBindingRequest,
   UnitStatus,
 } from "@/lib/api/types";
-import { EXECUTION_RUNTIMES } from "@/lib/api/types";
 import ValidationPanel from "@/components/units/detail/validation-panel";
 import {
   DEFAULT_EXECUTION_TOOL,
@@ -250,11 +249,10 @@ interface FormState {
   // #350: execution tool, hosting mode
   tool: ExecutionTool;
   hosting: HostingMode;
-  // #601: unit-level image + runtime defaults inherited by member
-  // agents. Empty strings mean "don't declare"; the wizard only PUTs
-  // through the execution endpoint when at least one is filled.
+  // #601: unit-level image default inherited by member agents. Empty
+  // string means "don't declare"; the wizard only PUTs through the
+  // execution endpoint when filled.
   image: string;
-  runtime: string;
   // Connector binding (#199) — optional, bundled into the create-unit call
   // so the unit and its connector binding are created atomically. `null`
   // connectorSlug means "skip this step". `connectorConfig` is the payload
@@ -426,7 +424,6 @@ function mergeSnapshotIntoForm(snap: WizardFormSnapshot): FormState {
     tool,
     hosting,
     image: snap.image,
-    runtime: snap.runtime,
     connectorSlug: snap.connectorSlug,
     connectorTypeId: snap.connectorTypeId,
     connectorConfig: snap.connectorConfig,
@@ -460,7 +457,6 @@ function extractWizardFormSnapshot(form: FormState): WizardFormSnapshot {
     tool: form.tool,
     hosting: form.hosting,
     image: form.image,
-    runtime: form.runtime,
     connectorSlug: form.connectorSlug,
     connectorTypeId: form.connectorTypeId,
     connectorConfig: form.connectorConfig,
@@ -488,7 +484,6 @@ const INITIAL_FORM: FormState = {
   hosting: DEFAULT_HOSTING_MODE,
   // #1508: pre-fill the base image so the field is never blank.
   image: BASE_IMAGE,
-  runtime: "",
   connectorSlug: null,
   connectorTypeId: null,
   connectorConfig: null,
@@ -1362,15 +1357,14 @@ export default function CreateUnitPage() {
       const req = buildScratchCreateRequest();
       const created = await api.createUnit(req);
       const image = form.image.trim();
-      const runtime = form.runtime.trim();
-      if (image || runtime) {
+      if (image) {
         try {
           // #1738: the wire shape carries `agent` (operator-chosen
           // runtime id), not `tool`. The wizard's internal `req.tool`
           // is the same id that maps onto the runtime registry.
           await api.setUnitExecution(created.name, {
             image: image || null,
-            runtime: runtime || null,
+            runtime: null,
             agent: req.tool ?? null,
             provider: req.provider ?? null,
             model: req.model ?? null,
@@ -2436,7 +2430,7 @@ export default function CreateUnitPage() {
       {step === 3 && form.source === "scratch" && (
         <Card>
           <CardHeader>
-            <CardTitle>Execution tool &amp; model</CardTitle>
+            <CardTitle>Agent Runtime &amp; Model</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {agentRuntimeCatalogIssue && (
@@ -2450,7 +2444,7 @@ export default function CreateUnitPage() {
               </div>
             )}
             <label className="block space-y-1">
-              <span className="text-sm text-muted-foreground">Execution tool</span>
+              <span className="text-sm text-muted-foreground">Agent Runtime</span>
               <select
                 value={form.tool}
                 onChange={(e) => {
@@ -2460,14 +2454,15 @@ export default function CreateUnitPage() {
                     form.provider,
                     agentRuntimes.length > 0 ? agentRuntimes : null,
                   );
-                  if (imageSource === "base" && runtimeImage) {
-                    setImageSource("applied");
-                    setForm((prev) => ({ ...prev, tool: nextTool, model: "", image: runtimeImage }));
-                  } else {
-                    setForm((prev) => ({ ...prev, tool: nextTool, model: "" }));
-                  }
+                  setImageSource(runtimeImage ? "applied" : "base");
+                  setForm((prev) => ({
+                    ...prev,
+                    tool: nextTool,
+                    model: "",
+                    image: runtimeImage ?? BASE_IMAGE,
+                  }));
                 }}
-                aria-label="Execution tool"
+                aria-label="Agent Runtime"
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {EXECUTION_TOOLS.map((t) => (
@@ -2487,12 +2482,13 @@ export default function CreateUnitPage() {
                       nextProvider,
                       agentRuntimes.length > 0 ? agentRuntimes : null,
                     );
-                    if (imageSource === "base" && runtimeImage) {
-                      setImageSource("applied");
-                      setForm((prev) => ({ ...prev, provider: nextProvider, model: "", image: runtimeImage }));
-                    } else {
-                      setForm((prev) => ({ ...prev, provider: nextProvider, model: "" }));
-                    }
+                    setImageSource(runtimeImage ? "applied" : "base");
+                    setForm((prev) => ({
+                      ...prev,
+                      provider: nextProvider,
+                      model: "",
+                      image: runtimeImage ?? BASE_IMAGE,
+                    }));
                   }}
                   aria-label="LLM provider"
                   disabled={springVoyageRuntimes.length === 0}
@@ -2591,20 +2587,6 @@ export default function CreateUnitPage() {
                   >
                     {HOSTING_MODES.map((m) => (
                       <option key={m.id} value={m.id}>{m.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-sm text-muted-foreground">Runtime (default)</span>
-                  <select
-                    value={form.runtime}
-                    onChange={(e) => update("runtime", e.target.value)}
-                    aria-label="Execution runtime"
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <option value="">(leave to default)</option>
-                    {EXECUTION_RUNTIMES.map((r) => (
-                      <option key={r} value={r}>{r}</option>
                     ))}
                   </select>
                 </label>

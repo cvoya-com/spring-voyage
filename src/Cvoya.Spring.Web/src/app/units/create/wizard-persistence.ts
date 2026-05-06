@@ -90,7 +90,6 @@ export interface WizardFormSnapshot {
   tool: string;
   hosting: string;
   image: string;
-  runtime: string;
   /** Catalog branch: the selected package name. */
   catalogPackageName: string | null;
   /** Catalog branch: input key/value pairs filled in by the operator. */
@@ -183,7 +182,6 @@ export function validateSnapshot(blob: unknown): WizardSnapshot | null {
     "tool",
     "hosting",
     "image",
-    "runtime",
   ];
   for (const key of requiredStrings) {
     if (typeof f[key] !== "string") return null;
@@ -242,7 +240,6 @@ export function validateSnapshot(blob: unknown): WizardSnapshot | null {
       tool: f.tool as string,
       hosting: f.hosting as string,
       image: f.image as string,
-      runtime: f.runtime as string,
       catalogPackageName: f.catalogPackageName as string | null,
       catalogInputs,
       connectorSlug: f.connectorSlug as string | null,
