@@ -166,7 +166,7 @@ public class PersistentAgentLifecycle(
             {
                 DaprAppId = daprAppId,
                 DaprAppPort = prep.A2APort,
-                DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedDaprAgentComponentsPath,
+                DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath,
             };
             var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
                 daprConfig, cancellationToken);

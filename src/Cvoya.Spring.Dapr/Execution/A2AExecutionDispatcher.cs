@@ -245,7 +245,7 @@ public class A2AExecutionDispatcher(
                 {
                     DaprAppId = daprAppId,
                     DaprAppPort = spec.A2APort,
-                    DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedDaprAgentComponentsPath,
+                    DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath,
                 };
 
                 var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
@@ -559,7 +559,7 @@ public class A2AExecutionDispatcher(
             {
                 DaprAppId = daprAppId,
                 DaprAppPort = spec.A2APort,
-                DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedDaprAgentComponentsPath,
+                DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath,
             };
             var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
                 daprConfig, cancellationToken);
