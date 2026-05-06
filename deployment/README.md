@@ -15,7 +15,7 @@ open-source single-host scenario.
 | `Dockerfile`             | Multi-stage platform image (.NET 10 API/Worker + Web + Dapr CLI). |
 | `Dockerfile.agent-base`  | A2A bridge sidecar base image (BYOI conformance path 1 — see [`docs/architecture/agent-runtime.md` § 7](../docs/architecture/agent-runtime.md#7-byoi-conformance-contract)). Published as `ghcr.io/cvoya-com/agent-base:<semver>` by `release-agent-base.yml`. |
 | `Dockerfile.agent.claude-code` | Claude Code CLI on top of `agent-base` (path 1 reference). Built locally as `localhost/spring-voyage-agent-claude-code:latest`. |
-| `Dockerfile.agent.dapr`  | Dapr Agent native A2A image (path 3). Built locally as `localhost/spring-voyage-agent-dapr:latest`. |
+| `Dockerfile.agent.dapr`  | Dapr Agent native A2A image (path 3). Built locally as `localhost/spring-voyage-agent:latest`. |
 | `build-agent-images.sh`  | Builds the three agent images above. Invoked by `deploy.sh build`. |
 | `build-sidecar.sh`       | Builds `ghcr.io/cvoya-com/agent-base:dev` from local sources. Used when iterating on the bridge sidecar without GHCR pull access. |
 | `Caddyfile`              | Single-host path-routed Caddy config (default).                   |
@@ -44,7 +44,7 @@ either reference it directly or layer extra tooling on top:
 | ------------------------------------------------------- | ---------------- | ---------- |
 | `ghcr.io/cvoya-com/agent-base:<semver>`                     | path 1 (bridge)  | Bring your own CLI; the bridge handles A2A. |
 | `localhost/spring-voyage-agent-claude-code:latest`      | path 1 (bridge)  | Claude Code CLI baked in; ready to dispatch. |
-| `localhost/spring-voyage-agent-dapr:latest`             | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
+| `localhost/spring-voyage-agent:latest`             | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<semver>` | path 1 (bridge) | OSS dogfooding SE team — .NET SDK, gh CLI, Playwright + browsers. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<semver>` | path 1 (bridge) | OSS dogfooding design team — Playwright Chromium, Mermaid CLI, ImageMagick. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:<semver>` | path 1 (bridge) | OSS dogfooding PM team — gh CLI, Mermaid CLI, markdownlint. |

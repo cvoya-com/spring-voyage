@@ -407,7 +407,7 @@ run_path2() {
 # enable this leg by default. tests/scripts/smoke-agent-images.sh shares
 # the same gate, so flipping it in one place flips it in both.
 run_path3_if_enabled() {
-    local image="localhost/spring-voyage-agent-dapr:${TAG}"
+    local image="localhost/spring-voyage-agent:${TAG}"
     if [[ "${SMOKE_DAPR:-0}" == "1" ]]; then
         local port name card
         port="$(free_port)"

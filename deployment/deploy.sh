@@ -789,7 +789,7 @@ cmd_build() {
     podman tag "localhost/spring-voyage-agent-claude-code:${SPRING_AGENT_TAG:-latest}" "${legacy_tag}"
 
     # Legacy dapr-agent reference. Same back-compat story.
-    local legacy_dapr_tag="${SPRING_VOYAGE_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}"
+    local legacy_dapr_tag="${SPRING_VOYAGE_AGENT_IMAGE:-localhost/spring-voyage-agent:latest}"
     log "tagging localhost/spring-voyage-agent:${SPRING_AGENT_TAG:-latest} as ${legacy_dapr_tag} (legacy)"
     podman tag "localhost/spring-voyage-agent:${SPRING_AGENT_TAG:-latest}" "${legacy_dapr_tag}"
 

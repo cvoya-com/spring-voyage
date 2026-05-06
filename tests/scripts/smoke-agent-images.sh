@@ -166,7 +166,7 @@ smoke_one() {
 }
 
 CLAUDE_IMAGE="localhost/spring-voyage-agent-claude-code:${TAG}"
-DAPR_IMAGE="localhost/spring-voyage-agent-dapr:${TAG}"
+SV_AGENT_IMAGE="localhost/spring-voyage-agent:${TAG}"
 
 # ---- 1. claude-code (path 1) --------------------------------------------
 # The image's ENTRYPOINT is the agent-base bridge. The bridge requires

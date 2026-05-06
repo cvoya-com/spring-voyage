@@ -215,7 +215,7 @@ jobs:
       # The build script tags:
       #   ghcr.io/cvoya-com/agent-base:<tag>              (ready to push)
       #   spring-voyage-agent-claude-code:<tag>            (local — re-tagged below)
-      #   spring-voyage-agent-dapr:<tag>                   (local — re-tagged below)
+      #   spring-voyage-agent:<tag>                   (local — re-tagged below)
       - name: Tag and push spring-agent (claude-code runtime)
         shell: bash
         env:
@@ -283,18 +283,18 @@ jobs:
           set -euo pipefail
           TARGET_BASE="ghcr.io/cvoya-com/agent-dapr"
 
-          docker tag "localhost/spring-voyage-agent-dapr:${RELEASE_VERSION}" \
+          docker tag "localhost/spring-voyage-agent:${RELEASE_VERSION}" \
             "${TARGET_BASE}:${RELEASE_VERSION}"
           docker push "${TARGET_BASE}:${RELEASE_VERSION}"
           echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
 
           if [[ "$IS_PRERELEASE" == "false" ]]; then
-            docker tag "localhost/spring-voyage-agent-dapr:${RELEASE_VERSION}" \
+            docker tag "localhost/spring-voyage-agent:${RELEASE_VERSION}" \
               "${TARGET_BASE}:${MAJOR_MINOR}"
             docker push "${TARGET_BASE}:${MAJOR_MINOR}"
             echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
 
-            docker tag "localhost/spring-voyage-agent-dapr:${RELEASE_VERSION}" \
+            docker tag "localhost/spring-voyage-agent:${RELEASE_VERSION}" \
               "${TARGET_BASE}:latest"
             docker push "${TARGET_BASE}:latest"
             echo "Pushed ${TARGET_BASE}:latest"

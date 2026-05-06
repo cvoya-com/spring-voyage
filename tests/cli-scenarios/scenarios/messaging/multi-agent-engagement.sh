@@ -23,7 +23,7 @@ fi
 unit="$(e2e::unit_name multi-agent)"
 agent_a="$(e2e::agent_name multi-agent-a)"
 agent_b="$(e2e::agent_name multi-agent-b)"
-image="${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-voyage-agent-dapr:latest}"
+image="${SPRING_VOYAGE_AGENT_IMAGE:-localhost/spring-voyage-agent:latest}"
 model="${SPRING_DAPR_AGENT_MODEL:-llama3.2:3b}"
 provider="${SPRING_DAPR_AGENT_PROVIDER:-ollama}"
 # Each agent is dispatched on its own thread so the actors don't share a

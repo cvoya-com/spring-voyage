@@ -29,7 +29,7 @@ fi
 
 unit="$(e2e::unit_name llm-spring-voyage-agent)"
 agent="$(e2e::agent_name llm-spring-voyage-agent)"
-image="${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-voyage-agent-dapr:latest}"
+image="${SPRING_VOYAGE_AGENT_IMAGE:-localhost/spring-voyage-agent:latest}"
 model="${SPRING_DAPR_AGENT_MODEL:-llama3.2:3b}"
 provider="${SPRING_DAPR_AGENT_PROVIDER:-ollama}"
 

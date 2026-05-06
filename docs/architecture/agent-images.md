@@ -7,7 +7,7 @@ Spring Voyage ships two classes of container image for running agents:
 | `agent-base` | `ghcr.io/cvoya-com/agent-base:latest` | BYOI minimal — the A2A sidecar bridge only. Operators layer their own CLI on top. |
 | `spring-voyage-agents` | `ghcr.io/cvoya-com/spring-voyage-agents:latest` | Omnibus default — all OSS runtime CLIs pre-installed. The wizard default. |
 
-Per-runtime images (`spring-voyage-agent-claude-code`, `spring-voyage-agent-dapr`) exist for single-runtime deployments or CI build verification and are not published to GHCR by default.
+Per-runtime images (`spring-voyage-agent-claude-code`, `spring-voyage-agent`) exist for single-runtime deployments or CI build verification and are not published to GHCR by default.
 
 ## agent-base (BYOI minimal)
 
@@ -76,7 +76,7 @@ Built by `deployment/build-agent-images.sh` for local dev and CI verification.
 | Image (local tag) | Source file | Tool kind |
 |-------------------|-------------|-----------|
 | `localhost/spring-voyage-agent-claude-code:dev` | `deployment/Dockerfile.agent.claude-code` | `claude-code-cli` |
-| `localhost/spring-voyage-agent-dapr:dev` | `deployment/Dockerfile.agent.dapr` | `spring-voyage-agent` (native A2A, Python) |
+| `localhost/spring-voyage-agent:dev` | `deployment/Dockerfile.agent.dapr` | `spring-voyage-agent` (native A2A, Python) |
 
 **When to use per-runtime images:**
 - Smaller attack surface / image size for deployments where only one CLI is needed.
