@@ -51,10 +51,22 @@ public record SecretsListResponse(IReadOnlyList<SecretMetadata> Secrets);
 /// this secret name to. No plaintext is written by the server when this
 /// mode is used.
 /// </param>
+/// <param name="Propagate">
+/// Whether this secret is inheritable by descendant scopes (#1741).
+/// Meaningful only at <see cref="SecretScope.Unit"/>: <c>true</c>
+/// (default) preserves the legacy parent → child unit / agent
+/// fall-through; <c>false</c> isolates the value to this exact unit.
+/// At <see cref="SecretScope.Tenant"/> the flag is always treated as
+/// inheriting (tenant defaults always propagate); at
+/// <see cref="SecretScope.Agent"/> there are no descendants so the
+/// flag has no effect. Omit (or send <c>null</c>) to use the default
+/// "inherit" semantics.
+/// </param>
 public record CreateSecretRequest(
     string Name,
     string? Value = null,
-    string? ExternalStoreKey = null);
+    string? ExternalStoreKey = null,
+    bool? Propagate = null);
 
 /// <summary>
 /// Response body returned by the pass-through and external-reference
@@ -85,9 +97,18 @@ public record CreateSecretResponse(
 /// </summary>
 /// <param name="Value">Replacement plaintext for pass-through rotation. Mutually exclusive with <paramref name="ExternalStoreKey"/>.</param>
 /// <param name="ExternalStoreKey">Replacement external-reference pointer. Mutually exclusive with <paramref name="Value"/>.</param>
+/// <param name="Propagate">
+/// Whether the rotated version is inheritable by descendant scopes
+/// (#1741). Same semantics as on
+/// <see cref="CreateSecretRequest"/>: meaningful at
+/// <see cref="SecretScope.Unit"/>; ignored at
+/// <see cref="SecretScope.Tenant"/> / <see cref="SecretScope.Agent"/>.
+/// Omit to use the default "inherit" behaviour.
+/// </param>
 public record RotateSecretRequest(
     string? Value = null,
-    string? ExternalStoreKey = null);
+    string? ExternalStoreKey = null,
+    bool? Propagate = null);
 
 /// <summary>
 /// Response body returned by the rotate endpoints (wave 7 A5). Echoes

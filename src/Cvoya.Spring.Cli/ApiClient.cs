@@ -1800,6 +1800,7 @@ public class SpringApiClient
         string name,
         string? value,
         string? externalStoreKey,
+        bool? propagate = null,
         CancellationToken ct = default)
     {
         var request = new CreateSecretRequest
@@ -1807,6 +1808,7 @@ public class SpringApiClient
             Name = name,
             Value = string.IsNullOrEmpty(value) ? null : value,
             ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
+            Propagate = propagate,
         };
         var result = await _client.Api.V1.Tenant.Units[unitId].Secrets.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
@@ -1850,6 +1852,38 @@ public class SpringApiClient
     }
 
     /// <summary>
+    /// Creates an agent-scoped secret (#1741). Same value/external-key
+    /// semantics as the unit variant. The propagate flag is accepted
+    /// for shape symmetry but has no effect at agent scope (agents have
+    /// no descendants).
+    /// </summary>
+    public async Task<CreateSecretResponse> CreateAgentSecretAsync(
+        string agentId,
+        string name,
+        string? value,
+        string? externalStoreKey,
+        CancellationToken ct = default)
+    {
+        var request = new CreateSecretRequest
+        {
+            Name = name,
+            Value = string.IsNullOrEmpty(value) ? null : value,
+            ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
+        };
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Secrets.PostAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty CreateSecret response for agent '{agentId}' / '{name}'.");
+    }
+
+    /// <summary>Lists agent-scoped secret metadata (#1741).</summary>
+    public async Task<IReadOnlyList<SecretMetadata>> ListAgentSecretsAsync(
+        string agentId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Secrets.GetAsync(cancellationToken: ct);
+        return result?.Secrets ?? new List<SecretMetadata>();
+    }
+
+    /// <summary>
     /// Rotates a unit-scoped secret by appending a new version. Exactly one
     /// of <paramref name="value"/> / <paramref name="externalStoreKey"/>
     /// must be supplied; origin can flip (pass-through ↔ external-ref) on
@@ -1860,6 +1894,29 @@ public class SpringApiClient
         string name,
         string? value,
         string? externalStoreKey,
+        bool? propagate = null,
+        CancellationToken ct = default)
+    {
+        var request = new RotateSecretRequest
+        {
+            Value = string.IsNullOrEmpty(value) ? null : value,
+            ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
+            Propagate = propagate,
+        };
+        var result = await _client.Api.V1.Tenant.Units[unitId].Secrets[name].PutAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty RotateSecret response for unit '{unitId}' / '{name}'.");
+    }
+
+    /// <summary>
+    /// Rotates an agent-scoped secret by appending a new version
+    /// (#1741). The propagate flag has no effect at agent scope.
+    /// </summary>
+    public async Task<RotateSecretResponse> RotateAgentSecretAsync(
+        string agentId,
+        string name,
+        string? value,
+        string? externalStoreKey,
         CancellationToken ct = default)
     {
         var request = new RotateSecretRequest
@@ -1867,10 +1924,37 @@ public class SpringApiClient
             Value = string.IsNullOrEmpty(value) ? null : value,
             ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
         };
-        var result = await _client.Api.V1.Tenant.Units[unitId].Secrets[name].PutAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Secrets[name].PutAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
-            $"Server returned an empty RotateSecret response for unit '{unitId}' / '{name}'.");
+            $"Server returned an empty RotateSecret response for agent '{agentId}' / '{name}'.");
     }
+
+    /// <summary>Lists retained versions for an agent-scoped secret (#1741).</summary>
+    public async Task<SecretVersionsListResponse> ListAgentSecretVersionsAsync(
+        string agentId, string name, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Secrets[name].Versions.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty versions response for agent '{agentId}' / '{name}'.");
+    }
+
+    /// <summary>Prunes older versions of an agent-scoped secret (#1741).</summary>
+    public async Task<PruneSecretResponse> PruneAgentSecretAsync(
+        string agentId, string name, int keep, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Secrets[name].Prune.PostAsync(
+            config =>
+            {
+                config.QueryParameters.Keep = keep;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty prune response for agent '{agentId}' / '{name}'.");
+    }
+
+    /// <summary>Deletes an agent-scoped secret (every version) (#1741).</summary>
+    public Task DeleteAgentSecretAsync(string agentId, string name, CancellationToken ct = default)
+        => _client.Api.V1.Tenant.Agents[agentId].Secrets[name].DeleteAsync(cancellationToken: ct);
 
     /// <summary>Rotates a tenant-scoped secret by appending a new version.</summary>
     public async Task<RotateSecretResponse> RotateTenantSecretAsync(

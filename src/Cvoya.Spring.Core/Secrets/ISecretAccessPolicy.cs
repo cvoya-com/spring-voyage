@@ -32,7 +32,8 @@ public interface ISecretAccessPolicy
     /// <param name="scope">The target secret scope.</param>
     /// <param name="ownerId">
     /// The scope-specific owner id: the unit Guid for
-    /// <see cref="SecretScope.Unit"/>; the tenant Guid for
+    /// <see cref="SecretScope.Unit"/>; the agent Guid for
+    /// <see cref="SecretScope.Agent"/>; the tenant Guid for
     /// <see cref="SecretScope.Tenant"/>; <c>null</c> for
     /// <see cref="SecretScope.Platform"/>.
     /// </param>

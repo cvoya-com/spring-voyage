@@ -404,7 +404,8 @@ public static class UnitCommand
                         credentialResolution.SecretName,
                         credentialResolution.Key,
                         externalStoreKey: null,
-                        ct);
+                        propagate: null,
+                        ct: ct);
                 }
                 catch (Exception ex)
                 {

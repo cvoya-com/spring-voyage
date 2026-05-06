@@ -1119,7 +1119,8 @@ public class SpringApiClientTests
             "openai-api-key",
             value: "sk-live-...",
             externalStoreKey: null,
-            TestContext.Current.CancellationToken);
+            propagate: null,
+            ct: TestContext.Current.CancellationToken);
 
         result.Name.ShouldBe("openai-api-key");
         handler.WasCalled.ShouldBeTrue();
@@ -1177,7 +1178,8 @@ public class SpringApiClientTests
             "openai-api-key",
             value: "sk-live-NEW...",
             externalStoreKey: null,
-            TestContext.Current.CancellationToken);
+            propagate: null,
+            ct: TestContext.Current.CancellationToken);
 
         result.Name.ShouldBe("openai-api-key");
         result.Version.ShouldBe(2);
@@ -1329,6 +1331,106 @@ public class SpringApiClientTests
 
         result.Summary!.Id.ShouldBe("c-1");
         result.Summary.Status.ShouldBe("closed");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    // --- #1741 — agent-scope secret CRUD + propagate flag ---
+
+    [Fact]
+    public async Task CreateAgentSecretAsync_PostsAgentScopedEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents/ada/secrets",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                """{"name":"anthropic-api-key","scope":"Agent","createdAt":"2026-05-01T00:00:00Z"}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("name").GetString().ShouldBe("anthropic-api-key");
+                json.GetProperty("value").GetString().ShouldBe("sk-ant-...");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.CreateAgentSecretAsync(
+            "ada",
+            "anthropic-api-key",
+            value: "sk-ant-...",
+            externalStoreKey: null,
+            ct: TestContext.Current.CancellationToken);
+
+        result.Name.ShouldBe("anthropic-api-key");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListAgentSecretsAsync_GetsAgentScopedEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents/ada/secrets",
+            expectedMethod: HttpMethod.Get,
+            responseBody:
+                """{"secrets":[{"name":"anthropic-api-key","scope":"Agent","createdAt":"2026-05-01T00:00:00Z"}]}""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListAgentSecretsAsync(
+            "ada", TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+        result[0].Name.ShouldBe("anthropic-api-key");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task DeleteAgentSecretAsync_CallsAgentScopedEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents/ada/secrets/anthropic-api-key",
+            expectedMethod: HttpMethod.Delete,
+            responseBody: "",
+            returnStatusCode: HttpStatusCode.NoContent);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.DeleteAgentSecretAsync(
+            "ada", "anthropic-api-key", TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task CreateUnitSecretAsync_PropagateFalse_SendsPropagateField()
+    {
+        // Pinned contract: when the operator passes --no-propagate at
+        // unit scope the wire body MUST carry `"propagate":false`
+        // verbatim so the server's Unit-scope branch persists the flag.
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/units/eng-team/secrets",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                """{"name":"github-token","scope":"Unit","createdAt":"2026-05-01T00:00:00Z"}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("propagate").GetBoolean().ShouldBeFalse();
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.CreateUnitSecretAsync(
+            "eng-team",
+            "github-token",
+            value: "ghp_x",
+            externalStoreKey: null,
+            propagate: false,
+            ct: TestContext.Current.CancellationToken);
+
         handler.WasCalled.ShouldBeTrue();
     }
 

@@ -18,8 +18,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// Maps the secret-CRUD endpoints for all three scopes:
-/// unit (<c>/api/v1/units/{id}/secrets</c>), tenant
+/// Maps the secret-CRUD endpoints for all four scopes:
+/// unit (<c>/api/v1/tenant/units/{id}/secrets</c>), agent
+/// (<c>/api/v1/tenant/agents/{agentId}/secrets</c>), tenant
 /// (<c>/api/v1/tenant/secrets</c>), and platform
 /// (<c>/api/v1/platform/secrets</c>).
 ///
@@ -140,6 +141,62 @@ public static class SecretEndpoints
         unitGroup.MapDelete("/{name}", DeleteUnitSecretAsync)
             .WithName("DeleteUnitSecret")
             .WithSummary("Delete a unit-scoped secret (all versions). Underlying plaintext is removed only for platform-owned versions; external references leave the external store key untouched.")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        // Agent-scope secret endpoints (#1741). Mirrors the unit-scoped
+        // CRUD shape exactly; the distinguishing detail is that
+        // SecretScope.Agent (#1737) sits at the top of the resolver chain
+        // (Agent → Unit → ParentUnit → Tenant) so per-agent overrides
+        // beat any inherited default. Same RBAC group as unit secrets.
+        var agentGroup = app.MapGroup("/api/v1/tenant/agents/{agentId}/secrets")
+            .WithTags("Secrets")
+            .RequireAuthorization(RolePolicies.TenantOperator);
+
+        agentGroup.MapGet("/", ListAgentSecretsAsync)
+            .WithName("ListAgentSecrets")
+            .WithSummary("List secret metadata for an agent. Never returns plaintext or store keys.")
+            .Produces<SecretsListResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        agentGroup.MapPost("/", CreateAgentSecretAsync)
+            .WithName("CreateAgentSecret")
+            .WithSummary("Register an agent-scoped secret. Provide exactly one of 'value' or 'externalStoreKey'. The 'propagate' flag has no effect at agent scope (agents have no descendants).")
+            .Produces<CreateSecretResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
+
+        agentGroup.MapPut("/{name}", RotateAgentSecretAsync)
+            .WithName("RotateAgentSecret")
+            .WithSummary("Rotate an agent-scoped secret by appending a new version. Returns the new version number.")
+            .Produces<RotateSecretResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        agentGroup.MapGet("/{name}/versions", ListAgentSecretVersionsAsync)
+            .WithName("ListAgentSecretVersions")
+            .WithSummary("List retained versions for an agent-scoped secret. Metadata only; never returns plaintext or store keys.")
+            .Produces<SecretVersionsListResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        agentGroup.MapPost("/{name}/prune", PruneAgentSecretAsync)
+            .WithName("PruneAgentSecret")
+            .WithSummary("Prune older versions of an agent-scoped secret, retaining the N most-recent. 'keep' must be >= 1; the current version is always retained.")
+            .Produces<PruneSecretResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        agentGroup.MapDelete("/{name}", DeleteAgentSecretAsync)
+            .WithName("DeleteAgentSecret")
+            .WithSummary("Delete an agent-scoped secret (all versions). Underlying plaintext is removed only for platform-owned versions; external references leave the external store key untouched.")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -429,6 +486,190 @@ public static class SecretEndpoints
         // Use the stable ActorId (UUID) as the secret owner key (#1488).
         return await DeleteSecretAsync(
             SecretScope.Unit, entry.ActorId, name, store, registry, loggerFactory, cancellationToken);
+    }
+
+    // ------------------------------------------------------------------
+    // Agent-scoped handlers (#1741)
+    // ------------------------------------------------------------------
+    //
+    // Agent secrets sit at the top of the resolver chain (Agent → Unit
+    // → ParentUnit → Tenant — see #1737 / LlmCredentialResolver) so a
+    // per-agent override beats every inherited default. Cross-tenant
+    // agent ids are indistinguishable from missing ids: SpringDbContext
+    // applies a tenant-scoped global query filter to AgentDefinitions,
+    // so directoryService.ResolveAsync returns null when the id resolves
+    // outside the caller's tenant. The 404 we surface here therefore
+    // doubles as the "not your agent" 403, matching the unit-scoped
+    // pattern above (#1488 history). This is intentional — leaking the
+    // existence of someone else's agent via a 403 / 404 distinction
+    // would be a multi-tenant info leak.
+
+    private static async Task<IResult> ListAgentSecretsAsync(
+        string agentId,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        [FromServices] SpringDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(Address.For("agent", agentId), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Agent '{agentId}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.List, SecretScope.Agent, entry.ActorId, cancellationToken))
+        {
+            return Forbidden(SecretScope.Agent, SecretAccessAction.List);
+        }
+
+        var metadata = await ListMetadataAsync(registry, db, SecretScope.Agent, entry.ActorId, cancellationToken);
+        return Results.Ok(new SecretsListResponse(metadata));
+    }
+
+    private static async Task<IResult> CreateAgentSecretAsync(
+        string agentId,
+        CreateSecretRequest request,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] ISecretStore store,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        [FromServices] SpringDbContext db,
+        [FromServices] IOptions<SecretsOptions> options,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(Address.For("agent", agentId), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Agent '{agentId}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.Create, SecretScope.Agent, entry.ActorId, cancellationToken))
+        {
+            return Forbidden(SecretScope.Agent, SecretAccessAction.Create);
+        }
+
+        var validationError = ValidateCreateRequest(request, options.Value);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        // Use the stable ActorId (UUID) as the secret owner key.
+        // Pass agentId as locationOwnerId so the 201 Location header
+        // contains the URL form the operator used (mirrors unit pattern).
+        return await CreateSecretAsync(
+            SecretScope.Agent, entry.ActorId, request, store, registry, db, options.Value, cancellationToken,
+            locationOwnerId: agentId);
+    }
+
+    private static async Task<IResult> RotateAgentSecretAsync(
+        string agentId,
+        string name,
+        RotateSecretRequest request,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] ISecretStore store,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        [FromServices] IOptions<SecretsOptions> options,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(Address.For("agent", agentId), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Agent '{agentId}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.Rotate, SecretScope.Agent, entry.ActorId, cancellationToken))
+        {
+            return Forbidden(SecretScope.Agent, SecretAccessAction.Rotate);
+        }
+
+        return await RotateSecretAsync(
+            SecretScope.Agent, entry.ActorId, name, request, store, registry, options.Value, cancellationToken);
+    }
+
+    private static async Task<IResult> ListAgentSecretVersionsAsync(
+        string agentId,
+        string name,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(Address.For("agent", agentId), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Agent '{agentId}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.List, SecretScope.Agent, entry.ActorId, cancellationToken))
+        {
+            return Forbidden(SecretScope.Agent, SecretAccessAction.List);
+        }
+
+        return await ListVersionsAsync(SecretScope.Agent, entry.ActorId, name, registry, cancellationToken);
+    }
+
+    private static async Task<IResult> PruneAgentSecretAsync(
+        string agentId,
+        string name,
+        int? keep,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] ISecretStore store,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(Address.For("agent", agentId), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Agent '{agentId}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.Prune, SecretScope.Agent, entry.ActorId, cancellationToken))
+        {
+            return Forbidden(SecretScope.Agent, SecretAccessAction.Prune);
+        }
+
+        return await PruneSecretAsync(SecretScope.Agent, entry.ActorId, name, keep, store, registry, cancellationToken);
+    }
+
+    private static async Task<IResult> DeleteAgentSecretAsync(
+        string agentId,
+        string name,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] ISecretStore store,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        [FromServices] ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(Address.For("agent", agentId), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Agent '{agentId}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.Delete, SecretScope.Agent, entry.ActorId, cancellationToken))
+        {
+            return Forbidden(SecretScope.Agent, SecretAccessAction.Delete);
+        }
+
+        return await DeleteSecretAsync(
+            SecretScope.Agent, entry.ActorId, name, store, registry, loggerFactory, cancellationToken);
     }
 
     // ------------------------------------------------------------------
@@ -778,6 +1019,16 @@ public static class SecretEndpoints
             // place. The old-slot delete delegate is retained on the
             // interface for compatibility but is never invoked by the
             // registry — we pass null so there is no ambiguity.
+            //
+            // Propagate flag (#1741): rotation carries the propagate
+            // value forward from the latest row (see EfSecretRegistry).
+            // Operators who want to flip propagation on a unit-scoped
+            // secret should DELETE + POST instead of PUT — rotate is
+            // a value/origin transition, not a structural reshape.
+            // Any value supplied in `request.Propagate` is therefore
+            // accepted for forward-compat but does NOT change the
+            // stored flag on this version. Document this behaviour in
+            // the OpenAPI summary on the field.
             rotation = await registry.RotateAsync(
                 secretRef,
                 newStoreKey,
@@ -952,7 +1203,17 @@ public static class SecretEndpoints
 
         try
         {
-            await registry.RegisterAsync(secretRef, storeKey, origin, cancellationToken);
+            // The per-secret `propagate` flag (#1737 / #1741) only
+            // affects descendant inheritance for unit-scoped entries.
+            // Tenant-scoped entries always propagate (resolver fall-
+            // through is the whole point of tenant defaults); agent-
+            // scoped entries have no descendants. We therefore ignore
+            // the request flag at non-unit scopes and pass `true` so
+            // the registry stays internally consistent.
+            var propagate = scope == SecretScope.Unit
+                ? request.Propagate ?? true
+                : true;
+            await registry.RegisterAsync(secretRef, storeKey, origin, propagate, cancellationToken);
         }
         catch
         {
@@ -1099,6 +1360,7 @@ public static class SecretEndpoints
     private static string BuildResourceLocation(SecretScope scope, string ownerId, string name) => scope switch
     {
         SecretScope.Unit => $"/api/v1/tenant/units/{ownerId}/secrets/{name}",
+        SecretScope.Agent => $"/api/v1/tenant/agents/{ownerId}/secrets/{name}",
         SecretScope.Tenant => $"/api/v1/tenant/secrets/{name}",
         SecretScope.Platform => $"/api/v1/platform/secrets/{name}",
         _ => $"/api/v1/secrets/{name}",

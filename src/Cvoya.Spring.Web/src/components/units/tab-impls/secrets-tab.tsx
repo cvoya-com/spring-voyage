@@ -55,6 +55,10 @@ export function SecretsTab({ unitId }: SecretsTabProps) {
   const [newName, setNewName] = useState("");
   const [newValue, setNewValue] = useState("");
   const [newExternalKey, setNewExternalKey] = useState("");
+  // Per-secret propagate flag (#1741). Default true preserves the
+  // legacy parent → child unit / agent fall-through; toggle off to
+  // isolate the value to this exact unit.
+  const [newPropagate, setNewPropagate] = useState<boolean>(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -104,6 +108,7 @@ export function SecretsTab({ unitId }: SecretsTabProps) {
     setNewName("");
     setNewValue("");
     setNewExternalKey("");
+    setNewPropagate(true);
     setSubmitError(null);
   };
 
@@ -131,6 +136,10 @@ export function SecretsTab({ unitId }: SecretsTabProps) {
         value: addMode === "value" ? newValue : undefined,
         externalStoreKey:
           addMode === "externalStoreKey" ? newExternalKey.trim() : undefined,
+        // Only send `propagate` when the operator explicitly opts out
+        // of inheritance — sending `true` is redundant (server default
+        // is true) and inflates the request body. #1741.
+        propagate: newPropagate ? undefined : false,
       });
       toast({ title: "Secret added", description: newName.trim() });
       resetForm();
@@ -336,6 +345,25 @@ export function SecretsTab({ unitId }: SecretsTabProps) {
               />
             </label>
           )}
+
+          <label className="flex items-start gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={newPropagate}
+              onChange={(e) => setNewPropagate(e.target.checked)}
+              className="mt-0.5"
+              data-testid="unit-secret-propagate-toggle"
+            />
+            <span className="text-muted-foreground">
+              <span className="font-medium text-foreground">
+                Propagate to descendants
+              </span>{" "}
+              (#1741). When checked, child units and agents inherit this
+              value through the resolver chain. Uncheck to isolate the
+              value to this exact unit — useful for parent-only overrides
+              that must not leak into nested scopes.
+            </span>
+          </label>
 
           {submitError && (
             <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-destructive">
