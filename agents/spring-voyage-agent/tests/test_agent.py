@@ -242,6 +242,10 @@ class TestInitializeHook:
     async def test_builds_runtime_without_mcp(self, monkeypatch):
         monkeypatch.delenv("SPRING_MCP_ENDPOINT", raising=False)
         monkeypatch.delenv("SPRING_AGENT_TOKEN", raising=False)
+        # #1714: SPRING_LLM_COMPONENT is now required — the launcher always
+        # pins `conversation-<provider>` and the silent `llm-provider` default
+        # was deliberately removed (it masked provider-mismatch bugs).
+        monkeypatch.setenv("SPRING_LLM_COMPONENT", "conversation-ollama")
 
         ctx = _make_context()
 
@@ -251,12 +255,13 @@ class TestInitializeHook:
 
         assert agent_module._agent_build is not None
         assert agent_module._agent_build.tools == []
-        # Component name defaults to llm-provider.
-        mock_client_cls.assert_called_once_with(component_name="llm-provider")
+        # Component name comes from SPRING_LLM_COMPONENT (no default fallback).
+        mock_client_cls.assert_called_once_with(component_name="conversation-ollama")
 
     @pytest.mark.asyncio
     async def test_system_prompt_from_env(self, monkeypatch):
         monkeypatch.setenv("SPRING_SYSTEM_PROMPT", "Be concise.")
+        monkeypatch.setenv("SPRING_LLM_COMPONENT", "conversation-ollama")
 
         ctx = _make_context()
 
@@ -270,6 +275,7 @@ class TestInitializeHook:
     @pytest.mark.asyncio
     async def test_system_prompt_from_agent_definition(self, monkeypatch):
         monkeypatch.delenv("SPRING_SYSTEM_PROMPT", raising=False)
+        monkeypatch.setenv("SPRING_LLM_COMPONENT", "conversation-ollama")
 
         ctx = _make_context(agent_definition={"instructions": "From definition."})
 
@@ -294,6 +300,7 @@ class TestInitializeHook:
 
     @pytest.mark.asyncio
     async def test_builds_with_mcp_tools(self, monkeypatch):
+        monkeypatch.setenv("SPRING_LLM_COMPONENT", "conversation-ollama")
         mock_tool_defs = [
             {
                 "name": "list-files",

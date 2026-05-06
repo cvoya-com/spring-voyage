@@ -1,7 +1,10 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: llm-provider
+  # #1714 step 4: renamed from `llm-provider` to `conversation-openai`,
+  # mirroring the canonical platform path under
+  # dapr/components/delegated-spring-voyage-agent/.
+  name: conversation-openai
 spec:
   type: conversation.openai
   version: v1
@@ -12,3 +15,5 @@ spec:
       key: OPENAI_API_KEY
   - name: model
     value: "${SPRING_MODEL:-gpt-4o}"
+auth:
+  secretStore: secretstore

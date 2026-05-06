@@ -35,8 +35,13 @@ deployments:
                           The actual Dapr Conversation component name is
                           ``llm-provider`` by convention (overridable via
                           SPRING_LLM_COMPONENT).
-  SPRING_LLM_COMPONENT  — Optional override for the Dapr Conversation
-                          component name (default: ``llm-provider``).
+  SPRING_LLM_COMPONENT  — Required: name of the Dapr Conversation
+                          component to dial. The Spring Voyage launcher
+                          sets this to ``conversation-<provider>`` on
+                          every dispatch (``conversation-anthropic``,
+                          ``conversation-openai``, ``conversation-google``,
+                          ``conversation-ollama``). Missing values raise
+                          at ``initialize()`` (#1714).
   SPRING_SYSTEM_PROMPT  — System prompt assembled by the platform
                           (optional; falls back to
                           agent_definition.instructions if unset).
@@ -79,7 +84,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("dapr-agent")
 
-DEFAULT_LLM_COMPONENT = "llm-provider"
+# #1714 step 5: SPRING_LLM_COMPONENT is set on every dispatch by the
+# Spring Voyage launcher (SpringVoyageAgentLauncher) — there is no silent
+# fallback. The legacy "llm-provider" default disappeared along with the
+# `metadata.name: llm-provider` Conversation YAMLs, which were renamed
+# per-provider (conversation-anthropic, conversation-openai, etc.).
 DEFAULT_MAX_STEPS = 12
 
 # Module-level cache populated by initialize(); on_message reads it.
@@ -117,7 +126,20 @@ async def initialize(context: IAgentContext) -> None:
 
     model = os.environ.get("SPRING_MODEL", "llama3.2:3b")
     provider = os.environ.get("SPRING_LLM_PROVIDER", "ollama")
-    component_name = os.environ.get("SPRING_LLM_COMPONENT", DEFAULT_LLM_COMPONENT)
+    component_name = os.environ.get("SPRING_LLM_COMPONENT")
+    if not component_name:
+        # #1714 step 5: the launcher always sets SPRING_LLM_COMPONENT to
+        # `conversation-<provider>` so the agent dials the right Dapr
+        # Conversation YAML. A missing value here means a misconfigured
+        # dispatch — fail loudly instead of silently routing to a default
+        # component (the previous "llm-provider" fallback masked
+        # provider-mismatch bugs that surfaced as a wrong-model response).
+        raise RuntimeError(
+            "SPRING_LLM_COMPONENT is not set; the dispatcher must pin a "
+            "Dapr Conversation component name (typically "
+            "`conversation-<provider>`). This is a launcher bug — "
+            "credentials and component selection are paired in #1714."
+        )
 
     llm_client = DaprChatClient(component_name=component_name)
     tools: list[AgentTool] = []

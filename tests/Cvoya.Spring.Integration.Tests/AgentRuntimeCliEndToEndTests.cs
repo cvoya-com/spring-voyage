@@ -440,6 +440,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         public AgentRuntimeCredentialSchema CredentialSchema { get; } =
             new(AgentRuntimeCredentialKind.None, DisplayHint: null);
         public string CredentialSecretName => "";
+        public string CredentialEnvVar => "";
         public IReadOnlyList<ModelDescriptor> DefaultModels { get; } =
             new[] { new ModelDescriptor("mock-model", "Mock Model", ContextWindow: null) };
         public string DefaultImage => "mock-image:latest";

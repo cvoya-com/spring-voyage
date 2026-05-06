@@ -65,9 +65,19 @@ public sealed class LlmCredentialResolver : ILlmCredentialResolver
     /// <inheritdoc />
     public async Task<LlmCredentialResolution> ResolveAsync(
         string providerId,
+        Guid? agentId,
         Guid? unitId,
         CancellationToken cancellationToken = default)
     {
+        // #1714 step 0: agentId is accepted today so launchers and the
+        // system-status endpoint can pass it through without API churn
+        // when the agent-scope storage tier (#1737) lands. The OSS
+        // default routes resolution through the existing Unit→Tenant
+        // chain; the private cloud overlay or a future Agent scope
+        // override on top of this resolver can layer agent-scope
+        // resolution before falling through here.
+        _ = agentId;
+
         var secretName = ResolveSecretName(providerId);
         if (string.IsNullOrEmpty(secretName))
         {

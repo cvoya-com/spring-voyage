@@ -1,0 +1,22 @@
+# Dapr Conversation → Google AI (Gemini) API. The Spring Voyage launcher
+# pins this component by name via SPRING_LLM_COMPONENT=conversation-google
+# whenever a unit is configured with `agent: spring-voyage, provider: google`.
+#
+# Credential injection mirrors the Anthropic component: the launcher sets
+# GOOGLE_API_KEY on the agent app, ContainerLifecycleManager propagates it
+# into the daprd sidecar's env, and secretstores.local.env satisfies the
+# secretKeyRef below.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: conversation-google
+spec:
+  type: conversation.googleai
+  version: v1
+  metadata:
+    - name: key
+      secretKeyRef:
+        name: GOOGLE_API_KEY
+        key: GOOGLE_API_KEY
+auth:
+  secretStore: secretstore

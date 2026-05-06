@@ -5,8 +5,11 @@ namespace Cvoya.Spring.Dapr.Execution;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -26,8 +29,14 @@ using Microsoft.Extensions.Logging;
 /// surfaces the assembled prompt as <see cref="AgentLaunchSpec.StdinPayload"/>
 /// so PR 5 can flow it through the bridge to <c>claude</c>'s stdin.
 /// </summary>
-public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
+public class ClaudeCodeLauncher(
+    IAgentRuntimeRegistry runtimeRegistry,
+    IServiceScopeFactory scopeFactory,
+    ILoggerFactory loggerFactory) : IAgentToolLauncher
 {
+    /// <summary>Runtime id whose credential this launcher injects.</summary>
+    internal const string ClaudeRuntimeId = "claude";
+
     internal const string WorkspaceMountPath = "/workspace";
 
     /// <summary>
@@ -73,7 +82,7 @@ public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLaunch
     public string ToolKind => "claude-code-cli";
 
     /// <inheritdoc />
-    public Task<AgentLaunchSpec> PrepareAsync(
+    public async Task<AgentLaunchSpec> PrepareAsync(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
@@ -124,7 +133,16 @@ public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLaunch
             [AgentVolumeManager.WorkspacePathEnvVar] = AgentVolumeManager.WorkspaceMountPath,
         };
 
-        return Task.FromResult(new AgentLaunchSpec(
+        // #1714 step 2: inject the Claude OAuth token into
+        // CLAUDE_CODE_OAUTH_TOKEN. The Claude agent runtime is OAuth-only
+        // (the project does not run `claude --bare`) — API keys are
+        // rejected pre-flight with operator guidance pointing at
+        // `claude setup-token` or the Spring Voyage runtime. ANTHROPIC_API_KEY
+        // is NEVER injected by this launcher; that env var only flows out
+        // of the Spring Voyage launcher when `provider: anthropic`.
+        await ResolveRuntimeCredentialAsync(context, envVars, cancellationToken);
+
+        return new AgentLaunchSpec(
             WorkspaceFiles: workspaceFiles,
             EnvironmentVariables: envVars,
             WorkspaceMountPath: WorkspaceMountPath,
@@ -136,6 +154,65 @@ public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLaunch
             // (PR 5) will pipe this to `claude`'s stdin alongside the per-
             // message user text. Populated here so PR 5 can wire it up
             // without touching the launcher contract again.
-            StdinPayload: context.Prompt));
+            StdinPayload: context.Prompt);
+    }
+
+    private async Task ResolveRuntimeCredentialAsync(
+        AgentLaunchContext context,
+        IDictionary<string, string> envVars,
+        CancellationToken cancellationToken)
+    {
+        var runtime = runtimeRegistry.Get(ClaudeRuntimeId)
+            ?? throw new SpringException(
+                $"Claude agent runtime is not registered. Install the Cvoya.Spring.AgentRuntimes.Claude package " +
+                $"or remove `agent: {ClaudeRuntimeId}` from this unit's manifest.");
+
+        Guid? agentGuid = Guid.TryParse(context.AgentId, out var parsedAgentId)
+            ? parsedAgentId
+            : null;
+        Guid? unitGuid = Guid.TryParse(context.UnitId, out var parsedUnitId)
+            ? parsedUnitId
+            : null;
+
+        // Per-call scope so the scoped resolver works from this singleton.
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var credentialResolver = scope.ServiceProvider
+            .GetRequiredService<ILlmCredentialResolver>();
+        var resolution = await credentialResolver.ResolveAsync(
+            ClaudeRuntimeId, agentGuid, unitGuid, cancellationToken);
+
+        if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
+            || string.IsNullOrEmpty(resolution.Value))
+        {
+            throw new SpringException(
+                $"Claude agent runtime requires secret '{resolution.SecretName}' but no value resolved at " +
+                $"agent, unit, parent-unit chain, or tenant scope. " +
+                $"Generate an OAuth token via `claude setup-token` and store it under '{resolution.SecretName}', " +
+                $"or configure via the Tenant defaults panel.");
+        }
+
+        // Strict per-path acceptance (#1714): the Claude CLI dispatch path
+        // is OAuth-only. Reject API keys with operator guidance — they are
+        // usable on this project only via `agent: spring-voyage, provider:
+        // anthropic` (which routes through Dapr Conversation REST and
+        // accepts API keys exclusively).
+        if (!runtime.IsCredentialFormatAccepted(resolution.Value!, CredentialDispatchPath.AgentRuntime))
+        {
+            throw new SpringException(
+                $"Claude agent runtime requires an OAuth token (sk-ant-oat…) generated by `claude setup-token`. " +
+                $"The configured '{resolution.SecretName}' value at scope '{resolution.Source}' is not in OAuth shape. " +
+                $"Either regenerate via `claude setup-token` and update the secret, or switch this agent to " +
+                $"`agent: spring-voyage, provider: anthropic` (which accepts API keys via the Dapr Conversation REST path).");
+        }
+
+        // #1714 step 2: inject the OAuth token under the runtime's declared
+        // env-var name (CLAUDE_CODE_OAUTH_TOKEN). The launcher reads the
+        // env-var name from the runtime so the binding lives next to the
+        // runtime plugin rather than duplicated here.
+        envVars[runtime.CredentialEnvVar] = resolution.Value!;
+
+        _logger.LogInformation(
+            "Claude credential resolved from {Source} into {EnvVar} for agent {AgentId}",
+            resolution.Source, runtime.CredentialEnvVar, context.AgentId);
     }
 }

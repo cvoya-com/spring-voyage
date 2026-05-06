@@ -73,14 +73,22 @@ public class ClaudeAgentRuntimeTests
     }
 
     [Fact]
-    public void GetProbeSteps_ApiKey_PopulatesAnthropicApiKeyEnvVar()
+    public void GetProbeSteps_AlwaysPopulatesOAuthEnvVar_BecauseAgentRuntimeIsOAuthOnly()
     {
+        // #1714: the Claude agent runtime is OAuth-only on the
+        // CredentialDispatchPath.AgentRuntime path. IsCredentialFormatAccepted
+        // rejects API keys pre-flight so they never reach the probe in
+        // production. The probe step is still emitted with the credential
+        // injected under CLAUDE_CODE_OAUTH_TOKEN — the CLI will reject it
+        // and the probe interpreter maps that to CredentialInvalid /
+        // CredentialFormatRejected. ANTHROPIC_API_KEY is NEVER populated by
+        // the Claude probe, regardless of the credential's shape.
         var runtime = CreateRuntime(out _);
         var steps = runtime.GetProbeSteps(StandardConfig(), credential: "sk-ant-api03-example");
 
         var credentialStep = steps.Single(s => s.Step == UnitValidationStep.ValidatingCredential);
-        credentialStep.Env.ShouldContainKeyAndValue("ANTHROPIC_API_KEY", "sk-ant-api03-example");
-        credentialStep.Env.ShouldNotContainKey("CLAUDE_CODE_OAUTH_TOKEN");
+        credentialStep.Env.ShouldContainKeyAndValue("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-api03-example");
+        credentialStep.Env.ShouldNotContainKey("ANTHROPIC_API_KEY");
     }
 
     [Fact]
@@ -272,12 +280,16 @@ public class ClaudeAgentRuntimeTests
     // --- IsCredentialFormatAccepted (#1003) ---
 
     [Fact]
-    public void IsCredentialFormatAccepted_ApiKey_AcceptedOnBothPaths()
+    public void IsCredentialFormatAccepted_ApiKey_AcceptedOnRest_RejectedOnAgentRuntime()
     {
+        // #1714: strict per-path acceptance — Anthropic Platform API keys
+        // (sk-ant-api…) are accepted only on the REST path. The Claude
+        // agent-runtime path is OAuth-only (the project never runs
+        // `claude --bare`).
         var runtime = CreateRuntime(out _);
 
         runtime.IsCredentialFormatAccepted("sk-ant-api03-key", CredentialDispatchPath.Rest).ShouldBeTrue();
-        runtime.IsCredentialFormatAccepted("sk-ant-api03-key", CredentialDispatchPath.AgentRuntime).ShouldBeTrue();
+        runtime.IsCredentialFormatAccepted("sk-ant-api03-key", CredentialDispatchPath.AgentRuntime).ShouldBeFalse();
     }
 
     [Fact]

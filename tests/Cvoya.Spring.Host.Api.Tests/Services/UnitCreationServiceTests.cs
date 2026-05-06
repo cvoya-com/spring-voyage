@@ -482,7 +482,7 @@ public class UnitCreationServiceTests
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
         fixture.CredentialResolver
             .ResolveAsync(
-                Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+                Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new Cvoya.Spring.Core.Execution.LlmCredentialResolution(
                 Value: "sk-live",
                 Source: Cvoya.Spring.Core.Execution.LlmCredentialSource.Tenant,
@@ -517,7 +517,7 @@ public class UnitCreationServiceTests
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
         fixture.CredentialResolver
             .ResolveAsync(
-                Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+                Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new Cvoya.Spring.Core.Execution.LlmCredentialResolution(
                 Value: null,
                 Source: Cvoya.Spring.Core.Execution.LlmCredentialSource.NotFound,

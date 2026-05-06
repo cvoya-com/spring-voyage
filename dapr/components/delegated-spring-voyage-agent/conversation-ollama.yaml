@@ -19,7 +19,11 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: llm-provider
+  # #1714 step 4: renamed from `llm-provider` to `conversation-ollama` so
+  # SPRING_LLM_COMPONENT=conversation-ollama (set by the Spring Voyage
+  # launcher when `provider: ollama`) resolves consistently with the
+  # other per-provider conversation YAMLs (anthropic / openai / google).
+  name: conversation-ollama
 spec:
   type: conversation.openai
   version: v1

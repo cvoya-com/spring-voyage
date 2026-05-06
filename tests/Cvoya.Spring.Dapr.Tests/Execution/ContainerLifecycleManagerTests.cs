@@ -262,6 +262,78 @@ public class ContainerLifecycleManagerTests
         launchedConfig.AdditionalNetworks!.Count(n => n == ContainerConfigBuilder.TenantNetworkName).ShouldBe(1);
     }
 
+    [Fact]
+    public async Task LaunchWithSidecarAsync_PropagatesProviderCredentialEnvVars_IntoSidecarConfig()
+    {
+        // #1714 step 3: secretstores.local.env reads from the daprd
+        // sidecar's process env. The lifecycle manager must filter the
+        // agent app's env vars down to the credential names and feed
+        // them into DaprSidecarConfig.EnvironmentVariables so the
+        // sidecar's secret store can satisfy conversation-*.yaml's
+        // secretKeyRef entries.
+        DaprSidecarConfig? capturedSidecarConfig = null;
+        _sidecarManager.StartSidecarAsync(
+                Arg.Do<DaprSidecarConfig>(c => capturedSidecarConfig = c),
+                Arg.Any<CancellationToken>())
+            .Returns(new DaprSidecarInfo("sidecar-1", 3500, 50001, "spring-net-test"));
+        _sidecarManager.WaitForHealthyAsync(Arg.Any<DaprSidecarInfo>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(new ContainerResult("app-container", 0, string.Empty, string.Empty));
+
+        var input = new ContainerConfig(
+            Image: "agent:v1",
+            DaprEnabled: true,
+            EnvironmentVariables: new Dictionary<string, string>
+            {
+                ["ANTHROPIC_API_KEY"] = "sk-ant-api-fake",
+                ["SPRING_LLM_COMPONENT"] = "conversation-anthropic",
+                // Non-credential env vars should NOT propagate to the sidecar.
+                ["SPRING_THREAD_ID"] = "conv-1",
+            });
+
+        await _manager.LaunchWithSidecarAsync(input, TestContext.Current.CancellationToken);
+
+        capturedSidecarConfig.ShouldNotBeNull();
+        capturedSidecarConfig!.EnvironmentVariables.ShouldNotBeNull();
+        capturedSidecarConfig.EnvironmentVariables!["ANTHROPIC_API_KEY"].ShouldBe("sk-ant-api-fake");
+        // Only credential names propagate — the SPRING_* vars stay on the app container.
+        capturedSidecarConfig.EnvironmentVariables.ShouldNotContainKey("SPRING_LLM_COMPONENT");
+        capturedSidecarConfig.EnvironmentVariables.ShouldNotContainKey("SPRING_THREAD_ID");
+    }
+
+    [Fact]
+    public async Task LaunchWithSidecarAsync_NoCredentialEnvVars_LeavesSidecarConfigEnvNull()
+    {
+        // No credential names present in the app's env → no env propagated
+        // to the sidecar. Defends against a leak where unrelated env vars
+        // (e.g. SPRING_THREAD_ID) accidentally reach the sidecar's process
+        // env.
+        DaprSidecarConfig? capturedSidecarConfig = null;
+        _sidecarManager.StartSidecarAsync(
+                Arg.Do<DaprSidecarConfig>(c => capturedSidecarConfig = c),
+                Arg.Any<CancellationToken>())
+            .Returns(new DaprSidecarInfo("sidecar-1", 3500, 50001, "spring-net-test"));
+        _sidecarManager.WaitForHealthyAsync(Arg.Any<DaprSidecarInfo>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(new ContainerResult("app-container", 0, string.Empty, string.Empty));
+
+        var input = new ContainerConfig(
+            Image: "agent:v1",
+            DaprEnabled: true,
+            EnvironmentVariables: new Dictionary<string, string>
+            {
+                ["SPRING_LLM_COMPONENT"] = "conversation-ollama",
+                ["SPRING_THREAD_ID"] = "conv-1",
+            });
+
+        await _manager.LaunchWithSidecarAsync(input, TestContext.Current.CancellationToken);
+
+        capturedSidecarConfig.ShouldNotBeNull();
+        capturedSidecarConfig!.EnvironmentVariables.ShouldBeNull();
+    }
+
     private void StubSidecarHappyPath()
     {
         _sidecarManager.StartSidecarAsync(Arg.Any<DaprSidecarConfig>(), Arg.Any<CancellationToken>())

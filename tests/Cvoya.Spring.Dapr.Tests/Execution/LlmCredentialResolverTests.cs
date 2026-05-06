@@ -66,7 +66,7 @@ public class LlmCredentialResolverTests
         var registry = BuildRegistry(("claude", "anthropic-api-key"));
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("no-such-provider", unitId: null, TestContext.Current.CancellationToken);
+        var result = await sut.ResolveAsync("no-such-provider", agentId: null, unitId: null, TestContext.Current.CancellationToken);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.NotFound);
@@ -85,7 +85,7 @@ public class LlmCredentialResolverTests
         var registry = BuildRegistry(("ollama", string.Empty));
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("ollama", unitId: null, TestContext.Current.CancellationToken);
+        var result = await sut.ResolveAsync("ollama", agentId: null, unitId: null, TestContext.Current.CancellationToken);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.NotFound);
@@ -106,7 +106,7 @@ public class LlmCredentialResolverTests
         var registry = BuildRegistry(("claude", "anthropic-api-key"));
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("claude", unitId: UnitU1, ct);
+        var result = await sut.ResolveAsync("claude", agentId: null, unitId: UnitU1, ct);
 
         result.Value.ShouldBe("sk-unit");
         result.Source.ShouldBe(LlmCredentialSource.Unit);
@@ -128,7 +128,7 @@ public class LlmCredentialResolverTests
         var registry = BuildRegistry(("openai", "openai-api-key"));
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("openai", unitId: UnitU1, ct);
+        var result = await sut.ResolveAsync("openai", agentId: null, unitId: UnitU1, ct);
 
         result.Value.ShouldBe("sk-tenant");
         result.Source.ShouldBe(LlmCredentialSource.Tenant);
@@ -150,7 +150,7 @@ public class LlmCredentialResolverTests
         var registry = BuildRegistry(("claude", "anthropic-api-key"));
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("claude", unitId: null, ct);
+        var result = await sut.ResolveAsync("claude", agentId: null, unitId: null, ct);
 
         result.Value.ShouldBe("sk-tenant-default");
         result.Source.ShouldBe(LlmCredentialSource.Tenant);
@@ -167,7 +167,7 @@ public class LlmCredentialResolverTests
         var registry = BuildRegistry(("claude", "anthropic-api-key"));
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("claude", unitId: UnitU1, ct);
+        var result = await sut.ResolveAsync("claude", agentId: null, unitId: UnitU1, ct);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.NotFound);
@@ -186,7 +186,7 @@ public class LlmCredentialResolverTests
         var registry = BuildRegistry(("google", "google-api-key"));
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("google", unitId: null, ct);
+        var result = await sut.ResolveAsync("google", agentId: null, unitId: null, ct);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.NotFound);
@@ -220,7 +220,7 @@ public class LlmCredentialResolverTests
         var registry = BuildRegistry((runtimeId, declaredSecretName));
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync(runtimeId, unitId: null, ct);
+        var result = await sut.ResolveAsync(runtimeId, agentId: null, unitId: null, ct);
 
         if (string.IsNullOrEmpty(declaredSecretName))
         {
@@ -255,7 +255,7 @@ public class LlmCredentialResolverTests
         var registry = BuildRegistry(("bespoke", customName));
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("bespoke", unitId: null, ct);
+        var result = await sut.ResolveAsync("bespoke", agentId: null, unitId: null, ct);
 
         result.Value.ShouldBe("bespoke-value");
         result.Source.ShouldBe(LlmCredentialSource.Tenant);
@@ -278,7 +278,7 @@ public class LlmCredentialResolverTests
         var registry = BuildRegistry(("claude", "anthropic-api-key"));
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("claude", unitId: null, ct);
+        var result = await sut.ResolveAsync("claude", agentId: null, unitId: null, ct);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.Unreadable);
@@ -300,7 +300,7 @@ public class LlmCredentialResolverTests
         var registry = BuildRegistry(("claude", "anthropic-api-key"));
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("claude", unitId: UnitU1, ct);
+        var result = await sut.ResolveAsync("claude", agentId: null, unitId: UnitU1, ct);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.Unreadable);
@@ -327,7 +327,7 @@ public class LlmCredentialResolverTests
         registry.Get("CLAUDE").Returns(runtime);
         var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("CLAUDE", unitId: null, ct);
+        var result = await sut.ResolveAsync("CLAUDE", agentId: null, unitId: null, ct);
 
         result.SecretName.ShouldBe("anthropic-api-key");
     }

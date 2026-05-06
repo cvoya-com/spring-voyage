@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -21,14 +23,40 @@ using Xunit;
 /// </summary>
 public class GeminiLauncherTests
 {
+    private const string DefaultApiKey = "test-google-key";
+
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IAgentRuntimeRegistry _registry;
+    private readonly ILlmCredentialResolver _credentialResolver;
+    private readonly IAgentRuntime _googleRuntime;
     private readonly GeminiLauncher _launcher;
 
     public GeminiLauncherTests()
     {
         _loggerFactory = Substitute.For<ILoggerFactory>();
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _launcher = new GeminiLauncher(_loggerFactory);
+
+        _googleRuntime = Substitute.For<IAgentRuntime>();
+        _googleRuntime.Id.Returns("google");
+        _googleRuntime.CredentialSecretName.Returns("google-api-key");
+        _googleRuntime.CredentialEnvVar.Returns("GOOGLE_API_KEY");
+        _googleRuntime
+            .IsCredentialFormatAccepted(Arg.Any<string>(), Arg.Any<CredentialDispatchPath>())
+            .Returns(true);
+
+        _registry = Substitute.For<IAgentRuntimeRegistry>();
+        _registry.Get("google").Returns(_googleRuntime);
+
+        _credentialResolver = Substitute.For<ILlmCredentialResolver>();
+        _credentialResolver
+            .ResolveAsync("google", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmCredentialResolution(
+                Value: DefaultApiKey,
+                Source: LlmCredentialSource.Tenant,
+                SecretName: "google-api-key"));
+
+        var scopeFactory = TestScopeFactory.For(_credentialResolver);
+        _launcher = new GeminiLauncher(_registry, scopeFactory, _loggerFactory);
     }
 
     [Fact]
@@ -101,5 +129,46 @@ public class GeminiLauncherTests
         prep.EnvironmentVariables.ShouldContainKey(AgentVolumeManager.WorkspacePathEnvVar);
         prep.EnvironmentVariables[AgentVolumeManager.WorkspacePathEnvVar]
             .ShouldBe(AgentVolumeManager.WorkspaceMountPath);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_InjectsGoogleApiKey_FromCredentialResolver()
+    {
+        var context = new AgentLaunchContext(
+            AgentId: "gemini-agent",
+            ThreadId: "conv-1",
+            Prompt: "Be helpful.",
+            McpEndpoint: "http://host.docker.internal:9999/mcp/",
+            McpToken: "gemini-secret-token",
+            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["GOOGLE_API_KEY"].ShouldBe(DefaultApiKey);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_MissingCredential_FailsPreFlightWithGuidance()
+    {
+        _credentialResolver
+            .ResolveAsync("google", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmCredentialResolution(
+                Value: null,
+                Source: LlmCredentialSource.NotFound,
+                SecretName: "google-api-key"));
+
+        var context = new AgentLaunchContext(
+            AgentId: "gemini-agent",
+            ThreadId: "conv-1",
+            Prompt: "Be helpful.",
+            McpEndpoint: "http://host.docker.internal:9999/mcp/",
+            McpToken: "gemini-secret-token",
+            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+
+        var ex = await Should.ThrowAsync<SpringException>(
+            () => _launcher.PrepareAsync(context, TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("google-api-key");
+        ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
     }
 }

@@ -5,8 +5,11 @@ namespace Cvoya.Spring.Core.Execution;
 
 /// <summary>
 /// Resolves LLM provider credentials (tier-2 configuration) through the
-/// canonical two-tier chain introduced in #615:
+/// canonical chain:
 /// <list type="number">
+///   <item><b>Agent-scoped secret</b> — per-agent override (#1714 step 0).
+///   When a future <see cref="Cvoya.Spring.Core.Secrets.SecretScope.Agent"/>
+///   tier exists, this is the highest-priority hit.</item>
 ///   <item><b>Unit-scoped secret</b> — per-unit override (e.g. a unit that
 ///   uses a different Anthropic account than the tenant default).</item>
 ///   <item><b>Tenant-scoped secret</b> — the tenant-wide default value for
@@ -36,21 +39,36 @@ namespace Cvoya.Spring.Core.Execution;
 /// must be set at tenant or unit scope; there is no env-variable
 /// fallback.
 /// </para>
+/// <para>
+/// <b>Agent-scope tier (#1737).</b> The <c>agentId</c> parameter is
+/// accepted today so launchers and the system-status endpoint can pass
+/// it through without API churn when the agent-scope storage tier
+/// lands. The OSS default ignores <c>agentId</c> and routes resolution
+/// through the existing Unit→Tenant chain; subclasses (and the future
+/// agent-scope implementation) consult <c>agentId</c> first.
+/// </para>
 /// </remarks>
 public interface ILlmCredentialResolver
 {
     /// <summary>
     /// Resolves the LLM provider credential for the given
     /// <paramref name="providerId"/> in the context of the optional
-    /// <paramref name="unitName"/>.
+    /// <paramref name="agentId"/> and <paramref name="unitId"/>.
     /// </summary>
     /// <param name="providerId">
     /// Canonical provider identifier — <c>claude</c>, <c>openai</c>,
     /// <c>google</c>, <c>ollama</c>. Unknown providers return <c>null</c>.
     /// </param>
+    /// <param name="agentId">
+    /// Optional agent Guid id. When non-null the resolver consults the
+    /// agent-scoped secret first (#1737 storage); when null the resolver
+    /// starts at unit (or tenant) scope. Pass the agent id whenever the
+    /// caller has it (launchers, dispatcher) so per-agent overrides resolve
+    /// before unit / tenant defaults.
+    /// </param>
     /// <param name="unitId">
     /// Optional unit Guid id. When non-null the resolver consults the
-    /// unit-scoped secret first; when null the resolver starts at tenant
+    /// unit-scoped secret next; when null the resolver starts at tenant
     /// scope. Pass the unit id whenever the caller has it (agent runtime,
     /// launcher) — omitting it skips the unit-scoped tier even when a unit
     /// override exists.
@@ -66,6 +84,7 @@ public interface ILlmCredentialResolver
     /// </returns>
     Task<LlmCredentialResolution> ResolveAsync(
         string providerId,
+        Guid? agentId,
         Guid? unitId,
         CancellationToken cancellationToken = default);
 }
@@ -115,4 +134,21 @@ public enum LlmCredentialSource
     /// re-seed the slot", not "create the slot".
     /// </summary>
     Unreadable = 3,
+
+    /// <summary>
+    /// An agent-scoped secret produced the value (#1714 / #1737).
+    /// Highest priority in the resolver chain — beats unit and tenant
+    /// scopes. Reserved for the future agent-scope storage tier; the
+    /// OSS default does not surface this value today.
+    /// </summary>
+    Agent = 4,
+
+    /// <summary>
+    /// A parent-unit-scoped secret produced the value (#1714 / #1737).
+    /// Surfaced when the resolver walks the unit's parent chain and a
+    /// non-direct ancestor unit holds the value with the inheritance
+    /// flag enabled. Distinct from <see cref="Unit"/> so audit logs can
+    /// distinguish "directly bound" from "inherited from parent".
+    /// </summary>
+    ParentUnit = 5,
 }

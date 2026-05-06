@@ -1,0 +1,23 @@
+# Dapr Conversation → Anthropic Messages API. The Spring Voyage launcher
+# pins this component by name via SPRING_LLM_COMPONENT=conversation-anthropic
+# whenever a unit is configured with `agent: spring-voyage, provider: anthropic`.
+#
+# The credential is resolved by ILlmCredentialResolver (#1714 step 1) and
+# injected into the agent app's container as ANTHROPIC_API_KEY. The
+# ContainerLifecycleManager (#1714 step 3) propagates it into the daprd
+# sidecar's process env so the secretstores.local.env component below can
+# satisfy this `secretKeyRef`.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: conversation-anthropic
+spec:
+  type: conversation.anthropic
+  version: v1
+  metadata:
+    - name: key
+      secretKeyRef:
+        name: ANTHROPIC_API_KEY
+        key: ANTHROPIC_API_KEY
+auth:
+  secretStore: secretstore

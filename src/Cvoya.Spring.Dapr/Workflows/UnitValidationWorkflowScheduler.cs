@@ -144,6 +144,7 @@ public class UnitValidationWorkflowScheduler(
         var credentialResolution = await credentialResolver
             .ResolveAsync(
                 providerId: defaults.Provider ?? runtimeId,
+                agentId: null,
                 unitId: entity.Id,
                 cancellationToken);
 

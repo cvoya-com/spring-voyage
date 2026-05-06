@@ -121,6 +121,12 @@ public class OllamaAgentRuntime : IAgentRuntime
     public string CredentialSecretName => string.Empty;
 
     /// <inheritdoc />
+    // Ollama injects no credential env var — its conversation component
+    // YAML uses a literal "ollama" key. Returning empty here tells the
+    // launcher to skip credential resolution and env-var injection.
+    public string CredentialEnvVar => string.Empty;
+
+    /// <inheritdoc />
     public IReadOnlyList<ModelDescriptor> DefaultModels => _defaultModels.Value;
 
     /// <inheritdoc />

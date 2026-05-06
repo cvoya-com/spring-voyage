@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -21,14 +23,45 @@ using Xunit;
 /// </summary>
 public class ClaudeCodeLauncherTests
 {
+    private const string DefaultOAuthToken = "sk-ant-oat-test-token";
+
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IAgentRuntimeRegistry _registry;
+    private readonly ILlmCredentialResolver _credentialResolver;
+    private readonly IAgentRuntime _claudeRuntime;
     private readonly ClaudeCodeLauncher _launcher;
 
     public ClaudeCodeLauncherTests()
     {
         _loggerFactory = Substitute.For<ILoggerFactory>();
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _launcher = new ClaudeCodeLauncher(_loggerFactory);
+
+        _claudeRuntime = Substitute.For<IAgentRuntime>();
+        _claudeRuntime.Id.Returns("claude");
+        _claudeRuntime.CredentialSecretName.Returns("anthropic-api-key");
+        _claudeRuntime.CredentialEnvVar.Returns("CLAUDE_CODE_OAUTH_TOKEN");
+        // OAuth-only on the AgentRuntime path (#1714 strict matrix).
+        _claudeRuntime
+            .IsCredentialFormatAccepted(Arg.Any<string>(), CredentialDispatchPath.AgentRuntime)
+            .Returns(call =>
+            {
+                var c = call.ArgAt<string>(0);
+                return string.IsNullOrEmpty(c) || c.StartsWith("sk-ant-oat", StringComparison.Ordinal);
+            });
+
+        _registry = Substitute.For<IAgentRuntimeRegistry>();
+        _registry.Get("claude").Returns(_claudeRuntime);
+
+        _credentialResolver = Substitute.For<ILlmCredentialResolver>();
+        _credentialResolver
+            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmCredentialResolution(
+                Value: DefaultOAuthToken,
+                Source: LlmCredentialSource.Tenant,
+                SecretName: "anthropic-api-key"));
+
+        var scopeFactory = TestScopeFactory.For(_credentialResolver);
+        _launcher = new ClaudeCodeLauncher(_registry, scopeFactory, _loggerFactory);
     }
 
     [Fact]
@@ -157,6 +190,90 @@ public class ClaudeCodeLauncherTests
         prep.EnvironmentVariables.ShouldContainKey(AgentVolumeManager.WorkspacePathEnvVar);
         prep.EnvironmentVariables[AgentVolumeManager.WorkspacePathEnvVar]
             .ShouldBe(AgentVolumeManager.WorkspaceMountPath);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OAuthToken_InjectsClaudeCodeOAuthTokenEnvVar()
+    {
+        // #1714 step 2: the Claude launcher injects the resolved OAuth
+        // token under CLAUDE_CODE_OAUTH_TOKEN, never ANTHROPIC_API_KEY.
+        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["CLAUDE_CODE_OAUTH_TOKEN"].ShouldBe(DefaultOAuthToken);
+        prep.EnvironmentVariables.ShouldNotContainKey(
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_API_KEY is never injected by the Claude launcher (#1714) — that env var is only emitted by the Spring Voyage launcher when `provider: anthropic`.");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_ApiKey_FailsPreFlightWithGuidance()
+    {
+        // #1714 step 2: API keys are rejected on the Claude AgentRuntime path
+        // (project does not run `claude --bare`). Operator guidance must
+        // mention `claude setup-token` and the spring-voyage runtime fallback.
+        _credentialResolver
+            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmCredentialResolution(
+                Value: "sk-ant-api-not-allowed",
+                Source: LlmCredentialSource.Tenant,
+                SecretName: "anthropic-api-key"));
+
+        var ex = await Should.ThrowAsync<SpringException>(
+            () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("OAuth token");
+        ex.Message.ShouldContain("claude setup-token");
+        ex.Message.ShouldContain("spring-voyage");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_MissingCredential_FailsPreFlightWithGuidance()
+    {
+        // #1714 step 2: the launcher fails BEFORE container launch when no
+        // value resolved at agent / unit / parent-unit chain / tenant scope.
+        _credentialResolver
+            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmCredentialResolution(
+                Value: null,
+                Source: LlmCredentialSource.NotFound,
+                SecretName: "anthropic-api-key"));
+
+        var ex = await Should.ThrowAsync<SpringException>(
+            () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("anthropic-api-key");
+        ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_MalformedCredential_FailsPreFlight()
+    {
+        // Pre-flight format check rejects values that are neither
+        // sk-ant-oat… nor sk-ant-api… so the launcher does not waste a
+        // network round-trip just to receive a 401.
+        _credentialResolver
+            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmCredentialResolution(
+                Value: "totally-not-a-key",
+                Source: LlmCredentialSource.Tenant,
+                SecretName: "anthropic-api-key"));
+
+        await Should.ThrowAsync<SpringException>(
+            () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task PrepareAsync_UnreadableCredential_FailsPreFlight()
+    {
+        _credentialResolver
+            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmCredentialResolution(
+                Value: null,
+                Source: LlmCredentialSource.Unreadable,
+                SecretName: "anthropic-api-key"));
+
+        await Should.ThrowAsync<SpringException>(
+            () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
     }
 
     private static AgentLaunchContext CreateContext() =>

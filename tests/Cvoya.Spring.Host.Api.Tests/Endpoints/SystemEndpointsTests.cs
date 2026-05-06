@@ -254,13 +254,12 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body.Suggestion.ShouldNotBeNullOrWhiteSpace();
         body.Suggestion!.ShouldContain("OAuth token");
 
-        // #1690: the per-path matrix must still report OAuth as in-container-only,
-        // even when the caller asked about the REST path (the scalar fields above
-        // already say "no for REST", but the matrix lets the portal render the
-        // operator-friendlier "your token works for the in-container CLI" copy
-        // without firing a second probe).
+        // #1714 step 8: the strict per-path matrix means OAuth tokens are
+        // accepted only on the in-container Claude path. Summary collapses
+        // to `path-specific` (one path accepts, the other rejects); the
+        // per-path entries name which path it is.
         body.Paths.ShouldNotBeNull();
-        body.Paths!.Summary.ShouldBe("in-container-cli-only");
+        body.Paths!.Summary.ShouldBe("path-specific");
         body.Paths.Paths.ShouldNotBeNull();
         body.Paths.Paths.Single(p => p.Path == "rest").Accepted.ShouldBeFalse();
         body.Paths.Paths.Single(p => p.Path == "agent-runtime").Accepted.ShouldBeTrue();
@@ -295,11 +294,11 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Status_Anthropic_OAuthToken_AgentRuntimePath_ReportsResolvable()
     {
-        // The in-container `claude` CLI accepts both API keys and
-        // Claude.ai OAuth tokens — the ClaudeAgentRuntime branches on
-        // prefix and populates ANTHROPIC_API_KEY vs CLAUDE_CODE_OAUTH_TOKEN.
-        // So the same OAuth token that fails the REST probe must succeed
-        // when the caller names the agent-runtime path.
+        // #1714: the Claude agent-runtime path is OAuth-only — an OAuth
+        // token resolves cleanly there, while the REST path rejects it
+        // pre-flight (API-key-only). The matrix reflects the strict
+        // per-path acceptance with `path-specific` and the explicit
+        // per-path entries.
         var ct = TestContext.Current.CancellationToken;
         await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-oat-fake-token", ct);
 
@@ -316,42 +315,63 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body.Reason.ShouldBeNull();
         body.Suggestion.ShouldBeNull();
 
-        // #1690: matrix mirrors the per-path acceptance.
         body.Paths.ShouldNotBeNull();
-        body.Paths!.Summary.ShouldBe("in-container-cli-only");
+        body.Paths!.Summary.ShouldBe("path-specific");
         body.Paths.Paths.Single(p => p.Path == "rest").Accepted.ShouldBeFalse();
         body.Paths.Paths.Single(p => p.Path == "agent-runtime").Accepted.ShouldBeTrue();
     }
 
     [Fact]
-    public async Task Status_Anthropic_ApiKey_AnyPath_ReportsResolvable()
+    public async Task Status_Anthropic_ApiKey_RestPath_ReportsResolvable()
     {
-        // API keys (sk-ant-api…) are accepted by both paths, so the
-        // endpoint returns the same positive answer regardless of the
-        // requested dispatchPath.
+        // #1714: API keys (sk-ant-api…) are accepted only on the REST
+        // path; the Claude agent-runtime path is OAuth-only and rejects
+        // them pre-flight. The matrix reports `path-specific` with REST
+        // accepted and AgentRuntime rejected.
         var ct = TestContext.Current.CancellationToken;
         await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-api-fake-key", ct);
 
-        foreach (var path in new[] { "rest", "agent-runtime" })
-        {
-            var response = await _client.GetAsync(
-                $"/api/v1/platform/credentials/anthropic/status?dispatchPath={path}", ct);
+        var response = await _client.GetAsync(
+            "/api/v1/platform/credentials/anthropic/status?dispatchPath=rest", ct);
 
-            response.StatusCode.ShouldBe(HttpStatusCode.OK);
-            var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
-            body.ShouldNotBeNull();
-            body!.Resolvable.ShouldBeTrue();
-            body.Source.ShouldBe("tenant");
-            body.Reason.ShouldBeNull();
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Resolvable.ShouldBeTrue();
+        body.Source.ShouldBe("tenant");
+        body.Reason.ShouldBeNull();
 
-            // #1690: matrix says "all-paths" regardless of which path the caller
-            // asked about — the matrix decouples shape capability from per-call
-            // evaluation.
-            body.Paths.ShouldNotBeNull();
-            body.Paths!.Summary.ShouldBe("all-paths");
-            body.Paths.Paths.Count.ShouldBe(2);
-            body.Paths.Paths.ShouldAllBe(p => p.Accepted);
-        }
+        body.Paths.ShouldNotBeNull();
+        body.Paths!.Summary.ShouldBe("path-specific");
+        body.Paths.Paths.Count.ShouldBe(2);
+        body.Paths.Paths.Single(p => p.Path == "rest").Accepted.ShouldBeTrue();
+        body.Paths.Paths.Single(p => p.Path == "agent-runtime").Accepted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Status_Anthropic_ApiKey_AgentRuntimePath_RejectedPreFlight()
+    {
+        // #1714: API keys belong on the Spring Voyage REST path, not the
+        // Claude agent-runtime path. The wizard surfaces format-rejected
+        // when the caller asks about agent-runtime so the operator is
+        // told to either regenerate via `claude setup-token` or switch
+        // to `agent: spring-voyage, provider: anthropic`.
+        var ct = TestContext.Current.CancellationToken;
+        await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-api-fake-key", ct);
+
+        var response = await _client.GetAsync(
+            "/api/v1/platform/credentials/anthropic/status?dispatchPath=agent-runtime", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Resolvable.ShouldBeFalse();
+        body.Reason.ShouldBe("format-rejected");
+
+        body.Paths.ShouldNotBeNull();
+        body.Paths!.Summary.ShouldBe("path-specific");
+        body.Paths.Paths.Single(p => p.Path == "rest").Accepted.ShouldBeTrue();
+        body.Paths.Paths.Single(p => p.Path == "agent-runtime").Accepted.ShouldBeFalse();
     }
 
     [Fact]

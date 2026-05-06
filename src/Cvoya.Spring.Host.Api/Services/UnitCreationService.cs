@@ -1116,6 +1116,7 @@ public class UnitCreationService : IUnitCreationService
         {
             var resolution = await _credentialResolver.ResolveAsync(
                 providerId: provider,
+                agentId: null,
                 unitId: unitId,
                 cancellationToken);
 
