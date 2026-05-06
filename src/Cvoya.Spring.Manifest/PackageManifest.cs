@@ -123,84 +123,6 @@ public class PackageManifest
     /// </summary>
     [YamlMember(Alias = "content")]
     public List<ContentEntry>? Content { get; set; }
-
-    /// <summary>
-    /// Captured shape of a legacy <c>metadata:</c> block. Present only so
-    /// the parser can surface an actionable error when an old-shape
-    /// manifest still declares it (ADR-0037 decision 6 —
-    /// <c>LegacyMetadataNesting</c>). The current schema hoists
-    /// <c>name</c>, <c>description</c>, and <c>readme</c> to the top
-    /// level.
-    /// </summary>
-    [YamlMember(Alias = "metadata")]
-    public LegacyPackageMetadata? Metadata { get; set; }
-
-    /// <summary>
-    /// Legacy <c>inputs:</c> block — transitional surface for #1724.
-    /// ADR-0037 decision 2 deletes the inputs schema; the post-ADR-0037
-    /// parser populates this list as empty so consumers from the
-    /// previous schema compile during the staged refactor. The <c>inputs:</c>
-    /// YAML key is detected and rejected by
-    /// <see cref="PackageManifestParser"/> with the
-    /// <c>LegacyInputsField</c> error per ADR-0037 decision 6 — operators
-    /// never see this surface populated. Removed entirely in #1726.
-    /// </summary>
-    [YamlIgnore]
-    public List<PackageInputDefinition>? Inputs { get; set; }
-
-    /// <summary>
-    /// Raw deserialised <c>inputs:</c> YAML block — populated by the
-    /// parser only to detect old-shape manifests and raise the
-    /// <c>LegacyInputsField</c> error. Never populated for new-shape
-    /// manifests.
-    /// </summary>
-    [YamlMember(Alias = "inputs")]
-    public List<object>? RawInputs { get; set; }
-
-    /// <summary>
-    /// Raw deserialised package-level <c>connectors:</c> YAML block —
-    /// populated by the parser only to detect old-shape manifests and
-    /// raise the <c>LegacyPackageConnectorsField</c> error. Never
-    /// populated for new-shape manifests.
-    /// </summary>
-    [YamlMember(Alias = "connectors")]
-    public List<object>? RawConnectors { get; set; }
-}
-
-/// <summary>
-/// Declares a single scalar input for a package — <em>legacy schema</em>.
-/// ADR-0037 decision 2 removes <c>inputs:</c> from <c>package.yaml</c>;
-/// connector-binding parameters now live on per-artefact <c>requires:</c>
-/// blocks. This class survives only as a transitional compile surface
-/// for consumers that have not migrated to the new shape; the parser
-/// rejects any <c>inputs:</c> block in YAML with
-/// <c>LegacyInputsField</c>. Removed in #1726.
-/// </summary>
-public class PackageInputDefinition
-{
-    /// <summary>Input key name.</summary>
-    [YamlMember(Alias = "name")]
-    public string? Name { get; set; }
-
-    /// <summary>Scalar type.</summary>
-    [YamlMember(Alias = "type")]
-    public string? Type { get; set; }
-
-    /// <summary>Required flag.</summary>
-    [YamlMember(Alias = "required")]
-    public bool Required { get; set; }
-
-    /// <summary>Secret flag.</summary>
-    [YamlMember(Alias = "secret")]
-    public bool Secret { get; set; }
-
-    /// <summary>Optional description.</summary>
-    [YamlMember(Alias = "description")]
-    public string? Description { get; set; }
-
-    /// <summary>Optional default value.</summary>
-    [YamlMember(Alias = "default")]
-    public string? Default { get; set; }
 }
 
 /// <summary>
@@ -233,23 +155,4 @@ public sealed class ContentEntry
     /// <see cref="ArtefactKind.Unit"/> and <see cref="ArtefactKind.Agent"/>.
     /// </summary>
     public InlineArtefactDefinition Definition { get; init; } = default!;
-}
-
-/// <summary>
-/// Captured shape of the legacy <c>metadata:</c> block. Used only for
-/// migration-error reporting per ADR-0037 decision 6.
-/// </summary>
-public class LegacyPackageMetadata
-{
-    /// <summary>Captured legacy <c>name</c>.</summary>
-    [YamlMember(Alias = "name")]
-    public string? Name { get; set; }
-
-    /// <summary>Captured legacy <c>description</c>.</summary>
-    [YamlMember(Alias = "description")]
-    public string? Description { get; set; }
-
-    /// <summary>Captured legacy <c>displayName</c>.</summary>
-    [YamlMember(Alias = "displayName")]
-    public string? DisplayName { get; set; }
 }

@@ -147,7 +147,6 @@ public static class PackageInstallEndpoints
         }
         catch (Exception ex) when (ex is PackageParseException
             or PackageReferenceNotFoundException
-            or PackageInputValidationException
             or PackageCycleException)
         {
             return Results.Problem(
@@ -197,8 +196,8 @@ public static class PackageInstallEndpoints
         try
         {
             var manifest = PackageManifestParser.ParseRaw(yaml);
-            packageName = manifest.Metadata?.Name
-                ?? throw new PackageParseException("Package manifest is missing metadata.name.");
+            packageName = manifest.Name
+                ?? throw new PackageParseException("Package manifest is missing the required top-level 'name:' field.");
         }
         catch (PackageParseException ex)
         {
@@ -390,12 +389,6 @@ public static class PackageInstallEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
         catch (PackageReferenceNotFoundException ex)
-        {
-            return Results.Problem(
-                detail: ex.Message,
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-        catch (PackageInputValidationException ex)
         {
             return Results.Problem(
                 detail: ex.Message,

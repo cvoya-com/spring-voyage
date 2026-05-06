@@ -7,7 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -29,9 +28,6 @@ using YamlDotNet.Serialization.NamingConventions;
 /// </summary>
 public static class PackageManifestParser
 {
-    private static readonly Regex InputInterpolationPattern =
-        new(@"\$\{\{\s*inputs\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}", RegexOptions.Compiled);
-
     /// <summary>
     /// Parses a <c>package.yaml</c> YAML string into a <see cref="PackageManifest"/>
     /// without resolving references or substituting inputs. Useful for inspecting
@@ -117,18 +113,16 @@ public static class PackageManifestParser
                 "The container manifest is the only kind of YAML at the package root.");
         }
 
-        // ADR-0037 decision 2: metadata: nesting is removed; name and
-        // description live at the top level.
-        if (doc.Metadata is not null)
+        // ADR-0037 decision 2: metadata: nesting is removed.
+        if (TopLevelKeyPresent(yamlText, "metadata"))
         {
             throw new PackageParseException(
                 "LegacyMetadataNesting: 'metadata:' nesting is removed in ADR-0037. " +
                 "Hoist 'name', 'description', and 'readme' to the top level of package.yaml.");
         }
 
-        // ADR-0037 decision 2: inputs: is removed; connector-binding
-        // parameters move into per-artefact requires:.
-        if (doc.RawInputs is not null)
+        // ADR-0037 decision 2: inputs: is removed.
+        if (TopLevelKeyPresent(yamlText, "inputs"))
         {
             throw new PackageParseException(
                 "LegacyInputsField: 'inputs:' is removed in ADR-0037. " +
@@ -137,7 +131,7 @@ public static class PackageManifestParser
         }
 
         // ADR-0037 decision 2: package-level connectors: is removed.
-        if (doc.RawConnectors is not null)
+        if (TopLevelKeyPresent(yamlText, "connectors"))
         {
             throw new PackageParseException(
                 "LegacyPackageConnectorsField: package-level 'connectors:' is removed in ADR-0037. " +
@@ -145,9 +139,7 @@ public static class PackageManifestParser
                 "The package's effective requirement set is the union of every artefact's requires.");
         }
 
-        // #1718 item 2: flat artefact lists are gone (already shipped
-        // pre-ADR-0037; kept here for the comprehensive D6 migration
-        // surface).
+        // #1718 item 2: flat artefact lists are gone.
         var legacyKeys = new[] { "unit", "agent", "subUnits", "skills", "workflows" };
         foreach (var key in legacyKeys)
         {
@@ -269,57 +261,41 @@ public static class PackageManifestParser
     {
         ArgumentNullException.ThrowIfNull(yamlText);
 
-        inputValues ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // ADR-0037 D2: package-level `inputs:` is gone, so input
+        // substitution is no longer part of the resolve path. The
+        // `inputValues` parameter stays on the signature for API
+        // compatibility but is unused; callers can drop it once the
+        // wire DTOs follow.
+        _ = inputValues;
 
-        // Step 1: Parse raw to discover the inputs schema.
-        var rawManifest = ParseRaw(yamlText);
+        // Parse the manifest. ParseRaw rejects every D6 legacy signal.
+        var manifest = ParseRaw(yamlText);
 
-        // Step 2: Validate inputs (required, type, secret).
-        ValidateInputs(rawManifest.Inputs, inputValues);
-
-        // Step 3: Substitute ${{ inputs.* }} in the YAML text.
-        var substituted = SubstituteInputs(yamlText, rawManifest.Inputs ?? [], inputValues);
-
-        // Step 4: Re-parse the substituted YAML.
-        PackageManifest manifest;
-        try
-        {
-            manifest = ParseRaw(substituted);
-        }
-        catch (PackageParseException ex)
-        {
-            throw new PackageParseException(
-                $"Package manifest failed to parse after input substitution: {ex.Message}", ex);
-        }
-
-        // Step 5: Build ArtefactReference lists from the manifest.
+        // Build ArtefactReference lists from the manifest.
         var allRefs = CollectReferences(manifest);
 
-        // Step 6: Validate name uniqueness across the explicitly-declared
-        // top-level entries. (Member-discovered descendants are deduplicated
-        // by the resolver below; they do not need to be unique against
-        // top-level entries because top-level wins — re-declaration just
-        // adds a redundant explicit reference, which is fine.)
+        // Validate name uniqueness across the explicitly-declared
+        // top-level entries. (Member-discovered descendants are
+        // deduplicated by the resolver below; they do not need to be
+        // unique against top-level entries because top-level wins.)
         ValidateNameUniqueness(allRefs.Select(e => e.Reference).ToList());
 
-        // Step 7: Resolve all references (passing input schema + values so
-        // within-package local artefact bodies get the same substitution pass).
-        // After resolving the top-level entries, recursively descend into
-        // each resolved unit's `members:` list to discover sub-units / agents
-        // that the package author no longer enumerates explicitly (#1718
-        // item 2). Every reachable artefact ends up in `resolved` so the
-        // install pipeline can mint a Guid per name and the activator can
-        // rewrite member references off a fully-populated symbol map.
+        // Resolve all references. After resolving the top-level entries,
+        // recursively descend into each resolved unit's `members:` list to
+        // discover sub-units / agents that the package author no longer
+        // enumerates explicitly. Every reachable artefact ends up in
+        // `resolved` so the install pipeline can mint a Guid per name and
+        // the activator can rewrite member references off a fully-populated
+        // symbol map.
         var resolved = await ResolveReferencesWithDescendantsAsync(
-            allRefs, packageRoot, manifest.Inputs ?? [], inputValues,
-            catalogProvider, cancellationToken).ConfigureAwait(false);
+            allRefs, packageRoot, catalogProvider, cancellationToken).ConfigureAwait(false);
 
-        // Step 8: Detect cycles.
+        // Detect cycles.
         DetectCycles(resolved);
 
-        // #1718 item 1: package kind is computed from the parsed content,
-        // not from a YAML scalar. Empty / unit-only / mixed shapes resolve
-        // as UnitPackage; an exclusively-agent top-level resolves as
+        // Package kind is computed from the parsed content, not from a
+        // YAML scalar. Empty / unit-only / mixed shapes resolve as
+        // UnitPackage; an exclusively-agent top-level resolves as
         // AgentPackage so the install pipeline's discriminator-driven
         // codepaths keep working unchanged.
         var kind = InferKind(manifest);
@@ -343,9 +319,6 @@ public static class PackageManifestParser
             .Select(r => r.Artefact)
             .ToList();
 
-        // Build the resolved input values map (with defaults applied).
-        var finalInputValues = BuildFinalInputValues(manifest.Inputs ?? [], inputValues);
-
         // ADR-0037 D3: compute the package-level requires union from each
         // artefact's per-artefact `requires:` block. The install pipeline
         // asks the operator for one binding per unique slug and applies it
@@ -359,7 +332,7 @@ public static class PackageManifestParser
             Description = manifest.Description,
             Version = manifest.Version,
             Kind = kind,
-            InputValues = finalInputValues,
+            InputValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
             Units = units,
             Agents = agents,
             Skills = skills,
@@ -458,138 +431,6 @@ public static class PackageManifestParser
         {
             byArtefact[artefact.Name] = slugs;
         }
-    }
-
-    // ---- Input validation & substitution --------------------------------
-
-    /// <summary>
-    /// Validates the supplied input values against the package's input
-    /// schema. Throws <see cref="PackageInputValidationException"/> for
-    /// the first failing input.
-    /// </summary>
-    public static void ValidateInputs(
-        List<PackageInputDefinition>? schema,
-        IReadOnlyDictionary<string, string> supplied)
-    {
-        if (schema is null || schema.Count == 0)
-        {
-            return;
-        }
-
-        foreach (var def in schema)
-        {
-            var name = def.Name;
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                continue;
-            }
-
-            var hasValue = supplied.TryGetValue(name, out var value);
-
-            // Required check.
-            if (def.Required && !hasValue && def.Default is null)
-            {
-                throw new PackageInputValidationException(
-                    name,
-                    $"Input '{name}' is required but was not supplied.");
-            }
-
-            if (!hasValue)
-            {
-                value = def.Default;
-            }
-
-            if (value is null)
-            {
-                continue;
-            }
-
-            // Type check (skipped for secret — the caller supplies a secret reference).
-            if (!def.Secret)
-            {
-                ValidateInputType(def, value);
-            }
-        }
-    }
-
-    private static void ValidateInputType(PackageInputDefinition def, string value)
-    {
-        var type = (def.Type ?? "string").Trim().ToLowerInvariant();
-        switch (type)
-        {
-            case "string":
-                // Any string is valid.
-                break;
-            case "int":
-            case "integer":
-                if (!int.TryParse(value, out _))
-                {
-                    throw new PackageInputValidationException(
-                        def.Name!,
-                        $"Input '{def.Name}' expects type 'int' but received '{value}'.");
-                }
-                break;
-            case "bool":
-            case "boolean":
-                if (!bool.TryParse(value, out _) &&
-                    value is not ("true" or "false" or "1" or "0"))
-                {
-                    throw new PackageInputValidationException(
-                        def.Name!,
-                        $"Input '{def.Name}' expects type 'bool' but received '{value}'.");
-                }
-                break;
-            default:
-                // Unknown types treated as string for forward compatibility.
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Performs scalar <c>${{ inputs.foo }}</c> substitution on the raw
-    /// YAML text. Substitution errors (undeclared input name) become
-    /// <see cref="PackageInputValidationException"/>.
-    /// </summary>
-    public static string SubstituteInputs(
-        string yamlText,
-        IReadOnlyList<PackageInputDefinition> schema,
-        IReadOnlyDictionary<string, string> supplied)
-    {
-        // Build effective values map (supplied values + defaults).
-        var effective = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var def in schema)
-        {
-            if (string.IsNullOrWhiteSpace(def.Name))
-            {
-                continue;
-            }
-
-            if (supplied.TryGetValue(def.Name, out var v))
-            {
-                // Secret inputs: store reference form.
-                effective[def.Name] = def.Secret
-                    ? (v.StartsWith("secret://", StringComparison.Ordinal) ? v : $"secret://{v}")
-                    : v;
-            }
-            else if (def.Default is not null)
-            {
-                effective[def.Name] = def.Default;
-            }
-        }
-
-        return InputInterpolationPattern.Replace(yamlText, match =>
-        {
-            var inputName = match.Groups[1].Value;
-            if (effective.TryGetValue(inputName, out var replacement))
-            {
-                return replacement;
-            }
-
-            // Reference to an input name not in the schema.
-            throw new PackageInputValidationException(
-                inputName,
-                $"Input expression '${{{{ inputs.{inputName} }}}}' references an undeclared input '{inputName}'.");
-        });
     }
 
     // ---- Reference collection -------------------------------------------
@@ -731,8 +572,6 @@ public static class PackageManifestParser
     private static async Task<List<RefResolution>> ResolveReferencesAsync(
         List<ArtefactCollectEntry> refs,
         string? packageRoot,
-        IReadOnlyList<PackageInputDefinition> inputSchema,
-        IReadOnlyDictionary<string, string> inputValues,
         IPackageCatalogProvider? catalogProvider,
         CancellationToken cancellationToken)
     {
@@ -753,17 +592,15 @@ public static class PackageManifestParser
             if (entry.InlineBody is not null)
             {
                 // Inline definition: resolved without filesystem or catalog.
-                // Apply the same input substitution as a within-package body
-                // so connector configs / other interpolated fields land
-                // concrete values for the activator.
-                var content = SubstituteInputs(entry.InlineBody, inputSchema, inputValues);
+                // Body emitted verbatim — ADR-0037 D2 retired input
+                // substitution.
                 result.Add(new RefResolution(r, new ResolvedArtefact
                 {
                     Name = r.ArtefactName,
                     SourcePackage = null,
                     Kind = r.Kind,
                     ResolvedPath = null,
-                    Content = content,
+                    Content = entry.InlineBody,
                 }));
                 continue;
             }
@@ -779,15 +616,12 @@ public static class PackageManifestParser
             ResolvedArtefact artefact;
             if (r.IsCrossPackage)
             {
-                // Cross-package artefacts are resolved via the catalog provider;
-                // their bodies are NOT substituted with this package's inputs —
-                // substitution happens at that package's own install time.
                 artefact = await ResolveCrossPackageAsync(r, catalogProvider, cancellationToken)
                     .ConfigureAwait(false);
             }
             else
             {
-                artefact = ResolveLocal(r, packageRoot!, inputSchema, inputValues);
+                artefact = ResolveLocal(r, packageRoot!);
             }
 
             result.Add(new RefResolution(r, artefact));
@@ -822,14 +656,11 @@ public static class PackageManifestParser
     private static async Task<List<RefResolution>> ResolveReferencesWithDescendantsAsync(
         List<ArtefactCollectEntry> topLevelRefs,
         string? packageRoot,
-        IReadOnlyList<PackageInputDefinition> inputSchema,
-        IReadOnlyDictionary<string, string> inputValues,
         IPackageCatalogProvider? catalogProvider,
         CancellationToken cancellationToken)
     {
         var resolved = await ResolveReferencesAsync(
-            topLevelRefs, packageRoot, inputSchema, inputValues,
-            catalogProvider, cancellationToken).ConfigureAwait(false);
+            topLevelRefs, packageRoot, catalogProvider, cancellationToken).ConfigureAwait(false);
 
         // Index resolved artefacts by `(kind, name)` so descendant lookup
         // is O(1) and we don't double-resolve a unit that is also listed
@@ -896,7 +727,7 @@ public static class PackageManifestParser
                 ResolvedArtefact memberArtefact;
                 try
                 {
-                    memberArtefact = ResolveLocal(artefactRef, packageRoot ?? string.Empty, inputSchema, inputValues);
+                    memberArtefact = ResolveLocal(artefactRef, packageRoot ?? string.Empty);
                 }
                 catch (PackageReferenceNotFoundException)
                 {
@@ -974,9 +805,7 @@ public static class PackageManifestParser
 
     private static ResolvedArtefact ResolveLocal(
         ArtefactReference r,
-        string packageRoot,
-        IReadOnlyList<PackageInputDefinition> inputSchema,
-        IReadOnlyDictionary<string, string> inputValues)
+        string packageRoot)
     {
         var (subDir, extension) = r.Kind switch
         {
@@ -1028,14 +857,7 @@ public static class PackageManifestParser
                 }
             }
 
-            var rawContent = File.ReadAllText(resolvedPath);
-
-            // Apply ${{ inputs.* }} substitution to within-package artefact
-            // bodies using the same schema and values as the root package.yaml.
-            // This ensures connector configs and other fields in sub-unit YAMLs
-            // carry concrete values, not literal expression strings, when the
-            // resolved artefact reaches the activator.
-            content = SubstituteInputs(rawContent, inputSchema, inputValues);
+            content = File.ReadAllText(resolvedPath);
         }
 
         return new ResolvedArtefact
@@ -1079,17 +901,6 @@ public static class PackageManifestParser
             throw new PackageReferenceNotFoundException(
                 r.RawValue,
                 $"Artefact '{r.ArtefactName}' ({r.Kind}) was not found in package '{r.PackageName}'.");
-        }
-
-        // Cross-package artefacts must be self-contained: each install is
-        // independent — the consuming package doesn't know the referenced
-        // package's input schema, and prior installs of the referenced package are
-        // not reused. Any
-        // ${{ inputs.* }} expression in the catalog body is therefore
-        // unresolvable and indicates a broken artefact definition.
-        if (InputInterpolationPattern.IsMatch(content))
-        {
-            throw new CrossPackageArtefactNotSelfContainedException(r.RawValue);
         }
 
         return new ResolvedArtefact
@@ -1277,32 +1088,6 @@ public static class PackageManifestParser
             return PackageKind.AgentPackage;
         }
         return PackageKind.UnitPackage;
-    }
-
-    private static IReadOnlyDictionary<string, string> BuildFinalInputValues(
-        IReadOnlyList<PackageInputDefinition> schema,
-        IReadOnlyDictionary<string, string> supplied)
-    {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var def in schema)
-        {
-            if (string.IsNullOrWhiteSpace(def.Name))
-            {
-                continue;
-            }
-
-            if (supplied.TryGetValue(def.Name, out var v))
-            {
-                result[def.Name] = def.Secret
-                    ? (v.StartsWith("secret://", StringComparison.Ordinal) ? v : $"secret://{v}")
-                    : v;
-            }
-            else if (def.Default is not null)
-            {
-                result[def.Name] = def.Default;
-            }
-        }
-        return result;
     }
 
     private static IDeserializer BuildDeserializer()
