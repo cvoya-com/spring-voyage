@@ -344,6 +344,118 @@ public class PackageExecutionInheritanceTests
         decl.AppliesTo("beta").ShouldBeFalse();
     }
 
+    // ---- Validator integration (the in-tree gate that runs in CI) -----
+
+    [Fact]
+    public async Task Validator_UmbrellaWithoutImage_PackageDefaultProvides_NoError()
+    {
+        // OSS-shaped: package declares execution.image; the umbrella
+        // unit does NOT declare its own. The validator must honour the
+        // package-level inheritance and not flag `unit-missing-image`.
+        var packageYaml = """
+            apiVersion: spring.voyage/v1
+            kind: Package
+            name: test-pkg
+            description: x
+            version: 1.0.0
+            content:
+              - unit: umbrella
+            execution:
+              image: ghcr.io/example/agent:latest
+              runtime: docker
+            """;
+        var unitYaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: umbrella
+            description: x
+            """;
+        using var pkg = await CreatePackageAsync(packageYaml, [("umbrella.yaml", unitYaml)]);
+        var source = new Cvoya.Spring.Manifest.Validation.DirectoryPackageSource(pkg.PackageRoot);
+
+        var result = await Cvoya.Spring.Manifest.Validation.PackageValidator.ValidateAsync(
+            source, TestContext.Current.CancellationToken);
+
+        result.Diagnostics.ShouldNotContain(d => d.Code == "unit-missing-image");
+    }
+
+    [Fact]
+    public async Task Validator_UmbrellaWithoutImage_NoPackageDefault_StillErrors()
+    {
+        // Negative control: when neither side declares an image, the
+        // per-unit error must still fire so operators can't accidentally
+        // ship a unit nobody can launch.
+        var packageYaml = """
+            apiVersion: spring.voyage/v1
+            kind: Package
+            name: test-pkg
+            description: x
+            version: 1.0.0
+            content:
+              - unit: umbrella
+            """;
+        var unitYaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: umbrella
+            description: x
+            """;
+        using var pkg = await CreatePackageAsync(packageYaml, [("umbrella.yaml", unitYaml)]);
+        var source = new Cvoya.Spring.Manifest.Validation.DirectoryPackageSource(pkg.PackageRoot);
+
+        var result = await Cvoya.Spring.Manifest.Validation.PackageValidator.ValidateAsync(
+            source, TestContext.Current.CancellationToken);
+
+        result.Diagnostics.ShouldContain(d => d.Code == "unit-missing-image");
+    }
+
+    [Fact]
+    public async Task Validator_PackageImageButUnitNotInInheritList_StillErrors()
+    {
+        // Inherit: [other] → the umbrella unit is NOT in scope, so the
+        // package's image does not cover it; the per-unit error must fire.
+        var packageYaml = """
+            apiVersion: spring.voyage/v1
+            kind: Package
+            name: test-pkg
+            description: x
+            version: 1.0.0
+            content:
+              - unit: umbrella
+              - unit: other
+            execution:
+              image: ghcr.io/example/agent:latest
+              inherit:
+                - other
+            """;
+        var umbrellaYaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: umbrella
+            description: x
+            """;
+        var otherYaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: other
+            description: x
+            """;
+        using var pkg = await CreatePackageAsync(
+            packageYaml,
+            [("umbrella.yaml", umbrellaYaml), ("other.yaml", otherYaml)]);
+        var source = new Cvoya.Spring.Manifest.Validation.DirectoryPackageSource(pkg.PackageRoot);
+
+        var result = await Cvoya.Spring.Manifest.Validation.PackageValidator.ValidateAsync(
+            source, TestContext.Current.CancellationToken);
+
+        result.Diagnostics.ShouldContain(
+            d => d.Code == "unit-missing-image"
+                && d.Message.Contains("umbrella"));
+        result.Diagnostics.ShouldNotContain(
+            d => d.Code == "unit-missing-image"
+                && d.Message.Contains("'other'"));
+    }
+
     // ---- Test fixture helpers ------------------------------------------
 
     private static async Task<TempPackage> CreatePackageAsync(

@@ -174,7 +174,19 @@ public static class PackageValidator
             // packages needs an image so the dispatcher can launch its
             // container. (Unit-level execution is the inheritance source for
             // member agents — see UnitManifest.Execution remarks.)
-            if (string.IsNullOrWhiteSpace(unit.Execution?.Image))
+            //
+            // #1679: a package-level `execution.image` default may cover
+            // member units that don't declare their own. Skip the per-unit
+            // check when the package provides an image AND this unit is
+            // in the inheritance scope. The strict inherit-shape parsing
+            // is owned by PackageManifestParser; if it's malformed, the
+            // parse error already lands on the package file.
+            var packageImage = packageManifest?.Execution?.Image;
+            var inheritsPackageImage =
+                !string.IsNullOrWhiteSpace(packageImage)
+                && UnitInheritsPackageExecution(unit.Name, packageManifest!.Execution!.Inherit);
+
+            if (string.IsNullOrWhiteSpace(unit.Execution?.Image) && !inheritsPackageImage)
             {
                 diagnostics.Add(new PackageValidationDiagnostic(
                     unitFile,
@@ -391,6 +403,47 @@ public static class PackageValidator
         // Bare 32-char no-dash hex matches the production manifest grammar.
         // Also accept any Guid-parseable form for defensiveness.
         return CrossPackageGuidPattern.IsMatch(symbol) || Guid.TryParse(symbol, out _);
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="unitName"/> falls within the
+    /// package-level <c>execution.inherit:</c> scope (#1679). The raw
+    /// shape comes straight from <see cref="PackageExecutionManifest.Inherit"/>
+    /// and mirrors what <see cref="PackageManifestParser"/> accepts:
+    /// <c>null</c> or the literal scalar <c>"all"</c> ⇒ every member
+    /// inherits; a YAML sequence ⇒ only the named members. Malformed
+    /// shapes (a different scalar, a mapping, a non-string sequence
+    /// entry) fall through to "applies = true" so the operator's
+    /// primary error remains the parse error rather than a spurious
+    /// missing-image complaint.
+    /// </summary>
+    private static bool UnitInheritsPackageExecution(string? unitName, object? rawInherit)
+    {
+        if (string.IsNullOrWhiteSpace(unitName))
+        {
+            return false;
+        }
+        if (rawInherit is null)
+        {
+            return true;
+        }
+        if (rawInherit is string scalar)
+        {
+            return string.Equals(scalar.Trim(), "all", StringComparison.OrdinalIgnoreCase);
+        }
+        if (rawInherit is System.Collections.IEnumerable sequence)
+        {
+            foreach (var item in sequence)
+            {
+                if (item is string name
+                    && string.Equals(name.Trim(), unitName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return true;
     }
 
     // ── local YAML shapes for tolerant agent parsing ──────────────────────
