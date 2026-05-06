@@ -73,69 +73,6 @@ public static class PackageManifestParser
     }
 
     /// <summary>
-    /// Normalises the package-level <c>connectors:</c> block (#1670). The
-    /// raw YAML accepts <c>inherit: all</c> (default), <c>inherit: [unit-a,
-    /// unit-b]</c>, or <c>inherit:</c> absent. Surface the parsed shape on
-    /// the typed <see cref="RequiredConnector.InheritAll"/> /
-    /// <see cref="RequiredConnector.InheritUnits"/> slots so the install
-    /// pipeline never has to re-walk the raw YAML.
-    /// </summary>
-    private static void NormaliseConnectorBlock(PackageManifest doc)
-    {
-        if (doc.Connectors is not { Count: > 0 } connectors)
-        {
-            return;
-        }
-
-        for (var i = 0; i < connectors.Count; i++)
-        {
-            var entry = connectors[i];
-            if (entry is null)
-            {
-                continue;
-            }
-            if (string.IsNullOrWhiteSpace(entry.Type))
-            {
-                throw new PackageParseException(
-                    $"connectors[{i}]: 'type' is required.");
-            }
-
-            switch (entry.InheritRaw)
-            {
-                case null:
-                    entry.InheritAll = true;
-                    entry.InheritUnits = null;
-                    break;
-                case string s:
-                    if (!string.Equals(s.Trim(), "all", StringComparison.OrdinalIgnoreCase))
-                    {
-                        throw new PackageParseException(
-                            $"connectors[{i}].inherit: only the literal string 'all' or a sequence of unit names is accepted, got '{s}'.");
-                    }
-                    entry.InheritAll = true;
-                    entry.InheritUnits = null;
-                    break;
-                case System.Collections.IEnumerable seq when seq is not string:
-                    var names = new List<string>();
-                    foreach (var item in seq)
-                    {
-                        if (item is null) continue;
-                        var name = item.ToString();
-                        if (string.IsNullOrWhiteSpace(name)) continue;
-                        names.Add(name.Trim());
-                    }
-                    entry.InheritAll = false;
-                    entry.InheritUnits = names;
-                    break;
-                default:
-                    throw new PackageParseException(
-                        $"connectors[{i}].inherit: unsupported shape '{entry.InheritRaw.GetType().Name}'. " +
-                        "Expected the literal 'all' (default) or a list of member-unit names.");
-            }
-        }
-    }
-
-    /// <summary>
     /// Validates the package-level grammar against the v0.1 rules introduced
     /// by #1629 PR7 — namely that every reference field rejects path-style
     /// values (<c>scheme://...</c>). Runs from <see cref="ParseRaw"/> so the
@@ -380,14 +317,6 @@ public static class PackageManifestParser
         // Step 8: Detect cycles.
         DetectCycles(resolved);
 
-        // Step 8.5: validate the package-level connectors block against the
-        // resolved unit set (#1670) — `inherit: [unit]` lists must reference
-        // real members, and a unit declaring `inherit: false` on a slug the
-        // package doesn't declare is an error. Identical inherited entries
-        // are downgraded to a parse-time *warning* and ignored at install
-        // time.
-        ValidateConnectorBlock(manifest, resolved);
-
         // #1718 item 1: package kind is computed from the parsed content,
         // not from a YAML scalar. Empty / unit-only / mixed shapes resolve
         // as UnitPackage; an exclusively-agent top-level resolves as
@@ -437,7 +366,6 @@ public static class PackageManifestParser
             Workflows = workflows,
             RequiredConnectorSlugs = requiredConnectorSlugs,
             ConnectorRequiresByArtefact = connectorRequiresByArtefact,
-            Connectors = manifest.Connectors ?? new List<RequiredConnector>(),
         };
     }
 
@@ -1172,71 +1100,6 @@ public static class PackageManifestParser
             ResolvedPath = null,
             Content = content,
         };
-    }
-
-    // ---- Connector block validation (#1670) ----------------------------
-
-    /// <summary>
-    /// Validates the package-level <c>connectors:</c> block against the
-    /// resolved unit set. Rules (#1670):
-    /// <list type="bullet">
-    ///   <item><description>
-    ///     Every entry on a package-level <c>inherit: [..]</c> list must
-    ///     name a unit that exists in this package.
-    ///   </description></item>
-    ///   <item><description>
-    ///     A unit's own <c>connectors:</c> entry that names a slug the
-    ///     package does not declare is an error when that entry sets
-    ///     <c>inherit: false</c> — opting out of an inheritance the package
-    ///     never offered.
-    ///   </description></item>
-    /// </list>
-    /// </summary>
-    private static void ValidateConnectorBlock(
-        PackageManifest manifest,
-        List<RefResolution> resolved)
-    {
-        if (manifest.Connectors is not { Count: > 0 } pkgConnectors)
-        {
-            return;
-        }
-
-        var unitNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var r in resolved.Where(r => r.Reference.Kind == ArtefactKind.Unit))
-        {
-            unitNames.Add(r.Artefact.Name);
-        }
-
-        for (var i = 0; i < pkgConnectors.Count; i++)
-        {
-            var entry = pkgConnectors[i];
-            if (entry?.InheritUnits is not { Count: > 0 } list)
-            {
-                continue;
-            }
-            foreach (var unitName in list)
-            {
-                if (!unitNames.Contains(unitName))
-                {
-                    throw new PackageParseException(
-                        $"connectors[{i}].inherit: unit '{unitName}' is not declared in this package.");
-                }
-            }
-        }
-
-        var declaredSlugs = new HashSet<string>(
-            pkgConnectors.Where(c => !string.IsNullOrWhiteSpace(c?.Type)).Select(c => c!.Type!),
-            StringComparer.OrdinalIgnoreCase);
-
-        // ADR-0037 decision 3: package-level connector inheritance is gone.
-        // The unit-level legacy connectors:/inherit:false opt-out path is
-        // dead under the new schema — every artefact declares its own
-        // requires:, the install pipeline injects bindings 1:1, and the
-        // resolved unit graph never reaches this branch because
-        // pkgConnectors is empty. Logic preserved as a no-op for the
-        // transitional period; #1726 deletes ValidateConnectorBlock and
-        // the legacy types entirely.
-        _ = declaredSlugs;
     }
 
     // ---- Cycle detection -----------------------------------------------

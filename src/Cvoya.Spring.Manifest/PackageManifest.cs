@@ -149,21 +149,6 @@ public class PackageManifest
     public List<PackageInputDefinition>? Inputs { get; set; }
 
     /// <summary>
-    /// Legacy package-level <c>connectors:</c> block — transitional
-    /// surface for #1724. ADR-0037 decision 2 deletes the package-level
-    /// connectors block; the post-ADR-0037 parser populates this list as
-    /// empty so consumers from the previous schema compile during the
-    /// staged refactor. The <c>connectors:</c> YAML key is detected and
-    /// rejected by <see cref="PackageManifestParser"/> with the
-    /// <c>LegacyPackageConnectorsField</c> error per ADR-0037 decision 6
-    /// — operators never see this surface populated. Removed entirely in
-    /// #1726 alongside the install-pipeline rewrite that consumes the
-    /// per-artefact <c>requires:</c> union instead.
-    /// </summary>
-    [YamlIgnore]
-    public List<RequiredConnector>? Connectors { get; set; }
-
-    /// <summary>
     /// Raw deserialised <c>inputs:</c> YAML block — populated by the
     /// parser only to detect old-shape manifests and raise the
     /// <c>LegacyInputsField</c> error. Never populated for new-shape
@@ -216,63 +201,6 @@ public class PackageInputDefinition
     /// <summary>Optional default value.</summary>
     [YamlMember(Alias = "default")]
     public string? Default { get; set; }
-}
-
-/// <summary>
-/// One entry in a package-level <c>connectors:</c> block —
-/// <em>legacy schema</em>. ADR-0037 decision 2 removes the package-level
-/// connectors declaration; requirements now live on per-artefact
-/// <c>requires:</c> blocks. This class survives only as a transitional
-/// compile surface for consumers that have not migrated to the new
-/// shape; the parser rejects any package-level <c>connectors:</c> block
-/// in YAML with <c>LegacyPackageConnectorsField</c>. Removed in #1726.
-/// </summary>
-public class RequiredConnector
-{
-    /// <summary>Connector type slug.</summary>
-    [YamlMember(Alias = "type")]
-    public string? Type { get; set; }
-
-    /// <summary>Required flag.</summary>
-    [YamlMember(Alias = "required")]
-    public bool Required { get; set; } = true;
-
-    /// <summary>Inheritance scope (raw YAML node).</summary>
-    [YamlMember(Alias = "inherit")]
-    public object? InheritRaw { get; set; }
-
-    /// <summary>True when inheritance is "all" (default).</summary>
-    [YamlIgnore]
-    public bool InheritAll { get; set; } = true;
-
-    /// <summary>Explicit inheritance unit list (when not "all").</summary>
-    [YamlIgnore]
-    public IReadOnlyList<string>? InheritUnits { get; set; }
-}
-
-/// <summary>
-/// One entry in a unit-level <c>connectors:</c> block — <em>legacy
-/// schema</em>. ADR-0037 decision 3 renames the unit-level
-/// <c>connectors:</c> block to <c>requires:</c> and replaces the typed
-/// shape with <see cref="RequirementEntry"/>. This class survives only
-/// as a transitional compile surface for consumers that read the old
-/// per-unit connector configuration; the parser rejects any unit-level
-/// <c>connectors:</c> block with <c>LegacyUnitConnectorsField</c>.
-/// Removed in #1726.
-/// </summary>
-public class ConnectorManifest
-{
-    /// <summary>Connector type slug.</summary>
-    [YamlMember(Alias = "type")]
-    public string? Type { get; set; }
-
-    /// <summary>Free-form connector configuration.</summary>
-    [YamlMember(Alias = "config")]
-    public Dictionary<string, object>? Config { get; set; }
-
-    /// <summary>Inheritance opt-out flag.</summary>
-    [YamlMember(Alias = "inherit")]
-    public bool Inherit { get; set; } = true;
 }
 
 /// <summary>

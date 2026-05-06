@@ -68,16 +68,6 @@ public class ResolvedPackage
     public IReadOnlyDictionary<string, IReadOnlyList<string>> ConnectorRequiresByArtefact { get; init; } =
         new Dictionary<string, IReadOnlyList<string>>();
 
-    /// <summary>
-    /// Transitional surface — empty under ADR-0037. Package-level
-    /// connector declarations were removed in D2; the install pipeline
-    /// reads <see cref="RequiredConnectorSlugs"/> instead. Survives only
-    /// so consumers from the previous schema compile during the staged
-    /// refactor; deleted alongside <see cref="RequiredConnector"/> in
-    /// the final cleanup.
-    /// </summary>
-    public IReadOnlyList<RequiredConnector> Connectors { get; init; } =
-        System.Array.Empty<RequiredConnector>();
 
     /// <summary>
     /// Non-fatal warnings produced during parse / resolve.
