@@ -114,16 +114,10 @@ public static class PackageValidator
                 ex.Message));
         }
 
-        var declaredInputs = packageManifest?.Inputs?
-            .Where(i => !string.IsNullOrWhiteSpace(i.Name))
-            .Select(i => i.Name!)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase)
-            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        // Always check the package.yaml itself for input interpolations even
-        // though today's grammar doesn't typically embed them at the package
-        // level — keeps the rule universal so future shape changes surface.
-        ValidateInputInterpolations(packageYaml, packageYamlPath, declaredInputs, diagnostics);
+        // ADR-0037 D2: package-level `inputs:` is removed; any
+        // `${{ inputs.* }}` expression is now invalid regardless of
+        // where it appears.
+        ValidateInputInterpolations(packageYaml, packageYamlPath, diagnostics);
 
         // ── units/*.yaml ─────────────────────────────────────────────────────
         var unitFiles = source.EnumerateFiles("units", "*.yaml").ToList();
@@ -169,7 +163,7 @@ public static class PackageValidator
                     ex.Message));
             }
 
-            ValidateInputInterpolations(unitYaml, unitFile, declaredInputs, diagnostics);
+            ValidateInputInterpolations(unitYaml, unitFile, diagnostics);
 
             if (unit is null)
             {
@@ -290,7 +284,7 @@ public static class PackageValidator
                     $"Invalid YAML: {ex.Message}"));
             }
 
-            ValidateInputInterpolations(agentYaml, agentFile, declaredInputs, diagnostics);
+            ValidateInputInterpolations(agentYaml, agentFile, diagnostics);
 
             if (doc is null)
             {
@@ -358,22 +352,20 @@ public static class PackageValidator
         };
     }
 
+    /// <summary>
+    /// ADR-0037 D2: package-level <c>inputs:</c> was removed. Any
+    /// <c>${{ inputs.* }}</c> expression in any YAML file is now an
+    /// authoring error.
+    /// </summary>
     private static void ValidateInputInterpolations(
         string yaml,
         string filePath,
-        ISet<string> declaredInputs,
         List<PackageValidationDiagnostic> diagnostics)
     {
         var seenUndeclared = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (Match m in InputInterpolationPattern.Matches(yaml))
         {
             var name = m.Groups[1].Value;
-            if (declaredInputs.Contains(name))
-            {
-                continue;
-            }
-            // Dedupe per file so the same offending input doesn't surface a
-            // diagnostic per use site.
             if (!seenUndeclared.Add(name))
             {
                 continue;
@@ -381,9 +373,10 @@ public static class PackageValidator
             diagnostics.Add(new PackageValidationDiagnostic(
                 filePath,
                 PackageValidationSeverity.Error,
-                "input-undeclared",
-                $"references undeclared input '{name}'. " +
-                "Add it to the package.yaml 'inputs:' list, or remove the reference."));
+                "input-expression-removed",
+                $"references input '{name}' via '${{{{ inputs.{name} }}}}'. " +
+                "ADR-0037 decision 2 removed the inputs: schema; remove the expression " +
+                "or move the value into a per-artefact 'requires:' binding."));
         }
     }
 

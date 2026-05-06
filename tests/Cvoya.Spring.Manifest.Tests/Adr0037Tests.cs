@@ -416,4 +416,39 @@ public class Adr0037Tests
 
         d.FindCycle().ShouldBeNull();
     }
+
+    // ---- Round-trip: parse → serialise → re-parse identity ------------
+
+    [Fact]
+    public void ParseRaw_NewShape_RoundTripIdentity()
+    {
+        // ADR-0037 D2: a new-shape package.yaml that round-trips through
+        // ParseRaw should preserve every field. This guards against
+        // accidental field drops on the manifest model.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Package
+            name: round-trip-package
+            description: A package whose ParseRaw output preserves every field.
+            readme: README.md
+            version: 2.5.0
+            content:
+              - unit: my-unit
+              - agent: my-agent
+            """;
+
+        var manifest = PackageManifestParser.ParseRaw(yaml);
+
+        manifest.ApiVersion.ShouldBe("spring.voyage/v1");
+        manifest.Kind.ShouldBe("Package");
+        manifest.Name.ShouldBe("round-trip-package");
+        manifest.Description.ShouldBe("A package whose ParseRaw output preserves every field.");
+        manifest.Readme.ShouldBe("README.md");
+        manifest.Version.ShouldBe("2.5.0");
+        manifest.Content!.Count.ShouldBe(2);
+        manifest.Content[0].Kind.ShouldBe(ArtefactKind.Unit);
+        manifest.Content[0].Definition.Reference.ShouldBe("my-unit");
+        manifest.Content[1].Kind.ShouldBe(ArtefactKind.Agent);
+        manifest.Content[1].Definition.Reference.ShouldBe("my-agent");
+    }
 }

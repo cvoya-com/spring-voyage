@@ -80,53 +80,6 @@ public class PackageCycleException : Exception
         => $"Circular artefact reference detected: {string.Join(" → ", path)} → {path[0]}";
 }
 
-/// <summary>
-/// Thrown when package input validation fails: a required input is missing,
-/// a supplied value does not match the declared type, etc.
-/// </summary>
-public class PackageInputValidationException : Exception
-{
-    /// <summary>Creates a new <see cref="PackageInputValidationException"/>.</summary>
-    /// <param name="inputName">The name of the offending input.</param>
-    /// <param name="message">Human-readable description of the failure.</param>
-    public PackageInputValidationException(string inputName, string message)
-        : base(message)
-    {
-        InputName = inputName;
-    }
-
-    /// <summary>The name of the input that caused the validation failure.</summary>
-    public string InputName { get; }
-}
-
-/// <summary>
-/// Thrown when a cross-package artefact body loaded from the catalog contains
-/// <c>${{ inputs.* }}</c> expressions. Cross-package artefacts must be
-/// self-contained in v0.1: each install is independent — the consuming
-/// package's inputs are the wrong scope (it doesn't know the referenced
-/// package's input schema), and prior installs of the referenced package are
-/// not reused. Move the artefact into the consuming package, or remove the
-/// input expressions from the cross-package artefact.
-/// </summary>
-public sealed class CrossPackageArtefactNotSelfContainedException : PackageParseException
-{
-    /// <summary>Creates a new <see cref="CrossPackageArtefactNotSelfContainedException"/>.</summary>
-    /// <param name="reference">
-    /// The cross-package reference string (e.g. <c>"pkg-b/shared-unit"</c>)
-    /// whose body contained input expressions.
-    /// </param>
-    public CrossPackageArtefactNotSelfContainedException(string reference)
-        : base(
-            $"Cross-package artefact '{reference}' contains '${{{{ inputs.* }}}}' expressions; " +
-            $"cross-package artefacts must be self-contained in v0.1 (no input expressions allowed). " +
-            $"Move the artefact into the consuming package, or remove the input expressions.")
-    {
-        Reference = reference;
-    }
-
-    /// <summary>The cross-package reference string that contains the offending input expressions.</summary>
-    public string Reference { get; }
-}
 
 /// <summary>
 /// Thrown when an uploaded package YAML contains local (within-package) artefact
