@@ -1,7 +1,10 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: llm-provider
+  # #1714 step 4: renamed from `llm-provider` to `conversation-ollama`,
+  # mirroring the canonical platform path under
+  # dapr/components/delegated-spring-voyage-agent/.
+  name: conversation-ollama
 spec:
   type: conversation.openai
   version: v1
