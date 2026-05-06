@@ -351,6 +351,25 @@ public static class PackageInstallEndpoints
                         .ToList(),
                 });
         }
+        catch (ExecutionConfigurationsMissingException ex)
+        {
+            // #1679: structured 400 — the wizard / CLI render one row per
+            // unit missing an execution image rather than parsing the
+            // prose detail string. Mirrors the ConnectorBindingMissing
+            // shape from #1671 — same payload model, same code field, so
+            // existing client error handling generalises.
+            return Results.Problem(
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest,
+                type: "https://cvoya.com/problems/configuration-incomplete",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "ConfigurationIncomplete",
+                    ["missing"] = ex.Missing
+                        .Select(m => new ExecutionConfigurationMissingDetail(m.UnitName, m.Field))
+                        .ToList(),
+                });
+        }
         catch (UnknownConnectorSlugException ex)
         {
             // #1671: a binding was supplied for a slug the package does not

@@ -123,6 +123,87 @@ public class PackageManifest
     /// </summary>
     [YamlMember(Alias = "content")]
     public List<ContentEntry>? Content { get; set; }
+
+    /// <summary>
+    /// Optional package-level <c>execution:</c> block (#1679). Member
+    /// units inherit these defaults field-wise unless they declare their
+    /// own <c>execution:</c> block, in which case the member's non-null
+    /// fields win and the package's fields fill the gaps. The
+    /// <c>inherit:</c> child key on the package block selects which
+    /// member units participate (default: every member; explicit list:
+    /// only the named units). Symmetric in shape to the per-unit
+    /// <see cref="ExecutionManifest"/> the rest of the platform already
+    /// understands — a member unit need only re-declare what it wants
+    /// to override.
+    /// </summary>
+    [YamlMember(Alias = "execution")]
+    public PackageExecutionManifest? Execution { get; set; }
+}
+
+/// <summary>
+/// Package-level <c>execution:</c> block (#1679). Carries the same five
+/// inheritable fields as <see cref="ExecutionManifest"/> (<c>image</c>,
+/// <c>runtime</c>, <c>provider</c>, <c>model</c>) plus an optional
+/// <see cref="Inherit"/> selector that constrains which member units
+/// pick up the defaults.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Under #1679 the package may declare execution defaults at the
+/// container level so member units don't have to repeat
+/// <c>image: ghcr.io/...:latest</c> across every member YAML. A member
+/// unit's own <c>execution:</c> block (when present) is merged
+/// field-wise on top of the package defaults — only fields the member
+/// declares win. A member that declares no <c>execution:</c> block at
+/// all inherits the package's full block. When neither side declares
+/// <c>execution.image</c> for an inheriting member, the install
+/// pipeline raises <see cref="ExecutionConfigurationsMissingException"/>
+/// before any DB writes.
+/// </para>
+/// <para>
+/// The <see cref="Inherit"/> child key follows the v0.1 inheritance
+/// shape: omitted (default) means every member inherits; an explicit
+/// list of unit names restricts inheritance to those members. There is
+/// no opt-out at the unit level — a member that wants different
+/// defaults declares its own <c>execution:</c> block; a member that
+/// wants no defaults at all is excluded from the
+/// <see cref="Inherit"/> list.
+/// </para>
+/// </remarks>
+public class PackageExecutionManifest
+{
+    /// <summary>Container image reference inherited by member units.</summary>
+    [YamlMember(Alias = "image")]
+    public string? Image { get; set; }
+
+    /// <summary>Container runtime identifier (<c>docker</c> or <c>podman</c>) inherited by member units.</summary>
+    [YamlMember(Alias = "runtime")]
+    public string? Runtime { get; set; }
+
+    /// <summary>Default LLM provider inherited by member units.</summary>
+    [YamlMember(Alias = "provider")]
+    public string? Provider { get; set; }
+
+    /// <summary>Default model identifier inherited by member units.</summary>
+    [YamlMember(Alias = "model")]
+    public string? Model { get; set; }
+
+    /// <summary>
+    /// Inheritance selector: omitted (or the literal scalar
+    /// <c>all</c>) means every member unit inherits; a YAML sequence of
+    /// unit names restricts inheritance to those members. Other shapes
+    /// raise a <see cref="PackageParseException"/> at parse time.
+    /// </summary>
+    [YamlMember(Alias = "inherit")]
+    public object? Inherit { get; set; }
+
+    /// <summary>True when every inheritable field is null / whitespace.</summary>
+    [YamlIgnore]
+    public bool IsEmpty =>
+        string.IsNullOrWhiteSpace(Image)
+        && string.IsNullOrWhiteSpace(Runtime)
+        && string.IsNullOrWhiteSpace(Provider)
+        && string.IsNullOrWhiteSpace(Model);
 }
 
 /// <summary>

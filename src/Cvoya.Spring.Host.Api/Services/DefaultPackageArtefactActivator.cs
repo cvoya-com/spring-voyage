@@ -75,6 +75,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         Guid installId,
         LocalSymbolMap symbolMap,
         IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
+        ResolvedExecutionDefaults? executionDefaults = null,
         CancellationToken cancellationToken = default)
     {
         if (artefact.Content is null)
@@ -87,7 +88,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         switch (artefact.Kind)
         {
             case ArtefactKind.Unit:
-                await ActivateUnitAsync(artefact, symbolMap, connectorBindings, cancellationToken);
+                await ActivateUnitAsync(artefact, symbolMap, connectorBindings, executionDefaults, cancellationToken);
                 break;
 
             case ArtefactKind.Agent:
@@ -115,9 +116,42 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         ResolvedArtefact artefact,
         LocalSymbolMap symbolMap,
         IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings,
+        ResolvedExecutionDefaults? executionDefaults,
         CancellationToken ct)
     {
         var manifest = ManifestParser.Parse(artefact.Content!);
+
+        // #1679: overlay the resolved execution defaults onto the parsed
+        // manifest's execution block before forwarding to the unit
+        // creation service. The resolver has already done the field-wise
+        // merge (member non-null wins, package fills the gaps); we just
+        // project the merged values onto the manifest model the
+        // downstream IUnitExecutionStore.SetAsync write reads from.
+        // Doing it in the activator (rather than threading another
+        // parameter through IUnitCreationService) keeps the creation
+        // service's signature unchanged and means the manifest path and
+        // the dedicated PUT /api/v1/units/{id}/execution path land on
+        // the same persisted shape.
+        if (executionDefaults is { IsEmpty: false })
+        {
+            manifest.Execution ??= new ExecutionManifest();
+            if (!string.IsNullOrWhiteSpace(executionDefaults.Image))
+            {
+                manifest.Execution.Image = executionDefaults.Image;
+            }
+            if (!string.IsNullOrWhiteSpace(executionDefaults.Runtime))
+            {
+                manifest.Execution.Runtime = executionDefaults.Runtime;
+            }
+            if (!string.IsNullOrWhiteSpace(executionDefaults.Provider))
+            {
+                manifest.Execution.Provider = executionDefaults.Provider;
+            }
+            if (!string.IsNullOrWhiteSpace(executionDefaults.Model))
+            {
+                manifest.Execution.Model = executionDefaults.Model;
+            }
+        }
 
         // #1629 PR7: pull the unit's pre-minted Guid out of the symbol map so
         // the directory entry the creation service writes shares a single

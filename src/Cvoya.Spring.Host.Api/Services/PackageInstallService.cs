@@ -66,6 +66,9 @@ public class PackageInstallService : IPackageInstallService
         var installId = Guid.NewGuid();
         var resolvedBindings = new Dictionary<string, IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>>(
             StringComparer.OrdinalIgnoreCase);
+        // #1679: per-package map of unit name → merged execution defaults.
+        var resolvedExecutions = new Dictionary<string, IReadOnlyDictionary<string, ResolvedExecutionDefaults>>(
+            StringComparer.OrdinalIgnoreCase);
 
         // ── Phase 1 ────────────────────────────────────────────────────────
         // Parse + resolve all packages, validate dep-graph closure, collision
@@ -113,6 +116,25 @@ public class PackageInstallService : IPackageInstallService
         if (allMissing.Count > 0)
         {
             throw new ConnectorBindingsMissingException(allMissing);
+        }
+
+        // #1679: execution-defaults pre-flight. Merge each member unit's
+        // own `execution:` against the package's `execution:` declaration
+        // (when present and the unit is eligible to inherit) and fail
+        // fast if any inheriting member ends up without a resolvable
+        // image. Aggregated across the batch so the operator sees every
+        // gap at once rather than dripping out activation failures one
+        // Phase-2 dispatch at a time.
+        var allExecMissing = new List<ExecutionConfigurationMissing>();
+        foreach (var (_, pkg) in resolvedTargets)
+        {
+            var execResolution = ExecutionDefaultsResolver.Resolve(pkg);
+            allExecMissing.AddRange(execResolution.Missing);
+            resolvedExecutions[pkg.Name] = execResolution.ByUnit;
+        }
+        if (allExecMissing.Count > 0)
+        {
+            throw new ExecutionConfigurationsMissingException(allExecMissing);
         }
 
         // Topological sort of packages by cross-package reference order.
@@ -250,8 +272,11 @@ public class PackageInstallService : IPackageInstallService
             var pkgBindings = resolvedBindings.TryGetValue(pkg.Name, out var rb)
                 ? rb
                 : null;
+            var pkgExec = resolvedExecutions.TryGetValue(pkg.Name, out var re)
+                ? re
+                : null;
             var (outcome, error) = await ActivatePackageAsync(
-                pkg, installId, symbolMap[pkg.Name], pkgBindings, cancellationToken);
+                pkg, installId, symbolMap[pkg.Name], pkgBindings, pkgExec, cancellationToken);
             packageResults.Add(new PackageInstallResult(pkg.Name, outcome, error));
 
             // Update the package_installs row for this package.
@@ -368,8 +393,15 @@ public class PackageInstallService : IPackageInstallService
             var rehydratedResolution = ConnectorBindingResolver.Resolve(
                 pkg, rehydratedPackageBindings, unitBindings: null);
 
+            // #1679: re-run the execution resolver from the parsed YAML
+            // so retries apply the same merged defaults the original
+            // install computed. The merge is pure on top of the manifest
+            // — no DB round-trip needed; the package YAML stored on the
+            // install row carries every input the resolver requires.
+            var rehydratedExec = ExecutionDefaultsResolver.Resolve(pkg);
+
             var (outcome, error) = await ActivatePackageAsync(
-                pkg, installId, retryMap, rehydratedResolution.Bindings, cancellationToken);
+                pkg, installId, retryMap, rehydratedResolution.Bindings, rehydratedExec.ByUnit, cancellationToken);
             packageResults.Add(new PackageInstallResult(row.PackageName, outcome, error));
 
             await UpdatePackageInstallRowAsync(installId, row.PackageName,
@@ -744,6 +776,7 @@ public class PackageInstallService : IPackageInstallService
         Guid installId,
         LocalSymbolMap symbolMap,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? perUnitBindings,
+        IReadOnlyDictionary<string, ResolvedExecutionDefaults>? perUnitExecution,
         CancellationToken cancellationToken)
     {
         string? firstError = null;
@@ -763,10 +796,18 @@ public class PackageInstallService : IPackageInstallService
                 unitBindings = b;
             }
 
+            ResolvedExecutionDefaults? unitExecution = null;
+            if (artefact.Kind == ArtefactKind.Unit
+                && perUnitExecution is not null
+                && perUnitExecution.TryGetValue(artefact.Name, out var e))
+            {
+                unitExecution = e;
+            }
+
             try
             {
                 await _activator.ActivateAsync(
-                    pkg.Name, artefact, installId, symbolMap, unitBindings, cancellationToken);
+                    pkg.Name, artefact, installId, symbolMap, unitBindings, unitExecution, cancellationToken);
                 await FlipArtefactStateToActiveAsync(artefact, installId, cancellationToken);
             }
             catch (OperationCanceledException)
