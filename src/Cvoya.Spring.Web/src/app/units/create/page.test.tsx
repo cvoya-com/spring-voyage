@@ -265,7 +265,7 @@ async function advanceToExecution(name = "acme") {
 }
 
 async function selectTool(value: string) {
-  const toolSelect = screen.getByLabelText("Execution tool") as HTMLSelectElement;
+  const toolSelect = screen.getByLabelText("Agent Runtime") as HTMLSelectElement;
   await act(async () => {
     fireEvent.change(toolSelect, { target: { value } });
   });
@@ -1070,7 +1070,7 @@ describe("CreateUnitPage — #1132 wizard state persistence", () => {
     // Step 3 scratch (Execution) shows the tool select. Without
     // rehydrate the wizard would mount at step 1 (Source).
     await waitFor(() => {
-      expect(screen.getByLabelText("Execution tool")).toBeInTheDocument();
+      expect(screen.getByLabelText("Agent Runtime")).toBeInTheDocument();
     });
 
     // Stepping back once (Execution → Identity) restores the name field —

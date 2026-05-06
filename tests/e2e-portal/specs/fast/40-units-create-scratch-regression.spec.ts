@@ -43,7 +43,7 @@ test.describe("units — wizard scratch end-to-end (regression for #1598)", () =
     await page.getByRole("button", { name: /^next$/i }).click();
 
     // Execution: dapr-agent + ollama + the dapr image
-    await page.getByLabel("Execution tool").selectOption(AGENT_ID);
+    await page.getByLabel("Agent Runtime").selectOption(AGENT_ID);
     await page.getByLabel("LLM provider").selectOption(PROVIDER_ID);
     await page.getByLabel("Execution image").fill(image);
     await page.getByRole("button", { name: /^next$/i }).click();
