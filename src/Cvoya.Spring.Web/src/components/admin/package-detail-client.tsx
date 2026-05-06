@@ -67,12 +67,10 @@ export default function PackageDetailClient({ name }: Props) {
   const installMutation = useInstallPackages();
 
   function openInstall() {
-    const declared = pkg?.inputs ?? [];
-    setInputRows(
-      declared.length > 0
-        ? declared.map((inp) => ({ key: inp.name, value: inp.default ?? "" }))
-        : [],
-    );
+    // ADR-0037 D2: package-level `inputs:` was removed; the install
+    // wizard no longer pre-fills input rows from a manifest schema.
+    // #1727 deletes the input-rendering UI in this component.
+    setInputRows([]);
     setSubmitError(null);
     setInstallOpen(true);
   }
@@ -399,76 +397,44 @@ export default function PackageDetailClient({ name }: Props) {
               role="list"
               aria-label="Package inputs"
             >
-              {inputRows.map((row, i) => {
-                const declared = (pkg.inputs ?? []).find(
-                  (inp) => inp.name === row.key,
-                );
-                return declared ? (
-                  // Declared input — show label + description hint
-                  <div key={i} className="space-y-1" role="listitem">
-                    <label
-                      htmlFor={`input-value-${i}`}
-                      className="block text-sm font-medium"
-                    >
-                      {declared.name}
-                      {declared.required && (
-                        <span className="ml-1 text-destructive">*</span>
-                      )}
-                    </label>
-                    {declared.description && (
-                      <p className="text-xs text-muted-foreground">
-                        {declared.description}
-                      </p>
-                    )}
-                    <Input
-                      id={`input-value-${i}`}
-                      placeholder={declared.default ?? ""}
-                      value={row.value}
-                      onChange={(e) =>
-                        updateInputRow(i, "value", e.target.value)
-                      }
-                      type={declared.secret ? "password" : "text"}
-                      aria-label={declared.name}
-                      required={declared.required}
-                    />
-                  </div>
-                ) : (
-                  // Free-form input row
-                  <div
-                    key={i}
-                    className="flex items-center gap-2"
-                    role="listitem"
+              {/* ADR-0037 D2: package-level `inputs:` retired; the wizard
+                  no longer pre-fills declared input rows. The free-form
+                  key/value renderer below stays so operators can still
+                  pass arbitrary key/value pairs at install time. #1727
+                  deletes this whole section once the wizard's connector-
+                  binding step covers everything operators previously
+                  configured via inputs. */}
+              {inputRows.map((row, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2"
+                  role="listitem"
+                >
+                  <Input
+                    placeholder="Key"
+                    value={row.key}
+                    onChange={(e) => updateInputRow(i, "key", e.target.value)}
+                    aria-label={`Input key ${i + 1}`}
+                    className="flex-1"
+                  />
+                  <Input
+                    placeholder="Value"
+                    value={row.value}
+                    onChange={(e) => updateInputRow(i, "value", e.target.value)}
+                    aria-label={`Input value ${i + 1}`}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeInputRow(i)}
+                    aria-label={`Remove input ${i + 1}`}
                   >
-                    <Input
-                      placeholder="Key"
-                      value={row.key}
-                      onChange={(e) =>
-                        updateInputRow(i, "key", e.target.value)
-                      }
-                      aria-label={`Input key ${i + 1}`}
-                      className="flex-1"
-                    />
-                    <Input
-                      placeholder="Value"
-                      value={row.value}
-                      onChange={(e) =>
-                        updateInputRow(i, "value", e.target.value)
-                      }
-                      aria-label={`Input value ${i + 1}`}
-                      className="flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeInputRow(i)}
-                      aria-label={`Remove input ${i + 1}`}
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    </Button>
-                  </div>
-                );
-              })}
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+              ))}
             </div>
           )}
 

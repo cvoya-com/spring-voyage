@@ -786,10 +786,19 @@ export default function CreateUnitPage() {
   const selectedPackageQuery = usePackage(form.catalogPackageName ?? "", {
     enabled: form.source === "catalog" && form.catalogPackageName !== null,
   });
+  // ADR-0037 D2: package-level `inputs:` is removed; connector-binding
+  // parameters now live on per-artefact `requires:`. The wizard's
+  // input-rendering path is dead under the new shape — keep the empty
+  // list so the existing form-validation loop still typechecks while
+  // #1727 deletes the wizard's input UI sections wholesale.
   const selectedPackageInputs = useMemo<PackageInputSummary[]>(
-    () => selectedPackageQuery.data?.inputs ?? [],
-    [selectedPackageQuery.data],
+    () => [],
+    [],
   );
+  // Reference selectedPackageQuery to keep the existing fetch path live —
+  // the wizard still needs the package detail for connector declarations
+  // and the package-name display even though it no longer reads inputs.
+  void selectedPackageQuery;
   const selectedPackageLoading =
     form.source === "catalog" &&
     form.catalogPackageName !== null &&
