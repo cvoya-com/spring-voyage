@@ -272,7 +272,7 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
 
         var response = await client.PostAsJsonAsync("/v1/containers", new
         {
-            image = "spring-voyage-agent-dapr:latest",
+            image = "spring-voyage-agent:latest",
             workspace = new
             {
                 mountPath = "/workspace",

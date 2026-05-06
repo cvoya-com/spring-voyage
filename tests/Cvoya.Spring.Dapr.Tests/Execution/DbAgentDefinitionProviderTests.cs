@@ -184,7 +184,7 @@ public class DbAgentDefinitionProviderTests
                 execution = new
                 {
                     agent = "openai",
-                    image = "localhost/spring-voyage-agent-dapr:latest",
+                    image = "localhost/spring-voyage-agent:latest",
                     provider = "openai",
                     model = "gpt-4o-mini",
                 }
@@ -207,7 +207,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "openai", image = "localhost/spring-voyage-agent-dapr:latest" }
+                execution = new { agent = "openai", image = "localhost/spring-voyage-agent:latest" }
             })
         };
 

@@ -30,7 +30,7 @@ test.describe("units — wizard scratch end-to-end (regression for #1598)", () =
     baseURL,
   }) => {
     const slug = tracker.unit(unitName("wiz-scratch-regr"));
-    const image = "localhost/spring-voyage-agent-dapr:latest";
+    const image = "localhost/spring-voyage-agent:latest";
 
     // Source: Scratch
     await page.goto("/units/create");
@@ -38,9 +38,7 @@ test.describe("units — wizard scratch end-to-end (regression for #1598)", () =
     await page.getByRole("button", { name: /^next$/i }).click();
 
     // Identity: slug + top-level
-    await page
-      .getByRole("textbox", { name: /name \*/i })
-      .fill(slug);
+    await page.getByRole("textbox", { name: /name \*/i }).fill(slug);
     await page.getByTestId("parent-choice-top-level").click();
     await page.getByRole("button", { name: /^next$/i }).click();
 
@@ -77,9 +75,7 @@ test.describe("units — wizard scratch end-to-end (regression for #1598)", () =
       expect(unitBody.unit.name).toBe(slug);
       expect(unitBody.unit.provider).toBe(PROVIDER_ID);
 
-      const execResp = await api.get(
-        `/api/v1/tenant/units/${slug}/execution`,
-      );
+      const execResp = await api.get(`/api/v1/tenant/units/${slug}/execution`);
       expect(execResp.ok()).toBeTruthy();
       const execBody = (await execResp.json()) as {
         image: string | null;
