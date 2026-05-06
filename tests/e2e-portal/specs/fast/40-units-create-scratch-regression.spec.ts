@@ -59,7 +59,7 @@ test.describe("units — wizard scratch end-to-end (regression for #1598)", () =
     // Cleanup is the tracker fixture's responsibility; we only verify here.
     // #1738: `unit.tool` was retired in #1732. The runtime registry id
     // now lives on the execution block as `agent`; the server derives
-    // `toolKind` and exposes it read-only.
+    // `kind` and exposes it read-only.
     const api = await request.newContext({
       baseURL: baseURL ?? "http://localhost",
     });

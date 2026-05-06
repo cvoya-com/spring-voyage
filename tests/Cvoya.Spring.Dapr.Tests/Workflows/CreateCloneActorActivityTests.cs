@@ -98,12 +98,12 @@ public class CreateCloneActorActivityTests
             "parent-agent", "clone-1",
             CloningPolicy.EphemeralWithMemory, AttachmentMode.Attached);
 
-        var activeConversation = new object();
+        var activeThread = new object();
         var initiativeState = new object();
 
         _stateStore.GetAsync<object>(
             $"parent-agent:{StateKeys.ActiveConversation}", Arg.Any<CancellationToken>())
-            .Returns(activeConversation);
+            .Returns(activeThread);
         _stateStore.GetAsync<object>(
             $"parent-agent:{StateKeys.InitiativeState}", Arg.Any<CancellationToken>())
             .Returns(initiativeState);
@@ -112,7 +112,7 @@ public class CreateCloneActorActivityTests
 
         await _stateStore.Received(1).SetAsync(
             $"clone-1:{StateKeys.ActiveConversation}",
-            activeConversation,
+            activeThread,
             Arg.Any<CancellationToken>());
         await _stateStore.Received(1).SetAsync(
             $"clone-1:{StateKeys.InitiativeState}",

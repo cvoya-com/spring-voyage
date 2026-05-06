@@ -24,7 +24,7 @@ using Xunit;
 public class AgentMailboxRoutingTests
 {
     [Fact]
-    public async Task ReceiveAsync_FirstDomainMessage_BecomesActiveConversation()
+    public async Task ReceiveAsync_FirstDomainMessage_BecomesActiveThread()
     {
         var (actor, stateManager) = ActorTestHost.CreateAgentActor("mailbox-agent");
         var threadId = "conv-first";

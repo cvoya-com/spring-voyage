@@ -101,7 +101,7 @@ public interface IAgentActor : IAgent
     /// the id matches a pending channel that channel is dropped and the
     /// active slot is left untouched.
     /// </summary>
-    /// <param name="conversationId">The thread identifier to close.</param>
+    /// <param name="threadId">The thread identifier to close.</param>
     /// <param name="reason">
     /// Optional human-readable reason — surfaced on the
     /// <c>ThreadClosed</c> activity event's <c>details</c> payload so
@@ -109,8 +109,8 @@ public interface IAgentActor : IAgent
     /// non-zero dispatch exit, etc.).
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    Task CloseConversationAsync(
-        string conversationId,
+    Task CloseThreadAsync(
+        string threadId,
         string? reason,
         CancellationToken cancellationToken = default);
 
@@ -127,7 +127,7 @@ public interface IAgentActor : IAgent
     /// </summary>
     /// <param name="reason">Human-readable reason for clearing the active slot.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    Task ClearActiveConversationAsync(
+    Task ClearActiveThreadAsync(
         string? reason,
         CancellationToken cancellationToken = default);
 }

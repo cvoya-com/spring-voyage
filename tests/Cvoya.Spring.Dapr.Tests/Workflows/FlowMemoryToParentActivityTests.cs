@@ -38,7 +38,7 @@ public class FlowMemoryToParentActivityTests
     }
 
     [Fact]
-    public async Task RunAsync_CopiesActiveConversationToParent()
+    public async Task RunAsync_CopiesActiveThreadToParent()
     {
         var input = new CloningInput(
             "parent-agent", "clone-1",

@@ -48,7 +48,7 @@ public static class UnitExecutionCommand
     /// <remarks>
     /// #1732: <c>tool</c> was dropped — the execution tool is derived
     /// 1:1 from <c>agent</c> via the runtime registry's
-    /// <c>IAgentRuntime.ToolKind</c>.
+    /// <c>IAgentRuntime.Kind</c>.
     /// </remarks>
     internal static readonly string[] FieldKeys =
     {
@@ -100,8 +100,8 @@ public static class UnitExecutionCommand
                     image = defaults.Image,
                     runtime = defaults.Runtime,
                     agent = defaults.Agent,
-                    // #1732: tool_kind is derived server-side from agent.
-                    tool_kind = defaults.ToolKind,
+                    // #1732: kind is derived server-side from agent.
+                    kind = defaults.Kind,
                     provider = defaults.Provider,
                     model = defaults.Model,
                 }));
@@ -112,9 +112,9 @@ public static class UnitExecutionCommand
             Console.WriteLine($"  image:    {defaults.Image ?? "(unset)"}");
             Console.WriteLine($"  runtime:  {defaults.Runtime ?? "(unset)"}");
             Console.WriteLine($"  agent:    {defaults.Agent ?? "(unset)"}");
-            // #1732: tool_kind is read-only — derived from agent via the
+            // #1732: kind is read-only — derived from agent via the
             // runtime registry. Shows "(derived from agent)" when unset.
-            Console.WriteLine($"  tool_kind: {defaults.ToolKind ?? "(derived from agent)"}");
+            Console.WriteLine($"  kind: {defaults.Kind ?? "(derived from agent)"}");
             Console.WriteLine($"  provider: {defaults.Provider ?? "(unset)"}");
             Console.WriteLine($"  model:    {defaults.Model ?? "(unset)"}");
         });
@@ -140,7 +140,7 @@ public static class UnitExecutionCommand
         var agentOption = new Option<string?>("--agent")
         {
             Description = "Default agent runtime registry id (e.g. claude, openai, google, ollama). " +
-                "Drives launcher selection at dispatch via IAgentRuntime.ToolKind.",
+                "Drives launcher selection at dispatch via IAgentRuntime.Kind.",
         };
 
         var providerOption = new Option<string?>("--provider")
@@ -206,7 +206,7 @@ public static class UnitExecutionCommand
                     image = stored.Image,
                     runtime = stored.Runtime,
                     agent = stored.Agent,
-                    tool_kind = stored.ToolKind,
+                    kind = stored.Kind,
                     provider = stored.Provider,
                     model = stored.Model,
                 }));
@@ -217,7 +217,7 @@ public static class UnitExecutionCommand
                 Console.WriteLine($"  image:    {stored.Image ?? "(unset)"}");
                 Console.WriteLine($"  runtime:  {stored.Runtime ?? "(unset)"}");
                 Console.WriteLine($"  agent:    {stored.Agent ?? "(unset)"}");
-                Console.WriteLine($"  tool_kind: {stored.ToolKind ?? "(derived from agent)"}");
+                Console.WriteLine($"  kind: {stored.Kind ?? "(derived from agent)"}");
                 Console.WriteLine($"  provider: {stored.Provider ?? "(unset)"}");
                 Console.WriteLine($"  model:    {stored.Model ?? "(unset)"}");
             }

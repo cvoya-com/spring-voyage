@@ -38,7 +38,7 @@ public class OpenAiAgentRuntimeTests
 
         runtime.Id.ShouldBe("openai");
         runtime.DisplayName.ShouldBe("Spring Voyage Agent (OpenAI)");
-        runtime.ToolKind.ShouldBe("spring-voyage");
+        runtime.Kind.ShouldBe("spring-voyage");
     }
 
     [Fact]

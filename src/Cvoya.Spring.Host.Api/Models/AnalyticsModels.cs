@@ -14,8 +14,8 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// </param>
 /// <param name="MessagesReceived">Count of <c>MessageReceived</c> events.</param>
 /// <param name="MessagesSent">Count of <c>MessageSent</c> events.</param>
-/// <param name="Turns">Count of <c>ConversationStarted</c> events.</param>
-/// <param name="ToolCalls">Count of <c>DecisionMade</c> events (proxy for tool calls).</param>
+/// <param name="Turns">Count of <c>ThreadStarted</c> events.</param>
+/// <param name="ToolCalls">Count of <c>DecisionMade</c> events (proxy for MCP tool calls).</param>
 public record ThroughputEntryResponse(
     string Source,
     long MessagesReceived,

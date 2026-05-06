@@ -17,7 +17,7 @@ using Cvoya.Spring.Core.AgentRuntimes;
 /// data.
 /// </param>
 /// <param name="DisplayName">Human-facing display name from the runtime descriptor.</param>
-/// <param name="ToolKind">
+/// <param name="Kind">
 /// Execution tool the runtime uses (e.g. <c>claude-code-cli</c>,
 /// <c>spring-voyage</c>). Lets clients reason about container baseline
 /// requirements without importing runtime packages.
@@ -68,7 +68,7 @@ using Cvoya.Spring.Core.AgentRuntimes;
 public record InstalledAgentRuntimeResponse(
     string Id,
     string DisplayName,
-    string ToolKind,
+    string Kind,
     DateTimeOffset InstalledAt,
     DateTimeOffset UpdatedAt,
     IReadOnlyList<string> Models,

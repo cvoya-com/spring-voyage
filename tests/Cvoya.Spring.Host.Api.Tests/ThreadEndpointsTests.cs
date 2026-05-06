@@ -320,7 +320,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
     }
 
     // --- #1038 + #1207 — POST /api/v1/threads/{id}/close ---
-    // #1207 regression guard: the close path MUST invoke AgentActor.CloseConversationAsync
+    // #1207 regression guard: the close path MUST invoke AgentActor.CloseThreadAsync
     // so the actor clears its ActiveConversation slot. Without this call the actor stays
     // "bricked" — every subsequent message send queues forever until worker restart.
 
@@ -382,7 +382,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         detail.Events!.Count.ShouldBe(1);
         detail.Events[0].EventType.ShouldBe("ThreadClosed");
 
-        await agentProxy.Received(1).CloseConversationAsync(
+        await agentProxy.Received(1).CloseThreadAsync(
             "c-close", "operator request", Arg.Any<CancellationToken>());
     }
 

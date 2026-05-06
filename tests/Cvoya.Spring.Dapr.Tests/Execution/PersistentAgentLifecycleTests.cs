@@ -32,7 +32,7 @@ public class PersistentAgentLifecycleTests
     private readonly IContainerRuntime _containerRuntime = Substitute.For<IContainerRuntime>();
     private readonly IAgentDefinitionProvider _agentProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
-    private readonly IAgentToolLauncher _launcher = Substitute.For<IAgentToolLauncher>();
+    private readonly IAgentRuntimeLauncher _launcher = Substitute.For<IAgentRuntimeLauncher>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
     private readonly PersistentAgentRegistry _registry;
@@ -41,15 +41,15 @@ public class PersistentAgentLifecycleTests
     public PersistentAgentLifecycleTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        // #1732: launcher.ToolKind matches IAgentRuntime.ToolKind
+        // #1732: launcher.Kind matches IAgentRuntime.Kind
         // (claude-code-cli for the claude runtime).
-        _launcher.ToolKind.Returns("claude-code-cli");
+        _launcher.Kind.Returns("claude-code-cli");
 
         // #1732: registry maps the runtime id ("claude") to the launcher's
-        // ToolKind so the lifecycle can derive the launcher.
+        // Kind so the lifecycle can derive the launcher.
         var claudeRuntime = Substitute.For<IAgentRuntime>();
         claudeRuntime.Id.Returns("claude");
-        claudeRuntime.ToolKind.Returns("claude-code-cli");
+        claudeRuntime.Kind.Returns("claude-code-cli");
         var registry = Substitute.For<IAgentRuntimeRegistry>();
         registry.Get("claude").Returns(claudeRuntime);
 
@@ -65,7 +65,7 @@ public class PersistentAgentLifecycleTests
         services.AddSingleton(_agentProvider);
         services.AddSingleton(_mcpServer);
         services.AddSingleton(_launcher);
-        services.AddSingleton<IEnumerable<IAgentToolLauncher>>(_ => new[] { _launcher });
+        services.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(_ => new[] { _launcher });
         services.AddSingleton(registry);
         services.AddSingleton<PersistentAgentRegistry>();
         services.AddSingleton<PersistentAgentLifecycle>();

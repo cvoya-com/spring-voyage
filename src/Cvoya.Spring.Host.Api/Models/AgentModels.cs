@@ -26,7 +26,10 @@ using Cvoya.Spring.Core.Agents;
 /// </param>
 /// <param name="DefinitionJson">
 /// Optional agent-definition JSON document serialised as a string (e.g.
-/// <c>{"execution":{"tool":"spring-voyage","image":"…","provider":"ollama","model":"llama3.2:3b"}}</c>).
+/// <c>{"execution":{"agent":"spring-voyage","image":"…","provider":"ollama","model":"llama3.2:3b"}}</c>).
+/// The <c>execution.agent</c> field carries the agent-runtime registry id
+/// (<c>IAgentRuntime.Id</c>) — the legacy <c>execution.tool</c> field was
+/// removed in #1732 and is rejected by the manifest parser.
 /// When supplied, the server parses it and persists the <see cref="JsonElement"/>
 /// to <c>AgentDefinitions.Definition</c> so the execution layer can read
 /// <see cref="Cvoya.Spring.Core.Execution.AgentExecutionConfig"/> from it.

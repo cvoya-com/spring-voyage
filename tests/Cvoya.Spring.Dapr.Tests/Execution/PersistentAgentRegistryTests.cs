@@ -29,13 +29,13 @@ public class PersistentAgentRegistryTests : IDisposable
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IAgentDefinitionProvider _agentProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
-    private readonly IAgentToolLauncher _launcher = Substitute.For<IAgentToolLauncher>();
+    private readonly IAgentRuntimeLauncher _launcher = Substitute.For<IAgentRuntimeLauncher>();
     private readonly PersistentAgentRegistry _registry;
 
     public PersistentAgentRegistryTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _launcher.ToolKind.Returns("claude-code-cli");
+        _launcher.Kind.Returns("claude-code-cli");
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
         _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>())
             .Returns(ci => new McpSession("t", ci.ArgAt<string>(0), ci.ArgAt<string>(1)));
@@ -58,7 +58,7 @@ public class PersistentAgentRegistryTests : IDisposable
         services.AddSingleton(_agentProvider);
         services.AddSingleton(_mcpServer);
         services.AddSingleton(_launcher);
-        services.AddSingleton<IEnumerable<IAgentToolLauncher>>(_ => new[] { _launcher });
+        services.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(_ => new[] { _launcher });
         services.AddSingleton<AgentVolumeManager>();
         services.AddSingleton<PersistentAgentRegistry>();
         services.AddSingleton<PersistentAgentLifecycle>();

@@ -73,7 +73,7 @@ public class CliEndToEndTests
     }
 
     [Fact]
-    public async Task FullLifecycle_AgentReceivesMessage_StatusReflectsActiveConversation()
+    public async Task FullLifecycle_AgentReceivesMessage_StatusReflectsActiveThread()
     {
         // Step 1: Create an agent actor.
         var (agentActor, agentStateManager) = ActorTestHost.CreateAgentActor("cli-agent");

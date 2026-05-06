@@ -108,8 +108,8 @@ public static class UnitExecutionEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        // #1732: ToolKind is read-only on the wire — derived from Agent.
-        // The request's ToolKind value (if any) is silently ignored.
+        // #1732: Kind is read-only on the wire — derived from Agent.
+        // The request's Kind value (if any) is silently ignored.
         var defaults = new UnitExecutionDefaults(
             Image: request.Image,
             Runtime: request.Runtime,
@@ -158,12 +158,12 @@ public static class UnitExecutionEndpoints
             return new UnitExecutionResponse();
         }
 
-        // #1732: derive ToolKind from the runtime registry. Returns null when
+        // #1732: derive Kind from the runtime registry. Returns null when
         // Agent is unset or names a runtime that is not registered here.
-        string? toolKind = null;
+        string? kind = null;
         if (!string.IsNullOrWhiteSpace(defaults.Agent))
         {
-            toolKind = runtimeRegistry.Get(defaults.Agent)?.ToolKind;
+            kind = runtimeRegistry.Get(defaults.Agent)?.Kind;
         }
 
         return new UnitExecutionResponse(
@@ -172,6 +172,6 @@ public static class UnitExecutionEndpoints
             Provider: defaults.Provider,
             Model: defaults.Model,
             Agent: defaults.Agent,
-            ToolKind: toolKind);
+            Kind: kind);
     }
 }

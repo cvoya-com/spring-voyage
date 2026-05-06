@@ -40,10 +40,10 @@ public class ContainerHealthMetricsServiceTests
         services.AddSingleton<AgentVolumeManager>();
         services.AddSingleton(Substitute.For<IAgentDefinitionProvider>());
         services.AddSingleton(Substitute.For<IMcpServer>());
-        var launcher = Substitute.For<IAgentToolLauncher>();
-        launcher.ToolKind.Returns("tool");
+        var launcher = Substitute.For<IAgentRuntimeLauncher>();
+        launcher.Kind.Returns("tool");
         services.AddSingleton(launcher);
-        services.AddSingleton<IEnumerable<IAgentToolLauncher>>(_ => new[] { launcher });
+        services.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(_ => new[] { launcher });
         services.AddSingleton<PersistentAgentRegistry>();
 
         _registry = services.BuildServiceProvider().GetRequiredService<PersistentAgentRegistry>();

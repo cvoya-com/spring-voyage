@@ -53,7 +53,7 @@ public class OllamaAgentRuntime : IAgentRuntime
     /// other Spring Voyage–backed runtimes so the host can reason about
     /// container-baseline requirements without enumerating every runtime.
     /// </summary>
-    public const string SpringVoyageToolKind = "spring-voyage";
+    public const string SpringVoyageKind = "spring-voyage";
 
     /// <summary>
     /// The named <see cref="HttpClient"/> the runtime uses for outbound
@@ -107,7 +107,7 @@ public class OllamaAgentRuntime : IAgentRuntime
     public string DisplayName => "Spring Voyage Agent (Ollama)";
 
     /// <inheritdoc />
-    public string ToolKind => SpringVoyageToolKind;
+    public string Kind => SpringVoyageKind;
 
     /// <inheritdoc />
     public AgentRuntimeCredentialSchema CredentialSchema { get; } = new(

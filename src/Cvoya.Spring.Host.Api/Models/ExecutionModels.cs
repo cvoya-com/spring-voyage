@@ -19,13 +19,13 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// <para>
 /// #1732: <c>tool</c> is no longer threaded through the wire shape — the
 /// execution tool is derived 1:1 from <see cref="Agent"/> via the runtime
-/// registry's <c>IAgentRuntime.ToolKind</c>. The read-only
-/// <see cref="ToolKind"/> field on the response captures the derived value
+/// registry's <c>IAgentRuntime.Kind</c>. The read-only
+/// <see cref="Kind"/> field on the response captures the derived value
 /// for portal / CLI display.
 /// </para>
 /// <para>
 /// <see cref="Provider"/> and <see cref="Model"/> are meaningful only when
-/// the resolved <see cref="ToolKind"/> = <c>spring-voyage</c> — the portal
+/// the resolved <see cref="Kind"/> = <c>spring-voyage</c> — the portal
 /// hides them for other tool kinds (#598 gating).
 /// </para>
 /// </remarks>
@@ -34,10 +34,10 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// <param name="Provider">Default LLM model provider (Spring Voyage Agent–specific).</param>
 /// <param name="Model">Default model identifier (Spring Voyage Agent–specific).</param>
 /// <param name="Agent">Agent-runtime registry id (e.g. <c>ollama</c>, <c>claude</c>, <c>openai</c>). The dispatcher resolves this through <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntimeRegistry"/> to pick the launcher.</param>
-/// <param name="ToolKind">
+/// <param name="Kind">
 /// Read-only registry-derived execution tool kind (e.g. <c>claude-code-cli</c>,
 /// <c>spring-voyage</c>). Populated by the server from
-/// <c>IAgentRuntime.ToolKind</c> when <see cref="Agent"/> resolves; <c>null</c>
+/// <c>IAgentRuntime.Kind</c> when <see cref="Agent"/> resolves; <c>null</c>
 /// otherwise. Always <c>null</c> on request bodies — clients cannot set this
 /// field.
 /// </param>
@@ -47,7 +47,7 @@ public record UnitExecutionResponse(
     string? Provider = null,
     string? Model = null,
     string? Agent = null,
-    string? ToolKind = null);
+    string? Kind = null);
 
 /// <summary>
 /// Wire-level representation of an agent's <c>execution:</c> block on
@@ -65,12 +65,12 @@ public record UnitExecutionResponse(
 /// <para>
 /// #1732: <c>tool</c> is no longer threaded through the wire shape — the
 /// execution tool is derived 1:1 from <see cref="Agent"/> via the runtime
-/// registry's <c>IAgentRuntime.ToolKind</c>. The read-only
-/// <see cref="ToolKind"/> field is populated by the server when the agent's
+/// registry's <c>IAgentRuntime.Kind</c>. The read-only
+/// <see cref="Kind"/> field is populated by the server when the agent's
 /// declared <see cref="Agent"/> resolves.
 /// </para>
 /// </remarks>
-/// <param name="ToolKind">
+/// <param name="Kind">
 /// Read-only registry-derived execution tool kind. Server-populated; clients
 /// cannot set this field on request bodies.
 /// </param>
@@ -81,4 +81,4 @@ public record AgentExecutionResponse(
     string? Model = null,
     string? Hosting = null,
     string? Agent = null,
-    string? ToolKind = null);
+    string? Kind = null);

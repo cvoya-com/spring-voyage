@@ -190,7 +190,7 @@ public class TenantAgentRuntimeInstallServiceTests
         var claude = CreateRuntime(
             id: "claude",
             displayName: "Claude",
-            toolKind: "claude-code-cli",
+            kind: "claude-code-cli",
             models: new[]
             {
                 new ModelDescriptor("claude-opus-4-7", "Claude Opus 4.7 (1M context)", 1_000_000),
@@ -200,7 +200,7 @@ public class TenantAgentRuntimeInstallServiceTests
         var openai = CreateRuntime(
             id: "openai",
             displayName: "OpenAI",
-            toolKind: "dapr-agent",
+            kind: "dapr-agent",
             models: new[]
             {
                 new ModelDescriptor("gpt-4o", "GPT-4o", 128_000),
@@ -215,12 +215,12 @@ public class TenantAgentRuntimeInstallServiceTests
     }
 
     private static IAgentRuntime CreateRuntime(
-        string id, string displayName, string toolKind, IReadOnlyList<ModelDescriptor> models)
+        string id, string displayName, string kind, IReadOnlyList<ModelDescriptor> models)
     {
         var runtime = Substitute.For<IAgentRuntime>();
         runtime.Id.Returns(id);
         runtime.DisplayName.Returns(displayName);
-        runtime.ToolKind.Returns(toolKind);
+        runtime.Kind.Returns(kind);
         runtime.DefaultModels.Returns(models);
         return runtime;
     }

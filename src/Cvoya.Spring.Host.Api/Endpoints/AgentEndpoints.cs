@@ -180,7 +180,7 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        // #1732: ToolKind is read-only on the wire — derived from Agent.
+        // #1732: Kind is read-only on the wire — derived from Agent.
         var shape = new AgentExecutionShape(
             Image: request.Image,
             Runtime: request.Runtime,
@@ -246,12 +246,12 @@ public static class AgentEndpoints
             return new AgentExecutionResponse();
         }
 
-        // #1732: derive ToolKind from the runtime registry. Returns null when
+        // #1732: derive Kind from the runtime registry. Returns null when
         // Agent is unset or names a runtime that is not registered here.
-        string? toolKind = null;
+        string? kind = null;
         if (!string.IsNullOrWhiteSpace(shape.Agent))
         {
-            toolKind = runtimeRegistry.Get(shape.Agent)?.ToolKind;
+            kind = runtimeRegistry.Get(shape.Agent)?.Kind;
         }
 
         return new AgentExecutionResponse(
@@ -261,7 +261,7 @@ public static class AgentEndpoints
             Model: shape.Model,
             Hosting: shape.Hosting,
             Agent: shape.Agent,
-            ToolKind: toolKind);
+            Kind: kind);
     }
 
     private static async Task<IResult> DeployPersistentAgentAsync(

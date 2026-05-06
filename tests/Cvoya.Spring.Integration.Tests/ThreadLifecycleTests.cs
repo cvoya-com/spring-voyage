@@ -92,7 +92,7 @@ public class ThreadLifecycleTests
     }
 
     [Fact]
-    public async Task Lifecycle_CancelActive_ClearsActiveConversation()
+    public async Task Lifecycle_CancelActive_ClearsActiveThread()
     {
         var (actor, stateManager) = ActorTestHost.CreateAgentActor("cancel-agent");
         var activeConvId = "cancel-conv";

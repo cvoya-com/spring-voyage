@@ -4,11 +4,11 @@
 namespace Cvoya.Spring.Core.Execution;
 
 /// <summary>
-/// Describes the container-launch contract for one specific external agent
-/// tool. Different tools (Claude Code, Codex, Gemini CLI, …) materialise
-/// their per-invocation configuration differently, so each gets its own
-/// launcher. The dispatcher selects the launcher whose <see cref="ToolKind"/>
-/// matches the resolved <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.ToolKind"/>.
+/// Describes the container-launch contract for one specific agent runtime.
+/// Different runtimes (Claude Code, Codex, Gemini CLI, …) materialise their
+/// per-invocation configuration differently, so each gets its own launcher.
+/// The dispatcher selects the launcher whose <see cref="Kind"/> matches the
+/// resolved <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Kind"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,23 +20,23 @@ namespace Cvoya.Spring.Core.Execution;
 /// </para>
 /// <para>
 /// #1732: launchers are keyed on the runtime's
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.ToolKind"/>. The
+/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Kind"/>. The
 /// dispatcher looks up the runtime by the agent's persisted <c>execution.agent</c>
 /// (i.e. <see cref="AgentExecutionConfig.AgentRuntimeId"/>) and picks the
-/// launcher whose <see cref="ToolKind"/> matches.
+/// launcher whose <see cref="Kind"/> matches.
 /// </para>
 /// </remarks>
-public interface IAgentToolLauncher
+public interface IAgentRuntimeLauncher
 {
     /// <summary>
-    /// The tool kind this launcher handles. Must match the
-    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.ToolKind"/>
+    /// The agent-runtime kind this launcher handles. Must match the
+    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Kind"/>
     /// of every runtime that should dispatch through this launcher (multiple
-    /// runtimes may share a tool kind when they differ only in their LLM
+    /// runtimes may share a kind when they differ only in their LLM
     /// backend — e.g. <c>openai</c>, <c>google</c>, and <c>ollama</c> all
     /// share <c>spring-voyage</c>).
     /// </summary>
-    string ToolKind { get; }
+    string Kind { get; }
 
     /// <summary>
     /// Builds the container-launch contract for one invocation. The returned
@@ -101,7 +101,7 @@ public record AgentLaunchContext(
     string? Model = null);
 
 /// <summary>
-/// Output of <see cref="IAgentToolLauncher.PrepareAsync"/>. Pure data — no
+/// Output of <see cref="IAgentRuntimeLauncher.PrepareAsync"/>. Pure data — no
 /// on-disk state. The dispatcher materialises <see cref="WorkspaceFiles"/>
 /// into a fresh per-invocation directory on its own filesystem and bind-mounts
 /// it at <see cref="WorkspaceMountPath"/> inside the container.

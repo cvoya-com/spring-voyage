@@ -37,7 +37,7 @@ public class GoogleAgentRuntimeTests
 
         runtime.Id.ShouldBe("google");
         runtime.DisplayName.ShouldBe("Spring Voyage Agent (Google AI)");
-        runtime.ToolKind.ShouldBe("spring-voyage");
+        runtime.Kind.ShouldBe("spring-voyage");
         runtime.CredentialSchema.Kind.ShouldBe(AgentRuntimeCredentialKind.ApiKey);
         runtime.CredentialSchema.DisplayHint.ShouldNotBeNullOrWhiteSpace();
     }

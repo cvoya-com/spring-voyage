@@ -105,7 +105,7 @@ public class AgentRuntimeRegistryTests
 
         public string DisplayName { get; } = displayName;
 
-        public string ToolKind => "fake";
+        public string Kind => "fake";
 
         public AgentRuntimeCredentialSchema CredentialSchema { get; } =
             new(AgentRuntimeCredentialKind.None);

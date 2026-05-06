@@ -67,7 +67,7 @@ public class CreateCloneActorActivity(
     /// </summary>
     private async Task CopyMemoryStateAsync(string parentId, string cloneId)
     {
-        // Copy active conversation state.
+        // Copy active thread state.
         var parentActiveKey = $"{parentId}:{StateKeys.ActiveConversation}";
         var activeThread = await stateStore.GetAsync<object>(parentActiveKey);
         if (activeThread is not null)
