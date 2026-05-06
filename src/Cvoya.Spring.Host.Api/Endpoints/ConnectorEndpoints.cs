@@ -294,6 +294,10 @@ public static class ConnectorEndpoints
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
         CancellationToken cancellationToken)
     {
+        // The store implementation routes through Address.For internally,
+        // so callers must already supply the unit's actor-Guid form here.
+        // Normalising via IDirectoryService at this layer is tracked
+        // separately under #1749's broader brittle-endpoint sweep.
         var binding = await store.GetAsync(id, cancellationToken);
         if (binding is null)
         {

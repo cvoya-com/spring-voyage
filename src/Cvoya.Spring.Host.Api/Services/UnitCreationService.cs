@@ -239,7 +239,10 @@ public class UnitCreationService : IUnitCreationService
         if (!string.IsNullOrWhiteSpace(manifest.Orchestration?.Strategy))
         {
             await PersistUnitDefinitionOrchestrationAsync(
-                name, manifest.Orchestration!.Strategy!, cancellationToken);
+                name,
+                result.Unit.Id,
+                manifest.Orchestration!.Strategy!,
+                cancellationToken);
         }
 
         // #494: persist the manifest's `boundary:` block through
@@ -425,8 +428,17 @@ public class UnitCreationService : IUnitCreationService
     /// without touching other fields (including the <c>expertise</c> slot
     /// written by <see cref="PersistUnitDefinitionExpertiseAsync"/>).
     /// </summary>
+    /// <remarks>
+    /// #1748: <see cref="IUnitOrchestrationStore"/> is keyed by the unit's
+    /// actor Guid (<c>DbUnitOrchestrationStore</c> parses the id with
+    /// <c>GuidFormatter.TryParse</c> and throws on a non-Guid id). The store
+    /// path therefore receives <paramref name="unitActorId"/>; the EF
+    /// fallback path keeps the display-name predicate for older test
+    /// fixtures and is tracked separately under #1749.
+    /// </remarks>
     private async Task PersistUnitDefinitionOrchestrationAsync(
-        string unitId,
+        string unitName,
+        Guid unitActorId,
         string strategyKey,
         CancellationToken cancellationToken)
     {
@@ -439,6 +451,7 @@ public class UnitCreationService : IUnitCreationService
             // through to the inline DB path so they keep working.
             if (_orchestrationStore is not null)
             {
+                var unitId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorId);
                 await _orchestrationStore.SetStrategyKeyAsync(
                     unitId, strategyKey, cancellationToken);
                 return;
@@ -448,13 +461,13 @@ public class UnitCreationService : IUnitCreationService
             var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
             var entity = await db.UnitDefinitions
-                .FirstOrDefaultAsync(u => u.DisplayName == unitId && u.DeletedAt == null, cancellationToken);
+                .FirstOrDefaultAsync(u => u.DisplayName == unitName && u.DeletedAt == null, cancellationToken);
 
             if (entity is null)
             {
                 _logger.LogWarning(
                     "Unit '{UnitName}': could not locate UnitDefinition row to persist orchestration strategy; actor will resolve the default strategy.",
-                    unitId);
+                    unitName);
                 return;
             }
 
@@ -486,7 +499,8 @@ public class UnitCreationService : IUnitCreationService
             // immediately instead of waiting for the TTL to expire. Safe to
             // call unconditionally — the no-op implementation is registered
             // when no caching decorator is in play.
-            _orchestrationCacheInvalidator.Invalidate(unitId);
+            _orchestrationCacheInvalidator.Invalidate(
+                Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorId));
         }
         catch (OperationCanceledException)
         {
@@ -496,7 +510,7 @@ public class UnitCreationService : IUnitCreationService
         {
             _logger.LogWarning(ex,
                 "Unit '{UnitName}': failed to persist orchestration.strategy on UnitDefinition; actor will resolve the default strategy.",
-                unitId);
+                unitName);
         }
     }
 
@@ -948,9 +962,15 @@ public class UnitCreationService : IUnitCreationService
             // rehydrate them on every message turn without reparsing the
             // manifest. Writes happen after the directory register so we
             // never leave bundle rows behind an un-discoverable unit.
+            //
+            // #1748: keyed by the unit's actor Guid for consistency with
+            // every other unit-keyed store. The state-store path is opaque
+            // (a key prefix), so the only effect of switching from name to
+            // actorId is rename-safety and uniformity with the connector /
+            // execution / orchestration stores.
             if (resolvedBundles.Count > 0)
             {
-                await _bundleStore.SetAsync(name, resolvedBundles, cancellationToken);
+                await _bundleStore.SetAsync(actorId, resolvedBundles, cancellationToken);
             }
 
             // #947 / T-05: backend-validated creation. Direct-create
@@ -1045,12 +1065,19 @@ public class UnitCreationService : IUnitCreationService
             // talks to the unit actor, which needs the directory entry in
             // place. A failure here rolls the whole creation back (below)
             // so the user never sees a half-configured unit.
+            //
+            // #1748: IUnitConnectorConfigStore is keyed by the unit's actor
+            // Guid (UnitActorConnectorConfigStore.ResolveProxyAsync calls
+            // Address.For("unit", unitId) which throws on a non-Guid id).
+            // Pass the canonical no-dash form computed earlier instead of
+            // the user-facing name — same shape as the #1666 fix for the
+            // execution store.
             if (targetConnector is not null)
             {
                 try
                 {
                     await _connectorConfigStore.SetAsync(
-                        name,
+                        actorId,
                         targetConnector.TypeId,
                         connector!.Config,
                         cancellationToken);
@@ -1080,7 +1107,7 @@ public class UnitCreationService : IUnitCreationService
         }
         catch (UnitCreationBindingException)
         {
-            await TryRollbackAsync(address, name, cancellationToken);
+            await TryRollbackAsync(address, actorId, name, cancellationToken);
             throw;
         }
     }
@@ -1147,7 +1174,7 @@ public class UnitCreationService : IUnitCreationService
     /// are not yet provisioned at this point (the connector binding is the
     /// last step), so no additional cleanup is needed.
     /// </summary>
-    private async Task TryRollbackAsync(Address address, string name, CancellationToken ct)
+    private async Task TryRollbackAsync(Address address, string actorId, string name, CancellationToken ct)
     {
         try
         {
@@ -1165,9 +1192,10 @@ public class UnitCreationService : IUnitCreationService
 
         // Best-effort bundle cleanup too — we may have persisted bundle rows
         // before the binding failure. A missing row is a no-op in the store.
+        // #1748: bundles are keyed by actorId, matching the SetAsync write.
         try
         {
-            await _bundleStore.DeleteAsync(name, ct);
+            await _bundleStore.DeleteAsync(actorId, ct);
         }
         catch (Exception ex)
         {

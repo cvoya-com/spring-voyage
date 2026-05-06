@@ -6,6 +6,8 @@ namespace Cvoya.Spring.Connector.WebSearch;
 using System.Text.Json;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Messaging;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -118,10 +120,31 @@ public class WebSearchConnectorType : IConnectorType
         return Task.CompletedTask;
     }
 
-    private async Task<IResult> GetConfigAsync(
-        string unitId, CancellationToken cancellationToken)
+    // #1748: store calls below pass the unit's actor-Guid form because the
+    // default UnitActorConnectorConfigStore routes through Address.For
+    // internally. Resolution is best-effort — a non-Guid route value or a
+    // missing directory entry falls through unchanged so the legacy
+    // opaque-string callers (test fixtures) keep working.
+    private static async Task<string> ResolveUnitActorIdAsync(
+        IDirectoryService directory, string unitId, CancellationToken ct)
     {
-        var binding = await _configStore.GetAsync(unitId, cancellationToken);
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitId, out _))
+        {
+            return unitId;
+        }
+        var entry = await directory.ResolveAsync(Address.For("unit", unitId), ct);
+        return entry is null
+            ? unitId
+            : Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+    }
+
+    private async Task<IResult> GetConfigAsync(
+        string unitId,
+        [FromServices] IDirectoryService directoryService,
+        CancellationToken cancellationToken)
+    {
+        var actorId = await ResolveUnitActorIdAsync(directoryService, unitId, cancellationToken);
+        var binding = await _configStore.GetAsync(actorId, cancellationToken);
         if (binding is null || binding.TypeId != WebSearchTypeId)
         {
             return Results.Problem(
@@ -143,6 +166,7 @@ public class WebSearchConnectorType : IConnectorType
     private async Task<IResult> PutConfigAsync(
         string unitId,
         [FromBody] UnitWebSearchConfigRequest request,
+        [FromServices] IDirectoryService directoryService,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Provider))
@@ -169,6 +193,7 @@ public class WebSearchConnectorType : IConnectorType
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        var actorId = await ResolveUnitActorIdAsync(directoryService, unitId, cancellationToken);
         var config = new UnitWebSearchConfig(
             Provider: request.Provider.ToLowerInvariant(),
             ApiKeySecretName: string.IsNullOrWhiteSpace(request.ApiKeySecretName) ? null : request.ApiKeySecretName,
@@ -176,7 +201,7 @@ public class WebSearchConnectorType : IConnectorType
             Safesearch: request.Safesearch ?? true);
 
         var payload = JsonSerializer.SerializeToElement(config, ConfigJson);
-        await _configStore.SetAsync(unitId, WebSearchTypeId, payload, cancellationToken);
+        await _configStore.SetAsync(actorId, WebSearchTypeId, payload, cancellationToken);
 
         return Results.Ok(ToResponse(unitId, config));
     }

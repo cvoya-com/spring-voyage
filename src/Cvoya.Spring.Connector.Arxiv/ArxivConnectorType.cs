@@ -6,6 +6,8 @@ namespace Cvoya.Spring.Connector.Arxiv;
 using System.Text.Json;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Messaging;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -107,10 +109,32 @@ public class ArxivConnectorType : IConnectorType
         return Task.CompletedTask;
     }
 
-    private async Task<IResult> GetConfigAsync(
-        string unitId, CancellationToken cancellationToken)
+    // #1748: store calls below pass the unit's actor-Guid form because the
+    // default UnitActorConnectorConfigStore routes through Address.For
+    // internally. Resolution is best-effort — when the route value isn't a
+    // Guid (legacy callers / opaque test fixtures) or the directory has no
+    // matching entry we fall through to the route value so the existing
+    // contract is preserved.
+    private static async Task<string> ResolveUnitActorIdAsync(
+        IDirectoryService directory, string unitId, CancellationToken ct)
     {
-        var binding = await _configStore.GetAsync(unitId, cancellationToken);
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitId, out _))
+        {
+            return unitId;
+        }
+        var entry = await directory.ResolveAsync(Address.For("unit", unitId), ct);
+        return entry is null
+            ? unitId
+            : Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+    }
+
+    private async Task<IResult> GetConfigAsync(
+        string unitId,
+        [FromServices] IDirectoryService directoryService,
+        CancellationToken cancellationToken)
+    {
+        var actorId = await ResolveUnitActorIdAsync(directoryService, unitId, cancellationToken);
+        var binding = await _configStore.GetAsync(actorId, cancellationToken);
         if (binding is null || binding.TypeId != ArxivTypeId)
         {
             return Results.Problem(
@@ -132,6 +156,7 @@ public class ArxivConnectorType : IConnectorType
     private async Task<IResult> PutConfigAsync(
         string unitId,
         [FromBody] UnitArxivConfigRequest request,
+        [FromServices] IDirectoryService directoryService,
         CancellationToken cancellationToken)
     {
         var maxResults = request.MaxResults ?? _options.DefaultMaxResults;
@@ -142,12 +167,13 @@ public class ArxivConnectorType : IConnectorType
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        var actorId = await ResolveUnitActorIdAsync(directoryService, unitId, cancellationToken);
         var config = new UnitArxivConfig(
             DefaultCategories: request.DefaultCategories,
             MaxResults: Math.Clamp(maxResults, 1, 100));
 
         var payload = JsonSerializer.SerializeToElement(config, ConfigJson);
-        await _configStore.SetAsync(unitId, ArxivTypeId, payload, cancellationToken);
+        await _configStore.SetAsync(actorId, ArxivTypeId, payload, cancellationToken);
 
         return Results.Ok(ToResponse(unitId, config));
     }
