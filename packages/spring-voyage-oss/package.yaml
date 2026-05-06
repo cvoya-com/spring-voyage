@@ -17,3 +17,11 @@ readme: README.md
 # `members:` list — the old `subUnits:` enumeration was redundant and is gone.
 content:
   - unit: spring-voyage-oss
+
+# Package-level execution defaults (#1679). The umbrella's container image
+# becomes the package default — sub-units that don't ship their own
+# image inherit it; sub-units that DO declare execution.image (the four
+# OSS team images) override field-wise. `inherit:` is omitted, so every
+# member participates by default.
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-agents:latest

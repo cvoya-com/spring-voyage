@@ -93,6 +93,22 @@ public sealed record ConnectorBindingMissingDetail(
     string? UnitName);
 
 /// <summary>
+/// One missing execution-configuration field surfaced through the
+/// <c>ConfigurationIncomplete</c> 400 (#1679). Carried in the response's
+/// <c>extensions["missing"]</c> array so the wizard / CLI can render a
+/// precise per-unit error rather than free-text.
+/// </summary>
+/// <param name="UnitName">The member unit that has no resolvable execution defaults.</param>
+/// <param name="Field">
+/// The missing execution field. Always <c>"image"</c> for v0.1 — the
+/// only field the validator hard-requires; future required fields can
+/// extend the payload without breaking existing callers.
+/// </param>
+public sealed record ExecutionConfigurationMissingDetail(
+    string UnitName,
+    string Field);
+
+/// <summary>
 /// Response body for <c>POST /api/v1/packages/install</c>,
 /// <c>POST /api/v1/installs/{id}/retry</c>, and
 /// <c>GET /api/v1/installs/{id}</c>.

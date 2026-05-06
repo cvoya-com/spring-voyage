@@ -59,6 +59,14 @@ public record PackageSummary(
 /// <c>agent</c>, <c>skill</c>, <c>workflow</c>) and the reference value
 /// the manifest declares.
 /// </param>
+/// <param name="Execution">
+/// Package-level <c>execution:</c> declaration (#1679), or null when
+/// the package author declared no <c>execution:</c> block. Surfaces the
+/// inheritable defaults (<c>image</c>, <c>runtime</c>, <c>provider</c>,
+/// <c>model</c>) and the optional <c>inherit:</c> selector so the
+/// wizard / CLI can render which member units pick up which defaults
+/// before the operator hits install.
+/// </param>
 public record PackageDetail(
     string Name,
     string? Description,
@@ -70,7 +78,31 @@ public record PackageDetail(
     IReadOnlyList<ConnectorSummary> Connectors,
     IReadOnlyList<WorkflowSummary> Workflows,
     IReadOnlyList<RequiredConnectorSummary> ConnectorDeclarations,
-    IReadOnlyList<PackageContentEntry> Content);
+    IReadOnlyList<PackageContentEntry> Content,
+    PackageExecutionSummary? Execution = null);
+
+/// <summary>
+/// Wire shape for the package-level <c>execution:</c> block (#1679).
+/// Mirrors <see cref="Cvoya.Spring.Manifest.PackageExecutionDeclaration"/>
+/// so the portal / CLI can read the package's inheritable execution
+/// defaults — and the optional <c>inherit:</c> selector — before
+/// kicking off install.
+/// </summary>
+/// <param name="Image">Default container image inherited by member units.</param>
+/// <param name="Runtime">Default container runtime selector inherited by member units.</param>
+/// <param name="Provider">Default LLM provider inherited by member units.</param>
+/// <param name="Model">Default model identifier inherited by member units.</param>
+/// <param name="InheritUnits">
+/// <c>null</c> when every member inherits (the default and the
+/// <c>inherit: all</c> spelling); otherwise the explicit list of unit
+/// names that participate.
+/// </param>
+public record PackageExecutionSummary(
+    string? Image,
+    string? Runtime,
+    string? Provider,
+    string? Model,
+    IReadOnlyList<string>? InheritUnits);
 
 /// <summary>
 /// Wire-shape for one entry in <see cref="PackageDetail.Content"/> —

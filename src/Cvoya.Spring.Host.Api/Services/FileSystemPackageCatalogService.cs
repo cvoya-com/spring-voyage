@@ -116,6 +116,7 @@ public class FileSystemPackageCatalogService(
         var connectorDeclarations = ReadConnectorDeclarations(packageDir);
         var content = ReadContentEntries(packageDir);
         var version = ReadVersion(packageDir);
+        var execution = ReadPackageExecution(packageDir);
 
         var detail = new PackageDetail(
             Name: name,
@@ -128,7 +129,8 @@ public class FileSystemPackageCatalogService(
             Connectors: connectors,
             Workflows: workflows,
             ConnectorDeclarations: connectorDeclarations,
-            Content: content);
+            Content: content,
+            Execution: execution);
 
         return Task.FromResult<PackageDetail?>(detail);
     }
@@ -156,6 +158,48 @@ public class FileSystemPackageCatalogService(
         {
             logger.LogDebug(ex,
                 "Skipping version for package manifest '{Path}' because it could not be parsed.",
+                manifestPath);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads the package manifest's <c>execution:</c> block (#1679) so
+    /// the portal / CLI can render the package-level execution defaults
+    /// (and the optional <c>inherit:</c> selector) on the package detail
+    /// page. Best-effort like <see cref="ReadVersion"/> — a malformed
+    /// manifest returns null rather than blowing up the catalog read.
+    /// </summary>
+    private PackageExecutionSummary? ReadPackageExecution(string packageDir)
+    {
+        var manifestPath = FindManifestPath(packageDir);
+        if (manifestPath is null) return null;
+
+        try
+        {
+            var yaml = File.ReadAllText(manifestPath);
+            // Use ParseAndResolveAsync so the inherit-key validation
+            // runs against the actual unit set; ParseRaw alone would
+            // surface a `PackageExecutionManifest.Inherit` of raw
+            // YamlDotNet shape rather than the resolved list.
+            var resolved = PackageManifestParser.ParseAndResolveAsync(
+                yaml, packageDir).GetAwaiter().GetResult();
+            var exec = resolved.Execution;
+            if (exec is null)
+            {
+                return null;
+            }
+            return new PackageExecutionSummary(
+                Image: exec.Image,
+                Runtime: exec.Runtime,
+                Provider: exec.Provider,
+                Model: exec.Model,
+                InheritUnits: exec.InheritUnits);
+        }
+        catch (Exception ex) when (ex is PackageParseException or YamlDotNet.Core.YamlException or IOException)
+        {
+            logger.LogDebug(ex,
+                "Skipping execution declaration for package manifest '{Path}' because it could not be parsed.",
                 manifestPath);
             return null;
         }

@@ -68,6 +68,15 @@ public class ResolvedPackage
     public IReadOnlyDictionary<string, IReadOnlyList<string>> ConnectorRequiresByArtefact { get; init; } =
         new Dictionary<string, IReadOnlyList<string>>();
 
+    /// <summary>
+    /// Resolved package-level <c>execution:</c> declaration (#1679),
+    /// or <c>null</c> when the package author declared no
+    /// <c>execution:</c> block. The install pipeline merges these
+    /// defaults into each eligible member unit's parsed manifest before
+    /// activation; missing fields stay null so member-level overrides
+    /// can fill them.
+    /// </summary>
+    public PackageExecutionDeclaration? Execution { get; init; }
 
     /// <summary>
     /// Non-fatal warnings produced during parse / resolve.

@@ -326,6 +326,13 @@ public static class PackageManifestParser
         var (requiredConnectorSlugs, connectorRequiresByArtefact) =
             ComputeRequiresUnion(units, agents, skills, workflows);
 
+        // #1679: project the package-level `execution:` block (when
+        // present) into the resolved declaration. Validates the
+        // `inherit:` child key shape against the actual unit names — an
+        // explicit list referencing a unit that isn't a member is a
+        // parse-time error.
+        var execution = ResolvePackageExecution(manifest.Execution, units);
+
         return new ResolvedPackage
         {
             Name = name,
@@ -339,7 +346,138 @@ public static class PackageManifestParser
             Workflows = workflows,
             RequiredConnectorSlugs = requiredConnectorSlugs,
             ConnectorRequiresByArtefact = connectorRequiresByArtefact,
+            Execution = execution,
         };
+    }
+
+    /// <summary>
+    /// Projects the raw <see cref="PackageExecutionManifest"/> (which
+    /// lets <c>inherit:</c> be either a scalar or a sequence) into the
+    /// strongly-typed <see cref="PackageExecutionDeclaration"/> form
+    /// the install pipeline consumes. Validates the
+    /// <c>inherit:</c> shape against the resolved within-package unit
+    /// names — an unknown unit name in the list is operator error and
+    /// fails the parse.
+    /// </summary>
+    private static PackageExecutionDeclaration? ResolvePackageExecution(
+        PackageExecutionManifest? raw,
+        IReadOnlyList<ResolvedArtefact> units)
+    {
+        if (raw is null)
+        {
+            return null;
+        }
+
+        // Empty block (`execution: {}`): treat as absent so a
+        // member-level block remains the sole source of execution
+        // defaults. The author would have to explicitly declare a
+        // value to surface a no-op block, and we don't want an
+        // accidentally-empty block to participate in inheritance.
+        if (raw.IsEmpty && raw.Inherit is null)
+        {
+            return null;
+        }
+
+        var inheritUnits = ParseInheritKey(raw.Inherit, units);
+
+        return new PackageExecutionDeclaration(
+            Image: NullIfBlank(raw.Image),
+            Runtime: NullIfBlank(raw.Runtime),
+            Provider: NullIfBlank(raw.Provider),
+            Model: NullIfBlank(raw.Model),
+            InheritUnits: inheritUnits);
+    }
+
+    private static string? NullIfBlank(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>
+    /// Parses the <c>execution.inherit:</c> child key into the
+    /// strongly-typed list form. Accepts:
+    /// <list type="bullet">
+    ///   <item><description>Omitted or the literal scalar <c>all</c> ⇒ <c>null</c> (every member inherits).</description></item>
+    ///   <item><description>A YAML sequence of unit names ⇒ list (only the named members inherit).</description></item>
+    /// </list>
+    /// Any other shape (a different scalar, a mapping, a sequence
+    /// containing non-strings, or a list naming a unit that isn't a
+    /// member) raises <see cref="PackageParseException"/>.
+    /// </summary>
+    private static IReadOnlyList<string>? ParseInheritKey(
+        object? rawInherit,
+        IReadOnlyList<ResolvedArtefact> units)
+    {
+        if (rawInherit is null)
+        {
+            return null;
+        }
+
+        // YamlDotNet deserialises a bare scalar as `string` and a
+        // sequence as `List<object>`; mappings come through as
+        // `Dictionary<object, object>`. Branch on the shape so the
+        // operator gets a precise error for the wrong one.
+        switch (rawInherit)
+        {
+            case string scalar:
+                if (!string.Equals(scalar.Trim(), "all", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new PackageParseException(
+                        $"package.execution.inherit: unsupported scalar '{scalar}'. " +
+                        "Use 'all' (default — every member inherits) or omit the key. " +
+                        "To restrict inheritance to specific members, declare a sequence of unit names.");
+                }
+                return null;
+
+            case IEnumerable<object> sequence:
+                {
+                    var memberNames = new HashSet<string>(
+                        units.Where(u => !u.IsCrossPackage).Select(u => u.Name),
+                        StringComparer.OrdinalIgnoreCase);
+
+                    var result = new List<string>();
+                    var unknown = new List<string>();
+                    foreach (var item in sequence)
+                    {
+                        if (item is not string name || string.IsNullOrWhiteSpace(name))
+                        {
+                            throw new PackageParseException(
+                                "package.execution.inherit: every entry in the sequence must be a unit name string.");
+                        }
+
+                        var trimmed = name.Trim();
+                        if (!memberNames.Contains(trimmed))
+                        {
+                            unknown.Add(trimmed);
+                        }
+                        result.Add(trimmed);
+                    }
+
+                    if (unknown.Count > 0)
+                    {
+                        throw new PackageParseException(
+                            $"package.execution.inherit references unit(s) that are not members of this package: " +
+                            $"{string.Join(", ", unknown.Select(n => $"'{n}'"))}.");
+                    }
+
+                    // An empty list is well-formed YAML but indicates
+                    // operator confusion — every member is opted out
+                    // even though the block presumably exists for a
+                    // reason. Fail loudly rather than letting a
+                    // package-level image become unreachable.
+                    if (result.Count == 0)
+                    {
+                        throw new PackageParseException(
+                            "package.execution.inherit: empty sequence selects no member units. " +
+                            "Either omit the key (every member inherits) or list the members that should inherit.");
+                    }
+
+                    return result;
+                }
+
+            default:
+                throw new PackageParseException(
+                    "package.execution.inherit: unsupported shape. " +
+                    "Use 'all' (scalar; every member inherits) or a sequence of unit names.");
+        }
     }
 
     /// <summary>

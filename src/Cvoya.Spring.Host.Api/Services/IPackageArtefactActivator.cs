@@ -40,6 +40,16 @@ public interface IPackageArtefactActivator
     /// so the unit-creation pipeline can write each binding into the
     /// existing per-unit store atomically with the unit itself.
     /// </param>
+    /// <param name="executionDefaults">
+    /// Resolved execution defaults for this artefact when it is a unit
+    /// (#1679). Carries the field-wise merge of the package's
+    /// <c>execution:</c> block (when declared and the unit is eligible
+    /// to inherit) and the unit's own block. The activator overlays
+    /// these defaults onto the parsed
+    /// <see cref="UnitManifest.Execution"/> before forwarding to the
+    /// unit-creation service so the persisted execution block reflects
+    /// the merged result rather than the raw member-level YAML.
+    /// </param>
     /// <param name="cancellationToken">A cancellation token.</param>
     Task ActivateAsync(
         string packageName,
@@ -47,5 +57,6 @@ public interface IPackageArtefactActivator
         System.Guid installId,
         LocalSymbolMap symbolMap,
         IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
+        ResolvedExecutionDefaults? executionDefaults = null,
         CancellationToken cancellationToken = default);
 }
