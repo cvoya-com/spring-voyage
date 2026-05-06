@@ -244,12 +244,13 @@ public static class AgentCommand
         };
         runtimeOption.AcceptOnlyFromAmong(UnitExecutionCommand.RuntimeKeys);
 
-        var toolOption = new Option<string?>("--tool")
+        // #1732: --tool was dropped — the execution tool is derived 1:1 from
+        // the runtime registry via --agent. Operators name the runtime here;
+        // the dispatcher picks the launcher whose ToolKind matches.
+        var agentRuntimeOption = new Option<string?>("--agent")
         {
-            Description = "External agent tool (shorthand for execution.tool). Allowed: " +
-                string.Join(", ", UnitExecutionCommand.ToolKeys) + ".",
+            Description = "Agent runtime registry id (shorthand for execution.agent; e.g. claude, openai, google, ollama).",
         };
-        toolOption.AcceptOnlyFromAmong(UnitExecutionCommand.ToolKeys);
 
         var command = new Command("create", "Create a new agent");
         command.Arguments.Add(idArg);
@@ -260,7 +261,7 @@ public static class AgentCommand
         command.Options.Add(definitionOption);
         command.Options.Add(imageOption);
         command.Options.Add(runtimeOption);
-        command.Options.Add(toolOption);
+        command.Options.Add(agentRuntimeOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -272,7 +273,7 @@ public static class AgentCommand
             var definitionInline = parseResult.GetValue(definitionOption);
             var image = parseResult.GetValue(imageOption);
             var runtime = parseResult.GetValue(runtimeOption);
-            var tool = parseResult.GetValue(toolOption);
+            var agentRuntime = parseResult.GetValue(agentRuntimeOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             string? definitionJson = definitionInline;
@@ -295,9 +296,11 @@ public static class AgentCommand
             // JSON so the single server write covers everything. When the
             // caller also passed a --definition / --definition-file, the
             // shorthand flags overlay on top.
-            if (!string.IsNullOrWhiteSpace(image) || !string.IsNullOrWhiteSpace(runtime) || !string.IsNullOrWhiteSpace(tool))
+            // #1732: --tool was replaced by --agent (runtime registry id);
+            // the tool kind is derived from the runtime at dispatch.
+            if (!string.IsNullOrWhiteSpace(image) || !string.IsNullOrWhiteSpace(runtime) || !string.IsNullOrWhiteSpace(agentRuntime))
             {
-                definitionJson = MergeExecutionShorthand(definitionJson, image, runtime, tool);
+                definitionJson = MergeExecutionShorthand(definitionJson, image, runtime, agentRuntime);
             }
 
             var client = ClientFactory.Create();
@@ -333,16 +336,20 @@ public static class AgentCommand
     }
 
     /// <summary>
-    /// Merges <c>--image / --runtime / --tool</c> shorthand flags into
+    /// Merges <c>--image / --runtime / --agent</c> shorthand flags into
     /// an optional agent-definition JSON string. When
     /// <paramref name="definitionJson"/> is null / empty, a fresh
     /// document carrying just the shorthand fields is produced.
     /// </summary>
+    /// <remarks>
+    /// #1732: <c>--tool</c> was replaced by <c>--agent</c> (the runtime
+    /// registry id). The dispatcher derives the tool kind from the runtime.
+    /// </remarks>
     internal static string MergeExecutionShorthand(
         string? definitionJson,
         string? image,
         string? runtime,
-        string? tool)
+        string? agentRuntime)
     {
         using var document = string.IsNullOrWhiteSpace(definitionJson)
             ? System.Text.Json.JsonDocument.Parse("{}")
@@ -369,7 +376,7 @@ public static class AgentCommand
         }
         if (!string.IsNullOrWhiteSpace(image)) exec["image"] = image;
         if (!string.IsNullOrWhiteSpace(runtime)) exec["runtime"] = runtime;
-        if (!string.IsNullOrWhiteSpace(tool)) exec["tool"] = tool;
+        if (!string.IsNullOrWhiteSpace(agentRuntime)) exec["agent"] = agentRuntime;
 
         var payload = new Dictionary<string, object?>();
         foreach (var kvp in properties)

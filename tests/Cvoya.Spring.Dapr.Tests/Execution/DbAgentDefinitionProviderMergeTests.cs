@@ -15,13 +15,20 @@ using Xunit;
 /// field-level precedence rule behind the B-wide execution inheritance
 /// model (#601 / #603 / #409).
 /// </summary>
+/// <remarks>
+/// #1732: <c>Tool</c> was dropped from <see cref="AgentExecutionConfig"/>
+/// and <see cref="UnitExecutionDefaults"/>. The execution tool is derived
+/// from <see cref="AgentExecutionConfig.AgentRuntimeId"/> via the runtime
+/// registry's <c>IAgentRuntime.ToolKind</c>; the merge now resolves the
+/// runtime id (<c>agent.AgentRuntimeId → unit.Agent → null</c>).
+/// </remarks>
 public class DbAgentDefinitionProviderMergeTests
 {
     [Fact]
     public void Merge_AgentWins_OnEveryField()
     {
         var agent = new AgentExecutionConfig(
-            Tool: "claude-code",
+            AgentRuntimeId: "claude",
             Image: "agent-img",
             Runtime: "docker",
             Hosting: AgentHostingMode.Persistent,
@@ -30,14 +37,14 @@ public class DbAgentDefinitionProviderMergeTests
         var unit = new UnitExecutionDefaults(
             Image: "unit-img",
             Runtime: "podman",
-            Tool: "codex",
             Provider: "openai",
-            Model: "gpt-4o");
+            Model: "gpt-4o",
+            Agent: "openai");
 
         var merged = DbAgentDefinitionProvider.Merge(agent, unit);
 
         merged.ShouldNotBeNull();
-        merged!.Tool.ShouldBe("claude-code");
+        merged!.AgentRuntimeId.ShouldBe("claude");
         merged.Image.ShouldBe("agent-img");
         merged.Runtime.ShouldBe("docker");
         merged.Provider.ShouldBe("anthropic");
@@ -49,7 +56,7 @@ public class DbAgentDefinitionProviderMergeTests
     public void Merge_UnitFillsIn_MissingAgentFields()
     {
         var agent = new AgentExecutionConfig(
-            Tool: "claude-code",
+            AgentRuntimeId: "claude",
             Image: null,      // missing
             Runtime: null,    // missing
             Hosting: AgentHostingMode.Ephemeral,
@@ -58,14 +65,14 @@ public class DbAgentDefinitionProviderMergeTests
         var unit = new UnitExecutionDefaults(
             Image: "unit-img",
             Runtime: "podman",
-            Tool: "codex",    // ignored — agent wins on tool
             Provider: "openai",
-            Model: "gpt-4o");
+            Model: "gpt-4o",
+            Agent: "openai");    // ignored — agent wins on AgentRuntimeId
 
         var merged = DbAgentDefinitionProvider.Merge(agent, unit);
 
         merged.ShouldNotBeNull();
-        merged!.Tool.ShouldBe("claude-code");
+        merged!.AgentRuntimeId.ShouldBe("claude");
         merged.Image.ShouldBe("unit-img");
         merged.Runtime.ShouldBe("podman");
         merged.Provider.ShouldBe("openai");
@@ -73,24 +80,24 @@ public class DbAgentDefinitionProviderMergeTests
     }
 
     [Fact]
-    public void Merge_AgentNull_UnitProvidesTool_UsesUnit()
+    public void Merge_AgentNull_UnitProvidesAgentRuntimeId_UsesUnit()
     {
         var unit = new UnitExecutionDefaults(
             Image: "unit-img",
-            Tool: "claude-code");
+            Agent: "claude");
 
         var merged = DbAgentDefinitionProvider.Merge(null, unit);
 
         merged.ShouldNotBeNull();
-        merged!.Tool.ShouldBe("claude-code");
+        merged!.AgentRuntimeId.ShouldBe("claude");
         merged.Image.ShouldBe("unit-img");
         merged.Hosting.ShouldBe(AgentHostingMode.Ephemeral);
     }
 
     [Fact]
-    public void Merge_ReturnsNull_WhenNeitherSideProvidesTool()
+    public void Merge_ReturnsNull_WhenNeitherSideProvidesAgentRuntimeId()
     {
-        var agent = new AgentExecutionConfig(Tool: "", Image: null);
+        var agent = new AgentExecutionConfig(AgentRuntimeId: "", Image: null);
         var unit = new UnitExecutionDefaults(Image: "unit-img");
 
         var merged = DbAgentDefinitionProvider.Merge(agent, unit);
@@ -102,7 +109,7 @@ public class DbAgentDefinitionProviderMergeTests
     public void Merge_HostingIsAgentOwned_UnitNeverChangesIt()
     {
         var agent = new AgentExecutionConfig(
-            Tool: "claude-code",
+            AgentRuntimeId: "claude",
             Image: "x",
             Hosting: AgentHostingMode.Persistent);
         var unit = new UnitExecutionDefaults();

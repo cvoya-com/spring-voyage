@@ -142,7 +142,6 @@ public class UnitCreationService : IUnitCreationService
             description: request.Description,
             model: request.Model,
             color: request.Color,
-            tool: request.Tool,
             provider: request.Provider,
             hosting: request.Hosting,
             members: Array.Empty<MemberManifest>(),
@@ -205,7 +204,6 @@ public class UnitCreationService : IUnitCreationService
             description,
             model,
             color,
-            overrides.Tool,
             overrides.Provider,
             overrides.Hosting,
             manifest.Members ?? new List<MemberManifest>(),
@@ -323,10 +321,11 @@ public class UnitCreationService : IUnitCreationService
 
         try
         {
+            // #1732: ExecutionManifest no longer carries Tool — derived from
+            // ai.agent via the runtime registry at dispatch time.
             var defaults = new UnitExecutionDefaults(
                 Image: execution.Image,
                 Runtime: execution.Runtime,
-                Tool: execution.Tool,
                 Provider: execution.Provider,
                 Model: execution.Model,
                 Agent: agent);
@@ -576,7 +575,6 @@ public class UnitCreationService : IUnitCreationService
         string description,
         string? model,
         string? color,
-        string? tool,
         string? provider,
         string? hosting,
         IReadOnlyList<MemberManifest> members,
@@ -706,12 +704,13 @@ public class UnitCreationService : IUnitCreationService
             // DisplayName/Description live on the directory entity; only forward
             // the actor-owned fields (Model, Color) to the metadata write to avoid
             // a double-write — mirrors UnitEndpoints.CreateUnitAsync.
+            // #1732: Tool was dropped from the unit-actor metadata — derived
+            // from execution.agent via the runtime registry at dispatch time.
             var metadata = new UnitMetadata(
                 DisplayName: null,
                 Description: null,
                 Model: model,
                 Color: color,
-                Tool: tool,
                 Provider: provider,
                 Hosting: hosting);
 
@@ -719,7 +718,7 @@ public class UnitCreationService : IUnitCreationService
                 new ActorId(actorId), nameof(UnitActor));
 
             if (metadata.Model is not null || metadata.Color is not null
-                || metadata.Tool is not null || metadata.Provider is not null
+                || metadata.Provider is not null
                 || metadata.Hosting is not null)
             {
                 await proxy.SetMetadataAsync(metadata, cancellationToken);
@@ -955,8 +954,8 @@ public class UnitCreationService : IUnitCreationService
             }
 
             // #947 / T-05: backend-validated creation. Direct-create
-            // callers supply `model`/`provider`/`tool` on the request
-            // body; mirror them onto the unit's execution block so the
+            // callers supply `model`/`provider` on the request body;
+            // mirror them onto the unit's execution block so the
             // scheduler can read back a consistent view of what to
             // validate against. The manifest path already writes this
             // through PersistUnitExecutionAsync.
@@ -965,10 +964,7 @@ public class UnitCreationService : IUnitCreationService
             // (`docker | podman`) — never the LLM provider. The direct-
             // create request body carries no `--runtime` field (only
             // `unit execution set` does), so we leave `Runtime` null
-            // here and let operators set it explicitly. Mirroring
-            // `provider` into `Runtime` mislabels every unit created
-            // with `--provider ollama` as needing the (non-existent)
-            // `ollama` container runtime.
+            // here and let operators set it explicitly.
             // #1683: `Agent` (the agent-runtime registry id) is also
             // left null here — the direct-create request body carries
             // no `--agent` flag and partial-update semantics preserve
@@ -976,10 +972,12 @@ public class UnitCreationService : IUnitCreationService
             // overwrites. Operators can set it via
             // `PUT /api/v1/units/{id}/execution` once the slot is
             // surfaced on that endpoint.
+            // #1732: `Tool` was dropped from the wire surface entirely —
+            // the execution tool is derived from `Agent` via the runtime
+            // registry.
             if (_executionStore is not null &&
                 (!string.IsNullOrWhiteSpace(model)
-                    || !string.IsNullOrWhiteSpace(provider)
-                    || !string.IsNullOrWhiteSpace(tool)))
+                    || !string.IsNullOrWhiteSpace(provider)))
             {
                 try
                 {
@@ -995,7 +993,6 @@ public class UnitCreationService : IUnitCreationService
                         new UnitExecutionDefaults(
                             Image: null,
                             Runtime: null,
-                            Tool: tool,
                             Provider: provider,
                             Model: model,
                             Agent: null),
@@ -1076,7 +1073,6 @@ public class UnitCreationService : IUnitCreationService
                 initialStatus,
                 metadata.Model,
                 metadata.Color,
-                metadata.Tool,
                 metadata.Provider,
                 metadata.Hosting);
 

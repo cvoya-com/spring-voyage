@@ -34,7 +34,12 @@ public class CodexLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
     private readonly ILogger _logger = loggerFactory.CreateLogger<CodexLauncher>();
 
     /// <inheritdoc />
-    public string Tool => "codex";
+    /// <remarks>
+    /// #1732: keyed on <c>codex-cli</c> — the canonical tool kind a future
+    /// Codex agent runtime would declare. No <c>IAgentRuntime</c> currently
+    /// resolves to this launcher; it ships ahead of the runtime.
+    /// </remarks>
+    public string ToolKind => "codex-cli";
 
     /// <inheritdoc />
     public Task<AgentLaunchSpec> PrepareAsync(

@@ -101,9 +101,9 @@ Task<Message?> DispatchAsync(
 
 At dispatch time it:
 
-1. Resolves the target `AgentDefinition` via `IAgentDefinitionProvider` (rejects if `execution.tool` is not set).
+1. Resolves the target `AgentDefinition` via `IAgentDefinitionProvider` (rejects if `execution.agent` is not set).
 2. Branches on `AgentExecutionConfig.Hosting` (`Ephemeral` or `Persistent`; see [Deployment](deployment.md)).
-3. Looks up the `IAgentToolLauncher` whose `Tool` property matches `execution.tool`.
+3. Resolves the runtime via `IAgentRuntimeRegistry.Get(execution.agent)` and looks up the `IAgentToolLauncher` whose `ToolKind` matches the runtime's `IAgentRuntime.ToolKind` (#1732).
 4. Issues a short-lived MCP session (`IMcpServer.IssueSession`) bound to `(agentId, conversationId)`.
 5. Assembles the full four-layer prompt via `IPromptAssembler` (Layers 1–4; see [Units & Agents](units.md)).
 6. Asks the launcher to describe the workspace it needs (file contents, in-container mount path, env vars, extra mounts). The launcher does **not** touch the local filesystem — `spring-dispatcher` materialises that workspace on its host before starting the agent container (issue #1042; see [Deployment](deployment.md#per-invocation-workspace-materialisation)).
@@ -111,20 +111,20 @@ At dispatch time it:
 
 ### Launcher registry
 
-`IAgentToolLauncher` (`Cvoya.Spring.Core/Execution/IAgentToolLauncher.cs`) is the per-tool extension point. Every launcher exposes:
+`IAgentToolLauncher` (`Cvoya.Spring.Core/Execution/IAgentToolLauncher.cs`) is the per-tool-kind extension point. Every launcher exposes:
 
-- A unique `Tool` string that matches `execution.tool` in the agent YAML.
-- `PrepareAsync(AgentLaunchContext, ct)` — returns `AgentLaunchSpec`, a pure data record describing the workspace files (relative path → text content), env vars, the in-container mount path, optional extra mounts, the working directory inside the container, the optional argv vector to set as the container's command, an optional stdin payload to feed the agent process, the A2A port the in-container endpoint listens on, and the response-capture mechanism. The launcher does not touch the host filesystem; `spring-dispatcher` materialises and cleans up the workspace on its own host (#1042). Replaces the legacy `AgentLaunchPrep` record (#1093, part of the #1087 unification).
+- A `ToolKind` string that matches the `IAgentRuntime.ToolKind` of every runtime that should dispatch through it. Two runtimes may share a tool kind when they differ only in their LLM backend (e.g. `openai`, `google`, and `ollama` all share `spring-voyage`).
+- `PrepareAsync(AgentLaunchContext, ct)` — returns `AgentLaunchSpec`, a pure data record describing the workspace files (relative path → text content), env vars, the in-container mount path, optional extra mounts, the working directory inside the container, the optional argv vector to set as the container's command, an optional stdin payload to feed the agent process, the A2A port the in-container endpoint listens on, and the response-capture mechanism. The launcher does not touch the host filesystem; `spring-dispatcher` materialises and cleans up the workspace on its own host (#1042).
 
-Launchers are enumerable-registered in `AddCvoyaSpringDapr`; `A2AExecutionDispatcher` indexes them by `Tool` using a case-insensitive dictionary built at construction time.
+Launchers are enumerable-registered in `AddCvoyaSpringDapr`; `A2AExecutionDispatcher` indexes them by `ToolKind` using a case-insensitive dictionary built at construction time. The dispatcher derives the key from `IAgentRuntimeRegistry.Get(execution.agent).ToolKind` per #1732 — there is no longer a separate `tool` slot on the manifest / DTOs / persistence.
 
-| Launcher                         | `Tool`           | Prompt file  | Container image shape                                  |
-| -------------------------------- | ---------------- | ------------ | ------------------------------------------------------ |
-| `ClaudeCodeLauncher`             | `claude-code`    | `CLAUDE.md`  | Anthropic Claude Code CLI behind the A2A sidecar       |
-| `CodexLauncher`                  | `codex`          | `AGENTS.md`  | OpenAI Codex CLI behind the A2A sidecar                |
-| `GeminiLauncher`                 | `gemini`         | `GEMINI.md`  | Google Gemini CLI behind the A2A sidecar               |
-| `SpringVoyageAgentLauncher`              | `spring-voyage-agent`     | (env var)    | Python Dapr Agent — A2A-native, no sidecar wrapper     |
-| Custom A2A agent                 | operator-defined | n/a          | Any image that exposes A2A on `AGENT_PORT` (8999)      |
+| Launcher                          | `ToolKind`         | Prompt file | Container image shape                                |
+| --------------------------------- | ------------------ | ----------- | ---------------------------------------------------- |
+| `ClaudeCodeLauncher`              | `claude-code-cli`  | `CLAUDE.md` | Anthropic Claude Code CLI behind the A2A sidecar     |
+| `CodexLauncher`                   | `codex-cli`        | `AGENTS.md` | OpenAI Codex CLI behind the A2A sidecar (no runtime registered today) |
+| `GeminiLauncher`                  | `gemini-cli`       | `GEMINI.md` | Google Gemini CLI behind the A2A sidecar (no runtime registered today) |
+| `SpringVoyageAgentLauncher`       | `spring-voyage`    | (env var)   | Python Dapr Agent — A2A-native, no sidecar wrapper   |
+| Custom A2A agent                  | operator-defined   | n/a         | Any image that exposes A2A on `AGENT_PORT` (8999)    |
 
 Every launcher materialises an MCP config file (`.mcp.json`) so the agent tool can call back into Spring Voyage's MCP server for checkpoints, peer discovery, memory, and skill invocation. The MCP endpoint and bearer token are injected via env vars (`SPRING_MCP_ENDPOINT`, `SPRING_AGENT_TOKEN`) plus the workspace-mounted config file.
 

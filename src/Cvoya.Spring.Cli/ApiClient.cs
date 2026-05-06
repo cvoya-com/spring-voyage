@@ -369,13 +369,16 @@ public class SpringApiClient
         string? description,
         string? model = null,
         string? color = null,
-        string? tool = null,
         string? provider = null,
         string? hosting = null,
         IReadOnlyList<Guid>? parentUnitIds = null,
         bool? isTopLevel = null,
         CancellationToken ct = default)
     {
+        // #1732: 'tool' is no longer threaded through the wire shape — the
+        // execution tool is derived from the runtime registry at dispatch
+        // time. Operators set ai.agent on the unit / agent manifest or
+        // `spring unit execution set --agent`.
         var request = new CreateUnitRequest
         {
             Name = name,
@@ -383,7 +386,6 @@ public class SpringApiClient
             Description = description ?? string.Empty,
             Model = string.IsNullOrWhiteSpace(model) ? null : model,
             Color = string.IsNullOrWhiteSpace(color) ? null : color,
-            Tool = string.IsNullOrWhiteSpace(tool) ? null : tool,
             Provider = string.IsNullOrWhiteSpace(provider) ? null : provider,
             Hosting = string.IsNullOrWhiteSpace(hosting) ? null : hosting,
             // Review feedback on #744: forward the parent-required inputs

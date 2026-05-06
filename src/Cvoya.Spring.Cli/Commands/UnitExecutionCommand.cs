@@ -41,28 +41,18 @@ using Cvoya.Spring.Cli.Output;
 /// </remarks>
 public static class UnitExecutionCommand
 {
-    /// <summary>
-    /// Launcher keys the unit execution block may reference as its
-    /// default <c>tool</c>. Matches the <c>IAgentToolLauncher</c>
-    /// registrations in
-    /// <c>Cvoya.Spring.Dapr.DependencyInjection.ServiceCollectionExtensions</c>.
-    /// <c>custom</c> is the escape hatch for host overlays that register
-    /// additional launchers through DI — the server does not whitelist
-    /// this field; the launcher lookup fails cleanly at dispatch time
-    /// when no implementation is registered for the configured key.
-    /// </summary>
-    internal static readonly string[] ToolKeys =
-    {
-        "claude-code", "codex", "gemini", "spring-voyage", "custom",
-    };
-
     /// <summary>Container runtime keys offered on <c>--runtime</c>.</summary>
     internal static readonly string[] RuntimeKeys = { "docker", "podman" };
 
     /// <summary>Field keys accepted on <c>clear --field</c>.</summary>
+    /// <remarks>
+    /// #1732: <c>tool</c> was dropped — the execution tool is derived
+    /// 1:1 from <c>agent</c> via the runtime registry's
+    /// <c>IAgentRuntime.ToolKind</c>.
+    /// </remarks>
     internal static readonly string[] FieldKeys =
     {
-        "image", "runtime", "tool", "provider", "model",
+        "image", "runtime", "agent", "provider", "model",
     };
 
     /// <summary>
@@ -109,7 +99,9 @@ public static class UnitExecutionCommand
                     unit = unitId,
                     image = defaults.Image,
                     runtime = defaults.Runtime,
-                    tool = defaults.Tool,
+                    agent = defaults.Agent,
+                    // #1732: tool_kind is derived server-side from agent.
+                    tool_kind = defaults.ToolKind,
                     provider = defaults.Provider,
                     model = defaults.Model,
                 }));
@@ -119,7 +111,10 @@ public static class UnitExecutionCommand
             Console.WriteLine($"Unit:     {unitId}");
             Console.WriteLine($"  image:    {defaults.Image ?? "(unset)"}");
             Console.WriteLine($"  runtime:  {defaults.Runtime ?? "(unset)"}");
-            Console.WriteLine($"  tool:     {defaults.Tool ?? "(unset)"}");
+            Console.WriteLine($"  agent:    {defaults.Agent ?? "(unset)"}");
+            // #1732: tool_kind is read-only — derived from agent via the
+            // runtime registry. Shows "(derived from agent)" when unset.
+            Console.WriteLine($"  tool_kind: {defaults.ToolKind ?? "(derived from agent)"}");
             Console.WriteLine($"  provider: {defaults.Provider ?? "(unset)"}");
             Console.WriteLine($"  model:    {defaults.Model ?? "(unset)"}");
         });
@@ -142,21 +137,21 @@ public static class UnitExecutionCommand
         };
         runtimeOption.AcceptOnlyFromAmong(RuntimeKeys);
 
-        var toolOption = new Option<string?>("--tool")
+        var agentOption = new Option<string?>("--agent")
         {
-            Description = "Default external agent tool. Allowed values: " + string.Join(", ", ToolKeys) + ".",
+            Description = "Default agent runtime registry id (e.g. claude, openai, google, ollama). " +
+                "Drives launcher selection at dispatch via IAgentRuntime.ToolKind.",
         };
-        toolOption.AcceptOnlyFromAmong(ToolKeys);
 
         var providerOption = new Option<string?>("--provider")
         {
-            Description = "Default LLM provider (Dapr-Agent-tool-specific; e.g. ollama, openai, anthropic, googleai).",
+            Description = "Default LLM provider (Spring Voyage Agent–specific; e.g. ollama, openai, anthropic, googleai).",
         };
         var modelOption = new Option<string?>("--model")
         {
             Description =
-                "Default model identifier. Meaningful for every tool that carries a known provider family " +
-                "(claude-code, codex, gemini, spring-voyage); the value is accepted as opaque and validated at " +
+                "Default model identifier. Meaningful for every tool kind that carries a known provider family " +
+                "(claude-code-cli, spring-voyage); the value is accepted as opaque and validated at " +
                 "unit activation.",
         };
 
@@ -167,7 +162,7 @@ public static class UnitExecutionCommand
         command.Arguments.Add(unitArg);
         command.Options.Add(imageOption);
         command.Options.Add(runtimeOption);
-        command.Options.Add(toolOption);
+        command.Options.Add(agentOption);
         command.Options.Add(providerOption);
         command.Options.Add(modelOption);
 
@@ -176,17 +171,17 @@ public static class UnitExecutionCommand
             var unitId = parseResult.GetValue(unitArg)!;
             var image = parseResult.GetValue(imageOption);
             var runtime = parseResult.GetValue(runtimeOption);
-            var tool = parseResult.GetValue(toolOption);
+            var agent = parseResult.GetValue(agentOption);
             var provider = parseResult.GetValue(providerOption);
             var model = parseResult.GetValue(modelOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             if (string.IsNullOrWhiteSpace(image) && string.IsNullOrWhiteSpace(runtime)
-                && string.IsNullOrWhiteSpace(tool) && string.IsNullOrWhiteSpace(provider)
+                && string.IsNullOrWhiteSpace(agent) && string.IsNullOrWhiteSpace(provider)
                 && string.IsNullOrWhiteSpace(model))
             {
                 await Console.Error.WriteLineAsync(
-                    "Nothing to set. Pass at least one of --image, --runtime, --tool, --provider, --model. " +
+                    "Nothing to set. Pass at least one of --image, --runtime, --agent, --provider, --model. " +
                     "Use 'clear' to wipe the block or 'clear --field X' to clear one field.");
                 Environment.Exit(1);
                 return;
@@ -198,7 +193,7 @@ public static class UnitExecutionCommand
             {
                 Image = image,
                 Runtime = runtime,
-                Tool = tool,
+                Agent = agent,
                 Provider = provider,
                 Model = model,
             }, ct);
@@ -210,7 +205,8 @@ public static class UnitExecutionCommand
                     unit = unitId,
                     image = stored.Image,
                     runtime = stored.Runtime,
-                    tool = stored.Tool,
+                    agent = stored.Agent,
+                    tool_kind = stored.ToolKind,
                     provider = stored.Provider,
                     model = stored.Model,
                 }));
@@ -220,7 +216,8 @@ public static class UnitExecutionCommand
                 Console.WriteLine($"Unit '{unitId}' execution updated.");
                 Console.WriteLine($"  image:    {stored.Image ?? "(unset)"}");
                 Console.WriteLine($"  runtime:  {stored.Runtime ?? "(unset)"}");
-                Console.WriteLine($"  tool:     {stored.Tool ?? "(unset)"}");
+                Console.WriteLine($"  agent:    {stored.Agent ?? "(unset)"}");
+                Console.WriteLine($"  tool_kind: {stored.ToolKind ?? "(derived from agent)"}");
                 Console.WriteLine($"  provider: {stored.Provider ?? "(unset)"}");
                 Console.WriteLine($"  model:    {stored.Model ?? "(unset)"}");
             }
@@ -267,7 +264,7 @@ public static class UnitExecutionCommand
                         unit = unitId,
                         image = (string?)null,
                         runtime = (string?)null,
-                        tool = (string?)null,
+                        agent = (string?)null,
                         provider = (string?)null,
                         model = (string?)null,
                     }));
@@ -291,13 +288,13 @@ public static class UnitExecutionCommand
             {
                 Image = string.Equals(field, "image", StringComparison.OrdinalIgnoreCase) ? null : current.Image,
                 Runtime = string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase) ? null : current.Runtime,
-                Tool = string.Equals(field, "tool", StringComparison.OrdinalIgnoreCase) ? null : current.Tool,
+                Agent = string.Equals(field, "agent", StringComparison.OrdinalIgnoreCase) ? null : current.Agent,
                 Provider = string.Equals(field, "provider", StringComparison.OrdinalIgnoreCase) ? null : current.Provider,
                 Model = string.Equals(field, "model", StringComparison.OrdinalIgnoreCase) ? null : current.Model,
             };
 
             if (string.IsNullOrWhiteSpace(updated.Image) && string.IsNullOrWhiteSpace(updated.Runtime)
-                && string.IsNullOrWhiteSpace(updated.Tool) && string.IsNullOrWhiteSpace(updated.Provider)
+                && string.IsNullOrWhiteSpace(updated.Agent) && string.IsNullOrWhiteSpace(updated.Provider)
                 && string.IsNullOrWhiteSpace(updated.Model))
             {
                 // Remaining state after per-field clear is empty → strip
@@ -320,7 +317,7 @@ public static class UnitExecutionCommand
                     unit = unitId,
                     image = updated.Image,
                     runtime = updated.Runtime,
-                    tool = updated.Tool,
+                    agent = updated.Agent,
                     provider = updated.Provider,
                     model = updated.Model,
                 }));

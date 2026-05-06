@@ -53,12 +53,14 @@ unit:
   # --- Default execution block for member agents (#601 B-wide) ---
   # Members that don't declare a given field inherit from this block
   # per the agent → unit → fail resolution chain.
+  # #1732: 'tool' was dropped — the execution tool is derived from
+  # the runtime registry via 'ai.agent' (each IAgentRuntime declares
+  # its own ToolKind 1:1, e.g. claude → claude-code-cli).
   execution:
     image: spring-agent:latest
     runtime: podman                  # docker | podman
-    tool: claude-code                # claude-code | codex | gemini | dapr-agent | custom
-    provider: anthropic              # dapr-agent only (#598 gating)
-    model: claude-sonnet             # dapr-agent only (#598 gating)
+    provider: anthropic              # spring-voyage tool kind only (#598 gating)
+    model: claude-sonnet             # spring-voyage tool kind only (#598 gating)
   
   connectors:
     - type: github
@@ -252,7 +254,7 @@ This list is illustrative, not exhaustive. Any organizational pattern can be mod
         },
         "execution": {
           "type": "object",
-          "description": "Default execution block for member agents that don't declare the given field. Five-field shape (#601 B-wide). Resolution chain: agent.X → unit.X → fail-clean.",
+          "description": "Default execution block for member agents that don't declare the given field (#601 B-wide). Resolution chain: agent.X → unit.X → fail-clean. #1732: 'tool' is derived from 'agent' via the runtime registry.",
           "properties": {
             "image": { "type": "string", "description": "Default container image reference." },
             "runtime": {
@@ -260,17 +262,17 @@ This list is illustrative, not exhaustive. Any organizational pattern can be mod
               "enum": ["podman", "docker"],
               "description": "Default container runtime."
             },
-            "tool": {
+            "agent": {
               "type": "string",
-              "description": "Default external agent tool identifier. Known values: claude-code, codex, gemini, dapr-agent, custom."
+              "description": "Agent runtime registry id (e.g. claude, openai, google, ollama). Drives launcher selection at dispatch via IAgentRuntime.ToolKind."
             },
             "provider": {
               "type": "string",
-              "description": "Default LLM provider. Meaningful only when tool = dapr-agent (#598 gating)."
+              "description": "Default LLM provider. Meaningful only when the resolved tool kind = spring-voyage (#598 gating)."
             },
             "model": {
               "type": "string",
-              "description": "Default model identifier. Meaningful only when tool = dapr-agent (#598 gating)."
+              "description": "Default model identifier. Meaningful only when the resolved tool kind = spring-voyage (#598 gating)."
             }
           }
         },

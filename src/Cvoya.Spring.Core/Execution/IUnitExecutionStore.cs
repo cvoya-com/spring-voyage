@@ -66,13 +66,17 @@ public interface IUnitExecutionStore
 }
 
 /// <summary>
-/// Six-field view of a unit's execution defaults (#601 "B-wide" + #1683
-/// agent-runtime id). Each field is independently nullable — a unit can
-/// declare any subset.
+/// View of a unit's execution defaults (#601 "B-wide" + #1683 agent-runtime
+/// id). Each field is independently nullable — a unit can declare any
+/// subset.
 /// </summary>
+/// <remarks>
+/// #1732: the standalone <c>Tool</c> slot was dropped — the execution tool
+/// is derived 1:1 from <see cref="Agent"/> (the runtime registry id) via the
+/// runtime's <c>IAgentRuntime.ToolKind</c>.
+/// </remarks>
 /// <param name="Image">Default container image reference.</param>
 /// <param name="Runtime">Default container runtime identifier (<c>docker</c> / <c>podman</c>).</param>
-/// <param name="Tool">Default external agent tool identifier.</param>
 /// <param name="Provider">Default LLM provider (Dapr-Agent-tool-specific).</param>
 /// <param name="Model">Default model identifier (Dapr-Agent-tool-specific).</param>
 /// <param name="Agent">
@@ -88,7 +92,6 @@ public interface IUnitExecutionStore
 public record UnitExecutionDefaults(
     string? Image = null,
     string? Runtime = null,
-    string? Tool = null,
     string? Provider = null,
     string? Model = null,
     string? Agent = null)
@@ -97,7 +100,6 @@ public record UnitExecutionDefaults(
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
         && string.IsNullOrWhiteSpace(Runtime)
-        && string.IsNullOrWhiteSpace(Tool)
         && string.IsNullOrWhiteSpace(Provider)
         && string.IsNullOrWhiteSpace(Model)
         && string.IsNullOrWhiteSpace(Agent);

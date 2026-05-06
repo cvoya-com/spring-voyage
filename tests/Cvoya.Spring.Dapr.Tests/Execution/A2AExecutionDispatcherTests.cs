@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using A2A.V0_3;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
@@ -46,6 +47,8 @@ public class A2AExecutionDispatcherTests
     private readonly IAgentDefinitionProvider _agentProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
     private readonly IAgentToolLauncher _launcher = Substitute.For<IAgentToolLauncher>();
+    private readonly IAgentRuntimeRegistry _agentRuntimeRegistry = Substitute.For<IAgentRuntimeRegistry>();
+    private readonly IAgentRuntime _claudeRuntime = Substitute.For<IAgentRuntime>();
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
@@ -99,9 +102,21 @@ public class A2AExecutionDispatcherTests
             .BuildServiceProvider()
             .GetRequiredService<PersistentAgentRegistry>();
 
-        _launcher.Tool.Returns("claude-code");
+        // #1732: launcher.ToolKind matches IAgentRuntime.ToolKind
+        // (claude-code-cli for the claude runtime).
+        _launcher.ToolKind.Returns("claude-code-cli");
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(DefaultSpec);
+
+        // #1732: registry maps the runtime id ("claude") to the launcher's
+        // ToolKind ("claude-code-cli") so the dispatcher can derive the
+        // launcher without the agent definition carrying a Tool field.
+        _claudeRuntime.Id.Returns("claude");
+        _claudeRuntime.ToolKind.Returns("claude-code-cli");
+        // NSubstitute auto-mocks unknown-id calls; pin the default to null
+        // so the unknown-runtime branch in the dispatcher fires.
+        _agentRuntimeRegistry.Get(Arg.Any<string>()).Returns((IAgentRuntime?)null);
+        _agentRuntimeRegistry.Get("claude").Returns(_claudeRuntime);
 
         // D3a: the context builder returns a minimal bootstrap bundle so the
         // dispatcher's MergeBootstrapContext does not crash during tests.
@@ -131,7 +146,7 @@ public class A2AExecutionDispatcherTests
                 AgentId: AgentId,
                 Name: "My Agent",
                 Instructions: "do things",
-                Execution: new AgentExecutionConfig("claude-code", Image)));
+                Execution: new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image)));
 
         // Default: container starts and the readiness probe will fail (no real
         // server) so the dispatch fails cleanly with a SpringException. Tests
@@ -158,6 +173,7 @@ public class A2AExecutionDispatcherTests
             _agentProvider,
             _mcpServer,
             [_launcher],
+            _agentRuntimeRegistry,
             _agentContextBuilder,
             _tenantContext,
             _persistentRegistry,
@@ -285,7 +301,7 @@ public class A2AExecutionDispatcherTests
                 Name: "My Agent",
                 Instructions: null,
                 Execution: new AgentExecutionConfig(
-                    Tool: "claude-code",
+                    AgentRuntimeId: "claude",
                     Image: Image,
                     Provider: "openai",
                     Model: "gpt-4o-mini")));
@@ -434,17 +450,48 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_UnknownTool_Throws()
+    public async Task DispatchAsync_AgentClaude_SelectsClaudeCodeCliLauncher()
     {
+        // #1732 regression: setting ai.agent: claude on a unit / agent
+        // resolves end-to-end through the runtime registry to the launcher
+        // whose ToolKind is claude-code-cli. The agent definition does not
+        // carry a Tool field; the dispatcher derives it.
+        var message = CreateMessage();
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId: AgentId,
+                Name: "My Agent",
+                Instructions: null,
+                Execution: new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image)));
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("p");
+        InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        // The Claude runtime resolved through the registry, and the
+        // launcher whose ToolKind matches (claude-code-cli) was used to
+        // prepare the launch context.
+        _agentRuntimeRegistry.Received().Get("claude");
+        await _launcher.Received().PrepareAsync(
+            Arg.Any<AgentLaunchContext>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_UnknownAgentRuntime_Throws()
+    {
+        // #1732: an unregistered runtime id is rejected with a clear error
+        // before launcher lookup happens.
         var message = CreateMessage();
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", null,
-                new AgentExecutionConfig("codex", Image)));
+                new AgentExecutionConfig(AgentRuntimeId: "not-a-runtime", Image: Image)));
 
         var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
         var ex = await Should.ThrowAsync<SpringException>(act);
-        ex.Message.ShouldContain("No IAgentToolLauncher");
+        ex.Message.ShouldContain("No agent runtime is registered");
     }
 
     [Fact]
@@ -454,7 +501,7 @@ public class A2AExecutionDispatcherTests
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", "instructions",
-                new AgentExecutionConfig("claude-code", Image, Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -483,7 +530,7 @@ public class A2AExecutionDispatcherTests
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", "instructions",
-                new AgentExecutionConfig("claude-code", Image, Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
         _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
@@ -511,7 +558,7 @@ public class A2AExecutionDispatcherTests
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", null,
-                new AgentExecutionConfig("claude-code", Image: null)));
+                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: null)));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -531,7 +578,7 @@ public class A2AExecutionDispatcherTests
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", "instructions",
-                new AgentExecutionConfig("claude-code", Image, Hosting: AgentHostingMode.Pooled)));
+                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Pooled)));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -709,7 +756,7 @@ public class A2AExecutionDispatcherTests
     public async Task DispatchAsync_DefaultHostingMode_IsEphemeral()
     {
         // Ensure that AgentExecutionConfig with no explicit hosting defaults to Ephemeral
-        var config = new AgentExecutionConfig("claude-code", Image);
+        var config = new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image);
         config.Hosting.ShouldBe(AgentHostingMode.Ephemeral);
 
         var message = CreateMessage();
@@ -767,7 +814,10 @@ public class A2AExecutionDispatcherTests
         capturedCtx.ShouldNotBeNull();
         capturedCtx!.AgentDefinitionYaml.ShouldNotBeNullOrEmpty();
         capturedCtx.AgentDefinitionYaml.ShouldContain(AgentId);  // agent_id field
-        capturedCtx.AgentDefinitionYaml.ShouldContain("claude-code");  // execution.tool
+        // #1732: execution.agent (the runtime registry id) — the YAML still
+        // includes the derived tool_kind for in-container probes that read it.
+        capturedCtx.AgentDefinitionYaml.ShouldContain("agent: claude");
+        capturedCtx.AgentDefinitionYaml.ShouldContain("tool_kind: claude-code-cli");
         capturedCtx.TenantConfigJson.ShouldNotBeNullOrEmpty();
     }
 

@@ -111,7 +111,6 @@ public class DbUnitExecutionStore(
         var merged = new UnitExecutionDefaults(
             Image: PickTrimmed(defaults.Image, existing.Image),
             Runtime: PickTrimmed(defaults.Runtime, existing.Runtime),
-            Tool: PickTrimmed(defaults.Tool, existing.Tool),
             Provider: PickTrimmed(defaults.Provider, existing.Provider),
             Model: PickTrimmed(defaults.Model, existing.Model),
             Agent: PickTrimmed(defaults.Agent, existing.Agent));
@@ -174,10 +173,12 @@ public class DbUnitExecutionStore(
             var block = new Dictionary<string, object?>();
             if (!string.IsNullOrWhiteSpace(defaults.Image)) block["image"] = defaults.Image!.Trim();
             if (!string.IsNullOrWhiteSpace(defaults.Runtime)) block["runtime"] = defaults.Runtime!.Trim();
-            if (!string.IsNullOrWhiteSpace(defaults.Tool)) block["tool"] = defaults.Tool!.Trim();
             if (!string.IsNullOrWhiteSpace(defaults.Provider)) block["provider"] = defaults.Provider!.Trim();
             if (!string.IsNullOrWhiteSpace(defaults.Model)) block["model"] = defaults.Model!.Trim();
             if (!string.IsNullOrWhiteSpace(defaults.Agent)) block["agent"] = defaults.Agent!.Trim();
+            // #1732: 'tool' is no longer persisted — it is derived from
+            // 'agent' via the runtime registry on the read path. Existing
+            // 'tool' keys on persisted JSON are silently ignored by Extract.
             payload["execution"] = block;
         }
 
@@ -207,12 +208,13 @@ public class DbUnitExecutionStore(
 
         var image = GetStringOrNull(exec, "image");
         var runtime = GetStringOrNull(exec, "runtime");
-        var tool = GetStringOrNull(exec, "tool");
         var provider = GetStringOrNull(exec, "provider");
         var model = GetStringOrNull(exec, "model");
         var agent = GetStringOrNull(exec, "agent");
+        // #1732: 'tool' on legacy persisted JSON is intentionally ignored —
+        // the runtime registry derives the tool kind from 'agent' on read.
 
-        var shaped = new UnitExecutionDefaults(image, runtime, tool, provider, model, agent);
+        var shaped = new UnitExecutionDefaults(image, runtime, provider, model, agent);
         return shaped.IsEmpty ? null : shaped;
     }
 

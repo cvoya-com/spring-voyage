@@ -108,8 +108,8 @@ The `unit` verb family carries many subcommands (see `spring unit --help`); the 
 ### `create [--wait | --no-wait]`
 
 ```
-$ spring unit create --name my-unit --image ghcr.io/example/claude:1 --tool claude-code-cli
-$ spring unit create --from-template example/scratch --no-wait
+$ spring unit create my-unit --top-level --agent claude
+$ spring unit execution set my-unit --image ghcr.io/example/claude:1 --no-wait
 ```
 
 On success the CLI returns 201 and then **polls** the unit's terminal state. `--wait` is the **default**; the command blocks until the `UnitValidationWorkflow` finishes and exits with a validation-code-derived exit code (see the table below). `--no-wait` returns immediately after the 201, leaving the unit in `Validating` — useful for scripts that kick off many units in parallel and reconcile later via `spring unit status`.

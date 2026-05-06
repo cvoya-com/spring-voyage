@@ -299,16 +299,11 @@ public static class StateKeys
     /// </summary>
     public const string TenantCloningPolicy = "Tenant:CloningPolicy";
 
-    /// <summary>
-    /// State key for the unit's external agent-tool identifier
-    /// (e.g. <c>claude-code</c>, <c>spring-voyage</c>). Surfaced through
-    /// <see cref="Core.Units.UnitMetadata"/> so the unit-detail GET
-    /// returns the value the operator passed at create time. Distinct
-    /// from the unit's <c>execution:</c> block (which the scheduler
-    /// consults) — both are kept in sync by <c>UnitCreationService</c>.
-    /// See #1065.
-    /// </summary>
-    public const string UnitTool = "Unit:Tool";
+    // #1732: The pre-existing UnitTool key (`Unit:Tool`) was removed —
+    // the execution tool is now derived from the runtime registry via the
+    // unit's execution.agent slot, so a duplicate actor-state copy is
+    // unnecessary. Persisted state keyed on `Unit:Tool` from before
+    // #1732 is silently ignored.
 
     /// <summary>
     /// State key for the unit's LLM provider identifier

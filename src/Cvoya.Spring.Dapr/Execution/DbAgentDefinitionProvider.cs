@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Execution;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
@@ -25,10 +26,16 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Resolution chain per field (<c>tool</c>, <c>image</c>, <c>runtime</c>,
-/// <c>provider</c>, <c>model</c>): <b>agent wins → unit default → null</b>.
+/// Resolution chain per field (<c>image</c>, <c>runtime</c>, <c>provider</c>,
+/// <c>model</c>, <c>agent</c>): <b>agent wins → unit default → null</b>.
 /// <see cref="AgentHostingMode"/> is always agent-owned — a unit cannot
 /// change whether an agent is ephemeral or persistent.
+/// </para>
+/// <para>
+/// #1732: the launcher is selected from the <c>agent</c> slot's runtime
+/// registry entry — <c>agent.Agent → unit.Agent → null</c>. The execution
+/// tool is no longer threaded through the manifest / DTOs / persistence;
+/// it is derived from <c>IAgentRuntime.ToolKind</c> at dispatch time.
 /// </para>
 /// <para>
 /// Tolerance: a missing unit membership, a missing unit execution block,
@@ -140,20 +147,29 @@ public class DbAgentDefinitionProvider(
     /// resulting slot is <c>null</c> (the dispatcher / save-time validator
     /// decides whether that's fatal).
     /// </summary>
+    /// <remarks>
+    /// #1732: <see cref="AgentExecutionConfig.AgentRuntimeId"/> is sourced
+    /// from <c>agent.Agent → unit.Agent → null</c>. The dispatcher passes
+    /// the resulting value through
+    /// <see cref="IAgentRuntimeRegistry.Get(string)"/> to derive the launcher
+    /// (via <c>IAgentRuntime.ToolKind</c>).
+    /// </remarks>
     internal static AgentExecutionConfig? Merge(
         AgentExecutionConfig? agent,
         UnitExecutionDefaults unit)
     {
-        // Tool is required to produce an AgentExecutionConfig at all.
-        // Resolution: agent.Tool (non-empty) → unit.Tool → null.
-        var tool = FirstNonBlank(agent?.Tool, unit.Tool);
-        if (string.IsNullOrWhiteSpace(tool))
+        // AgentRuntimeId is required to produce an AgentExecutionConfig at
+        // all. Resolution: agent.AgentRuntimeId (non-empty) → unit.Agent
+        // → null. The dispatcher derives the launcher from the runtime
+        // registry, so without this slot there is no way to dispatch.
+        var agentRuntimeId = FirstNonBlank(agent?.AgentRuntimeId, unit.Agent);
+        if (string.IsNullOrWhiteSpace(agentRuntimeId))
         {
             return null;
         }
 
         return new AgentExecutionConfig(
-            Tool: tool,
+            AgentRuntimeId: agentRuntimeId,
             Image: FirstNonBlank(agent?.Image, unit.Image),
             Runtime: FirstNonBlank(agent?.Runtime, unit.Runtime),
             // Hosting mode is agent-owned. Default (Ephemeral) when the
@@ -172,34 +188,39 @@ public class DbAgentDefinitionProvider(
 
     private static AgentExecutionConfig? ExtractExecution(JsonElement definition)
     {
-        // Preferred: top-level `execution: { tool, image, runtime, hosting, provider, model }`.
+        // Preferred: top-level `execution: { agent, image, runtime, hosting, provider, model }`.
+        // #1732: 'execution.tool' on persisted JSON is silently ignored — the
+        // tool kind is derived from 'agent' (the runtime registry id) at
+        // dispatch time. Pre-#1732 'execution.tool' values are not back-mapped
+        // because the runtime id is the durable identity.
         if (definition.TryGetProperty("execution", out var exec) &&
             exec.ValueKind == JsonValueKind.Object)
         {
-            var tool = GetStringOrNull(exec, "tool");
+            var agentRuntimeId = GetStringOrNull(exec, "agent");
             var image = GetStringOrNull(exec, "image");
             var runtime = GetStringOrNull(exec, "runtime");
             var hosting = ParseHosting(GetStringOrNull(exec, "hosting"));
             var provider = GetStringOrNull(exec, "provider");
             var model = GetStringOrNull(exec, "model");
 
-            if (tool is not null)
+            if (agentRuntimeId is not null)
             {
-                return new AgentExecutionConfig(tool, image, runtime, hosting, provider, model);
+                return new AgentExecutionConfig(agentRuntimeId, image, runtime, hosting, provider, model);
             }
         }
 
-        // Legacy: `ai: { tool, environment: { image, runtime } }`.
+        // Legacy: `ai: { agent, environment: { image, runtime } }`. Same
+        // rule — 'ai.tool' is ignored; 'ai.agent' is the durable id.
         if (definition.TryGetProperty("ai", out var ai) && ai.ValueKind == JsonValueKind.Object)
         {
-            var tool = GetStringOrNull(ai, "tool");
+            var agentRuntimeId = GetStringOrNull(ai, "agent");
             if (ai.TryGetProperty("environment", out var env) && env.ValueKind == JsonValueKind.Object)
             {
                 var image = GetStringOrNull(env, "image");
                 var runtime = GetStringOrNull(env, "runtime");
-                if (tool is not null && image is not null)
+                if (agentRuntimeId is not null && image is not null)
                 {
-                    return new AgentExecutionConfig(tool, image, runtime);
+                    return new AgentExecutionConfig(agentRuntimeId, image, runtime);
                 }
             }
         }

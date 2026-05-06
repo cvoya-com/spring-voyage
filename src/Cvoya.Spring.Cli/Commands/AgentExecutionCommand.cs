@@ -60,7 +60,8 @@ public static class AgentExecutionCommand
                     agent = agentId,
                     image = shape.Image,
                     runtime = shape.Runtime,
-                    tool = shape.Tool,
+                    agent_runtime = shape.Agent,
+                    tool_kind = shape.ToolKind,
                     provider = shape.Provider,
                     model = shape.Model,
                     hosting = shape.Hosting,
@@ -69,12 +70,15 @@ public static class AgentExecutionCommand
             }
 
             Console.WriteLine($"Agent:    {agentId}");
-            Console.WriteLine($"  image:    {shape.Image ?? "(inherited / unset)"}");
-            Console.WriteLine($"  runtime:  {shape.Runtime ?? "(inherited / unset)"}");
-            Console.WriteLine($"  tool:     {shape.Tool ?? "(inherited / unset)"}");
-            Console.WriteLine($"  provider: {shape.Provider ?? "(inherited / unset)"}");
-            Console.WriteLine($"  model:    {shape.Model ?? "(inherited / unset)"}");
-            Console.WriteLine($"  hosting:  {shape.Hosting ?? "(default: ephemeral)"}");
+            Console.WriteLine($"  image:         {shape.Image ?? "(inherited / unset)"}");
+            Console.WriteLine($"  runtime:       {shape.Runtime ?? "(inherited / unset)"}");
+            Console.WriteLine($"  agent_runtime: {shape.Agent ?? "(inherited / unset)"}");
+            // #1732: tool_kind is read-only — derived from agent_runtime via
+            // the runtime registry.
+            Console.WriteLine($"  tool_kind:     {shape.ToolKind ?? "(derived from agent_runtime)"}");
+            Console.WriteLine($"  provider:      {shape.Provider ?? "(inherited / unset)"}");
+            Console.WriteLine($"  model:         {shape.Model ?? "(inherited / unset)"}");
+            Console.WriteLine($"  hosting:       {shape.Hosting ?? "(default: ephemeral)"}");
         });
 
         return command;
@@ -93,19 +97,19 @@ public static class AgentExecutionCommand
         };
         runtimeOption.AcceptOnlyFromAmong(UnitExecutionCommand.RuntimeKeys);
 
-        var toolOption = new Option<string?>("--tool")
+        var agentRuntimeOption = new Option<string?>("--agent")
         {
-            Description = "External agent tool. Allowed values: " + string.Join(", ", UnitExecutionCommand.ToolKeys) + ".",
+            Description = "Agent runtime registry id (e.g. claude, openai, google, ollama). " +
+                "Drives launcher selection at dispatch via IAgentRuntime.ToolKind.",
         };
-        toolOption.AcceptOnlyFromAmong(UnitExecutionCommand.ToolKeys);
 
         var providerOption = new Option<string?>("--provider")
         {
-            Description = "LLM provider (Dapr-Agent-tool-specific).",
+            Description = "LLM provider (Spring Voyage Agent–specific).",
         };
         var modelOption = new Option<string?>("--model")
         {
-            Description = "Model identifier (Dapr-Agent-tool-specific).",
+            Description = "Model identifier (Spring Voyage Agent–specific).",
         };
         var hostingOption = new Option<string?>("--hosting")
         {
@@ -120,7 +124,7 @@ public static class AgentExecutionCommand
         command.Arguments.Add(agentArg);
         command.Options.Add(imageOption);
         command.Options.Add(runtimeOption);
-        command.Options.Add(toolOption);
+        command.Options.Add(agentRuntimeOption);
         command.Options.Add(providerOption);
         command.Options.Add(modelOption);
         command.Options.Add(hostingOption);
@@ -130,18 +134,18 @@ public static class AgentExecutionCommand
             var agentId = parseResult.GetValue(agentArg)!;
             var image = parseResult.GetValue(imageOption);
             var runtime = parseResult.GetValue(runtimeOption);
-            var tool = parseResult.GetValue(toolOption);
+            var agentRuntime = parseResult.GetValue(agentRuntimeOption);
             var provider = parseResult.GetValue(providerOption);
             var model = parseResult.GetValue(modelOption);
             var hosting = parseResult.GetValue(hostingOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             if (string.IsNullOrWhiteSpace(image) && string.IsNullOrWhiteSpace(runtime)
-                && string.IsNullOrWhiteSpace(tool) && string.IsNullOrWhiteSpace(provider)
+                && string.IsNullOrWhiteSpace(agentRuntime) && string.IsNullOrWhiteSpace(provider)
                 && string.IsNullOrWhiteSpace(model) && string.IsNullOrWhiteSpace(hosting))
             {
                 await Console.Error.WriteLineAsync(
-                    "Nothing to set. Pass at least one of --image, --runtime, --tool, --provider, --model, --hosting.");
+                    "Nothing to set. Pass at least one of --image, --runtime, --agent, --provider, --model, --hosting.");
                 Environment.Exit(1);
                 return;
             }
@@ -152,7 +156,7 @@ public static class AgentExecutionCommand
             {
                 Image = image,
                 Runtime = runtime,
-                Tool = tool,
+                Agent = agentRuntime,
                 Provider = provider,
                 Model = model,
                 Hosting = hosting,
@@ -165,7 +169,8 @@ public static class AgentExecutionCommand
                     agent = agentId,
                     image = stored.Image,
                     runtime = stored.Runtime,
-                    tool = stored.Tool,
+                    agent_runtime = stored.Agent,
+                    tool_kind = stored.ToolKind,
                     provider = stored.Provider,
                     model = stored.Model,
                     hosting = stored.Hosting,
@@ -174,12 +179,13 @@ public static class AgentExecutionCommand
             else
             {
                 Console.WriteLine($"Agent '{agentId}' execution updated.");
-                Console.WriteLine($"  image:    {stored.Image ?? "(inherited / unset)"}");
-                Console.WriteLine($"  runtime:  {stored.Runtime ?? "(inherited / unset)"}");
-                Console.WriteLine($"  tool:     {stored.Tool ?? "(inherited / unset)"}");
-                Console.WriteLine($"  provider: {stored.Provider ?? "(inherited / unset)"}");
-                Console.WriteLine($"  model:    {stored.Model ?? "(inherited / unset)"}");
-                Console.WriteLine($"  hosting:  {stored.Hosting ?? "(default: ephemeral)"}");
+                Console.WriteLine($"  image:         {stored.Image ?? "(inherited / unset)"}");
+                Console.WriteLine($"  runtime:       {stored.Runtime ?? "(inherited / unset)"}");
+                Console.WriteLine($"  agent_runtime: {stored.Agent ?? "(inherited / unset)"}");
+                Console.WriteLine($"  tool_kind:     {stored.ToolKind ?? "(derived from agent_runtime)"}");
+                Console.WriteLine($"  provider:      {stored.Provider ?? "(inherited / unset)"}");
+                Console.WriteLine($"  model:         {stored.Model ?? "(inherited / unset)"}");
+                Console.WriteLine($"  hosting:       {stored.Hosting ?? "(default: ephemeral)"}");
             }
         });
 
@@ -189,7 +195,9 @@ public static class AgentExecutionCommand
     private static Command CreateClearCommand(Option<string> outputOption)
     {
         var agentArg = new Argument<string>("agent") { Description = "The agent identifier" };
-        var fieldKeys = new[] { "image", "runtime", "tool", "provider", "model", "hosting" };
+        // #1732: tool was dropped — agent (the runtime registry id) is the
+        // input; tool_kind is derived from it server-side.
+        var fieldKeys = new[] { "image", "runtime", "agent", "provider", "model", "hosting" };
         var fieldOption = new Option<string?>("--field")
         {
             Description = "Clear one field only. Allowed: " + string.Join(", ", fieldKeys) + ". " +
@@ -232,14 +240,14 @@ public static class AgentExecutionCommand
             {
                 Image = string.Equals(field, "image", StringComparison.OrdinalIgnoreCase) ? null : current.Image,
                 Runtime = string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase) ? null : current.Runtime,
-                Tool = string.Equals(field, "tool", StringComparison.OrdinalIgnoreCase) ? null : current.Tool,
+                Agent = string.Equals(field, "agent", StringComparison.OrdinalIgnoreCase) ? null : current.Agent,
                 Provider = string.Equals(field, "provider", StringComparison.OrdinalIgnoreCase) ? null : current.Provider,
                 Model = string.Equals(field, "model", StringComparison.OrdinalIgnoreCase) ? null : current.Model,
                 Hosting = string.Equals(field, "hosting", StringComparison.OrdinalIgnoreCase) ? null : current.Hosting,
             };
 
             if (string.IsNullOrWhiteSpace(updated.Image) && string.IsNullOrWhiteSpace(updated.Runtime)
-                && string.IsNullOrWhiteSpace(updated.Tool) && string.IsNullOrWhiteSpace(updated.Provider)
+                && string.IsNullOrWhiteSpace(updated.Agent) && string.IsNullOrWhiteSpace(updated.Provider)
                 && string.IsNullOrWhiteSpace(updated.Model) && string.IsNullOrWhiteSpace(updated.Hosting))
             {
                 await client.ClearAgentExecutionAsync(agentId, ct);

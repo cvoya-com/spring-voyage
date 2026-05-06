@@ -798,8 +798,8 @@ public class UnitActorTests
             .Returns(new ConditionalValue<string>(false, default!));
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitColor, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<string>(false, default!));
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitTool, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
+        // #1732: UnitTool was removed from the actor-state surface — Tool is
+        // derived from execution.agent at dispatch.
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitProvider, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<string>(false, default!));
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitHosting, Arg.Any<CancellationToken>())
@@ -812,7 +812,6 @@ public class UnitActorTests
         metadata.Description.ShouldBeNull();
         metadata.Model.ShouldBeNull();
         metadata.Color.ShouldBeNull();
-        metadata.Tool.ShouldBeNull();
         metadata.Provider.ShouldBeNull();
         metadata.Hosting.ShouldBeNull();
     }
@@ -824,8 +823,6 @@ public class UnitActorTests
             .Returns(new ConditionalValue<string>(true, "gpt-4o"));
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitColor, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<string>(true, "#ff8800"));
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitTool, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitProvider, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<string>(false, default!));
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitHosting, Arg.Any<CancellationToken>())
@@ -840,20 +837,18 @@ public class UnitActorTests
         metadata.Description.ShouldBeNull();
     }
 
-    // #1065 side-note: Tool / Provider / Hosting are actor-owned and must
-    // round-trip through SetMetadataAsync / GetMetadataAsync. Pre-fix the
-    // actor silently dropped these fields, so the unit-detail GET surfaced
-    // them as null even when set on create.
+    // #1065 side-note: Provider / Hosting are actor-owned and must round-trip
+    // through SetMetadataAsync / GetMetadataAsync.
+    // #1732: Tool was dropped from the unit-actor metadata — derived from
+    // execution.agent via the runtime registry at dispatch.
 
     [Fact]
-    public async Task GetMetadataAsync_ReturnsPersistedToolProviderHosting()
+    public async Task GetMetadataAsync_ReturnsPersistedProviderHosting()
     {
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<string>(false, default!));
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitColor, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<string>(false, default!));
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitTool, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(true, "dapr-agent"));
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitProvider, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<string>(true, "ollama"));
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitHosting, Arg.Any<CancellationToken>())
@@ -861,27 +856,23 @@ public class UnitActorTests
 
         var metadata = await _actor.GetMetadataAsync(TestContext.Current.CancellationToken);
 
-        metadata.Tool.ShouldBe("dapr-agent");
         metadata.Provider.ShouldBe("ollama");
         metadata.Hosting.ShouldBe("ephemeral");
     }
 
     [Fact]
-    public async Task SetMetadataAsync_PersistsToolProviderHosting()
+    public async Task SetMetadataAsync_PersistsProviderHosting()
     {
         var metadata = new UnitMetadata(
             DisplayName: null,
             Description: null,
             Model: null,
             Color: null,
-            Tool: "dapr-agent",
             Provider: "ollama",
             Hosting: "ephemeral");
 
         await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.UnitTool, "dapr-agent", Arg.Any<CancellationToken>());
         await _stateManager.Received(1).SetStateAsync(
             StateKeys.UnitProvider, "ollama", Arg.Any<CancellationToken>());
         await _stateManager.Received(1).SetStateAsync(
@@ -889,7 +880,7 @@ public class UnitActorTests
     }
 
     [Fact]
-    public async Task SetMetadataAsync_NullToolProviderHosting_DoesNotTouchState()
+    public async Task SetMetadataAsync_NullProviderHosting_DoesNotTouchState()
     {
         var metadata = new UnitMetadata(
             DisplayName: null,
@@ -899,8 +890,6 @@ public class UnitActorTests
 
         await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
 
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitTool, Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _stateManager.DidNotReceive().SetStateAsync(
             StateKeys.UnitProvider, Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _stateManager.DidNotReceive().SetStateAsync(

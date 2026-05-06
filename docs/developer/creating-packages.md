@@ -35,9 +35,8 @@ agent:
   capabilities: [analysis, summarization, literature-review]
 
   ai:
-    agent: claude
+    agent: claude          # runtime registry id; tool kind derived from registry (#1732)
     model: claude-sonnet-4-6
-    tool: claude-code
 
   instructions: |
     You are a research analyst. You analyze papers,

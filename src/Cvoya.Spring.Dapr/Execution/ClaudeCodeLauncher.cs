@@ -66,7 +66,11 @@ public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLaunch
     private readonly ILogger _logger = loggerFactory.CreateLogger<ClaudeCodeLauncher>();
 
     /// <inheritdoc />
-    public string Tool => "claude-code";
+    /// <remarks>
+    /// #1732: matches <c>ClaudeAgentRuntime.ToolKind</c> (<c>claude-code-cli</c>),
+    /// the registry's 1:1 tool kind for the <c>claude</c> runtime.
+    /// </remarks>
+    public string ToolKind => "claude-code-cli";
 
     /// <inheritdoc />
     public Task<AgentLaunchSpec> PrepareAsync(

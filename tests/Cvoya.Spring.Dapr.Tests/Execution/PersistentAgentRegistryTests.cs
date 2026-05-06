@@ -35,7 +35,7 @@ public class PersistentAgentRegistryTests : IDisposable
     public PersistentAgentRegistryTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _launcher.Tool.Returns("claude-code");
+        _launcher.ToolKind.Returns("claude-code-cli");
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
         _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>())
             .Returns(ci => new McpSession("t", ci.ArgAt<string>(0), ci.ArgAt<string>(1)));

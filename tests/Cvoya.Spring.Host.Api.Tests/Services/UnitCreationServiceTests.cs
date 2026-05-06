@@ -498,7 +498,6 @@ public class UnitCreationServiceTests
                 Model: "claude-sonnet-4-6",
                 Color: null,
                 Connector: null,
-                Tool: "claude-code-cli",
                 Provider: "claude",
                 IsTopLevel: true),
             CancellationToken.None);
@@ -577,14 +576,13 @@ public class UnitCreationServiceTests
                 Model: "llama3.2:3b",
                 Color: null,
                 Connector: null,
-                Tool: "dapr-agent",
                 Provider: "ollama",
                 IsTopLevel: true),
             CancellationToken.None);
 
-        // The execution defaults must persist Tool/Provider/Model from the
-        // request, but Runtime must stay null — the request has no runtime
-        // field, and provider must not be mirrored into the runtime slot.
+        // #1732: Tool was dropped from the wire shape. The execution defaults
+        // persist Provider/Model from the request; Runtime stays null —
+        // provider must not be mirrored into the runtime slot.
         // #1666: the unit id passed to the store is the actor's Guid in
         // GuidFormatter.Format ("N") form — DbUnitExecutionStore parses it
         // as a Guid, so the user-facing name would be silently rejected.
@@ -593,59 +591,24 @@ public class UnitCreationServiceTests
             Arg.Is<Cvoya.Spring.Core.Execution.UnitExecutionDefaults>(d =>
                 d.Runtime == null
                 && d.Provider == "ollama"
-                && d.Tool == "dapr-agent"
                 && d.Model == "llama3.2:3b"),
             Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task CreateAsync_WithToolOnly_LeavesProviderAndRuntimeNull()
-    {
-        // Symmetric assertion: a tool-only create (e.g. `claude-code`,
-        // no provider, no model) must leave both Provider and Runtime
-        // null on the persisted execution defaults. Before #1065 the
-        // mirror would have written Provider into Runtime, but a tool-
-        // only create has no provider to mirror — so the bug was masked
-        // for `--tool claude-code` alone. Lock the contract anyway so a
-        // future regression that tries to default Runtime from anything
-        // else (Tool, Hosting…) trips this test.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+    // #1732: the symmetric "tool-only create leaves Provider/Runtime null"
+    // assertion is obsolete — Tool is no longer threaded through the
+    // CreateUnitRequest body.
 
-        await fixture.Service.CreateAsync(
-            new CreateUnitRequest(
-                Name: "claude-only",
-                DisplayName: "claude-only",
-                Description: "test",
-                Model: null,
-                Color: null,
-                Connector: null,
-                Tool: "claude-code",
-                Provider: null,
-                IsTopLevel: true),
-            CancellationToken.None);
-
-        // #1666: the store id is the actor Guid (parsed by
-        // DbUnitExecutionStore.SetAsync via GuidFormatter.TryParse), not
-        // the user-facing name.
-        await fixture.ExecutionStore.Received(1).SetAsync(
-            Arg.Is<string>(id => IsGuidN(id)),
-            Arg.Is<Cvoya.Spring.Core.Execution.UnitExecutionDefaults>(d =>
-                d.Runtime == null
-                && d.Provider == null
-                && d.Tool == "claude-code"
-                && d.Model == null),
-            Arg.Any<CancellationToken>());
-    }
-
-    // --- #1065 side-note: unit-detail GET surfaces Tool/Provider/Hosting ---
+    // --- #1065 side-note: unit-detail GET surfaces Provider/Hosting ---
     // The actor-side round-trip is verified in UnitActorTests; this test
-    // pins the wire-shape contract that Tool/Provider/Hosting flow into
+    // pins the wire-shape contract that Provider/Hosting flow into
     // SetMetadataAsync from the create path so the unit-detail GET has
     // values to project.
+    // #1732: Tool was dropped from the unit-actor metadata — derived from
+    // execution.agent at dispatch.
 
     [Fact]
-    public async Task CreateAsync_WithToolProviderHosting_FlowsThroughSetMetadata()
+    public async Task CreateAsync_WithProviderHosting_FlowsThroughSetMetadata()
     {
         var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
@@ -658,7 +621,6 @@ public class UnitCreationServiceTests
                 Model: "llama3.2:3b",
                 Color: null,
                 Connector: null,
-                Tool: "dapr-agent",
                 Provider: "ollama",
                 Hosting: "ephemeral",
                 IsTopLevel: true),
@@ -666,8 +628,7 @@ public class UnitCreationServiceTests
 
         await fixture.Proxy.Received(1).SetMetadataAsync(
             Arg.Is<UnitMetadata>(m =>
-                m.Tool == "dapr-agent"
-                && m.Provider == "ollama"
+                m.Provider == "ollama"
                 && m.Hosting == "ephemeral"
                 && m.Model == "llama3.2:3b"),
             Arg.Any<CancellationToken>());

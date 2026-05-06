@@ -19,10 +19,9 @@ agent:
   capabilities: [csharp, python, postgresql, testing]
 
   ai:
-    agent: claude
+    agent: claude          # runtime registry id; tool kind is derived (#1732)
     model: claude-sonnet-4-6
     execution: delegated
-    tool: claude-code
     environment:
       image: spring-agent:latest
       runtime: podman

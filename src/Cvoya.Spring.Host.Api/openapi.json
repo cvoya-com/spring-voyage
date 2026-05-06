@@ -8697,12 +8697,6 @@
               "string"
             ]
           },
-          "tool": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "provider": {
             "type": [
               "null",
@@ -8722,6 +8716,12 @@
             ]
           },
           "agent": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "toolKind": {
             "type": [
               "null",
               "string"
@@ -9863,12 +9863,6 @@
               {
                 "$ref": "#/components/schemas/UnitConnectorBindingRequest"
               }
-            ]
-          },
-          "tool": {
-            "type": [
-              "null",
-              "string"
             ]
           },
           "provider": {
@@ -12591,12 +12585,6 @@
               "string"
             ]
           },
-          "tool": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "provider": {
             "type": [
               "null",
@@ -12610,6 +12598,12 @@
             ]
           },
           "agent": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "toolKind": {
             "type": [
               "null",
               "string"
@@ -12941,12 +12935,6 @@
               "string"
             ]
           },
-          "tool": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "provider": {
             "type": [
               "null",
@@ -13219,12 +13207,6 @@
             ]
           },
           "color": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "tool": {
             "type": [
               "null",
               "string"

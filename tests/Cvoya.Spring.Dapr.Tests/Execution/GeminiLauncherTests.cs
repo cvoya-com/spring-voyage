@@ -32,9 +32,11 @@ public class GeminiLauncherTests
     }
 
     [Fact]
-    public void Tool_IsGemini()
+    public void ToolKind_IsGeminiCli()
     {
-        _launcher.Tool.ShouldBe("gemini");
+        // #1732: gemini-cli is the canonical tool kind for a future Gemini
+        // runtime. No IAgentRuntime currently resolves to this launcher.
+        _launcher.ToolKind.ShouldBe("gemini-cli");
     }
 
     [Fact]

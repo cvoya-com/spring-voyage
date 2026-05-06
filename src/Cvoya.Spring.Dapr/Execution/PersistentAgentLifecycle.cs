@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Execution;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,7 @@ public class PersistentAgentLifecycle(
     IAgentDefinitionProvider agentDefinitionProvider,
     IMcpServer mcpServer,
     IEnumerable<IAgentToolLauncher> launchers,
+    IAgentRuntimeRegistry agentRuntimeRegistry,
     PersistentAgentRegistry persistentAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
     AgentVolumeManager volumeManager,
@@ -41,8 +43,14 @@ public class PersistentAgentLifecycle(
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<PersistentAgentLifecycle>();
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
-    private readonly Dictionary<string, IAgentToolLauncher> _launchersByTool =
-        launchers.ToDictionary(l => l.Tool, StringComparer.OrdinalIgnoreCase);
+    // #1732: launchers are keyed on their ToolKind (matching
+    // IAgentRuntime.ToolKind). The lifecycle service derives the tool kind
+    // from the agent's persisted execution.agent slot via the runtime
+    // registry.
+    private readonly Dictionary<string, IAgentToolLauncher> _launchersByToolKind =
+        launchers.ToDictionary(l => l.ToolKind, StringComparer.OrdinalIgnoreCase);
+    private readonly IAgentRuntimeRegistry _agentRuntimeRegistry = agentRuntimeRegistry
+        ?? throw new ArgumentNullException(nameof(agentRuntimeRegistry));
 
     /// <summary>
     /// Stands up a persistent agent. Idempotent: when the agent is already
@@ -72,7 +80,8 @@ public class PersistentAgentLifecycle(
         if (definition.Execution is null)
         {
             throw new SpringException(
-                $"Agent '{agentId}' has no execution configuration; set execution.tool in the agent YAML before deploying.");
+                $"Agent '{agentId}' has no execution configuration; " +
+                "set ai.agent (the runtime registry id) in the agent / unit YAML before deploying.");
         }
 
         if (definition.Execution.Hosting != AgentHostingMode.Persistent)
@@ -104,11 +113,18 @@ public class PersistentAgentLifecycle(
                 "Set execution.image in the agent YAML or pass --image on deploy.");
         }
 
-        if (!_launchersByTool.TryGetValue(definition.Execution.Tool, out var launcher))
+        var runtime = _agentRuntimeRegistry.Get(definition.Execution.AgentRuntimeId)
+            ?? throw new SpringException(
+                $"No agent runtime is registered with id '{definition.Execution.AgentRuntimeId}' " +
+                $"(agent '{agentId}'). Install the runtime plugin or set ai.agent " +
+                "to a registered runtime id before deploying.");
+        if (!_launchersByToolKind.TryGetValue(runtime.ToolKind, out var launcher))
         {
             throw new SpringException(
-                $"No IAgentToolLauncher registered for tool '{definition.Execution.Tool}' (agent '{agentId}').");
+                $"No IAgentToolLauncher registered for tool kind '{runtime.ToolKind}' " +
+                $"(agent runtime '{definition.Execution.AgentRuntimeId}', agent '{agentId}').");
         }
+        var toolKind = runtime.ToolKind;
 
         if (mcpServer.Endpoint is null)
         {
@@ -154,7 +170,7 @@ public class PersistentAgentLifecycle(
         // launch spec into a container config across all dispatch paths.
         var baseConfig = ContainerConfigBuilder.Build(image, prepWithVolume);
         var useDaprSidecar = string.Equals(
-            definition.Execution!.Tool, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
+            toolKind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
 
         string containerId;
         string? sidecarId = null;

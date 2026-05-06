@@ -41,7 +41,7 @@ public class ContainerHealthMetricsServiceTests
         services.AddSingleton(Substitute.For<IAgentDefinitionProvider>());
         services.AddSingleton(Substitute.For<IMcpServer>());
         var launcher = Substitute.For<IAgentToolLauncher>();
-        launcher.Tool.Returns("tool");
+        launcher.ToolKind.Returns("tool");
         services.AddSingleton(launcher);
         services.AddSingleton<IEnumerable<IAgentToolLauncher>>(_ => new[] { launcher });
         services.AddSingleton<PersistentAgentRegistry>();

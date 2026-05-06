@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
@@ -35,6 +36,7 @@ public class PersistentDispatchIntegrationTests
     private readonly IAgentDefinitionProvider _agentProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
     private readonly IAgentToolLauncher _launcher = Substitute.For<IAgentToolLauncher>();
+    private readonly IAgentRuntimeRegistry _agentRuntimeRegistry = Substitute.For<IAgentRuntimeRegistry>();
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
@@ -50,7 +52,13 @@ public class PersistentDispatchIntegrationTests
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         var daprOptions = new DaprSidecarOptions();
-        _launcher.Tool.Returns("claude-code");
+        _launcher.ToolKind.Returns("claude-code-cli");
+        // #1732: registry maps the runtime id ("claude") to the launcher's
+        // ToolKind so the dispatcher can derive the launcher.
+        var claudeRuntime = Substitute.For<IAgentRuntime>();
+        claudeRuntime.Id.Returns("claude");
+        claudeRuntime.ToolKind.Returns("claude-code-cli");
+        _agentRuntimeRegistry.Get("claude").Returns(claudeRuntime);
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(new AgentLaunchSpec(
                 WorkspaceFiles: new Dictionary<string, string>(),
@@ -77,7 +85,7 @@ public class PersistentDispatchIntegrationTests
                 AgentId: AgentId,
                 Name: "Persistent Agent",
                 Instructions: "do persistent things",
-                Execution: new AgentExecutionConfig("claude-code", Image, Hosting: AgentHostingMode.Persistent)));
+                Execution: new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
 
         _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("assembled prompt");
@@ -95,6 +103,7 @@ public class PersistentDispatchIntegrationTests
         persistentServices.AddSingleton(_launcher);
         persistentServices.AddSingleton<IEnumerable<IAgentToolLauncher>>(
             p => [p.GetRequiredService<IAgentToolLauncher>()]);
+        persistentServices.AddSingleton(_agentRuntimeRegistry);
         persistentServices.AddSingleton<PersistentAgentRegistry>();
         persistentServices.AddSingleton<PersistentAgentLifecycle>();
         _persistentRegistry = persistentServices
@@ -117,6 +126,7 @@ public class PersistentDispatchIntegrationTests
             _agentProvider,
             _mcpServer,
             [_launcher],
+            _agentRuntimeRegistry,
             _agentContextBuilder,
             _tenantContext,
             _persistentRegistry,

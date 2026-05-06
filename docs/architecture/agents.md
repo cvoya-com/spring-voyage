@@ -20,9 +20,8 @@ agent:
   capabilities: [csharp, python, fastapi, postgresql, testing]
   
   ai:
-    agent: claude                       # registered AI agent provider
+    agent: claude                       # runtime registry id (drives tool kind via IAgentRuntime.ToolKind)
     model: claude-sonnet-4-6
-    tool: claude-code                   # registered agent tool
     environment:                        # container definition
       image: spring-agent:latest
       runtime: podman                   # podman | docker | kubernetes

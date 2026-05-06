@@ -69,7 +69,6 @@ public record UnitCreationOverrides(
     string? Color = null,
     string? Model = null,
     string? Name = null,
-    string? Tool = null,
     string? Provider = null,
     string? Hosting = null,
     IReadOnlyList<Guid>? ParentUnitIds = null,

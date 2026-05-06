@@ -34,7 +34,12 @@ public class GeminiLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
     private readonly ILogger _logger = loggerFactory.CreateLogger<GeminiLauncher>();
 
     /// <inheritdoc />
-    public string Tool => "gemini";
+    /// <remarks>
+    /// #1732: keyed on <c>gemini-cli</c> — the canonical tool kind a future
+    /// Gemini agent runtime would declare. No <c>IAgentRuntime</c> currently
+    /// resolves to this launcher; it ships ahead of the runtime.
+    /// </remarks>
+    public string ToolKind => "gemini-cli";
 
     /// <inheritdoc />
     public Task<AgentLaunchSpec> PrepareAsync(

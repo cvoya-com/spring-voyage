@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
@@ -71,6 +72,7 @@ public static class UnitExecutionEndpoints
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitExecutionStore store,
+        [FromServices] IAgentRuntimeRegistry runtimeRegistry,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("unit", id), cancellationToken);
@@ -82,7 +84,7 @@ public static class UnitExecutionEndpoints
         }
 
         var defaults = await store.GetAsync(id, cancellationToken);
-        return Results.Ok(ToResponse(defaults));
+        return Results.Ok(ToResponse(defaults, runtimeRegistry));
     }
 
     private static async Task<IResult> SetExecutionAsync(
@@ -90,6 +92,7 @@ public static class UnitExecutionEndpoints
         UnitExecutionResponse request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitExecutionStore store,
+        [FromServices] IAgentRuntimeRegistry runtimeRegistry,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("unit", id), cancellationToken);
@@ -100,10 +103,11 @@ public static class UnitExecutionEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
+        // #1732: ToolKind is read-only on the wire — derived from Agent.
+        // The request's ToolKind value (if any) is silently ignored.
         var defaults = new UnitExecutionDefaults(
             Image: request.Image,
             Runtime: request.Runtime,
-            Tool: request.Tool,
             Provider: request.Provider,
             Model: request.Model,
             Agent: request.Agent);
@@ -117,7 +121,7 @@ public static class UnitExecutionEndpoints
 
         await store.SetAsync(id, defaults, cancellationToken);
         var stored = await store.GetAsync(id, cancellationToken);
-        return Results.Ok(ToResponse(stored));
+        return Results.Ok(ToResponse(stored, runtimeRegistry));
     }
 
     private static async Task<IResult> ClearExecutionAsync(
@@ -138,14 +142,29 @@ public static class UnitExecutionEndpoints
         return Results.NoContent();
     }
 
-    internal static UnitExecutionResponse ToResponse(UnitExecutionDefaults? defaults) =>
-        defaults is null
-            ? new UnitExecutionResponse()
-            : new UnitExecutionResponse(
-                Image: defaults.Image,
-                Runtime: defaults.Runtime,
-                Tool: defaults.Tool,
-                Provider: defaults.Provider,
-                Model: defaults.Model,
-                Agent: defaults.Agent);
+    internal static UnitExecutionResponse ToResponse(
+        UnitExecutionDefaults? defaults,
+        IAgentRuntimeRegistry runtimeRegistry)
+    {
+        if (defaults is null)
+        {
+            return new UnitExecutionResponse();
+        }
+
+        // #1732: derive ToolKind from the runtime registry. Returns null when
+        // Agent is unset or names a runtime that is not registered here.
+        string? toolKind = null;
+        if (!string.IsNullOrWhiteSpace(defaults.Agent))
+        {
+            toolKind = runtimeRegistry.Get(defaults.Agent)?.ToolKind;
+        }
+
+        return new UnitExecutionResponse(
+            Image: defaults.Image,
+            Runtime: defaults.Runtime,
+            Provider: defaults.Provider,
+            Model: defaults.Model,
+            Agent: defaults.Agent,
+            ToolKind: toolKind);
+    }
 }
