@@ -14,8 +14,9 @@ namespace Cvoya.Spring.Core.Secrets;
 /// <param name="OwnerId">
 /// The scope-specific owner identifier. For <see cref="SecretScope.Unit"/>
 /// this is the unit's Guid; for <see cref="SecretScope.Tenant"/> the tenant
-/// Guid (matches the ambient tenant); for <see cref="SecretScope.Platform"/>
-/// the value is <c>null</c>.
+/// Guid (matches the ambient tenant); for <see cref="SecretScope.Agent"/>
+/// the agent Guid (#1737); for <see cref="SecretScope.Platform"/> the
+/// value is <c>null</c>.
 /// </param>
 /// <param name="Name">
 /// The secret name. Case-sensitive; the registry enforces a unique index

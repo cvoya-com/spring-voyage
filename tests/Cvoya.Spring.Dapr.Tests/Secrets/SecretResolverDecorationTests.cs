@@ -373,6 +373,15 @@ public class SecretResolverDecorationTests
             _registers?.Add(new RegisterObservation(@ref, origin));
         }
 
+        public async Task RegisterAsync(SecretRef @ref, string storeKey, SecretOrigin origin, bool propagate, CancellationToken ct)
+        {
+            await _inner.RegisterAsync(@ref, storeKey, origin, propagate, ct);
+            _registers?.Add(new RegisterObservation(@ref, origin));
+        }
+
+        public Task<bool?> LookupPropagateAsync(SecretRef @ref, CancellationToken ct)
+            => _inner.LookupPropagateAsync(@ref, ct);
+
         public Task<SecretPointer?> LookupAsync(SecretRef @ref, CancellationToken ct)
             => _inner.LookupAsync(@ref, ct);
 

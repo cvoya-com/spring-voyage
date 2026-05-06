@@ -18,4 +18,13 @@ public enum SecretScope
 
     /// <summary>Scoped to the platform. OwnerId is <c>null</c>.</summary>
     Platform = 2,
+
+    /// <summary>
+    /// Scoped to a single agent (#1737). OwnerId is the agent Guid.
+    /// Beats unit, parent-unit, and tenant scopes in
+    /// <see cref="Cvoya.Spring.Core.Execution.ILlmCredentialResolver"/>'s
+    /// resolve chain so per-agent overrides win against any inherited
+    /// default.
+    /// </summary>
+    Agent = 3,
 }

@@ -11722,7 +11722,8 @@
         "enum": [
           "Unit",
           "Tenant",
-          "Platform"
+          "Platform",
+          "Agent"
         ]
       },
       "SecretsListResponse": {
