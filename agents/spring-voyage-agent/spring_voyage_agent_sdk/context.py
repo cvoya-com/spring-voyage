@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("spring-voyage-agent.context")
+logger = logging.getLogger("spring-voyage-agent-sdk.context")
 
 # Canonical env var names per spec §2.2.1.
 _ENV_TENANT_ID = "SPRING_TENANT_ID"

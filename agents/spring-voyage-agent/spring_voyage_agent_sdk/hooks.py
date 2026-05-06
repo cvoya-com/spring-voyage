@@ -25,8 +25,8 @@ class AgentHooks:
 
     Spec: docs/specs/agent-runtime-boundary.md §1.
 
-    Pass an instance to :func:`spring_voyage_agent.run` or construct the SDK
-    runtime directly with :class:`spring_voyage_agent.runtime.AgentRuntime`.
+    Pass an instance to :func:`spring_voyage_agent_sdk.run` or construct the SDK
+    runtime directly with :class:`spring_voyage_agent_sdk.runtime.AgentRuntime`.
     """
 
     initialize: InitializeHook

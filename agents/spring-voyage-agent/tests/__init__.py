@@ -1,1 +1,1 @@
-# Tests for the spring-voyage-agent SDK.
+# Tests for the spring-voyage-agent-sdk SDK.

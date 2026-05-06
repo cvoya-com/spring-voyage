@@ -1,4 +1,4 @@
-"""Pytest configuration for spring-voyage-agent tests."""
+"""Pytest configuration for spring-voyage-agent-sdk tests."""
 
 import sys
 from pathlib import Path

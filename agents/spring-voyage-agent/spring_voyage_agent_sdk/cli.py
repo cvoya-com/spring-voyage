@@ -5,7 +5,7 @@ Usage
 -----
 Run a module that exposes the three lifecycle hooks::
 
-    spring-voyage-agent --module my_agent
+    spring-voyage-agent-sdk --module my_agent
 
 where ``my_agent.py`` (or ``my_agent/__init__.py``) defines:
 
@@ -23,12 +23,12 @@ import importlib
 import logging
 import sys
 
-logger = logging.getLogger("spring-voyage-agent.cli")
+logger = logging.getLogger("spring-voyage-agent-sdk.cli")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="spring-voyage-agent",
+        prog="spring-voyage-agent-sdk",
         description=(
             "Spring Voyage Agent SDK runtime. "
             "Loads a Python module that implements the three lifecycle hooks "
@@ -67,7 +67,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    from spring_voyage_agent.runtime import run
+    from spring_voyage_agent_sdk.runtime import run
 
     run(
         initialize=getattr(module, "initialize"),

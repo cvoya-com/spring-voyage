@@ -16,7 +16,7 @@ authors write only the business logic.
 Quickstart
 ----------
 >>> import asyncio
->>> from spring_voyage_agent import IAgentContext, Message, Response, ShutdownReason, run
+>>> from spring_voyage_agent_sdk import IAgentContext, Message, Response, ShutdownReason, run
 >>>
 >>> async def initialize(context: IAgentContext) -> None:
 ...     print(f"Starting agent {context.agent_id}")
@@ -31,10 +31,10 @@ Quickstart
 ...     run(initialize=initialize, on_message=on_message, on_shutdown=on_shutdown)
 """
 
-from spring_voyage_agent.context import IAgentContext
-from spring_voyage_agent.hooks import AgentHooks
-from spring_voyage_agent.runtime import run
-from spring_voyage_agent.types import Message, Response, ShutdownReason
+from spring_voyage_agent_sdk.context import IAgentContext
+from spring_voyage_agent_sdk.hooks import AgentHooks
+from spring_voyage_agent_sdk.runtime import run
+from spring_voyage_agent_sdk.types import Message, Response, ShutdownReason
 
 __all__ = [
     "IAgentContext",

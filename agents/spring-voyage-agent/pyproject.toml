@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "spring-voyage-agent"
+name = "spring-voyage-agent-sdk"
 version = "0.1.0"
 description = "Spring Voyage Agent SDK — Python lifecycle-hooks package (initialize / on_message / on_shutdown)"
 readme = "README.md"
@@ -25,10 +25,10 @@ dev = [
 ]
 
 [project.scripts]
-spring-voyage-agent = "spring_voyage_agent.cli:main"
+spring-voyage-agent-sdk = "spring_voyage_agent_sdk.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["spring_voyage_agent"]
+packages = ["spring_voyage_agent_sdk"]
 
 [tool.ruff]
 target-version = "py312"

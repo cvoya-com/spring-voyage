@@ -23,9 +23,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from spring_voyage_agent.hooks import AgentHooks
-from spring_voyage_agent.runtime import AgentRuntime, _SdkAgentExecutor
-from spring_voyage_agent.types import Message, Response
+from spring_voyage_agent_sdk.hooks import AgentHooks
+from spring_voyage_agent_sdk.runtime import AgentRuntime, _SdkAgentExecutor
+from spring_voyage_agent_sdk.types import Message, Response
 
 
 def _make_hooks(
@@ -395,7 +395,7 @@ class TestAgentCardRoutes:
         from starlette.applications import Starlette
         from starlette.testclient import TestClient
 
-        from spring_voyage_agent.runtime import _build_agent_card, _SdkAgentExecutor
+        from spring_voyage_agent_sdk.runtime import _build_agent_card, _SdkAgentExecutor
 
         card = _build_agent_card(8999)
         executor = _SdkAgentExecutor(
