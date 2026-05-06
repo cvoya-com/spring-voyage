@@ -295,6 +295,32 @@ public class SpringVoyageAgentLauncherTests
         prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("claude-sonnet-4-6");
         prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("conversation-anthropic");
         prep.EnvironmentVariables["ANTHROPIC_API_KEY"].ShouldBe("sk-ant-api-fake");
+        // The Claude runtime's CredentialEnvVar is CLAUDE_CODE_OAUTH_TOKEN — that
+        // env var name is intentionally for the CLI / agent-runtime path. The
+        // Conversation REST path's secretKeyRef is ANTHROPIC_API_KEY (matching
+        // ContainerLifecycleManager.CredentialEnvVarsToPropagate); injecting
+        // under the runtime's CLI name would never reach the daprd sidecar.
+        prep.EnvironmentVariables.ShouldNotContainKey("CLAUDE_CODE_OAUTH_TOKEN",
+            "Spring Voyage REST path must inject ANTHROPIC_API_KEY, not CLAUDE_CODE_OAUTH_TOKEN.");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_UnknownProvider_ThrowsWithOperatorGuidance()
+    {
+        // Spring Voyage launcher must fail loudly when asked to dispatch via a
+        // provider it can't map to a Conversation REST env var. The error
+        // message names both the provider and the supported set so the operator
+        // can fix the unit (or extend the launcher with a matching YAML).
+        var unknownRuntime = BuildRuntime("acme", "acme-api-key", "ACME_API_KEY");
+        _registry.Get("acme").Returns(unknownRuntime);
+        SeedTenantSecret("acme", "acme-api-key", "acme-real-key");
+        var context = MakeContext("acme", "acme-1");
+
+        var ex = await Should.ThrowAsync<SpringException>(
+            () => _launcher.PrepareAsync(context, TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("acme");
+        ex.Message.ShouldContain("anthropic, openai, google");
     }
 
     [Fact]

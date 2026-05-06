@@ -261,6 +261,23 @@ public class SpringVoyageAgentLauncher(
                 $"for an Anthropic OAuth token).");
         }
 
-        envVars[runtime.CredentialEnvVar] = resolution.Value!;
+        // The env-var name on the REST path is provider-specific and must match
+        // both `dapr/components/delegated-spring-voyage-agent/conversation-<provider>.yaml`'s
+        // secretKeyRef name AND `ContainerLifecycleManager.CredentialEnvVarsToPropagate`
+        // — the daprd sidecar reads the secret from its own process env via the
+        // local-env secret store. `runtime.CredentialEnvVar` is the runtime's CLI/
+        // agent-runtime path env var (e.g. `CLAUDE_CODE_OAUTH_TOKEN` for Claude),
+        // which is intentionally different from the REST path env var.
+        var providerEnvVar = provider.ToLowerInvariant() switch
+        {
+            "anthropic" => "ANTHROPIC_API_KEY",
+            "openai" => "OPENAI_API_KEY",
+            "google" => "GOOGLE_API_KEY",
+            _ => throw new SpringException(
+                $"Spring Voyage launcher cannot map provider '{provider}' to a Conversation REST env var. " +
+                $"Supported providers: anthropic, openai, google. Add the mapping (and a matching " +
+                $"conversation-<provider>.yaml + ContainerLifecycleManager propagation entry) to extend.")
+        };
+        envVars[providerEnvVar] = resolution.Value!;
     }
 }
