@@ -74,6 +74,7 @@ import {
   DEFAULT_HOSTING_MODE,
   EXECUTION_TOOLS,
   HOSTING_MODES,
+  getAgentRegistryId,
   getRuntimeSecretName,
   getToolRuntimeId,
   getToolWireProvider,
@@ -1359,13 +1360,13 @@ export default function CreateUnitPage() {
       const image = form.image.trim();
       if (image) {
         try {
-          // #1738: the wire shape carries `agent` (operator-chosen
-          // runtime id), not `tool`. The wizard's internal `req.tool`
-          // is the same id that maps onto the runtime registry.
+          // #1738: the wire shape carries `agent` (the agent-runtime
+          // registry id like "ollama" or "claude"), not the tool kind.
+          // For spring-voyage the registry id is the provider, not "spring-voyage".
           await api.setUnitExecution(created.name, {
             image: image || null,
             runtime: null,
-            agent: req.tool ?? null,
+            agent: getAgentRegistryId(form.tool, form.provider),
             provider: req.provider ?? null,
             model: req.model ?? null,
           });
