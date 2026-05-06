@@ -373,7 +373,7 @@ public interface IContainerRuntime
     /// </para>
     /// <para>
     /// The container image must carry <c>curl</c> on its PATH — Spring
-    /// agent-base and the spring-voyage-agent-dapr image both ship it.
+    /// agent-base and the spring-voyage-agent image both ship it.
     /// (The previous transport used <c>wget --post-file=/dev/stdin</c>;
     /// that pattern only works for BusyBox wget — GNU wget on Debian
     /// rejects a non-seekable stdin with "Illegal seek".) Curl reads the

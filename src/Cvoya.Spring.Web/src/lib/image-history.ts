@@ -35,8 +35,13 @@ export const MAX_IMAGE_HISTORY = 20;
  */
 export const BUILTIN_AGENT_IMAGES: readonly string[] = [
   "localhost/spring-voyage-agent-claude-code:latest",
-  "localhost/spring-voyage-agent-dapr:latest",
-  "ghcr.io/cvoya-com/agent-base:latest",
+  "localhost/spring-voyage-agent:latest",
+  "ghcr.io/cvoya-com/spring-voyage-agent-base:latest",
+  "ghcr.io/cvoya-com/spring-voyage-agents:latest",
+  "ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest",
+  "ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest",
+  "ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:latest",
+  "ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest",
 ];
 
 function readStorage(): string[] {
