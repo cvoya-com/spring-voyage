@@ -150,7 +150,7 @@ export function AgentExecutionPanel({
   // Resolve the effective `agent` (runtime id) for gating: the agent's
   // own value wins, unit default fills in otherwise. #1738: the legacy
   // `tool` field was retired in #1732; the operator-chosen value lives
-  // on `agent`, server-derived shape lives on `toolKind`.
+  // on `agent`, server-derived shape lives on `kind`.
   const effectiveToolForGating =
     form.agent ?? persisted?.agent ?? unitDefaults?.agent ?? null;
   const showProvider = effectiveToolForGating === "spring-voyage";
@@ -235,7 +235,7 @@ export function AgentExecutionPanel({
   const handleSave = () => {
     // #1738: the wire shape carries `agent` (operator-chosen runtime
     // id) only; `tool` was retired in #1732. The server derives
-    // `toolKind` from the registry — read-only.
+    // `kind` from the registry — read-only.
     const next: AgentExecutionResponse = {
       image: form.image ?? null,
       agent: form.agent ?? null,
@@ -363,15 +363,15 @@ export function AgentExecutionPanel({
               options={EXECUTION_TOOL_KEYS}
               inheritedLabel={inherited("agent")}
               ariaLabel="Agent runtime"
-              testid="agent-execution-tool-select"
+              testid="agent-execution-runtime-select"
             />
-            {persisted?.toolKind ? (
+            {persisted?.kind ? (
               <Badge
                 variant="outline"
                 className="shrink-0 text-xs font-normal"
-                data-testid="agent-execution-tool-kind"
+                data-testid="agent-execution-runtime-kind"
               >
-                {persisted.toolKind}
+                {persisted.kind}
               </Badge>
             ) : null}
           </div>

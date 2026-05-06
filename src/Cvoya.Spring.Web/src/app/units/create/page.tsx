@@ -918,7 +918,7 @@ export default function CreateUnitPage() {
   const springVoyageRuntimes = useMemo(
     () =>
       agentRuntimes.filter(
-        (r) => r.toolKind === "spring-voyage",
+        (r) => r.kind === "spring-voyage",
       ),
     [agentRuntimes],
   );

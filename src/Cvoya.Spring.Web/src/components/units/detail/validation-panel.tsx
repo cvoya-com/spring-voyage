@@ -59,19 +59,19 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   unit: UnitResponse;
-  // Image / runtime / toolKind / agent context needed for a few error-copy
-  // strings (e.g. "The <toolKind> command isn't available in <image>")
+  // Image / runtime / kind / agent context needed for a few error-copy
+  // strings (e.g. "The <kind> command isn't available in <image>")
   // and for runtime-id resolution. None sit on `UnitResponse` — the
   // detail page pulls them from `useUnitExecution`. Passed as optional
   // props so the panel renders cleanly even when the execution slice
   // hasn't loaded yet.
   //
   // #1738: replaces the legacy `unit.tool` read with explicit
-  // execution-block context. `toolKind` is server-derived (read-only);
+  // execution-block context. `kind` is server-derived (read-only);
   // `agent` is the operator-chosen runtime registry id.
   image?: string | null;
   runtime?: string | null;
-  toolKind?: string | null;
+  kind?: string | null;
   agent?: string | null;
   provider?: string | null;
 }
@@ -214,7 +214,7 @@ export default function ValidationPanel({
   unit,
   image,
   runtime,
-  toolKind,
+  kind,
   agent,
   provider,
 }: Props) {
@@ -339,10 +339,10 @@ export default function ValidationPanel({
   const ctx: CopyContext = {
     image: image ?? null,
     runtime: runtime ?? null,
-    // #1738: copy strings reference the server-derived `toolKind`
+    // #1738: copy strings reference the server-derived `kind`
     // (CLI shape — claude-code/codex/gemini/spring-voyage) so the
     // hint matches what shows in the agent container.
-    tool: toolKind ?? null,
+    tool: kind ?? null,
     model: unit.model ?? null,
     runId: unit.lastValidationRunId ?? null,
   };
