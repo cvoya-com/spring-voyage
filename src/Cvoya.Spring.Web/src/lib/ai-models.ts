@@ -62,6 +62,35 @@ export function getToolRuntimeId(tool: ExecutionTool): string | null {
 }
 
 /**
+ * Resolves the agent-runtime registry ID (e.g. "ollama", "claude") from the
+ * wizard's tool + provider pair. For fixed-provider tools (claude-code, codex,
+ * gemini) the provider is implicit; for spring-voyage the operator-chosen
+ * provider IS the registry key (with "anthropic" normalised to "claude").
+ * Returns null for custom tools or when provider is absent.
+ */
+export function getAgentRegistryId(
+  tool: ExecutionTool,
+  provider: string,
+): string | null {
+  switch (tool) {
+    case "claude-code":
+      return "claude";
+    case "codex":
+      return "openai";
+    case "gemini":
+      return "google";
+    case "spring-voyage": {
+      const normalised = provider.trim().toLowerCase();
+      if (!normalised) return null;
+      return normalised === "anthropic" ? "claude" : normalised;
+    }
+    case "custom":
+    default:
+      return null;
+  }
+}
+
+/**
  * Maps an execution tool to the wire-level `provider` field the unit
  * creation endpoint expects. `spring-voyage` passes the explicit provider
  * the caller picked; all other tools have a fixed provider derived from
