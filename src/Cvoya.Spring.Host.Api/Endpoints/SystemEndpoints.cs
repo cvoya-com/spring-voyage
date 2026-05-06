@@ -72,22 +72,26 @@ public static class SystemEndpoints
     private const string DispatchPathRest = "rest";
     private const string DispatchPathAgentRuntime = "agent-runtime";
 
-    // Machine-readable values for ProviderCredentialStatusResponse.Paths[i].Source.
+    // Machine-readable values for ProviderCredentialStatusResponse.Paths.Summary.
     // Captures the per-path resolvability matrix surfaced by #1690 so
     // callers can reason about which dispatch paths will accept the
     // stored credential without firing a second probe with a different
     // dispatchPath query argument. The strings are stable; new entries
     // are additive.
     //
-    // - all-paths            — every dispatch path the runtime exposes
-    //                          will accept the stored credential.
-    // - in-container-cli-only — only the in-container agent-runtime CLI
-    //                          accepts the credential (e.g. a Claude.ai
-    //                          OAuth token authenticates `claude` inside
-    //                          the unit container but is rejected by
-    //                          the Anthropic Platform REST endpoint).
-    private const string PathSourceAllPaths = "all-paths";
-    private const string PathSourceInContainerCliOnly = "in-container-cli-only";
+    // #1714 step 8: removed `all-paths` because the strict per-path
+    // matrix means no Anthropic credential is accepted on both paths
+    // simultaneously. The Claude agent-runtime path is OAuth-only; the
+    // Spring Voyage REST path is API-key-only. Each shape is accepted
+    // on exactly one path, so the summary is always either
+    // `path-specific` (one path accepts, the other does not) or
+    // `format-rejected` (no path accepts).
+    //
+    // - path-specific  — exactly one dispatch path accepts the stored
+    //                    credential; the per-path entries below name
+    //                    which one. Replaces the old `all-paths` and
+    //                    `in-container-cli-only` summaries.
+    private const string PathSourcePathSpecific = "path-specific";
 
     /// <summary>
     /// Registers the system-level endpoints on <paramref name="app"/>.
@@ -368,14 +372,13 @@ public static class SystemEndpoints
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The matrix's <c>source</c> column collapses the two paths into a
-    /// summary string (<c>all-paths</c> when both paths accept the
-    /// credential, <c>in-container-cli-only</c> when only the agent
-    /// runtime path does). The summary is what the portal renders as the
-    /// "where this credential works" badge; the per-path entries supply
-    /// the underlying truth so future paths added to
-    /// <see cref="CredentialDispatchPath"/> appear in the matrix without
-    /// having to extend the summary string.
+    /// #1714 step 8: under the strict per-path matrix every accepted
+    /// credential is accepted on exactly one dispatch path. The summary
+    /// is therefore either <c>path-specific</c> (one path accepts, the
+    /// other rejects) or <c>format-rejected</c> (neither accepts). The
+    /// per-path entries below carry the explicit "which path" detail
+    /// so a portal banner can render which dispatch path the stored
+    /// credential will work on.
     /// </para>
     /// </remarks>
     private static CredentialPathResolvability BuildPathResolvability(
@@ -387,17 +390,16 @@ public static class SystemEndpoints
         var agentRuntimeAccepted = runtime.IsCredentialFormatAccepted(
             credential, CredentialDispatchPath.AgentRuntime);
 
+        // Strict per-path acceptance (#1714): exactly one path or none.
+        // The legacy `all-paths` summary disappeared because Anthropic
+        // credentials no longer cross-bind. The legacy
+        // `in-container-cli-only` summary collapses into `path-specific`
+        // — the explicit per-path entries below tell callers which
+        // path is the accepting one.
         var summary = (restAccepted, agentRuntimeAccepted) switch
         {
-            (true, true) => PathSourceAllPaths,
-            (false, true) => PathSourceInContainerCliOnly,
-            // Reverse asymmetry — REST accepts but in-container CLI does
-            // not — is theoretically possible for a future runtime, but
-            // for the credential shapes Anthropic exposes today it is not
-            // observed. Surface the explicit per-path entries below so a
-            // caller seeing it can still reason precisely.
-            (true, false) => DispatchPathRest,
             (false, false) => ReasonFormatRejected,
+            _ => PathSourcePathSpecific,
         };
 
         return new CredentialPathResolvability(
@@ -527,14 +529,11 @@ public record ProviderCredentialStatusResponse(
 /// Stable machine-readable label collapsing the per-path entries into
 /// a portal-renderable shorthand. Values:
 /// <list type="bullet">
-///   <item><c>"all-paths"</c> — every dispatch path accepts the credential.</item>
-///   <item><c>"in-container-cli-only"</c> — only the in-container agent-runtime CLI path accepts it (e.g. an <c>sk-ant-oat…</c> OAuth token).</item>
-///   <item><c>"rest"</c> — only the host-side REST path accepts it (theoretical; not produced for any credential shape today).</item>
+///   <item><c>"path-specific"</c> — exactly one dispatch path accepts the stored credential (the per-path entries name which one). Under #1714's strict per-path acceptance, every recognised credential shape is accepted on exactly one path: Anthropic OAuth on the in-container Claude path, Anthropic API keys on the Spring Voyage REST path.</item>
 ///   <item><c>"format-rejected"</c> — neither path accepts the credential's shape.</item>
 /// </list>
 /// New paths added to <see cref="CredentialDispatchPath"/> appear in
-/// <see cref="Paths"/> automatically; the summary set is extended only
-/// when a meaningful new combination is observed.
+/// <see cref="Paths"/> automatically.
 /// </param>
 /// <param name="Paths">
 /// Explicit per-path acceptance list. Each entry names a path and
