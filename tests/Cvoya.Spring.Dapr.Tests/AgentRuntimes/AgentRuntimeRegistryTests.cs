@@ -112,6 +112,8 @@ public class AgentRuntimeRegistryTests
 
         public string CredentialSecretName => string.Empty;
 
+        public string CredentialEnvVar => string.Empty;
+
         public IReadOnlyList<ModelDescriptor> DefaultModels { get; } = Array.Empty<ModelDescriptor>();
 
         public string DefaultImage => "fake-image:latest";

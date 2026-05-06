@@ -101,6 +101,34 @@ public interface IAgentRuntime
     string CredentialSecretName { get; }
 
     /// <summary>
+    /// The container environment variable that the runtime's launcher
+    /// injects with the resolved credential value (for example
+    /// <c>CLAUDE_CODE_OAUTH_TOKEN</c>, <c>OPENAI_API_KEY</c>,
+    /// <c>GOOGLE_API_KEY</c>, <c>ANTHROPIC_API_KEY</c>). The launcher
+    /// reads this value from the runtime so the runtime → env-var
+    /// mapping lives next to the runtime plugin rather than duplicated
+    /// across launchers and the daprd sidecar env-propagation path
+    /// (#1714 step 1–3).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Runtimes whose <see cref="CredentialSchema"/> is
+    /// <see cref="AgentRuntimeCredentialKind.None"/> (for example Ollama)
+    /// MUST return <see cref="string.Empty"/> — the launcher treats an
+    /// empty env-var name as "no credential to inject" and skips both
+    /// the resolver call and the env-var write.
+    /// </para>
+    /// <para>
+    /// The strict per-path matrix (#1714) means the env var the launcher
+    /// emits is fixed for that path: the Claude agent-runtime path emits
+    /// <c>CLAUDE_CODE_OAUTH_TOKEN</c>; the Spring Voyage REST path emits
+    /// <c>ANTHROPIC_API_KEY</c>. Each path accepts exactly one credential
+    /// shape, so there is no shape-branching at the launcher.
+    /// </para>
+    /// </remarks>
+    string CredentialEnvVar { get; }
+
+    /// <summary>
     /// The seed model catalog shipped with the runtime. Tenants may override
     /// or extend this list via per-tenant install configuration; this
     /// property only exposes the out-of-the-box defaults (loaded from the

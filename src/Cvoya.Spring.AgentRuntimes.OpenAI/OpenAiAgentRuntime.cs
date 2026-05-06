@@ -45,7 +45,7 @@ public class OpenAiAgentRuntime : IAgentRuntime
     /// </summary>
     public const string DefaultContainerImage = "ghcr.io/cvoya-com/spring-voyage-agent-codex:latest";
 
-    private const string CredentialEnvVar = "OPENAI_API_KEY";
+    private const string CredentialEnvVarName = "OPENAI_API_KEY";
 
     // Probe timeouts — conservative caps for an HTTP round-trip inside the
     // unit container.
@@ -112,6 +112,9 @@ public class OpenAiAgentRuntime : IAgentRuntime
     public string CredentialSecretName => "openai-api-key";
 
     /// <inheritdoc />
+    public string CredentialEnvVar => "OPENAI_API_KEY";
+
+    /// <inheritdoc />
     public IReadOnlyList<ModelDescriptor> DefaultModels => _defaultModels.Value;
 
     /// <inheritdoc />
@@ -139,11 +142,11 @@ public class OpenAiAgentRuntime : IAgentRuntime
 
         var credentialEnv = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            [CredentialEnvVar] = credential,
+            [CredentialEnvVarName] = credential,
         };
 
-        var validateCmd = $"curl -sS -o /dev/null -w '%{{http_code}}' -H \"Authorization: Bearer ${CredentialEnvVar}\" '{baseUrl}/v1/models'";
-        var resolveModelCmd = $"curl -sS -w '\\n%{{http_code}}' -H \"Authorization: Bearer ${CredentialEnvVar}\" '{baseUrl}/v1/models/{Uri.EscapeDataString(model)}'";
+        var validateCmd = $"curl -sS -o /dev/null -w '%{{http_code}}' -H \"Authorization: Bearer ${CredentialEnvVarName}\" '{baseUrl}/v1/models'";
+        var resolveModelCmd = $"curl -sS -w '\\n%{{http_code}}' -H \"Authorization: Bearer ${CredentialEnvVarName}\" '{baseUrl}/v1/models/{Uri.EscapeDataString(model)}'";
 
         return new[]
         {

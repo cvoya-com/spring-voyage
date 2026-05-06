@@ -53,7 +53,7 @@ public class GoogleAgentRuntime : IAgentRuntime
 
     // Env var the in-container curl probe reads; kept private so the probe
     // arg payload is the only contract consumers see.
-    private const string CredentialEnvVar = "GOOGLE_API_KEY";
+    private const string CredentialEnvVarName = "GOOGLE_API_KEY";
 
     // Probe timeouts — conservative caps for an HTTP round-trip inside the
     // unit container.
@@ -123,6 +123,9 @@ public class GoogleAgentRuntime : IAgentRuntime
     public string CredentialSecretName => "google-api-key";
 
     /// <inheritdoc />
+    public string CredentialEnvVar => "GOOGLE_API_KEY";
+
+    /// <inheritdoc />
     public IReadOnlyList<ModelDescriptor> DefaultModels => _defaultModels.Value;
 
     /// <inheritdoc />
@@ -154,14 +157,14 @@ public class GoogleAgentRuntime : IAgentRuntime
         // embedding the raw key on the argv.
         var credentialEnv = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            [CredentialEnvVar] = credential,
+            [CredentialEnvVarName] = credential,
         };
 
         // -sS: silent but show errors
         // -o /dev/null: discard body (status-code check only)
         // -w '%{http_code}': print the HTTP status code to stdout
-        var validateCmd = $"curl -sS -o /dev/null -w '%{{http_code}}' '{baseUrl}{ValidationPath}?key='\"${CredentialEnvVar}\"";
-        var resolveModelCmd = $"curl -sS -w '\\n%{{http_code}}' '{baseUrl}/v1beta/models/{Uri.EscapeDataString(model)}?key='\"${CredentialEnvVar}\"";
+        var validateCmd = $"curl -sS -o /dev/null -w '%{{http_code}}' '{baseUrl}{ValidationPath}?key='\"${CredentialEnvVarName}\"";
+        var resolveModelCmd = $"curl -sS -w '\\n%{{http_code}}' '{baseUrl}/v1beta/models/{Uri.EscapeDataString(model)}?key='\"${CredentialEnvVarName}\"";
 
         return new[]
         {
