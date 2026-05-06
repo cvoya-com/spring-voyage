@@ -14,8 +14,8 @@ appearance on the dispatch path, are:
    `AgentActor` when a turn is due.
 2. **`IAgentDefinitionProvider`** — resolves the agent id to an
    `AgentDefinition` (instructions + `AgentExecutionConfig`).
-3. **`IAgentToolLauncher`** — one implementation per external tool; prepares
-   the per-invocation working directory, env vars, and volume mounts.
+3. **`IAgentRuntimeLauncher`** — one implementation per agent-runtime kind;
+   prepares the per-invocation working directory, env vars, and volume mounts.
 4. **`IContainerRuntime`** — the execution-dispatcher's handle on the
    container runtime. In the worker process the binding is
    `DispatcherClientContainerRuntime`, which forwards every call over HTTP
@@ -25,13 +25,14 @@ appearance on the dispatch path, are:
    [Deployment — Dispatcher service](deployment.md#dispatcher-service).
 5. **A2A protocol** — how the dispatcher talks to the running container.
 6. **MCP** — how the container calls back into the platform for tools.
-7. **Dapr Conversation** (Dapr-Agent only) — the Dapr building block that
-   routes the LLM call from inside the container to Ollama / OpenAI /
+7. **Dapr Conversation** (Spring Voyage Agent only) — the Dapr building block
+   that routes the LLM call from inside the container to Ollama / OpenAI /
    Anthropic / Google.
 
 The contract between the dispatcher and the launcher is intentionally narrow:
-every tool-specific detail (Claude Code's `--resume` handshake, Codex's
-auth.json layout, the Dapr Agent's MCP bridge) stays behind `IAgentToolLauncher`.
+every runtime-specific detail (Claude Code's `--resume` handshake, Codex's
+auth.json layout, the Spring Voyage Agent's MCP bridge) stays behind
+`IAgentRuntimeLauncher`.
 
 ---
 
@@ -51,9 +52,11 @@ diverge at the container-runtime call. The persistent path is backed by
 `PersistentAgentRegistry`, which tracks the container's health and re-launches
 it on failure.
 
-The dispatcher does **not** know the tool. It looks up the launcher by the
-`AgentExecutionConfig.Tool` string in an `IDictionary<string, IAgentToolLauncher>`
-populated from DI, and hands off to the launcher for prep.
+The dispatcher does **not** know the runtime. It resolves the agent's
+`AgentExecutionConfig.AgentRuntimeId` (the `execution.agent` field) through
+`IAgentRuntimeRegistry`, reads the resolved runtime's `Kind`, and looks up the
+launcher by that kind in an `IDictionary<string, IAgentRuntimeLauncher>`
+populated from DI (#1732). The launcher then handles prep.
 
 **Unit-inheritance merge (#601 B-wide).** The
 `AgentExecutionConfig` the dispatcher receives is already merged with the
@@ -62,7 +65,7 @@ reads the agent's own declared block, looks up the agent's parent unit (first
 membership by `CreatedAt`), pulls the unit's persisted execution defaults
 through `IUnitExecutionStore`, and runs a field-level precedence merge:
 
-- Per field (`tool`, `image`, `runtime`, `provider`, `model`) — **agent wins** when the
+- Per field (`agent`, `image`, `runtime`, `provider`, `model`) — **agent wins** when the
   agent set the value; otherwise the unit default fills in; otherwise the
   field is null and the dispatcher fails cleanly with a merge-aware error
   message pointing operators at both surfaces.
@@ -115,7 +118,7 @@ slot into one or the other.
 
 Examples: `ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`.
 
-The external tool is a CLI agent (Claude Code, Codex, Gemini CLI). The
+The agent runtime wraps a CLI agent (Claude Code, Codex, Gemini CLI). The
 launcher materialises the agent's on-disk workspace — API keys, system
 prompt, resume-from-checkpoint state — and the container image's entrypoint
 wraps the CLI in an A2A sidecar so the dispatcher can talk to it the same way
@@ -132,7 +135,7 @@ Key properties:
 
 ### Tier B — A2A-native launchers
 
-Example: `SpringVoyageAgentLauncher` (tool identifier `"spring-voyage"`).
+Example: `SpringVoyageAgentLauncher` (kind identifier `"spring-voyage"`).
 
 The container is itself an A2A service that runs a platform-managed agentic
 loop (here, `dapr_agents.DurableAgent`). The container image:
@@ -288,34 +291,34 @@ can pre-register its own and keep it.
 
 ---
 
-## 4b. Provider applies only to Dapr Agent
+## 4b. Provider applies only to the Spring Voyage Agent runtime
 
 The `execution.provider` and `execution.model` fields are **only consumed by
 the `spring-voyage-agent` launcher**. The Tier-A CLI launchers (Claude Code, Codex,
-Gemini CLI) hardcode their provider inside the tool binary — that's the
+Gemini CLI) hardcode their provider inside the CLI binary — that's the
 defining property of a CLI-sidecar launcher. Setting `provider` on an agent
-targeting one of those tools has no runtime effect.
+targeting one of those runtimes has no dispatch-time effect.
 
-| Execution tool | What provider the tool calls | Honours `AgentExecutionConfig.Provider`? |
-|----------------|------------------------------|------------------------------------------|
-| `claude-code`  | Anthropic (hardcoded in the Claude Code CLI) | No |
-| `codex`        | OpenAI (hardcoded in the Codex CLI) | No |
-| `gemini`       | Google Gemini (hardcoded in the Gemini CLI) | No |
-| `spring-voyage-agent`   | Whichever Dapr Conversation component the `provider` value names (`ollama`, `openai`, `anthropic`, `googleai`) | Yes |
-| `custom`       | Undefined — the custom launcher owns its own contract | Only when the custom launcher declares it |
+| Runtime kind | What provider the runtime calls | Honours `AgentExecutionConfig.Provider`? |
+|--------------|---------------------------------|------------------------------------------|
+| `claude-code-cli` | Anthropic (hardcoded in the Claude Code CLI) | No |
+| `codex-cli`       | OpenAI (hardcoded in the Codex CLI) | No |
+| `gemini-cli`      | Google Gemini (hardcoded in the Gemini CLI) | No |
+| `spring-voyage`   | Whichever Dapr Conversation component the `provider` value names (`ollama`, `openai`, `anthropic`, `googleai`) | Yes |
+| operator-defined  | Undefined — the custom launcher owns its own contract | Only when the custom launcher declares it |
 
 **Surface-level consequence (#598):**
 
 - The unit-creation wizard and the CLI only accept `--provider` / `--model`
-  when `--tool=spring-voyage`. They are rejected with a targeted error
-  message for the other tools so operators don't discover at dispatch
-  time that the flag had no effect.
-- A custom tool that wants to surface a Provider selector must declare
+  when the resolved runtime kind is `spring-voyage`. They are rejected with
+  a targeted error message for the other runtime kinds so operators don't
+  discover at dispatch time that the flag had no effect.
+- A custom runtime that wants to surface a Provider selector must declare
   that explicitly — either by shipping its own wizard step that advertises
   the provider axis (following the connector-wizard pattern) or by
   documenting the semantic in its launcher's doc-comment. The platform's
   create-unit UI does not expose a generic Provider dropdown for custom
-  tools because the contract is undefined.
+  runtimes because the contract is undefined.
 - Credentials for the `spring-voyage-agent` launcher's provider flow through the
   tier-2 tenant-default resolver (`ILlmCredentialResolver`, #615). The
   portal's create wizard no longer gates on credential validation at
@@ -328,12 +331,12 @@ targeting one of those tools has no runtime effect.
   [docs/guide/portal.md](../guide/user/portal.md) for the detail page walkthrough.
 
 Future changes to this matrix — e.g. a "Claude Code with Vertex AI
-backend" tool that legitimately takes a provider axis — should update
-this table and drop the wizard gate on that specific tool.
+backend" runtime that legitimately takes a provider axis — should update
+this table and drop the wizard gate on that specific runtime.
 
 ---
 
-## 5. Dapr Conversation wiring (Dapr-Agent only)
+## 5. Dapr Conversation wiring (Spring Voyage Agent runtime only)
 
 > **Naming disambiguation.** "Conversation" in this section refers to Dapr's [Conversation API](https://docs.dapr.io/reference/components-reference/supported-conversation/) — the building block that abstracts the LLM provider call (Ollama / OpenAI / Anthropic / Google). It is unrelated to Spring Voyage's **Thread** concept (the participant-set relationship described in [`docs/architecture/thread-model.md`](thread-model.md) and [ADR-0030](../decisions/0030-thread-model.md)). The `SPRING_LLM_PROVIDER` env var binds to a Dapr Conversation **component name**, not to a Spring Voyage thread.
 
@@ -361,18 +364,25 @@ resolved values to `DurableAgent(...)` as `llm=<provider>`, `model=<model>`.
 
 ## 6. The YAML contract
 
-To make the provider/model configurable by YAML only, `AgentDefinition`'s
-`execution` block accepts these fields:
+The runtime is selected via the manifest's top-level `ai:` block; the
+`execution:` block carries everything else `AgentDefinition` needs:
 
 ```yaml
+ai:
+  agent: ollama                              # runtime registry id (drives launcher selection)
 execution:
-  tool: spring-voyage                          # selects the launcher
-  image: localhost/spring-voyage-agent:latest # required for container-backed tools
-  runtime: podman                           # optional runtime hint
+  image: localhost/spring-voyage-agent:latest # required for container-backed runtimes
+  runtime: podman                           # optional container-runtime hint (docker / podman)
   hosting: ephemeral                        # or "persistent"
-  provider: ollama                          # Dapr Conversation component name
+  provider: ollama                          # Dapr Conversation component name (spring-voyage runtime kind only)
   model: llama3.2:3b                        # model identifier
 ```
+
+`ai.agent` names a registered `IAgentRuntime`; the dispatcher resolves it
+through `IAgentRuntimeRegistry`, reads the runtime's `Kind`, and picks the
+launcher whose `Kind` matches (#1732). Pre-#1732 manifests carrying
+`execution.tool:` are rejected by `ManifestParser` with the `LegacyExecutionToolField`
+hint.
 
 Switching providers is a pure change to `provider` / `model` (and, if the
 target provider isn't already present, adding the matching component YAML to
@@ -381,7 +391,7 @@ target provider isn't already present, adding the matching component YAML to
 The runtime surfaces the definition to the platform through two paths:
 
 - `spring agent create --definition-file <json>` on the CLI (JSON serialised
-  form of the YAML above under an `execution` key).
+  form of the YAML above under `execution` and `ai` keys).
 - Direct HTTP to `POST /api/v1/agents` with `DefinitionJson` on the request
   body.
 
@@ -442,19 +452,21 @@ The first command should print `"0.3"` and the bridge semver; the second should 
 
 ## 8. Adding a new launcher
 
-Checklist for a fresh `IAgentToolLauncher`:
+Checklist for a fresh `IAgentRuntimeLauncher`:
 
-1. Implement `IAgentToolLauncher` — pick a stable `Tool` identifier used in
-   `execution.tool`.
+1. Implement `IAgentRuntimeLauncher` — pick a stable `Kind` identifier that
+   matches the corresponding `IAgentRuntime.Kind` (e.g. `claude-code-cli`,
+   `spring-voyage`).
 2. Decide the tier:
    - Tier A (CLI wrapped in A2A sidecar) — stamp `SPRING_*` env vars the
      sidecar consumes, return a workspace mount.
-   - Tier B (native A2A) — stamp `AGENT_PORT`, plus any tool-specific env.
-3. Register with `services.AddSingleton<IAgentToolLauncher, YourLauncher>()`
+   - Tier B (native A2A) — stamp `AGENT_PORT`, plus any runtime-specific env.
+3. Register with `services.AddSingleton<IAgentRuntimeLauncher, YourLauncher>()`
    in `ServiceCollectionExtensions`.
 4. If Dapr Conversation is involved, honour `AgentLaunchContext.Provider` and
    `.Model` rather than hard-coding a provider.
 5. Add a `*LauncherTests` in `tests/Cvoya.Spring.Dapr.Tests/Execution/`.
 
-The dispatcher auto-discovers launchers via DI and routes by the `Tool`
-property.
+The dispatcher auto-discovers launchers via DI and routes by their `Kind`
+property — looked up from the agent's `execution.agent` via
+`IAgentRuntimeRegistry`.

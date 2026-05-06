@@ -84,7 +84,7 @@ spring agent create ada \
   --capabilities "csharp,python,postgresql" \
   --ai-backend claude \
   --execution delegated \
-  --tool claude-code
+  --agent claude
 
 spring unit members add engineering-team ada
 ```
@@ -92,7 +92,7 @@ spring unit members add engineering-team ada
 You can add more agents the same way:
 
 ```
-spring agent create kay --role frontend-engineer --capabilities "typescript,react" --ai-backend claude --execution delegated --tool claude-code
+spring agent create kay --role frontend-engineer --capabilities "typescript,react" --ai-backend claude --execution delegated --agent claude
 spring unit members add engineering-team kay
 ```
 
