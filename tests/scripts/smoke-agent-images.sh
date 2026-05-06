@@ -180,16 +180,16 @@ log "smoke 1/2: ${CLAUDE_IMAGE}"
 smoke_one "${CLAUDE_IMAGE}" "claude-code" \
     -e "SPRING_AGENT_ARGV=[\"true\"]"
 
-# ---- 2. dapr (path 3 — native A2A) --------------------------------------
-# The dapr-agent image's ENTRYPOINT is `python agent.py`, which builds
-# the A2AStarletteApplication and serves it over uvicorn on :8999. No
-# bridge, no SPRING_AGENT_ARGV — the agent card is built statically and
+# ---- 2. spring-voyage-agent (path 3 — native A2A) -----------------------
+# The spring-voyage-agent image's ENTRYPOINT is `python agent.py`, which
+# builds the A2AStarletteApplication and serves it over uvicorn on :8999.
+# No bridge, no SPRING_AGENT_ARGV — the agent card is built statically and
 # served as soon as uvicorn binds. We tolerate (don't require) MCP env
 # vars; the agent.py drop-in default logs a warning and proceeds with
 # zero tools when SPRING_MCP_ENDPOINT is missing. The DurableAgent +
 # AgentRunner are built lazily on the first A2A invocation (issue #1110)
 # so the agent-card endpoint comes up even with no Dapr sidecar.
-log "smoke 2/2: ${DAPR_IMAGE}"
-smoke_one "${DAPR_IMAGE}" "dapr"
+log "smoke 2/2: ${SV_AGENT_IMAGE}"
+smoke_one "${SV_AGENT_IMAGE}" "spring-voyage-agent"
 
 log "all agent images passed smoke at tag :${TAG}"
