@@ -3,8 +3,11 @@
 
 namespace Cvoya.Spring.Dapr.Execution;
 
+using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -29,6 +32,8 @@ using Microsoft.Extensions.Options;
 /// </summary>
 public class SpringVoyageAgentLauncher(
     IOptions<OllamaOptions> ollamaOptions,
+    IAgentRuntimeRegistry runtimeRegistry,
+    IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory) : IAgentToolLauncher
 {
     internal const string WorkspaceMountPath = "/workspace";
@@ -71,7 +76,7 @@ public class SpringVoyageAgentLauncher(
     public string ToolKind => ToolId;
 
     /// <inheritdoc />
-    public Task<AgentLaunchSpec> PrepareAsync(
+    public async Task<AgentLaunchSpec> PrepareAsync(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
@@ -141,7 +146,17 @@ public class SpringVoyageAgentLauncher(
         // emitted by AgentContextBuilder for every launcher. OLLAMA_ENDPOINT is no
         // longer set here.
 
-        return Task.FromResult(new AgentLaunchSpec(
+        // #1714: per-provider credential resolution + Conversation component
+        // selection. The Spring Voyage runtime routes to one of N providers
+        // (Anthropic / OpenAI / Google / Ollama) — the Conversation component
+        // each provider ships pins both the API endpoint and the secret key
+        // ref, so the launcher must (a) inject the resolved credential under
+        // the provider's expected env-var name so daprd's local-env secret
+        // store can read it, and (b) point the agent at the right component
+        // by name via SPRING_LLM_COMPONENT.
+        await ResolveProviderCredentialAsync(context, provider, envVars, cancellationToken);
+
+        return new AgentLaunchSpec(
             WorkspaceFiles: new Dictionary<string, string>(),
             EnvironmentVariables: envVars,
             WorkspaceMountPath: WorkspaceMountPath,
@@ -150,6 +165,102 @@ public class SpringVoyageAgentLauncher(
             // speaks A2A on :8999. BYOI conformance path 3.
             Argv: DefaultSpringVoyageAgentArgv,
             // Dapr Agent receives messages via A2A, not stdin.
-            StdinPayload: null));
+            StdinPayload: null);
+    }
+
+    /// <summary>
+    /// Maps a provider id (the value the operator types into the unit's
+    /// <c>execution.provider</c> field — <c>anthropic</c>, <c>openai</c>,
+    /// <c>google</c>, <c>ollama</c>) to the runtime registry's stable id
+    /// for that provider. The Anthropic provider routes through the
+    /// <c>claude</c> runtime which owns the credential schema; the other
+    /// providers map 1:1.
+    /// </summary>
+    internal static string MapProviderToRuntimeId(string provider) => provider.ToLowerInvariant() switch
+    {
+        "anthropic" => "claude",
+        _ => provider.ToLowerInvariant(),
+    };
+
+    private async Task ResolveProviderCredentialAsync(
+        AgentLaunchContext context,
+        string provider,
+        IDictionary<string, string> envVars,
+        CancellationToken cancellationToken)
+    {
+        var runtimeId = MapProviderToRuntimeId(provider);
+        var runtime = runtimeRegistry.Get(runtimeId);
+
+        // Always pin the conversation component so the Python agent dials
+        // the right Dapr Conversation YAML. The component-naming convention
+        // is `conversation-<provider-id>` — set on every dispatch (including
+        // Ollama, which has no credential to inject) so agent.py never
+        // silently falls back to the legacy "llm-provider" default.
+        envVars["SPRING_LLM_COMPONENT"] = $"conversation-{provider.ToLowerInvariant()}";
+
+        if (runtime is null)
+        {
+            // The configured provider does not match a registered runtime.
+            // The unit-validation workflow should have caught this already
+            // — fail loudly so the operator sees an actionable error
+            // instead of an in-container conversation timeout.
+            throw new SpringException(
+                $"Unit configured with provider '{provider}', but no agent runtime is registered with id '{runtimeId}'. " +
+                $"Install the matching runtime package or fix the unit's execution.provider value.");
+        }
+
+        // Ollama has no credential to inject; the conversation-ollama.yaml
+        // component carries a literal "ollama" key. Skip resolution.
+        if (string.IsNullOrEmpty(runtime.CredentialSecretName)
+            || string.IsNullOrEmpty(runtime.CredentialEnvVar))
+        {
+            return;
+        }
+
+        // The Spring Voyage runtime dispatches via Dapr Conversation REST.
+        // Resolve the credential through the chain (agent → unit → tenant)
+        // and inspect the shape against the REST path before injecting.
+        Guid? agentGuid = Guid.TryParse(context.AgentId, out var parsedAgentId)
+            ? parsedAgentId
+            : null;
+        Guid? unitGuid = Guid.TryParse(context.UnitId, out var parsedUnitId)
+            ? parsedUnitId
+            : null;
+
+        // ILlmCredentialResolver is scoped (it composes the scoped
+        // ISecretResolver/SpringDbContext); this launcher is a singleton,
+        // so resolve through a per-call scope to honour DI lifetimes.
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var credentialResolver = scope.ServiceProvider
+            .GetRequiredService<ILlmCredentialResolver>();
+        var resolution = await credentialResolver.ResolveAsync(
+            runtimeId, agentGuid, unitGuid, cancellationToken);
+
+        if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
+            || string.IsNullOrEmpty(resolution.Value))
+        {
+            throw new SpringException(
+                $"Provider '{provider}' requires secret '{resolution.SecretName}' but no value resolved at " +
+                $"agent, unit, parent-unit chain, or tenant scope. " +
+                $"Configure via the Tenant defaults panel or `spring secret set --scope tenant {resolution.SecretName} <value>`.");
+        }
+
+        if (!runtime.IsCredentialFormatAccepted(resolution.Value!, CredentialDispatchPath.Rest))
+        {
+            // Strict per-path acceptance (#1714): the Spring Voyage runtime
+            // routes `provider: anthropic` via REST, which only accepts
+            // Anthropic Platform API keys (sk-ant-api…). OAuth tokens
+            // (sk-ant-oat…) belong on the Claude agent-runtime path —
+            // operator must either replace the secret with an API key or
+            // switch the unit to `agent: claude`.
+            throw new SpringException(
+                $"Spring Voyage routes '{provider}' via the Dapr Conversation REST path, which does not accept " +
+                $"the resolved credential's shape (secret '{resolution.SecretName}' from {resolution.Source}). " +
+                $"Either replace the secret with a REST-compatible credential (e.g. an Anthropic Platform API key " +
+                $"sk-ant-api…), or switch this agent to a runtime that accepts that shape (e.g. `agent: claude` " +
+                $"for an Anthropic OAuth token).");
+        }
+
+        envVars[runtime.CredentialEnvVar] = resolution.Value!;
     }
 }

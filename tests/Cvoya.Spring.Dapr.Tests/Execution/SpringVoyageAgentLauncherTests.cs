@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Execution;
 
+using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -22,6 +24,8 @@ public class SpringVoyageAgentLauncherTests
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly IOptions<OllamaOptions> _ollamaOptions;
+    private readonly IAgentRuntimeRegistry _registry;
+    private readonly ILlmCredentialResolver _credentialResolver;
     private readonly SpringVoyageAgentLauncher _launcher;
 
     public SpringVoyageAgentLauncherTests()
@@ -33,7 +37,59 @@ public class SpringVoyageAgentLauncherTests
             DefaultModel = "llama3.2:3b",
             BaseUrl = "http://spring-ollama:11434",
         });
-        _launcher = new SpringVoyageAgentLauncher(_ollamaOptions, _loggerFactory);
+
+        _registry = Substitute.For<IAgentRuntimeRegistry>();
+        var ollamaRuntime = BuildRuntime("ollama", string.Empty, string.Empty);
+        var claudeRuntime = BuildRuntime("claude", "anthropic-api-key", "ANTHROPIC_API_KEY",
+            isFormatAccepted: (c, p) => p == CredentialDispatchPath.Rest
+                ? c.StartsWith("sk-ant-api", StringComparison.Ordinal)
+                : c.StartsWith("sk-ant-oat", StringComparison.Ordinal));
+        var openAiRuntime = BuildRuntime("openai", "openai-api-key", "OPENAI_API_KEY");
+        var googleRuntime = BuildRuntime("google", "google-api-key", "GOOGLE_API_KEY");
+        _registry.Get("ollama").Returns(ollamaRuntime);
+        _registry.Get("claude").Returns(claudeRuntime);
+        _registry.Get("openai").Returns(openAiRuntime);
+        _registry.Get("google").Returns(googleRuntime);
+
+        _credentialResolver = Substitute.For<ILlmCredentialResolver>();
+
+        var scopeFactory = TestScopeFactory.For(_credentialResolver);
+        _launcher = new SpringVoyageAgentLauncher(_ollamaOptions, _registry, scopeFactory, _loggerFactory);
+    }
+
+    private static IAgentRuntime BuildRuntime(
+        string id,
+        string secretName,
+        string envVar,
+        Func<string, CredentialDispatchPath, bool>? isFormatAccepted = null)
+    {
+        var runtime = Substitute.For<IAgentRuntime>();
+        runtime.Id.Returns(id);
+        runtime.CredentialSecretName.Returns(secretName);
+        runtime.CredentialEnvVar.Returns(envVar);
+        runtime
+            .IsCredentialFormatAccepted(Arg.Any<string>(), Arg.Any<CredentialDispatchPath>())
+            .Returns(call =>
+            {
+                var c = call.ArgAt<string>(0);
+                var p = call.ArgAt<CredentialDispatchPath>(1);
+                if (string.IsNullOrEmpty(c))
+                {
+                    return true;
+                }
+                return isFormatAccepted?.Invoke(c, p) ?? true;
+            });
+        return runtime;
+    }
+
+    private void SeedTenantSecret(string runtimeId, string secretName, string value)
+    {
+        _credentialResolver
+            .ResolveAsync(runtimeId, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmCredentialResolution(
+                Value: value,
+                Source: LlmCredentialSource.Tenant,
+                SecretName: secretName));
     }
 
     [Fact]
@@ -117,7 +173,8 @@ public class SpringVoyageAgentLauncherTests
     public async Task PrepareAsync_NeverEmitsOllamaEndpoint_Regardless_Of_BaseUrl()
     {
         var options = Options.Create(new OllamaOptions { DefaultModel = "phi3:mini", BaseUrl = "" });
-        var launcher = new SpringVoyageAgentLauncher(options, _loggerFactory);
+        var scopeFactory = TestScopeFactory.For(_credentialResolver);
+        var launcher = new SpringVoyageAgentLauncher(options, _registry, scopeFactory, _loggerFactory);
         var context = CreateContext();
 
         var prep = await launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
@@ -133,6 +190,7 @@ public class SpringVoyageAgentLauncherTests
         // #480 step 5: when the AgentDefinition specifies a provider/model,
         // SpringVoyageAgentLauncher must forward them to the container env vars so the
         // Python Dapr Agent binds to the matching Conversation component.
+        SeedTenantSecret("openai", "openai-api-key", "sk-openai-fake");
         var context = new AgentLaunchContext(
             AgentId: "dapr-test-agent",
             ThreadId: "conv-openai",
@@ -219,44 +277,114 @@ public class SpringVoyageAgentLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_AnthropicProvider_DoesNotPropagateAnthropicApiKey_TrackedByFollowUp()
+    public async Task PrepareAsync_AnthropicProvider_PropagatesAnthropicApiKey()
     {
-        // #1690 + #1714: when an operator configures
-        //   `agent: spring-voyage, provider: anthropic, model: <m>`
-        // the credential matrix says ANTHROPIC_API_KEY should land on
-        // the agent container's env so agent.py's DaprChatClient (or
-        // any direct Anthropic SDK call) can authenticate. Today the
-        // launcher does not propagate the credential — neither
-        // SpringVoyageAgentLauncher nor AgentContextBuilder injects it, and the
-        // OSS deploy ships only conversation-ollama.yaml so the Dapr
-        // Conversation component the Python agent dials is wired to
-        // Ollama regardless of `provider`.
-        //
-        // This test pins the gap so #1714's fix lands as a single
-        // delete-this-assertion + add-the-positive-assertion diff.
-        var context = new AgentLaunchContext(
-            AgentId: "dapr-anthropic-agent",
-            ThreadId: "conv-anthropic-1",
-            Prompt: "## System\nYou are a helpful assistant.",
-            McpEndpoint: "http://host.docker.internal:9999/mcp/",
-            McpToken: "t",
-            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
-            Provider: "anthropic",
-            Model: "claude-sonnet-4-6");
+        // #1714 step 1: with `agent: spring-voyage, provider: anthropic, model: <m>`
+        // the launcher resolves the API key through ILlmCredentialResolver
+        // and injects it as ANTHROPIC_API_KEY so the daprd sidecar's
+        // local-env secret store can satisfy conversation-anthropic.yaml's
+        // secretKeyRef. The launcher also pins SPRING_LLM_COMPONENT to
+        // conversation-anthropic so agent.py dials the right Conversation
+        // component instead of silently routing through Ollama.
+        SeedTenantSecret("claude", "anthropic-api-key", "sk-ant-api-fake");
+        var context = MakeContext("anthropic", "claude-sonnet-4-6");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("anthropic");
         prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("claude-sonnet-4-6");
-        // GAP: the launcher does not yet propagate the Anthropic credential.
-        // Once #1714 wires per-provider Conversation components and credential
-        // injection, flip this to a positive assertion that ANTHROPIC_API_KEY
-        // is set to the resolved slot value.
-        prep.EnvironmentVariables.ShouldNotContainKey(
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_API_KEY propagation for spring-voyage + Anthropic is tracked by #1714 — " +
-            "flip this assertion when that issue lands.");
+        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("conversation-anthropic");
+        prep.EnvironmentVariables["ANTHROPIC_API_KEY"].ShouldBe("sk-ant-api-fake");
     }
+
+    [Fact]
+    public async Task PrepareAsync_OpenAiProvider_PropagatesOpenAiApiKey()
+    {
+        SeedTenantSecret("openai", "openai-api-key", "sk-openai-fake");
+        var context = MakeContext("openai", "gpt-4o-mini");
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("conversation-openai");
+        prep.EnvironmentVariables["OPENAI_API_KEY"].ShouldBe("sk-openai-fake");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_GoogleProvider_PropagatesGoogleApiKey()
+    {
+        SeedTenantSecret("google", "google-api-key", "test-google-key");
+        var context = MakeContext("google", "gemini-1.5-pro");
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("conversation-google");
+        prep.EnvironmentVariables["GOOGLE_API_KEY"].ShouldBe("test-google-key");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OllamaProvider_DoesNotResolveCredential_AndPinsConversationOllama()
+    {
+        // Ollama is credential-less; the launcher must NOT consult the
+        // resolver and must NOT inject any provider env var. It still
+        // pins SPRING_LLM_COMPONENT so agent.py never falls back to a
+        // legacy "llm-provider" default.
+        var context = CreateContext();
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("conversation-ollama");
+        prep.EnvironmentVariables.ShouldNotContainKey("ANTHROPIC_API_KEY");
+        prep.EnvironmentVariables.ShouldNotContainKey("OPENAI_API_KEY");
+        prep.EnvironmentVariables.ShouldNotContainKey("GOOGLE_API_KEY");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_MissingCredential_FailsDispatchWithGuidance()
+    {
+        // #1714 step 1: dispatch fails BEFORE container launch when no
+        // value resolved at agent / unit / parent-unit chain / tenant scope.
+        _credentialResolver
+            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmCredentialResolution(
+                Value: null,
+                Source: LlmCredentialSource.NotFound,
+                SecretName: "anthropic-api-key"));
+        var context = MakeContext("anthropic", "claude-sonnet-4-6");
+
+        var ex = await Should.ThrowAsync<SpringException>(
+            () => _launcher.PrepareAsync(context, TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("anthropic-api-key");
+        ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OAuthOnSpringVoyageRest_FailsPreFlight()
+    {
+        // #1714 step 1: an OAuth token (sk-ant-oat…) belongs on the Claude
+        // agent-runtime path, not the Spring Voyage REST path. The
+        // launcher rejects pre-flight with operator guidance so the
+        // dispatch never burns a network round-trip.
+        SeedTenantSecret("claude", "anthropic-api-key", "sk-ant-oat-not-rest-shape");
+        var context = MakeContext("anthropic", "claude-sonnet-4-6");
+
+        var ex = await Should.ThrowAsync<SpringException>(
+            () => _launcher.PrepareAsync(context, TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("REST");
+        ex.Message.ShouldContain("anthropic-api-key");
+    }
+
+    private static AgentLaunchContext MakeContext(string provider, string model) =>
+        new(
+            AgentId: "dapr-test-agent",
+            ThreadId: "conv-1",
+            Prompt: "## System\nYou are a helpful assistant.",
+            McpEndpoint: "http://host.docker.internal:9999/mcp/",
+            McpToken: "t",
+            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+            Provider: provider,
+            Model: model);
 
     private static AgentLaunchContext CreateContext() =>
         new(

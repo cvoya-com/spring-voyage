@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -21,14 +23,40 @@ using Xunit;
 /// </summary>
 public class CodexLauncherTests
 {
+    private const string DefaultApiKey = "sk-test-codex-key";
+
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IAgentRuntimeRegistry _registry;
+    private readonly ILlmCredentialResolver _credentialResolver;
+    private readonly IAgentRuntime _openAiRuntime;
     private readonly CodexLauncher _launcher;
 
     public CodexLauncherTests()
     {
         _loggerFactory = Substitute.For<ILoggerFactory>();
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _launcher = new CodexLauncher(_loggerFactory);
+
+        _openAiRuntime = Substitute.For<IAgentRuntime>();
+        _openAiRuntime.Id.Returns("openai");
+        _openAiRuntime.CredentialSecretName.Returns("openai-api-key");
+        _openAiRuntime.CredentialEnvVar.Returns("OPENAI_API_KEY");
+        _openAiRuntime
+            .IsCredentialFormatAccepted(Arg.Any<string>(), Arg.Any<CredentialDispatchPath>())
+            .Returns(true);
+
+        _registry = Substitute.For<IAgentRuntimeRegistry>();
+        _registry.Get("openai").Returns(_openAiRuntime);
+
+        _credentialResolver = Substitute.For<ILlmCredentialResolver>();
+        _credentialResolver
+            .ResolveAsync("openai", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmCredentialResolution(
+                Value: DefaultApiKey,
+                Source: LlmCredentialSource.Tenant,
+                SecretName: "openai-api-key"));
+
+        var scopeFactory = TestScopeFactory.For(_credentialResolver);
+        _launcher = new CodexLauncher(_registry, scopeFactory, _loggerFactory);
     }
 
     [Fact]
@@ -101,5 +129,48 @@ public class CodexLauncherTests
         prep.EnvironmentVariables.ShouldContainKey(AgentVolumeManager.WorkspacePathEnvVar);
         prep.EnvironmentVariables[AgentVolumeManager.WorkspacePathEnvVar]
             .ShouldBe(AgentVolumeManager.WorkspaceMountPath);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_InjectsOpenAiApiKey_FromCredentialResolver()
+    {
+        // #1714 step 2: Codex resolves the OpenAI API key through the
+        // credential resolver and injects it as OPENAI_API_KEY.
+        var context = new AgentLaunchContext(
+            AgentId: "codex-agent",
+            ThreadId: "conv-1",
+            Prompt: "Be helpful.",
+            McpEndpoint: "http://host.docker.internal:9999/mcp/",
+            McpToken: "codex-secret-token",
+            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["OPENAI_API_KEY"].ShouldBe(DefaultApiKey);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_MissingCredential_FailsPreFlightWithGuidance()
+    {
+        _credentialResolver
+            .ResolveAsync("openai", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmCredentialResolution(
+                Value: null,
+                Source: LlmCredentialSource.NotFound,
+                SecretName: "openai-api-key"));
+
+        var context = new AgentLaunchContext(
+            AgentId: "codex-agent",
+            ThreadId: "conv-1",
+            Prompt: "Be helpful.",
+            McpEndpoint: "http://host.docker.internal:9999/mcp/",
+            McpToken: "codex-secret-token",
+            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+
+        var ex = await Should.ThrowAsync<SpringException>(
+            () => _launcher.PrepareAsync(context, TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("openai-api-key");
+        ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
     }
 }

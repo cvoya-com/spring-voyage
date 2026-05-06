@@ -5,8 +5,11 @@ namespace Cvoya.Spring.Dapr.Execution;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -28,8 +31,19 @@ using Microsoft.Extensions.Logging;
 /// authentication with the Google AI API.
 /// </para>
 /// </summary>
-public class GeminiLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
+public class GeminiLauncher(
+    IAgentRuntimeRegistry runtimeRegistry,
+    IServiceScopeFactory scopeFactory,
+    ILoggerFactory loggerFactory) : IAgentToolLauncher
 {
+    /// <summary>
+    /// Runtime id whose credential the Gemini launcher injects. Gemini
+    /// CLI uses the Google Generative Language API, so the credential is
+    /// the Google AI Studio API key (the same secret slot the Spring
+    /// Voyage runtime uses for <c>provider: google</c>).
+    /// </summary>
+    internal const string GoogleRuntimeId = "google";
+
     internal const string WorkspaceMountPath = "/workspace";
     private readonly ILogger _logger = loggerFactory.CreateLogger<GeminiLauncher>();
 
@@ -42,7 +56,7 @@ public class GeminiLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
     public string ToolKind => "gemini-cli";
 
     /// <inheritdoc />
-    public Task<AgentLaunchSpec> PrepareAsync(
+    public async Task<AgentLaunchSpec> PrepareAsync(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
@@ -86,9 +100,62 @@ public class GeminiLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
             [AgentVolumeManager.WorkspacePathEnvVar] = AgentVolumeManager.WorkspaceMountPath,
         };
 
-        return Task.FromResult(new AgentLaunchSpec(
+        // #1714 step 2: inject the Google AI Studio API key into
+        // GOOGLE_API_KEY. Gemini's credential schema is a single accepted
+        // shape, so there is no shape-branching at the launcher.
+        await ResolveRuntimeCredentialAsync(context, envVars, cancellationToken);
+
+        return new AgentLaunchSpec(
             WorkspaceFiles: workspaceFiles,
             EnvironmentVariables: envVars,
-            WorkspaceMountPath: WorkspaceMountPath));
+            WorkspaceMountPath: WorkspaceMountPath);
+    }
+
+    private async Task ResolveRuntimeCredentialAsync(
+        AgentLaunchContext context,
+        IDictionary<string, string> envVars,
+        CancellationToken cancellationToken)
+    {
+        var runtime = runtimeRegistry.Get(GoogleRuntimeId)
+            ?? throw new SpringException(
+                $"Google agent runtime is not registered (required by the Gemini launcher). " +
+                $"Install the Cvoya.Spring.AgentRuntimes.Google package or remove `tool: gemini` from this unit's manifest.");
+
+        Guid? agentGuid = Guid.TryParse(context.AgentId, out var parsedAgentId)
+            ? parsedAgentId
+            : null;
+        Guid? unitGuid = Guid.TryParse(context.UnitId, out var parsedUnitId)
+            ? parsedUnitId
+            : null;
+
+        // Per-call scope so the scoped resolver works from this singleton.
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var credentialResolver = scope.ServiceProvider
+            .GetRequiredService<ILlmCredentialResolver>();
+        var resolution = await credentialResolver.ResolveAsync(
+            GoogleRuntimeId, agentGuid, unitGuid, cancellationToken);
+
+        if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
+            || string.IsNullOrEmpty(resolution.Value))
+        {
+            throw new SpringException(
+                $"Gemini agent runtime requires secret '{resolution.SecretName}' but no value resolved at " +
+                $"agent, unit, parent-unit chain, or tenant scope. " +
+                $"Generate an API key at https://aistudio.google.com/apikey and store it under '{resolution.SecretName}', " +
+                $"or configure via the Tenant defaults panel.");
+        }
+
+        if (!runtime.IsCredentialFormatAccepted(resolution.Value!, CredentialDispatchPath.AgentRuntime))
+        {
+            throw new SpringException(
+                $"Gemini agent runtime did not accept the configured '{resolution.SecretName}' value at scope " +
+                $"'{resolution.Source}'. The Google AI CLI path requires a Google AI Studio API key.");
+        }
+
+        envVars[runtime.CredentialEnvVar] = resolution.Value!;
+
+        _logger.LogInformation(
+            "Gemini credential resolved from {Source} into {EnvVar} for agent {AgentId}",
+            resolution.Source, runtime.CredentialEnvVar, context.AgentId);
     }
 }
