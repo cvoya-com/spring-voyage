@@ -1,0 +1,32 @@
+# Submits NuGet dependency snapshots to the GitHub dependency graph.
+# This workflow replaces the GitHub-managed "Automatic Dependency Submission"
+# dynamic workflow, which fails on this repo due to a binary-download bug
+# in the pinned version of component-detection it uses.
+#
+# Per GitHub docs: once a repo provides its own dependency submission workflow
+# for an ecosystem, GitHub stops auto-generating the submission for that
+# ecosystem.
+
+name: Dependency Submission
+
+on:
+  push:
+    branches: ["main"]
+  merge_group:
+
+permissions:
+  contents: write
+
+jobs:
+  submit-nuget:
+    name: submit-nuget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Submit NuGet dependency snapshot
+        uses: actions/nuget-dependency-submission-action@v1

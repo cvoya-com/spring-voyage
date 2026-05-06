@@ -233,7 +233,7 @@ export default function ValidationPanel({
   useActivityStream({
     filter: (event) => {
       if (event.source.scheme !== "unit") return false;
-      if (event.source.path !== unit.name) return false;
+      if (event.source.path !== unit.id) return false;
       if (event.eventType !== "ValidationProgress") return false;
       const step = extractProgressStep(event);
       if (step !== null) {

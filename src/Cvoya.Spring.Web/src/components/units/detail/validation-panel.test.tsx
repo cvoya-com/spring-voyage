@@ -90,7 +90,7 @@ function makeEvent(overrides: Partial<ActivityEvent>): ActivityEvent {
   return {
     id: "evt-1",
     timestamp: "2026-04-21T12:00:00Z",
-    source: { scheme: "unit", path: "alpha" },
+    source: { scheme: "unit", path: "alpha-id" },
     eventType: "ValidationProgress",
     severity: "Info",
     summary: "progress",
@@ -130,7 +130,7 @@ describe("ValidationPanel — Validating status", () => {
       for (const filter of capturedFilters) {
         filter(
           makeEvent({
-            source: { scheme: "unit", path: "alpha" },
+            source: { scheme: "unit", path: "alpha-id" },
             eventType: "ValidationProgress",
             details: { step: "VerifyingTool", status: "Running" },
           }),

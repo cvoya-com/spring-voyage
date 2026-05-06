@@ -20,6 +20,13 @@ using Microsoft.EntityFrameworkCore;
 /// <see cref="ActivityQueryResult.Item.Source"/>) so the wire format
 /// stays grep-able and stable.
 /// </para>
+/// <para>
+/// <c>Source</c> may arrive as either a bare GUID or a scheme-prefixed
+/// string such as <c>unit:&lt;guid&gt;</c> or <c>unit://&lt;guid&gt;</c>
+/// (the form returned by <c>ActivitySourceNormalizer</c>).  The service
+/// strips the scheme prefix before parsing so both shapes filter
+/// correctly against <c>SourceId</c>.
+/// </para>
 /// </summary>
 public class ActivityQueryService(SpringDbContext dbContext) : IActivityQueryService
 {
@@ -28,7 +35,7 @@ public class ActivityQueryService(SpringDbContext dbContext) : IActivityQuerySer
     {
         var query = dbContext.ActivityEvents.AsQueryable();
 
-        if (!string.IsNullOrEmpty(parameters.Source) && GuidFormatter.TryParse(parameters.Source, out var sourceId))
+        if (!string.IsNullOrEmpty(parameters.Source) && TryExtractSourceId(parameters.Source, out var sourceId))
         {
             query = query.Where(e => e.SourceId == sourceId);
         }
@@ -81,7 +88,7 @@ public class ActivityQueryService(SpringDbContext dbContext) : IActivityQuerySer
     {
         var query = dbContext.ActivityEvents.AsQueryable();
 
-        if (!string.IsNullOrEmpty(source) && GuidFormatter.TryParse(source, out var sourceId))
+        if (!string.IsNullOrEmpty(source) && TryExtractSourceId(source, out var sourceId))
         {
             query = query.Where(e => e.SourceId == sourceId);
         }
@@ -122,5 +129,24 @@ public class ActivityQueryService(SpringDbContext dbContext) : IActivityQuerySer
         return grouped
             .Select(g => new CostBySource(GuidFormatter.Format(g.SourceId), g.TotalCost))
             .ToList();
+    }
+
+    /// <summary>
+    /// Extracts a <see cref="Guid"/> from a source string that is either a bare GUID
+    /// (<c>8c5fab2a…</c>) or a scheme-prefixed form (<c>unit:8c5fab2a…</c> /
+    /// <c>unit://8c5fab2a…</c>) emitted by <c>ActivitySourceNormalizer</c>.
+    /// </summary>
+    private static bool TryExtractSourceId(string source, out Guid result)
+    {
+        var raw = source;
+        var colonIdx = raw.IndexOf(':');
+        if (colonIdx >= 0)
+        {
+            raw = raw[(colonIdx + 1)..];
+            if (raw.StartsWith("//", StringComparison.Ordinal))
+                raw = raw[2..];
+        }
+
+        return GuidFormatter.TryParse(raw, out result);
     }
 }
