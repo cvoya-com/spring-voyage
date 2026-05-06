@@ -169,6 +169,43 @@ append Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath "$DAPR_PATH"
 ok "Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath set"
 
 # ---------------------------------------------------------------------------
+# 7. Agent images
+# ---------------------------------------------------------------------------
+header "Agent images"
+info "Spring Voyage dispatches agent workloads as containers. The platform"
+info "needs the agent images in the local Podman image store before you can"
+info "validate a unit.  Building locally avoids a GHCR pull."
+info ""
+info "This takes 5–15 minutes on first run (depends on network / CPU)."
+info ""
+
+BUILD_IMAGES=$(prompt "Build agent images now? (recommended)" "Y")
+if [[ "${BUILD_IMAGES,,}" == "y" ]]; then
+    # Resolve container CLI the same way build-agent-images.sh does so the
+    # summary message names the right binary.
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        _BUILD_CLI=docker
+    elif command -v podman >/dev/null 2>&1; then
+        _BUILD_CLI=podman
+    else
+        warn "Neither docker nor podman found — skipping image build."
+        warn "Run 'deployment/build-agent-images.sh --tag latest' manually before validating units."
+        _BUILD_CLI=""
+    fi
+
+    if [[ -n "${_BUILD_CLI}" ]]; then
+        info "Running: DOCKER=${_BUILD_CLI} deployment/build-agent-images.sh --tag latest"
+        if DOCKER="${_BUILD_CLI}" "${SCRIPT_DIR}/build-agent-images.sh" --tag latest; then
+            ok "Agent images built at :latest"
+        else
+            warn "Image build failed. Run 'deployment/build-agent-images.sh --tag latest' manually."
+        fi
+    fi
+else
+    warn "Skipped.  Run 'deployment/build-agent-images.sh --tag latest' before validating units."
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 header "Setup complete"

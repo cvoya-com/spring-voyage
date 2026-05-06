@@ -3,11 +3,12 @@
 # agent image the Spring Voyage dispatcher launches today (PR 3b of #1087,
 # #1096; omnibus added in #1514; OSS role images added in #1536).
 #
-# Builds eight images, in dependency order:
+# Builds nine images, in dependency order:
 #   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>  (path-1 BYOI base)
 #   2. localhost/spring-voyage-agent-claude-code:<tag>   (path-1 reference, FROMs #1)
 #   3. localhost/spring-voyage-agent:<tag>          (path-3 native A2A)
 #   4. ghcr.io/cvoya-com/spring-voyage-agents:<tag>      (omnibus default, FROMs #1)
+#   4a. ghcr.io/cvoya-com/spring-voyage-agent-ollama:<tag>  (re-tag of #4; Ollama runtime default)
 #   5. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #4)
 #   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<tag>                (FROMs #4)
 #   7. ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:<tag>    (FROMs #4)
@@ -57,6 +58,7 @@ Builds, in order:
   2. localhost/spring-voyage-agent-claude-code:<tag>
   3. localhost/spring-voyage-agent:<tag>
   4. ghcr.io/cvoya-com/spring-voyage-agents:<tag>                          (omnibus)
+  4a. ghcr.io/cvoya-com/spring-voyage-agent-ollama:<tag>                   (re-tag of #4)
   5. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #4)
   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<tag>                (FROMs #4)
   7. ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:<tag>    (FROMs #4)
@@ -184,6 +186,7 @@ AGENT_BASE_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-base"
 CLAUDE_IMAGE="localhost/spring-voyage-agent-claude-code"
 SV_AGENT_IMAGE="localhost/spring-voyage-agent"
 AGENTS_IMAGE="ghcr.io/cvoya-com/spring-voyage-agents"
+OLLAMA_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-ollama"
 OSS_SE_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering"
 OSS_DESIGN_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-design"
 OSS_PM_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management"
@@ -242,6 +245,14 @@ log "building ${AGENTS_IMAGE}:${TAG} (FROM ${AGENT_BASE_OVERRIDE})"
     "${REPO_ROOT}"
 maybe_push "${AGENTS_IMAGE}:${TAG}"
 
+# ---- 4a. spring-voyage-agent-ollama (re-tag of omnibus) ------------------
+# The Ollama runtime default image (OllamaAgentRuntime.DefaultContainerImage)
+# uses this name. The omnibus already bundles the spring-voyage-agent Python
+# venv that the Ollama runtime needs; a separate Dockerfile would be identical.
+log "tagging ${OLLAMA_IMAGE}:${TAG} (alias of ${AGENTS_IMAGE}:${TAG})"
+"${DOCKER}" tag "${AGENTS_IMAGE}:${TAG}" "${OLLAMA_IMAGE}:${TAG}"
+maybe_push "${OLLAMA_IMAGE}:${TAG}"
+
 # Default the OSS role image FROM to the omnibus we just built (or to the
 # user's pinned override via --agents-omnibus-image / AGENTS_OMNIBUS_IMAGE).
 if [[ -z "${AGENTS_OMNIBUS_OVERRIDE}" ]]; then
@@ -293,6 +304,7 @@ log "  ${AGENT_BASE_IMAGE}:${TAG}"
 log "  ${CLAUDE_IMAGE}:${TAG}"
 log "  ${SV_AGENT_IMAGE}:${TAG}"
 log "  ${AGENTS_IMAGE}:${TAG}"
+log "  ${OLLAMA_IMAGE}:${TAG}"
 if [[ "${SKIP_OSS}" -eq 0 ]]; then
     log "  ${OSS_SE_IMAGE}:${TAG}"
     log "  ${OSS_DESIGN_IMAGE}:${TAG}"

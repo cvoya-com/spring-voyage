@@ -43,6 +43,7 @@ import { api } from "@/lib/api/client";
 import { useAgentDeployment, useAgentLogs } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import type { PersistentAgentDeploymentResponse } from "@/lib/api/types";
+import { loadImageHistory } from "@/lib/image-history";
 import { timeAgo } from "@/lib/utils";
 
 type HealthVariant = "default" | "success" | "warning" | "destructive";
@@ -83,6 +84,7 @@ export function LifecyclePanel({
   const deployment = deploymentQuery.data ?? initialDeployment ?? null;
 
   const [imageOverride, setImageOverride] = useState("");
+  const [imageHistory] = useState(() => loadImageHistory());
   const [tailInput, setTailInput] = useState("200");
   const [logsVisible, setLogsVisible] = useState(false);
   const [pendingVerb, setPendingVerb] = useState<
@@ -263,11 +265,17 @@ export function LifecyclePanel({
             <span className="text-xs text-muted-foreground">
               Image override (optional)
             </span>
+            <datalist id="agent-lifecycle-image-suggestions">
+              {imageHistory.map((ref) => (
+                <option key={ref} value={ref} />
+              ))}
+            </datalist>
             <input
               type="text"
               value={imageOverride}
               onChange={(e) => setImageOverride(e.target.value)}
               placeholder="e.g. ghcr.io/cvoya-com/spring-agent:2.1.98"
+              list={imageHistory.length > 0 ? "agent-lifecycle-image-suggestions" : undefined}
               className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               data-testid="agent-lifecycle-image-input"
             />

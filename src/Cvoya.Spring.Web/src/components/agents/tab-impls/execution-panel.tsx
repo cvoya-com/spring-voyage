@@ -23,6 +23,7 @@ import {
   useProviderCredentialStatus,
   useUnitExecution,
 } from "@/lib/api/queries";
+import { loadImageHistory } from "@/lib/image-history";
 import { queryKeys } from "@/lib/api/query-keys";
 import type {
   AgentExecutionResponse,
@@ -118,6 +119,7 @@ export function AgentExecutionPanel({
 
   const [form, setForm] = useState<AgentExecutionResponse>({});
   const [seededFor, setSeededFor] = useState<string | null>(null);
+  const [imageHistory] = useState(() => loadImageHistory());
   const fingerprint = useMemo(
     () => JSON.stringify(persisted ?? null),
     [persisted],
@@ -318,6 +320,11 @@ export function AgentExecutionPanel({
           onClear={persisted?.image ? () => clearField("image") : undefined}
           busy={setMutation.isPending}
         >
+          <datalist id="agent-execution-image-suggestions">
+            {imageHistory.map((ref) => (
+              <option key={ref} value={ref} />
+            ))}
+          </datalist>
           <Input
             value={form.image ?? ""}
             onChange={(e) =>
@@ -328,6 +335,7 @@ export function AgentExecutionPanel({
                 ? `inherited from unit: ${inherited("image")}`
                 : "ghcr.io/... or localhost/spring-voyage-agent-claude-code:latest"
             }
+            list={imageHistory.length > 0 ? "agent-execution-image-suggestions" : undefined}
             aria-label="Agent execution image"
             data-testid="agent-execution-image-input"
             className={
