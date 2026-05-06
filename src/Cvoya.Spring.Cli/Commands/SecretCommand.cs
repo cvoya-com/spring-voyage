@@ -18,16 +18,31 @@ using Cvoya.Spring.Cli.Utilities;
 /// prune | delete</c> — that map 1:1 to the scope-keyed HTTP endpoints
 /// documented on
 /// <see href="https://github.com/cvoya-com/spring-voyage/blob/main/src/Cvoya.Spring.Host.Api/Endpoints/SecretEndpoints.cs"/>.
-/// Every verb takes a required <c>--scope {unit|tenant|platform}</c>
-/// flag; <c>--unit</c> is mandatory when scope is <c>unit</c>, ignored
-/// otherwise. Plaintext <b>flows in only on <c>create</c> and
-/// <c>rotate</c></b> — the server never returns a value on any response,
-/// list entry, or log line; <c>spring secret get</c> therefore surfaces
-/// metadata and version information, not plaintext.
+/// Every verb takes a required <c>--scope {unit|agent|tenant|platform}</c>
+/// flag; <c>--unit</c> is mandatory when scope is <c>unit</c>,
+/// <c>--agent</c> is mandatory when scope is <c>agent</c> (#1741),
+/// otherwise both are ignored. Plaintext <b>flows in only on
+/// <c>create</c> and <c>rotate</c></b> — the server never returns a
+/// value on any response, list entry, or log line; <c>spring secret
+/// get</c> therefore surfaces metadata and version information, not
+/// plaintext.
+///
+/// <para>
+/// <b>Propagation flag (#1741).</b> <c>spring secret create</c> and
+/// <c>spring secret rotate</c> accept <c>--propagate</c> /
+/// <c>--no-propagate</c>. The flag is meaningful only at
+/// <c>--scope unit</c>: it controls whether descendant scopes inherit
+/// the value through the resolver chain (Agent → Unit → ParentUnit →
+/// Tenant). Tenant secrets always propagate; agent secrets have no
+/// descendants. The CLI rejects the flag at non-unit scopes rather
+/// than silently ignoring it. On <c>rotate</c> the flag is sticky —
+/// the server preserves the previous version's propagate value and
+/// the CLI documents the field as accepted-but-not-applied.
+/// </para>
 /// </summary>
 public static class SecretCommand
 {
-    private static readonly string[] Scopes = new[] { "unit", "tenant", "platform" };
+    private static readonly string[] Scopes = new[] { "unit", "agent", "tenant", "platform" };
 
     private static readonly OutputFormatter.Column<SecretMetadata>[] ListColumns =
     {
@@ -71,7 +86,7 @@ public static class SecretCommand
     {
         var opt = new Option<string>("--scope")
         {
-            Description = "Target scope: unit, tenant, or platform.",
+            Description = "Target scope: unit, agent, tenant, or platform.",
             Required = true,
         };
         opt.AcceptOnlyFromAmong(Scopes);
@@ -84,11 +99,21 @@ public static class SecretCommand
             Description = "Unit identifier (required when --scope unit).",
         };
 
-    private static string? ValidateScopeInputs(string scope, string? unit)
+    private static Option<string?> BuildAgentOption()
+        => new("--agent")
+        {
+            Description = "Agent identifier — Guid or no-dash form (required when --scope agent). #1741.",
+        };
+
+    private static string? ValidateScopeInputs(string scope, string? unit, string? agent = null)
     {
         if (scope == "unit" && string.IsNullOrWhiteSpace(unit))
         {
             return "--unit is required when --scope unit.";
+        }
+        if (scope == "agent" && string.IsNullOrWhiteSpace(agent))
+        {
+            return "--agent is required when --scope agent.";
         }
         return null;
     }
@@ -105,6 +130,7 @@ public static class SecretCommand
     {
         var scopeOption = BuildScopeOption();
         var unitOption = BuildUnitOption();
+        var agentOption = BuildAgentOption();
         var nameArg = new Argument<string>("name")
         {
             Description = "Secret name (case-sensitive; chosen by the operator).",
@@ -127,30 +153,74 @@ public static class SecretCommand
                 "Bind an existing external reference (e.g. 'kv://prod/github-app-privatekey') " +
                 "instead of writing plaintext. The platform never mutates the external slot.",
         };
+        // Tri-state propagate flag (#1741): null = unspecified (server
+        // default = inherit), true = explicitly propagate, false =
+        // isolate. Only meaningful at unit scope; warned when supplied
+        // at tenant / agent / platform scope. System.CommandLine maps
+        // `--propagate` (no value) to true and `--no-propagate` to
+        // false through the inverted alias.
+        var propagateOption = new Option<bool?>("--propagate")
+        {
+            Description =
+                "Whether descendants inherit this secret. Default: inherit. Use --no-propagate " +
+                "to isolate the value to this exact unit so child / agent scopes never see it. " +
+                "Meaningful only at --scope unit (tenants always propagate; agents have no " +
+                "descendants — the flag is rejected at non-unit scopes). #1741.",
+        };
+        var noPropagateOption = new Option<bool>("--no-propagate")
+        {
+            Description = "Shortcut for --propagate=false. See --propagate.",
+        };
 
         var command = new Command(
             "create",
-            "Register a new secret. Provide exactly one of --value / --from-file / --external-store-key.");
+            "Register a new secret. Provide exactly one of --value / --from-file / --external-store-key. " +
+            "Use --scope agent --agent <id> for per-agent overrides (#1741).");
         command.Arguments.Add(nameArg);
         command.Options.Add(scopeOption);
         command.Options.Add(unitOption);
+        command.Options.Add(agentOption);
         command.Options.Add(valueOption);
         command.Options.Add(fileOption);
         command.Options.Add(externalOption);
+        command.Options.Add(propagateOption);
+        command.Options.Add(noPropagateOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var name = parseResult.GetValue(nameArg)!;
             var scope = parseResult.GetValue(scopeOption)!;
             var unit = parseResult.GetValue(unitOption);
+            var agent = parseResult.GetValue(agentOption);
             var valueFlag = parseResult.GetValue(valueOption);
             var file = parseResult.GetValue(fileOption);
             var external = parseResult.GetValue(externalOption);
+            var propagateFlag = parseResult.GetValue(propagateOption);
+            var noPropagateFlag = parseResult.GetValue(noPropagateOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (ValidateScopeInputs(scope, unit) is { } scopeErr)
+            if (ValidateScopeInputs(scope, unit, agent) is { } scopeErr)
             {
                 DieWith(scopeErr);
+                return;
+            }
+
+            // Tri-state collapse: --no-propagate wins if both are set;
+            // null otherwise leaves the flag unspecified so the server
+            // applies the inherit-by-default behaviour.
+            bool? propagate = noPropagateFlag ? false : propagateFlag;
+
+            // Reject --propagate / --no-propagate at non-unit scopes.
+            // Document why: tenant secrets always propagate (the whole
+            // point of tenant defaults), agent secrets have no
+            // descendants, platform secrets are global. Silent ignore
+            // would let an operator believe the flag took effect.
+            if (propagate is not null && scope != "unit")
+            {
+                DieWith(
+                    $"--propagate / --no-propagate is only meaningful with --scope unit; " +
+                    $"got --scope {scope}. Tenant defaults always propagate; agent secrets " +
+                    $"have no descendants; platform secrets are global.");
                 return;
             }
 
@@ -173,7 +243,8 @@ public static class SecretCommand
             {
                 CreateSecretResponse response = scope switch
                 {
-                    "unit" => await client.CreateUnitSecretAsync(unit!, name, resolvedValue, external, ct),
+                    "unit" => await client.CreateUnitSecretAsync(unit!, name, resolvedValue, external, propagate, ct),
+                    "agent" => await client.CreateAgentSecretAsync(agent!, name, resolvedValue, external, ct),
                     "tenant" => await client.CreateTenantSecretAsync(name, resolvedValue, external, ct),
                     "platform" => await client.CreatePlatformSecretAsync(name, resolvedValue, external, ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -205,20 +276,23 @@ public static class SecretCommand
     {
         var scopeOption = BuildScopeOption();
         var unitOption = BuildUnitOption();
+        var agentOption = BuildAgentOption();
 
         var command = new Command(
             "list",
             "List secret metadata for the target scope. Never returns plaintext or store keys.");
         command.Options.Add(scopeOption);
         command.Options.Add(unitOption);
+        command.Options.Add(agentOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var scope = parseResult.GetValue(scopeOption)!;
             var unit = parseResult.GetValue(unitOption);
+            var agent = parseResult.GetValue(agentOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (ValidateScopeInputs(scope, unit) is { } scopeErr)
+            if (ValidateScopeInputs(scope, unit, agent) is { } scopeErr)
             {
                 DieWith(scopeErr);
                 return;
@@ -230,6 +304,7 @@ public static class SecretCommand
                 IReadOnlyList<SecretMetadata> entries = scope switch
                 {
                     "unit" => await client.ListUnitSecretsAsync(unit!, ct),
+                    "agent" => await client.ListAgentSecretsAsync(agent!, ct),
                     "tenant" => await client.ListTenantSecretsAsync(ct),
                     "platform" => await client.ListPlatformSecretsAsync(ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -262,6 +337,7 @@ public static class SecretCommand
     {
         var scopeOption = BuildScopeOption();
         var unitOption = BuildUnitOption();
+        var agentOption = BuildAgentOption();
         var nameArg = new Argument<string>("name") { Description = "Secret name." };
         var versionOption = new Option<int?>("--version")
         {
@@ -275,6 +351,7 @@ public static class SecretCommand
         command.Arguments.Add(nameArg);
         command.Options.Add(scopeOption);
         command.Options.Add(unitOption);
+        command.Options.Add(agentOption);
         command.Options.Add(versionOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
@@ -282,10 +359,11 @@ public static class SecretCommand
             var name = parseResult.GetValue(nameArg)!;
             var scope = parseResult.GetValue(scopeOption)!;
             var unit = parseResult.GetValue(unitOption);
+            var agent = parseResult.GetValue(agentOption);
             var version = parseResult.GetValue(versionOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (ValidateScopeInputs(scope, unit) is { } scopeErr)
+            if (ValidateScopeInputs(scope, unit, agent) is { } scopeErr)
             {
                 DieWith(scopeErr);
                 return;
@@ -297,6 +375,7 @@ public static class SecretCommand
                 var versions = scope switch
                 {
                     "unit" => await client.ListUnitSecretVersionsAsync(unit!, name, ct),
+                    "agent" => await client.ListAgentSecretVersionsAsync(agent!, name, ct),
                     "tenant" => await client.ListTenantSecretVersionsAsync(name, ct),
                     "platform" => await client.ListPlatformSecretVersionsAsync(name, ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -366,6 +445,7 @@ public static class SecretCommand
     {
         var scopeOption = BuildScopeOption();
         var unitOption = BuildUnitOption();
+        var agentOption = BuildAgentOption();
         var nameArg = new Argument<string>("name") { Description = "Secret name." };
         var valueOption = new Option<string?>("--value")
         {
@@ -381,6 +461,22 @@ public static class SecretCommand
                 "Swap to an external reference (new or changed). Flips the origin to ExternalReference; " +
                 "the old version stays resolvable by pin until pruned.",
         };
+        // Same tri-state shape as the create command. Note: rotate
+        // carries the propagate flag forward from the previous version
+        // (#1741); the field is accepted for shape symmetry but the
+        // server does not change the stored flag on rotation. To
+        // change propagation, delete + re-create the secret.
+        var propagateOption = new Option<bool?>("--propagate")
+        {
+            Description =
+                "Sticky: rotate carries the previous version's propagate flag forward unchanged. " +
+                "To flip propagation, delete + re-create the secret. Accepted at --scope unit only " +
+                "for shape symmetry with create. #1741.",
+        };
+        var noPropagateOption = new Option<bool>("--no-propagate")
+        {
+            Description = "Shortcut for --propagate=false. See --propagate.",
+        };
 
         var command = new Command(
             "rotate",
@@ -390,23 +486,39 @@ public static class SecretCommand
         command.Arguments.Add(nameArg);
         command.Options.Add(scopeOption);
         command.Options.Add(unitOption);
+        command.Options.Add(agentOption);
         command.Options.Add(valueOption);
         command.Options.Add(fileOption);
         command.Options.Add(externalOption);
+        command.Options.Add(propagateOption);
+        command.Options.Add(noPropagateOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var name = parseResult.GetValue(nameArg)!;
             var scope = parseResult.GetValue(scopeOption)!;
             var unit = parseResult.GetValue(unitOption);
+            var agent = parseResult.GetValue(agentOption);
             var valueFlag = parseResult.GetValue(valueOption);
             var file = parseResult.GetValue(fileOption);
             var external = parseResult.GetValue(externalOption);
+            var propagateFlag = parseResult.GetValue(propagateOption);
+            var noPropagateFlag = parseResult.GetValue(noPropagateOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (ValidateScopeInputs(scope, unit) is { } scopeErr)
+            if (ValidateScopeInputs(scope, unit, agent) is { } scopeErr)
             {
                 DieWith(scopeErr);
+                return;
+            }
+
+            bool? propagate = noPropagateFlag ? false : propagateFlag;
+
+            if (propagate is not null && scope != "unit")
+            {
+                DieWith(
+                    $"--propagate / --no-propagate is only meaningful with --scope unit; " +
+                    $"got --scope {scope}.");
                 return;
             }
 
@@ -429,7 +541,8 @@ public static class SecretCommand
             {
                 RotateSecretResponse response = scope switch
                 {
-                    "unit" => await client.RotateUnitSecretAsync(unit!, name, resolvedValue, external, ct),
+                    "unit" => await client.RotateUnitSecretAsync(unit!, name, resolvedValue, external, propagate, ct),
+                    "agent" => await client.RotateAgentSecretAsync(agent!, name, resolvedValue, external, ct),
                     "tenant" => await client.RotateTenantSecretAsync(name, resolvedValue, external, ct),
                     "platform" => await client.RotatePlatformSecretAsync(name, resolvedValue, external, ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -466,6 +579,7 @@ public static class SecretCommand
     {
         var scopeOption = BuildScopeOption();
         var unitOption = BuildUnitOption();
+        var agentOption = BuildAgentOption();
         var nameArg = new Argument<string>("name") { Description = "Secret name." };
 
         var command = new Command(
@@ -474,15 +588,17 @@ public static class SecretCommand
         command.Arguments.Add(nameArg);
         command.Options.Add(scopeOption);
         command.Options.Add(unitOption);
+        command.Options.Add(agentOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var name = parseResult.GetValue(nameArg)!;
             var scope = parseResult.GetValue(scopeOption)!;
             var unit = parseResult.GetValue(unitOption);
+            var agent = parseResult.GetValue(agentOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (ValidateScopeInputs(scope, unit) is { } scopeErr)
+            if (ValidateScopeInputs(scope, unit, agent) is { } scopeErr)
             {
                 DieWith(scopeErr);
                 return;
@@ -494,6 +610,7 @@ public static class SecretCommand
                 var response = scope switch
                 {
                     "unit" => await client.ListUnitSecretVersionsAsync(unit!, name, ct),
+                    "agent" => await client.ListAgentSecretVersionsAsync(agent!, name, ct),
                     "tenant" => await client.ListTenantSecretVersionsAsync(name, ct),
                     "platform" => await client.ListPlatformSecretVersionsAsync(name, ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -519,6 +636,7 @@ public static class SecretCommand
     {
         var scopeOption = BuildScopeOption();
         var unitOption = BuildUnitOption();
+        var agentOption = BuildAgentOption();
         var nameArg = new Argument<string>("name") { Description = "Secret name." };
         var keepOption = new Option<int>("--keep")
         {
@@ -533,6 +651,7 @@ public static class SecretCommand
         command.Arguments.Add(nameArg);
         command.Options.Add(scopeOption);
         command.Options.Add(unitOption);
+        command.Options.Add(agentOption);
         command.Options.Add(keepOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
@@ -540,10 +659,11 @@ public static class SecretCommand
             var name = parseResult.GetValue(nameArg)!;
             var scope = parseResult.GetValue(scopeOption)!;
             var unit = parseResult.GetValue(unitOption);
+            var agent = parseResult.GetValue(agentOption);
             var keep = parseResult.GetValue(keepOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (ValidateScopeInputs(scope, unit) is { } scopeErr)
+            if (ValidateScopeInputs(scope, unit, agent) is { } scopeErr)
             {
                 DieWith(scopeErr);
                 return;
@@ -561,6 +681,7 @@ public static class SecretCommand
                 var response = scope switch
                 {
                     "unit" => await client.PruneUnitSecretAsync(unit!, name, keep, ct),
+                    "agent" => await client.PruneAgentSecretAsync(agent!, name, keep, ct),
                     "tenant" => await client.PruneTenantSecretAsync(name, keep, ct),
                     "platform" => await client.PrunePlatformSecretAsync(name, keep, ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -600,6 +721,7 @@ public static class SecretCommand
     {
         var scopeOption = BuildScopeOption();
         var unitOption = BuildUnitOption();
+        var agentOption = BuildAgentOption();
         var nameArg = new Argument<string>("name") { Description = "Secret name." };
 
         var command = new Command(
@@ -610,14 +732,16 @@ public static class SecretCommand
         command.Arguments.Add(nameArg);
         command.Options.Add(scopeOption);
         command.Options.Add(unitOption);
+        command.Options.Add(agentOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var name = parseResult.GetValue(nameArg)!;
             var scope = parseResult.GetValue(scopeOption)!;
             var unit = parseResult.GetValue(unitOption);
+            var agent = parseResult.GetValue(agentOption);
 
-            if (ValidateScopeInputs(scope, unit) is { } scopeErr)
+            if (ValidateScopeInputs(scope, unit, agent) is { } scopeErr)
             {
                 DieWith(scopeErr);
                 return;
@@ -630,6 +754,9 @@ public static class SecretCommand
                 {
                     case "unit":
                         await client.DeleteUnitSecretAsync(unit!, name, ct);
+                        break;
+                    case "agent":
+                        await client.DeleteAgentSecretAsync(agent!, name, ct);
                         break;
                     case "tenant":
                         await client.DeleteTenantSecretAsync(name, ct);
