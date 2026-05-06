@@ -35,7 +35,7 @@ public class AnalyticsQueryService(SpringDbContext dbContext) : IAnalyticsQueryS
         var query = dbContext.ActivityEvents
             .Where(e => e.Timestamp >= from && e.Timestamp <= to);
 
-        if (!string.IsNullOrEmpty(sourceFilter) && GuidFormatter.TryParse(sourceFilter, out var sourceFilterId))
+        if (!string.IsNullOrEmpty(sourceFilter) && TryExtractSourceId(sourceFilter, out var sourceFilterId))
         {
             query = query.Where(e => e.SourceId == sourceFilterId);
         }
@@ -103,7 +103,7 @@ public class AnalyticsQueryService(SpringDbContext dbContext) : IAnalyticsQueryS
             .Where(e => e.EventType == stateChangedName)
             .Where(e => e.Timestamp >= from && e.Timestamp <= to);
 
-        if (!string.IsNullOrEmpty(sourceFilter) && GuidFormatter.TryParse(sourceFilter, out var sourceFilterId))
+        if (!string.IsNullOrEmpty(sourceFilter) && TryExtractSourceId(sourceFilter, out var sourceFilterId))
         {
             query = query.Where(e => e.SourceId == sourceFilterId);
         }
@@ -246,4 +246,22 @@ public class AnalyticsQueryService(SpringDbContext dbContext) : IAnalyticsQueryS
         string Source,
         DateTimeOffset Timestamp,
         JsonElement? Details);
+
+    /// <summary>
+    /// Extracts a <see cref="Guid"/> from a source string that is either a bare
+    /// GUID or a scheme-prefixed form (<c>unit:guid</c> / <c>unit://guid</c>).
+    /// </summary>
+    private static bool TryExtractSourceId(string source, out Guid result)
+    {
+        var raw = source;
+        var colonIdx = raw.IndexOf(':');
+        if (colonIdx >= 0)
+        {
+            raw = raw[(colonIdx + 1)..];
+            if (raw.StartsWith("//", StringComparison.Ordinal))
+                raw = raw[2..];
+        }
+
+        return GuidFormatter.TryParse(raw, out result);
+    }
 }
