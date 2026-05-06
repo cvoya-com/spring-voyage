@@ -83,7 +83,12 @@ public static class UnitExecutionEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        var defaults = await store.GetAsync(id, cancellationToken);
+        // #1748: stores are keyed by the unit's actor Guid. The route
+        // already requires `id` to be Guid-shaped (Address.For above
+        // throws otherwise), but normalising through entry.ActorId keeps
+        // the contract explicit and matches every other unit-keyed surface.
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        var defaults = await store.GetAsync(actorId, cancellationToken);
         return Results.Ok(ToResponse(defaults, runtimeRegistry));
     }
 
@@ -119,8 +124,9 @@ public static class UnitExecutionEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        await store.SetAsync(id, defaults, cancellationToken);
-        var stored = await store.GetAsync(id, cancellationToken);
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        await store.SetAsync(actorId, defaults, cancellationToken);
+        var stored = await store.GetAsync(actorId, cancellationToken);
         return Results.Ok(ToResponse(stored, runtimeRegistry));
     }
 
@@ -138,7 +144,8 @@ public static class UnitExecutionEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        await store.ClearAsync(id, cancellationToken);
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        await store.ClearAsync(actorId, cancellationToken);
         return Results.NoContent();
     }
 

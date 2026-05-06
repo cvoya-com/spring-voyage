@@ -160,7 +160,9 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        var shape = await store.GetAsync(id, cancellationToken);
+        // #1748: store is keyed by the agent's actor Guid.
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        var shape = await store.GetAsync(actorId, cancellationToken);
         return Results.Ok(ToAgentExecutionResponse(shape, runtimeRegistry));
     }
 
@@ -212,8 +214,9 @@ public static class AgentEndpoints
         // dispatch-time fall-through keeps the API permissive for
         // programmatic callers that write fields in any order.
 
-        await store.SetAsync(id, shape, cancellationToken);
-        var stored = await store.GetAsync(id, cancellationToken);
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        await store.SetAsync(actorId, shape, cancellationToken);
+        var stored = await store.GetAsync(actorId, cancellationToken);
         return Results.Ok(ToAgentExecutionResponse(stored, runtimeRegistry));
     }
 
@@ -229,7 +232,8 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        await store.ClearAsync(id, cancellationToken);
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        await store.ClearAsync(actorId, cancellationToken);
         return Results.NoContent();
     }
 
@@ -284,6 +288,9 @@ public static class AgentEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        // #1748: lifecycle / registry are keyed by the agent's actor Guid.
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+
         try
         {
             if (replicas == 0)
@@ -291,12 +298,16 @@ public static class AgentEndpoints
                 // Scale-to-zero intent: the caller asked to deploy with 0
                 // replicas. Treat as undeploy and return the canonical empty
                 // shape so CLIs see a consistent wire contract.
-                await lifecycle.UndeployAsync(id, cancellationToken);
+                await lifecycle.UndeployAsync(actorId, cancellationToken);
+                // The wire shape preserves the URL-path agent id so callers
+                // see a stable AgentId across the request/response pair, even
+                // when (in test fixtures) the directory entry's ActorId is
+                // not the same Guid as the route segment.
                 return Results.Ok(EmptyDeploymentResponse(id, replicas: 0));
             }
 
             var deployed = await lifecycle.DeployAsync(
-                id,
+                actorId,
                 imageOverride: request?.Image,
                 cancellationToken);
             return Results.Ok(ToDeploymentResponse(deployed, replicas: 1));
@@ -319,7 +330,8 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        await lifecycle.UndeployAsync(id, cancellationToken);
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        await lifecycle.UndeployAsync(actorId, cancellationToken);
 
         // Always return the canonical "not running" shape so the CLI can
         // treat the response the same whether the agent was running or not.
@@ -339,9 +351,11 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+
         try
         {
-            var scaled = await lifecycle.ScaleAsync(id, request.Replicas, cancellationToken);
+            var scaled = await lifecycle.ScaleAsync(actorId, request.Replicas, cancellationToken);
             return Results.Ok(ToDeploymentResponse(scaled, request.Replicas));
         }
         catch (SpringException ex)
@@ -364,12 +378,13 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
         var effectiveTail = tail is > 0 ? tail.Value : 200;
 
         try
         {
-            var logs = await lifecycle.GetLogsAsync(id, effectiveTail, cancellationToken);
-            registry.TryGet(id, out var registered);
+            var logs = await lifecycle.GetLogsAsync(actorId, effectiveTail, cancellationToken);
+            registry.TryGet(actorId, out var registered);
             return Results.Ok(new PersistentAgentLogsResponse(
                 AgentId: id,
                 ContainerId: registered?.ContainerId ?? string.Empty,
@@ -394,7 +409,8 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        if (registry.TryGet(id, out var deployment) && deployment is not null)
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        if (registry.TryGet(actorId, out var deployment) && deployment is not null)
         {
             return Results.Ok(ToDeploymentResponse(deployment, replicas: 1));
         }
@@ -616,12 +632,17 @@ public static class AgentEndpoints
 
         var result = await messageRouter.RouteAsync(statusQuery, cancellationToken);
 
+        // #1748: registry / stores below are all keyed by the agent's
+        // actor Guid (the form PersistentAgentLifecycle.DeployAsync registers
+        // with and DbAgentExecutionStore parses).
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+
         // Persistent-agent health enrichment (#396): when a persistent
         // deployment is tracked, surface it alongside the actor's status
         // payload so `spring agent status <id>` is a single stop for both
         // ephemeral-actor state and persistent-container state.
         PersistentAgentDeploymentResponse? deployment = null;
-        if (persistentAgentRegistry.TryGet(id, out var persistentEntry) && persistentEntry is not null)
+        if (persistentAgentRegistry.TryGet(actorId, out var persistentEntry) && persistentEntry is not null)
         {
             deployment = ToDeploymentResponse(persistentEntry, replicas: 1);
         }
@@ -632,7 +653,7 @@ public static class AgentEndpoints
         AgentExecutionShape? shape = null;
         try
         {
-            shape = await executionStore.GetAsync(id, cancellationToken);
+            shape = await executionStore.GetAsync(actorId, cancellationToken);
         }
         catch
         {
@@ -642,7 +663,7 @@ public static class AgentEndpoints
         InitiativeLevel? level = null;
         try
         {
-            level = await initiativeEngine.GetCurrentLevelAsync(id, cancellationToken);
+            level = await initiativeEngine.GetCurrentLevelAsync(actorId, cancellationToken);
         }
         catch
         {

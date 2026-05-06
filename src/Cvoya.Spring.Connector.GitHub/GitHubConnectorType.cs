@@ -14,6 +14,8 @@ using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Configuration;
+using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Secrets;
 
 using Microsoft.AspNetCore.Builder;
@@ -508,10 +510,34 @@ public class GitHubConnectorType : IConnectorType
         }
     }
 
+    // #1748: store calls below pass the unit's actor-Guid form because
+    // the default UnitActorConnectorConfigStore routes through Address.For
+    // internally. Resolution is best-effort — when no directory is wired,
+    // when the route value isn't a Guid (test fixtures and other harnesses
+    // that key by opaque string), or when the directory has no matching
+    // entry, we fall through to the route value so the legacy contract
+    // (store sees whatever the caller supplied) is preserved.
+    private async Task<string> ResolveUnitActorIdAsync(string unitId, CancellationToken ct)
+    {
+        if (_serviceProvider.GetService(typeof(IDirectoryService)) is not IDirectoryService directory)
+        {
+            return unitId;
+        }
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitId, out _))
+        {
+            return unitId;
+        }
+        var entry = await directory.ResolveAsync(Address.For("unit", unitId), ct);
+        return entry is null
+            ? unitId
+            : Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+    }
+
     private async Task<IResult> GetConfigAsync(
         string unitId, CancellationToken cancellationToken)
     {
-        var binding = await _configStore.GetAsync(unitId, cancellationToken);
+        var actorId = await ResolveUnitActorIdAsync(unitId, cancellationToken);
+        var binding = await _configStore.GetAsync(actorId, cancellationToken);
         if (binding is null || binding.TypeId != GitHubTypeId)
         {
             return Results.Problem(
@@ -542,6 +568,8 @@ public class GitHubConnectorType : IConnectorType
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        var actorId = await ResolveUnitActorIdAsync(unitId, cancellationToken);
+
         var events = request.Events is { Count: > 0 } ? request.Events : null;
         // Reviewer is optional. Treat whitespace as "no default reviewer"
         // so the wizard's "(none)" sentinel ("") doesn't accidentally
@@ -554,7 +582,7 @@ public class GitHubConnectorType : IConnectorType
             request.Owner, request.Repo, request.AppInstallationId, events, reviewer);
 
         var payload = JsonSerializer.SerializeToElement(config, ConfigJson);
-        await _configStore.SetAsync(unitId, GitHubTypeId, payload, cancellationToken);
+        await _configStore.SetAsync(actorId, GitHubTypeId, payload, cancellationToken);
 
         return Results.Ok(ToResponse(unitId, config));
     }

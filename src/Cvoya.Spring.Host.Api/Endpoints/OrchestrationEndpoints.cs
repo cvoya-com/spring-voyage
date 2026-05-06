@@ -85,7 +85,9 @@ public static class OrchestrationEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        var strategy = await store.GetStrategyKeyAsync(id, cancellationToken);
+        // #1748: store is keyed by the unit's actor Guid.
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        var strategy = await store.GetStrategyKeyAsync(actorId, cancellationToken);
         return Results.Ok(new UnitOrchestrationResponse(strategy));
     }
 
@@ -116,11 +118,12 @@ public static class OrchestrationEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        await store.SetStrategyKeyAsync(id, request.Strategy, cancellationToken);
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        await store.SetStrategyKeyAsync(actorId, request.Strategy, cancellationToken);
 
         // Re-read so the client sees the canonical post-write shape (in
         // particular the server-side trim applied to the key).
-        var stored = await store.GetStrategyKeyAsync(id, cancellationToken);
+        var stored = await store.GetStrategyKeyAsync(actorId, cancellationToken);
         return Results.Ok(new UnitOrchestrationResponse(stored));
     }
 
@@ -138,7 +141,8 @@ public static class OrchestrationEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        await store.SetStrategyKeyAsync(id, strategyKey: null, cancellationToken);
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        await store.SetStrategyKeyAsync(actorId, strategyKey: null, cancellationToken);
         return Results.NoContent();
     }
 }

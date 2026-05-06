@@ -605,7 +605,11 @@ public static class UnitEndpoints
             // tear down its external resources. Each connector's stop hook
             // is responsible for catching its own errors; the try/catch
             // here is a second safety net.
-            await DispatchConnectorStopAsync(id, proxy, connectorTypes, logger, cancellationToken);
+            // #1748: pass the unit's actor-Guid form because the runtime /
+            // config stores parse it as a Guid.
+            await DispatchConnectorStopAsync(
+                Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorId),
+                proxy, connectorTypes, logger, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -748,8 +752,12 @@ public static class UnitEndpoints
         // any external-system resources its binding needs (e.g. GitHub
         // webhooks). Each connector is responsible for catching its own
         // failures — we never let a misbehaving connector fail a unit start.
+        // #1748: connectors call IUnitConnectorRuntimeStore / -ConfigStore
+        // which are keyed by the unit's actor Guid; pass the canonical
+        // actor-id form rather than the route id.
         await DispatchConnectorStartAsync(
-            id, proxy, connectorTypes, logger, cancellationToken);
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId),
+            proxy, connectorTypes, logger, cancellationToken);
 
         // Transition straight to Running. Agent-container lifecycle is
         // managed by the A2A dispatcher (#346/#349), not by this endpoint.
@@ -805,8 +813,11 @@ public static class UnitEndpoints
         // external-system resources it provisioned on /start. Individual
         // connector failures are logged inside the connector and must not
         // block the /stop flow.
+        // #1748: connectors call IUnitConnectorRuntimeStore / -ConfigStore
+        // which are keyed by the unit's actor Guid.
         await DispatchConnectorStopAsync(
-            id, proxy, connectorTypes, logger, cancellationToken);
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId),
+            proxy, connectorTypes, logger, cancellationToken);
 
         // Transition straight to Stopped. Agent-container lifecycle is
         // managed by the A2A dispatcher (#346/#349), not by this endpoint.
