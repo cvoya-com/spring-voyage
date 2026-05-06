@@ -67,6 +67,18 @@ public static class PackageEndpoints
             .Produces<PackageDetail>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        // ADR-0037 D5: explicit version selection. Today the catalog
+        // ships a single version per package name, so this endpoint
+        // returns the same detail as /{name} when {version} matches the
+        // catalog's version, and 404 otherwise. The shape exists so the
+        // CLI / portal can address a pinned version unambiguously when
+        // the v0.2 multi-version catalog lands.
+        group.MapGet("/{name}/{version}", GetPackageVersionAsync)
+            .WithName("GetPackageVersion")
+            .WithSummary("Returns detailed contents of a specific package version (ADR-0037 D5)")
+            .Produces<PackageDetail>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         return group;
     }
 
@@ -87,6 +99,29 @@ public static class PackageEndpoints
         return detail is null
             ? Results.NotFound()
             : Results.Ok(detail);
+    }
+
+    private static async Task<IResult> GetPackageVersionAsync(
+        string name,
+        string version,
+        [FromServices] IPackageCatalogService catalog,
+        CancellationToken cancellationToken)
+    {
+        var detail = await catalog.GetPackageAsync(name, cancellationToken);
+        if (detail is null)
+        {
+            return Results.NotFound();
+        }
+        // Catalog today ships a single version per name; mismatch → 404
+        // so callers see the same not-found shape they'd see for a
+        // missing package. Multi-version catalogs (v0.2) will resolve
+        // the (name, version) pair through a richer lookup.
+        if (!string.IsNullOrWhiteSpace(detail.Version)
+            && !string.Equals(detail.Version, version, System.StringComparison.Ordinal))
+        {
+            return Results.NotFound();
+        }
+        return Results.Ok(detail);
     }
 
     private static async Task<IResult> ListUnitTemplatesAsync(

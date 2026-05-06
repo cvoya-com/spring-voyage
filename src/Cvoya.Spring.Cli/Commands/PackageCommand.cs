@@ -195,6 +195,16 @@ public static class PackageCommand
             AllowMultipleArgumentsPerToken = false,
         };
 
+        var versionOption = new Option<string?>("--version")
+        {
+            Description =
+                "Pin the install to a specific package version (ADR-0037 D5). " +
+                "When omitted, the install resolves to the most recently installed " +
+                "version of the package. For multi-target installs, supply once per " +
+                "target name in declaration order.",
+            AllowMultipleArgumentsPerToken = false,
+        };
+
         var command = new Command(
             "install",
             "Install one or more packages from the catalog (spring package install <name> [<name>...]) " +
@@ -202,15 +212,18 @@ public static class PackageCommand
             "For single-target installs, supply inputs as bare key=value pairs: --input github_owner=acme.\n" +
             "For multi-target installs, namespace inputs by package: --input <pkg>.key=value.\n" +
             "Alternatively supply a YAML file via --input-file.\n\n" +
-            "Required connectors (#1673): supply with --connector <slug>=<owner>/<repo>@<installation-id> " +
+            "Required connectors: supply with --connector <slug>=<owner>/<repo>@<installation-id> " +
             "(github short form) or --connector <slug>.<key>=<value> (long form, generic). " +
             "Per-unit override: --connector <slug>:<unit-name>=...\n\n" +
+            "Version pinning (ADR-0037 D5): use --version <v> to install a specific package version. " +
+            "When omitted the install resolves to the most recently installed version.\n\n" +
             "Exit codes: 0 = success, 2 = bad request / dep-graph error, 4 = name collision, 1 = server error.");
         command.Arguments.Add(nameArg);
         command.Options.Add(fileOption);
         command.Options.Add(inputOption);
         command.Options.Add(inputFileOption);
         command.Options.Add(connectorOption);
+        command.Options.Add(versionOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -303,12 +316,19 @@ public static class PackageCommand
                 return;
             }
 
+            // ADR-0037 D5: optional --version pin applies to every named target.
+            // For multi-target installs the same version flag scopes all targets;
+            // when more granular per-target pinning is needed operators install
+            // per-target with separate invocations.
+            var versionPin = parseResult.GetValue(versionOption);
+
             var targets = names
                 .Select(n => new SpringApiClient.PackageInstallTargetRequest(
                     PackageName: n,
                     Inputs: perPackageInputs.TryGetValue(n, out var m) ? m : new Dictionary<string, string>(),
                     ConnectorBindings: perPackageBindings is not null
-                        && perPackageBindings.TryGetValue(n, out var b) ? b : null))
+                        && perPackageBindings.TryGetValue(n, out var b) ? b : null,
+                    Version: versionPin))
                 .ToList();
 
             SpringApiClient.PackageInstallResponse catalogResult;
@@ -560,18 +580,29 @@ public static class PackageCommand
             Description = "Package name. Run 'spring package list' for available names.",
         };
 
+        var versionOption = new Option<string?>("--version")
+        {
+            Description =
+                "Show a specific package version (ADR-0037 D5). When omitted " +
+                "the catalog returns the version it has on disk.",
+            AllowMultipleArgumentsPerToken = false,
+        };
+
         var command = new Command(
             "show",
-            "Show the contents of a package: unit templates, agent templates, skills, connectors, and workflows.");
+            "Show the contents of a package: unit templates, agent templates, skills, connectors, and workflows. " +
+            "Use --version <v> to address a specific package version (ADR-0037 D5).");
         command.Arguments.Add(nameArgument);
+        command.Options.Add(versionOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var name = parseResult.GetValue(nameArgument)!;
+            var version = parseResult.GetValue(versionOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
 
-            var detail = await client.GetPackageAsync(name, ct);
+            var detail = await client.GetPackageAsync(name, version, ct);
             if (detail is null)
             {
                 await Console.Error.WriteLineAsync(

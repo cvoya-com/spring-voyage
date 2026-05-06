@@ -47,7 +47,8 @@ public sealed record PackageInstallRequest(
 public sealed record PackageInstallTarget(
     string PackageName,
     IReadOnlyDictionary<string, string>? Inputs,
-    PackageConnectorBindings? ConnectorBindings = null);
+    PackageConnectorBindings? ConnectorBindings = null,
+    string? Version = null);
 
 /// <summary>
 /// Operator-supplied connector bindings for a single package install
