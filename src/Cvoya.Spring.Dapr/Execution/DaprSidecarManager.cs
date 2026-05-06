@@ -264,6 +264,7 @@ public class DaprSidecarManager(
         return new ContainerConfig(
             Image: _options.Image,
             Command: commandParts,
+            EnvironmentVariables: config.EnvironmentVariables,
             VolumeMounts: mounts.Count > 0 ? mounts : null,
             NetworkName: config.NetworkName,
             AdditionalNetworks: config.AdditionalNetworks,

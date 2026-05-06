@@ -52,6 +52,14 @@ public interface IDaprSidecarManager
 /// <param name="DaprConfigFilePath">
 /// Optional daprd <c>--config</c> file path inside the sidecar (bind-mounted by the dispatcher run).
 /// </param>
+/// <param name="EnvironmentVariables">
+/// Environment variables to set on the daprd sidecar container's process
+/// env. Required for Conversation components that read provider credentials
+/// via <c>secretstores.local.env</c> + <c>secretKeyRef</c> — the secret
+/// store reads from the sidecar's process env, NOT the agent app's env, so
+/// the platform must propagate provider credentials into both containers
+/// (#1714 step 3).
+/// </param>
 public record DaprSidecarConfig(
     string AppId,
     int AppPort,
@@ -63,7 +71,8 @@ public record DaprSidecarConfig(
     string? PlacementHostAddress = null,
     string? SchedulerHostAddress = null,
     string? DaprConfigFilePath = null,
-    string? AppChannelAddress = null);
+    string? AppChannelAddress = null,
+    IReadOnlyDictionary<string, string>? EnvironmentVariables = null);
 
 /// <summary>
 /// Information about a running Dapr sidecar container.

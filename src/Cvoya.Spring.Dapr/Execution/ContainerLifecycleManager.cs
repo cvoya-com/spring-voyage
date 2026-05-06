@@ -263,6 +263,15 @@ public class ContainerLifecycleManager(
             sidecarAdditional = [tenantNetwork];
         }
 
+        // #1714 step 3: copy the agent's provider credential env vars into
+        // the sidecar's process env so daprd's `secretstores.local.env`
+        // component can satisfy `secretKeyRef` lookups in the per-provider
+        // Conversation YAMLs (conversation-anthropic.yaml, etc.). The
+        // secret store reads from the sidecar process env, NOT the app
+        // container's env, so without this propagation the conversation
+        // call would resolve the credential to an empty string.
+        var sidecarEnv = ExtractSidecarEnvVars(appConfig.EnvironmentVariables);
+
         return new DaprSidecarConfig(
             AppId: appId,
             AppPort: appPort,
@@ -274,7 +283,49 @@ public class ContainerLifecycleManager(
             PlacementHostAddress: _sidecarOptions.PlacementHostAddress,
             SchedulerHostAddress: _sidecarOptions.SchedulerHostAddress,
             DaprConfigFilePath: _sidecarOptions.DaprConfigFilePath,
-            AppChannelAddress: appChannelAddress);
+            AppChannelAddress: appChannelAddress,
+            EnvironmentVariables: sidecarEnv);
+    }
+
+    /// <summary>
+    /// The set of credential env-var names the daprd sidecar's
+    /// <c>secretstores.local.env</c> component reads from its own process
+    /// env to satisfy per-provider Conversation YAMLs. Kept here (not in
+    /// <see cref="DaprSidecarOptions"/>) because the names are part of the
+    /// platform's component shape, not operator-tunable: any operator-set
+    /// override would break the YAMLs that hard-code the same names in
+    /// their <c>secretKeyRef</c> entries.
+    /// </summary>
+    private static readonly string[] CredentialEnvVarsToPropagate =
+    [
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GOOGLE_API_KEY",
+    ];
+
+    /// <summary>
+    /// Filters the agent app's env vars down to the credential names that
+    /// the daprd sidecar's local-env secret store must see. Callers that
+    /// pass <c>null</c> get a <c>null</c> back (no env propagation).
+    /// </summary>
+    private static IReadOnlyDictionary<string, string>? ExtractSidecarEnvVars(
+        IReadOnlyDictionary<string, string>? appEnv)
+    {
+        if (appEnv is null || appEnv.Count == 0)
+        {
+            return null;
+        }
+
+        Dictionary<string, string>? sidecarEnv = null;
+        foreach (var name in CredentialEnvVarsToPropagate)
+        {
+            if (appEnv.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value))
+            {
+                sidecarEnv ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                sidecarEnv[name] = value;
+            }
+        }
+        return sidecarEnv;
     }
 
     /// <summary>

@@ -272,4 +272,47 @@ public class DaprSidecarManagerTests
 
         info.NetworkName.ShouldBe("spring-net-xyz");
     }
+
+    [Fact]
+    public void BuildSidecarContainerConfig_WithEnvironmentVariables_PropagatesIntoContainerConfig()
+    {
+        // #1714 step 3: secretstores.local.env reads from the daprd
+        // sidecar's process env. The sidecar config carries provider
+        // credentials so the Conversation YAMLs' secretKeyRef entries
+        // resolve. Without this, daprd would resolve secrets against an
+        // empty env and conversation calls would fail with empty keys.
+        var manager = CreateManager();
+        var env = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["ANTHROPIC_API_KEY"] = "sk-ant-api-fake",
+            ["OPENAI_API_KEY"] = "sk-openai-fake",
+        };
+        var config = new DaprSidecarConfig(
+            AppId: "with-env",
+            AppPort: 8080,
+            DaprHttpPort: 3500,
+            DaprGrpcPort: 50001,
+            EnvironmentVariables: env);
+
+        var containerConfig = manager.BuildSidecarContainerConfig(config, "spring-dapr-test");
+
+        containerConfig.EnvironmentVariables.ShouldNotBeNull();
+        containerConfig.EnvironmentVariables!["ANTHROPIC_API_KEY"].ShouldBe("sk-ant-api-fake");
+        containerConfig.EnvironmentVariables["OPENAI_API_KEY"].ShouldBe("sk-openai-fake");
+    }
+
+    [Fact]
+    public void BuildSidecarContainerConfig_WithoutEnvironmentVariables_LeavesContainerConfigEnvNull()
+    {
+        var manager = CreateManager();
+        var config = new DaprSidecarConfig(
+            AppId: "no-env",
+            AppPort: 8080,
+            DaprHttpPort: 3500,
+            DaprGrpcPort: 50001);
+
+        var containerConfig = manager.BuildSidecarContainerConfig(config, "spring-dapr-test");
+
+        containerConfig.EnvironmentVariables.ShouldBeNull();
+    }
 }
