@@ -7,7 +7,8 @@
  * submits it through `POST /api/v1/packages/install/file`, the same
  * endpoint the CLI uses).
  *
- * The generated YAML shape (#1718 items 1+2):
+ * The generated YAML shape (#1718 items 1+2; #1738 renames `ai.tool`
+ * → `ai.agent`):
  * ```yaml
  * apiVersion: spring.cvoya.com/v1
  * metadata:
@@ -24,7 +25,7 @@
  *         runtime: <runtime> # omitted when empty
  *         hosting: <hosting> # omitted when empty
  *       ai:
- *         tool: <tool>      # omitted when empty
+ *         agent: <agent>    # runtime registry id; omitted when empty
  *         model: <model>    # omitted when empty
  * ```
  *
@@ -51,8 +52,12 @@ export interface AgentPackageFormState {
   runtime?: string;
   /** Hosting mode (`execution.hosting`): ephemeral or permanent. */
   hosting?: string;
-  /** Execution tool key (`ai.tool`): claude-code, codex, etc. */
-  tool?: string;
+  /**
+   * Agent runtime registry id (`ai.agent`): claude-code, codex,
+   * spring-voyage, etc. Renamed from `tool` in #1738 to match the
+   * post-#1732 wire shape.
+   */
+  agent?: string;
   /** Model id (`ai.model`). */
   model?: string;
   /**
@@ -77,7 +82,7 @@ export function buildAgentPackageYaml(state: AgentPackageFormState): string {
   const image = state.image?.trim();
   const runtime = state.runtime?.trim();
   const hosting = state.hosting?.trim();
-  const tool = state.tool?.trim();
+  const agent = state.agent?.trim();
   const model = state.model?.trim();
 
   const lines: string[] = [
@@ -115,11 +120,13 @@ export function buildAgentPackageYaml(state: AgentPackageFormState): string {
     if (hosting) lines.push(`        hosting: ${yamlScalar(hosting)}`);
   }
 
-  // AI block
-  const hasAi = tool || model;
+  // AI block — #1738 renames `ai.tool` → `ai.agent` to match the
+  // post-#1732 wire shape (`agent` = runtime registry id; the server
+  // derives `toolKind`).
+  const hasAi = agent || model;
   if (hasAi) {
     lines.push("      ai:");
-    if (tool) lines.push(`        tool: ${yamlScalar(tool)}`);
+    if (agent) lines.push(`        agent: ${yamlScalar(agent)}`);
     if (model) lines.push(`        model: ${yamlScalar(model)}`);
   }
 

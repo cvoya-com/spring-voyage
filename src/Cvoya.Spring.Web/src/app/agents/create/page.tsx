@@ -255,7 +255,9 @@ export default function CreateAgentPage() {
         description: form.description.trim() || undefined,
         image: form.image.trim() || undefined,
         runtime: form.runtime.trim() || undefined,
-        tool: form.executionTool || undefined,
+        // #1738: emit `ai.agent` (runtime registry id) — `ai.tool`
+        // was retired in #1732.
+        agent: form.executionTool || undefined,
         model: form.model.trim() || undefined,
         unitIds,
       });

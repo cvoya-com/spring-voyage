@@ -41,12 +41,14 @@ public class DbUnitExecutionStoreTests
     [Fact]
     public void Extract_ReturnsAllFields()
     {
+        // #1732: 'tool' on persisted JSON is silently ignored — the runtime
+        // registry derives the tool kind from 'agent' on read.
         using var doc = JsonDocument.Parse("""
             {
               "execution": {
                 "image": "ghcr.io/foo:latest",
                 "runtime": "podman",
-                "tool": "dapr-agent",
+                "tool": "this-is-ignored",
                 "provider": "ollama",
                 "model": "llama3.2:3b",
                 "agent": "claude"
@@ -57,7 +59,6 @@ public class DbUnitExecutionStoreTests
         defaults.ShouldNotBeNull();
         defaults!.Image.ShouldBe("ghcr.io/foo:latest");
         defaults.Runtime.ShouldBe("podman");
-        defaults.Tool.ShouldBe("dapr-agent");
         defaults.Provider.ShouldBe("ollama");
         defaults.Model.ShouldBe("llama3.2:3b");
         defaults.Agent.ShouldBe("claude");

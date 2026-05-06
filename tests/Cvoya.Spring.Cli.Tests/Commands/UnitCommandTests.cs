@@ -10,166 +10,28 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for the free-function validators on
-/// <see cref="UnitCommand"/>. The action pipelines themselves are
-/// exercised end-to-end elsewhere — these tests pin the validation
-/// contract so <c>spring unit create</c> and
-/// <c>spring unit create-from-template</c> reject mis-composed flag
-/// sets consistently (#598 + #644).
+/// Unit tests for the inline-credential resolver on
+/// <see cref="UnitCommand"/>. The action pipelines themselves are exercised
+/// end-to-end elsewhere; these tests pin the resolver contract that
+/// <c>spring unit create --api-key</c> threads through.
 /// </summary>
+/// <remarks>
+/// #1732: <c>--tool</c> was dropped — operators name the runtime via
+/// <c>--agent</c>, and the resolver routes the credential write to that
+/// runtime's <c>CredentialSecretName</c>. The tool-to-runtime bridge
+/// (<c>DeriveRequiredRuntimeId</c>) and the
+/// <c>ValidateProviderModelAgainstTool</c> validator are gone.
+/// </remarks>
 public class UnitCommandTests
 {
-    // Canonical rejection message (#644) — operators read this verbatim
-    // when they combine --provider / --model with a tool that doesn't
-    // accept that flag.
-    private const string ExpectedErrorMessage =
-        "--provider is only meaningful for --tool=spring-voyage; " +
-        "other tools (claude-code, codex, gemini) have their provider hardcoded in the tool CLI, " +
-        "but accept --model to pick within that provider's model family.";
-
-    [Theory]
-    [InlineData("spring-voyage", "openai", "gpt-4o")]
-    [InlineData("spring-voyage", "anthropic", null)]
-    [InlineData("spring-voyage", null, "claude-sonnet-4-6")]
-    [InlineData("spring-voyage", null, null)]
-    public void ValidateProviderModelAgainstTool_DaprAgent_Accepts(
-        string tool,
-        string? provider,
-        string? model)
-    {
-        UnitCommand.ValidateProviderModelAgainstTool(tool, provider, model)
-            .ShouldBeNull();
-    }
-
-    [Theory]
-    [InlineData(null, null, null)]
-    [InlineData(null, null, "")]
-    // No --tool supplied and no provider/model either — nothing to reject.
-    [InlineData("", null, null)]
-    public void ValidateProviderModelAgainstTool_NoFlags_Accepts(
-        string? tool,
-        string? provider,
-        string? model)
-    {
-        UnitCommand.ValidateProviderModelAgainstTool(tool, provider, model)
-            .ShouldBeNull();
-    }
-
-    [Theory]
-    [InlineData("claude-code", "anthropic", null)]
-    [InlineData("claude-code", "anthropic", "claude-sonnet-4-6")]
-    [InlineData("codex", "openai", "gpt-4o")]
-    [InlineData("codex", "openai", null)]
-    [InlineData("gemini", "google", "gemini-2.5-pro")]
-    public void ValidateProviderModelAgainstTool_TooledProviderFlag_Rejected(
-        string tool,
-        string? provider,
-        string? model)
-    {
-        // The tool hardcodes its provider in its own CLI — passing
-        // --provider would silently be dropped at dispatch. Reject it
-        // up-front with the canonical message so operators see the shape
-        // of the contract instead of diagnosing a no-op.
-        var error = UnitCommand.ValidateProviderModelAgainstTool(tool, provider, model);
-        error.ShouldBe(ExpectedErrorMessage);
-    }
-
-    [Theory]
-    // #644 parity fix: --model is meaningful for every tool that carries
-    // a known provider family — the portal's wizard (PR #645) and
-    // execution-tab (PR #643 follow-up) render the Model dropdown for
-    // these tools, so the CLI must not be stricter than the portal.
-    [InlineData("claude-code", "claude-sonnet-4-6")]
-    [InlineData("claude-code", "claude-opus-4-7")]
-    [InlineData("claude-code", "claude-haiku-4-5")]
-    [InlineData("codex", "gpt-4o")]
-    [InlineData("codex", "gpt-4o-mini")]
-    [InlineData("gemini", "gemini-2.5-pro")]
-    [InlineData("gemini", "gemini-2.5-flash")]
-    // Opaque string we don't know — still accepted. Per (1) in #644 the
-    // CLI treats model ids as opaque and defers validation to unit
-    // activation on the server.
-    [InlineData("claude-code", "something-that-does-not-exist-yet")]
-    public void ValidateProviderModelAgainstTool_TooledModelFlag_Accepted(
-        string tool,
-        string model)
-    {
-        // No provider flag → no rejection. The tool provides the
-        // provider internally; the operator's job is only to pick the
-        // model inside that family.
-        UnitCommand.ValidateProviderModelAgainstTool(tool, provider: null, model: model)
-            .ShouldBeNull();
-    }
-
-    [Theory]
-    // #644: --tool=custom has no declared provider / model contract, so
-    // both flags are still rejected there (unchanged from the #598
-    // behaviour).
-    [InlineData("custom", "ollama", "llama3.2:3b")]
-    [InlineData("custom", "ollama", null)]
-    [InlineData("custom", null, "llama3.2:3b")]
-    public void ValidateProviderModelAgainstTool_Custom_RejectsBoth(
-        string tool,
-        string? provider,
-        string? model)
-    {
-        var error = UnitCommand.ValidateProviderModelAgainstTool(tool, provider, model);
-        error.ShouldBe(ExpectedErrorMessage);
-    }
-
-    [Fact]
-    public void ValidateProviderModelAgainstTool_CaseInsensitive_OnTool()
-    {
-        // The option's allow-list is lowercase but operators sometimes
-        // type "Spring-Voyage"; the validator must normalise before the
-        // check so they're not rejected for a casing accident.
-        UnitCommand.ValidateProviderModelAgainstTool(
-            "Spring-Voyage",
-            provider: "openai",
-            model: "gpt-4o")
-            .ShouldBeNull();
-    }
-
-    [Fact]
-    public void ValidateProviderModelAgainstTool_CaseInsensitive_OnTooledTool()
-    {
-        // Same normalisation for the tool-hardcoded-provider tools:
-        // "Claude-Code" + --model is accepted just like "claude-code".
-        UnitCommand.ValidateProviderModelAgainstTool(
-            "Claude-Code",
-            provider: null,
-            model: "claude-sonnet-4-6")
-            .ShouldBeNull();
-
-        UnitCommand.ValidateProviderModelAgainstTool(
-            "Claude-Code",
-            provider: "anthropic",
-            model: null)
-            .ShouldBe(ExpectedErrorMessage);
-    }
-
-    [Fact]
-    public void ValidateProviderModelAgainstTool_NoToolProvided_DoesNotSecondGuessServerDefault()
-    {
-        // When --tool is omitted the server picks the deployment default
-        // (claude-code in today's build). The CLI must not assume that
-        // default — rejecting --provider in that case would mean
-        // operators who pin provider + model without passing --tool hit
-        // a confusing error. The server already enforces the honest
-        // contract at dispatch time.
-        UnitCommand.ValidateProviderModelAgainstTool(
-            tool: null,
-            provider: "openai",
-            model: "gpt-4o")
-            .ShouldBeNull();
-    }
-
     // -----------------------------------------------------------------
     // #626 / #742: inline credential flag resolution. #742 moves the
     // canonical secret-name lookup off a hardcoded client-side switch and
     // onto <c>GET /api/v1/agent-runtimes/{id}.credentialSecretName</c>;
     // the tests stub the resolver with the canonical mapping so we can
     // still pin rejection semantics without standing up an API.
+    // #1732: the resolver now takes a runtime id directly (--agent), not a
+    // tool + provider pair.
     // -----------------------------------------------------------------
 
     // Canonical { runtime-id → secretName } shape the agent-runtime API
@@ -197,34 +59,11 @@ public class UnitCommandTests
             canonical.TryGetValue(runtimeId, out var name) ? name : null);
     }
 
-    [Theory]
-    [InlineData("claude-code", null, "claude")]
-    [InlineData("codex", null, "openai")]
-    [InlineData("gemini", null, "google")]
-    [InlineData("spring-voyage", "anthropic", "claude")]
-    [InlineData("spring-voyage", "claude", "claude")]
-    [InlineData("spring-voyage", "openai", "openai")]
-    [InlineData("spring-voyage", "google", "google")]
-    [InlineData("spring-voyage", "gemini", "google")]
-    [InlineData("spring-voyage", "ollama", "ollama")]
-    [InlineData("spring-voyage", "unknown", null)]
-    [InlineData("custom", "openai", null)]
-    [InlineData(null, null, null)]
-    public void DeriveRequiredRuntimeId_MatchesMatrix(
-        string? tool,
-        string? provider,
-        string? expected)
-    {
-        UnitCommand.DeriveRequiredRuntimeId(tool, provider)
-            .ShouldBe(expected);
-    }
-
     [Fact]
     public async Task ResolveCredentialOptionsAsync_NoFlags_ReturnsNone()
     {
         var result = await UnitCommand.ResolveCredentialOptionsAsync(
-            tool: "claude-code",
-            provider: null,
+            agentRuntimeId: "claude",
             apiKey: null,
             apiKeyFromFile: null,
             saveAsTenantDefault: false,
@@ -239,8 +78,7 @@ public class UnitCommandTests
     public async Task ResolveCredentialOptionsAsync_RejectsBothKeyFlagsTogether()
     {
         var result = await UnitCommand.ResolveCredentialOptionsAsync(
-            tool: "claude-code",
-            provider: null,
+            agentRuntimeId: "claude",
             apiKey: "sk-test",
             apiKeyFromFile: "some-path",
             saveAsTenantDefault: false,
@@ -253,8 +91,7 @@ public class UnitCommandTests
     public async Task ResolveCredentialOptionsAsync_RejectsSaveFlagWithoutKey()
     {
         var result = await UnitCommand.ResolveCredentialOptionsAsync(
-            tool: "claude-code",
-            provider: null,
+            agentRuntimeId: "claude",
             apiKey: null,
             apiKeyFromFile: null,
             saveAsTenantDefault: true,
@@ -264,14 +101,12 @@ public class UnitCommandTests
     }
 
     [Fact]
-    public async Task ResolveCredentialOptionsAsync_RejectsKeyOnOllamaProvider()
+    public async Task ResolveCredentialOptionsAsync_RejectsKeyOnOllamaRuntime()
     {
-        // Ollama maps to a registered runtime (`ollama`) whose
-        // CredentialSecretName is the empty string — the resolver
+        // Ollama's CredentialSecretName is the empty string — the resolver
         // surfaces that as "no credential to write".
         var result = await UnitCommand.ResolveCredentialOptionsAsync(
-            tool: "spring-voyage",
-            provider: "ollama",
+            agentRuntimeId: "ollama",
             apiKey: "sk-test",
             apiKeyFromFile: null,
             saveAsTenantDefault: false,
@@ -281,17 +116,18 @@ public class UnitCommandTests
     }
 
     [Fact]
-    public async Task ResolveCredentialOptionsAsync_RejectsKeyOnCustomTool()
+    public async Task ResolveCredentialOptionsAsync_RejectsKeyWithoutAgent()
     {
+        // #1732: --agent is required when an inline key is supplied — the
+        // CLI no longer infers the runtime from --tool.
         var result = await UnitCommand.ResolveCredentialOptionsAsync(
-            tool: "custom",
-            provider: null,
+            agentRuntimeId: null,
             apiKey: "sk-test",
             apiKeyFromFile: null,
             saveAsTenantDefault: false,
             StubRuntimeSecretNameResolver(),
             CancellationToken.None);
-        result.ErrorMessage!.ShouldContain("custom");
+        result.ErrorMessage!.ShouldContain("--agent");
     }
 
     [Fact]
@@ -302,8 +138,7 @@ public class UnitCommandTests
         // clear message pointing at `spring agent-runtime install` so
         // the operator knows the remedy.
         var result = await UnitCommand.ResolveCredentialOptionsAsync(
-            tool: "claude-code",
-            provider: null,
+            agentRuntimeId: "claude",
             apiKey: "sk-ant",
             apiKeyFromFile: null,
             saveAsTenantDefault: false,
@@ -313,11 +148,10 @@ public class UnitCommandTests
     }
 
     [Fact]
-    public async Task ResolveCredentialOptionsAsync_AcceptsInlineKey_ClaudeCode()
+    public async Task ResolveCredentialOptionsAsync_AcceptsInlineKey_ClaudeRuntime()
     {
         var result = await UnitCommand.ResolveCredentialOptionsAsync(
-            tool: "claude-code",
-            provider: null,
+            agentRuntimeId: "claude",
             apiKey: "sk-ant-xyz",
             apiKeyFromFile: null,
             saveAsTenantDefault: false,
@@ -333,8 +167,7 @@ public class UnitCommandTests
     public async Task ResolveCredentialOptionsAsync_AcceptsSaveAsTenantDefaultToggle()
     {
         var result = await UnitCommand.ResolveCredentialOptionsAsync(
-            tool: "codex",
-            provider: null,
+            agentRuntimeId: "openai",
             apiKey: "sk-openai",
             apiKeyFromFile: null,
             saveAsTenantDefault: true,
@@ -354,8 +187,7 @@ public class UnitCommandTests
         {
             await File.WriteAllTextAsync(path, "sk-file-key\n", TestContext.Current.CancellationToken);
             var result = await UnitCommand.ResolveCredentialOptionsAsync(
-                tool: "gemini",
-                provider: null,
+                agentRuntimeId: "google",
                 apiKey: null,
                 apiKeyFromFile: path,
                 saveAsTenantDefault: false,
@@ -375,8 +207,7 @@ public class UnitCommandTests
     public async Task ResolveCredentialOptionsAsync_RejectsMissingFile()
     {
         var result = await UnitCommand.ResolveCredentialOptionsAsync(
-            tool: "claude-code",
-            provider: null,
+            agentRuntimeId: "claude",
             apiKey: null,
             apiKeyFromFile: "/tmp/does-not-exist-please-really",
             saveAsTenantDefault: false,
@@ -393,8 +224,7 @@ public class UnitCommandTests
         {
             await File.WriteAllTextAsync(path, "\n\n", TestContext.Current.CancellationToken);
             var result = await UnitCommand.ResolveCredentialOptionsAsync(
-                tool: "claude-code",
-                provider: null,
+                agentRuntimeId: "claude",
                 apiKey: null,
                 apiKeyFromFile: path,
                 saveAsTenantDefault: false,
@@ -415,8 +245,7 @@ public class UnitCommandTests
         // repo) stores the credential under a different secret name,
         // the API-returned value wins over any client-side assumption.
         var result = await UnitCommand.ResolveCredentialOptionsAsync(
-            tool: "claude-code",
-            provider: null,
+            agentRuntimeId: "claude",
             apiKey: "sk-ant-xyz",
             apiKeyFromFile: null,
             saveAsTenantDefault: false,
@@ -428,5 +257,4 @@ public class UnitCommandTests
         result.ErrorMessage.ShouldBeNull();
         result.SecretName.ShouldBe("custom-claude-key");
     }
-
 }

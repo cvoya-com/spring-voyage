@@ -16,23 +16,38 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// Every field is independently nullable: a unit can declare any
 /// subset. Resolution chain (see <c>docs/architecture/units.md</c>):
 /// agent.X → unit.X → fail-clean at dispatch / save time.
-/// <see cref="Provider"/> and <see cref="Model"/> are meaningful only
-/// when <see cref="Tool"/> = <c>spring-voyage</c> — the portal hides them
-/// for other tool selections (#598 gating).
+/// <para>
+/// #1732: <c>tool</c> is no longer threaded through the wire shape — the
+/// execution tool is derived 1:1 from <see cref="Agent"/> via the runtime
+/// registry's <c>IAgentRuntime.ToolKind</c>. The read-only
+/// <see cref="ToolKind"/> field on the response captures the derived value
+/// for portal / CLI display.
+/// </para>
+/// <para>
+/// <see cref="Provider"/> and <see cref="Model"/> are meaningful only when
+/// the resolved <see cref="ToolKind"/> = <c>spring-voyage</c> — the portal
+/// hides them for other tool kinds (#598 gating).
+/// </para>
 /// </remarks>
 /// <param name="Image">Default container image reference.</param>
 /// <param name="Runtime">Default container runtime (<c>docker</c> / <c>podman</c>).</param>
-/// <param name="Tool">Default external agent tool identifier (<c>claude-code</c>, <c>codex</c>, <c>gemini</c>, <c>spring-voyage</c>).</param>
 /// <param name="Provider">Default LLM model provider (Spring Voyage Agent–specific).</param>
 /// <param name="Model">Default model identifier (Spring Voyage Agent–specific).</param>
-/// <param name="Agent">Agent-runtime registry id (e.g. <c>ollama</c>, <c>claude</c>, <c>openai</c>). Takes precedence over <c>Provider</c> when resolving which <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime"/> plugin to use for validation and dispatch.</param>
+/// <param name="Agent">Agent-runtime registry id (e.g. <c>ollama</c>, <c>claude</c>, <c>openai</c>). The dispatcher resolves this through <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntimeRegistry"/> to pick the launcher.</param>
+/// <param name="ToolKind">
+/// Read-only registry-derived execution tool kind (e.g. <c>claude-code-cli</c>,
+/// <c>spring-voyage</c>). Populated by the server from
+/// <c>IAgentRuntime.ToolKind</c> when <see cref="Agent"/> resolves; <c>null</c>
+/// otherwise. Always <c>null</c> on request bodies — clients cannot set this
+/// field.
+/// </param>
 public record UnitExecutionResponse(
     string? Image = null,
     string? Runtime = null,
-    string? Tool = null,
     string? Provider = null,
     string? Model = null,
-    string? Agent = null);
+    string? Agent = null,
+    string? ToolKind = null);
 
 /// <summary>
 /// Wire-level representation of an agent's <c>execution:</c> block on
@@ -47,12 +62,23 @@ public record UnitExecutionResponse(
 /// the parent unit — consult the portal / CLI "effective" surface for
 /// that post-merge view. When a field is <c>null</c> here it is either
 /// unset on the agent or will inherit from the unit at dispatch time.
+/// <para>
+/// #1732: <c>tool</c> is no longer threaded through the wire shape — the
+/// execution tool is derived 1:1 from <see cref="Agent"/> via the runtime
+/// registry's <c>IAgentRuntime.ToolKind</c>. The read-only
+/// <see cref="ToolKind"/> field is populated by the server when the agent's
+/// declared <see cref="Agent"/> resolves.
+/// </para>
 /// </remarks>
+/// <param name="ToolKind">
+/// Read-only registry-derived execution tool kind. Server-populated; clients
+/// cannot set this field on request bodies.
+/// </param>
 public record AgentExecutionResponse(
     string? Image = null,
     string? Runtime = null,
-    string? Tool = null,
     string? Provider = null,
     string? Model = null,
     string? Hosting = null,
-    string? Agent = null);
+    string? Agent = null,
+    string? ToolKind = null);

@@ -1365,10 +1365,13 @@ export default function CreateUnitPage() {
       const runtime = form.runtime.trim();
       if (image || runtime) {
         try {
+          // #1738: the wire shape carries `agent` (operator-chosen
+          // runtime id), not `tool`. The wizard's internal `req.tool`
+          // is the same id that maps onto the runtime registry.
           await api.setUnitExecution(created.name, {
             image: image || null,
             runtime: runtime || null,
-            tool: req.tool ?? null,
+            agent: req.tool ?? null,
             provider: req.provider ?? null,
             model: req.model ?? null,
           });

@@ -58,11 +58,17 @@ public class SpringVoyageAgentLauncher(
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<SpringVoyageAgentLauncher>();
 
-    /// <summary>YAML / definition <c>execution.tool</c> value for this launcher.</summary>
+    /// <summary>
+    /// Tool-kind identifier for this launcher. Matches the
+    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.ToolKind"/>
+    /// declared by every runtime that dispatches through it
+    /// (<c>openai</c>, <c>google</c>, <c>ollama</c> — all share
+    /// <c>spring-voyage</c>).
+    /// </summary>
     public const string ToolId = "spring-voyage";
 
     /// <inheritdoc />
-    public string Tool => ToolId;
+    public string ToolKind => ToolId;
 
     /// <inheritdoc />
     public Task<AgentLaunchSpec> PrepareAsync(

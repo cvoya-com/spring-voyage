@@ -1,6 +1,6 @@
 import { apiPost } from "../../fixtures/api.js";
 import { unitName } from "../../fixtures/ids.js";
-import { DEFAULT_MODEL, PROVIDER_ID, TOOL_ID } from "../../fixtures/runtime.js";
+import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 /**
@@ -22,7 +22,7 @@ test.describe("units — tenant-tree explorer", () => {
       name: parent,
       displayName: parent,
       description: "Tree spec parent (e2e-portal)",
-      tool: TOOL_ID,
+      agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",
@@ -32,7 +32,7 @@ test.describe("units — tenant-tree explorer", () => {
       name: child,
       displayName: child,
       description: "Tree spec child (e2e-portal)",
-      tool: TOOL_ID,
+      agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",

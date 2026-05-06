@@ -112,18 +112,20 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
   // Per-field dirtiness — only the fields the operator actually touched
   // differ from the persisted block. #1702: the legacy `runtime` field
   // is no longer surfaced from this panel, so it doesn't take part in
-  // the dirty calculation.
+  // the dirty calculation. #1738: the operator-chosen runtime now lives
+  // in `agent` (a runtime-registry id); `toolKind` is server-derived
+  // and read-only.
   const dirty = useMemo(() => {
     const current = persisted ?? {};
     return (
       (form.image ?? null) !== (current.image ?? null) ||
-      (form.tool ?? null) !== (current.tool ?? null) ||
+      (form.agent ?? null) !== (current.agent ?? null) ||
       (form.provider ?? null) !== (current.provider ?? null) ||
       (form.model ?? null) !== (current.model ?? null)
     );
   }, [form, persisted]);
 
-  const effectiveToolForGating = form.tool ?? null;
+  const effectiveToolForGating = form.agent ?? null;
   const showProvider = effectiveToolForGating === "spring-voyage";
 
   // #641 / #1702: Model is always rendered. Derive the runtime id from
@@ -203,15 +205,13 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
   };
 
   const handleSave = () => {
-    // #1702: the portal no longer manages the container `runtime` field
-    // — the platform picks it. The selected agent runtime tool also
-    // populates the new `agent` field on the wire so the dispatcher can
-    // resolve the agent-runtime registry entry without re-deriving it
-    // from `tool`. Provider stays gated on `spring-voyage`.
+    // #1738: the wire shape now carries `agent` (operator-chosen runtime
+    // id) only; the legacy `tool` field was retired in #1732. The
+    // server derives `toolKind` from the registry — read-only.
+    // Provider stays gated on `spring-voyage`.
     const next: UnitExecutionResponse = {
       image: form.image ?? null,
-      tool: form.tool ?? null,
-      agent: form.tool ?? null,
+      agent: form.agent ?? null,
       provider: showProvider ? (form.provider ?? null) : null,
       model: form.model ?? null,
     };
@@ -289,21 +289,36 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
             />
           </FieldRow>
 
-          {/* Agent Runtime — launcher key (#1702 renamed from "Tool"). */}
+          {/* Agent Runtime — launcher key (#1702 renamed from "Tool";
+              #1738 wire field renamed `tool` → `agent`). The server-
+              derived `toolKind` is shown as a read-only badge so
+              operators can see which CLI shape the chosen runtime
+              maps to without choosing it directly. */}
           <FieldRow
             label="Agent Runtime"
             help="Agent runtime the dispatcher uses to bring the agent container up."
-            onClear={persisted?.tool ? () => clearField("tool") : undefined}
+            onClear={persisted?.agent ? () => clearField("agent") : undefined}
             busy={setMutation.isPending}
           >
-            <SelectField
-              value={form.tool ?? null}
-              onChange={(next) => setField("tool", next)}
-              options={EXECUTION_TOOL_KEYS}
-              unsetLabel="(leave to default)"
-              ariaLabel="Agent runtime"
-              testid="execution-tool-select"
-            />
+            <div className="flex items-center gap-2">
+              <SelectField
+                value={form.agent ?? null}
+                onChange={(next) => setField("agent", next)}
+                options={EXECUTION_TOOL_KEYS}
+                unsetLabel="(leave to default)"
+                ariaLabel="Agent runtime"
+                testid="execution-tool-select"
+              />
+              {persisted?.toolKind ? (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 text-xs font-normal"
+                  data-testid="execution-tool-kind"
+                >
+                  {persisted.toolKind}
+                </Badge>
+              ) : null}
+            </div>
           </FieldRow>
 
           {/* Model Provider — gated behind tool=spring-voyage (#1702
@@ -477,7 +492,7 @@ function SelectField({
 
 function isEmpty(block: UnitExecutionResponse): boolean {
   return (
-    !block.image && !block.tool && !block.provider && !block.model
+    !block.image && !block.agent && !block.provider && !block.model
   );
 }
 

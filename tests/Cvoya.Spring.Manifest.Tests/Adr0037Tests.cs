@@ -238,6 +238,27 @@ public class Adr0037Tests
     }
 
     [Fact]
+    public void ManifestParser_LegacyExecutionToolField_Rejected()
+    {
+        // #1732: execution.tool was dropped — the runtime registry derives
+        // the tool kind from ai.agent. The parser surfaces a clear migration
+        // hint per ADR-0037 D6 when an old-shape file still carries it.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: my-unit
+            description: x
+            execution:
+              image: ghcr.io/example/agent:latest
+              tool: claude-code
+            """;
+
+        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
+        ex.Message.ShouldContain("LegacyExecutionToolField");
+        ex.Message.ShouldContain("ai.agent");
+    }
+
+    [Fact]
     public void ManifestParser_MissingApiVersion_Rejected()
     {
         var yaml = """

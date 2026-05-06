@@ -372,7 +372,11 @@ public static class UnitEndpoints
             logger.LogWarning(ex,
                 "Failed to read persisted metadata for unit {UnitId}; reporting empty metadata.",
                 unitId);
-            return new UnitMetadata(null, null, null, null);
+            return new UnitMetadata(
+                DisplayName: null,
+                Description: null,
+                Model: null,
+                Color: null);
         }
     }
 
@@ -493,12 +497,13 @@ public static class UnitEndpoints
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(UnitActor));
 
+        // #1732: Tool was dropped from the unit-metadata wire shape — derived
+        // from execution.agent via the runtime registry at dispatch time.
         var metadata = new UnitMetadata(
             DisplayName: request.DisplayName,
             Description: request.Description,
             Model: request.Model,
             Color: request.Color,
-            Tool: request.Tool,
             Provider: request.Provider,
             Hosting: request.Hosting);
 
@@ -1282,7 +1287,6 @@ public static class UnitEndpoints
             status,
             metadata?.Model,
             metadata?.Color,
-            metadata?.Tool,
             metadata?.Provider,
             metadata?.Hosting,
             validationTracking?.LastValidationError,

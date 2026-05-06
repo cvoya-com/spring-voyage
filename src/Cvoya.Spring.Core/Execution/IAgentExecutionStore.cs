@@ -63,17 +63,20 @@ public interface IAgentExecutionStore
 /// field is independently nullable — a partial update sends only the
 /// fields the caller wants to change.
 /// </summary>
+/// <remarks>
+/// #1732: the standalone <c>Tool</c> slot was dropped — the execution tool
+/// is derived 1:1 from <see cref="Agent"/> (the runtime registry id) via the
+/// runtime's <c>IAgentRuntime.ToolKind</c>.
+/// </remarks>
 /// <param name="Image">Container image reference.</param>
 /// <param name="Runtime">Container runtime identifier.</param>
-/// <param name="Tool">External agent tool identifier.</param>
 /// <param name="Provider">LLM model provider (Spring Voyage Agent–specific).</param>
 /// <param name="Model">Model identifier (Spring Voyage Agent–specific).</param>
 /// <param name="Hosting">Hosting mode (ephemeral / persistent). Agent-exclusive.</param>
-/// <param name="Agent">Agent-runtime registry id (e.g. <c>ollama</c>, <c>claude</c>, <c>openai</c>). Takes precedence over <c>Provider</c> when resolving which <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime"/> plugin to use for validation and dispatch.</param>
+/// <param name="Agent">Agent-runtime registry id (e.g. <c>ollama</c>, <c>claude</c>, <c>openai</c>). Determines both the validation pipeline and the launcher selected at dispatch (via the runtime's <c>ToolKind</c>).</param>
 public record AgentExecutionShape(
     string? Image = null,
     string? Runtime = null,
-    string? Tool = null,
     string? Provider = null,
     string? Model = null,
     string? Hosting = null,
@@ -83,7 +86,6 @@ public record AgentExecutionShape(
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
         && string.IsNullOrWhiteSpace(Runtime)
-        && string.IsNullOrWhiteSpace(Tool)
         && string.IsNullOrWhiteSpace(Provider)
         && string.IsNullOrWhiteSpace(Model)
         && string.IsNullOrWhiteSpace(Hosting)

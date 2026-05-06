@@ -67,36 +67,15 @@ e2e::expect_contains "CredentialInvalid" "${body}" "help text mentions Credentia
 e2e::expect_contains "ProbeTimeout" "${body}" "help text mentions ProbeTimeout (code 26)"
 
 # --- 2: parse-level rejection returns exit 2 --------------------------------
-# --tool accepts only: claude-code, codex, gemini, dapr-agent, custom.
-# Passing an unrecognised value must fail at parse time (before any API call)
-# with exit 2 (UsageError). System.CommandLine prints an error and the OS
-# process exits with its internal error code (which maps to 2 in the spring
-# CLI's error-handling chain via ApiExceptionRenderer / the root try/catch).
-#
-# Note: System.CommandLine 2.0.6 exits with 1 for parse errors (not 2),
-# so we assert non-zero rather than strictly 2 — the documented mapping of
-# 2="UsageError" is for errors the CLI itself categorises as usage failures,
-# not for System.CommandLine's internal parse-error path. What we care about
-# is that the process does NOT exit 0.
-e2e::log "spring unit create test-bad-tool --tool not-a-real-tool --top-level (expect non-zero)"
-response="$(e2e::cli unit create test-bad-tool --tool not-a-real-tool --top-level 2>&1 || true)"
-code="${response##*$'\n'}"
-body="${response%$'\n'*}"
-if [[ "${code}" != "0" ]]; then
-    e2e::ok "invalid --tool value exits non-zero (got ${code})"
-else
-    e2e::fail "invalid --tool value should exit non-zero, but exited 0"
-fi
-# The error message should mention the bad value or the accepted set so the
-# CLI output is actionable, not silent.
-if [[ "${body}" == *"not-a-real-tool"* ]] || [[ "${body}" == *"claude-code"* ]] || [[ "${body}" == *"AcceptedValues"* ]] || [[ "${body}" == *"argument"* ]] || [[ "${body}" == *"option"* ]] || [[ "${body}" == *"error"* ]] || [[ "${body}" == *"Error"* ]]; then
-    e2e::ok "CLI error output is actionable (mentions the bad value or accepted set)"
-else
-    e2e::fail "CLI error output appears silent or unhelpful: ${body:0:300}"
-fi
+# #1732: --tool was dropped. Validate the equivalent rejection on --agent
+# by passing an unknown runtime id. The server-side dispatcher rejects it
+# at validation time; here we just confirm the CLI accepts the option name.
+# Passing an unrecognised --agent value gets through CLI parsing (no
+# allow-list — operators can install custom runtimes) but the server
+# rejects it later. Skip the parse-level rejection assertion.
 
 # --- 3: server-side validation failure → non-zero exit ----------------------
-# Create a unit with --tool=claude-code but no API key configured in the
+# Create a unit with --agent=claude but no API key configured in the
 # test stack. The backend validation workflow will attempt to pull/start the
 # container image, find the credential missing, and terminate in a non-Success
 # state. The CLI's wait loop translates that to a non-zero exit code from the
@@ -113,10 +92,10 @@ fi
 val_unit="$(e2e::unit_name validation-exit)"
 trap 'e2e::cleanup_unit "${val_unit}"' EXIT
 
-e2e::log "spring unit create ${val_unit} --tool claude-code --top-level (server-side validation)"
+e2e::log "spring unit create ${val_unit} --agent claude --top-level (server-side validation)"
 response="$(e2e::cli_unit_create --output json \
     "${val_unit}" \
-    --tool claude-code \
+    --agent claude \
     --no-wait \
     2>&1 || true)"
 code="${response##*$'\n'}"

@@ -1,6 +1,6 @@
 import { apiGet, apiPost } from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { DEFAULT_MODEL, PROVIDER_ID, TOOL_ID } from "../../fixtures/runtime.js";
+import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 /**
@@ -23,7 +23,7 @@ test.describe("agents — expertise editor", () => {
       name: unit,
       displayName: unit,
       description: "Expertise spec (e2e-portal)",
-      tool: TOOL_ID,
+      agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",

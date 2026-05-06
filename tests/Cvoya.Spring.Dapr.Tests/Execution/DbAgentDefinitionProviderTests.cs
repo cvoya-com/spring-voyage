@@ -18,6 +18,12 @@ using Xunit;
 /// execution config from the persisted JSON definition. The DB integration is
 /// exercised indirectly via <see cref="SpringDbContext"/> tests.
 /// </summary>
+/// <remarks>
+/// #1732: <c>execution.tool</c> on the persisted JSON is silently ignored —
+/// the runtime registry derives the tool kind from <c>execution.agent</c>
+/// (the runtime id) at dispatch. The projection requires <c>agent</c> to be
+/// present to produce an <see cref="AgentExecutionConfig"/>.
+/// </remarks>
 public class DbAgentDefinitionProviderTests
 {
     [Fact]
@@ -30,7 +36,7 @@ public class DbAgentDefinitionProviderTests
             Definition = JsonSerializer.SerializeToElement(new
             {
                 instructions = "Be careful.",
-                execution = new { tool = "claude-code", image = "spring-agent:latest", runtime = "docker" }
+                execution = new { agent = "claude", image = "spring-agent:latest", runtime = "docker" }
             })
         };
 
@@ -38,7 +44,7 @@ public class DbAgentDefinitionProviderTests
 
         def.Instructions.ShouldBe("Be careful.");
         def.Execution.ShouldNotBeNull();
-        def.Execution!.Tool.ShouldBe("claude-code");
+        def.Execution!.AgentRuntimeId.ShouldBe("claude");
         def.Execution.Image.ShouldBe("spring-agent:latest");
         def.Execution.Runtime.ShouldBe("docker");
     }
@@ -54,7 +60,7 @@ public class DbAgentDefinitionProviderTests
             {
                 ai = new
                 {
-                    tool = "claude-code",
+                    agent = "claude",
                     environment = new { image = "legacy:v1" }
                 }
             })
@@ -63,7 +69,7 @@ public class DbAgentDefinitionProviderTests
         var def = DbAgentDefinitionProvider.Project(entity);
 
         def.Execution.ShouldNotBeNull();
-        def.Execution!.Tool.ShouldBe("claude-code");
+        def.Execution!.AgentRuntimeId.ShouldBe("claude");
         def.Execution.Image.ShouldBe("legacy:v1");
     }
 
@@ -111,7 +117,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { tool = "claude-code", image = "spring-agent:latest", hosting = "persistent" }
+                execution = new { agent = "claude", image = "spring-agent:latest", hosting = "persistent" }
             })
         };
 
@@ -130,7 +136,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { tool = "claude-code", image = "spring-agent:latest" }
+                execution = new { agent = "claude", image = "spring-agent:latest" }
             })
         };
 
@@ -153,7 +159,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { tool = "claude-code", image = "spring-agent:latest", hosting = "pooled" }
+                execution = new { agent = "claude", image = "spring-agent:latest", hosting = "pooled" }
             })
         };
 
@@ -177,7 +183,7 @@ public class DbAgentDefinitionProviderTests
             {
                 execution = new
                 {
-                    tool = "dapr-agent",
+                    agent = "openai",
                     image = "localhost/spring-voyage-agent-dapr:latest",
                     provider = "openai",
                     model = "gpt-4o-mini",
@@ -201,7 +207,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { tool = "dapr-agent", image = "localhost/spring-voyage-agent-dapr:latest" }
+                execution = new { agent = "openai", image = "localhost/spring-voyage-agent-dapr:latest" }
             })
         };
 
@@ -221,15 +227,40 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { tool = "custom", hosting = "persistent" }
+                execution = new { agent = "claude", hosting = "persistent" }
             })
         };
 
         var def = DbAgentDefinitionProvider.Project(entity);
 
         def.Execution.ShouldNotBeNull();
-        def.Execution!.Tool.ShouldBe("custom");
+        def.Execution!.AgentRuntimeId.ShouldBe("claude");
         def.Execution.Image.ShouldBeNull();
         def.Execution.Hosting.ShouldBe(AgentHostingMode.Persistent);
+    }
+
+    [Fact]
+    public void Project_LegacyToolField_IsIgnored_WhenAgentMissing()
+    {
+        // #1732: pre-#1732 'execution.tool' values do not back-fill the
+        // runtime id; the runtime id must be present explicitly. This is
+        // intentional — the runtime id is the durable identity, and a
+        // tool kind value cannot reliably round-trip back to a single
+        // runtime when multiple runtimes share a tool kind (e.g.
+        // openai/google/ollama all share spring-voyage).
+        var entity = new AgentDefinitionEntity
+        {
+            Id = Guid.NewGuid(),
+            DisplayName = "Ada",
+            Definition = JsonSerializer.SerializeToElement(new
+            {
+                execution = new { tool = "claude-code", image = "x" }
+            })
+        };
+
+        var def = DbAgentDefinitionProvider.Project(entity);
+
+        // execution is null because no agent runtime id was present.
+        def.Execution.ShouldBeNull();
     }
 }

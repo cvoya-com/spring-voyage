@@ -8,6 +8,7 @@ using System.Text.Json;
 using A2A.V0_3;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
@@ -51,6 +52,7 @@ public class A2AExecutionDispatcher(
     IAgentDefinitionProvider agentDefinitionProvider,
     IMcpServer mcpServer,
     IEnumerable<IAgentToolLauncher> launchers,
+    IAgentRuntimeRegistry agentRuntimeRegistry,
     IAgentContextBuilder agentContextBuilder,
     ITenantContext tenantContext,
     PersistentAgentRegistry persistentAgentRegistry,
@@ -74,8 +76,14 @@ public class A2AExecutionDispatcher(
         ?? throw new ArgumentNullException(nameof(agentContextBuilder));
     private readonly ITenantContext _tenantContext = tenantContext
         ?? throw new ArgumentNullException(nameof(tenantContext));
-    private readonly Dictionary<string, IAgentToolLauncher> _launchersByTool =
-        launchers.ToDictionary(l => l.Tool, StringComparer.OrdinalIgnoreCase);
+    // #1732: launchers are keyed on their ToolKind (matching the runtime
+    // registry's IAgentRuntime.ToolKind). The dispatcher resolves a runtime
+    // from the agent's persisted execution.agent slot, then picks the
+    // launcher whose ToolKind equals the runtime's ToolKind.
+    private readonly Dictionary<string, IAgentToolLauncher> _launchersByToolKind =
+        launchers.ToDictionary(l => l.ToolKind, StringComparer.OrdinalIgnoreCase);
+    private readonly IAgentRuntimeRegistry _agentRuntimeRegistry = agentRuntimeRegistry
+        ?? throw new ArgumentNullException(nameof(agentRuntimeRegistry));
 
     /// <summary>
     /// Default port the in-container A2A endpoint listens on. Mirrors the
@@ -120,7 +128,8 @@ public class A2AExecutionDispatcher(
         if (definition.Execution is null)
         {
             throw new SpringException(
-                $"Agent '{agentId}' has no execution configuration; set execution.tool in the agent YAML.");
+                $"Agent '{agentId}' has no execution configuration; " +
+                "set ai.agent (the runtime registry id) in the agent / unit YAML.");
         }
 
         return definition.Execution.Hosting switch
@@ -159,11 +168,7 @@ public class A2AExecutionDispatcher(
                 "or switch the agent to hosting: persistent.");
         }
 
-        if (!_launchersByTool.TryGetValue(definition.Execution.Tool, out var launcher))
-        {
-            throw new SpringException(
-                $"No IAgentToolLauncher registered for tool '{definition.Execution.Tool}' (agent '{agentId}').");
-        }
+        var (toolKind, launcher) = ResolveLauncher(definition.Execution.AgentRuntimeId, agentId);
 
         if (mcpServer.Endpoint is null)
         {
@@ -226,7 +231,7 @@ public class A2AExecutionDispatcher(
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
         var useDaprSidecar = string.Equals(
-            definition.Execution.Tool, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
+            toolKind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
 
         string? containerId = null;
         string? sidecarId = null;
@@ -487,11 +492,7 @@ public class A2AExecutionDispatcher(
                 "or on the parent unit as a default (spring unit execution set --image).");
         }
 
-        if (!_launchersByTool.TryGetValue(definition.Execution.Tool, out var launcher))
-        {
-            throw new SpringException(
-                $"No IAgentToolLauncher registered for tool '{definition.Execution.Tool}' (agent '{agentId}').");
-        }
+        var (toolKind, launcher) = ResolveLauncher(definition.Execution.AgentRuntimeId, agentId);
 
         if (mcpServer.Endpoint is null)
         {
@@ -547,7 +548,7 @@ public class A2AExecutionDispatcher(
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
         var useDaprSidecar = string.Equals(
-            definition.Execution.Tool, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
+            toolKind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
 
         string containerId;
         string? sidecarId = null;
@@ -867,13 +868,58 @@ public class A2AExecutionDispatcher(
     }
 
     /// <summary>
+    /// Resolves the launcher for the supplied agent-runtime registry id.
+    /// Surfaces a clean <see cref="SpringException"/> at every fail point —
+    /// unknown runtime, runtime present but no matching launcher — so the
+    /// dispatcher and the persistent-lifecycle path produce consistent error
+    /// messages for operators.
+    /// </summary>
+    /// <remarks>
+    /// #1732: this is the single derivation point for the launcher. The agent
+    /// definition stores the runtime id (<c>agent</c>), the registry maps it
+    /// to a <see cref="IAgentRuntime.ToolKind"/>, and the launcher dictionary
+    /// is keyed on the same value. Two distinct runtimes that share a
+    /// <c>ToolKind</c> (e.g. <c>openai</c> and <c>google</c> both =
+    /// <c>spring-voyage</c>) resolve to the same launcher.
+    /// </remarks>
+    internal (string ToolKind, IAgentToolLauncher Launcher) ResolveLauncher(
+        string agentRuntimeId,
+        string agentId)
+    {
+        var runtime = _agentRuntimeRegistry.Get(agentRuntimeId)
+            ?? throw new SpringException(
+                $"No agent runtime is registered with id '{agentRuntimeId}' " +
+                $"(agent '{agentId}'). Install the runtime plugin or set " +
+                "ai.agent to a registered runtime id.");
+
+        if (!_launchersByToolKind.TryGetValue(runtime.ToolKind, out var launcher))
+        {
+            throw new SpringException(
+                $"No IAgentToolLauncher registered for tool kind '{runtime.ToolKind}' " +
+                $"(agent runtime '{agentRuntimeId}', agent '{agentId}').");
+        }
+
+        return (runtime.ToolKind, launcher);
+    }
+
+    /// <summary>
     /// Serialises an <see cref="AgentDefinition"/> to YAML for the
     /// <c>/spring/context/agent-definition.yaml</c> file (D1 spec § 2.2.2).
     /// Uses underscore_case field names so the Python SDK's <c>yaml.safe_load</c>
     /// round-trips cleanly with the spec's example payload.
     /// </summary>
-    private static string SerialiseAgentDefinitionYaml(AgentDefinition definition)
+    private string SerialiseAgentDefinitionYaml(AgentDefinition definition)
     {
+        // #1732: emit the derived tool_kind so containers continue to see
+        // the same field they did pre-#1732 (one of the in-container probes
+        // reads it). The kind is sourced from the runtime registry.
+        string? toolKind = null;
+        if (definition.Execution is not null)
+        {
+            var runtime = _agentRuntimeRegistry.Get(definition.Execution.AgentRuntimeId);
+            toolKind = runtime?.ToolKind;
+        }
+
         var doc = new
         {
             agent_id = definition.AgentId,
@@ -881,7 +927,8 @@ public class A2AExecutionDispatcher(
             instructions = definition.Instructions,
             execution = definition.Execution is null ? null : new
             {
-                tool = definition.Execution.Tool,
+                agent = definition.Execution.AgentRuntimeId,
+                tool_kind = toolKind,
                 image = definition.Execution.Image,
                 hosting = definition.Execution.Hosting.ToString().ToLowerInvariant(),
                 provider = definition.Execution.Provider,

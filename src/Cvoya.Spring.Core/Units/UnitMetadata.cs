@@ -25,12 +25,19 @@ using System.Runtime.Serialization;
 /// <param name="Description">The description, or <c>null</c> to leave unchanged.</param>
 /// <param name="Model">An optional free-form model identifier (e.g., the LLM a unit defaults to), or <c>null</c> to leave unchanged.</param>
 /// <param name="Color">An optional UI color hint used by the dashboard, or <c>null</c> to leave unchanged.</param>
+/// <param name="Provider">Optional LLM provider identifier persisted on the unit-actor metadata, or <c>null</c> to leave unchanged.</param>
+/// <param name="Hosting">Optional hosting hint persisted on the unit-actor metadata, or <c>null</c> to leave unchanged.</param>
+/// <remarks>
+/// #1732: the standalone <c>Tool</c> slot was dropped — the execution tool
+/// is derived from the runtime registry via the unit's
+/// <see cref="Cvoya.Spring.Core.Execution.UnitExecutionDefaults.Agent"/>
+/// slot at dispatch time.
+/// </remarks>
 [DataContract]
 public record UnitMetadata(
     [property: DataMember] string? DisplayName,
     [property: DataMember] string? Description,
     [property: DataMember] string? Model,
     [property: DataMember] string? Color,
-    [property: DataMember] string? Tool = null,
     [property: DataMember] string? Provider = null,
     [property: DataMember] string? Hosting = null);

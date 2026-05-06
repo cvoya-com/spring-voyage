@@ -12,7 +12,7 @@
 
 import { apiPost, apiPut } from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { DEFAULT_MODEL, PROVIDER_ID, TOOL_ID } from "../../fixtures/runtime.js";
+import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 test.describe("engagement — create 1:1 + multi-turn (#1455)", () => {
@@ -30,7 +30,7 @@ test.describe("engagement — create 1:1 + multi-turn (#1455)", () => {
       name: unit,
       displayName: unit,
       description: "1:1 engagement spec (e2e-portal)",
-      tool: TOOL_ID,
+      agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",

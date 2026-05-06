@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
@@ -150,6 +151,7 @@ public static class AgentEndpoints
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IAgentExecutionStore store,
+        [FromServices] IAgentRuntimeRegistry runtimeRegistry,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -159,7 +161,7 @@ public static class AgentEndpoints
         }
 
         var shape = await store.GetAsync(id, cancellationToken);
-        return Results.Ok(ToAgentExecutionResponse(shape));
+        return Results.Ok(ToAgentExecutionResponse(shape, runtimeRegistry));
     }
 
     private static async Task<IResult> SetAgentExecutionAsync(
@@ -167,6 +169,7 @@ public static class AgentEndpoints
         AgentExecutionResponse request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IAgentExecutionStore store,
+        [FromServices] IAgentRuntimeRegistry runtimeRegistry,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -175,10 +178,10 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
+        // #1732: ToolKind is read-only on the wire — derived from Agent.
         var shape = new AgentExecutionShape(
             Image: request.Image,
             Runtime: request.Runtime,
-            Tool: request.Tool,
             Provider: request.Provider,
             Model: request.Model,
             Hosting: request.Hosting,
@@ -211,7 +214,7 @@ public static class AgentEndpoints
 
         await store.SetAsync(id, shape, cancellationToken);
         var stored = await store.GetAsync(id, cancellationToken);
-        return Results.Ok(ToAgentExecutionResponse(stored));
+        return Results.Ok(ToAgentExecutionResponse(stored, runtimeRegistry));
     }
 
     private static async Task<IResult> ClearAgentExecutionAsync(
@@ -230,17 +233,32 @@ public static class AgentEndpoints
         return Results.NoContent();
     }
 
-    internal static AgentExecutionResponse ToAgentExecutionResponse(AgentExecutionShape? shape) =>
-        shape is null
-            ? new AgentExecutionResponse()
-            : new AgentExecutionResponse(
-                Image: shape.Image,
-                Runtime: shape.Runtime,
-                Tool: shape.Tool,
-                Provider: shape.Provider,
-                Model: shape.Model,
-                Hosting: shape.Hosting,
-                Agent: shape.Agent);
+    internal static AgentExecutionResponse ToAgentExecutionResponse(
+        AgentExecutionShape? shape,
+        IAgentRuntimeRegistry runtimeRegistry)
+    {
+        if (shape is null)
+        {
+            return new AgentExecutionResponse();
+        }
+
+        // #1732: derive ToolKind from the runtime registry. Returns null when
+        // Agent is unset or names a runtime that is not registered here.
+        string? toolKind = null;
+        if (!string.IsNullOrWhiteSpace(shape.Agent))
+        {
+            toolKind = runtimeRegistry.Get(shape.Agent)?.ToolKind;
+        }
+
+        return new AgentExecutionResponse(
+            Image: shape.Image,
+            Runtime: shape.Runtime,
+            Provider: shape.Provider,
+            Model: shape.Model,
+            Hosting: shape.Hosting,
+            Agent: shape.Agent,
+            ToolKind: toolKind);
+    }
 
     private static async Task<IResult> DeployPersistentAgentAsync(
         string id,

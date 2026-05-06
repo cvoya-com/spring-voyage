@@ -241,6 +241,14 @@ public class MemberManifest
 /// <summary>
 /// Unit-level execution defaults (#601 / #603 / #409 — "B-wide" shape).
 /// </summary>
+/// <remarks>
+/// #1732: <c>tool:</c> was dropped — the execution tool is now derived
+/// from the runtime registry via <c>ai.agent</c>'s
+/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.ToolKind"/>.
+/// The <see cref="LegacyTool"/> slot is captured only so the parser can
+/// surface a precise migration error per ADR-0037 decision 6 when an
+/// old-shape file still carries it.
+/// </remarks>
 public class ExecutionManifest
 {
     /// <summary>Container image reference.</summary>
@@ -251,10 +259,6 @@ public class ExecutionManifest
     [YamlMember(Alias = "runtime")]
     public string? Runtime { get; set; }
 
-    /// <summary>Default external agent tool identifier.</summary>
-    [YamlMember(Alias = "tool")]
-    public string? Tool { get; set; }
-
     /// <summary>Default LLM provider.</summary>
     [YamlMember(Alias = "provider")]
     public string? Provider { get; set; }
@@ -263,12 +267,19 @@ public class ExecutionManifest
     [YamlMember(Alias = "model")]
     public string? Model { get; set; }
 
+    /// <summary>
+    /// Captured legacy <c>tool:</c> field. Present only so the parser can
+    /// surface an actionable <c>LegacyExecutionToolField</c> error per
+    /// ADR-0037 decision 6 / #1732 when an old-shape file still carries it.
+    /// </summary>
+    [YamlMember(Alias = "tool")]
+    public string? LegacyTool { get; set; }
+
     /// <summary>True when every field is null / whitespace.</summary>
     [YamlIgnore]
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
         && string.IsNullOrWhiteSpace(Runtime)
-        && string.IsNullOrWhiteSpace(Tool)
         && string.IsNullOrWhiteSpace(Provider)
         && string.IsNullOrWhiteSpace(Model);
 }

@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -40,7 +41,17 @@ public class PersistentAgentLifecycleTests
     public PersistentAgentLifecycleTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _launcher.Tool.Returns("claude-code");
+        // #1732: launcher.ToolKind matches IAgentRuntime.ToolKind
+        // (claude-code-cli for the claude runtime).
+        _launcher.ToolKind.Returns("claude-code-cli");
+
+        // #1732: registry maps the runtime id ("claude") to the launcher's
+        // ToolKind so the lifecycle can derive the launcher.
+        var claudeRuntime = Substitute.For<IAgentRuntime>();
+        claudeRuntime.Id.Returns("claude");
+        claudeRuntime.ToolKind.Returns("claude-code-cli");
+        var registry = Substitute.For<IAgentRuntimeRegistry>();
+        registry.Get("claude").Returns(claudeRuntime);
 
         var daprOptions = new DaprSidecarOptions();
         var services = new ServiceCollection();
@@ -55,6 +66,7 @@ public class PersistentAgentLifecycleTests
         services.AddSingleton(_mcpServer);
         services.AddSingleton(_launcher);
         services.AddSingleton<IEnumerable<IAgentToolLauncher>>(_ => new[] { _launcher });
+        services.AddSingleton(registry);
         services.AddSingleton<PersistentAgentRegistry>();
         services.AddSingleton<PersistentAgentLifecycle>();
         var sp = services.BuildServiceProvider();
@@ -97,7 +109,7 @@ public class PersistentAgentLifecycleTests
                 "e",
                 "E",
                 null,
-                new AgentExecutionConfig("claude-code", "img", Hosting: AgentHostingMode.Ephemeral)));
+                new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Ephemeral)));
 
         var ex = await Should.ThrowAsync<SpringException>(
             () => _lifecycle.DeployAsync("e", cancellationToken: ct));
@@ -114,7 +126,7 @@ public class PersistentAgentLifecycleTests
                 "a",
                 "A",
                 null,
-                new AgentExecutionConfig("claude-code", Image: null, Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig("claude", Image: null, Hosting: AgentHostingMode.Persistent)));
 
         var ex = await Should.ThrowAsync<SpringException>(
             () => _lifecycle.DeployAsync("a", cancellationToken: ct));
@@ -135,14 +147,14 @@ public class PersistentAgentLifecycleTests
                 "a",
                 "A",
                 null,
-                new AgentExecutionConfig("claude-code", "img", Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Persistent)));
 
         _agentProvider.GetByIdAsync("a", Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 "a",
                 "A",
                 null,
-                new AgentExecutionConfig("claude-code", "img", Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Persistent)));
 
         var result = await _lifecycle.DeployAsync("a", cancellationToken: ct);
 

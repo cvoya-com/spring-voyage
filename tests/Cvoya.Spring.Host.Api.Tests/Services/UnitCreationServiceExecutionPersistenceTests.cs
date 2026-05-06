@@ -60,11 +60,16 @@ public class UnitCreationServiceExecutionPersistenceTests
         {
             Name = "sv-oss-software-engineering",
             Description = "regression #1666 — execution block must persist",
+            // #1732: ai.agent (the runtime registry id) is the durable id;
+            // ExecutionManifest no longer carries Tool.
+            Ai = new AiManifest
+            {
+                Agent = "claude",
+            },
             Execution = new ExecutionManifest
             {
                 Image = "ghcr.io/cvoya/sv-oss-software-engineering:latest",
                 Runtime = "podman",
-                Tool = "claude-code",
                 Provider = "anthropic",
                 Model = "claude-sonnet-4",
             },
@@ -94,7 +99,10 @@ public class UnitCreationServiceExecutionPersistenceTests
         execution.GetProperty("image").GetString()
             .ShouldBe("ghcr.io/cvoya/sv-oss-software-engineering:latest");
         execution.GetProperty("runtime").GetString().ShouldBe("podman");
-        execution.GetProperty("tool").GetString().ShouldBe("claude-code");
+        // #1732: tool is no longer persisted; agent (runtime id) is the
+        // durable identity.
+        execution.TryGetProperty("tool", out _).ShouldBeFalse();
+        execution.GetProperty("agent").GetString().ShouldBe("claude");
         execution.GetProperty("provider").GetString().ShouldBe("anthropic");
         execution.GetProperty("model").GetString().ShouldBe("claude-sonnet-4");
     }
@@ -124,7 +132,6 @@ public class UnitCreationServiceExecutionPersistenceTests
             {
                 Image = "ghcr.io/cvoya/sv-oss-issue-1683:latest",
                 Runtime = "podman",
-                Tool = "claude-code",
             },
         };
 

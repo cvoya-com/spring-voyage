@@ -180,15 +180,19 @@ public static class UnitCommand
         {
             Description = "Optional UI accent colour hint (e.g. #6366f1).",
         };
-        // #350: execution tool, provider, and hosting mode.
-        var toolOption = new Option<string?>("--tool")
+        // #350: execution provider, and hosting mode.
+        // #1732: --tool was dropped — the execution tool is derived 1:1 from
+        // the runtime registry via --agent. The credential bootstrap path
+        // routes inline keys to the runtime named here.
+        var agentRuntimeOption = new Option<string?>("--agent")
         {
-            Description = "Execution tool (claude-code, codex, gemini, spring-voyage, custom).",
+            Description = "Agent runtime registry id (e.g. claude, openai, google, ollama). " +
+                "Drives both the launcher selection at dispatch and the credential write target " +
+                "for --api-key / --api-key-from-file.",
         };
-        toolOption.AcceptOnlyFromAmong("claude-code", "codex", "gemini", "spring-voyage", "custom");
         var providerOption = new Option<string?>("--provider")
         {
-            Description = "LLM provider (ollama, openai, google, anthropic). Relevant when --tool is spring-voyage.",
+            Description = "LLM provider (ollama, openai, google, anthropic). Relevant when the agent runtime resolves to the spring-voyage tool kind.",
         };
         providerOption.AcceptOnlyFromAmong("ollama", "openai", "google", "anthropic", "claude");
         var hostingOption = new Option<string?>("--hosting")
@@ -258,7 +262,7 @@ public static class UnitCommand
         command.Options.Add(descriptionOption);
         command.Options.Add(modelOption);
         command.Options.Add(colorOption);
-        command.Options.Add(toolOption);
+        command.Options.Add(agentRuntimeOption);
         command.Options.Add(providerOption);
         command.Options.Add(hostingOption);
         command.Options.Add(apiKeyOption);
@@ -275,7 +279,7 @@ public static class UnitCommand
             var description = parseResult.GetValue(descriptionOption);
             var model = parseResult.GetValue(modelOption);
             var color = parseResult.GetValue(colorOption);
-            var tool = parseResult.GetValue(toolOption);
+            var agentRuntime = parseResult.GetValue(agentRuntimeOption);
             var provider = parseResult.GetValue(providerOption);
             var hosting = parseResult.GetValue(hostingOption);
             var apiKey = parseResult.GetValue(apiKeyOption);
@@ -322,30 +326,13 @@ public static class UnitCommand
                 return;
             }
 
-            // #598 + #644: reject --provider on non-spring-voyage tools
-            // (their provider is baked in), and reject both flags on
-            // --tool=custom (no declared contract). --model is accepted
-            // for every tool that carries a known provider family so
-            // operators can pick within that family.
-            var providerModelError = ValidateProviderModelAgainstTool(tool, provider, model);
-            if (providerModelError is not null)
-            {
-                await Console.Error.WriteLineAsync(providerModelError);
-                Environment.Exit(1);
-                return;
-            }
-
-            // #626: resolve + validate --api-key / --api-key-from-file /
-            // --save-as-tenant-default. Rejection surfaces here so callers
-            // find out before we POST the unit-create request.
-            // #742: the canonical secret name now comes from the agent-
-            // runtime API response rather than a client-side switch, so
-            // the CLI, portal, and resolver stay in lock-step off the
-            // same authority.
+            // #1732: when an inline credential is supplied, the operator MUST
+            // also name the runtime via --agent so the CLI knows which secret
+            // to write. Pre-#1732 the CLI inferred this from --tool; now that
+            // the tool is derived, --agent is the input.
             var credentialClient = ClientFactory.Create();
             var credentialResolution = await ResolveCredentialOptionsAsync(
-                tool,
-                provider,
+                agentRuntime,
                 apiKey,
                 apiKeyFromFile,
                 saveAsTenantDefault,
@@ -400,7 +387,6 @@ public static class UnitCommand
                 description,
                 model: model,
                 color: color,
-                tool: tool,
                 provider: provider,
                 hosting: hosting,
                 parentUnitIds: parentUnits.Count > 0 ? (IReadOnlyList<Guid>)parentUnits : null,
@@ -1522,81 +1508,10 @@ public static class UnitCommand
         bool? Enabled,
         AgentExecutionMode? ExecutionMode);
 
-    // Canonical rejection message (#644) — operators read this verbatim
-    // when they combine --provider / --model with a tool that doesn't
-    // accept that flag. The CLI and the portal mirror the same policy:
-    // spring-voyage takes both, claude-code/codex/gemini take --model only,
-    // custom takes neither.
-    internal const string ProviderModelRejectionMessage =
-        "--provider is only meaningful for --tool=spring-voyage; " +
-        "other tools (claude-code, codex, gemini) have their provider hardcoded in the tool CLI, " +
-        "but accept --model to pick within that provider's model family.";
-
-    /// <summary>
-    /// Shared validator used by <c>spring unit create</c> and
-    /// <c>spring unit create-from-template</c>. Rejects <c>--provider</c>
-    /// and <c>--model</c> on the tools that don't accept them (#598,
-    /// #644). The matrix is:
-    /// <list type="bullet">
-    /// <item><description><c>spring-voyage</c> — both flags accepted.</description></item>
-    /// <item><description><c>claude-code</c> / <c>codex</c> / <c>gemini</c> —
-    /// provider is hardcoded in the tool's own CLI (rejected), but
-    /// <c>--model</c> is accepted so operators can pick within the tool's
-    /// baked-in provider family (Anthropic / OpenAI / Google). Value is
-    /// treated as opaque; the server validates at unit activation.</description></item>
-    /// <item><description><c>custom</c> — no declared contract, both
-    /// rejected.</description></item>
-    /// <item><description>tool unset — no second-guessing the server
-    /// default, both flags accepted.</description></item>
-    /// </list>
-    /// See <c>docs/architecture/cli-and-web.md</c> and
-    /// <c>docs/architecture/agent-runtime.md</c> for the full rationale.
-    /// </summary>
-    /// <param name="tool">Value of <c>--tool</c> (null when not supplied).</param>
-    /// <param name="provider">Value of <c>--provider</c> (null when not supplied).</param>
-    /// <param name="model">Value of <c>--model</c> (null when not supplied).</param>
-    /// <returns>
-    /// Null when the combination is valid. An error message suitable for
-    /// stderr when the combination is rejected.
-    /// </returns>
-    public static string? ValidateProviderModelAgainstTool(
-        string? tool,
-        string? provider,
-        string? model)
-    {
-        // No constraint when neither --provider nor --model was passed —
-        // the server resolves defaults. When --tool is absent we also
-        // skip the check: the server picks the default tool (claude-code
-        // at the time of writing) and the CLI doesn't know the default
-        // authoritatively, so rejecting `--provider` in that case would
-        // be overreach. Operators who want to pin Provider / Model must
-        // also name the tool they're targeting.
-        var hasProvider = !string.IsNullOrWhiteSpace(provider);
-        var hasModel = !string.IsNullOrWhiteSpace(model);
-        if (!hasProvider && !hasModel)
-        {
-            return null;
-        }
-
-        var normalizedTool = (tool ?? string.Empty).Trim().ToLowerInvariant();
-        if (normalizedTool.Length == 0)
-        {
-            return null;
-        }
-
-        // spring-voyage is the only tool that takes a user-chosen provider.
-        // The other supported tools (claude-code, codex, gemini) have
-        // their provider baked in but still accept --model. custom has
-        // no declared contract so both flags are rejected.
-        return normalizedTool switch
-        {
-            "spring-voyage" => null,
-            "claude-code" or "codex" or "gemini" => hasProvider
-                ? ProviderModelRejectionMessage
-                : null,
-            _ => ProviderModelRejectionMessage,
-        };
-    }
+    // #1732: ValidateProviderModelAgainstTool / DeriveRequiredRuntimeId
+    // were the pre-#1732 tool-to-runtime bridge. Now that the runtime id
+    // is the input directly (--agent on `unit create` / `agent create`),
+    // both helpers are obsolete and were removed.
 
     /// <summary>
     /// #742: adapter over <see cref="SpringApiClient.GetAgentRuntimeAsync"/>
@@ -1615,47 +1530,6 @@ public static class UnitCommand
             var runtime = await client.GetAgentRuntimeAsync(runtimeId, ct);
             return runtime?.CredentialSecretName;
         };
-
-    /// <summary>
-    /// #626 / #742: derive the agent-runtime id whose credential the
-    /// operator's tool + provider combination needs, so the CLI can fetch
-    /// <c>credentialSecretName</c> from <c>GET /api/v1/agent-runtimes/{id}</c>
-    /// instead of hardcoding the provider → secret-name map. Returns
-    /// <c>null</c> when the combination has no declared credential contract
-    /// (<c>custom</c> tool, <c>--tool</c> omitted, or an unknown provider on
-    /// <c>spring-voyage</c>).
-    /// </summary>
-    /// <remarks>
-    /// Ollama maps to the <c>ollama</c> runtime id even though it needs no
-    /// key — the runtime's own <c>CredentialSecretName</c> is the empty
-    /// string, which <see cref="ResolveCredentialOptionsAsync"/> treats as
-    /// "no credential to write". Mirrors the portal-side
-    /// <c>deriveRequiredRuntimeId</c> in
-    /// <c>src/Cvoya.Spring.Web/src/app/units/create/page.tsx</c>.
-    /// </remarks>
-    public static string? DeriveRequiredRuntimeId(
-        string? tool,
-        string? provider)
-    {
-        var normalizedTool = (tool ?? string.Empty).Trim().ToLowerInvariant();
-        var normalizedProvider = (provider ?? string.Empty).Trim().ToLowerInvariant();
-        return normalizedTool switch
-        {
-            "claude-code" => "claude",
-            "codex" => "openai",
-            "gemini" => "google",
-            "spring-voyage" => normalizedProvider switch
-            {
-                "claude" or "anthropic" => "claude",
-                "openai" => "openai",
-                "google" or "gemini" or "googleai" => "google",
-                "ollama" => "ollama",
-                _ => null,
-            },
-            // custom / unspecified → no declared credential contract.
-            _ => null,
-        };
-    }
 
     /// <summary>
     /// #626 / #742: resolve the inline-credential flags into a validated
@@ -1683,8 +1557,7 @@ public static class UnitCommand
     /// resolver stay in lock-step off a single authority.
     /// </remarks>
     public static async Task<UnitCredentialOptions> ResolveCredentialOptionsAsync(
-        string? tool,
-        string? provider,
+        string? agentRuntimeId,
         string? apiKey,
         string? apiKeyFromFile,
         bool saveAsTenantDefault,
@@ -1714,13 +1587,15 @@ public static class UnitCommand
                 "--api-key and --api-key-from-file are mutually exclusive. Pass exactly one.");
         }
 
-        var runtimeId = DeriveRequiredRuntimeId(tool, provider);
+        // #1732: --tool was dropped — the runtime id is the credential
+        // routing key. Operators name it directly via --agent.
+        var runtimeId = string.IsNullOrWhiteSpace(agentRuntimeId)
+            ? null
+            : agentRuntimeId.Trim();
         if (runtimeId is null)
         {
             return UnitCredentialOptions.Rejected(
-                "--api-key / --api-key-from-file is only valid for tools that map to a registered agent runtime " +
-                "(claude-code, codex, gemini, or spring-voyage with a known provider). " +
-                "custom tools have no declared credential contract.");
+                "--api-key / --api-key-from-file requires --agent to name the runtime that owns the credential.");
         }
 
         // Ollama's runtime id is known but its CredentialSecretName is
@@ -1737,7 +1612,7 @@ public static class UnitCommand
         {
             return UnitCredentialOptions.Rejected(
                 $"Agent runtime '{runtimeId}' declares no credential (runs without an API key). " +
-                "Drop --api-key / --api-key-from-file for this tool/provider combination.");
+                "Drop --api-key / --api-key-from-file for this runtime.");
         }
 
         string? resolvedKey;

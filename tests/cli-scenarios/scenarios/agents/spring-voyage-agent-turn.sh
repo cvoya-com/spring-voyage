@@ -48,20 +48,24 @@ e2e::expect_status "0" "${code}" "unit create succeeds"
 # Inline JSON body for `--definition`. Uses jq when available (clean escaping)
 # and falls back to a hand-written literal otherwise so the scenario runs on
 # hosts without jq.
+# #1732: 'tool' was dropped from the persisted execution block; the runtime
+# registry derives the tool kind from 'agent'. The scenario uses the
+# 'openai' runtime (which declares tool_kind=spring-voyage) so the
+# spring-voyage launcher is selected.
 if command -v jq >/dev/null 2>&1; then
     definition="$(jq -cn \
-        --arg tool "spring-voyage-agent" \
+        --arg agent_runtime "openai" \
         --arg image "${image}" \
         --arg provider "${provider}" \
         --arg model "${model}" \
-        '{execution: {tool: $tool, image: $image, provider: $provider, model: $model}}')"
+        '{execution: {agent: $agent_runtime, image: $image, provider: $provider, model: $model}}')"
 else
-    definition="{\"execution\":{\"tool\":\"spring-voyage-agent\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
+    definition="{\"execution\":{\"agent\":\"openai\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
 fi
 
 
 # #744: agent create requires --unit; the membership is registered atomically.
-e2e::log "spring agent create ${agent} --unit ${unit} (tool=spring-voyage-agent, provider=${provider}, model=${model})"
+e2e::log "spring agent create ${agent} --unit ${unit} (agent=openai, provider=${provider}, model=${model})"
 response="$(e2e::cli_agent_create --output json "${agent}" \
     --unit "${unit}" \
     --name "Dapr Agent" \

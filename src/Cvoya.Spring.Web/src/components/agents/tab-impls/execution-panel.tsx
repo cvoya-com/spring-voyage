@@ -96,7 +96,7 @@ const FIELD_UNSET = "__unset__";
 
 type ExecutionField =
   | "image"
-  | "tool"
+  | "agent"
   | "provider"
   | "model"
   | "hosting";
@@ -138,17 +138,19 @@ export function AgentExecutionPanel({
     const current = persisted ?? {};
     return (
       (form.image ?? null) !== (current.image ?? null) ||
-      (form.tool ?? null) !== (current.tool ?? null) ||
+      (form.agent ?? null) !== (current.agent ?? null) ||
       (form.provider ?? null) !== (current.provider ?? null) ||
       (form.model ?? null) !== (current.model ?? null) ||
       (form.hosting ?? null) !== (current.hosting ?? null)
     );
   }, [form, persisted]);
 
-  // Resolve the effective `tool` for gating: agent's own value wins,
-  // unit default fills in otherwise.
+  // Resolve the effective `agent` (runtime id) for gating: the agent's
+  // own value wins, unit default fills in otherwise. #1738: the legacy
+  // `tool` field was retired in #1732; the operator-chosen value lives
+  // on `agent`, server-derived shape lives on `toolKind`.
   const effectiveToolForGating =
-    form.tool ?? persisted?.tool ?? unitDefaults?.tool ?? null;
+    form.agent ?? persisted?.agent ?? unitDefaults?.agent ?? null;
   const showProvider = effectiveToolForGating === "spring-voyage";
 
   // #641 / #1702: Model is always rendered. Derive the runtime id from
@@ -229,14 +231,12 @@ export function AgentExecutionPanel({
   };
 
   const handleSave = () => {
-    // #1702: drop the legacy `runtime` field; mirror `tool` into the
-    // new wire-level `agent` field so the dispatcher can resolve the
-    // agent-runtime registry entry without re-deriving it. Provider
-    // stays gated on spring-voyage.
+    // #1738: the wire shape carries `agent` (operator-chosen runtime
+    // id) only; `tool` was retired in #1732. The server derives
+    // `toolKind` from the registry — read-only.
     const next: AgentExecutionResponse = {
       image: form.image ?? null,
-      tool: form.tool ?? null,
-      agent: form.tool ?? null,
+      agent: form.agent ?? null,
       provider: showProvider ? (form.provider ?? null) : null,
       model: form.model ?? null,
       hosting: form.hosting ?? null,
@@ -341,21 +341,32 @@ export function AgentExecutionPanel({
         <FieldRow
           label="Agent Runtime"
           help={
-            inherited("tool")
-              ? `inherited from unit: ${inherited("tool")}`
+            inherited("agent")
+              ? `inherited from unit: ${inherited("agent")}`
               : "Agent runtime the dispatcher uses."
           }
-          onClear={persisted?.tool ? () => clearField("tool") : undefined}
+          onClear={persisted?.agent ? () => clearField("agent") : undefined}
           busy={setMutation.isPending}
         >
-          <SelectField
-            value={form.tool ?? null}
-            onChange={(next) => setField("tool", next)}
-            options={EXECUTION_TOOL_KEYS}
-            inheritedLabel={inherited("tool")}
-            ariaLabel="Agent runtime"
-            testid="agent-execution-tool-select"
-          />
+          <div className="flex items-center gap-2">
+            <SelectField
+              value={form.agent ?? null}
+              onChange={(next) => setField("agent", next)}
+              options={EXECUTION_TOOL_KEYS}
+              inheritedLabel={inherited("agent")}
+              ariaLabel="Agent runtime"
+              testid="agent-execution-tool-select"
+            />
+            {persisted?.toolKind ? (
+              <Badge
+                variant="outline"
+                className="shrink-0 text-xs font-normal"
+                data-testid="agent-execution-tool-kind"
+              >
+                {persisted.toolKind}
+              </Badge>
+            ) : null}
+          </div>
         </FieldRow>
 
         {showProvider && (
@@ -588,7 +599,7 @@ function SelectField({
 function isEmpty(block: AgentExecutionResponse): boolean {
   return (
     !block.image &&
-    !block.tool &&
+    !block.agent &&
     !block.provider &&
     !block.model &&
     !block.hosting

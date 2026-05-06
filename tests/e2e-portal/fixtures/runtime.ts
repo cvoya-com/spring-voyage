@@ -19,10 +19,14 @@
  * one obvious answer to "what runtime are these tests pretending to be?".
  */
 
-/** Wizard execution-tool dropdown value (`<option value=…>`). */
-export const TOOL_ID = "dapr-agent";
+/**
+ * Wizard agent-runtime dropdown value (`<option value=…>`). #1738
+ * renames the wire field from `tool` to `agent`; the canonical
+ * registry id stays the same.
+ */
+export const AGENT_ID = "dapr-agent";
 
-/** LLM-provider dropdown value when tool is dapr-agent. */
+/** LLM-provider dropdown value when agent is dapr-agent. */
 export const PROVIDER_ID = "ollama";
 
 /** Default Ollama model — must be present on the local Ollama server. */

@@ -32,9 +32,11 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public void Tool_IsCodex()
+    public void ToolKind_IsCodexCli()
     {
-        _launcher.Tool.ShouldBe("codex");
+        // #1732: codex-cli is the canonical tool kind for a future Codex
+        // runtime. No IAgentRuntime currently resolves to this launcher.
+        _launcher.ToolKind.ShouldBe("codex-cli");
     }
 
     [Fact]

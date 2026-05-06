@@ -7,23 +7,36 @@ namespace Cvoya.Spring.Core.Execution;
 /// Describes the container-launch contract for one specific external agent
 /// tool. Different tools (Claude Code, Codex, Gemini CLI, …) materialise
 /// their per-invocation configuration differently, so each gets its own
-/// launcher. The dispatcher selects the launcher matching the
-/// <see cref="AgentExecutionConfig.Tool"/> of the resolved agent definition.
+/// launcher. The dispatcher selects the launcher whose <see cref="ToolKind"/>
+/// matches the resolved <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.ToolKind"/>.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Launchers no longer touch the local filesystem: they describe the workspace
 /// they need (file contents keyed by relative path, plus the desired in-container
 /// mount path) and let the dispatcher service materialise that workspace on its
 /// own host filesystem. This is what allows the agent container's bind mount to
 /// resolve to a real path the container runtime can see — see issue #1042.
+/// </para>
+/// <para>
+/// #1732: launchers are keyed on the runtime's
+/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.ToolKind"/>. The
+/// dispatcher looks up the runtime by the agent's persisted <c>execution.agent</c>
+/// (i.e. <see cref="AgentExecutionConfig.AgentRuntimeId"/>) and picks the
+/// launcher whose <see cref="ToolKind"/> matches.
+/// </para>
 /// </remarks>
 public interface IAgentToolLauncher
 {
     /// <summary>
-    /// The tool identifier this launcher handles (matches
-    /// <see cref="AgentExecutionConfig.Tool"/>).
+    /// The tool kind this launcher handles. Must match the
+    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.ToolKind"/>
+    /// of every runtime that should dispatch through this launcher (multiple
+    /// runtimes may share a tool kind when they differ only in their LLM
+    /// backend — e.g. <c>openai</c>, <c>google</c>, and <c>ollama</c> all
+    /// share <c>spring-voyage</c>).
     /// </summary>
-    string Tool { get; }
+    string ToolKind { get; }
 
     /// <summary>
     /// Builds the container-launch contract for one invocation. The returned

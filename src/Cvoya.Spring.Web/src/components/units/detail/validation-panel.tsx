@@ -59,13 +59,21 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   unit: UnitResponse;
-  // Image / runtime context needed for a few error-copy strings (e.g.
-  // "The <tool> command isn't available in <image>"). Neither sits on
-  // `UnitResponse` — the detail page pulls them from
-  // `useUnitExecution`. Passed as an optional prop so the panel renders
-  // cleanly even when the execution slice hasn't loaded yet.
+  // Image / runtime / toolKind / agent context needed for a few error-copy
+  // strings (e.g. "The <toolKind> command isn't available in <image>")
+  // and for runtime-id resolution. None sit on `UnitResponse` — the
+  // detail page pulls them from `useUnitExecution`. Passed as optional
+  // props so the panel renders cleanly even when the execution slice
+  // hasn't loaded yet.
+  //
+  // #1738: replaces the legacy `unit.tool` read with explicit
+  // execution-block context. `toolKind` is server-derived (read-only);
+  // `agent` is the operator-chosen runtime registry id.
   image?: string | null;
   runtime?: string | null;
+  toolKind?: string | null;
+  agent?: string | null;
+  provider?: string | null;
 }
 
 /**
@@ -202,7 +210,14 @@ function extractProgressStep(event: ActivityEvent): UnitValidationStep | null {
   return null;
 }
 
-export default function ValidationPanel({ unit, image, runtime }: Props) {
+export default function ValidationPanel({
+  unit,
+  image,
+  runtime,
+  toolKind,
+  agent,
+  provider,
+}: Props) {
   const status = unit.status;
 
   // Track the most-recently-observed step from SSE so the spinner
@@ -324,7 +339,10 @@ export default function ValidationPanel({ unit, image, runtime }: Props) {
   const ctx: CopyContext = {
     image: image ?? null,
     runtime: runtime ?? null,
-    tool: unit.tool ?? null,
+    // #1738: copy strings reference the server-derived `toolKind`
+    // (CLI shape — claude-code/codex/gemini/spring-voyage) so the
+    // hint matches what shows in the agent container.
+    tool: toolKind ?? null,
     model: unit.model ?? null,
     runId: unit.lastValidationRunId ?? null,
   };
@@ -387,7 +405,12 @@ export default function ValidationPanel({ unit, image, runtime }: Props) {
           </div>
         </div>
 
-        <ErrorActions unit={unit} revalidateMutation={revalidateMutation} />
+        <ErrorActions
+          unit={unit}
+          agent={agent ?? null}
+          provider={provider ?? null}
+          revalidateMutation={revalidateMutation}
+        />
       </CardContent>
     </Card>
   );
@@ -502,21 +525,25 @@ function StepChecklist({
  */
 function ErrorActions({
   unit,
+  agent,
+  provider,
   revalidateMutation,
 }: {
   unit: UnitResponse;
+  agent: string | null;
+  provider: string | null;
   revalidateMutation: UseMutationResult<void, Error, void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [credentialKey, setCredentialKey] = useState("");
   const queryClient = useQueryClient();
 
-  // The secret the backend reads for this unit's runtime. The runtime
-  // id is carried on the unit as `tool` for fixed-provider launchers
-  // (claude-code → "claude", etc.) OR `provider` for spring-voyage. We
-  // map through `getRuntimeSecretName` so the name stays in sync with
-  // the wizard's and the backend's naming conventions.
-  const runtimeIdForSecret = resolveRuntimeId(unit);
+  // The secret the backend reads for this unit's runtime. #1738: the
+  // runtime id is the operator-chosen `agent` field on the unit's
+  // execution block (claude-code → "claude", etc.) OR `provider` for
+  // spring-voyage. We map through `getRuntimeSecretName` so the name
+  // stays in sync with the wizard's and the backend's naming conventions.
+  const runtimeIdForSecret = resolveRuntimeId(agent, provider);
   const secretName = runtimeIdForSecret
     ? getRuntimeSecretName(runtimeIdForSecret)
     : null;
@@ -660,12 +687,17 @@ function ErrorActions({
  * the agent-runtimes catalog — the panel only needs the id, and the
  * secret name is derived from it via `getRuntimeSecretName`. Returns
  * null when the unit runs a custom tool (no declared credential).
+ *
+ * #1738: takes the runtime registry id (`agent`) directly instead of
+ * reading the retired `unit.tool` field; the wire shape now carries
+ * the operator-chosen value on `execution.agent`.
  */
-function resolveRuntimeId(unit: UnitResponse): string | null {
-  const tool = unit.tool;
-  const provider = unit.provider ?? "";
-  if (!tool) return null;
-  switch (tool) {
+function resolveRuntimeId(
+  agent: string | null,
+  provider: string | null,
+): string | null {
+  if (!agent) return null;
+  switch (agent) {
     case "claude-code":
       return "claude";
     case "codex":
@@ -673,7 +705,7 @@ function resolveRuntimeId(unit: UnitResponse): string | null {
     case "gemini":
       return "google";
     case "spring-voyage": {
-      const normalised = provider.trim().toLowerCase();
+      const normalised = (provider ?? "").trim().toLowerCase();
       if (!normalised || normalised === "ollama") return null;
       return normalised === "anthropic" ? "claude" : normalised;
     }
