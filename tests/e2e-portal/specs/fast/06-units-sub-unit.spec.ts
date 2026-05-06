@@ -1,6 +1,6 @@
 import { apiPost } from "../../fixtures/api.js";
 import { unitName } from "../../fixtures/ids.js";
-import { DEFAULT_MODEL, PROVIDER_ID, TOOL_ID } from "../../fixtures/runtime.js";
+import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 /**
@@ -28,7 +28,7 @@ test.describe("units — sub-unit (wizard parent picker)", () => {
       name: parent,
       displayName: parent,
       description: "Sub-unit parent (e2e-portal)",
-      tool: TOOL_ID,
+      agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",
@@ -57,7 +57,7 @@ test.describe("units — sub-unit (wizard parent picker)", () => {
     await page.getByRole("button", { name: /^next$/i }).click();
 
     // Step 3 — Execution.
-    await page.getByLabel("Execution tool").selectOption(TOOL_ID);
+    await page.getByLabel("Execution tool").selectOption(AGENT_ID);
     await page.getByLabel("LLM provider").selectOption(PROVIDER_ID);
     const modelSelect = page.getByLabel("Model");
     await modelSelect.waitFor({ state: "visible", timeout: 30_000 });

@@ -66,6 +66,9 @@ function wrap(node: ReactNode) {
 }
 
 function makeUnit(overrides: Partial<UnitResponse>): UnitResponse {
+  // #1738: `unit.tool` was retired in #1732. Tests that need the
+  // execution-block context for runtime resolution pass `agent` /
+  // `provider` / `toolKind` directly to <ValidationPanel> as props.
   return {
     id: "alpha-id",
     name: "alpha",
@@ -75,7 +78,6 @@ function makeUnit(overrides: Partial<UnitResponse>): UnitResponse {
     status: "Validating",
     model: "claude-sonnet-4.7",
     color: null,
-    tool: "claude-code",
     provider: null,
     hosting: null,
     lastValidationError: null,
@@ -240,7 +242,9 @@ describe("ValidationPanel — Error status", () => {
       callOrder.push("revalidateUnit");
     });
 
-    render(wrap(<ValidationPanel unit={unit} />));
+    // #1738: pass the runtime registry id via the `agent` prop —
+    // `resolveRuntimeId` reads it directly (not from `unit.tool`).
+    render(wrap(<ValidationPanel unit={unit} agent="claude-code" />));
 
     // Open the inline editor.
     const edit = screen.getByTestId("validation-panel-edit-credential");

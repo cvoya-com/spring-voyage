@@ -8,7 +8,7 @@
 
 import { unitName } from "../../fixtures/ids.js";
 import { apiPost } from "../../fixtures/api.js";
-import { DEFAULT_MODEL, PROVIDER_ID, TOOL_ID } from "../../fixtures/runtime.js";
+import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 test.describe("engagement — new-engagement form (#1455)", () => {
@@ -21,7 +21,7 @@ test.describe("engagement — new-engagement form (#1455)", () => {
       name: unit,
       displayName: unit,
       description: "Engagement picker spec (e2e-portal)",
-      tool: TOOL_ID,
+      agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",
@@ -72,7 +72,7 @@ test.describe("engagement — new-engagement form (#1455)", () => {
       name: unit,
       displayName: unit,
       description: "Engagement empty-message spec (e2e-portal)",
-      tool: TOOL_ID,
+      agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",
@@ -99,7 +99,7 @@ test.describe("engagement — pre-seeded from query string (#1456)", () => {
       name: unit,
       displayName: unit,
       description: "Engagement pre-seeded spec (e2e-portal)",
-      tool: TOOL_ID,
+      agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",
@@ -125,7 +125,7 @@ test.describe("engagement — pre-seeded from query string (#1456)", () => {
       name: unitA,
       displayName: unitA,
       description: "A (e2e-portal)",
-      tool: TOOL_ID,
+      agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",
@@ -135,7 +135,7 @@ test.describe("engagement — pre-seeded from query string (#1456)", () => {
       name: unitB,
       displayName: unitB,
       description: "B (e2e-portal)",
-      tool: TOOL_ID,
+      agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",
@@ -165,7 +165,7 @@ test.describe("engagement — pre-seeded from query string (#1456)", () => {
       name: unit,
       displayName: unit,
       description: "Engagement pre-seeded-remove spec (e2e-portal)",
-      tool: TOOL_ID,
+      agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",

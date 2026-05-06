@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 
 import { expect } from "@playwright/test";
 
-import { DEFAULT_MODEL, PROVIDER_ID, TOOL_ID } from "../fixtures/runtime.js";
+import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../fixtures/runtime.js";
 
 /**
  * Drives `/units/create` — the post-ADR-0035 wizard at
@@ -87,8 +87,10 @@ export async function createScratchUnit(
   await clickNext(page);
 
   // ── Step 3 — Execution ─────────────────────────────────────────────────
-  await page.getByLabel("Execution tool").selectOption(TOOL_ID);
-  // Provider dropdown only renders when tool === dapr-agent.
+  // #1738: the wire field renamed `tool` → `agent`; the wizard still
+  // labels its dropdown "Execution tool" pending a UI relabel.
+  await page.getByLabel("Execution tool").selectOption(AGENT_ID);
+  // Provider dropdown only renders when agent === dapr-agent.
   await page.getByLabel("LLM provider").selectOption(PROVIDER_ID);
   // The model dropdown is hidden until the runtime catalog resolves.
   // Wait for it to appear, then pick.

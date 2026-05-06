@@ -139,6 +139,9 @@ function UnitOverviewTab({ node }: TabContentProps) {
           unit={liveUnit}
           image={executionQuery.data?.image ?? null}
           runtime={executionQuery.data?.runtime ?? null}
+          toolKind={executionQuery.data?.toolKind ?? null}
+          agent={executionQuery.data?.agent ?? null}
+          provider={executionQuery.data?.provider ?? null}
         />
       )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

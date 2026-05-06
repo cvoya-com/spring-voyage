@@ -91,7 +91,8 @@ function makeUnit(overrides: Partial<UnitResponse> = {}): UnitResponse {
     status: overrides.status ?? "Stopped",
     model: overrides.model ?? null,
     color: overrides.color ?? null,
-    tool: overrides.tool ?? null,
+    // #1738: `tool` retired in #1732; `UnitResponse` no longer carries
+    // execution fields beyond model/provider/hosting.
     provider: overrides.provider ?? null,
     hosting: overrides.hosting ?? null,
   } as UnitResponse;
@@ -288,12 +289,13 @@ describe("CreateAgentPage", () => {
       description: "Test agent",
       image: "ghcr.io/example/agent:latest",
       runtime: "docker",
-      tool: "claude-code",
+      agent: "claude-code",
       model: "claude-3-5-sonnet",
       unitIds: ["alpha"],
     });
 
     // #1718 items 1+2: no `kind:`; agent body lives under content[].agent.
+    // #1738: `ai.tool` renamed to `ai.agent` (runtime registry id).
     expect(yaml).not.toContain("kind:");
     expect(yaml).toContain("content:");
     expect(yaml).toContain("- agent:");
@@ -304,7 +306,7 @@ describe("CreateAgentPage", () => {
     expect(yaml).toContain("description: Test agent");
     expect(yaml).toContain("image: ghcr.io/example/agent:latest");
     expect(yaml).toContain("runtime: docker");
-    expect(yaml).toContain("tool: claude-code");
+    expect(yaml).toContain("agent: claude-code");
     expect(yaml).toContain("model: claude-3-5-sonnet");
   });
 

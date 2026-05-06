@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-import { TOOL_ID } from "../fixtures/runtime.js";
+import { AGENT_ID } from "../fixtures/runtime.js";
 
 /**
  * Drive `/agents/create` — see `src/Cvoya.Spring.Web/src/app/agents/create/page.tsx`.
@@ -31,7 +31,7 @@ export async function createAgent(page: Page, opts: AgentCreateOptions): Promise
     await page.getByLabel("Role").fill(opts.role);
   }
 
-  await page.getByLabel("Execution tool").selectOption(opts.tool ?? TOOL_ID);
+  await page.getByLabel("Execution tool").selectOption(opts.tool ?? AGENT_ID);
 
   if (opts.model) {
     // Optional — the dropdown can be empty depending on the runtime catalog.

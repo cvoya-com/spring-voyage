@@ -1,7 +1,7 @@
 import { request } from "@playwright/test";
 
 import { unitName } from "../../fixtures/ids.js";
-import { PROVIDER_ID, TOOL_ID } from "../../fixtures/runtime.js";
+import { AGENT_ID, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 /**
@@ -45,7 +45,7 @@ test.describe("units — wizard scratch end-to-end (regression for #1598)", () =
     await page.getByRole("button", { name: /^next$/i }).click();
 
     // Execution: dapr-agent + ollama + the dapr image
-    await page.getByLabel("Execution tool").selectOption(TOOL_ID);
+    await page.getByLabel("Execution tool").selectOption(AGENT_ID);
     await page.getByLabel("LLM provider").selectOption(PROVIDER_ID);
     await page.getByLabel("Execution image").fill(image);
     await page.getByRole("button", { name: /^next$/i }).click();
@@ -59,6 +59,9 @@ test.describe("units — wizard scratch end-to-end (regression for #1598)", () =
 
     // Assert the unit row + execution row reflect the wizard inputs.
     // Cleanup is the tracker fixture's responsibility; we only verify here.
+    // #1738: `unit.tool` was retired in #1732. The runtime registry id
+    // now lives on the execution block as `agent`; the server derives
+    // `toolKind` and exposes it read-only.
     const api = await request.newContext({
       baseURL: baseURL ?? "http://localhost",
     });
@@ -68,20 +71,22 @@ test.describe("units — wizard scratch end-to-end (regression for #1598)", () =
       const unitBody = (await unitResp.json()) as {
         unit: {
           name: string;
-          tool: string | null;
           provider: string | null;
         };
       };
       expect(unitBody.unit.name).toBe(slug);
-      expect(unitBody.unit.tool).toBe(TOOL_ID);
       expect(unitBody.unit.provider).toBe(PROVIDER_ID);
 
       const execResp = await api.get(
         `/api/v1/tenant/units/${slug}/execution`,
       );
       expect(execResp.ok()).toBeTruthy();
-      const execBody = (await execResp.json()) as { image: string | null };
+      const execBody = (await execResp.json()) as {
+        image: string | null;
+        agent: string | null;
+      };
       expect(execBody.image).toBe(image);
+      expect(execBody.agent).toBe(AGENT_ID);
     } finally {
       await api.dispose();
     }
