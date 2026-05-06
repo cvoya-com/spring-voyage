@@ -88,7 +88,7 @@ A five-step wizard driving the same `/api/v1/units` endpoints as the CLI. Units 
 
 Collects name, display name, description, execution tool (claude-code, codex, gemini, dapr-agent, custom), hosting mode, image/runtime defaults, and a UI color.
 
-- **Provider dropdown** is shown only for `dapr-agent`; other tools hardcode their provider.
+- **Provider dropdown** is shown only for `spring-voyage-agent`; other tools hardcode their provider.
 - **Model dropdown** is shown for every tool with a known catalog (Claude, OpenAI, Gemini, Dapr Agent). The catalog comes from `GET /api/v1/models/{provider}`.
 - **Credential section** shows the resolved status for the required LLM provider key. Three states: *Tenant default inherited* (green + Override button), *Unit override set* (green), *Not configured* (amber + inline input + "Save as tenant default" checkbox). The Create button is disabled until the credential resolves.
 

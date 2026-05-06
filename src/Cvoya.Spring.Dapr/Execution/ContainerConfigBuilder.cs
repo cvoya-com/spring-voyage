@@ -126,7 +126,7 @@ public static class ContainerConfigBuilder
             // actually populated a workspace (i.e. WorkspaceFiles is non-empty).
             // Launchers like ClaudeCodeLauncher write CLAUDE.md / .mcp.json into
             // the workspace and run their tool from cwd, so they need the workdir
-            // override; launchers like DaprAgentLauncher carry an empty workspace
+            // override; launchers like SpringVoyageAgentLauncher carry an empty workspace
             // (their prompt arrives via env vars) and ship images whose CMD is
             // relative to a fixed image workdir (e.g. /app for python agent.py).
             // Overriding their workdir to /workspace would break the relative

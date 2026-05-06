@@ -131,7 +131,7 @@ public class ContainerConfigBuilderTests
     [Fact]
     public void Build_NullWorkingDirectory_WithEmptyWorkspaceFiles_LeavesWorkdirNull()
     {
-        // #1159: launchers like DaprAgentLauncher carry an empty workspace
+        // #1159: launchers like SpringVoyageAgentLauncher carry an empty workspace
         // (their prompt arrives via env vars, not files) and ship images
         // whose CMD is relative to a fixed image workdir (e.g. /app for
         // `python agent.py`). Overriding workdir to /workspace breaks the

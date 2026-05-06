@@ -195,7 +195,7 @@ internal static class ServiceCollectionExtensionsExecution
         services.AddSingleton<IAgentToolLauncher, ClaudeCodeLauncher>();
         services.AddSingleton<IAgentToolLauncher, CodexLauncher>();
         services.AddSingleton<IAgentToolLauncher, GeminiLauncher>();
-        services.AddSingleton<IAgentToolLauncher, DaprAgentLauncher>();
+        services.AddSingleton<IAgentToolLauncher, SpringVoyageAgentLauncher>();
         // D3c: per-agent workspace volume manager. Provisions volumes before
         // agent containers start, reclaims them on agent delete / ephemeral
         // completion, and emits volume-level telemetry (size, growth rate).

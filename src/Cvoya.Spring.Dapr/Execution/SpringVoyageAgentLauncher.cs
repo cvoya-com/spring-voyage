@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// <see cref="IAgentToolLauncher"/> for the Dapr Agent container. Sets the
+/// <see cref="IAgentToolLauncher"/> for the Spring Voyage Agent container. Sets the
 /// environment variables the Python Dapr Agent expects: MCP endpoint/token,
 /// LLM provider/model, and the assembled system prompt. The dispatcher
 /// materialises an empty per-invocation workspace and bind-mounts it at
@@ -27,7 +27,7 @@ using Microsoft.Extensions.Options;
 /// the agent-base bridge entirely and hands control directly to the Python
 /// process that already speaks A2A natively.
 /// </summary>
-public class DaprAgentLauncher(
+public class SpringVoyageAgentLauncher(
     IOptions<OllamaOptions> ollamaOptions,
     ILoggerFactory loggerFactory) : IAgentToolLauncher
 {
@@ -39,7 +39,7 @@ public class DaprAgentLauncher(
     /// <summary>
     /// Argv vector that bypasses the agent-base bridge and starts the Dapr
     /// Agent process directly. Matches the CMD declared by
-    /// <c>agents/dapr-agent/Dockerfile</c>. BYOI conformance path 3.
+    /// <c>agents/spring-voyage-agent/Dockerfile</c>. BYOI conformance path 3.
     /// </summary>
     /// <remarks>
     /// Issue #1106 verified (2026-04): the upstream <c>dapr-agents 1.0.1</c>
@@ -48,15 +48,15 @@ public class DaprAgentLauncher(
     /// <c>AgentRunner</c>, chat clients, and helpers, but no
     /// <c>dapr_agents.a2a</c> module. The A2A surface is provided by
     /// <c>a2a-sdk[http-server]</c>; agents wire their own ASGI app and
-    /// expose it via uvicorn (see <c>agents/dapr-agent/agent.py</c> +
-    /// <c>agents/dapr-agent/a2a_server.py</c>). If upstream ever adds a
+    /// expose it via uvicorn (see <c>agents/spring-voyage-agent/agent.py</c> +
+    /// <c>agents/spring-voyage-agent/a2a_server.py</c>). If upstream ever adds a
     /// runnable A2A module, this argv can be swapped for
     /// <c>python -m dapr_agents.&lt;module&gt;</c> without changing the
     /// launcher contract.
     /// </remarks>
-    internal static readonly string[] DefaultDaprAgentArgv = ["python", "agent.py"];
+    internal static readonly string[] DefaultSpringVoyageAgentArgv = ["python", "agent.py"];
 
-    private readonly ILogger _logger = loggerFactory.CreateLogger<DaprAgentLauncher>();
+    private readonly ILogger _logger = loggerFactory.CreateLogger<SpringVoyageAgentLauncher>();
 
     /// <summary>YAML / definition <c>execution.tool</c> value for this launcher.</summary>
     public const string ToolId = "spring-voyage";
@@ -70,7 +70,7 @@ public class DaprAgentLauncher(
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
-            "Prepared Dapr Agent launch request for agent {AgentId} thread {ThreadId}",
+            "Prepared Spring Voyage Agent launch request for agent {AgentId} thread {ThreadId}",
             context.AgentId, context.ThreadId);
 
         var opts = ollamaOptions.Value;
@@ -108,7 +108,7 @@ public class DaprAgentLauncher(
             ["SPRING_MODEL"] = model,
             ["SPRING_LLM_PROVIDER"] = provider,
             // AGENT_PORT is the env var the in-container agent.py binds to
-            // (see agents/dapr-agent/Dockerfile). DAPR_AGENT_PORT is the
+            // (see agents/spring-voyage-agent/Dockerfile). DAPR_AGENT_PORT is the
             // contract name introduced by issue #1097 — kept alongside
             // AGENT_PORT for back-compat with existing deployments while
             // PR 5 cuts the dispatcher over to the new field.
@@ -142,7 +142,7 @@ public class DaprAgentLauncher(
             // Non-empty argv: skip the agent-base bridge ENTRYPOINT and
             // hand control directly to the Python process that already
             // speaks A2A on :8999. BYOI conformance path 3.
-            Argv: DefaultDaprAgentArgv,
+            Argv: DefaultSpringVoyageAgentArgv,
             // Dapr Agent receives messages via A2A, not stdin.
             StdinPayload: null));
     }

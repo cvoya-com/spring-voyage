@@ -95,7 +95,7 @@ The `spring system configuration` verb reads the cached startup configuration re
 | ------------ | ------ | ------ | --------------------------------------------------------- |
 | `--image`    | ✓      | ✓      | Container image reference.                                |
 | `--runtime`  | ✓      | ✓      | `docker` or `podman`.                                     |
-| `--tool`     | ✓      | ✓      | `claude-code` / `codex` / `gemini` / `dapr-agent` / `custom`. |
+| `--tool`     | ✓      | ✓      | `claude-code` / `codex` / `gemini` / `spring-voyage-agent` / `custom`. |
 | `--provider` | ✓      | ✓      | Dapr-Agent-tool-specific.                                 |
 | `--model`    | ✓      | ✓      | Dapr-Agent-tool-specific.                                 |
 | `--hosting`  | —      | ✓      | `ephemeral` / `persistent`. Agent-exclusive (never inherits). |
@@ -122,7 +122,7 @@ The `spring directory` family mirrors the portal's `/directory` surface over the
 
 | `--tool`                                  | `--provider` | `--model` |
 | ----------------------------------------- | ------------ | --------- |
-| `dapr-agent`                              | accepted     | accepted  |
+| `spring-voyage-agent`                              | accepted     | accepted  |
 | `claude-code` / `codex` / `gemini`        | rejected     | accepted  |
 | `custom`                                  | rejected     | rejected  |
 | (unset — server picks the deployment default) | accepted | accepted  |
@@ -130,7 +130,7 @@ The `spring directory` family mirrors the portal's `/directory` surface over the
 When a rejected combination is passed, the CLI emits:
 
 ```
---provider is only meaningful for --tool=dapr-agent; other tools (claude-code, codex, gemini) have their provider hardcoded in the tool CLI, but accept --model to pick within that provider's model family.
+--provider is only meaningful for --tool=spring-voyage; other tools (claude-code, codex, gemini) have their provider hardcoded in the tool CLI, but accept --model to pick within that provider's model family.
 ```
 
 This mirrors the portal wizard (#641 / PR #645), which hides the Provider dropdown for non-Dapr-Agent tools but renders the Model dropdown for every tool that carries a known provider family (Claude Code → Anthropic, Codex → OpenAI, Gemini → Google). The CLI treats the `--model` value as **opaque** — validation happens at unit activation, not at CLI parse time — so the CLI never lags behind the portal's catalog when new models ship. See the Tool × Provider matrix in [`docs/architecture/agent-runtime.md`](agent-runtime.md) for the full rationale.
@@ -148,7 +148,7 @@ This mirrors the portal wizard (#641 / PR #645), which hides the Provider dropdo
 The CLI derives the required provider from `--tool` + `--provider` using the same mapping as the wizard (`deriveRequiredCredentialProvider` in `src/Cvoya.Spring.Web/src/app/units/create/page.tsx` and `UnitCommand.DeriveRequiredCredentialProvider` in `src/Cvoya.Spring.Cli/Commands/UnitCommand.cs`). Rejection matrix:
 
 - `--tool=custom` + `--api-key` → rejected (no declared credential contract).
-- `--tool=dapr-agent --provider=ollama` + `--api-key` → rejected (Ollama is local; no API key).
+- `--tool=spring-voyage --provider=ollama` + `--api-key` → rejected (Ollama is local; no API key).
 - `--save-as-tenant-default` without `--api-key` / `--api-key-from-file` → rejected (no value to write).
 - `--api-key` and `--api-key-from-file` together → rejected (pass exactly one).
 

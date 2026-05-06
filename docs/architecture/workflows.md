@@ -123,7 +123,7 @@ Launchers are enumerable-registered in `AddCvoyaSpringDapr`; `A2AExecutionDispat
 | `ClaudeCodeLauncher`             | `claude-code`    | `CLAUDE.md`  | Anthropic Claude Code CLI behind the A2A sidecar       |
 | `CodexLauncher`                  | `codex`          | `AGENTS.md`  | OpenAI Codex CLI behind the A2A sidecar                |
 | `GeminiLauncher`                 | `gemini`         | `GEMINI.md`  | Google Gemini CLI behind the A2A sidecar               |
-| `DaprAgentLauncher`              | `dapr-agent`     | (env var)    | Python Dapr Agent — A2A-native, no sidecar wrapper     |
+| `SpringVoyageAgentLauncher`              | `spring-voyage-agent`     | (env var)    | Python Dapr Agent — A2A-native, no sidecar wrapper     |
 | Custom A2A agent                 | operator-defined | n/a          | Any image that exposes A2A on `AGENT_PORT` (8999)      |
 
 Every launcher materialises an MCP config file (`.mcp.json`) so the agent tool can call back into Spring Voyage's MCP server for checkpoints, peer discovery, memory, and skill invocation. The MCP endpoint and bearer token are injected via env vars (`SPRING_MCP_ENDPOINT`, `SPRING_AGENT_TOKEN`) plus the workspace-mounted config file.
@@ -132,7 +132,7 @@ Adding a new CLI-backed agent is a three-step job:
 
 1. Implement `IAgentToolLauncher` (model on any of the CLI launchers — typically only the prompt filename and the env var shape change).
 2. Register it via `services.AddSingleton<IAgentToolLauncher, MyLauncher>();`.
-3. Build a container image that bundles the CLI plus the shared `agents/a2a-sidecar/` (or implement A2A natively like `DaprAgentLauncher`).
+3. Build a container image that bundles the CLI plus the shared `agents/a2a-sidecar/` (or implement A2A natively like `SpringVoyageAgentLauncher`).
 
 ### A2A sidecar protocol (port 8999)
 
@@ -144,7 +144,7 @@ Most CLI tools (`claude`, `codex`, `gemini`) speak stdin/stdout, not A2A. To mak
 - On `tasks/cancel` it sends `SIGTERM` to the running CLI process.
 - Is agent-agnostic: change `AGENT_CMD` to wrap `claude`, `codex`, `gemini`, or any other stdin-driven binary.
 
-`DaprAgentLauncher` is the exception: the Python Dapr Agent already exposes A2A natively, so no sidecar wrapper is needed — the launcher just sets `AGENT_PORT=8999` and the dispatcher dials the container directly.
+`SpringVoyageAgentLauncher` is the exception: the Python Dapr Agent already exposes A2A natively, so no sidecar wrapper is needed — the launcher just sets `AGENT_PORT=8999` and the dispatcher dials the container directly.
 
 Persistent agents are probed at `${endpoint}/.well-known/agent.json` during startup (see `PersistentAgentRegistry.WaitForA2AReadyAsync`) and on every health tick. Since #1063 split the worker out of the dispatcher's network, the probe is dispatched **into** the agent container via `IContainerRuntime.ProbeContainerHttpAsync` (`wget --spider` inside the container's own network namespace) — direct HTTP from the worker process can't reach the agent's loopback. The same primitive backs the ephemeral readiness wait in `A2AExecutionDispatcher`. The matching message-send half closed in #1160 (ADR 0028 — Decision B): the JSON-RPC `message/send` POST runs through `IContainerRuntime.SendHttpJsonAsync` (worker → dispatcher → `podman exec -i <id> wget --post-file=/dev/stdin`), wired underneath the A2A SDK by `DispatcherProxyHttpMessageHandler`. With both legs proxied the worker no longer needs an L3 route into the agent container, which is what unlocks the per-tenant bridge (`spring-tenant-default`) launchers attach agents to today.
 

@@ -789,9 +789,9 @@ cmd_build() {
     podman tag "localhost/spring-voyage-agent-claude-code:${SPRING_AGENT_TAG:-latest}" "${legacy_tag}"
 
     # Legacy dapr-agent reference. Same back-compat story.
-    local legacy_dapr_tag="${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}"
-    log "tagging localhost/spring-voyage-agent-dapr:${SPRING_AGENT_TAG:-latest} as ${legacy_dapr_tag} (legacy)"
-    podman tag "localhost/spring-voyage-agent-dapr:${SPRING_AGENT_TAG:-latest}" "${legacy_dapr_tag}"
+    local legacy_dapr_tag="${SPRING_VOYAGE_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}"
+    log "tagging localhost/spring-voyage-agent:${SPRING_AGENT_TAG:-latest} as ${legacy_dapr_tag} (legacy)"
+    podman tag "localhost/spring-voyage-agent:${SPRING_AGENT_TAG:-latest}" "${legacy_dapr_tag}"
 
     # spring-dispatcher is a host process (#1063); we publish its .NET binary
     # via spring-voyage-host.sh build instead of producing an image.

@@ -33,7 +33,7 @@ Ephemeral is the default. Switch to persistent when the per-dispatch cold-start 
 agent:
   id: ollama-researcher
   execution:
-    tool: dapr-agent
+    tool: spring-voyage
     image: spring-agent-ollama:latest
     hosting: persistent   # default: ephemeral
     runtime: podman
@@ -158,7 +158,7 @@ Request and response bodies are JSON. The container request shape is close to `C
 
 ### Per-invocation workspace materialisation
 
-Agent launchers (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`, `DaprAgentLauncher`) describe the workspace they need as **pure data** — a `WorkspaceFiles` map keyed by relative path plus a `WorkspaceMountPath` — and the dispatcher materialises that workspace on its own host filesystem before launching the agent container. Concretely, when a `POST /v1/containers` request includes a `workspace` envelope:
+Agent launchers (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`, `SpringVoyageAgentLauncher`) describe the workspace they need as **pure data** — a `WorkspaceFiles` map keyed by relative path plus a `WorkspaceMountPath` — and the dispatcher materialises that workspace on its own host filesystem before launching the agent container. Concretely, when a `POST /v1/containers` request includes a `workspace` envelope:
 
 1. The dispatcher creates a unique subdirectory under `Dispatcher:WorkspaceRoot` (`spring-ws-<guid>`).
 2. It writes each requested file into the subdirectory, creating parent directories as needed. Absolute paths and `..` traversals are rejected with `400 workspace_invalid`.
@@ -188,12 +188,12 @@ Extracting the runtime to a separate service means the worker's container-launch
 Workflow containers (not agent containers) typically need their own Dapr sidecar. `ContainerLifecycleManager` + `DaprSidecarManager` (both in `Cvoya.Spring.Dapr.Execution`) compose this flow, with **every** container operation routed through the dispatcher (Stage 2 of [#522](https://github.com/cvoya-com/spring-voyage/issues/522) — the worker no longer holds any podman/docker binding of its own):
 
 1. Create a per-workflow bridge network (`spring-net-<guid>`) via `POST /v1/networks` and idempotently ensure the per-tenant bridge (`spring-tenant-<id>`, OSS = `spring-tenant-default`) exists.
-2. Start the Dapr sidecar container (`daprio/daprd:latest`) on the per-workflow bridge with the app id, ports, and components path the workflow or `dapr-agent` workload needs (`POST /v1/containers`, detached). When the app’s primary network is not the tenant bridge, the sidecar is **dual-attached** to that primary network and to `spring-tenant-<id>` so `daprd` can still resolve placement, scheduler, and Redis after OSS `deploy.sh` / `docker-compose` attach those services to the tenant network (interim single-tenant topology; ADR 0028 / [#1166](https://github.com/cvoya-com/spring-voyage/issues/1166)). Image and health knobs (`Image`, `HealthTimeout`, `HealthPollInterval`, `ComponentsPath`, optional `DelegatedDaprAgentComponentsPath`) bind from the `Dapr:Sidecar` config section — see `DaprSidecarOptions`.
+2. Start the Dapr sidecar container (`daprio/daprd:latest`) on the per-workflow bridge with the app id, ports, and components path the workflow or `spring-voyage-agent` workload needs (`POST /v1/containers`, detached). When the app’s primary network is not the tenant bridge, the sidecar is **dual-attached** to that primary network and to `spring-tenant-<id>` so `daprd` can still resolve placement, scheduler, and Redis after OSS `deploy.sh` / `docker-compose` attach those services to the tenant network (interim single-tenant topology; ADR 0028 / [#1166](https://github.com/cvoya-com/spring-voyage/issues/1166)). Image and health knobs (`Image`, `HealthTimeout`, `HealthPollInterval`, `ComponentsPath`, optional `DelegatedDaprAgentComponentsPath`) bind from the `Dapr:Sidecar` config section — see `DaprSidecarOptions`.
 3. Poll the sidecar's `/v1.0/healthz` from inside its container via `POST /v1/containers/{id}/probe` until healthy or the configured timeout elapses.
 4. Start the workflow container dual-attached to the per-workflow bridge **and** the per-tenant bridge (`POST /v1/containers` carries `network` + `additionalNetworks`, detached). App-to-sidecar traffic stays in-network on `spring-net-<guid>`; the tenant attach is what lets the workflow container reach tenant infrastructure (Ollama, peer agents) by uniform DNS — ADR 0028 / [#1166](https://github.com/cvoya-com/spring-voyage/issues/1166).
 5. Tear down sidecar (`DELETE /v1/containers/{id}`), workflow container, and the per-workflow bridge (`DELETE /v1/networks/{name}`) when the app container exits. The per-tenant bridge is shared platform-wide and is **not** torn down here — it lives for the lifetime of the deployment.
 
-`WorkflowOrchestrationStrategy` drives this pattern for every workflow dispatch (see [Workflows](workflows.md#workflow-as-container-primary-model)). Agents whose definition uses `execution.tool: dapr-agent` use the same sidecar + dual-attach path for both ephemeral and persistent hosting so the in-container Dapr agent can run workflows. Other tools (for example Claude Code) use a detached app container without a per-container `daprd`, speak A2A to the dispatcher, and reach platform services via the host-level MCP server.
+`WorkflowOrchestrationStrategy` drives this pattern for every workflow dispatch (see [Workflows](workflows.md#workflow-as-container-primary-model)). Agents whose definition uses `execution.tool: spring-voyage` use the same sidecar + dual-attach path for both ephemeral and persistent hosting so the in-container Dapr agent can run workflows. Other tools (for example Claude Code) use a detached app container without a per-container `daprd`, speak A2A to the dispatcher, and reach platform services via the host-level MCP server.
 
 ---
 
@@ -304,7 +304,7 @@ Consumers that want the Dockerfile's `--build-arg CLAUDE_CODE_VERSION=<x.y.z>` e
 The solution follows a layered architecture with clean separation between domain abstractions and infrastructure:
 
 - **`Cvoya.Spring.Core`** — Domain interfaces and types. No Dapr or infrastructure dependencies. Defines `IAddressable`, `IMessageReceiver`, `IOrchestrationStrategy`, `IActivityObservable`, `IExecutionDispatcher`, `IAgentToolLauncher`, `IAgentDefinitionProvider`, `IUnitPolicyEnforcer`, `ISecretStore`/`ISecretRegistry`/`ISecretResolver`, and all domain models.
-- **`Cvoya.Spring.Dapr`** — Dapr implementations: actors (`AgentActor`, `UnitActor`, `ConnectorActor`, `HumanActor`), orchestration strategies (`AiOrchestrationStrategy`, `WorkflowOrchestrationStrategy`), `A2AExecutionDispatcher`, per-tool launchers (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`, `DaprAgentLauncher`), `PersistentAgentRegistry`, `DaprStateBackedSecretStore`, state management, and routing.
+- **`Cvoya.Spring.Dapr`** — Dapr implementations: actors (`AgentActor`, `UnitActor`, `ConnectorActor`, `HumanActor`), orchestration strategies (`AiOrchestrationStrategy`, `WorkflowOrchestrationStrategy`), `A2AExecutionDispatcher`, per-tool launchers (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`, `SpringVoyageAgentLauncher`), `PersistentAgentRegistry`, `DaprStateBackedSecretStore`, state management, and routing.
 - **`Cvoya.Spring.A2A`** — A2A protocol client and server for cross-framework agent communication.
 - **`Cvoya.Spring.Connector.GitHub`** — GitHub connector with webhook handling and skills.
 - **`Cvoya.Spring.Host.Api`** — ASP.NET Core API host (REST, WebSocket, SSE, auth, local dev mode).

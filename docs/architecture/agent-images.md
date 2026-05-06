@@ -45,7 +45,7 @@ The omnibus image layers all four OSS CLI runtimes on top of `agent-base`:
 | `claude` | `@anthropic-ai/claude-code` | 2.1.98 | `claude` |
 | `codex` | `@openai/codex` | 0.128.0 | `openai` |
 | `gemini` | `@google/gemini-cli` | 0.40.1 | `google` |
-| Python dapr-agent stack | PyPI (see `agents/dapr-agent/requirements.txt`) | pinned in requirements | `openai`, `google`, `ollama` (via `dapr-agent` tool kind) |
+| Python dapr-agent stack | PyPI (see `agents/spring-voyage-agent/requirements.txt`) | pinned in requirements | `openai`, `google`, `ollama` (via `spring-voyage-agent` tool kind) |
 
 Version ARGs are declared at the top of the Dockerfile and recorded in image labels (`com.cvoya.spring-voyage.*-version`) so `docker inspect` surfaces the exact CLI versions without a `docker exec`.
 
@@ -76,12 +76,12 @@ Built by `deployment/build-agent-images.sh` for local dev and CI verification.
 | Image (local tag) | Source file | Tool kind |
 |-------------------|-------------|-----------|
 | `localhost/spring-voyage-agent-claude-code:dev` | `deployment/Dockerfile.agent.claude-code` | `claude-code-cli` |
-| `localhost/spring-voyage-agent-dapr:dev` | `deployment/Dockerfile.agent.dapr` | `dapr-agent` (native A2A, Python) |
+| `localhost/spring-voyage-agent-dapr:dev` | `deployment/Dockerfile.agent.dapr` | `spring-voyage-agent` (native A2A, Python) |
 
 **When to use per-runtime images:**
 - Smaller attack surface / image size for deployments where only one CLI is needed.
 - CI pipelines that verify a specific CLI version in isolation.
-- The `dapr-agent` image implements BYOI conformance **path 3** (native A2A in Python) and is the reference for the OpenAI, Google, and Ollama runtimes when not using the omnibus.
+- The `spring-voyage-agent` image implements BYOI conformance **path 3** (native A2A in Python) and is the reference for the OpenAI, Google, and Ollama runtimes when not using the omnibus.
 
 ## Extension patterns
 

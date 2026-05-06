@@ -30,7 +30,7 @@ tests/cli-scenarios/
 ├── _lib.sh             shared helpers (e2e::cli, e2e::http, expect_*, …)
 └── scenarios/          one subfolder per domain; one .sh per journey
     ├── activity/       /api/v1/activity query filters
-    ├── agents/         persistent-agent CLI, dapr-agent turn (llm)
+    ├── agents/         persistent-agent CLI, spring-voyage-agent turn (llm)
     ├── api/            raw API health / smoke checks
     ├── auth/           bootstrap, token create/list/revoke, Bearer use
     ├── cli-meta/       CLI version / help / startup
@@ -189,7 +189,7 @@ Bearer-token path. Scenarios that have no CLI counterpart stay on
 | units | omnibus-image-default | fast | CLI | Asserts persistent-agent default image resolves to the omnibus image when the agent declares no explicit image. |
 | messaging | message-human-to-agent | llm | CLI | Human-to-agent round-trip — `spring message send agent:<guid>` with a conversation id. Asserts the send succeeds and a `messageId` is returned. |
 | policy | policy-block-at-turn-time | llm | CLI + curl | Policy enforcement at turn time — dispatches a message that would otherwise exercise a blocked tool; proves the server doesn't 5xx when a policy denies the action server-side. |
-| agents | dapr-agent-turn | llm | CLI | Dapr Agent via A2A — creates an agent with `--tool dapr-agent`, dispatches a turn, and confirms the DaprAgentLauncher + Python Dapr Agent container can receive a task and return a response. |
+| agents | spring-voyage-agent-turn | llm | CLI | Dapr Agent via A2A — creates an agent with `--tool spring-voyage-agent`, dispatches a turn, and confirms the SpringVoyageAgentLauncher + Python Dapr Agent container can receive a task and return a response. |
 | units | unit-create-from-template | fast | CLI + curl | Catalog install of `software-engineering` package; cross-verifies the engineering-team unit + 3 agents across CLI `members list`, HTTP `/memberships`, and HTTP `/agents`. Replaces the deleted `unit create --from-template` path (#1583). |
 | units | unit-and-agent-delete | fast | CLI | Plain `agent delete` and `unit delete` verbs (non-cascading) plus their idempotency on missing artefacts — complementary to the cascading `purge` paths. |
 | orchestration | orchestration-strategies-roundtrip | fast | CLI | `spring unit orchestration {get,set,clear}` round-trip across the three platform-offered strategies (ai, workflow, label-routed). |
@@ -197,7 +197,7 @@ Bearer-token path. Scenarios that have no CLI counterpart stay on
 | packages | package-install-spring-voyage-oss | fast | CLI | Install the spring-voyage-oss meta-package (5 units, 13 agents); verify all sub-units appear and the engineering sub-unit has its members wired. |
 | engagements | engagement-list-and-show | fast | CLI | `spring engagement list` and `spring thread show` round-trip; engagement index polling guarded against the eventual-consistency window. |
 | messaging | multi-turn-conversation | llm | CLI | Three-turn conversation with a Dapr Agent on a single thread id; verifies each turn produces a fresh agent reply. |
-| messaging | multi-agent-engagement | llm | CLI | Two dapr-agents in one unit; observe both engagements via `engagement list --agent`. |
+| messaging | multi-agent-engagement | llm | CLI | Two spring-voyage-agents in one unit; observe both engagements via `engagement list --agent`. |
 
 ## Authentication
 

@@ -4,7 +4,7 @@
 
 ## Stage 0 — complete ✅
 
-`agents/dapr-agent/agent.py` already dropped the Dapr-Workflow wrapper (cites "ADR 0029 Stage 0"). Uses a plain-Python tool-calling loop with `DaprChatClient` + MCP tool proxies.
+`agents/spring-voyage-agent/agent.py` already dropped the Dapr-Workflow wrapper (cites "ADR 0029 Stage 0"). Uses a plain-Python tool-calling loop with `DaprChatClient` + MCP tool proxies.
 
 ## Scope
 
@@ -13,7 +13,7 @@
 
 ## Boundary violations — none found
 
-No ADR-0029 boundary violations in existing code. `ILlmDispatcher` / `DispatcherProxiedLlmDispatcher` is platform-internal (worker host process only). `DaprChatClient` in `dapr-agent` is targeted for retirement in Area D Stage 3 — not a current violation.
+No ADR-0029 boundary violations in existing code. `ILlmDispatcher` / `DispatcherProxiedLlmDispatcher` is platform-internal (worker host process only). `DaprChatClient` in `spring-voyage-agent` is targeted for retirement in Area D Stage 3 — not a current violation.
 
 ## Sequencing notes for Area D
 

@@ -180,7 +180,7 @@ Each unit owns an optional `execution:` block that acts as the **default contain
 | ---------- | -------------------------------------------------------------------------------------------------- |
 | `image`    | Container image reference (e.g. `ghcr.io/...:tag`, `spring-agent:latest`).                         |
 | `runtime`  | Container runtime (`docker` or `podman`).                                                          |
-| `tool`     | External agent tool identifier (`claude-code`, `codex`, `gemini`, `dapr-agent`, `custom`).         |
+| `tool`     | External agent tool identifier (`claude-code`, `codex`, `gemini`, `spring-voyage-agent`, `custom`).         |
 | `provider` | LLM provider. Meaningful only when `tool = dapr-agent` (#598 gating).                              |
 | `model`    | Model identifier. Meaningful only when `tool = dapr-agent` (#598 gating).                          |
 
@@ -194,7 +194,7 @@ Every field is **independently optional and independently clearable** — a unit
 
 `hosting` (ephemeral vs persistent) is **agent-exclusive** — a unit cannot change whether an agent is ephemeral or persistent.
 
-**Tool-specific gating.** `provider` and `model` are only meaningful when the resolved `tool` is `dapr-agent`. The portal's Execution tab hides those fields when another tool is selected; the CLI accepts them unconditionally but they are ignored at dispatch for non-`dapr-agent` launchers. This matches the symmetric gating on unit creation from #598.
+**Tool-specific gating.** `provider` and `model` are only meaningful when the resolved `tool` is `spring-voyage-agent`. The portal's Execution tab hides those fields when another tool is selected; the CLI accepts them unconditionally but they are ignored at dispatch for non-`spring-voyage-agent` launchers. This matches the symmetric gating on unit creation from #598.
 
 **Save-time validation.** The portal and CLI reject a save whenever ephemeral hosting is declared on an agent and no resolvable image exists on either the agent or the unit. This surfaces the error when the operator is still editing rather than deferring to dispatch.
 

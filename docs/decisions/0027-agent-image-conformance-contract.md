@@ -47,7 +47,7 @@ That's the entire contract. There is no required base distro, no required user, 
 |------|--------|-----------------|
 | **1** | `FROM ghcr.io/cvoya-com/agent-base:<semver>` and `RUN`-install your CLI tool. ENTRYPOINT is left as-is — the bundled bridge runs on `:8999` automatically. | Default. Fastest path. Works for anything that runs on Debian 12 + Node 22. |
 | **2** | Pull the bridge into a custom base. Either `npm install -g @cvoya/spring-voyage-agent-sidecar` (Node-bearing image), or copy the static binary from each GitHub Release (`spring-voyage-agent-sidecar-{linux-amd64,linux-arm64,darwin-arm64}`) into a Node-less image. Set the binary as the `ENTRYPOINT`. | Non-Debian distro, rootless image with non-default UIDs, or you can't have Node in the runtime layer. |
-| **3** | Implement A2A 0.3.x natively in your image. No bridge involved. | The image already speaks A2A natively (e.g. the Python Dapr Agent at `DaprAgentLauncher`). |
+| **3** | Implement A2A 0.3.x natively in your image. No bridge involved. | The image already speaks A2A natively (e.g. the Python Dapr Agent at `SpringVoyageAgentLauncher`). |
 
 The Tier-A CLI launchers (Claude Code, Codex, Gemini) all use path 1 by default; the Dapr Agent launcher is the canonical example of path 3. Path 2 is exercised by the released SEA binaries' smoke step in `release-agent-base.yml`.
 

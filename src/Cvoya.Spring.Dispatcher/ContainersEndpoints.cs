@@ -145,7 +145,7 @@ public static class ContainersEndpoints
 
         var mounts = BuildEffectiveMounts(request.Mounts, materialized, materializedContext);
         // Only default the workdir to the materialised mount path when the
-        // workspace actually contains files. Launchers like DaprAgentLauncher
+        // workspace actually contains files. Launchers like SpringVoyageAgentLauncher
         // bind-mount an empty workspace just to keep the launch shape uniform
         // — they ship images whose CMD is relative to a fixed image WORKDIR
         // (e.g. `python agent.py` from /app). Silently overriding workdir to

@@ -16,15 +16,15 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for <see cref="DaprAgentLauncher"/>.
+/// Unit tests for <see cref="SpringVoyageAgentLauncher"/>.
 /// </summary>
-public class DaprAgentLauncherTests
+public class SpringVoyageAgentLauncherTests
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly IOptions<OllamaOptions> _ollamaOptions;
-    private readonly DaprAgentLauncher _launcher;
+    private readonly SpringVoyageAgentLauncher _launcher;
 
-    public DaprAgentLauncherTests()
+    public SpringVoyageAgentLauncherTests()
     {
         _loggerFactory = Substitute.For<ILoggerFactory>();
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
@@ -33,7 +33,7 @@ public class DaprAgentLauncherTests
             DefaultModel = "llama3.2:3b",
             BaseUrl = "http://spring-ollama:11434",
         });
-        _launcher = new DaprAgentLauncher(_ollamaOptions, _loggerFactory);
+        _launcher = new SpringVoyageAgentLauncher(_ollamaOptions, _loggerFactory);
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public class DaprAgentLauncherTests
     public async Task PrepareAsync_NeverEmitsOllamaEndpoint_Regardless_Of_BaseUrl()
     {
         var options = Options.Create(new OllamaOptions { DefaultModel = "phi3:mini", BaseUrl = "" });
-        var launcher = new DaprAgentLauncher(options, _loggerFactory);
+        var launcher = new SpringVoyageAgentLauncher(options, _loggerFactory);
         var context = CreateContext();
 
         var prep = await launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
@@ -129,7 +129,7 @@ public class DaprAgentLauncherTests
     public async Task PrepareAsync_UsesProviderAndModelFromLaunchContext_WhenProvided()
     {
         // #480 step 5: when the AgentDefinition specifies a provider/model,
-        // DaprAgentLauncher must forward them to the container env vars so the
+        // SpringVoyageAgentLauncher must forward them to the container env vars so the
         // Python Dapr Agent binds to the matching Conversation component.
         var context = new AgentLaunchContext(
             AgentId: "dapr-test-agent",
@@ -168,7 +168,7 @@ public class DaprAgentLauncherTests
         // The launcher hands the dispatcher a non-empty argv so the
         // image's bridge ENTRYPOINT (if present) is bypassed and the
         // Python process boots directly. Matches the production CMD
-        // declared by agents/dapr-agent/Dockerfile.
+        // declared by agents/spring-voyage-agent/Dockerfile.
         var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
 
         prep.Argv.ShouldNotBeNull();
@@ -225,7 +225,7 @@ public class DaprAgentLauncherTests
         // the agent container's env so agent.py's DaprChatClient (or
         // any direct Anthropic SDK call) can authenticate. Today the
         // launcher does not propagate the credential — neither
-        // DaprAgentLauncher nor AgentContextBuilder injects it, and the
+        // SpringVoyageAgentLauncher nor AgentContextBuilder injects it, and the
         // OSS deploy ships only conversation-ollama.yaml so the Dapr
         // Conversation component the Python agent dials is wired to
         // Ollama regardless of `provider`.

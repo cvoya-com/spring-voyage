@@ -108,7 +108,7 @@ Three concrete changes belong in the implementation PR:
 2. **`ContainerSupervisorActor.RestartAsync` calls the refresh entry point.** The supervisor already persists `AgentId`, `Image`, `NetworkName`, `VolumeName`. It needs to capture (or re-derive) enough launch metadata to invoke the builder — at minimum the tenant id and unit id. The launch metadata MUST NOT include credential material; only identity. The fresh `AgentBootstrapContext` is merged into the `ContainerConfig` exactly the way `StartAsync` does today via `BuildEnvironmentVariables`.
 3. **Tests.** The supervisor restart path gains coverage for "credentials are present and distinct from the previous launch's after `RestartAsync`." The `IAgentContextBuilder` test surface gains coverage for the refresh entry point producing a different token set on each call.
 
-The Python SDK, the `agents/dapr-agent/agent.py` reference agent, the D1 § 2.2.1 env-var contract, and the D3a tests are **untouched**.
+The Python SDK, the `agents/spring-voyage-agent/agent.py` reference agent, the D1 § 2.2.1 env-var contract, and the D3a tests are **untouched**.
 
 ### State surface
 
@@ -215,7 +215,7 @@ histogram_quantile(0.99, rate(spring_supervisor_credential_remint_latency_ms_buc
 | D3a `IAgentContextBuilder.BuildAsync` | No signature change. New method added (refresh entry point). |
 | D3a `AgentContextBuilder` (default impl) | New method delegates to existing builder body. |
 | Python SDK `IAgentContext.load()` | No change. Reads env vars at `initialize` exactly as today. |
-| `agents/dapr-agent/agent.py` | No change. |
+| `agents/spring-voyage-agent/agent.py` | No change. |
 | `ContainerSupervisorActor.RestartAsync` | Changed: calls the refresh entry point and injects fresh env vars. |
 | `SupervisorState` | Additive: gains tenant id (and optionally unit id) to support the refresh call. No token field. |
 | Existing D3a / D3d tests | No expected breakage. New tests added per "Tests" above. |

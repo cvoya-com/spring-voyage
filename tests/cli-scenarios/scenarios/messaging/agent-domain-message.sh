@@ -20,7 +20,7 @@
 # in-process JSON-RPC responder and asserts the .NET A2AClient can reach
 # `message/send` at `/`. That test runs on every PR via the integration
 # suite. The LLM-backed end-to-end (with a real LLM in the loop) lives in
-# `scenarios/agents/dapr-agent-turn.sh` and runs in the on-demand LLM lane
+# `scenarios/agents/spring-voyage-agent-turn.sh` and runs in the on-demand LLM lane
 # (see `tests/cli-scenarios/README.md` for the pool conventions).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
