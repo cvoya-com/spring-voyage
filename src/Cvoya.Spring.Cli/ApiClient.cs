@@ -2348,10 +2348,26 @@ public class SpringApiClient
     /// clean "not found" message rather than an exception.
     /// </summary>
     public async Task<PackageDetail?> GetPackageAsync(string name, CancellationToken ct = default)
+        => await GetPackageAsync(name, version: null, ct);
+
+    /// <summary>
+    /// GET /api/v1/packages/{name} or /api/v1/packages/{name}/{version}
+    /// (ADR-0037 D5). When <paramref name="version"/> is non-null the
+    /// versioned endpoint is hit and the catalog must serve that exact
+    /// version or return null (404). Today's catalog ships a single
+    /// version per name, so an explicit pin must match the catalog's
+    /// version exactly; once the v0.2 multi-version catalog lands the
+    /// shape stays the same.
+    /// </summary>
+    public async Task<PackageDetail?> GetPackageAsync(string name, string? version, CancellationToken ct = default)
     {
         try
         {
-            return await _client.Api.V1.Tenant.Packages[name].GetAsync(cancellationToken: ct);
+            if (string.IsNullOrWhiteSpace(version))
+            {
+                return await _client.Api.V1.Tenant.Packages[name].GetAsync(cancellationToken: ct);
+            }
+            return await _client.Api.V1.Tenant.Packages[name][version].GetAsync(cancellationToken: ct);
         }
         catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
         {
@@ -2605,7 +2621,8 @@ public class SpringApiClient
     public sealed record PackageInstallTargetRequest(
         string PackageName,
         IReadOnlyDictionary<string, string>? Inputs,
-        PackageConnectorBindingsRequest? ConnectorBindings = null);
+        PackageConnectorBindingsRequest? ConnectorBindings = null,
+        string? Version = null);
 
     /// <summary>
     /// Wire shape for the install request's <c>connectorBindings</c>

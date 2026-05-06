@@ -2560,6 +2560,48 @@
         }
       }
     },
+    "/api/v1/tenant/packages/{name}/{version}": {
+      "get": {
+        "tags": [
+          "Packages"
+        ],
+        "summary": "Returns detailed contents of a specific package version (ADR-0037 D5)",
+        "operationId": "GetPackageVersion",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackageDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/v1/tenant/packages/export": {
       "post": {
         "tags": [
@@ -11063,7 +11105,7 @@
           "name",
           "description",
           "readme",
-          "inputs",
+          "version",
           "unitTemplates",
           "agentTemplates",
           "skills",
@@ -11089,11 +11131,11 @@
               "string"
             ]
           },
-          "inputs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PackageInputSummary"
-            }
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "unitTemplates": {
             "type": "array",
@@ -11160,43 +11202,6 @@
           }
         }
       },
-      "PackageInputSummary": {
-        "required": [
-          "name",
-          "type",
-          "required",
-          "secret",
-          "description",
-          "default"
-        ],
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          },
-          "required": {
-            "type": "boolean"
-          },
-          "secret": {
-            "type": "boolean"
-          },
-          "description": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "default": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
       "PackageInstallRequest": {
         "required": [
           "targets"
@@ -11238,6 +11243,12 @@
               {
                 "$ref": "#/components/schemas/PackageConnectorBindings"
               }
+            ]
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         }
@@ -11282,6 +11293,12 @@
           "workflowCount": {
             "type": "integer",
             "format": "int32"
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -11554,9 +11571,7 @@
       "RequiredConnectorSummary": {
         "required": [
           "type",
-          "required",
-          "inheritAll",
-          "inheritUnits"
+          "required"
         ],
         "type": "object",
         "properties": {
@@ -11565,18 +11580,6 @@
           },
           "required": {
             "type": "boolean"
-          },
-          "inheritAll": {
-            "type": "boolean"
-          },
-          "inheritUnits": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
           }
         }
       },

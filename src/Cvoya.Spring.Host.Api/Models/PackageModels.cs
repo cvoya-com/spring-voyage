@@ -26,24 +26,21 @@ public record PackageSummary(
     int AgentTemplateCount,
     int SkillCount,
     int ConnectorCount,
-    int WorkflowCount);
+    int WorkflowCount,
+    string? Version = null);
 
 /// <summary>
 /// Detail response for <c>GET /api/v1/packages/{name}</c>. Carries every
 /// content list the summary only counts, so the portal's detail page can
-/// render templates / agents / skills without additional fetches. The
-/// Phase-6 install flow will add a <c>version</c> field here (#417); the
-/// browse-only shape leaves it off today so the contract stays forward
-/// compatible (an absent field is a valid null on every consumer).
+/// render templates / agents / skills without additional fetches.
 /// </summary>
 /// <param name="Name">The package name.</param>
 /// <param name="Description">Optional description from the package README.</param>
 /// <param name="Readme">Full README.md content in raw Markdown, when present.</param>
-/// <param name="Inputs">
-/// Input definitions declared by the package. Empty when the package has
-/// no inputs schema. Mirrors the <c>inputs:</c> block in <c>package.yaml</c>
-/// so the portal's install wizard can render the right field per input
-/// without re-fetching the manifest itself (#1615).
+/// <param name="Version">
+/// Package version (ADR-0037 D5). Opaque string. Two packages with the
+/// same <see cref="Name"/> and different <see cref="Version"/> values
+/// may be installed in the same tenant simultaneously.
 /// </param>
 /// <param name="UnitTemplates">Unit templates offered by the package.</param>
 /// <param name="AgentTemplates">Agent templates offered by the package.</param>
@@ -51,27 +48,22 @@ public record PackageSummary(
 /// <param name="Connectors">Connector assets shipped with the package.</param>
 /// <param name="Workflows">Workflow bundles shipped with the package.</param>
 /// <param name="ConnectorDeclarations">
-/// Declarative connector dependencies (#1670). Each entry mirrors one
-/// row of the <c>connectors:</c> block in the package's <c>package.yaml</c>:
-/// the connector slug, whether it is required at install time, and how
-/// its binding inherits to member units. Empty when the package declares
-/// no connectors.
+/// Connector slugs the package effectively requires (ADR-0037 D3). Each
+/// entry is one slug from the union of every contained artefact's
+/// <c>requires:</c> block — the wizard / CLI render the
+/// connector-binding step from this list.
 /// </param>
 /// <param name="Content">
-/// Top-level artefacts declared in the manifest's <c>content:</c> list
-/// (#1718 item 2). Each entry carries the artefact discriminator
-/// (<c>unit</c>, <c>agent</c>, <c>skill</c>, <c>workflow</c>) and the
-/// reference value the manifest declares. Surfaces the parser's view
-/// of "what the package installs" so the wizard / CLI can decide which
-/// install steps to render alongside connector configuration. Empty
-/// when the manifest declares no content (e.g. an inputs-only package
-/// in upload mode).
+/// Top-level artefacts declared in the manifest's <c>content:</c> list.
+/// Each entry carries the artefact discriminator (<c>unit</c>,
+/// <c>agent</c>, <c>skill</c>, <c>workflow</c>) and the reference value
+/// the manifest declares.
 /// </param>
 public record PackageDetail(
     string Name,
     string? Description,
     string? Readme,
-    IReadOnlyList<PackageInputSummary> Inputs,
+    string? Version,
     IReadOnlyList<UnitTemplateSummary> UnitTemplates,
     IReadOnlyList<AgentTemplateSummary> AgentTemplates,
     IReadOnlyList<SkillSummary> Skills,
@@ -101,50 +93,19 @@ public record PackageContentEntry(
 
 /// <summary>
 /// Wire shape for one entry in <see cref="PackageDetail.ConnectorDeclarations"/>
-/// — the parsed <c>connectors:</c> block on the package manifest (#1670).
-/// Surfaces the inheritance shape so the wizard / CLI can decide which
-/// connector configuration steps to render before the package-inputs step.
+/// — one connector slug from the union of every artefact's
+/// <c>requires:</c> block (ADR-0037 D3). Surfaces the slug so the wizard
+/// / CLI can render a connector-binding form for it at install time.
 /// </summary>
 /// <param name="Type">The connector slug (matches <c>IConnectorType.Slug</c>).</param>
-/// <param name="Required">When true, install fails if no binding is supplied.</param>
-/// <param name="InheritAll">
-/// True when the binding inherits to every member unit unless that unit
-/// opts out via its own <c>connectors:</c> block.
-/// </param>
-/// <param name="InheritUnits">
-/// When non-null, the explicit list of member-unit names that inherit
-/// the package-level binding. <c>null</c> when <see cref="InheritAll"/>
-/// is true.
+/// <param name="Required">
+/// Always true under ADR-0037 D3 — every declared requirement is
+/// required. Kept on the wire shape for forward compatibility when
+/// optional requirements (e.g. capability-typed) land.
 /// </param>
 public record RequiredConnectorSummary(
     string Type,
-    bool Required,
-    bool InheritAll,
-    IReadOnlyList<string>? InheritUnits);
-
-/// <summary>
-/// Wire-shape for a single declared input on a <see cref="PackageDetail"/>.
-/// Sourced from the package's <c>package.yaml</c> <c>inputs:</c> block —
-/// see <c>Cvoya.Spring.Manifest.PackageInputDefinition</c> for the parser
-/// model. The portal install wizard renders one form field per entry;
-/// the CLI's <c>spring package show</c> output is the same data.
-/// </summary>
-/// <param name="Name">The input key name, used in <c>${{ inputs.&lt;name&gt; }}</c> expressions.</param>
-/// <param name="Type">
-/// Scalar type — <c>string</c> (default), <c>int</c>, or <c>bool</c>.
-/// Forward-compatible: unknown values render as text fields.
-/// </param>
-/// <param name="Required">When true, the install fails if no value is supplied and no default exists.</param>
-/// <param name="Secret">When true, the input is a secret reference; portals render this as a password field.</param>
-/// <param name="Description">Human-readable description of the input's purpose; used as field hint text.</param>
-/// <param name="Default">Optional default value applied when no value is supplied.</param>
-public record PackageInputSummary(
-    string Name,
-    string Type,
-    bool Required,
-    bool Secret,
-    string? Description,
-    string? Default);
+    bool Required);
 
 /// <summary>
 /// A single agent template declared by a package. The YAML under

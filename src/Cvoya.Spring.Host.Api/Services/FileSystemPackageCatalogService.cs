@@ -70,7 +70,8 @@ public class FileSystemPackageCatalogService(
                 AgentTemplateCount: CountManifestFiles(Path.Combine(packageDir, "agents")),
                 SkillCount: CountSkillBundles(Path.Combine(packageDir, "skills")),
                 ConnectorCount: CountAssets(Path.Combine(packageDir, "connectors")),
-                WorkflowCount: CountDirectories(Path.Combine(packageDir, "workflows"))));
+                WorkflowCount: CountDirectories(Path.Combine(packageDir, "workflows")),
+                Version: ReadVersion(packageDir)));
         }
 
         packages.Sort(static (a, b) =>
@@ -106,7 +107,6 @@ public class FileSystemPackageCatalogService(
             return Task.FromResult<PackageDetail?>(null);
         }
 
-        var inputs = ReadPackageInputs(packageDir);
         var unitTemplates = ReadUnitTemplates(packageDir, name, cancellationToken);
         var agentTemplates = ReadAgentTemplates(packageDir, name, cancellationToken);
         var skills = ReadSkills(packageDir, name, cancellationToken);
@@ -115,12 +115,13 @@ public class FileSystemPackageCatalogService(
 
         var connectorDeclarations = ReadConnectorDeclarations(packageDir);
         var content = ReadContentEntries(packageDir);
+        var version = ReadVersion(packageDir);
 
         var detail = new PackageDetail(
             Name: name,
             Description: TryReadReadmeSummary(packageDir),
             Readme: TryReadReadmeFull(packageDir),
-            Inputs: inputs,
+            Version: version,
             UnitTemplates: unitTemplates,
             AgentTemplates: agentTemplates,
             Skills: skills,
@@ -130,6 +131,34 @@ public class FileSystemPackageCatalogService(
             Content: content);
 
         return Task.FromResult<PackageDetail?>(detail);
+    }
+
+    /// <summary>
+    /// Reads the package manifest's top-level <c>version:</c> scalar
+    /// (ADR-0037 D5). Returns <c>null</c> when the manifest is missing or
+    /// malformed; <see cref="PackageManifestParser.ParseRaw"/> would
+    /// otherwise reject the package outright, but the catalog stays
+    /// best-effort so a malformed package still appears with a null
+    /// version rather than disappearing from the listing.
+    /// </summary>
+    private string? ReadVersion(string packageDir)
+    {
+        var manifestPath = FindManifestPath(packageDir);
+        if (manifestPath is null) return null;
+
+        try
+        {
+            var yaml = File.ReadAllText(manifestPath);
+            var manifest = PackageManifestParser.ParseRaw(yaml);
+            return manifest.Version;
+        }
+        catch (Exception ex) when (ex is PackageParseException or YamlDotNet.Core.YamlException or IOException)
+        {
+            logger.LogDebug(ex,
+                "Skipping version for package manifest '{Path}' because it could not be parsed.",
+                manifestPath);
+            return null;
+        }
     }
 
     /// <summary>
@@ -193,104 +222,92 @@ public class FileSystemPackageCatalogService(
     }
 
     /// <summary>
-    /// Reads the package manifest's <c>connectors:</c> block (#1670) so the
-    /// install surfaces (wizard, CLI <c>spring package show</c>) can render
-    /// one row per declared connector type. Failures fall back to an empty
-    /// list — best-effort metadata, like <see cref="ReadPackageInputs"/>.
+    /// Computes the union of connector slugs declared by every artefact in
+    /// the package (ADR-0037 D3). Walks <c>units/*.yaml</c> and
+    /// <c>agents/*.yaml</c>, parses each as the appropriate kind-discriminated
+    /// document, reads its <c>requires:</c> block, and dedupes by slug.
+    /// Returns one <see cref="RequiredConnectorSummary"/> row per unique
+    /// slug so the wizard / CLI can render the connector-binding step.
     /// </summary>
+    /// <remarks>
+    /// The returned <see cref="RequiredConnectorSummary.InheritAll"/> is
+    /// always true and <see cref="RequiredConnectorSummary.InheritUnits"/>
+    /// is null — under ADR-0037 D3 every artefact that declares a slug
+    /// gets the binding 1:1 (no inheritance matrix). The transitional
+    /// shape is kept so the existing wizard / CLI rendering path doesn't
+    /// have to change in lockstep.
+    /// </remarks>
     private List<RequiredConnectorSummary> ReadConnectorDeclarations(string packageDir)
     {
-        var manifestPath = FindManifestPath(packageDir);
-        if (manifestPath is null)
-        {
-            return [];
-        }
-
+        var union = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            var yaml = File.ReadAllText(manifestPath);
-            var manifest = PackageManifestParser.ParseRaw(yaml);
-            if (manifest.Connectors is null || manifest.Connectors.Count == 0)
-            {
-                return [];
-            }
-
-            var result = new List<RequiredConnectorSummary>(manifest.Connectors.Count);
-            foreach (var c in manifest.Connectors)
-            {
-                if (string.IsNullOrWhiteSpace(c.Type))
-                {
-                    continue;
-                }
-                result.Add(new RequiredConnectorSummary(
-                    Type: c.Type!,
-                    Required: c.Required,
-                    InheritAll: c.InheritAll,
-                    InheritUnits: c.InheritUnits));
-            }
-            return result;
+            CollectArtefactRequires<UnitManifest>(packageDir, "units", "*.yaml", m => m.Requires, union);
+            CollectArtefactRequires<AgentManifest>(packageDir, "agents", "*.yaml", m => m.Requires, union);
         }
         catch (Exception ex) when (ex is PackageParseException or YamlDotNet.Core.YamlException or IOException)
         {
             logger.LogWarning(ex,
-                "Skipping connector declarations for package manifest '{Path}' because it could not be parsed.",
-                manifestPath);
+                "Skipping connector declarations for package '{Dir}' because an artefact YAML could not be parsed.",
+                packageDir);
             return [];
         }
+
+        var result = new List<RequiredConnectorSummary>(union.Count);
+        foreach (var slug in union)
+        {
+            result.Add(new RequiredConnectorSummary(Type: slug, Required: true));
+        }
+        return result;
     }
 
     /// <summary>
-    /// Read the <c>inputs:</c> block from the package's <c>package.yaml</c>
-    /// (or <c>package.yml</c>) so the wizard / CLI can render input fields
-    /// per declared input. A missing manifest, a malformed manifest, or a
-    /// manifest without an inputs block all map to an empty list — browse
-    /// is best-effort metadata and a malformed package should still appear
-    /// in the catalog so the operator can investigate. Errors are logged
-    /// at warning so misconfigurations don't disappear silently.
+    /// Walks one artefact-kind subdirectory (<c>units/</c>, <c>agents/</c>),
+    /// parses every <c>*.yaml</c> as <typeparamref name="TManifest"/>, reads
+    /// its <c>requires:</c> list via <paramref name="getRequires"/>, and
+    /// folds the slugs into <paramref name="union"/>. Per-file parse errors
+    /// are logged at debug; the catalog stays best-effort so a single
+    /// malformed artefact doesn't hide the rest of the package.
     /// </summary>
-    private List<PackageInputSummary> ReadPackageInputs(string packageDir)
+    private void CollectArtefactRequires<TManifest>(
+        string packageDir,
+        string subdir,
+        string searchPattern,
+        Func<TManifest, List<RequirementEntry>?> getRequires,
+        HashSet<string> union)
+        where TManifest : class, new()
     {
-        var manifestPath = FindManifestPath(packageDir);
-        if (manifestPath is null)
-        {
-            return [];
-        }
+        var dir = Path.Combine(packageDir, subdir);
+        if (!Directory.Exists(dir)) return;
 
-        try
-        {
-            var yaml = File.ReadAllText(manifestPath);
-            var manifest = PackageManifestParser.ParseRaw(yaml);
-            if (manifest.Inputs is null || manifest.Inputs.Count == 0)
-            {
-                return [];
-            }
+        var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+            .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+            .WithTypeConverter(new RequirementEntryYamlConverter())
+            .IgnoreUnmatchedProperties()
+            .Build();
 
-            var result = new List<PackageInputSummary>(manifest.Inputs.Count);
-            foreach (var def in manifest.Inputs)
+        foreach (var path in Directory.EnumerateFiles(dir, searchPattern, SearchOption.TopDirectoryOnly))
+        {
+            try
             {
-                if (string.IsNullOrWhiteSpace(def.Name))
+                var text = File.ReadAllText(path);
+                var manifest = deserializer.Deserialize<TManifest>(text);
+                if (manifest is null) continue;
+                var requires = getRequires(manifest);
+                if (requires is null) continue;
+                foreach (var entry in requires)
                 {
-                    continue;
+                    if (entry.Type != RequirementType.Connector) continue;
+                    var slug = entry.Identifier?.Trim();
+                    if (string.IsNullOrEmpty(slug)) continue;
+                    union.Add(slug);
                 }
-
-                result.Add(new PackageInputSummary(
-                    Name: def.Name!,
-                    Type: string.IsNullOrWhiteSpace(def.Type) ? "string" : def.Type!,
-                    Required: def.Required,
-                    Secret: def.Secret,
-                    Description: def.Description,
-                    Default: def.Default));
             }
-
-            return result;
-        }
-        catch (Exception ex) when (ex is PackageParseException or YamlDotNet.Core.YamlException or IOException)
-        {
-            logger.LogWarning(
-                ex,
-                "Skipping inputs schema for package manifest '{Path}' because it could not be parsed.",
-                manifestPath);
-            return [];
+            catch (Exception ex) when (ex is YamlDotNet.Core.YamlException or IOException)
+            {
+                logger.LogDebug(ex,
+                    "Skipping artefact '{Path}' while computing requires union.", path);
+            }
         }
     }
 

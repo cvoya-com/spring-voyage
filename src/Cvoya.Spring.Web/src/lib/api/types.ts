@@ -146,7 +146,20 @@ export type PackageDetail = Schemas["PackageDetail"];
  * unit-creation wizard renders one form field per entry on the catalog
  * Package step (#1615).
  */
-export type PackageInputSummary = Schemas["PackageInputSummary"];
+/**
+ * Removed in ADR-0037 (#1726). The package-level `inputs:` schema was
+ * retired in D2; connector-binding parameters now live on per-artefact
+ * `requires:` blocks. Kept as an empty stub so the install wizard's
+ * rendering paths typecheck while #1727 deletes the dead UI sections.
+ */
+export type PackageInputSummary = {
+  name: string;
+  type: string;
+  required: boolean;
+  secret: boolean;
+  description: string | null;
+  default: string | null;
+};
 
 /**
  * Wire shape for the connector-binding payload supplied at install time

@@ -9,17 +9,13 @@ using System.Linq;
 
 using Cvoya.Spring.Manifest;
 
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
-
 /// <summary>
-/// Pure connector-binding resolver (#1671). Computes the per-unit
-/// connector bindings for a single package install given:
+/// Pure connector-binding resolver. Computes per-artefact connector
+/// bindings for a single package install given:
 /// <list type="bullet">
-///   <item><description>The package-level <c>connectors:</c> declarations.</description></item>
-///   <item><description>Each member unit's own <c>connectors:</c> block.</description></item>
-///   <item><description>The package-scope bindings supplied by the operator.</description></item>
-///   <item><description>The per-unit binding overrides supplied by the operator.</description></item>
+///   <item><description>The package's declared requires (union of artefact <c>requires:</c> blocks; ADR-0037 D3).</description></item>
+///   <item><description>The package-scope bindings supplied by the operator (one per slug).</description></item>
+///   <item><description>Optional per-unit binding overrides supplied by the operator.</description></item>
 /// </list>
 /// Pure: no I/O, no DB access. Output is <c>unit name → slug → binding</c>;
 /// the install pipeline forwards each unit's map to
@@ -29,15 +25,20 @@ using YamlDotNet.Serialization.NamingConventions;
 /// a single 400 with every missing slug at once instead of dripping out
 /// errors one Phase-2 activation at a time.
 /// </summary>
+/// <remarks>
+/// <para>
+/// ADR-0037 D3 retired the package-level <c>connectors:</c> block and the
+/// <c>inherit:</c> matrix it used. Each artefact declares its own
+/// <c>requires:</c>; the resolver applies the operator's
+/// per-slug binding to every artefact that declared it. Per-unit
+/// overrides still flow through <c>unitBindings</c> for the rare case
+/// where one unit needs a different binding than its peers.
+/// </para>
+/// </remarks>
 public static class ConnectorBindingResolver
 {
     /// <summary>
-    /// Resolves the per-unit connector bindings. Returns a tuple:
-    /// <list type="bullet">
-    ///   <item><description><c>Bindings</c>: unit name → slug → binding.</description></item>
-    ///   <item><description><c>Missing</c>: gaps the operator must fix.</description></item>
-    ///   <item><description><c>UnknownSlugs</c>: bindings supplied for slugs the package does not declare.</description></item>
-    /// </list>
+    /// Resolves the per-unit connector bindings.
     /// </summary>
     public static ConnectorBindingResolution Resolve(
         ResolvedPackage package,
@@ -49,15 +50,9 @@ public static class ConnectorBindingResolver
         packageBindings ??= new Dictionary<string, ConnectorBinding>(StringComparer.OrdinalIgnoreCase);
         unitBindings ??= new Dictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>(StringComparer.OrdinalIgnoreCase);
 
-        var declared = package.Connectors ?? Array.Empty<RequiredConnector>();
         var declaredSlugs = new HashSet<string>(
-            declared.Where(c => !string.IsNullOrWhiteSpace(c.Type)).Select(c => c.Type!),
+            package.RequiredConnectorSlugs ?? Array.Empty<string>(),
             StringComparer.OrdinalIgnoreCase);
-
-        var unitNames = package.Units
-            .Where(u => !u.IsCrossPackage)
-            .Select(u => u.Name)
-            .ToList();
 
         var missing = new List<ConnectorBindingMissing>();
         var unknown = new List<UnknownConnectorBindingEntry>();
@@ -81,56 +76,46 @@ public static class ConnectorBindingResolver
             }
         }
 
-        // 2. Required-but-not-supplied at the package level.
-        foreach (var conn in declared)
+        // 2. Required-but-not-supplied at the package level. Under ADR-0037 D3
+        //    every declared requirement is required (no optional flag); if the
+        //    operator hasn't supplied a binding for a slug some artefact
+        //    declared, that's a pre-flight error.
+        foreach (var slug in declaredSlugs)
         {
-            if (!conn.Required) continue;
-            if (string.IsNullOrWhiteSpace(conn.Type)) continue;
-            if (!packageBindings.ContainsKey(conn.Type!))
+            if (!packageBindings.ContainsKey(slug))
             {
-                missing.Add(new ConnectorBindingMissing(conn.Type!, "package", null));
+                missing.Add(new ConnectorBindingMissing(slug, "package", null));
             }
         }
 
-        // 3. Walk each member unit, computing its inherited bindings then
-        //    overlaying explicit unit-scope overrides. Per-unit `inherit:
-        //    false` opt-out without a unit-scope override is a hard error.
-        var perUnitBindings = new Dictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>(StringComparer.OrdinalIgnoreCase);
+        // 3. Walk each member unit. Apply the package-scope binding for
+        //    every slug the unit declared in its `requires:` block (per
+        //    ADR-0037 D3); overlay any explicit unit-scope override.
+        var unitNames = package.Units
+            .Where(u => !u.IsCrossPackage)
+            .Select(u => u.Name)
+            .ToList();
 
-        // Parse each unit's `connectors:` block once so we can read
-        // `inherit: false` opt-out flags. Lives here in the resolver so the
-        // function stays pure (no shared state with the install pipeline).
-        var unitOptOuts = ParseUnitOptOuts(package);
+        var perUnitBindings = new Dictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>(
+            StringComparer.OrdinalIgnoreCase);
 
         foreach (var unitName in unitNames)
         {
             var combined = new Dictionary<string, ConnectorBinding>(StringComparer.OrdinalIgnoreCase);
-            unitOptOuts.TryGetValue(unitName, out var optOutSlugs);
 
-            foreach (var conn in declared)
+            // Apply each slug declared by this unit.
+            if (package.ConnectorRequiresByArtefact.TryGetValue(unitName, out var unitSlugs))
             {
-                if (string.IsNullOrWhiteSpace(conn.Type)) continue;
-                var slug = conn.Type!;
-
-                // Determine inheritance scope.
-                var inherits =
-                    conn.InheritAll
-                    || (conn.InheritUnits is not null
-                        && conn.InheritUnits.Any(n => string.Equals(n, unitName, StringComparison.OrdinalIgnoreCase)));
-
-                // Per-unit opt-out turns inheritance off.
-                if (optOutSlugs is not null && optOutSlugs.Contains(slug))
+                foreach (var slug in unitSlugs)
                 {
-                    inherits = false;
-                }
-
-                if (inherits && packageBindings.TryGetValue(slug, out var inherited))
-                {
-                    combined[slug] = inherited;
+                    if (packageBindings.TryGetValue(slug, out var binding))
+                    {
+                        combined[slug] = binding;
+                    }
                 }
             }
 
-            // Overlay unit-scope explicit overrides.
+            // Overlay explicit unit-scope overrides.
             if (unitBindings.TryGetValue(unitName, out var perUnit))
             {
                 foreach (var (slug, binding) in perUnit)
@@ -139,44 +124,16 @@ public static class ConnectorBindingResolver
                 }
             }
 
-            // Hard pre-flight error: unit opt-outs that have no override.
-            if (optOutSlugs is not null)
-            {
-                foreach (var slug in optOutSlugs)
-                {
-                    if (!combined.ContainsKey(slug)
-                        && !(unitBindings.TryGetValue(unitName, out var perU) && perU.ContainsKey(slug)))
-                    {
-                        missing.Add(new ConnectorBindingMissing(slug, "unit", unitName));
-                    }
-                }
-            }
-
             perUnitBindings[unitName] = combined;
         }
 
         return new ConnectorBindingResolution(perUnitBindings, missing, unknown);
-    }
-
-    private static Dictionary<string, HashSet<string>> ParseUnitOptOuts(ResolvedPackage package)
-    {
-        // ADR-0037 decision 3: per-unit connector inheritance opt-outs are
-        // gone — every artefact declares its own requires:, the install
-        // pipeline injects bindings 1:1, and there is no opt-out to honour.
-        // This method survives only as a transitional surface for #1726;
-        // it returns an empty map so callers that consult it pass through
-        // untouched.
-        _ = package;
-        return new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
     }
 }
 
 /// <summary>
 /// Output of <see cref="ConnectorBindingResolver.Resolve"/>.
 /// </summary>
-/// <param name="Bindings">Per-unit resolved bindings (<c>unit → slug → binding</c>).</param>
-/// <param name="Missing">Pre-flight gaps the install request must fix before any DB writes.</param>
-/// <param name="UnknownSlugs">Bindings supplied for slugs the package does not declare.</param>
 public sealed record ConnectorBindingResolution(
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>> Bindings,
     IReadOnlyList<ConnectorBindingMissing> Missing,
