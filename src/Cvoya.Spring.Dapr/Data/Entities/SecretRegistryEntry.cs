@@ -16,7 +16,8 @@ using Cvoya.Spring.Core.Tenancy;
 /// <b>Scope/owner split.</b> <see cref="OwnerId"/> is a nullable Guid:
 /// for <see cref="SecretScope.Unit"/> it is the unit's Guid; for
 /// <see cref="SecretScope.Tenant"/> it is the tenant Guid (matches
-/// <see cref="TenantId"/>); for <see cref="SecretScope.Platform"/> it is
+/// <see cref="TenantId"/>); for <see cref="SecretScope.Agent"/> it is the
+/// agent Guid (#1737); for <see cref="SecretScope.Platform"/> it is
 /// <c>null</c>.
 /// </para>
 ///
@@ -67,6 +68,18 @@ public class SecretRegistryEntry : ITenantScopedEntity
     /// Monotonically-increasing version number, bumped by rotations.
     /// </summary>
     public int? Version { get; set; }
+
+    /// <summary>
+    /// Per-secret propagation flag (#1737). When <c>true</c>, descendant
+    /// scopes inherit this value via the resolver's fall-through walk
+    /// (Unit→Tenant; parent unit → child unit / agent). When
+    /// <c>false</c>, the value is isolated to the exact
+    /// (scope, owner, name) triple — the resolver skips it during
+    /// ancestor-chain inheritance and continues walking. Existing rows
+    /// written before the migration default to <c>true</c>, preserving
+    /// the pre-#1737 behaviour.
+    /// </summary>
+    public bool Propagate { get; set; } = true;
 
     /// <summary>Creation timestamp (UTC).</summary>
     public DateTimeOffset CreatedAt { get; set; }

@@ -248,7 +248,9 @@ public static class SystemEndpoints
 
     private static string? MapSource(LlmCredentialSource source) => source switch
     {
+        LlmCredentialSource.Agent => "agent",
         LlmCredentialSource.Unit => "unit",
+        LlmCredentialSource.ParentUnit => "parent-unit",
         LlmCredentialSource.Tenant => "tenant",
         _ => null,
     };

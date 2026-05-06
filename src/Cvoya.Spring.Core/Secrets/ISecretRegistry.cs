@@ -79,6 +79,44 @@ public interface ISecretRegistry
     Task RegisterAsync(SecretRef @ref, string storeKey, SecretOrigin origin, CancellationToken ct);
 
     /// <summary>
+    /// Registers a fresh structural reference with a per-secret
+    /// <paramref name="propagate"/> flag (#1737). When
+    /// <paramref name="propagate"/> is <c>false</c> the resolver does NOT
+    /// inherit the value down to descendant units / agents — useful for
+    /// parent-unit overrides that must not leak into nested scopes.
+    /// Behaviour for <c>propagate = true</c> matches the existing
+    /// <see cref="RegisterAsync(SecretRef, string, SecretOrigin, CancellationToken)"/>
+    /// overload exactly. Default semantics for any registration written
+    /// via the four-argument overload remain "inherit" (true).
+    /// </summary>
+    /// <param name="ref">The structural reference.</param>
+    /// <param name="storeKey">The opaque store key returned by <see cref="ISecretStore"/>.</param>
+    /// <param name="origin">Who owns the storage slot; see <see cref="SecretOrigin"/>.</param>
+    /// <param name="propagate">
+    /// Whether the value is inheritable by descendant scopes. <c>true</c>
+    /// preserves the legacy fall-through behaviour (Unit→Tenant; parent
+    /// unit → child unit / agent); <c>false</c> isolates the value to the
+    /// exact (scope, owner, name) triple.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    Task RegisterAsync(SecretRef @ref, string storeKey, SecretOrigin origin, bool propagate, CancellationToken ct);
+
+    /// <summary>
+    /// Returns the per-secret <c>propagate</c> flag for the latest
+    /// version of the given structural reference, or <c>null</c> when no
+    /// such reference exists in the current tenant. Used by the
+    /// <see cref="Cvoya.Spring.Core.Execution.ILlmCredentialResolver"/>
+    /// parent-unit chain walk to decide whether an ancestor's value is
+    /// inheritable. The legacy four-argument
+    /// <see cref="RegisterAsync(SecretRef, string, SecretOrigin, CancellationToken)"/>
+    /// overload writes <c>propagate = true</c>, preserving pre-#1737
+    /// behaviour.
+    /// </summary>
+    /// <param name="ref">The structural reference.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<bool?> LookupPropagateAsync(SecretRef @ref, CancellationToken ct);
+
+    /// <summary>
     /// Returns the <see cref="SecretPointer"/> for the latest version of
     /// the given structural reference, or <c>null</c> if no such
     /// reference exists in the current tenant.

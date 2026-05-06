@@ -43,7 +43,11 @@ public class EfSecretRegistry : ISecretRegistry
     }
 
     /// <inheritdoc />
-    public async Task RegisterAsync(SecretRef @ref, string storeKey, SecretOrigin origin, CancellationToken ct)
+    public Task RegisterAsync(SecretRef @ref, string storeKey, SecretOrigin origin, CancellationToken ct)
+        => RegisterAsync(@ref, storeKey, origin, propagate: true, ct);
+
+    /// <inheritdoc />
+    public async Task RegisterAsync(SecretRef @ref, string storeKey, SecretOrigin origin, bool propagate, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(@ref);
         ArgumentException.ThrowIfNullOrWhiteSpace(storeKey);
@@ -77,11 +81,21 @@ public class EfSecretRegistry : ISecretRegistry
             StoreKey = storeKey,
             Origin = origin,
             Version = 1,
+            Propagate = propagate,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
         });
 
         await _db.SaveChangesAsync(ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool?> LookupPropagateAsync(SecretRef @ref, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(@ref);
+
+        var entry = await LoadLatestAsync(@ref, ct);
+        return entry?.Propagate;
     }
 
     /// <inheritdoc />
@@ -225,6 +239,8 @@ public class EfSecretRegistry : ISecretRegistry
         // APPEND a new version. The old row stays in place so pinned
         // resolves (by SecretRef, version = fromVersion) continue to
         // work. Store-layer slots are reclaimed only by prune/delete.
+        // Propagate flag carries forward from the latest row so a
+        // rotation does not silently flip inheritance behaviour (#1737).
         _db.SecretRegistryEntries.Add(new SecretRegistryEntry
         {
             Id = Guid.NewGuid(),
@@ -235,6 +251,7 @@ public class EfSecretRegistry : ISecretRegistry
             StoreKey = newStoreKey,
             Origin = newOrigin,
             Version = toVersion,
+            Propagate = latest.Propagate,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
         });

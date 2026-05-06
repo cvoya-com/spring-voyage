@@ -585,6 +585,144 @@ public class EfSecretRegistryTests : IDisposable
         latest!.StoreKey.ShouldBe("sk-new");
     }
 
+    // ---- #1737: SecretScope.Agent + propagate flag --------------------------
+
+    private static readonly Guid AgentA1 = new("aaaaaaaa-1737-0000-0000-000000000001");
+
+    [Fact]
+    public async Task RegisterThenLookup_AgentScope_RoundtripsByAgentGuid()
+    {
+        // SecretScope.Agent is just another (scope, owner, name) triple
+        // for the registry — the agent Guid is the OwnerId. Verify that
+        // a write at agent scope is readable by lookup at agent scope and
+        // is NOT confused with the same-name unit-scoped row.
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry(Tenant1);
+
+        await sut.RegisterAsync(
+            new SecretRef(SecretScope.Agent, AgentA1, "anthropic-api-key"),
+            "sk-agent",
+            SecretOrigin.PlatformOwned,
+            ct);
+        await sut.RegisterAsync(
+            new SecretRef(SecretScope.Unit, OwnerU1, "anthropic-api-key"),
+            "sk-unit",
+            SecretOrigin.PlatformOwned,
+            ct);
+
+        var agentKey = await sut.LookupStoreKeyAsync(
+            new SecretRef(SecretScope.Agent, AgentA1, "anthropic-api-key"), ct);
+        var unitKey = await sut.LookupStoreKeyAsync(
+            new SecretRef(SecretScope.Unit, OwnerU1, "anthropic-api-key"), ct);
+
+        agentKey.ShouldBe("sk-agent");
+        unitKey.ShouldBe("sk-unit");
+    }
+
+    [Fact]
+    public async Task RegisterAsync_DefaultPropagate_IsTrue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry(Tenant1);
+
+        await sut.RegisterAsync(
+            new SecretRef(SecretScope.Unit, OwnerU1, "foo"),
+            "sk-1",
+            SecretOrigin.PlatformOwned,
+            ct);
+
+        var propagate = await sut.LookupPropagateAsync(
+            new SecretRef(SecretScope.Unit, OwnerU1, "foo"), ct);
+
+        propagate.ShouldBe(true);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_PropagateFalse_PersistsThroughLookup()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry(Tenant1);
+
+        await sut.RegisterAsync(
+            new SecretRef(SecretScope.Unit, OwnerU1, "foo"),
+            "sk-sealed",
+            SecretOrigin.PlatformOwned,
+            propagate: false,
+            ct);
+
+        var propagate = await sut.LookupPropagateAsync(
+            new SecretRef(SecretScope.Unit, OwnerU1, "foo"), ct);
+
+        propagate.ShouldBe(false);
+    }
+
+    [Fact]
+    public async Task LookupPropagateAsync_MissingRef_ReturnsNull()
+    {
+        // Distinguishes "no row at this scope" (null) from
+        // "row exists with propagate = false" — the resolver's parent
+        // chain walk uses this distinction to keep walking past empty
+        // ancestors but stop at sealed ones.
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry(Tenant1);
+
+        var propagate = await sut.LookupPropagateAsync(
+            new SecretRef(SecretScope.Unit, OwnerMissing, "nope"), ct);
+
+        propagate.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RotateAsync_PreservesPropagate_FromPriorVersion()
+    {
+        // A rotation must not silently flip the inheritance flag — an
+        // operator who sealed a unit-scoped value should keep it sealed
+        // across rotations until they explicitly re-register with a new
+        // flag.
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry(Tenant1);
+
+        await sut.RegisterAsync(
+            new SecretRef(SecretScope.Unit, OwnerU1, "foo"),
+            "sk-1",
+            SecretOrigin.PlatformOwned,
+            propagate: false,
+            ct);
+
+        await sut.RotateAsync(
+            new SecretRef(SecretScope.Unit, OwnerU1, "foo"),
+            "sk-2",
+            SecretOrigin.PlatformOwned,
+            null,
+            ct);
+
+        var propagate = await sut.LookupPropagateAsync(
+            new SecretRef(SecretScope.Unit, OwnerU1, "foo"), ct);
+
+        propagate.ShouldBe(false);
+    }
+
+    [Fact]
+    public async Task AgentScope_IsTenantIsolated()
+    {
+        // A secret written under SecretScope.Agent in tenant 2 must NOT
+        // be readable from tenant 1 — the tenant query filter must apply
+        // to the new scope just like it does to Unit / Tenant / Platform.
+        var ct = TestContext.Current.CancellationToken;
+        var t2 = NewRegistry(Tenant2);
+        await t2.RegisterAsync(
+            new SecretRef(SecretScope.Agent, AgentA1, "anthropic-api-key"),
+            "sk-t2-agent",
+            SecretOrigin.PlatformOwned,
+            ct);
+
+        var t1 = NewRegistry(Tenant1);
+        var found = await t1.LookupStoreKeyAsync(
+            new SecretRef(SecretScope.Agent, AgentA1, "anthropic-api-key"), ct);
+
+        found.ShouldBeNull();
+    }
+
     private EfSecretRegistry NewRegistry(Guid tenantId)
     {
         // Each registry gets its own DbContext pinned to the tenant
