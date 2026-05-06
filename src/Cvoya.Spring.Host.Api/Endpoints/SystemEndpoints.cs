@@ -149,6 +149,7 @@ public static class SystemEndpoints
                     // scope secret, which is what the wizard cares about.
                     var resolution = await credentialResolver.ResolveAsync(
                         runtimeId,
+                        agentId: null,
                         unitId: null,
                         cancellationToken);
 
