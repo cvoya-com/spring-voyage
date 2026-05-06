@@ -1051,6 +1051,85 @@ export const api = {
       }),
     );
   },
+  // Agent-scoped secrets (#1741, portal panel #1744).
+  //
+  // Mirrors the unit-secret wrappers' shape so the Settings panel can
+  // swap them with minimal divergence. The API never returns plaintext
+  // values; `createAgentSecret` and `rotateAgentSecret` are the only
+  // paths through which a plaintext leaves this client.
+  //
+  // The `propagate` field carried on `CreateSecretRequest` has no
+  // effect at agent scope — agents have no descendants — and the panel
+  // never renders a propagate toggle. The wrapper signatures still
+  // accept the shared request type so call sites match unit/tenant
+  // wrappers; the server ignores the field at agent scope (#1741).
+  listAgentSecrets: async (agentId: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/agents/{agentId}/secrets", {
+        params: { path: { agentId } },
+      }),
+    ),
+  createAgentSecret: async (agentId: string, body: CreateSecretRequest) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/tenant/agents/{agentId}/secrets", {
+        params: { path: { agentId } },
+        body,
+      }),
+    ),
+  rotateAgentSecret: async (
+    agentId: string,
+    name: string,
+    body: CreateSecretRequest,
+  ) =>
+    unwrap(
+      await fetchClient.PUT(
+        "/api/v1/tenant/agents/{agentId}/secrets/{name}",
+        {
+          params: { path: { agentId, name } },
+          body,
+        },
+      ),
+    ),
+  deleteAgentSecret: async (agentId: string, name: string): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE(
+        "/api/v1/tenant/agents/{agentId}/secrets/{name}",
+        {
+          params: { path: { agentId, name } },
+        },
+      ),
+    );
+  },
+  listAgentSecretVersions: async (agentId: string, name: string) =>
+    unwrap(
+      await fetchClient.GET(
+        "/api/v1/tenant/agents/{agentId}/secrets/{name}/versions",
+        {
+          params: { path: { agentId, name } },
+        },
+      ),
+    ),
+  /**
+   * Prune retained versions of an agent-scoped secret, keeping the N
+   * most recent. The current version is always retained; `keep` must be
+   * >= 1 (server-enforced).
+   */
+  pruneAgentSecretVersions: async (
+    agentId: string,
+    name: string,
+    body: { keep: number },
+  ) =>
+    unwrap(
+      await fetchClient.POST(
+        "/api/v1/tenant/agents/{agentId}/secrets/{name}/prune",
+        {
+          params: {
+            path: { agentId, name },
+            query: { keep: body.keep } as never,
+          },
+        },
+      ),
+    ),
   // Tenant-scoped secrets (#615). Tenant-default credentials — LLM API
   // keys and anything else a tenant wants to share across its units —
   // live here. Units inherit from this scope automatically unless they

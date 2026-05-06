@@ -37,10 +37,11 @@ import {
 } from "lucide-react";
 
 import { AboutPanel } from "@/components/settings/about-panel";
+import { AgentOverridesPanel } from "@/components/settings/agent-overrides-panel";
 import { AuthPanel } from "@/components/settings/auth-panel";
 import { BudgetPanel } from "@/components/settings/budget-panel";
 import { TenantDefaultsPanel } from "@/components/settings/tenant-defaults-panel";
-import { KeyRound, Info } from "lucide-react";
+import { KeyRound, Info, UserCog } from "lucide-react";
 
 import type {
   DrawerPanel,
@@ -438,6 +439,19 @@ export const defaultDrawerPanels: readonly DrawerPanel[] = [
     description: "LLM credentials inherited by every unit in the tenant.",
     orderHint: 15,
     component: <TenantDefaultsPanel />,
+  },
+  {
+    // #1744: agent-scope overrides — narrowest tier of the resolver chain.
+    // Mirrors `spring secret --scope agent --agent <id>` (#1741). The
+    // Settings hub renders this directly under the tenant-defaults panel
+    // so operators see one settings root for the secret hierarchy.
+    id: "agent-overrides",
+    label: "Agent overrides",
+    icon: UserCog,
+    description:
+      "Per-agent secret overrides that win over unit and tenant defaults.",
+    orderHint: 17,
+    component: <AgentOverridesPanel />,
   },
   {
     id: "auth",
