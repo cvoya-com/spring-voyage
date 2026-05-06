@@ -65,7 +65,6 @@ public class GitHubConnectorType : IConnectorType
     private readonly GitHubAppConfigurationRequirement _credentialRequirement;
     private readonly IOAuthSessionStore _oauthSessionStore;
     private readonly IServiceProvider _serviceProvider;
-    private readonly IGitHubUserScopeResolver _userScopeResolver;
     private readonly ILogger<GitHubConnectorType> _logger;
 
     /// <summary>
@@ -81,7 +80,6 @@ public class GitHubConnectorType : IConnectorType
         GitHubAppConfigurationRequirement credentialRequirement,
         IOAuthSessionStore oauthSessionStore,
         IServiceProvider serviceProvider,
-        IGitHubUserScopeResolver userScopeResolver,
         ILoggerFactory loggerFactory)
     {
         _configStore = configStore;
@@ -93,7 +91,6 @@ public class GitHubConnectorType : IConnectorType
         _credentialRequirement = credentialRequirement;
         _oauthSessionStore = oauthSessionStore;
         _serviceProvider = serviceProvider;
-        _userScopeResolver = userScopeResolver;
         _logger = loggerFactory.CreateLogger<GitHubConnectorType>();
     }
 
@@ -712,56 +709,36 @@ public class GitHubConnectorType : IConnectorType
 
         try
         {
-            // Resolve the caller's GitHub identity (login + org
-            // memberships) and use it to filter installations to those
-            // owned by accounts the user belongs to. The per-installation
-            // listing then uses the user's OAuth token so each
-            // installation's repos are intersected with the user's own
-            // permissions — closing the "App is installed on my org but
-            // I can't actually see this private repo" leak (#1663).
-            var userScope = await _userScopeResolver.ResolveAsync(
-                userAccessToken, cancellationToken);
-            _logger.LogInformation(
-                "list-repositories: user scope resolved for session {SessionId} " +
-                "(login={Login}, accounts={Count})",
-                sessionId, session.Login, userScope.Count);
-
-            var installations = await _installationsClient
-                .ListInstallationsAsync(cancellationToken);
-
-            // Retain only installations whose account login is in
-            // { user-login, user-orgs }. GitHub logins are
-            // case-preserving but case-insensitive, so use the
-            // case-insensitive comparer the resolver builds the HashSet
-            // with.
-            var visibleInstallations = installations
-                .Where(i => userScope.Contains(i.Account))
-                .ToList();
-
-            _logger.LogInformation(
-                "list-repositories: filtered {Total} installation(s) down to {Visible} " +
-                "matching the caller's GitHub scope",
-                installations.Count, visibleInstallations.Count);
-
-            // Aggregate across installations so the wizard can present a
-            // single repository dropdown (#1133). Use the user's OAuth
-            // token via `GET /user/installations/{id}/repositories` so
-            // the result is intersected with the *user's* repository
-            // permissions — narrower than the App-installation listing.
+            // Enumerate all App installations, then call
+            // `GET /user/installations/{id}/repositories` with the user's
+            // OAuth token for each one. GitHub enforces access control
+            // server-side: the endpoint returns only the repos within that
+            // installation that the calling user can actually see. This means:
+            //   • Personal-account installations: user's own repos
+            //   • Org installations: repos the user can access as a member
+            //     or direct collaborator, including private repos
             //
-            // The result of `ListUserAccessibleRepositoriesAsync` is
-            // already intersected on the GitHub side, but we run it
-            // through `UserScopedRepositoryFilter.Intersect(…, null)`
-            // anyway — the helper enforces the canonical alphabetical
-            // ordering and stays the single seam a private cloud impl
-            // can override to layer additional filtering on top
-            // (e.g. tenant-scoped repo allow-lists).
+            // We intentionally do NOT pre-filter installations by the user's
+            // org list (the previous approach via IGitHubUserScopeResolver /
+            // GET /user/orgs). That pre-filter required the `read:org` OAuth
+            // scope to resolve private org memberships; without it, org
+            // installations were silently dropped even for org members/admins.
+            // Delegating the access check to the per-installation GitHub API
+            // call avoids the scope requirement and lets GitHub be the
+            // authority on what the user can see.
             //
             // A failure on one installation MUST NOT poison the list —
             // log it and keep the other installations' rows so the
             // wizard still has something to render.
+            var installations = await _installationsClient
+                .ListInstallationsAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "list-repositories: enumerating {Count} installation(s) for session {SessionId} (login={Login})",
+                installations.Count, sessionId, session.Login);
+
             var aggregated = new List<GitHubRepositoryResponse>();
-            foreach (var installation in visibleInstallations)
+            foreach (var installation in installations)
             {
                 IReadOnlyList<GitHubInstallationRepository> repos;
                 try
@@ -771,18 +748,28 @@ public class GitHubConnectorType : IConnectorType
                             installation.InstallationId, userAccessToken, cancellationToken);
                 }
                 catch (Octokit.AuthorizationException ex)
+                    when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                 {
-                    // The user's OAuth token is no longer accepted — surface
-                    // a precise error rather than failing opaquely (#1663
-                    // edge case: rate-limited / revoked OAuth tokens).
+                    // 401 means the token itself is invalid or revoked —
+                    // surface this so the portal prompts re-authorization.
                     _logger.LogWarning(ex,
-                        "list-repositories: user OAuth token rejected (401/403) " +
+                        "list-repositories: user OAuth token rejected (401) " +
                         "while enumerating installation {InstallationId}; returning 401 missingOAuth",
                         installation.InstallationId);
                     return await MissingOAuthResultAsync(
                         "GitHub rejected the OAuth token (it may have been " +
                         "revoked). Re-link the operator's GitHub account.",
                         cancellationToken);
+                }
+                catch (Octokit.AuthorizationException ex)
+                {
+                    // 403: user simply does not have access to this
+                    // installation (e.g. not a member of the org). Skip it;
+                    // don't fail the entire request.
+                    _logger.LogInformation(ex,
+                        "list-repositories: user lacks access to installation {InstallationId} ({Account}); skipping",
+                        installation.InstallationId, installation.Account);
+                    continue;
                 }
                 catch (Octokit.RateLimitExceededException ex)
                 {

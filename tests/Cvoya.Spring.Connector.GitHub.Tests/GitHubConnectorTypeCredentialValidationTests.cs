@@ -280,7 +280,6 @@ public class GitHubConnectorTypeCredentialValidationTests
             requirement,
             Substitute.For<IOAuthSessionStore>(),
             sp,
-            Substitute.For<IGitHubUserScopeResolver>(),
             _loggerFactory);
     }
 
