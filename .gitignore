@@ -84,3 +84,6 @@ test-results/
 
 ## Claude Code working dirs (parallel subagent worktrees, agent state).
 .claude/worktrees/
+
+# CodeGraph data files — these are local to each machine and should not be committed.
+.codegraph/
