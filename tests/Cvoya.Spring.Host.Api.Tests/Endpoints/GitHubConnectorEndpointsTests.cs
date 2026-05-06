@@ -407,11 +407,6 @@ public class GitHubConnectorEndpointsTests
         secretStore.ReadAsync(fakeStoreKey, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<string?>(fakeAccessToken));
 
-        var scopeResolver = Substitute.For<IGitHubUserScopeResolver>();
-        scopeResolver.ResolveAsync(fakeAccessToken, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlySet<string>>(
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "alice", "acme" }));
-
         // #1133: the new endpoint replaces "type owner / type repo /
         // pick installation" with a single dropdown sourced from every
         // visible installation. The response carries the installation id
@@ -440,8 +435,7 @@ public class GitHubConnectorEndpointsTests
         await using var factory = CreateFactory(
             installationsClient: installationsClient,
             sessionStore: sessionStore,
-            secretStore: secretStore,
-            scopeResolver: scopeResolver);
+            secretStore: secretStore);
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
@@ -504,11 +498,6 @@ public class GitHubConnectorEndpointsTests
         secretStore.ReadAsync(fakeStoreKey, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<string?>(fakeAccessToken));
 
-        var scopeResolver = Substitute.For<IGitHubUserScopeResolver>();
-        scopeResolver.ResolveAsync(fakeAccessToken, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlySet<string>>(
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "alice", "acme" }));
-
         var installationsClient = Substitute.For<IGitHubInstallationsClient>();
         installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
             .Returns(new[]
@@ -529,8 +518,7 @@ public class GitHubConnectorEndpointsTests
         await using var factory = CreateFactory(
             installationsClient: installationsClient,
             sessionStore: sessionStore,
-            secretStore: secretStore,
-            scopeResolver: scopeResolver);
+            secretStore: secretStore);
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
@@ -638,20 +626,23 @@ public class GitHubConnectorEndpointsTests
     }
 
     // -----------------------------------------------------------------------
-    // #1505 — user-scoped list-repositories (tenant-isolation fix)
+    // #1505 — user-scoped list-repositories (tenant-isolation)
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task ListRepositories_WithSessionId_FiltersToUserScope()
+    public async Task ListRepositories_WithSessionId_OrgInstallationReposIncludedWithoutReadOrgScope()
     {
-        // Two installations: one belonging to "acme" (the user's org) and
-        // one belonging to "other-org" (a different tenant). The caller's
-        // GitHub OAuth session has login "alice" and belongs to org "acme".
-        // Only the installation whose Account is "acme" should appear in
-        // the result — "other-org/secret-repo" must NOT be returned.
-        const string sessionId = "test-session-abc";
-        const string fakeAccessToken = "ghu_faketoken";
-        const string fakeStoreKey = "store-key-123";
+        // The App is installed on both the user's personal account and on an
+        // org ("cvoya-com"). The user is an admin/member of the org but the
+        // OAuth token does NOT have the read:org scope (Scopes="repo").
+        // Previously a pre-filter using GET /user/orgs dropped the org
+        // installation because private org membership requires read:org.
+        // With the fix, GitHub's own per-installation endpoint enforces
+        // access: the org installation returns the repos the user can see,
+        // regardless of whether read:org is in the token's scope.
+        const string sessionId = "test-session-org-no-readorg";
+        const string fakeStoreKey = "store-key-org-fix";
+        const string fakeAccessToken = "ghu_org_fix";
 
         var sessionStore = Substitute.For<IOAuthSessionStore>();
         sessionStore.GetAsync(sessionId, Arg.Any<CancellationToken>())
@@ -659,7 +650,7 @@ public class GitHubConnectorEndpointsTests
                 SessionId: sessionId,
                 Login: "alice",
                 UserId: 42L,
-                Scopes: "repo read:org",
+                Scopes: "repo",  // no read:org
                 AccessTokenStoreKey: fakeStoreKey,
                 RefreshTokenStoreKey: null,
                 ExpiresAt: null,
@@ -670,12 +661,78 @@ public class GitHubConnectorEndpointsTests
         secretStore.ReadAsync(fakeStoreKey, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<string?>(fakeAccessToken));
 
-        // The scope resolver returns { "alice", "acme" } — the user's own
-        // login plus the one org they belong to.
-        var scopeResolver = Substitute.For<IGitHubUserScopeResolver>();
-        scopeResolver.ResolveAsync(fakeAccessToken, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlySet<string>>(
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "alice", "acme" }));
+        var installationsClient = Substitute.For<IGitHubInstallationsClient>();
+        installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallation(3001L, "alice", "User", "all"),
+                new GitHubInstallation(3002L, "cvoya-com", "Organization", "all"),
+            });
+        installationsClient.ListUserAccessibleRepositoriesAsync(
+                3001L, fakeAccessToken, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallationRepository(30L, "alice", "my-repo", "alice/my-repo", false),
+            });
+        // Even without read:org, GitHub's per-installation endpoint returns
+        // the org repos the user has access to (as a member/admin).
+        installationsClient.ListUserAccessibleRepositoriesAsync(
+                3002L, fakeAccessToken, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallationRepository(31L, "cvoya-com", "platform", "cvoya-com/platform", false),
+                new GitHubInstallationRepository(32L, "cvoya-com", "private-repo", "cvoya-com/private-repo", true),
+            });
+
+        await using var factory = CreateFactory(
+            installationsClient: installationsClient,
+            sessionStore: sessionStore,
+            secretStore: secretStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            $"/api/v1/tenant/connectors/github/actions/list-repositories?session_id={sessionId}",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<GitHubRepositoryResponse[]>(ct);
+        body.ShouldNotBeNull();
+        body!.Length.ShouldBe(3);
+        body.Select(r => r.FullName).ToArray().ShouldBe(
+            new[] { "alice/my-repo", "cvoya-com/platform", "cvoya-com/private-repo" });
+    }
+
+    [Fact]
+    public async Task ListRepositories_WithSessionId_OrgReposAreNotLeakedToNonMembers()
+    {
+        // Two installations: one belonging to "acme" (an org the user can
+        // access) and one belonging to "other-org" (a different tenant the
+        // user has no access to). The endpoint calls
+        // GET /user/installations/{id}/repositories for every installation
+        // and lets GitHub enforce access control server-side. For "other-org",
+        // the user's token returns no repos; for "acme" it returns the repos
+        // the user can see. The result must only contain "acme" repos.
+        const string sessionId = "test-session-abc";
+        const string fakeAccessToken = "ghu_faketoken";
+        const string fakeStoreKey = "store-key-123";
+
+        var sessionStore = Substitute.For<IOAuthSessionStore>();
+        sessionStore.GetAsync(sessionId, Arg.Any<CancellationToken>())
+            .Returns(new OAuthSession(
+                SessionId: sessionId,
+                Login: "alice",
+                UserId: 42L,
+                Scopes: "repo",
+                AccessTokenStoreKey: fakeStoreKey,
+                RefreshTokenStoreKey: null,
+                ExpiresAt: null,
+                CreatedAt: DateTimeOffset.UtcNow,
+                ClientState: null));
+
+        var secretStore = Substitute.For<ISecretStore>();
+        secretStore.ReadAsync(fakeStoreKey, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<string?>(fakeAccessToken));
 
         var installationsClient = Substitute.For<IGitHubInstallationsClient>();
         // App sees two installations: one for acme, one for another tenant.
@@ -685,23 +742,22 @@ public class GitHubConnectorEndpointsTests
                 new GitHubInstallation(1001L, "acme", "Organization", "all"),
                 new GitHubInstallation(1002L, "other-org", "Organization", "all"),
             });
-        // The session-scoped path uses the user's OAuth token, so
-        // repositories are listed via the user-accessible endpoint, not
-        // the App-installation endpoint.
+        // User can access acme repos.
         installationsClient.ListUserAccessibleRepositoriesAsync(
                 1001L, fakeAccessToken, Arg.Any<CancellationToken>())
             .Returns(new[]
             {
                 new GitHubInstallationRepository(10L, "acme", "platform", "acme/platform", false),
             });
-        // Installation 1002 (other-org) must NEVER be called — asserted
-        // at the end via DidNotReceive on the user-scoped method.
+        // GitHub returns empty for other-org — user is not a member.
+        installationsClient.ListUserAccessibleRepositoriesAsync(
+                1002L, fakeAccessToken, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<GitHubInstallationRepository>());
 
         await using var factory = CreateFactory(
             installationsClient: installationsClient,
             sessionStore: sessionStore,
-            secretStore: secretStore,
-            scopeResolver: scopeResolver);
+            secretStore: secretStore);
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
@@ -718,12 +774,8 @@ public class GitHubConnectorEndpointsTests
         body[0].FullName.ShouldBe("acme/platform");
         body[0].InstallationId.ShouldBe(1001L);
 
-        // The other-org installation must NOT have been enumerated.
-        await installationsClient.DidNotReceive()
-            .ListUserAccessibleRepositoriesAsync(
-                1002L, Arg.Any<string>(), Arg.Any<CancellationToken>());
-        // And the installation-token path must not be used at all when an
-        // OAuth user token is available — that's the leak this fix closes.
+        // The App-installation-token path must not be used when an OAuth
+        // user token is available — that's the leak #1663 closes.
         await installationsClient.DidNotReceive()
             .ListInstallationRepositoriesAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
     }
@@ -731,9 +783,12 @@ public class GitHubConnectorEndpointsTests
     [Fact]
     public async Task ListRepositories_WithSessionId_IncludesPersonalAccountInstallation()
     {
-        // The user has a personal installation (account == their login).
-        // Ensure personal-account installations are returned too — the
-        // scope set includes the user's own login, not just their orgs.
+        // The user has a personal installation (account == their login) and
+        // there is an unrelated org installation. The endpoint calls
+        // GET /user/installations/{id}/repositories for all installations;
+        // personal repos come back for alice's installation, and GitHub
+        // returns empty for other-corp (user has no access). Only alice's
+        // repos should appear.
         const string sessionId = "test-session-personal";
         const string fakeStoreKey = "store-key-personal";
         const string fakeAccessToken = "ghu_personal";
@@ -755,12 +810,6 @@ public class GitHubConnectorEndpointsTests
         secretStore.ReadAsync(fakeStoreKey, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<string?>(fakeAccessToken));
 
-        // Scope: only personal login, no orgs.
-        var scopeResolver = Substitute.For<IGitHubUserScopeResolver>();
-        scopeResolver.ResolveAsync(fakeAccessToken, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlySet<string>>(
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "alice" }));
-
         var installationsClient = Substitute.For<IGitHubInstallationsClient>();
         installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
             .Returns(new[]
@@ -774,12 +823,15 @@ public class GitHubConnectorEndpointsTests
             {
                 new GitHubInstallationRepository(20L, "alice", "dotfiles", "alice/dotfiles", false),
             });
+        // GitHub returns empty for other-corp — user is not a member.
+        installationsClient.ListUserAccessibleRepositoriesAsync(
+                2002L, fakeAccessToken, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<GitHubInstallationRepository>());
 
         await using var factory = CreateFactory(
             installationsClient: installationsClient,
             sessionStore: sessionStore,
-            secretStore: secretStore,
-            scopeResolver: scopeResolver);
+            secretStore: secretStore);
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
@@ -792,10 +844,6 @@ public class GitHubConnectorEndpointsTests
         body.ShouldNotBeNull();
         body!.Length.ShouldBe(1);
         body[0].FullName.ShouldBe("alice/dotfiles");
-
-        await installationsClient.DidNotReceive()
-            .ListUserAccessibleRepositoriesAsync(
-                2002L, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
