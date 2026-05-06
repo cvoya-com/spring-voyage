@@ -121,7 +121,7 @@ public static class OutputFormatter
     /// <paramref name="verbose"/> to surface the underlying writer error
     /// to stderr so operators can see why the fallback fired.
     /// </summary>
-    public static string FormatJson<T>(T value, bool verbose = false) where T : IParsable
+    public static string FormatJson<T>(T value, bool verbose = false, TextWriter? errorWriter = null) where T : IParsable
     {
         try
         {
@@ -134,7 +134,7 @@ public static class OutputFormatter
         {
             if (verbose)
             {
-                Console.Error.WriteLine(
+                (errorWriter ?? Console.Error).WriteLine(
                     $"warn: kiota serializer failed, fell back to System.Text.Json: {ex.Message}");
             }
             return JsonSerializer.Serialize(value, value?.GetType() ?? typeof(T), PlainJsonOptions);
@@ -142,7 +142,7 @@ public static class OutputFormatter
     }
 
     /// <summary>Serialises a sequence of Kiota models as a wire-format JSON array.</summary>
-    public static string FormatJson<T>(IEnumerable<T> values, bool verbose = false) where T : IParsable
+    public static string FormatJson<T>(IEnumerable<T> values, bool verbose = false, TextWriter? errorWriter = null) where T : IParsable
     {
         try
         {
@@ -155,7 +155,7 @@ public static class OutputFormatter
         {
             if (verbose)
             {
-                Console.Error.WriteLine(
+                (errorWriter ?? Console.Error).WriteLine(
                     $"warn: kiota serializer failed, fell back to System.Text.Json: {ex.Message}");
             }
             return JsonSerializer.Serialize(values, PlainJsonOptions);

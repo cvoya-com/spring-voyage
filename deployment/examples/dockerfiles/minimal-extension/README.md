@@ -7,7 +7,7 @@ unit / agent manifests reference a stable, pinned identifier.
 
 The example below extends `localhost/spring-voyage-agent-claude-code:latest`
 (BYOI conformance path 1 — agent-base bridge + Claude Code CLI).
-Substitute `localhost/spring-voyage-agent-dapr:latest` for the Dapr
+Substitute `localhost/spring-voyage-agent:latest` for the Dapr
 Agent path-3 runtime, or `ghcr.io/cvoya-com/agent-base:1.0.0` if you only
 want the bridge sidecar and will install your own CLI on top.
 

@@ -6,13 +6,13 @@ from [`docs/specs/agent-runtime-boundary.md`](../../docs/specs/agent-runtime-bou
 ## Install
 
 ```bash
-pip install spring-voyage-agent
+pip install spring-voyage-agent-sdk
 ```
 
 Or install from source in development:
 
 ```bash
-pip install -e "agents/spring-voyage-agent[dev]"
+pip install -e "agents/spring-voyage-agent-sdk[dev]"
 ```
 
 ## The three hooks
@@ -54,7 +54,7 @@ Structured files (agent definition, tenant config) are loaded from
 ```python
 # my_agent.py
 from pathlib import Path
-from spring_voyage_agent import IAgentContext, Message, Response, ShutdownReason, run
+from spring_voyage_agent_sdk import IAgentContext, Message, Response, ShutdownReason, run
 
 
 async def initialize(context: IAgentContext) -> None:
@@ -85,7 +85,7 @@ Run it:
 
 ```bash
 # Via the CLI entry point:
-spring-voyage-agent --module my_agent
+spring-voyage-agent-sdk --module my_agent
 
 # Or directly:
 python my_agent.py
@@ -94,7 +94,7 @@ python my_agent.py
 ## CLI
 
 ```
-spring-voyage-agent --module <module> [--port <port>]
+spring-voyage-agent-sdk --module <module> [--port <port>]
 ```
 
 `<module>` is a Python import path (`my_agent`, `mypackage.agent`, etc.) that

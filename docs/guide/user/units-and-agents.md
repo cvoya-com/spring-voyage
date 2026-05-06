@@ -99,7 +99,7 @@ spring agent execution clear <agent> [--field image|runtime|tool|provider|model|
 - `set` is a **partial update** — pass only the flags to change.
 - `clear --field X` clears one field; `clear` without `--field` strips the whole block.
 - `--hosting` is agent-exclusive.
-- `--provider` / `--model` are meaningful only when `--tool dapr-agent`.
+- `--provider` / `--model` are meaningful only when `--tool spring-voyage`.
 
 `spring agent create` accepts `--image`, `--runtime`, `--tool` as shorthands for the corresponding `execution.X` fields:
 
@@ -243,7 +243,7 @@ OSS launchers (Claude Code, Codex, Gemini) use path 1; Dapr Agent uses path 3. S
 | Image | Path | `tool:` | Ready to dispatch? |
 |-------|------|---------|-------------------|
 | `localhost/spring-voyage-agent-claude-code:latest` | 1 | `claude-code` | Yes — after `./deployment/build-agent-images.sh` runs |
-| `localhost/spring-voyage-agent-dapr:latest` | 3 | `dapr-agent` | Yes — after `./deployment/build-agent-images.sh` runs |
+| `localhost/spring-voyage-agent:latest` | 3 | `spring-voyage-agent` | Yes — after `./deployment/build-agent-images.sh` runs |
 | `ghcr.io/cvoya-com/agent-base:<semver>` | 1 base | (none) | No — use as a `FROM` base, not as a dispatch target |
 
 `./deploy.sh build` runs `build-agent-images.sh` for you.
@@ -313,4 +313,4 @@ Key scenarios for this guide:
 | `units/unit-nested.sh` | Nested units via `spring unit members add --unit` |
 | `policy/unit-policy-http-roundtrip.sh` | Policy CRUD for `skill` and `model` dimensions |
 | `policy/policy-block-at-turn-time.sh` | Policy deny at turn dispatch (requires Ollama) |
-| `agents/dapr-agent-turn.sh` | `dapr-agent` turn via A2A (requires Ollama) |
+| `agents/spring-voyage-agent-turn.sh` | `spring-voyage-agent` turn via A2A (requires Ollama) |

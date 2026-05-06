@@ -69,7 +69,7 @@ from dapr_agents.types.message import (
     ToolMessage,
     UserMessage,
 )
-from spring_voyage_agent import IAgentContext, Message, Response, ShutdownReason, run
+from spring_voyage_agent_sdk import IAgentContext, Message, Response, ShutdownReason, run
 
 from mcp_bridge import create_tool_proxy, discover_tools
 

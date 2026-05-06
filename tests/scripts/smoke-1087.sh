@@ -27,9 +27,9 @@
 #     pedigree. Tracked by #1120.
 #
 # What's deferred (best-effort, follow-up tracked in #1099 acceptance):
-#   - Path 3 (native A2A, dapr-agent): the dapr image is currently
+#   - Path 3 (native A2A, spring-voyage-agent): the dapr image is currently
 #     gated behind `SMOKE_DAPR=1` in tests/scripts/smoke-agent-images.sh
-#     pending #1110 (the dapr-agents 1.x API change in agents/dapr-agent/
+#     pending #1110 (the spring-voyage-agents 1.x API change in agents/spring-voyage-agent/
 #     /agent.py). When #1110 lands, this script can drop the gate and
 #     exercise path 3 directly.
 #
@@ -401,18 +401,18 @@ run_path2() {
     forget_container "${name}"
 }
 
-# ---- 3. Path 3 — native A2A (dapr-agent) — best-effort -------------------
+# ---- 3. Path 3 — native A2A (spring-voyage-agent) — best-effort -------------------
 # Gated behind SMOKE_DAPR=1 because the in-tree dapr image is currently
-# blocked by #1110 (dapr-agents 1.x API change). When that issue ships,
+# blocked by #1110 (spring-voyage-agents 1.x API change). When that issue ships,
 # enable this leg by default. tests/scripts/smoke-agent-images.sh shares
 # the same gate, so flipping it in one place flips it in both.
 run_path3_if_enabled() {
-    local image="localhost/spring-voyage-agent-dapr:${TAG}"
+    local image="localhost/spring-voyage-agent:${TAG}"
     if [[ "${SMOKE_DAPR:-0}" == "1" ]]; then
         local port name card
         port="$(free_port)"
         name="spring-voyage-smoke-1087-path3-${NAME_SUFFIX}"
-        log "path 3 (native A2A / dapr-agent): ${image} on :${port}"
+        log "path 3 (native A2A / spring-voyage-agent): ${image} on :${port}"
 
         "${DOCKER}" run -d --rm \
             --name "${name}" \
@@ -432,8 +432,8 @@ run_path3_if_enabled() {
         "${DOCKER}" rm -f "${name}" >/dev/null
         forget_container "${name}"
     else
-        # TODO(#1110): drop this gate when agents/dapr-agent/agent.py
-        # is updated to dapr-agents 1.x. Until then path 3 is exercised
+        # TODO(#1110): drop this gate when agents/spring-voyage-agent/agent.py
+        # is updated to spring-voyage-agents 1.x. Until then path 3 is exercised
         # only locally with SMOKE_DAPR=1.
         log "path 3: SKIPPED (set SMOKE_DAPR=1 to opt in; tracked by #1110)"
     fi

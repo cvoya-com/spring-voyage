@@ -2,7 +2,7 @@
 # pool: llm
 # LLM scenario: Dapr Agent turn via A2A protocol.
 #
-# Creates a unit + agent definition with execution.tool=dapr-agent, dispatches a
+# Creates a unit + agent definition with execution.tool=spring-voyage-agent, dispatches a
 # simple message, and verifies the round-trip produces a non-empty, non-error
 # LLM response. This is the real gate on the Ollama-driven agent runtime
 # (closes #480): the previous smoke test asserted only that the HTTP call did
@@ -13,9 +13,9 @@
 # Scope: gated on e2e::require_ollama so the base scenario set stays green on
 # hosts without a reachable Ollama.
 #
-# Seeding path: we persist `execution.tool=dapr-agent` on the agent definition
+# Seeding path: we persist `execution.tool=spring-voyage-agent` on the agent definition
 # via `spring agent create --definition`. That knob is what tells
-# A2AExecutionDispatcher to route through DaprAgentLauncher. Without it the
+# A2AExecutionDispatcher to route through SpringVoyageAgentLauncher. Without it the
 # dispatcher throws "Agent has no execution configuration".
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,9 +27,9 @@ if ! e2e::require_ollama; then
     exit 0
 fi
 
-unit="$(e2e::unit_name llm-dapr-agent)"
-agent="$(e2e::agent_name llm-dapr-agent)"
-image="${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-voyage-agent-dapr:latest}"
+unit="$(e2e::unit_name llm-spring-voyage-agent)"
+agent="$(e2e::agent_name llm-spring-voyage-agent)"
+image="${SPRING_VOYAGE_AGENT_IMAGE:-localhost/spring-voyage-agent:latest}"
 model="${SPRING_DAPR_AGENT_MODEL:-llama3.2:3b}"
 provider="${SPRING_DAPR_AGENT_PROVIDER:-ollama}"
 
@@ -50,25 +50,25 @@ e2e::expect_status "0" "${code}" "unit create succeeds"
 # hosts without jq.
 if command -v jq >/dev/null 2>&1; then
     definition="$(jq -cn \
-        --arg tool "dapr-agent" \
+        --arg tool "spring-voyage-agent" \
         --arg image "${image}" \
         --arg provider "${provider}" \
         --arg model "${model}" \
         '{execution: {tool: $tool, image: $image, provider: $provider, model: $model}}')"
 else
-    definition="{\"execution\":{\"tool\":\"dapr-agent\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
+    definition="{\"execution\":{\"tool\":\"spring-voyage-agent\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
 fi
 
 
 # #744: agent create requires --unit; the membership is registered atomically.
-e2e::log "spring agent create ${agent} --unit ${unit} (tool=dapr-agent, provider=${provider}, model=${model})"
+e2e::log "spring agent create ${agent} --unit ${unit} (tool=spring-voyage-agent, provider=${provider}, model=${model})"
 response="$(e2e::cli_agent_create --output json "${agent}" \
     --unit "${unit}" \
     --name "Dapr Agent" \
     --definition "${definition}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
-e2e::expect_status "0" "${code}" "agent create with dapr-agent execution succeeds"
+e2e::expect_status "0" "${code}" "agent create with spring-voyage-agent execution succeeds"
 
 # Extract the agent's Guid from the create response so we can address it in
 # canonical `agent:<guid>` form (ADR-0036). The legacy `agent://<name>` shape

@@ -23,8 +23,8 @@ from dapr_agents.types.message import (
     LLMChatResponse,
     ToolCall,
 )
-from spring_voyage_agent import Message
-from spring_voyage_agent.types import Sender
+from spring_voyage_agent_sdk import Message
+from spring_voyage_agent_sdk.types import Sender
 
 import agent as agent_module
 from agent import (

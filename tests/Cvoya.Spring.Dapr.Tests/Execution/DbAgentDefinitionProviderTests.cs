@@ -168,7 +168,7 @@ public class DbAgentDefinitionProviderTests
     {
         // #480 step 5: switching the Dapr-Conversation-backed runtime's provider
         // / model must be a YAML-only change. The projection extracts both
-        // fields so DaprAgentLauncher can forward them to the container.
+        // fields so SpringVoyageAgentLauncher can forward them to the container.
         var entity = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),

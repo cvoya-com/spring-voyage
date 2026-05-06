@@ -2,7 +2,7 @@
 
 Google AI agent runtime plugin for Spring Voyage. Implements
 [`IAgentRuntime`](../Cvoya.Spring.Core/AgentRuntimes/IAgentRuntime.cs) and
-binds the in-process [`dapr-agent`](../Cvoya.Spring.Dapr/Execution/DaprAgentLauncher.cs)
+binds the in-process [`spring-voyage-agent`](../Cvoya.Spring.Dapr/Execution/SpringVoyageAgentLauncher.cs)
 execution tool to the Google AI (Generative Language) API.
 
 ## What this package ships
@@ -10,8 +10,8 @@ execution tool to the Google AI (Generative Language) API.
 | Surface | Value |
 |---------|-------|
 | `IAgentRuntime.Id` | `google` |
-| `IAgentRuntime.DisplayName` | `Google AI (dapr-agent + Google AI API)` |
-| `IAgentRuntime.ToolKind` | `dapr-agent` |
+| `IAgentRuntime.DisplayName` | `Google AI (spring-voyage-agent + Google AI API)` |
+| `IAgentRuntime.ToolKind` | `spring-voyage-agent` |
 | `CredentialSchema.Kind` | `ApiKey` |
 | In-container probe | `curl -sS "https://generativelanguage.googleapis.com/v1beta/models?key=…"` (via `GetProbeSteps`) |
 | Seed catalogue | [`agent-runtimes/google/seed.json`](agent-runtimes/google/seed.json) |

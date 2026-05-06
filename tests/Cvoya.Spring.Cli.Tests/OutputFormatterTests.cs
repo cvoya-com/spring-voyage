@@ -125,42 +125,24 @@ public class OutputFormatterTests
         // The fallback should be silent by default (don't pollute scripted
         // output) but emit a one-line warning when --verbose is passed so
         // operators know why the wire-format may differ.
-        var originalStderr = Console.Error;
-        try
-        {
-            using var stderr = new System.IO.StringWriter();
-            Console.SetError(stderr);
+        using var stderr = new System.IO.StringWriter();
 
-            var faulty = new FaultyKiotaModel { Id = "x" };
-            _ = OutputFormatter.FormatJson(faulty, verbose: true);
+        var faulty = new FaultyKiotaModel { Id = "x" };
+        _ = OutputFormatter.FormatJson(faulty, verbose: true, errorWriter: stderr);
 
-            stderr.ToString().ShouldContain("kiota serializer failed");
-            stderr.ToString().ShouldContain("System.Text.Json");
-        }
-        finally
-        {
-            Console.SetError(originalStderr);
-        }
+        stderr.ToString().ShouldContain("kiota serializer failed");
+        stderr.ToString().ShouldContain("System.Text.Json");
     }
 
     [Fact]
     public void FormatJson_KiotaWriterThrows_DefaultModeIsSilent()
     {
-        var originalStderr = Console.Error;
-        try
-        {
-            using var stderr = new System.IO.StringWriter();
-            Console.SetError(stderr);
+        using var stderr = new System.IO.StringWriter();
 
-            var faulty = new FaultyKiotaModel { Id = "x" };
-            _ = OutputFormatter.FormatJson(faulty);
+        var faulty = new FaultyKiotaModel { Id = "x" };
+        _ = OutputFormatter.FormatJson(faulty, errorWriter: stderr);
 
-            stderr.ToString().ShouldBeEmpty();
-        }
-        finally
-        {
-            Console.SetError(originalStderr);
-        }
+        stderr.ToString().ShouldBeEmpty();
     }
 
     /// <summary>

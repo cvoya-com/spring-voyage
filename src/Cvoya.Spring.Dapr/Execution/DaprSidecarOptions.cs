@@ -89,19 +89,19 @@ public class DaprSidecarOptions
     public string? SchedulerHostAddress { get; set; } = "spring-scheduler:50006";
 
     /// <summary>
-    /// Host path to the <c>delegated-dapr-agent</c> component profile (Conversation
+    /// Host path to the <c>delegated-spring-voyage-agent</c> component profile (Conversation
     /// + Redis for workflows) bind-mounted into <c>daprd</c>. Must be a path on
     /// the <b>machine that runs the dispatcher</b> (e.g.
-    /// <c>${REPO_ROOT}/dapr/components/delegated-dapr-agent</c>); a literal
+    /// <c>${REPO_ROOT}/dapr/components/delegated-spring-voyage-agent</c>); a literal
     /// <c>/dapr/...</c> only exists inside some container images, not on macOS/Linux
     /// hosts, and would make Podman fail with <c>statfs ... no such file</c>. The
-    /// worker reads the value from <c>Dapr:Sidecar:DelegatedDaprAgentComponentsPath</c>
+    /// worker reads the value from <c>Dapr:Sidecar:DelegatedSpringVoyageAgentComponentsPath</c>
     /// (typically via <c>deployment/spring.env</c>) and forwards it to the dispatcher
     /// as a bind-mount source. When unset, <see cref="ContainerLifecycleManager"/>
     /// falls back to <see cref="ComponentsPath"/> (may be insufficient for
-    /// <c>dapr-agent</c>).
+    /// <c>spring-voyage-agent</c>).
     /// </summary>
-    public string? DelegatedDaprAgentComponentsPath { get; set; }
+    public string? DelegatedSpringVoyageAgentComponentsPath { get; set; }
 
     /// <summary>
     /// Optional daprd global config file, bind-mounted in the sidecar. OSS leaves

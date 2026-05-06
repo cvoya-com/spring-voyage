@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from spring_voyage_agent.types import Message, Response, Sender, ShutdownReason
+from spring_voyage_agent_sdk.types import Message, Response, Sender, ShutdownReason
 
 
 class TestShutdownReason:

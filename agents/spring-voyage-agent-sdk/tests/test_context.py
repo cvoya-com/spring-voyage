@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from spring_voyage_agent.context import ContextLoadError, IAgentContext
+from spring_voyage_agent_sdk.context import ContextLoadError, IAgentContext
 
 _REQUIRED_ENV = {
     "SPRING_TENANT_ID": "tenant_acme",
@@ -142,7 +142,7 @@ class TestIAgentContextLoad:
         def_file = ctx_dir / "agent-definition.json"
         def_file.write_text(json.dumps({"id": "agent_be3", "instructions": "be helpful"}))
 
-        import spring_voyage_agent.context as ctx_module
+        import spring_voyage_agent_sdk.context as ctx_module
 
         orig_yaml = ctx_module._AGENT_DEF_YAML
         orig_json = ctx_module._AGENT_DEF_JSON
@@ -170,7 +170,7 @@ class TestIAgentContextLoad:
         cfg_file = ctx_dir / "tenant-config.json"
         cfg_file.write_text(json.dumps({"features": {"extended-context": True}}))
 
-        import spring_voyage_agent.context as ctx_module
+        import spring_voyage_agent_sdk.context as ctx_module
 
         orig_cfg = ctx_module._TENANT_CONFIG_JSON
         ctx_module._TENANT_CONFIG_JSON = cfg_file

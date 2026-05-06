@@ -67,11 +67,11 @@ from a2a.types import (
 from a2a.types.a2a_pb2 import AgentInterface, Part
 from starlette.applications import Starlette
 
-from spring_voyage_agent.context import IAgentContext
-from spring_voyage_agent.hooks import AgentHooks
-from spring_voyage_agent.types import Message, Response, Sender, ShutdownReason
+from spring_voyage_agent_sdk.context import IAgentContext
+from spring_voyage_agent_sdk.hooks import AgentHooks
+from spring_voyage_agent_sdk.types import Message, Response, Sender, ShutdownReason
 
-logger = logging.getLogger("spring-voyage-agent.runtime")
+logger = logging.getLogger("spring-voyage-agent-sdk.runtime")
 
 _DEFAULT_PORT = 8999
 _INIT_TIMEOUT_SECONDS = 30
@@ -519,7 +519,7 @@ def run(
     on_message:
         Async callable or async generator ``(message: Message) -> ...``.
         Invoked once per inbound A2A message; should yield
-        :class:`~spring_voyage_agent.types.Response` chunks.
+        :class:`~spring_voyage_agent_sdk.types.Response` chunks.
     on_shutdown:
         Async callable ``(reason: ShutdownReason) -> None``. Invoked once
         on SIGTERM; must complete within *shutdown_grace* seconds.

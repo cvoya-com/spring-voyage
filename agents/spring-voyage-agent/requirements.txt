@@ -1,0 +1,9 @@
+dapr-agents>=1.0.0,<2
+a2a-sdk[http-server]>=1.0,<2
+httpx>=0.27,<1
+uvicorn>=0.30,<1
+PyYAML>=6.0
+# spring-voyage-agent-sdk SDK is installed separately:
+#   - In Docker: see the Dockerfile (copies ../spring-voyage-agent-sdk into /sdk).
+#   - In CI: see .github/workflows/ci.yml (pip install -e agents/spring-voyage-agent-sdk[dev]).
+#   - Locally: pip install -e ../spring-voyage-agent-sdk  (from this directory).

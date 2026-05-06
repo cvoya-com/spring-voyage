@@ -6,7 +6,7 @@
 # Builds eight images, in dependency order:
 #   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>  (path-1 BYOI base)
 #   2. localhost/spring-voyage-agent-claude-code:<tag>   (path-1 reference, FROMs #1)
-#   3. localhost/spring-voyage-agent-dapr:<tag>          (path-3 native A2A)
+#   3. localhost/spring-voyage-agent:<tag>          (path-3 native A2A)
 #   4. ghcr.io/cvoya-com/spring-voyage-agents:<tag>      (omnibus default, FROMs #1)
 #   5. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #4)
 #   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<tag>                (FROMs #4)
@@ -55,7 +55,7 @@ Usage: deployment/build-agent-images.sh [options]
 Builds, in order:
   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>
   2. localhost/spring-voyage-agent-claude-code:<tag>
-  3. localhost/spring-voyage-agent-dapr:<tag>
+  3. localhost/spring-voyage-agent:<tag>
   4. ghcr.io/cvoya-com/spring-voyage-agents:<tag>                          (omnibus)
   5. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #4)
   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<tag>                (FROMs #4)
@@ -182,7 +182,7 @@ log() { printf '[build-agent-images] %s\n' "$*" >&2; }
 
 AGENT_BASE_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-base"
 CLAUDE_IMAGE="localhost/spring-voyage-agent-claude-code"
-DAPR_IMAGE="localhost/spring-voyage-agent-dapr"
+SV_AGENT_IMAGE="localhost/spring-voyage-agent"
 AGENTS_IMAGE="ghcr.io/cvoya-com/spring-voyage-agents"
 OSS_SE_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering"
 OSS_DESIGN_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-design"
@@ -227,10 +227,10 @@ log "building ${CLAUDE_IMAGE}:${TAG} (FROM ${AGENT_BASE_OVERRIDE})"
     "${REPO_ROOT}"
 
 # ---- 3. agent-dapr (path 3 — native A2A) ---------------------------------
-log "building ${DAPR_IMAGE}:${TAG}"
+log "building ${SV_AGENT_IMAGE}:${TAG}"
 "${DOCKER}" build \
     --file "${SCRIPT_DIR}/Dockerfile.agent.dapr" \
-    --tag "${DAPR_IMAGE}:${TAG}" \
+    --tag "${SV_AGENT_IMAGE}:${TAG}" \
     "${REPO_ROOT}"
 
 # ---- 4. spring-voyage-agents (omnibus default) ---------------------------
@@ -291,7 +291,7 @@ fi
 log "built agent images at tag :${TAG}"
 log "  ${AGENT_BASE_IMAGE}:${TAG}"
 log "  ${CLAUDE_IMAGE}:${TAG}"
-log "  ${DAPR_IMAGE}:${TAG}"
+log "  ${SV_AGENT_IMAGE}:${TAG}"
 log "  ${AGENTS_IMAGE}:${TAG}"
 if [[ "${SKIP_OSS}" -eq 0 ]]; then
     log "  ${OSS_SE_IMAGE}:${TAG}"

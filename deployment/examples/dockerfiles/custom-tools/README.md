@@ -6,7 +6,7 @@ your agent workflow needs a tool that isn't shipped with the
 per-tool images produced by `deployment/build-agent-images.sh` (added
 in PR 3b of #1087, #1096) — for example
 `localhost/spring-voyage-agent-claude-code:latest` (Claude Code path 1)
-or `localhost/spring-voyage-agent-dapr:latest` (Dapr Agent path 3).
+or `localhost/spring-voyage-agent:latest` (Dapr Agent path 3).
 
 ## What this Dockerfile does
 

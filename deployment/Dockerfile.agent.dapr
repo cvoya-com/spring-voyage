@@ -12,10 +12,10 @@
 # A2A-native launchers) and § 5 (Dapr Conversation wiring).
 #
 # This image is the canonical reference for the `dapr-agent` tool the
-# `DaprAgentLauncher` dispatches to. The Python source lives under
-# `agents/dapr-agent/` (lint + tests gated in `.github/workflows/ci.yml`).
+# `SpringVoyageAgentLauncher` dispatches to. The Python source lives under
+# `agents/spring-voyage-agent/` (lint + tests gated in `.github/workflows/ci.yml`).
 #
-# Why we duplicate `agents/dapr-agent/Dockerfile`:
+# Why we duplicate `agents/spring-voyage-agent/Dockerfile`:
 #   * `deployment/build-agent-images.sh` is the new single entry point for
 #     building every agent image the dispatcher launches today (PR 3b
 #     acceptance criterion).
@@ -23,10 +23,10 @@
 #     "what does the platform launch?" surface in one folder so the
 #     followup that updates the launcher (PR 4 of #1087) has a single
 #     directory to grep.
-#   * `agents/dapr-agent/Dockerfile` stays for the existing test scenarios
+#   * `agents/spring-voyage-agent/Dockerfile` stays for the existing test scenarios
 #     (`tests/e2e/scenarios/llm/40-dapr-agent-turn.sh`) until those are
 #     migrated, and is re-exported as a thin alias of this file so a
-#     `podman build agents/dapr-agent/` still works.
+#     `podman build agents/spring-voyage-agent/` still works.
 #
 # Build:
 #   deployment/build-agent-images.sh
@@ -34,7 +34,7 @@
 #
 #   docker build \
 #     -f deployment/Dockerfile.agent.dapr \
-#     -t localhost/spring-voyage-agent-dapr:latest \
+#     -t localhost/spring-voyage-agent:latest \
 #     .
 
 FROM docker.io/library/python:3.12-slim
@@ -74,10 +74,10 @@ WORKDIR /app
 # Install Python deps in a single root layer so they land under the
 # system site-packages and survive the USER switch below. The
 # `requirements.txt` lives next to the Python source under
-# `agents/dapr-agent/` and is the single source of truth for the
+# `agents/spring-voyage-agent/` and is the single source of truth for the
 # dapr-agents + a2a-sdk version pins (a2a-sdk is upper-pinned to <1
 # while the import surface is migrated — see the file's comments).
-COPY agents/dapr-agent/requirements.txt /tmp/requirements.txt
+COPY agents/spring-voyage-agent/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
  && rm /tmp/requirements.txt
 
@@ -85,16 +85,15 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt \
 # isn't on PyPI yet and `agent.py` imports it at module top-level, so
 # missing it causes the container to exit on import before uvicorn
 # binds (smoke test would never see /.well-known/agent.json).
-COPY agents/spring-voyage-agent /tmp/spring-voyage-agent
-RUN pip install --no-cache-dir /tmp/spring-voyage-agent \
- && rm -rf /tmp/spring-voyage-agent
+COPY agents/spring-voyage-agent-sdk /tmp/spring-voyage-agent-sdk
+RUN pip install --no-cache-dir /tmp/spring-voyage-agent-sdk \
+ && rm -rf /tmp/spring-voyage-agent-sdk
 
 # Copy the Python source last so iterative changes to agent.py /
-# a2a_server.py / mcp_bridge.py don't bust the dep-install layer cache.
-COPY agents/dapr-agent/agent.py        ./agent.py
-COPY agents/dapr-agent/a2a_server.py   ./a2a_server.py
-COPY agents/dapr-agent/mcp_bridge.py   ./mcp_bridge.py
-COPY agents/dapr-agent/pyproject.toml  ./pyproject.toml
+# mcp_bridge.py don't bust the dep-install layer cache.
+COPY agents/spring-voyage-agent/agent.py        ./agent.py
+COPY agents/spring-voyage-agent/mcp_bridge.py   ./mcp_bridge.py
+COPY agents/spring-voyage-agent/pyproject.toml  ./pyproject.toml
 
 RUN chown -R agent:agent /app
 USER agent

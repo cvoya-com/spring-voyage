@@ -57,7 +57,7 @@ The filter lives on `SpringDbContext.OnModelCreating` rather than the per-entity
 ```
 
 **`IAgentRuntime`** bundles:
-- `Id` (stable, e.g. `claude`), `DisplayName`, `ToolKind` (`claude-code-cli`, `dapr-agent`, …).
+- `Id` (stable, e.g. `claude`), `DisplayName`, `ToolKind` (`claude-code-cli`, `spring-voyage-agent`, …).
 - `CredentialSchema` — what credential the runtime expects.
 - `CredentialSecretName` — canonical secret-store key (stable; persisted).
 - `DefaultModels` — seed catalog loaded from `agent-runtimes/<id>/seed.json`.
@@ -122,7 +122,7 @@ This is ADDITIVE to `CONVENTIONS.md` § 14 (UI / CLI parity for user-facing feat
 ## Adding a new agent runtime
 
 1. Create `src/Cvoya.Spring.AgentRuntimes.<Name>/` (e.g. `Cvoya.Spring.AgentRuntimes.Foo`). Reference `Cvoya.Spring.Core` only — no Dapr, no ASP.NET.
-2. Implement `IAgentRuntime`. Pick a stable lower-case `Id`; pick a `ToolKind` (reuse `claude-code-cli` / `dapr-agent` / `codex-cli` where it fits).
+2. Implement `IAgentRuntime`. Pick a stable lower-case `Id`; pick a `ToolKind` (reuse `claude-code-cli` / `spring-voyage-agent` / `codex-cli` where it fits).
 3. Ship a `seed.json` at `agent-runtimes/<id>/seed.json` carrying the default model catalog.
 4. Implement `GetProbeSteps(config, credential)` returning an ordered in-container probe plan — typically `VerifyingTool`, `ValidatingCredential`, `ResolvingModel` (omit `ValidatingCredential` when `CredentialKind.None`). Each step must have a bounded `Timeout` and an `InterpretOutput` delegate that never leaks the raw credential into the returned `UnitValidationError`. Do **not** emit `PullingImage` — the dispatcher owns that step.
 5. Add `AddCvoyaSpringAgentRuntime<Name>()` DI extension that registers via `TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntime, FooRuntime>())` so cloud overlays can pre-register variants.

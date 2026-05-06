@@ -1,7 +1,7 @@
 # Cvoya.Spring.AgentRuntimes.Ollama
 
 `IAgentRuntime` plug-in for the local **Ollama** LLM endpoint, executed
-through the **`dapr-agent`** tool kind. Targets developer laptops and
+through the **`spring-voyage-agent`** tool kind. Targets developer laptops and
 air-gapped deployments where the LLM is hosted on the host machine (or a
 sidecar container) and reached without authentication.
 
@@ -11,7 +11,7 @@ sidecar container) and reached without authentication.
 |-------|-------|
 | `Id` | `ollama` |
 | `DisplayName` | `Ollama (dapr-agent + local Ollama)` |
-| `ToolKind` | `dapr-agent` |
+| `ToolKind` | `spring-voyage-agent` |
 | `CredentialSchema.Kind` | `None` |
 
 The `Id` is persisted on tenant installs and unit bindings — treat it as

@@ -252,7 +252,7 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
     public async Task PostContainers_WithEmptyWorkspaceAndNoExplicitWorkdir_LeavesWorkdirUnset()
     {
         // Regression for #1159 (dispatcher side): launchers like
-        // DaprAgentLauncher bind-mount an empty workspace to keep the launch
+        // SpringVoyageAgentLauncher bind-mount an empty workspace to keep the launch
         // shape uniform with file-bearing launchers, but ship images whose
         // CMD is relative to the image WORKDIR (e.g. `python agent.py` from
         // /app). If the dispatcher silently defaults workdir to the

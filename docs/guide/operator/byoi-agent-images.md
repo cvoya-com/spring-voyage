@@ -157,7 +157,7 @@ The SEA binaries are built from the same source as the npm package and the path-
 
 Pick this path when your image already speaks A2A 0.3.x natively. There is no bridge; your process binds `:8999` directly and answers `/.well-known/agent.json` and `POST /`.
 
-The Python `dapr-agents` image at `agents/dapr-agent/` is the in-tree example. The relevant shape:
+The Python `dapr-agents` image at `agents/spring-voyage-agent/` is the in-tree example. The relevant shape:
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
@@ -175,7 +175,7 @@ ENTRYPOINT ["python", "agent.py"]
 
 Inside `agent.py` the agent constructs an `A2AStarletteApplication`, registers the JSON-RPC verbs (`message/send`, `tasks/cancel`, `tasks/get`), and serves it over uvicorn on `0.0.0.0:8999`. The Agent Card returned at `GET /.well-known/agent.json` carries `protocolVersion: "0.3"` and the `version` field your image advertises. There is no `SPRING_AGENT_ARGV` involvement on path 3 because the in-container process *is* the agent — nothing is spawned per turn.
 
-The corresponding launcher (`DaprAgentLauncher`) returns an `AgentLaunchSpec` with `Argv` left to the image's ENTRYPOINT and `A2APort = 8999`; the dispatcher dials the running A2A server directly.
+The corresponding launcher (`SpringVoyageAgentLauncher`) returns an `AgentLaunchSpec` with `Argv` left to the image's ENTRYPOINT and `A2APort = 8999`; the dispatcher dials the running A2A server directly.
 
 ---
 
@@ -389,7 +389,7 @@ bash tests/scripts/smoke-1087.sh --path 2
 bash tests/scripts/smoke-1087.sh --path all
 ```
 
-The CI job `Agent images build + smoke` runs `--path all` on every PR that touches `deployment/Dockerfile.agent-*`, `deployment/agent-sidecar/**`, `agents/dapr-agent/**`, `tests/scripts/smoke-1087.sh`, or `tests/fixtures/byoi-path2/**` — so a sidecar source change, a Dockerfile change, or a smoke-script change exercises both BYOI conformance paths before merge. Path 3 (native A2A) stays gated behind `SMOKE_DAPR=1` pending [#1110](https://github.com/cvoya-com/spring-voyage/issues/1110).
+The CI job `Agent images build + smoke` runs `--path all` on every PR that touches `deployment/Dockerfile.agent-*`, `deployment/agent-sidecar/**`, `agents/spring-voyage-agent/**`, `tests/scripts/smoke-1087.sh`, or `tests/fixtures/byoi-path2/**` — so a sidecar source change, a Dockerfile change, or a smoke-script change exercises both BYOI conformance paths before merge. Path 3 (native A2A) stays gated behind `SMOKE_DAPR=1` pending [#1110](https://github.com/cvoya-com/spring-voyage/issues/1110).
 
 For the full ephemeral-dispatch round-trip (`StartAsync → readiness → A2A → ReleaseAsync`), the `EphemeralDispatchSmokeTests` integration test in `tests/Cvoya.Spring.Integration.Tests/` runs against a real container runtime when you set `SPRING_RUN_DOCKER_SMOKE=1`:
 

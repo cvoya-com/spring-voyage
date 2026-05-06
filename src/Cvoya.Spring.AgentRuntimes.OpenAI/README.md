@@ -1,7 +1,7 @@
 # Cvoya.Spring.AgentRuntimes.OpenAI
 
 `IAgentRuntime` plugin for the OpenAI Platform API + the in-process
-`dapr-agent` execution tool. Registered with DI via
+`spring-voyage-agent` execution tool. Registered with DI via
 `AddCvoyaSpringAgentRuntimeOpenAI()`; the host's `IAgentRuntimeRegistry`
 picks it up automatically and exposes it under id `openai`.
 
@@ -11,7 +11,7 @@ picks it up automatically and exposes it under id `openai`.
 |---------------|---------------------------------------------|
 | `Id`          | `openai`                                    |
 | `DisplayName` | `OpenAI (dapr-agent + OpenAI API)`          |
-| `ToolKind`    | `dapr-agent`                                |
+| `ToolKind`    | `spring-voyage-agent`                                |
 
 ## Credential format
 

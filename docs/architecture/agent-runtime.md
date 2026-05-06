@@ -132,7 +132,7 @@ Key properties:
 
 ### Tier B — A2A-native launchers
 
-Example: `DaprAgentLauncher` (tool identifier `"dapr-agent"`).
+Example: `SpringVoyageAgentLauncher` (tool identifier `"spring-voyage"`).
 
 The container is itself an A2A service that runs a platform-managed agentic
 loop (here, `dapr_agents.DurableAgent`). The container image:
@@ -291,7 +291,7 @@ can pre-register its own and keep it.
 ## 4b. Provider applies only to Dapr Agent
 
 The `execution.provider` and `execution.model` fields are **only consumed by
-the `dapr-agent` launcher**. The Tier-A CLI launchers (Claude Code, Codex,
+the `spring-voyage-agent` launcher**. The Tier-A CLI launchers (Claude Code, Codex,
 Gemini CLI) hardcode their provider inside the tool binary — that's the
 defining property of a CLI-sidecar launcher. Setting `provider` on an agent
 targeting one of those tools has no runtime effect.
@@ -301,13 +301,13 @@ targeting one of those tools has no runtime effect.
 | `claude-code`  | Anthropic (hardcoded in the Claude Code CLI) | No |
 | `codex`        | OpenAI (hardcoded in the Codex CLI) | No |
 | `gemini`       | Google Gemini (hardcoded in the Gemini CLI) | No |
-| `dapr-agent`   | Whichever Dapr Conversation component the `provider` value names (`ollama`, `openai`, `anthropic`, `googleai`) | Yes |
+| `spring-voyage-agent`   | Whichever Dapr Conversation component the `provider` value names (`ollama`, `openai`, `anthropic`, `googleai`) | Yes |
 | `custom`       | Undefined — the custom launcher owns its own contract | Only when the custom launcher declares it |
 
 **Surface-level consequence (#598):**
 
 - The unit-creation wizard and the CLI only accept `--provider` / `--model`
-  when `--tool=dapr-agent`. They are rejected with a targeted error
+  when `--tool=spring-voyage`. They are rejected with a targeted error
   message for the other tools so operators don't discover at dispatch
   time that the flag had no effect.
 - A custom tool that wants to surface a Provider selector must declare
@@ -316,7 +316,7 @@ targeting one of those tools has no runtime effect.
   documenting the semantic in its launcher's doc-comment. The platform's
   create-unit UI does not expose a generic Provider dropdown for custom
   tools because the contract is undefined.
-- Credentials for the `dapr-agent` launcher's provider flow through the
+- Credentials for the `spring-voyage-agent` launcher's provider flow through the
   tier-2 tenant-default resolver (`ILlmCredentialResolver`, #615). The
   portal's create wizard no longer gates on credential validation at
   accept time (removed in #941 — the inline banner went with it); unit
@@ -337,15 +337,15 @@ this table and drop the wizard gate on that specific tool.
 
 > **Naming disambiguation.** "Conversation" in this section refers to Dapr's [Conversation API](https://docs.dapr.io/reference/components-reference/supported-conversation/) — the building block that abstracts the LLM provider call (Ollama / OpenAI / Anthropic / Google). It is unrelated to Spring Voyage's **Thread** concept (the participant-set relationship described in [`docs/architecture/thread-model.md`](thread-model.md) and [ADR-0030](../decisions/0030-thread-model.md)). The `SPRING_LLM_PROVIDER` env var binds to a Dapr Conversation **component name**, not to a Spring Voyage thread.
 
-The `DaprAgentLauncher` forwards three YAML-driven knobs to the container:
+The `SpringVoyageAgentLauncher` forwards three YAML-driven knobs to the container:
 
 | Env var                | Source (`AgentExecutionConfig`) | Purpose |
 | ---------------------- | ------------------------------- | ------- |
-| `SPRING_LLM_PROVIDER`  | `Provider` (default `ollama`)    | Dapr Conversation **component name** the agent binds to. Must match `metadata.name` in one of the YAMLs under `agents/dapr-agent/dapr/components/`. |
+| `SPRING_LLM_PROVIDER`  | `Provider` (default `ollama`)    | Dapr Conversation **component name** the agent binds to. Must match `metadata.name` in one of the YAMLs under `agents/spring-voyage-agent/dapr/components/`. |
 | `SPRING_MODEL`         | `Model` (default `OllamaOptions.DefaultModel`) | Model identifier the component requests. |
 | `OLLAMA_ENDPOINT`      | `OllamaOptions.BaseUrl`          | Only used by the Ollama/OpenAI-compat component; other components ignore it. |
 
-`agents/dapr-agent/agent.py` reads these three env vars and passes the
+`agents/spring-voyage-agent/agent.py` reads these three env vars and passes the
 resolved values to `DurableAgent(...)` as `llm=<provider>`, `model=<model>`.
 
 > **Sidecar status.** The OSS topology today ships the Python agent as a
@@ -354,7 +354,7 @@ resolved values to `DurableAgent(...)` as `llm=<provider>`, `model=<model>`.
 > required at runtime because the SDK falls back to its own HTTP client.
 > Adding a Dapr sidecar is a future hardening step when non-OpenAI-compatible
 > providers are used — the `DaprSidecarManager` (already present) will mount
-> `agents/dapr-agent/dapr/components/` at `/components` and run `daprd
+> `agents/spring-voyage-agent/dapr/components/` at `/components` and run `daprd
 > --resources-path /components --app-port 8999` alongside the agent.
 
 ---
@@ -366,8 +366,8 @@ To make the provider/model configurable by YAML only, `AgentDefinition`'s
 
 ```yaml
 execution:
-  tool: dapr-agent                          # selects the launcher
-  image: localhost/spring-voyage-agent-dapr:latest # required for container-backed tools
+  tool: spring-voyage                          # selects the launcher
+  image: localhost/spring-voyage-agent:latest # required for container-backed tools
   runtime: podman                           # optional runtime hint
   hosting: ephemeral                        # or "persistent"
   provider: ollama                          # Dapr Conversation component name
@@ -376,7 +376,7 @@ execution:
 
 Switching providers is a pure change to `provider` / `model` (and, if the
 target provider isn't already present, adding the matching component YAML to
-`agents/dapr-agent/dapr/components/`). No C# code change is required.
+`agents/spring-voyage-agent/dapr/components/`). No C# code change is required.
 
 The runtime surfaces the definition to the platform through two paths:
 
@@ -411,9 +411,9 @@ An image conforms when the running container, after launch by the dispatcher, ex
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | 1    | `FROM ghcr.io/cvoya-com/agent-base:<semver>` and `RUN`-install your CLI tool. ENTRYPOINT is left as-is — the bridge runs on `:8999` automatically.       | Default. Fastest path. Works for anything that can run on Debian 12 + Node 22.                                  |
 | 2    | Pull the bridge into a custom base. Either `npm install -g @cvoya/spring-voyage-agent-sidecar` (Node-bearing image), or copy the static binary from each GitHub Release (`spring-voyage-agent-sidecar-linux-amd64`, `linux-arm64`, `darwin-arm64`) into a Node-less image. Set the binary as the `ENTRYPOINT`. | You need a non-Debian distro, a rootless image with non-default UIDs, or you can't have Node in the runtime layer. |
-| 3    | Implement A2A 0.3.x natively in your image. No bridge involved. The launcher must speak directly to your endpoint.                                  | You already speak A2A natively (e.g., the Python Dapr Agent at `DaprAgentLauncher`).                            |
+| 3    | Implement A2A 0.3.x natively in your image. No bridge involved. The launcher must speak directly to your endpoint.                                  | You already speak A2A natively (e.g., the Python Dapr Agent at `SpringVoyageAgentLauncher`).                            |
 
-The Tier B native launcher (`DaprAgentLauncher`) is the canonical example of path 3. The Tier A launchers (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`) all use path 1 by default. The four `spring-voyage-agent-oss-{software-engineering,design,product-management,program-management}` images that back the **Spring Voyage OSS** dogfooding template (`packages/spring-voyage-oss/`) are additional path-1 derivatives — each `FROM ghcr.io/cvoya-com/spring-voyage-agents:<semver>` and adds a role-specific toolchain on top of the omnibus base, inheriting the bridge ENTRYPOINT unchanged. See [`docs/decisions/0034-oss-dogfooding-unit.md`](../decisions/0034-oss-dogfooding-unit.md) for the image strategy rationale.
+The Tier B native launcher (`SpringVoyageAgentLauncher`) is the canonical example of path 3. The Tier A launchers (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`) all use path 1 by default. The four `spring-voyage-agent-oss-{software-engineering,design,product-management,program-management}` images that back the **Spring Voyage OSS** dogfooding template (`packages/spring-voyage-oss/`) are additional path-1 derivatives — each `FROM ghcr.io/cvoya-com/spring-voyage-agents:<semver>` and adds a role-specific toolchain on top of the omnibus base, inheriting the bridge ENTRYPOINT unchanged. See [`docs/decisions/0034-oss-dogfooding-unit.md`](../decisions/0034-oss-dogfooding-unit.md) for the image strategy rationale.
 
 ### Versioning commitment
 

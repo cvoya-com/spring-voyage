@@ -113,7 +113,7 @@ The repository has two continuous-integration workflows under [`.github/workflow
   - `agent-definitions-lint` — validates referenced paths in agent YAML/markdown definitions.
   - `connector-web-lint` — validates per-connector web submodules.
   - `web-lint` / `web-build` — ESLint and `next build` for the web portal.
-  - `python-lint` / `python-test` — ruff and pytest for `agents/dapr-agent/`.
+  - `python-lint` / `python-test` — ruff and pytest for `agents/spring-voyage-agent/`.
   - `openapi-drift` — rebuilds `openapi.json` and the Kiota CLI client and fails if the working tree is dirty.
   - `required-checks` — aggregation gate for branch protection.
 - **[`codeql.yml`](../../.github/workflows/codeql.yml)** — CodeQL C# analysis on pushes, pull requests, merge queue, and weekly.
