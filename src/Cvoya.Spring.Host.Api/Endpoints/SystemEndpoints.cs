@@ -142,17 +142,23 @@ public static class SystemEndpoints
             case ProviderGoogle:
                 {
                     // Translate the endpoint's external provider token to
-                    // the runtime id the registry-backed resolver expects.
-                    // The portal's URL still uses the provider spelling
-                    // (`anthropic`) that operators recognise, but the
-                    // resolver looks runtimes up by id (`claude`).
+                    // the runtime id the catalogue-backed registry exposes
+                    // (the portal still calls this endpoint with the
+                    // provider spelling — `anthropic` — that operators
+                    // recognise).
                     var runtimeId = MapProviderToRuntimeId(normalized);
 
+                    // ADR-0038 (#1770): the resolver is keyed on (provider,
+                    // authMethod). The wizard probes against API-key shape
+                    // — the Claude OAuth path is exercised separately when
+                    // the operator picks the claude-code runtime.
+                    //
                     // No unit context — the wizard runs before the unit
                     // exists. Resolver will fall through to the tenant-
                     // scope secret, which is what the wizard cares about.
                     var resolution = await credentialResolver.ResolveAsync(
-                        runtimeId,
+                        normalized,
+                        Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey,
                         agentId: null,
                         unitId: null,
                         cancellationToken);

@@ -124,7 +124,10 @@ public class AgentRuntimeRegistryTests
         runtime.Kind.ShouldBe("claude-code-cli");
         runtime.CredentialEnvVar.ShouldBe("CLAUDE_CODE_OAUTH_TOKEN");
         runtime.CredentialSchema.Kind.ShouldBe(AgentRuntimeCredentialKind.OAuthToken);
-        runtime.CredentialSecretName.ShouldBe("anthropic-oauth");
+        // PR-1a transitional: emit legacy `{provider}-api-key` shape so wire
+        // DTOs stay byte-identical. PR-1b switches to canonical
+        // `{provider}-{authMethod-slug}` (CredentialNaming.SecretNameFor).
+        runtime.CredentialSecretName.ShouldBe("anthropic-api-key");
         runtime.DefaultImage.ShouldBe("claude-code:latest");
         runtime.DefaultModels.ShouldContain(m => m.Id == "claude-opus-4-7");
     }

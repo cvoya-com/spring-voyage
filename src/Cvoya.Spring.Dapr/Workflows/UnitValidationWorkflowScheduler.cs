@@ -140,14 +140,28 @@ public class UnitValidationWorkflowScheduler(
                 }));
         }
 
-        // Resolve the credential via the two-tier chain (unit → tenant).
-        // When the runtime declares CredentialKind.None the resolver
-        // returns NotFound and we pass the empty string through — the
-        // workflow's RunContainerProbe layer pre-filters "no credential"
-        // step for runtimes that do not authenticate.
+        // ADR-0038 (#1770): the resolver is keyed on (provider, authMethod).
+        // The workflow scheduler resolves the credential against the
+        // catalogue runtime entry's first edge — that's the auth method
+        // the chosen launcher consumes. When the runtime declares no
+        // credential (e.g. Ollama) the resolver returns NotFound and we
+        // pass the empty string through — the workflow's RunContainerProbe
+        // layer pre-filters "no credential" steps for runtimes that do not
+        // authenticate.
+        var providerForCredential = defaults.Provider ?? runtimeId;
+        var authForCredential = AuthMethod.ApiKey;
+        var catalogRuntime = runtimeCatalog.GetAgentRuntime(runtimeId);
+        if (catalogRuntime is { ModelProviders.Count: > 0 })
+        {
+            var edge = catalogRuntime.ModelProviders[0];
+            providerForCredential = edge.Id;
+            authForCredential = edge.AuthMethod ?? AuthMethod.ApiKey;
+        }
+
         var credentialResolution = await credentialResolver
             .ResolveAsync(
-                providerId: defaults.Provider ?? runtimeId,
+                providerId: providerForCredential,
+                authMethod: authForCredential,
                 agentId: null,
                 unitId: entity.Id,
                 cancellationToken);

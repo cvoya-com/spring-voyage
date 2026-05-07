@@ -74,6 +74,13 @@ internal sealed class CatalogAgentRuntimeAdapter : IAgentRuntime
         };
 
     /// <inheritdoc />
+    /// <remarks>
+    /// PR-1a transitional: emits the legacy <c>{provider}-api-key</c>
+    /// shape so wire DTOs stay byte-identical against <c>origin/main</c>.
+    /// PR-1b switches the wire to expose the per-edge canonical
+    /// <see cref="CredentialNaming.SecretNameFor"/> form
+    /// (<c>{provider}-{authMethod-slug}</c>).
+    /// </remarks>
     public string CredentialSecretName
     {
         get
@@ -83,7 +90,7 @@ internal sealed class CatalogAgentRuntimeAdapter : IAgentRuntime
                 return string.Empty;
             }
 
-            return CredentialNaming.SecretNameFor(_primaryEdge.Id, _primaryEdge.AuthMethod.Value);
+            return $"{_primaryEdge.Id.ToLowerInvariant()}-api-key";
         }
     }
 

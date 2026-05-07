@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Units;
 
@@ -34,8 +35,12 @@ public class ClaudeCodeLauncher(
     IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
 {
-    /// <summary>Runtime id whose credential this launcher injects.</summary>
-    internal const string ClaudeRuntimeId = "claude";
+    /// <summary>
+    /// Provider id this launcher consumes from the catalogue's
+    /// <c>(provider, authMethod)</c> edge per ADR-0038. The Claude agent
+    /// runtime accepts the Anthropic provider with the OAuth auth method.
+    /// </summary>
+    internal const string ProviderId = "anthropic";
 
     /// <summary>
     /// Container env var the Claude Code CLI reads its OAuth token from.
@@ -206,12 +211,11 @@ public class ClaudeCodeLauncher(
         await using var scope = scopeFactory.CreateAsyncScope();
         var credentialResolver = scope.ServiceProvider
             .GetRequiredService<ILlmCredentialResolver>();
-        // ADR-0038 Chunk 2a (#1770): the resolver is keyed on legacy
-        // runtime-id today; Chunk 2b re-keys it to (tenant, provider,
-        // authMethod). The launcher passes the runtime id verbatim until
-        // the re-key lands.
+        // ADR-0038 (#1770): the resolver is keyed on (provider, authMethod).
+        // The Claude agent runtime consumes Anthropic via OAuth — the
+        // catalogue edge `claude-code → anthropic` carries authMethod: oauth.
         var resolution = await credentialResolver.ResolveAsync(
-            ClaudeRuntimeId, agentGuid, unitGuid, cancellationToken);
+            ProviderId, AuthMethod.Oauth, agentGuid, unitGuid, cancellationToken);
 
         if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
             || string.IsNullOrEmpty(resolution.Value))

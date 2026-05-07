@@ -36,7 +36,7 @@ public class CodexLauncherTests
 
         _credentialResolver = Substitute.For<ILlmCredentialResolver>();
         _credentialResolver
-            .ResolveAsync("openai", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync("openai", Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: DefaultApiKey,
                 Source: LlmCredentialSource.Tenant,
@@ -140,7 +140,7 @@ public class CodexLauncherTests
     public async Task PrepareAsync_MissingCredential_FailsPreFlightWithGuidance()
     {
         _credentialResolver
-            .ResolveAsync("openai", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync("openai", Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: null,
                 Source: LlmCredentialSource.NotFound,

@@ -5,6 +5,7 @@ namespace Cvoya.Spring.AgentRuntimes.Launchers;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Units;
 
@@ -193,28 +194,12 @@ public class SpringVoyageAgentLauncher(
             StdinPayload: null);
     }
 
-    /// <summary>
-    /// Maps a provider id (the value the operator types into the unit's
-    /// <c>execution.provider</c> field — <c>anthropic</c>, <c>openai</c>,
-    /// <c>google</c>, <c>ollama</c>) to the runtime registry's stable id
-    /// for that provider. The Anthropic provider routes through the
-    /// <c>claude</c> runtime which owns the credential schema; the other
-    /// providers map 1:1.
-    /// </summary>
-    internal static string MapProviderToRuntimeId(string provider) => provider.ToLowerInvariant() switch
-    {
-        "anthropic" => "claude",
-        _ => provider.ToLowerInvariant(),
-    };
-
     private async Task ResolveProviderCredentialAsync(
         AgentLaunchContext context,
         string provider,
         IDictionary<string, string> envVars,
         CancellationToken cancellationToken)
     {
-        var runtimeId = MapProviderToRuntimeId(provider);
-
         // Always pin the conversation component so the Python agent dials
         // the right Dapr Conversation YAML. The component-naming convention
         // is `conversation-<provider-id>` — set on every dispatch (including
@@ -260,15 +245,14 @@ public class SpringVoyageAgentLauncher(
         // ILlmCredentialResolver is scoped (it composes the scoped
         // ISecretResolver/SpringDbContext); this launcher is a singleton,
         // so resolve through a per-call scope to honour DI lifetimes.
-        // ADR-0038 Chunk 2a (#1770): the resolver is keyed on legacy
-        // runtime-id today; Chunk 2b re-keys it to (tenant, provider,
-        // authMethod). The launcher passes the legacy runtime id verbatim
-        // until the re-key lands.
+        // ADR-0038 (#1770): the resolver is keyed on (provider, authMethod).
+        // The Spring Voyage runtime always consumes its providers via API
+        // key — its catalogue edges all carry authMethod: api-key.
         await using var scope = scopeFactory.CreateAsyncScope();
         var credentialResolver = scope.ServiceProvider
             .GetRequiredService<ILlmCredentialResolver>();
         var resolution = await credentialResolver.ResolveAsync(
-            runtimeId, agentGuid, unitGuid, cancellationToken);
+            provider.ToLowerInvariant(), AuthMethod.ApiKey, agentGuid, unitGuid, cancellationToken);
 
         if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
             || string.IsNullOrEmpty(resolution.Value))

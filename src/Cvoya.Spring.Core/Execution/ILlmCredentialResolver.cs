@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Execution;
 
+using Cvoya.Spring.Core.Catalog;
+
 /// <summary>
 /// Resolves LLM provider credentials (tier-2 configuration) through the
 /// canonical chain:
@@ -47,17 +49,36 @@ namespace Cvoya.Spring.Core.Execution;
 /// through the existing Unit→Tenant chain; subclasses (and the future
 /// agent-scope implementation) consult <c>agentId</c> first.
 /// </para>
+/// <para>
+/// <b>ADR-0038 re-key (#1770).</b> The resolver is keyed on
+/// <c>(tenant, provider, authMethod)</c> per ADR-0038 § "Credential
+/// identity". The canonical secret name is
+/// <c>{provider}-{authMethod-slug}</c> derived via
+/// <see cref="CredentialNaming.SecretNameFor"/> — there is no separate
+/// runtime-keyed lookup table. Callers who previously passed a runtime
+/// id (legacy <c>"claude"</c>, <c>"openai"</c>, …) now pass the
+/// catalogue's <c>(provider, authMethod)</c> edge that the runtime
+/// consumes.
+/// </para>
 /// </remarks>
 public interface ILlmCredentialResolver
 {
     /// <summary>
     /// Resolves the LLM provider credential for the given
-    /// <paramref name="providerId"/> in the context of the optional
-    /// <paramref name="agentId"/> and <paramref name="unitId"/>.
+    /// <paramref name="providerId"/> + <paramref name="authMethod"/> in
+    /// the context of the optional <paramref name="agentId"/> and
+    /// <paramref name="unitId"/>. The canonical secret name looked up is
+    /// <c>{providerId}-{authMethod-slug}</c> via
+    /// <see cref="CredentialNaming.SecretNameFor"/>.
     /// </summary>
     /// <param name="providerId">
-    /// Canonical provider identifier — <c>claude</c>, <c>openai</c>,
-    /// <c>google</c>, <c>ollama</c>. Unknown providers return <c>null</c>.
+    /// Canonical provider identifier — <c>anthropic</c>, <c>openai</c>,
+    /// <c>google</c>, <c>ollama</c>. Empty / unknown providers return
+    /// <see cref="LlmCredentialSource.NotFound"/> immediately.
+    /// </param>
+    /// <param name="authMethod">
+    /// Auth method on the consuming runtime/provider edge. Determines the
+    /// half of the canonical secret name (<c>oauth</c> vs <c>api-key</c>).
     /// </param>
     /// <param name="agentId">
     /// Optional agent Guid id. When non-null the resolver consults the
@@ -84,6 +105,7 @@ public interface ILlmCredentialResolver
     /// </returns>
     Task<LlmCredentialResolution> ResolveAsync(
         string providerId,
+        AuthMethod authMethod,
         Guid? agentId,
         Guid? unitId,
         CancellationToken cancellationToken = default);

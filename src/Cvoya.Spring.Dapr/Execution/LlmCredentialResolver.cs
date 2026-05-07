@@ -3,7 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Execution;
 
-using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;
@@ -24,12 +24,12 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The canonical secret name is read from the runtime's
-/// <see cref="IAgentRuntime.CredentialSecretName"/> via
-/// <see cref="IAgentRuntimeRegistry"/>. Unknown provider ids and runtimes
-/// whose <see cref="AgentRuntimeCredentialSchema"/> declares no credential
-/// short-circuit with <see cref="LlmCredentialSource.NotFound"/> before
-/// any registry lookup happens.
+/// Per ADR-0038 §"Credential identity" (#1770), the canonical secret
+/// name is computed inline via
+/// <see cref="CredentialNaming.SecretNameFor"/> — the resolver no longer
+/// reaches into a runtime registry. The <c>(provider, authMethod)</c>
+/// pair is the cache key; the persisted slot is named
+/// <c>{provider}-{authMethod-slug}</c>.
 /// </para>
 /// <para>
 /// <b>Why the registry-level propagate flag matters.</b>
@@ -46,7 +46,6 @@ public sealed class LlmCredentialResolver : ILlmCredentialResolver
 {
     private const int MaxParentChainDepth = 32;
 
-    private readonly IAgentRuntimeRegistry _registry;
     private readonly ISecretResolver _secretResolver;
     private readonly ISecretRegistry _secretRegistry;
     private readonly IUnitSubunitMembershipRepository _unitSubunitRepository;
@@ -57,21 +56,18 @@ public sealed class LlmCredentialResolver : ILlmCredentialResolver
     /// Creates a new <see cref="LlmCredentialResolver"/>.
     /// </summary>
     public LlmCredentialResolver(
-        IAgentRuntimeRegistry registry,
         ISecretResolver secretResolver,
         ISecretRegistry secretRegistry,
         IUnitSubunitMembershipRepository unitSubunitRepository,
         ITenantContext tenantContext,
         ILogger<LlmCredentialResolver> logger)
     {
-        ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(secretResolver);
         ArgumentNullException.ThrowIfNull(secretRegistry);
         ArgumentNullException.ThrowIfNull(unitSubunitRepository);
         ArgumentNullException.ThrowIfNull(tenantContext);
         ArgumentNullException.ThrowIfNull(logger);
 
-        _registry = registry;
         _secretResolver = secretResolver;
         _secretRegistry = secretRegistry;
         _unitSubunitRepository = unitSubunitRepository;
@@ -82,15 +78,23 @@ public sealed class LlmCredentialResolver : ILlmCredentialResolver
     /// <inheritdoc />
     public async Task<LlmCredentialResolution> ResolveAsync(
         string providerId,
+        AuthMethod authMethod,
         Guid? agentId,
         Guid? unitId,
         CancellationToken cancellationToken = default)
     {
-        var secretName = ResolveSecretName(providerId);
-        if (string.IsNullOrEmpty(secretName))
+        if (string.IsNullOrWhiteSpace(providerId))
         {
             return new LlmCredentialResolution(null, LlmCredentialSource.NotFound, string.Empty);
         }
+
+        // ADR-0038: legacy-compat — the wire DTOs still emit the
+        // `{provider}-api-key` shape so the resolver's cache key matches
+        // what tenants have stored under the legacy
+        // IAgentRuntime.CredentialSecretName. PR-1b switches the wire to
+        // the canonical form (CredentialNaming.SecretNameFor), at which
+        // point this branch collapses to the helper call.
+        var secretName = $"{providerId.ToLowerInvariant()}-api-key";
 
         // A SecretUnreadableException at any tier means a slot exists but
         // its ciphertext did not authenticate — typically because the
@@ -176,14 +180,14 @@ public sealed class LlmCredentialResolver : ILlmCredentialResolver
         {
             _logger.LogWarning(
                 ex,
-                "LLM credential for provider {Provider} is stored but could not be decrypted; returning Unreadable.",
-                providerId);
+                "LLM credential for provider {Provider} ({AuthMethod}) is stored but could not be decrypted; returning Unreadable.",
+                providerId, authMethod);
             return new LlmCredentialResolution(null, LlmCredentialSource.Unreadable, secretName);
         }
 
         _logger.LogDebug(
-            "LLM credential for provider {Provider} not configured at agent, unit, parent-unit, or tenant scope; returning NotFound.",
-            providerId);
+            "LLM credential for provider {Provider} ({AuthMethod}) not configured at agent, unit, parent-unit, or tenant scope; returning NotFound.",
+            providerId, authMethod);
         return new LlmCredentialResolution(null, LlmCredentialSource.NotFound, secretName);
     }
 
@@ -299,22 +303,5 @@ public sealed class LlmCredentialResolver : ILlmCredentialResolver
         // of anything in the projection" — which means it's the tenant
         // root, not a unit.
         return rows.Count > 0;
-    }
-
-    private string? ResolveSecretName(string providerId)
-    {
-        if (string.IsNullOrWhiteSpace(providerId))
-        {
-            return null;
-        }
-
-        var runtime = _registry.Get(providerId);
-        if (runtime is null)
-        {
-            return null;
-        }
-
-        var secretName = runtime.CredentialSecretName;
-        return string.IsNullOrEmpty(secretName) ? null : secretName;
     }
 }

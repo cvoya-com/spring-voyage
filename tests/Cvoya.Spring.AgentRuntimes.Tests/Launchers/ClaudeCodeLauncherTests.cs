@@ -36,7 +36,7 @@ public class ClaudeCodeLauncherTests
 
         _credentialResolver = Substitute.For<ILlmCredentialResolver>();
         _credentialResolver
-            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync("anthropic", Cvoya.Spring.Core.Catalog.AuthMethod.Oauth, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: DefaultOAuthToken,
                 Source: LlmCredentialSource.Tenant,
@@ -194,7 +194,7 @@ public class ClaudeCodeLauncherTests
         // (project does not run `claude --bare`). Operator guidance must
         // mention `claude setup-token` and the spring-voyage runtime fallback.
         _credentialResolver
-            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync("anthropic", Cvoya.Spring.Core.Catalog.AuthMethod.Oauth, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: "sk-ant-api-not-allowed",
                 Source: LlmCredentialSource.Tenant,
@@ -214,7 +214,7 @@ public class ClaudeCodeLauncherTests
         // #1714 step 2: the launcher fails BEFORE container launch when no
         // value resolved at agent / unit / parent-unit chain / tenant scope.
         _credentialResolver
-            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync("anthropic", Cvoya.Spring.Core.Catalog.AuthMethod.Oauth, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: null,
                 Source: LlmCredentialSource.NotFound,
@@ -234,7 +234,7 @@ public class ClaudeCodeLauncherTests
         // sk-ant-oat… nor sk-ant-api… so the launcher does not waste a
         // network round-trip just to receive a 401.
         _credentialResolver
-            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync("anthropic", Cvoya.Spring.Core.Catalog.AuthMethod.Oauth, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: "totally-not-a-key",
                 Source: LlmCredentialSource.Tenant,
@@ -248,7 +248,7 @@ public class ClaudeCodeLauncherTests
     public async Task PrepareAsync_UnreadableCredential_FailsPreFlight()
     {
         _credentialResolver
-            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync("anthropic", Cvoya.Spring.Core.Catalog.AuthMethod.Oauth, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: null,
                 Source: LlmCredentialSource.Unreadable,

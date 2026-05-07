@@ -3,7 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Execution;
 
-using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;
@@ -32,7 +32,6 @@ public class LlmCredentialResolverTests
 
     private static LlmCredentialResolver CreateSut(
         ISecretResolver resolver,
-        IAgentRuntimeRegistry registry,
         ISecretRegistry? secretRegistry = null,
         IUnitSubunitMembershipRepository? unitSubunitRepository = null)
     {
@@ -58,7 +57,6 @@ public class LlmCredentialResolverTests
         }
 
         return new LlmCredentialResolver(
-            registry,
             resolver,
             secretRegistry,
             unitSubunitRepository,
@@ -66,31 +64,14 @@ public class LlmCredentialResolverTests
             NullLogger<LlmCredentialResolver>.Instance);
     }
 
-    private static IAgentRuntimeRegistry BuildRegistry(params (string Id, string SecretName)[] runtimes)
-    {
-        var registry = Substitute.For<IAgentRuntimeRegistry>();
-        registry.Get(Arg.Any<string>()).Returns((IAgentRuntime?)null);
-        var all = new List<IAgentRuntime>(runtimes.Length);
-        foreach (var (id, secretName) in runtimes)
-        {
-            var runtime = Substitute.For<IAgentRuntime>();
-            runtime.Id.Returns(id);
-            runtime.CredentialSecretName.Returns(secretName);
-            registry.Get(id).Returns(runtime);
-            all.Add(runtime);
-        }
-        registry.All.Returns(all);
-        return registry;
-    }
-
     [Fact]
     public async Task ResolveAsync_UnknownProvider_ReturnsNotFound()
     {
         var resolver = Substitute.For<ISecretResolver>();
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("no-such-provider", agentId: null, unitId: null, TestContext.Current.CancellationToken);
+        var result = await sut.ResolveAsync("no-such-provider", AuthMethod.ApiKey, agentId: null, unitId: null, TestContext.Current.CancellationToken);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.NotFound);
@@ -106,10 +87,10 @@ public class LlmCredentialResolverTests
         // credential to look up"; the resolver must short-circuit before
         // touching the secret store.
         var resolver = Substitute.For<ISecretResolver>();
-        var registry = BuildRegistry(("ollama", string.Empty));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("ollama", agentId: null, unitId: null, TestContext.Current.CancellationToken);
+        var result = await sut.ResolveAsync("ollama", AuthMethod.ApiKey, agentId: null, unitId: null, TestContext.Current.CancellationToken);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.NotFound);
@@ -127,10 +108,10 @@ public class LlmCredentialResolverTests
                 Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitU1 && r.Name == "anthropic-api-key"),
                 ct)
             .Returns(new SecretResolution("sk-unit", SecretResolvePath.Direct, new SecretRef(SecretScope.Unit, UnitU1, "anthropic-api-key")));
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("claude", agentId: null, unitId: UnitU1, ct);
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitU1, ct);
 
         result.Value.ShouldBe("sk-unit");
         result.Source.ShouldBe(LlmCredentialSource.Unit);
@@ -149,10 +130,10 @@ public class LlmCredentialResolverTests
                 "sk-tenant",
                 SecretResolvePath.InheritedFromTenant,
                 tenantRef));
-        var registry = BuildRegistry(("openai", "openai-api-key"));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("openai", agentId: null, unitId: UnitU1, ct);
+        var result = await sut.ResolveAsync("openai", AuthMethod.ApiKey, agentId: null, unitId: UnitU1, ct);
 
         result.Value.ShouldBe("sk-tenant");
         result.Source.ShouldBe(LlmCredentialSource.Tenant);
@@ -171,10 +152,10 @@ public class LlmCredentialResolverTests
                 "sk-tenant-default",
                 SecretResolvePath.Direct,
                 new SecretRef(SecretScope.Tenant, TenantId, "anthropic-api-key")));
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("claude", agentId: null, unitId: null, ct);
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: null, ct);
 
         result.Value.ShouldBe("sk-tenant-default");
         result.Source.ShouldBe(LlmCredentialSource.Tenant);
@@ -188,10 +169,10 @@ public class LlmCredentialResolverTests
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(Arg.Any<SecretRef>(), ct)
             .Returns(new SecretResolution(null, SecretResolvePath.NotFound, null));
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("claude", agentId: null, unitId: UnitU1, ct);
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitU1, ct);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.NotFound);
@@ -207,10 +188,10 @@ public class LlmCredentialResolverTests
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(Arg.Any<SecretRef>(), ct)
             .Returns(new SecretResolution(null, SecretResolvePath.NotFound, null));
-        var registry = BuildRegistry(("google", "google-api-key"));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("google", agentId: null, unitId: null, ct);
+        var result = await sut.ResolveAsync("google", AuthMethod.ApiKey, agentId: null, unitId: null, ct);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.NotFound);
@@ -218,72 +199,59 @@ public class LlmCredentialResolverTests
     }
 
     [Theory]
-    [InlineData("claude", "anthropic-api-key")]
+    [InlineData("anthropic", "anthropic-api-key")]
     [InlineData("openai", "openai-api-key")]
     [InlineData("google", "google-api-key")]
-    [InlineData("ollama", "")]
-    public async Task ResolveAsync_ReadsSecretNameFromRegistry(string runtimeId, string declaredSecretName)
+    public async Task ResolveAsync_LooksUpCanonicalSecretNameForProvider(string providerId, string expectedSecretName)
     {
-        // Drives the end-to-end registry-lookup path for every runtime the
-        // OSS platform ships. For runtimes with a real credential name, the
-        // tenant-scope secret store is consulted with the exact declared
-        // name; for the credential-less Ollama runtime, the resolver must
-        // short-circuit before touching the secret store.
+        // ADR-0038: the resolver computes the canonical secret name as
+        // `{provider}-api-key` for every (provider, ApiKey) edge.
+        // PR-1b switches to `{provider}-{authMethod-slug}` once wire DTOs
+        // expose the per-edge form.
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
-        if (!string.IsNullOrEmpty(declaredSecretName))
-        {
-            resolver.ResolveWithPathAsync(
-                    Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant && r.Name == declaredSecretName),
-                    ct)
-                .Returns(new SecretResolution(
-                    "value",
-                    SecretResolvePath.Direct,
-                    new SecretRef(SecretScope.Tenant, TenantId, declaredSecretName)));
-        }
-        var registry = BuildRegistry((runtimeId, declaredSecretName));
-        var sut = CreateSut(resolver, registry);
+        resolver.ResolveWithPathAsync(
+                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant && r.Name == expectedSecretName),
+                ct)
+            .Returns(new SecretResolution(
+                "value",
+                SecretResolvePath.Direct,
+                new SecretRef(SecretScope.Tenant, TenantId, expectedSecretName)));
 
-        var result = await sut.ResolveAsync(runtimeId, agentId: null, unitId: null, ct);
+        var sut = CreateSut(resolver);
 
-        if (string.IsNullOrEmpty(declaredSecretName))
-        {
-            result.Source.ShouldBe(LlmCredentialSource.NotFound);
-            result.SecretName.ShouldBeEmpty();
-            await resolver.DidNotReceiveWithAnyArgs().ResolveWithPathAsync(default!, ct);
-        }
-        else
-        {
-            result.Value.ShouldBe("value");
-            result.Source.ShouldBe(LlmCredentialSource.Tenant);
-            result.SecretName.ShouldBe(declaredSecretName);
-        }
+        var result = await sut.ResolveAsync(providerId, AuthMethod.ApiKey, agentId: null, unitId: null, ct);
+
+        result.Value.ShouldBe("value");
+        result.Source.ShouldBe(LlmCredentialSource.Tenant);
+        result.SecretName.ShouldBe(expectedSecretName);
     }
 
     [Fact]
-    public async Task ResolveAsync_CustomRuntimeSecretName_UsesRegistryValue()
+    public async Task ResolveAsync_BespokeProviderId_DerivesCanonicalName()
     {
-        // Exercises a runtime whose secret name was never in the legacy
-        // hard-coded switch (e.g. a private-cloud downstream runtime).
-        // The resolver must honour whatever the plugin declares.
+        // ADR-0038: the resolver derives the secret name directly from the
+        // provider id — no registry lookup. A private-cloud downstream
+        // runtime with a bespoke provider id sees the same {provider}-api-key
+        // shape every other runtime uses.
         var ct = TestContext.Current.CancellationToken;
-        const string customName = "cvoya-bespoke-api-key";
+        const string bespokeName = "bespoke-api-key";
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Name == customName),
+                Arg.Is<SecretRef>(r => r.Name == bespokeName),
                 ct)
             .Returns(new SecretResolution(
                 "bespoke-value",
                 SecretResolvePath.Direct,
-                new SecretRef(SecretScope.Tenant, TenantId, customName)));
-        var registry = BuildRegistry(("bespoke", customName));
-        var sut = CreateSut(resolver, registry);
+                new SecretRef(SecretScope.Tenant, TenantId, bespokeName)));
 
-        var result = await sut.ResolveAsync("bespoke", agentId: null, unitId: null, ct);
+        var sut = CreateSut(resolver);
+
+        var result = await sut.ResolveAsync("bespoke", AuthMethod.ApiKey, agentId: null, unitId: null, ct);
 
         result.Value.ShouldBe("bespoke-value");
         result.Source.ShouldBe(LlmCredentialSource.Tenant);
-        result.SecretName.ShouldBe(customName);
+        result.SecretName.ShouldBe(bespokeName);
     }
 
     [Fact]
@@ -299,10 +267,10 @@ public class LlmCredentialResolverTests
                 Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant && r.Name == "anthropic-api-key"),
                 ct)
             .Returns(Task.FromException<SecretResolution>(new SecretUnreadableException()));
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("claude", agentId: null, unitId: null, ct);
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: null, ct);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.Unreadable);
@@ -321,10 +289,10 @@ public class LlmCredentialResolverTests
                 Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitU1),
                 ct)
             .Returns(Task.FromException<SecretResolution>(new SecretUnreadableException()));
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("claude", agentId: null, unitId: UnitU1, ct);
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitU1, ct);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.Unreadable);
@@ -332,11 +300,11 @@ public class LlmCredentialResolverTests
     }
 
     [Fact]
-    public async Task ResolveAsync_RegistryLookupIsCaseInsensitiveViaRegistry()
+    public async Task ResolveAsync_ProviderId_IsLowercasedForSecretName()
     {
-        // The registry contract is case-insensitive on Id — the resolver
-        // just forwards; stubbing Get("CLAUDE") on the registry exercises
-        // that path without the resolver having to lowercase.
+        // ADR-0038: provider id is normalised to lower case when computing
+        // the canonical secret name so case differences in the catalogue
+        // / caller don't fragment the cache.
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(Arg.Any<SecretRef>(), ct)
@@ -344,14 +312,10 @@ public class LlmCredentialResolverTests
                 "sk",
                 SecretResolvePath.Direct,
                 new SecretRef(SecretScope.Tenant, TenantId, "anthropic-api-key")));
-        var registry = Substitute.For<IAgentRuntimeRegistry>();
-        var runtime = Substitute.For<IAgentRuntime>();
-        runtime.Id.Returns("claude");
-        runtime.CredentialSecretName.Returns("anthropic-api-key");
-        registry.Get("CLAUDE").Returns(runtime);
-        var sut = CreateSut(resolver, registry);
 
-        var result = await sut.ResolveAsync("CLAUDE", agentId: null, unitId: null, ct);
+        var sut = CreateSut(resolver);
+
+        var result = await sut.ResolveAsync("ANTHROPIC", AuthMethod.ApiKey, agentId: null, unitId: null, ct);
 
         result.SecretName.ShouldBe("anthropic-api-key");
     }
@@ -387,10 +351,10 @@ public class LlmCredentialResolverTests
                 "sk-unit",
                 SecretResolvePath.Direct,
                 new SecretRef(SecretScope.Unit, UnitU1, "anthropic-api-key")));
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("claude", agentId: AgentA1, unitId: UnitU1, ct);
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: AgentA1, unitId: UnitU1, ct);
 
         result.Value.ShouldBe("sk-agent");
         result.Source.ShouldBe(LlmCredentialSource.Agent);
@@ -415,10 +379,10 @@ public class LlmCredentialResolverTests
                 "sk-unit",
                 SecretResolvePath.Direct,
                 new SecretRef(SecretScope.Unit, UnitU1, "anthropic-api-key")));
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("claude", agentId: AgentA1, unitId: UnitU1, ct);
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: AgentA1, unitId: UnitU1, ct);
 
         result.Value.ShouldBe("sk-unit");
         result.Source.ShouldBe(LlmCredentialSource.Unit);
@@ -471,10 +435,10 @@ public class LlmCredentialResolverTests
         unitSubunit.ListByChildAsync(TenantId, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<UnitSubunitMembership>());
 
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry, secretRegistry, unitSubunit);
+        
+        var sut = CreateSut(resolver, secretRegistry, unitSubunit);
 
-        var result = await sut.ResolveAsync("claude", agentId: null, unitId: UnitChild, ct);
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitChild, ct);
 
         result.Value.ShouldBe("sk-parent");
         result.Source.ShouldBe(LlmCredentialSource.ParentUnit);
@@ -510,10 +474,10 @@ public class LlmCredentialResolverTests
         unitSubunit.ListByChildAsync(UnitParent, Arg.Any<CancellationToken>())
             .Returns(new[] { new UnitSubunitMembership(TenantId, UnitParent) });
 
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry, secretRegistry, unitSubunit);
+        
+        var sut = CreateSut(resolver, secretRegistry, unitSubunit);
 
-        var result = await sut.ResolveAsync("claude", agentId: null, unitId: UnitChild, ct);
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitChild, ct);
 
         result.Value.ShouldBe("sk-tenant");
         result.Source.ShouldBe(LlmCredentialSource.Tenant);
@@ -567,10 +531,10 @@ public class LlmCredentialResolverTests
         unitSubunit.ListByChildAsync(UnitGrandparent, Arg.Any<CancellationToken>())
             .Returns(new[] { new UnitSubunitMembership(TenantId, UnitGrandparent) });
 
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry, secretRegistry, unitSubunit);
+        
+        var sut = CreateSut(resolver, secretRegistry, unitSubunit);
 
-        var result = await sut.ResolveAsync("claude", agentId: null, unitId: UnitChild, ct);
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitChild, ct);
 
         result.Value.ShouldBe("sk-grandparent");
         result.Source.ShouldBe(LlmCredentialSource.ParentUnit);
@@ -583,7 +547,7 @@ public class LlmCredentialResolverTests
         // tiers and assert the resolver picks Agent. Then progressively
         // remove tiers and re-verify each subsequent tier wins.
         var ct = TestContext.Current.CancellationToken;
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
+        
 
         // Helper: set up resolvers for each requested combination.
         async Task<LlmCredentialResolution> RunAsync(
@@ -633,8 +597,8 @@ public class LlmCredentialResolverTests
             unitSubunit.ListByChildAsync(UnitParent, Arg.Any<CancellationToken>())
                 .Returns(new[] { new UnitSubunitMembership(TenantId, UnitParent) });
 
-            var sut = CreateSut(resolver, registry, secretRegistry, unitSubunit);
-            return await sut.ResolveAsync("claude", agentId: AgentA1, unitId: UnitChild, ct);
+            var sut = CreateSut(resolver, secretRegistry, unitSubunit);
+            return await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: AgentA1, unitId: UnitChild, ct);
         }
 
         (await RunAsync(true, true, true, true)).Source.ShouldBe(LlmCredentialSource.Agent);
@@ -655,10 +619,10 @@ public class LlmCredentialResolverTests
                 Arg.Is<SecretRef>(r => r.Scope == SecretScope.Agent && r.OwnerId == AgentA1),
                 ct)
             .Returns(Task.FromException<SecretResolution>(new SecretUnreadableException()));
-        var registry = BuildRegistry(("claude", "anthropic-api-key"));
-        var sut = CreateSut(resolver, registry);
+        
+        var sut = CreateSut(resolver);
 
-        var result = await sut.ResolveAsync("claude", agentId: AgentA1, unitId: null, ct);
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: AgentA1, unitId: null, ct);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.Unreadable);

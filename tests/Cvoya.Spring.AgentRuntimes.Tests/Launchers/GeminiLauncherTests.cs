@@ -36,7 +36,7 @@ public class GeminiLauncherTests
 
         _credentialResolver = Substitute.For<ILlmCredentialResolver>();
         _credentialResolver
-            .ResolveAsync("google", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync("google", Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: DefaultApiKey,
                 Source: LlmCredentialSource.Tenant,
@@ -138,7 +138,7 @@ public class GeminiLauncherTests
     public async Task PrepareAsync_MissingCredential_FailsPreFlightWithGuidance()
     {
         _credentialResolver
-            .ResolveAsync("google", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync("google", Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: null,
                 Source: LlmCredentialSource.NotFound,

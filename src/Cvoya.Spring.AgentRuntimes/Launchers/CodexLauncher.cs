@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Units;
 
@@ -42,7 +43,12 @@ public class CodexLauncher(
     /// (the same secret slot the Spring Voyage runtime uses for
     /// <c>provider: openai</c>).
     /// </summary>
-    internal const string OpenAiRuntimeId = "openai";
+    /// <summary>
+    /// Provider id this launcher consumes from the catalogue's
+    /// <c>(provider, authMethod)</c> edge per ADR-0038. The Codex agent
+    /// runtime accepts the OpenAI provider with the API-key auth method.
+    /// </summary>
+    internal const string ProviderId = "openai";
 
     /// <summary>Container env var the Codex CLI reads its API key from.</summary>
     internal const string CredentialEnvVar = "OPENAI_API_KEY";
@@ -155,12 +161,10 @@ public class CodexLauncher(
         await using var scope = scopeFactory.CreateAsyncScope();
         var credentialResolver = scope.ServiceProvider
             .GetRequiredService<ILlmCredentialResolver>();
-        // ADR-0038 Chunk 2a (#1770): the resolver is keyed on legacy
-        // runtime-id today; Chunk 2b re-keys it to (tenant, provider,
-        // authMethod). The launcher passes the runtime id verbatim until
-        // the re-key lands.
+        // ADR-0038 (#1770): the resolver is keyed on (provider, authMethod).
+        // The Codex runtime consumes OpenAI via API key.
         var resolution = await credentialResolver.ResolveAsync(
-            OpenAiRuntimeId, agentGuid, unitGuid, cancellationToken);
+            ProviderId, AuthMethod.ApiKey, agentGuid, unitGuid, cancellationToken);
 
         if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
             || string.IsNullOrEmpty(resolution.Value))

@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Units;
 
@@ -42,7 +43,12 @@ public class GeminiLauncher(
     /// the Google AI Studio API key (the same secret slot the Spring
     /// Voyage runtime uses for <c>provider: google</c>).
     /// </summary>
-    internal const string GoogleRuntimeId = "google";
+    /// <summary>
+    /// Provider id this launcher consumes from the catalogue's
+    /// <c>(provider, authMethod)</c> edge per ADR-0038. The Gemini agent
+    /// runtime accepts the Google provider with the API-key auth method.
+    /// </summary>
+    internal const string ProviderId = "google";
 
     /// <summary>Container env var the Gemini CLI reads its API key from.</summary>
     internal const string CredentialEnvVar = "GOOGLE_API_KEY";
@@ -154,12 +160,10 @@ public class GeminiLauncher(
         await using var scope = scopeFactory.CreateAsyncScope();
         var credentialResolver = scope.ServiceProvider
             .GetRequiredService<ILlmCredentialResolver>();
-        // ADR-0038 Chunk 2a (#1770): the resolver is keyed on legacy
-        // runtime-id today; Chunk 2b re-keys it to (tenant, provider,
-        // authMethod). The launcher passes the runtime id verbatim until
-        // the re-key lands.
+        // ADR-0038 (#1770): the resolver is keyed on (provider, authMethod).
+        // The Gemini runtime consumes Google via API key.
         var resolution = await credentialResolver.ResolveAsync(
-            GoogleRuntimeId, agentGuid, unitGuid, cancellationToken);
+            ProviderId, AuthMethod.ApiKey, agentGuid, unitGuid, cancellationToken);
 
         if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
             || string.IsNullOrEmpty(resolution.Value))

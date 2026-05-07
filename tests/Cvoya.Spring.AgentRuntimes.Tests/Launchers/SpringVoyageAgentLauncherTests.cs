@@ -43,10 +43,13 @@ public class SpringVoyageAgentLauncherTests
         _launcher = new SpringVoyageAgentLauncher(_ollamaOptions, scopeFactory, _loggerFactory);
     }
 
-    private void SeedTenantSecret(string runtimeId, string secretName, string value)
+    private void SeedTenantSecret(string providerId, string secretName, string value)
     {
+        // ADR-0038: Spring Voyage launcher always resolves via the
+        // (provider, ApiKey) edge — its catalogue entries all carry
+        // authMethod: api-key.
         _credentialResolver
-            .ResolveAsync(runtimeId, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync(providerId, Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: value,
                 Source: LlmCredentialSource.Tenant,
@@ -247,7 +250,7 @@ public class SpringVoyageAgentLauncherTests
         // secretKeyRef. The launcher also pins SPRING_LLM_COMPONENT to
         // conversation-anthropic so agent.py dials the right Conversation
         // component instead of silently routing through Ollama.
-        SeedTenantSecret("claude", "anthropic-api-key", "sk-ant-api-fake");
+        SeedTenantSecret("anthropic", "anthropic-api-key", "sk-ant-api-fake");
         var context = MakeContext("anthropic", "claude-sonnet-4-6");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
@@ -328,7 +331,7 @@ public class SpringVoyageAgentLauncherTests
         // #1714 step 1: dispatch fails BEFORE container launch when no
         // value resolved at agent / unit / parent-unit chain / tenant scope.
         _credentialResolver
-            .ResolveAsync("claude", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync("anthropic", Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: null,
                 Source: LlmCredentialSource.NotFound,
@@ -349,7 +352,7 @@ public class SpringVoyageAgentLauncherTests
         // agent-runtime path, not the Spring Voyage REST path. The
         // launcher rejects pre-flight with operator guidance so the
         // dispatch never burns a network round-trip.
-        SeedTenantSecret("claude", "anthropic-api-key", "sk-ant-oat-not-rest-shape");
+        SeedTenantSecret("anthropic", "anthropic-api-key", "sk-ant-oat-not-rest-shape");
         var context = MakeContext("anthropic", "claude-sonnet-4-6");
 
         var ex = await Should.ThrowAsync<SpringException>(
