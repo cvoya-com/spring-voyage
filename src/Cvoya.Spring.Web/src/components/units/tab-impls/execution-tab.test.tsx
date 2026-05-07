@@ -19,7 +19,11 @@ const setUnitExecution =
     ) => Promise<UnitExecutionResponse>
   >();
 const clearUnitExecution = vi.fn<(id: string) => Promise<void>>();
-const getAgentRuntimeModels = vi.fn<(id: string) => Promise<{ id: string; displayName: string; contextWindow: number | null }[]>>();
+const getModelProviderModels = vi.fn<(id: string) => Promise<{ id: string; displayName: string; contextWindow: number | null }[]>>();
+const listModelProviders =
+  vi.fn<
+    () => Promise<unknown[]>
+  >();
 const getProviderCredentialStatus =
   vi.fn<
     (provider: string) => Promise<ProviderCredentialStatusResponse>
@@ -31,7 +35,8 @@ vi.mock("@/lib/api/client", () => ({
     setUnitExecution: (id: string, body: UnitExecutionResponse) =>
       setUnitExecution(id, body),
     clearUnitExecution: (id: string) => clearUnitExecution(id),
-    getAgentRuntimeModels: (id: string) => getAgentRuntimeModels(id),
+    getModelProviderModels: (id: string) => getModelProviderModels(id),
+    listModelProviders: () => listModelProviders(),
     getProviderCredentialStatus: (provider: string) =>
       getProviderCredentialStatus(provider),
   },
@@ -73,12 +78,14 @@ describe("ExecutionTab", () => {
     getUnitExecution.mockReset();
     setUnitExecution.mockReset();
     clearUnitExecution.mockReset();
-    getAgentRuntimeModels.mockReset();
+    getModelProviderModels.mockReset();
+    listModelProviders.mockReset();
     getProviderCredentialStatus.mockReset();
     toastMock.mockReset();
     // Default: no models fetched + no credential probe so the banner
     // doesn't pop up unless the test sets it.
-    getAgentRuntimeModels.mockResolvedValue([]);
+    getModelProviderModels.mockResolvedValue([]);
+    listModelProviders.mockResolvedValue([]);
     getProviderCredentialStatus.mockResolvedValue({
       provider: "anthropic",
       resolvable: true,
@@ -120,7 +127,7 @@ describe("ExecutionTab", () => {
     // operator can still pick a model family (e.g. claude-opus-4 for
     // Claude Code).
     getUnitExecution.mockResolvedValue({ runtime: "claude-code" });
-    getAgentRuntimeModels.mockResolvedValue([
+    getModelProviderModels.mockResolvedValue([
       { id: "claude-sonnet-4-6", displayName: "claude-sonnet-4-6", contextWindow: null },
       { id: "claude-opus-4-7", displayName: "claude-opus-4-7", contextWindow: null },
     ]);
@@ -139,7 +146,7 @@ describe("ExecutionTab", () => {
 
   it("renders a Model dropdown populated from the runtime's catalog when agent=codex (#641)", async () => {
     getUnitExecution.mockResolvedValue({ runtime: "codex" });
-    getAgentRuntimeModels.mockImplementation(async (id: string) => {
+    getModelProviderModels.mockImplementation(async (id: string) => {
       if (id === "openai") {
         return [
           { id: "gpt-4o", displayName: "gpt-4o", contextWindow: null },
@@ -158,7 +165,7 @@ describe("ExecutionTab", () => {
 
     await screen.findByTestId("unit-execution-card");
     await waitFor(() => {
-      expect(getAgentRuntimeModels).toHaveBeenCalledWith("openai");
+      expect(getModelProviderModels).toHaveBeenCalledWith("openai");
     });
 
     const modelSelect = (await screen.findByTestId(
@@ -174,7 +181,7 @@ describe("ExecutionTab", () => {
 
   it("shows both Model Provider and Model when agent=spring-voyage (#641)", async () => {
     getUnitExecution.mockResolvedValue({ runtime: "spring-voyage" });
-    getAgentRuntimeModels.mockResolvedValue([]);
+    getModelProviderModels.mockResolvedValue([]);
 
     render(
       <Wrapper>
@@ -193,7 +200,7 @@ describe("ExecutionTab", () => {
 
   it("keeps the Model slot visible when agent=custom (always rendered post-#1702)", async () => {
     getUnitExecution.mockResolvedValue({ runtime: "custom" });
-    getAgentRuntimeModels.mockResolvedValue([]);
+    getModelProviderModels.mockResolvedValue([]);
 
     render(
       <Wrapper>

@@ -343,8 +343,12 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
           {/* Model Provider — conditional. Hidden when the runtime
               fixes its provider (claude-code / codex / gemini); shown
               as a model-list filter when the runtime is multi-provider
-              (spring-voyage). */}
-          {!providerFixed && runtimeId !== null && (
+              (spring-voyage). The `custom` slot is reserved for v0.2
+              and ships with an empty allow-list — the picker stays
+              hidden until that lands. */}
+          {!providerFixed &&
+            runtimeId !== null &&
+            runtimeId !== "custom" && (
             <FieldRow
               label="Model Provider"
               help={

@@ -91,8 +91,8 @@ vi.mock("@/lib/api/queries", () => ({
   // with "no data" so Explorer page tests don't need to model
   // execution defaults.
   useUnitExecution: () => ({ data: null, isLoading: false }),
-  // Agents tab — MembershipDialog reads the agent-runtimes catalog.
-  useAgentRuntimes: () => ({ data: [], isLoading: false }),
+  // Agents tab — MembershipDialog reads the model-providers catalogue (ADR-0038).
+  useModelProviders: () => ({ data: [], isLoading: false }),
 }));
 
 function wrap(node: ReactNode) {

@@ -386,8 +386,12 @@ export function AgentExecutionPanel({
         </FieldRow>
 
         {/* Conditional Model Provider — hidden when the runtime fixes
-            its provider (claude-code / codex / gemini). */}
-        {!providerFixed && effectiveRuntime !== null && (
+            its provider (claude-code / codex / gemini). The `custom`
+            slot is reserved for v0.2 (empty allow-list) — keep the
+            picker hidden until that lands. */}
+        {!providerFixed &&
+          effectiveRuntime !== null &&
+          effectiveRuntime !== "custom" && (
           <FieldRow
             label="Model Provider"
             help={

@@ -199,9 +199,12 @@ describe("CreateAgentPage", () => {
     expect(screen.getByLabelText(/agent id/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^role$/i)).toBeInTheDocument();
+    // ADR-0038: the wizard exposes Agent Runtime + Model fields. The
+    // legacy "Container runtime" dropdown was retired — container
+    // runtime is platform configuration, not an operator choice.
     expect(screen.getByLabelText(/agent runtime/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/container image/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/container runtime/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^model$/i)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
