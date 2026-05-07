@@ -123,10 +123,9 @@ public class SpringApiClientTests
             responseBody: $"{{\"id\":\"{agentGuid}\",\"name\":\"ada\",\"displayName\":\"Ada\",\"role\":\"coder\"}}",
             validateRequestBody: body =>
             {
-                // Kiota's JSON writer mirrors the OpenAPI contract: name → CreateAgentRequest.Name
-                // (the unique identifier on the wire), displayName → CreateAgentRequest.DisplayName.
+                // Server now auto-generates the agent GUID — name is not sent on the wire.
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
-                json.GetProperty("name").GetString().ShouldBe("ada");
+                json.TryGetProperty("name", out _).ShouldBeFalse();
                 json.GetProperty("displayName").GetString().ShouldBe("Ada");
                 json.GetProperty("role").GetString().ShouldBe("coder");
                 // #744: unitIds is required ≥1 on create. Kiota emits each
