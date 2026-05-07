@@ -26,26 +26,13 @@ public class GeminiLauncherTests
     private const string DefaultApiKey = "test-google-key";
 
     private readonly ILoggerFactory _loggerFactory;
-    private readonly IAgentRuntimeRegistry _registry;
     private readonly ILlmCredentialResolver _credentialResolver;
-    private readonly IAgentRuntime _googleRuntime;
     private readonly GeminiLauncher _launcher;
 
     public GeminiLauncherTests()
     {
         _loggerFactory = Substitute.For<ILoggerFactory>();
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-
-        _googleRuntime = Substitute.For<IAgentRuntime>();
-        _googleRuntime.Id.Returns("google");
-        _googleRuntime.CredentialSecretName.Returns("google-api-key");
-        _googleRuntime.CredentialEnvVar.Returns("GOOGLE_API_KEY");
-        _googleRuntime
-            .IsCredentialFormatAccepted(Arg.Any<string>(), Arg.Any<CredentialDispatchPath>())
-            .Returns(true);
-
-        _registry = Substitute.For<IAgentRuntimeRegistry>();
-        _registry.Get("google").Returns(_googleRuntime);
 
         _credentialResolver = Substitute.For<ILlmCredentialResolver>();
         _credentialResolver
@@ -56,7 +43,7 @@ public class GeminiLauncherTests
                 SecretName: "google-api-key"));
 
         var scopeFactory = TestScopeFactory.For(_credentialResolver);
-        _launcher = new GeminiLauncher(_registry, scopeFactory, _loggerFactory);
+        _launcher = new GeminiLauncher(scopeFactory, _loggerFactory);
     }
 
     [Fact]

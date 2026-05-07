@@ -33,7 +33,6 @@ using Microsoft.Extensions.Logging;
 /// </para>
 /// </summary>
 public class CodexLauncher(
-    IAgentRuntimeRegistry runtimeRegistry,
     IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
 {
@@ -44,6 +43,9 @@ public class CodexLauncher(
     /// <c>provider: openai</c>).
     /// </summary>
     internal const string OpenAiRuntimeId = "openai";
+
+    /// <summary>Container env var the Codex CLI reads its API key from.</summary>
+    internal const string CredentialEnvVar = "OPENAI_API_KEY";
 
     internal const string WorkspaceMountPath = "/workspace";
     private readonly ILogger _logger = loggerFactory.CreateLogger<CodexLauncher>();
@@ -142,11 +144,6 @@ public class CodexLauncher(
         IDictionary<string, string> envVars,
         CancellationToken cancellationToken)
     {
-        var runtime = runtimeRegistry.Get(OpenAiRuntimeId)
-            ?? throw new SpringException(
-                $"OpenAI agent runtime is not registered (required by the Codex launcher). " +
-                $"Install the Cvoya.Spring.AgentRuntimes.OpenAI package or remove `tool: codex` from this unit's manifest.");
-
         Guid? agentGuid = Guid.TryParse(context.AgentId, out var parsedAgentId)
             ? parsedAgentId
             : null;
@@ -158,6 +155,10 @@ public class CodexLauncher(
         await using var scope = scopeFactory.CreateAsyncScope();
         var credentialResolver = scope.ServiceProvider
             .GetRequiredService<ILlmCredentialResolver>();
+        // ADR-0038 Chunk 2a (#1770): the resolver is keyed on legacy
+        // runtime-id today; Chunk 2b re-keys it to (tenant, provider,
+        // authMethod). The launcher passes the runtime id verbatim until
+        // the re-key lands.
         var resolution = await credentialResolver.ResolveAsync(
             OpenAiRuntimeId, agentGuid, unitGuid, cancellationToken);
 
@@ -171,17 +172,20 @@ public class CodexLauncher(
                 $"or configure via the Tenant defaults panel.");
         }
 
-        if (!runtime.IsCredentialFormatAccepted(resolution.Value!, CredentialDispatchPath.AgentRuntime))
+        // OpenAI Platform API keys start with "sk-". The format check is
+        // inline in the launcher rather than going through the
+        // deleted-by-#1770 IAgentRuntime.IsCredentialFormatAccepted seam.
+        if (!resolution.Value!.StartsWith("sk-", StringComparison.Ordinal))
         {
             throw new SpringException(
                 $"Codex agent runtime did not accept the configured '{resolution.SecretName}' value at scope " +
                 $"'{resolution.Source}'. The OpenAI Platform CLI path requires an OpenAI API key (sk-…).");
         }
 
-        envVars[runtime.CredentialEnvVar] = resolution.Value!;
+        envVars[CredentialEnvVar] = resolution.Value!;
 
         _logger.LogInformation(
             "Codex credential resolved from {Source} into {EnvVar} for agent {AgentId}",
-            resolution.Source, runtime.CredentialEnvVar, context.AgentId);
+            resolution.Source, CredentialEnvVar, context.AgentId);
     }
 }

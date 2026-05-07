@@ -33,7 +33,6 @@ using Microsoft.Extensions.Logging;
 /// </para>
 /// </summary>
 public class GeminiLauncher(
-    IAgentRuntimeRegistry runtimeRegistry,
     IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
 {
@@ -44,6 +43,9 @@ public class GeminiLauncher(
     /// Voyage runtime uses for <c>provider: google</c>).
     /// </summary>
     internal const string GoogleRuntimeId = "google";
+
+    /// <summary>Container env var the Gemini CLI reads its API key from.</summary>
+    internal const string CredentialEnvVar = "GOOGLE_API_KEY";
 
     internal const string WorkspaceMountPath = "/workspace";
     private readonly ILogger _logger = loggerFactory.CreateLogger<GeminiLauncher>();
@@ -141,11 +143,6 @@ public class GeminiLauncher(
         IDictionary<string, string> envVars,
         CancellationToken cancellationToken)
     {
-        var runtime = runtimeRegistry.Get(GoogleRuntimeId)
-            ?? throw new SpringException(
-                $"Google agent runtime is not registered (required by the Gemini launcher). " +
-                $"Install the Cvoya.Spring.AgentRuntimes.Google package or remove `tool: gemini` from this unit's manifest.");
-
         Guid? agentGuid = Guid.TryParse(context.AgentId, out var parsedAgentId)
             ? parsedAgentId
             : null;
@@ -157,6 +154,10 @@ public class GeminiLauncher(
         await using var scope = scopeFactory.CreateAsyncScope();
         var credentialResolver = scope.ServiceProvider
             .GetRequiredService<ILlmCredentialResolver>();
+        // ADR-0038 Chunk 2a (#1770): the resolver is keyed on legacy
+        // runtime-id today; Chunk 2b re-keys it to (tenant, provider,
+        // authMethod). The launcher passes the runtime id verbatim until
+        // the re-key lands.
         var resolution = await credentialResolver.ResolveAsync(
             GoogleRuntimeId, agentGuid, unitGuid, cancellationToken);
 
@@ -170,17 +171,14 @@ public class GeminiLauncher(
                 $"or configure via the Tenant defaults panel.");
         }
 
-        if (!runtime.IsCredentialFormatAccepted(resolution.Value!, CredentialDispatchPath.AgentRuntime))
-        {
-            throw new SpringException(
-                $"Gemini agent runtime did not accept the configured '{resolution.SecretName}' value at scope " +
-                $"'{resolution.Source}'. The Google AI CLI path requires a Google AI Studio API key.");
-        }
-
-        envVars[runtime.CredentialEnvVar] = resolution.Value!;
+        // Google AI Studio API keys are typically AIza-prefixed but the
+        // launcher accepts any non-empty value here — Google's API
+        // returns 401 on bad format, which the credential-health
+        // watchdog already records.
+        envVars[CredentialEnvVar] = resolution.Value!;
 
         _logger.LogInformation(
             "Gemini credential resolved from {Source} into {EnvVar} for agent {AgentId}",
-            resolution.Source, runtime.CredentialEnvVar, context.AgentId);
+            resolution.Source, CredentialEnvVar, context.AgentId);
     }
 }

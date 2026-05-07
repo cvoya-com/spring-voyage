@@ -26,26 +26,13 @@ public class CodexLauncherTests
     private const string DefaultApiKey = "sk-test-codex-key";
 
     private readonly ILoggerFactory _loggerFactory;
-    private readonly IAgentRuntimeRegistry _registry;
     private readonly ILlmCredentialResolver _credentialResolver;
-    private readonly IAgentRuntime _openAiRuntime;
     private readonly CodexLauncher _launcher;
 
     public CodexLauncherTests()
     {
         _loggerFactory = Substitute.For<ILoggerFactory>();
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-
-        _openAiRuntime = Substitute.For<IAgentRuntime>();
-        _openAiRuntime.Id.Returns("openai");
-        _openAiRuntime.CredentialSecretName.Returns("openai-api-key");
-        _openAiRuntime.CredentialEnvVar.Returns("OPENAI_API_KEY");
-        _openAiRuntime
-            .IsCredentialFormatAccepted(Arg.Any<string>(), Arg.Any<CredentialDispatchPath>())
-            .Returns(true);
-
-        _registry = Substitute.For<IAgentRuntimeRegistry>();
-        _registry.Get("openai").Returns(_openAiRuntime);
 
         _credentialResolver = Substitute.For<ILlmCredentialResolver>();
         _credentialResolver
@@ -56,7 +43,7 @@ public class CodexLauncherTests
                 SecretName: "openai-api-key"));
 
         var scopeFactory = TestScopeFactory.For(_credentialResolver);
-        _launcher = new CodexLauncher(_registry, scopeFactory, _loggerFactory);
+        _launcher = new CodexLauncher(scopeFactory, _loggerFactory);
     }
 
     [Fact]

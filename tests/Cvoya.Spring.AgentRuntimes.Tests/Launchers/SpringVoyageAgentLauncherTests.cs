@@ -24,7 +24,6 @@ public class SpringVoyageAgentLauncherTests
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly IOptions<OllamaOptions> _ollamaOptions;
-    private readonly IAgentRuntimeRegistry _registry;
     private readonly ILlmCredentialResolver _credentialResolver;
     private readonly SpringVoyageAgentLauncher _launcher;
 
@@ -38,48 +37,10 @@ public class SpringVoyageAgentLauncherTests
             BaseUrl = "http://spring-ollama:11434",
         });
 
-        _registry = Substitute.For<IAgentRuntimeRegistry>();
-        var ollamaRuntime = BuildRuntime("ollama", string.Empty, string.Empty);
-        var claudeRuntime = BuildRuntime("claude", "anthropic-api-key", "ANTHROPIC_API_KEY",
-            isFormatAccepted: (c, p) => p == CredentialDispatchPath.Rest
-                ? c.StartsWith("sk-ant-api", StringComparison.Ordinal)
-                : c.StartsWith("sk-ant-oat", StringComparison.Ordinal));
-        var openAiRuntime = BuildRuntime("openai", "openai-api-key", "OPENAI_API_KEY");
-        var googleRuntime = BuildRuntime("google", "google-api-key", "GOOGLE_API_KEY");
-        _registry.Get("ollama").Returns(ollamaRuntime);
-        _registry.Get("claude").Returns(claudeRuntime);
-        _registry.Get("openai").Returns(openAiRuntime);
-        _registry.Get("google").Returns(googleRuntime);
-
         _credentialResolver = Substitute.For<ILlmCredentialResolver>();
 
         var scopeFactory = TestScopeFactory.For(_credentialResolver);
-        _launcher = new SpringVoyageAgentLauncher(_ollamaOptions, _registry, scopeFactory, _loggerFactory);
-    }
-
-    private static IAgentRuntime BuildRuntime(
-        string id,
-        string secretName,
-        string envVar,
-        Func<string, CredentialDispatchPath, bool>? isFormatAccepted = null)
-    {
-        var runtime = Substitute.For<IAgentRuntime>();
-        runtime.Id.Returns(id);
-        runtime.CredentialSecretName.Returns(secretName);
-        runtime.CredentialEnvVar.Returns(envVar);
-        runtime
-            .IsCredentialFormatAccepted(Arg.Any<string>(), Arg.Any<CredentialDispatchPath>())
-            .Returns(call =>
-            {
-                var c = call.ArgAt<string>(0);
-                var p = call.ArgAt<CredentialDispatchPath>(1);
-                if (string.IsNullOrEmpty(c))
-                {
-                    return true;
-                }
-                return isFormatAccepted?.Invoke(c, p) ?? true;
-            });
-        return runtime;
+        _launcher = new SpringVoyageAgentLauncher(_ollamaOptions, scopeFactory, _loggerFactory);
     }
 
     private void SeedTenantSecret(string runtimeId, string secretName, string value)
@@ -174,7 +135,7 @@ public class SpringVoyageAgentLauncherTests
     {
         var options = Options.Create(new OllamaOptions { DefaultModel = "phi3:mini", BaseUrl = "" });
         var scopeFactory = TestScopeFactory.For(_credentialResolver);
-        var launcher = new SpringVoyageAgentLauncher(options, _registry, scopeFactory, _loggerFactory);
+        var launcher = new SpringVoyageAgentLauncher(options, scopeFactory, _loggerFactory);
         var context = CreateContext();
 
         var prep = await launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
@@ -311,9 +272,6 @@ public class SpringVoyageAgentLauncherTests
         // provider it can't map to a Conversation REST env var. The error
         // message names both the provider and the supported set so the operator
         // can fix the unit (or extend the launcher with a matching YAML).
-        var unknownRuntime = BuildRuntime("acme", "acme-api-key", "ACME_API_KEY");
-        _registry.Get("acme").Returns(unknownRuntime);
-        SeedTenantSecret("acme", "acme-api-key", "acme-real-key");
         var context = MakeContext("acme", "acme-1");
 
         var ex = await Should.ThrowAsync<SpringException>(

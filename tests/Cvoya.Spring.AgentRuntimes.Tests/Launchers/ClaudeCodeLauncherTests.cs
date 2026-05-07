@@ -26,31 +26,13 @@ public class ClaudeCodeLauncherTests
     private const string DefaultOAuthToken = "sk-ant-oat-test-token";
 
     private readonly ILoggerFactory _loggerFactory;
-    private readonly IAgentRuntimeRegistry _registry;
     private readonly ILlmCredentialResolver _credentialResolver;
-    private readonly IAgentRuntime _claudeRuntime;
     private readonly ClaudeCodeLauncher _launcher;
 
     public ClaudeCodeLauncherTests()
     {
         _loggerFactory = Substitute.For<ILoggerFactory>();
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-
-        _claudeRuntime = Substitute.For<IAgentRuntime>();
-        _claudeRuntime.Id.Returns("claude");
-        _claudeRuntime.CredentialSecretName.Returns("anthropic-api-key");
-        _claudeRuntime.CredentialEnvVar.Returns("CLAUDE_CODE_OAUTH_TOKEN");
-        // OAuth-only on the AgentRuntime path (#1714 strict matrix).
-        _claudeRuntime
-            .IsCredentialFormatAccepted(Arg.Any<string>(), CredentialDispatchPath.AgentRuntime)
-            .Returns(call =>
-            {
-                var c = call.ArgAt<string>(0);
-                return string.IsNullOrEmpty(c) || c.StartsWith("sk-ant-oat", StringComparison.Ordinal);
-            });
-
-        _registry = Substitute.For<IAgentRuntimeRegistry>();
-        _registry.Get("claude").Returns(_claudeRuntime);
 
         _credentialResolver = Substitute.For<ILlmCredentialResolver>();
         _credentialResolver
@@ -61,7 +43,7 @@ public class ClaudeCodeLauncherTests
                 SecretName: "anthropic-api-key"));
 
         var scopeFactory = TestScopeFactory.For(_credentialResolver);
-        _launcher = new ClaudeCodeLauncher(_registry, scopeFactory, _loggerFactory);
+        _launcher = new ClaudeCodeLauncher(scopeFactory, _loggerFactory);
     }
 
     [Fact]

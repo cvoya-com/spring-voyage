@@ -33,7 +33,6 @@ using Microsoft.Extensions.Options;
 /// </summary>
 public class SpringVoyageAgentLauncher(
     IOptions<OllamaOptions> ollamaOptions,
-    IAgentRuntimeRegistry runtimeRegistry,
     IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
 {
@@ -215,7 +214,6 @@ public class SpringVoyageAgentLauncher(
         CancellationToken cancellationToken)
     {
         var runtimeId = MapProviderToRuntimeId(provider);
-        var runtime = runtimeRegistry.Get(runtimeId);
 
         // Always pin the conversation component so the Python agent dials
         // the right Dapr Conversation YAML. The component-naming convention
@@ -224,24 +222,30 @@ public class SpringVoyageAgentLauncher(
         // silently falls back to the legacy "llm-provider" default.
         envVars["SPRING_LLM_COMPONENT"] = $"conversation-{provider.ToLowerInvariant()}";
 
-        if (runtime is null)
-        {
-            // The configured provider does not match a registered runtime.
-            // The unit-validation workflow should have caught this already
-            // — fail loudly so the operator sees an actionable error
-            // instead of an in-container conversation timeout.
-            throw new SpringException(
-                $"Unit configured with provider '{provider}', but no agent runtime is registered with id '{runtimeId}'. " +
-                $"Install the matching runtime package or fix the unit's execution.provider value.");
-        }
-
         // Ollama has no credential to inject; the conversation-ollama.yaml
         // component carries a literal "ollama" key. Skip resolution.
-        if (string.IsNullOrEmpty(runtime.CredentialSecretName)
-            || string.IsNullOrEmpty(runtime.CredentialEnvVar))
+        if (string.Equals(provider, "ollama", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
+
+        // The env-var name on the REST path is provider-specific and must match
+        // both `dapr/components/delegated-spring-voyage-agent/conversation-<provider>.yaml`'s
+        // secretKeyRef name AND `ContainerLifecycleManager.CredentialEnvVarsToPropagate`
+        // — the daprd sidecar reads the secret from its own process env via the
+        // local-env secret store. The legacy IAgentRuntime.CredentialEnvVar
+        // seam is gone (#1770); the mapping is inline here for the v0.1
+        // closed provider set.
+        var providerEnvVar = provider.ToLowerInvariant() switch
+        {
+            "anthropic" => "ANTHROPIC_API_KEY",
+            "openai" => "OPENAI_API_KEY",
+            "google" => "GOOGLE_API_KEY",
+            _ => throw new SpringException(
+                $"Spring Voyage launcher cannot map provider '{provider}' to a Conversation REST env var. " +
+                $"Supported providers: anthropic, openai, google. Add the mapping (and a matching " +
+                $"conversation-<provider>.yaml + ContainerLifecycleManager propagation entry) to extend.")
+        };
 
         // The Spring Voyage runtime dispatches via Dapr Conversation REST.
         // Resolve the credential through the chain (agent → unit → tenant)
@@ -256,6 +260,10 @@ public class SpringVoyageAgentLauncher(
         // ILlmCredentialResolver is scoped (it composes the scoped
         // ISecretResolver/SpringDbContext); this launcher is a singleton,
         // so resolve through a per-call scope to honour DI lifetimes.
+        // ADR-0038 Chunk 2a (#1770): the resolver is keyed on legacy
+        // runtime-id today; Chunk 2b re-keys it to (tenant, provider,
+        // authMethod). The launcher passes the legacy runtime id verbatim
+        // until the re-key lands.
         await using var scope = scopeFactory.CreateAsyncScope();
         var credentialResolver = scope.ServiceProvider
             .GetRequiredService<ILlmCredentialResolver>();
@@ -271,39 +279,24 @@ public class SpringVoyageAgentLauncher(
                 $"Configure via the Tenant defaults panel or `spring secret set --scope tenant {resolution.SecretName} <value>`.");
         }
 
-        if (!runtime.IsCredentialFormatAccepted(resolution.Value!, CredentialDispatchPath.Rest))
+        // Strict per-path acceptance (#1714): the Spring Voyage runtime
+        // routes `provider: anthropic` via REST, which only accepts
+        // Anthropic Platform API keys (sk-ant-api…). OAuth tokens
+        // (sk-ant-oat…) belong on the Claude agent-runtime path. The
+        // format check is inline in the launcher rather than going
+        // through the deleted-by-#1770 IAgentRuntime.IsCredentialFormatAccepted
+        // seam.
+        if (string.Equals(provider, "anthropic", StringComparison.OrdinalIgnoreCase)
+            && resolution.Value!.StartsWith("sk-ant-oat", StringComparison.Ordinal))
         {
-            // Strict per-path acceptance (#1714): the Spring Voyage runtime
-            // routes `provider: anthropic` via REST, which only accepts
-            // Anthropic Platform API keys (sk-ant-api…). OAuth tokens
-            // (sk-ant-oat…) belong on the Claude agent-runtime path —
-            // operator must either replace the secret with an API key or
-            // switch the unit to `agent: claude`.
             throw new SpringException(
-                $"Spring Voyage routes '{provider}' via the Dapr Conversation REST path, which does not accept " +
+                $"Spring Voyage routes 'anthropic' via the Dapr Conversation REST path, which does not accept " +
                 $"the resolved credential's shape (secret '{resolution.SecretName}' from {resolution.Source}). " +
                 $"Either replace the secret with a REST-compatible credential (e.g. an Anthropic Platform API key " +
                 $"sk-ant-api…), or switch this agent to a runtime that accepts that shape (e.g. `agent: claude` " +
                 $"for an Anthropic OAuth token).");
         }
 
-        // The env-var name on the REST path is provider-specific and must match
-        // both `dapr/components/delegated-spring-voyage-agent/conversation-<provider>.yaml`'s
-        // secretKeyRef name AND `ContainerLifecycleManager.CredentialEnvVarsToPropagate`
-        // — the daprd sidecar reads the secret from its own process env via the
-        // local-env secret store. `runtime.CredentialEnvVar` is the runtime's CLI/
-        // agent-runtime path env var (e.g. `CLAUDE_CODE_OAUTH_TOKEN` for Claude),
-        // which is intentionally different from the REST path env var.
-        var providerEnvVar = provider.ToLowerInvariant() switch
-        {
-            "anthropic" => "ANTHROPIC_API_KEY",
-            "openai" => "OPENAI_API_KEY",
-            "google" => "GOOGLE_API_KEY",
-            _ => throw new SpringException(
-                $"Spring Voyage launcher cannot map provider '{provider}' to a Conversation REST env var. " +
-                $"Supported providers: anthropic, openai, google. Add the mapping (and a matching " +
-                $"conversation-<provider>.yaml + ContainerLifecycleManager propagation entry) to extend.")
-        };
         envVars[providerEnvVar] = resolution.Value!;
     }
 }
