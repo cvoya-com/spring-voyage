@@ -278,4 +278,5 @@ These predate the tenant-install surface and work for units whose tenant has the
 ## See also
 
 - [ADR-0038: Agent Runtime and Model Provider split](decisions/0038-agent-runtime-and-model-provider-split.md) — the architectural split this surface implements.
+- [Model Providers operator guide](guide/operator/model-providers.md) — prose walkthroughs for every `spring model-provider …` verb.
 - [Connectors operator guide](guide/operator/connectors.md) — prose walkthroughs for connector verbs.
