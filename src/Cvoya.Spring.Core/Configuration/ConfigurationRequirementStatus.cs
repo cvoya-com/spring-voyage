@@ -91,6 +91,14 @@ public sealed record ConfigurationRequirementStatus
     /// requirement is mandatory the validator treats this the same as
     /// <see cref="ConfigurationStatus.Invalid"/>.
     /// </summary>
+    /// <remarks>
+    /// Defaults <see cref="Severity"/> to <see cref="SeverityLevel.Information"/>:
+    /// an optional subsystem the operator deliberately left unconfigured is not
+    /// a degraded state — it's a "no action required" signal. Portal and CLI
+    /// renderers map the visual severity from <c>Disabled</c> +
+    /// <see cref="IConfigurationRequirement.IsMandatory"/> (info for optional,
+    /// error for mandatory) instead of trusting this enum alone (issue #1747).
+    /// </remarks>
     /// <param name="reason">Short description of what's missing.</param>
     /// <param name="suggestion">Actionable next step; rendered verbatim.</param>
     public static ConfigurationRequirementStatus Disabled(
@@ -98,7 +106,7 @@ public sealed record ConfigurationRequirementStatus
         new()
         {
             Status = ConfigurationStatus.Disabled,
-            Severity = SeverityLevel.Warning,
+            Severity = SeverityLevel.Information,
             Reason = reason,
             Suggestion = suggestion,
         };

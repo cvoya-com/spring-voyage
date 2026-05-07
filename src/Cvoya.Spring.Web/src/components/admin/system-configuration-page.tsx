@@ -77,27 +77,49 @@ function reportVariant(
   }
 }
 
-function requirementVariant(
+/**
+ * Visual severity for a single requirement row.
+ *
+ * The mapping consults `isMandatory` (issue #1747): a `Disabled` optional
+ * requirement is informational ("no action required" — operator left it
+ * unconfigured on purpose), but a `Disabled` mandatory requirement is
+ * blocking and renders as `destructive`. `Met + Warning` is unchanged
+ * ("works today, fix soon"); `Met + Information` is `success`; `Invalid`
+ * always renders as `destructive`.
+ */
+export function requirementVariant(
   status: ConfigurationStatus,
   severity: SeverityLevel,
-): "success" | "warning" | "destructive" {
+  isMandatory: boolean,
+): "success" | "warning" | "destructive" | "secondary" {
   if (status === "Invalid" || severity === "Error") return "destructive";
-  if (status === "Disabled" || severity === "Warning") return "warning";
+  if (status === "Disabled") return isMandatory ? "destructive" : "secondary";
+  if (severity === "Warning") return "warning";
   return "success";
 }
 
 function RequirementIcon({
   status,
   severity,
+  isMandatory,
 }: {
   status: ConfigurationStatus;
   severity: SeverityLevel;
+  isMandatory: boolean;
 }) {
   if (status === "Invalid" || severity === "Error") {
     return <ShieldAlert className="h-4 w-4 text-destructive" aria-hidden />;
   }
   if (status === "Disabled") {
-    return <CircleSlash className="h-4 w-4 text-warning" aria-hidden />;
+    // Mandatory + Disabled is effectively blocking — render with the
+    // destructive icon. Optional + Disabled is informational; render the
+    // neutral "off" glyph in muted tone, no warning colour (issue #1747).
+    if (isMandatory) {
+      return <ShieldAlert className="h-4 w-4 text-destructive" aria-hidden />;
+    }
+    return (
+      <CircleSlash className="h-4 w-4 text-muted-foreground" aria-hidden />
+    );
   }
   if (severity === "Warning") {
     return <AlertTriangle className="h-4 w-4 text-warning" aria-hidden />;
@@ -137,9 +159,19 @@ function SubsystemCard({ subsystem }: { subsystem: SubsystemDto }) {
               data-testid={`requirement-${req.requirementId}`}
             >
               <div className="flex flex-wrap items-center gap-2">
-                <RequirementIcon status={req.status} severity={req.severity} />
+                <RequirementIcon
+                  status={req.status}
+                  severity={req.severity}
+                  isMandatory={req.isMandatory}
+                />
                 <div className="font-medium">{req.displayName}</div>
-                <Badge variant={requirementVariant(req.status, req.severity)}>
+                <Badge
+                  variant={requirementVariant(
+                    req.status,
+                    req.severity,
+                    req.isMandatory,
+                  )}
+                >
                   {req.status}
                 </Badge>
                 {req.severity !== "Information" && (
