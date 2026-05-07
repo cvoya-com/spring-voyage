@@ -160,13 +160,13 @@ public class AgentActor(
         }
 
         var activeThread = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken)
             ;
 
         if (activeThread.HasValue &&
             activeThread.Value.ThreadId == message.ThreadId)
         {
-            await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
+            await StateManager.TryRemoveStateAsync(StateKeys.ActiveThread, cancellationToken);
 
             await EmitActivityEventAsync(ActivityEventType.ThreadCompleted,
                 $"Thread {message.ThreadId} cancelled",
@@ -177,7 +177,7 @@ public class AgentActor(
 
             // If no pending thread was promoted, agent returns to Idle.
             var newActive = await StateManager
-                .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
+                .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken);
             if (!newActive.HasValue)
             {
                 await EmitActivityEventAsync(ActivityEventType.StateChanged,
@@ -197,7 +197,7 @@ public class AgentActor(
     {
         var status = await GetCurrentStatusAsync(cancellationToken);
         var activeThread = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken)
             ;
         var pending = await StateManager
             .TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, cancellationToken)
@@ -346,7 +346,7 @@ public class AgentActor(
             effective: effective,
             applyUnitPolicies: (eff, ct) => ApplyUnitPoliciesAsync(eff, ct),
             getActiveThread: ct => GetActiveThreadAsync(ct),
-            setActiveThread: (ch, ct) => StateManager.SetStateAsync(StateKeys.ActiveConversation, ch, ct),
+            setActiveThread: (ch, ct) => StateManager.SetStateAsync(StateKeys.ActiveThread, ch, ct),
             getPendingList: ct => GetPendingListAsync(ct),
             setPendingList: (list, ct) => StateManager.SetStateAsync(StateKeys.PendingConversations, list, ct),
             activateAndDispatch: async (ch, eff, ct) =>
@@ -558,7 +558,7 @@ public class AgentActor(
         CancellationToken cancellationToken = default)
     {
         var activeThread = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken);
 
         if (!activeThread.HasValue)
         {
@@ -576,7 +576,7 @@ public class AgentActor(
         }
 
         var threadId = activeThread.Value.ThreadId;
-        await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
+        await StateManager.TryRemoveStateAsync(StateKeys.ActiveThread, cancellationToken);
 
         _logger.LogInformation(
             "Actor {ActorId} cleared active thread {ThreadId} (reason: {Reason}).",
@@ -610,7 +610,7 @@ public class AgentActor(
         }
 
         var active = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken);
 
         if (active.HasValue && active.Value.ThreadId == threadId)
         {
@@ -621,7 +621,7 @@ public class AgentActor(
                 _activeWorkCancellation = null;
             }
 
-            await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
+            await StateManager.TryRemoveStateAsync(StateKeys.ActiveThread, cancellationToken);
 
             _logger.LogInformation(
                 "Actor {ActorId} closed active thread {ThreadId} (reason: {Reason}).",
@@ -695,7 +695,7 @@ public class AgentActor(
         => mailboxCoordinator.SuspendActiveThreadAsync(
             agentId: Id.GetId(),
             getActiveThread: ct => GetActiveThreadAsync(ct),
-            removeActiveThread: ct => StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, ct),
+            removeActiveThread: ct => StateManager.TryRemoveStateAsync(StateKeys.ActiveThread, ct),
             getPendingList: ct => GetPendingListAsync(ct),
             setPendingList: (list, ct) => StateManager.SetStateAsync(StateKeys.PendingConversations, list, ct),
             cancelActiveWork: async () =>
@@ -721,7 +721,7 @@ public class AgentActor(
             getPendingList: ct => GetPendingListAsync(ct),
             setPendingList: (list, ct) => StateManager.SetStateAsync(StateKeys.PendingConversations, list, ct),
             removePendingList: ct => StateManager.TryRemoveStateAsync(StateKeys.PendingConversations, ct),
-            setActiveThread: (ch, ct) => StateManager.SetStateAsync(StateKeys.ActiveConversation, ch, ct),
+            setActiveThread: (ch, ct) => StateManager.SetStateAsync(StateKeys.ActiveThread, ch, ct),
             activateAndDispatch: async (ch, eff, ct) =>
             {
                 _activeWorkCancellation = new CancellationTokenSource();
@@ -752,7 +752,7 @@ public class AgentActor(
     private async Task<AgentStatus> GetCurrentStatusAsync(CancellationToken cancellationToken)
     {
         var activeThread = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken)
             ;
 
         if (!activeThread.HasValue)
@@ -771,7 +771,7 @@ public class AgentActor(
     private async Task<ThreadChannel?> GetActiveThreadAsync(CancellationToken cancellationToken)
     {
         var result = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken);
         return result.HasValue ? result.Value : null;
     }
 

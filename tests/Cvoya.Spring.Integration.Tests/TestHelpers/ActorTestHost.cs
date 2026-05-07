@@ -147,7 +147,7 @@ public static class ActorTestHost
         SetStateManager(actor, stateManager);
 
         // Default: no active conversation, no pending conversations, no pending amendments.
-        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(false, default!));
         stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));

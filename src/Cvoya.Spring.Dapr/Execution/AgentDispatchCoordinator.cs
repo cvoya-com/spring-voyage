@@ -96,7 +96,7 @@ public class AgentDispatchCoordinator(
 
             // The successful turn is complete: the dispatcher returned a
             // response and we routed it back to the original sender. The
-            // actor's ActiveConversation slot must be released so the next
+            // actor's ActiveThread slot must be released so the next
             // message dispatched to this agent can run, instead of being
             // queued behind a thread the actor has actually finished with.
             // The error/cancel branches above call clearActiveThread

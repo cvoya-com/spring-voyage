@@ -86,7 +86,7 @@ public class CreateCloneActorActivityTests
 
         // Should not read active conversation or initiative state for copy.
         await _stateStore.DidNotReceive().GetAsync<object>(
-            $"parent-agent:{StateKeys.ActiveConversation}", Arg.Any<CancellationToken>());
+            $"parent-agent:{StateKeys.ActiveThread}", Arg.Any<CancellationToken>());
         await _stateStore.DidNotReceive().GetAsync<object>(
             $"parent-agent:{StateKeys.InitiativeState}", Arg.Any<CancellationToken>());
     }
@@ -102,7 +102,7 @@ public class CreateCloneActorActivityTests
         var initiativeState = new object();
 
         _stateStore.GetAsync<object>(
-            $"parent-agent:{StateKeys.ActiveConversation}", Arg.Any<CancellationToken>())
+            $"parent-agent:{StateKeys.ActiveThread}", Arg.Any<CancellationToken>())
             .Returns(activeThread);
         _stateStore.GetAsync<object>(
             $"parent-agent:{StateKeys.InitiativeState}", Arg.Any<CancellationToken>())
@@ -111,7 +111,7 @@ public class CreateCloneActorActivityTests
         await _activity.RunAsync(_context, input);
 
         await _stateStore.Received(1).SetAsync(
-            $"clone-1:{StateKeys.ActiveConversation}",
+            $"clone-1:{StateKeys.ActiveThread}",
             activeThread,
             Arg.Any<CancellationToken>());
         await _stateStore.Received(1).SetAsync(

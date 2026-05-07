@@ -89,7 +89,7 @@ public class CliEndToEndTests
             ThreadId = threadId,
             Messages = [message]
         };
-        agentStateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+        agentStateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         // Step 3: Query status.

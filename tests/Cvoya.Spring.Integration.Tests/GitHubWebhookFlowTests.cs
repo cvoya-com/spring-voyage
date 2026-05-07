@@ -108,7 +108,7 @@ public class GitHubWebhookFlowTests
         // Verify the agent received and stored the message as its active conversation.
         agentResult.ShouldNotBeNull();
         await agentStateManager.Received().SetStateAsync(
-            StateKeys.ActiveConversation,
+            StateKeys.ActiveThread,
             Arg.Is<ThreadChannel>(c =>
                 c.ThreadId == webhookMessage.ThreadId &&
                 c.Messages.Count == 1),
@@ -142,7 +142,7 @@ public class GitHubWebhookFlowTests
 
         result.ShouldNotBeNull();
         await agentStateManager.Received().SetStateAsync(
-            StateKeys.ActiveConversation,
+            StateKeys.ActiveThread,
             Arg.Is<ThreadChannel>(c =>
                 c.ThreadId == "webhook-conv-1" &&
                 c.Messages.Count == 1 &&

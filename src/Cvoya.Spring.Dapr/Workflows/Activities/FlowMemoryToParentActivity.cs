@@ -24,11 +24,11 @@ public class FlowMemoryToParentActivity(
     public override async Task<bool> RunAsync(WorkflowActivityContext context, CloningInput input)
     {
         // Copy active thread state from clone to parent.
-        var cloneActiveKey = $"{input.TargetAgentId}:{StateKeys.ActiveConversation}";
+        var cloneActiveKey = $"{input.TargetAgentId}:{StateKeys.ActiveThread}";
         var activeThread = await stateStore.GetAsync<object>(cloneActiveKey);
         if (activeThread is not null)
         {
-            var parentActiveKey = $"{input.SourceAgentId}:{StateKeys.ActiveConversation}";
+            var parentActiveKey = $"{input.SourceAgentId}:{StateKeys.ActiveThread}";
             await stateStore.SetAsync(parentActiveKey, activeThread);
         }
 

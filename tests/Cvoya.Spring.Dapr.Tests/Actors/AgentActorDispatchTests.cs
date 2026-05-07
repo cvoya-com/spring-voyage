@@ -97,7 +97,7 @@ public class AgentActorDispatchTests
             new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()));
         SetStateManager(_actor, _stateManager);
 
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(false, default!));
         _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
@@ -206,7 +206,7 @@ public class AgentActorDispatchTests
         await _actor.PendingDispatchTask!;
 
         // After the first message the active conversation exists.
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true,
                 new ThreadChannel { ThreadId = "conv-1", Messages = [message1] }));
 

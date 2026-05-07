@@ -119,7 +119,7 @@ public interface IAgentActor : IAgent
     /// (via Dapr remoting) when a dispatch terminates abnormally — either a
     /// non-zero container exit (#1036) or an exception in the dispatcher
     /// itself. Mutates persistent actor state — removes
-    /// <c>StateKeys.ActiveConversation</c>, emits a <c>StateChanged</c>
+    /// <c>StateKeys.ActiveThread</c>, emits a <c>StateChanged</c>
     /// (Active → Idle) event, and promotes the next pending thread —
     /// so it must run on an actor turn. Surfaced on <see cref="IAgentActor"/>
     /// (rather than left as an internal helper) precisely so the off-turn
