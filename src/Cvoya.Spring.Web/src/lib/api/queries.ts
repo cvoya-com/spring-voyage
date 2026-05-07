@@ -1341,7 +1341,7 @@ export function useModelProviderCredentialHealth(
 /**
  * Persistent credential-health row for a connector (#691). Feeds the
  * read-only admin view at `/admin/connectors`. Mirrors
- * {@link useAgentRuntimeCredentialHealth}; same null-on-404 semantics.
+ * {@link useModelProviderCredentialHealth}; same null-on-404 semantics.
  */
 export function useConnectorCredentialHealth(
   slugOrId: string,

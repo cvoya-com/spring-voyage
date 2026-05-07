@@ -18,16 +18,18 @@ import type {
 // ---------------------------------------------------------------------------
 // Mocks
 //
-// The new-agent page reads four endpoints and calls three write endpoints:
+// ADR-0038: the new-agent page reads four endpoints and calls three
+// write endpoints:
 //   - api.listUnits                     (initial-assignment picker)
-//   - api.listAgentRuntimes / api.getAgentRuntimeModels  (model dropdown)
+//   - api.listModelProviders /
+//     api.getModelProviderModels        (model dropdown)
 //   - api.installPackageFile            (submit — replaces createAgent)
 //   - api.getInstallStatus              (polling)
 //   - api.assignUnitAgent               (post-install membership wiring)
 // ---------------------------------------------------------------------------
 const listUnits = vi.fn();
-const listAgentRuntimes = vi.fn();
-const getAgentRuntimeModels = vi.fn();
+const listModelProviders = vi.fn();
+const getModelProviderModels = vi.fn();
 const installPackageFile = vi.fn();
 const getInstallStatus = vi.fn();
 const assignUnitAgent = vi.fn();
@@ -37,8 +39,8 @@ const abortInstall = vi.fn();
 vi.mock("@/lib/api/client", () => ({
   api: {
     listUnits: () => listUnits(),
-    listAgentRuntimes: () => listAgentRuntimes(),
-    getAgentRuntimeModels: (id: string) => getAgentRuntimeModels(id),
+    listModelProviders: () => listModelProviders(),
+    getModelProviderModels: (id: string) => getModelProviderModels(id),
     installPackageFile: (yaml: string) => installPackageFile(yaml),
     getInstallStatus: (id: string) => getInstallStatus(id),
     assignUnitAgent: (unitId: string, agentId: string) =>
@@ -160,8 +162,8 @@ function renderPage(): { client: QueryClient } {
 beforeEach(() => {
   vi.clearAllMocks();
   listUnits.mockResolvedValue([makeUnit()]);
-  listAgentRuntimes.mockResolvedValue([makeRuntime()]);
-  getAgentRuntimeModels.mockResolvedValue([
+  listModelProviders.mockResolvedValue([makeRuntime()]);
+  getModelProviderModels.mockResolvedValue([
     { id: "claude-3-5-sonnet", displayName: "Claude 3.5 Sonnet" },
   ]);
   // Default: install returns active immediately (no polling needed).

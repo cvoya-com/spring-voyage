@@ -1659,12 +1659,13 @@ export default function CreateUnitPage() {
 
   // Issue #927-followup (post-T-07): explain *why* Next is disabled on
   // Step 2. Without this hint the wizard can dead-end silently — the
-  // Model dropdown only renders when the agent-runtimes catalog returns
-  // a matching runtime, so an unreachable platform API or an
-  // uninstalled runtime collapses the model surface and leaves the
-  // operator staring at a disabled button with no way to diagnose. We
-  // surface the most specific actionable reason, in priority order,
-  // mirroring the gates `canGoNext` / `validateStep2` consult.
+  // Model dropdown only renders when the model-provider catalogue
+  // returns a matching provider for the runtime, so an unreachable
+  // platform API or an uninstalled provider collapses the model
+  // surface and leaves the operator staring at a disabled button
+  // with no way to diagnose. We surface the most specific actionable
+  // reason, in priority order, mirroring the gates `canGoNext` /
+  // `validateStep2` consult.
   // nextDisabledReason is only relevant for the Execution step in the
   // scratch branch (step 3 when source === "scratch"). For all other
   // steps the disabled state is self-evident from the form fields.
