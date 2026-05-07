@@ -6,15 +6,20 @@ namespace Cvoya.Spring.Host.Worker.Tests;
 using System.Reflection;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Catalog;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.DependencyInjection;
+using Cvoya.Spring.Dapr.Tenancy;
 using Cvoya.Spring.Dapr.Workflows;
 using Cvoya.Spring.Host.Worker.Composition;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 using Shouldly;
 
@@ -163,6 +168,98 @@ public class WorkerCompositionTests
             $"registration list must run before AddCvoyaSpringDapr.");
     }
 
+    /// <summary>
+    /// Regression test: the Worker DI composition must surface the real,
+    /// YAML-backed <see cref="IRuntimeCatalog"/> — not the empty fallback
+    /// stub that <c>AddCvoyaSpringDapr</c> registers via
+    /// <c>TryAddSingleton</c> for test harnesses that omit the catalogue.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// If <c>AddCvoyaSpringRuntimeCatalog()</c> runs after
+    /// <c>AddCvoyaSpringDapr(...)</c> in <see cref="WorkerComposition.AddWorkerServices"/>,
+    /// the catalogue's <c>TryAddSingleton</c> is a silent no-op (the
+    /// fallback won the race), the
+    /// <c>ModelProviderInstallSeedProvider</c> iterates an empty
+    /// <c>ModelProviders</c> list, and the default-tenant bootstrap
+    /// completes without writing a single
+    /// <c>tenant_model_provider_installs</c> row. The portal then fires
+    /// "Claude Code requires the anthropic model provider, which is not
+    /// installed on this tenant" on every fresh OSS deploy. This test
+    /// pins the contract by asserting the catalogue surfaces the four
+    /// providers declared in <c>platform/runtime-catalog.yaml</c>.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AddWorkerServices_RuntimeCatalog_SurfacesYamlBackedProviders()
+    {
+        using var provider = BuildWorkerServiceProvider();
+
+        var catalog = provider.GetRequiredService<IRuntimeCatalog>();
+
+        // The four providers declared in platform/runtime-catalog.yaml.
+        // Adding/removing a provider in the YAML rightly fails this test
+        // — the failure tells the editor to update the assertion.
+        catalog.ModelProviders.Select(p => p.Id).ShouldBe(
+            ["anthropic", "openai", "google", "ollama"],
+            ignoreOrder: true);
+    }
+
+    /// <summary>
+    /// End-to-end regression for the bootstrap → seed → install pathway.
+    /// Spins up the actual <see cref="WorkerComposition.AddWorkerServices"/>
+    /// graph (with an in-memory SpringDbContext), runs the
+    /// <see cref="DefaultTenantBootstrapService"/>, and asserts every
+    /// catalogued model provider lands in
+    /// <c>tenant_model_provider_installs</c> against
+    /// <see cref="OssTenantIds.Default"/>.
+    /// </summary>
+    /// <remarks>
+    /// Pre-fix this test fails with an empty install list (the empty
+    /// fallback catalogue won the registration race). Post-fix every
+    /// declared provider is upserted on first run.
+    /// </remarks>
+    [Fact]
+    public async Task AddWorkerServices_DefaultTenantBootstrap_InstallsEveryCataloguedModelProvider()
+    {
+        using var provider = BuildWorkerServiceProvider();
+
+        var bootstrap = provider.GetServices<IHostedService>()
+            .OfType<DefaultTenantBootstrapService>()
+            .Single();
+
+        await bootstrap.StartAsync(TestContext.Current.CancellationToken);
+
+        // The catalogue is the source of truth; iterate it so the test
+        // adapts when a new provider lands in runtime-catalog.yaml. The
+        // bootstrap must persist a row per declared provider.
+        var catalog = provider.GetRequiredService<IRuntimeCatalog>();
+        var expected = catalog.ModelProviders.Select(p => p.Id).OrderBy(s => s, StringComparer.Ordinal).ToArray();
+        expected.ShouldNotBeEmpty(
+            "platform/runtime-catalog.yaml must declare at least one model provider; " +
+            "an empty catalogue is the silent failure mode this test exists to catch.");
+
+        // Resolve a fresh scope so the install service sees the rows
+        // committed by the bootstrap's own scope. The query uses
+        // IgnoreQueryFilters defensively — the seed writes through the
+        // scoped tenant context (OssTenantIds.Default) and the OSS
+        // ConfiguredTenantContext resolves to the same id, so the
+        // filter would match anyway, but bypassing it keeps the
+        // assertion focused on "did the row land?" rather than "is the
+        // ambient tenant id agreement also intact?".
+        await using var scope = provider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var installed = await db.TenantModelProviderInstalls
+            .IgnoreQueryFilters()
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        installed.Select(r => r.ProviderId)
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ShouldBe(expected);
+        installed.ShouldAllBe(r => r.TenantId == OssTenantIds.Default);
+        installed.ShouldAllBe(r => r.DeletedAt == null);
+    }
+
     private static ServiceProvider BuildWorkerServiceProvider()
     {
         var builder = WebApplication.CreateBuilder();
@@ -197,8 +294,16 @@ public class WorkerCompositionTests
             builder.Services.Remove(descriptor);
         }
 
+        // Capture the DB name in a local so the options-builder callback —
+        // AddDbContext registers DbContextOptions<SpringDbContext> with a
+        // Scoped lifetime by default, so the lambda runs once per scope.
+        // An inline `Guid.NewGuid()` would mint a fresh in-memory database
+        // per scope, which means the bootstrap's child scope writes seed
+        // rows to one database and a verification scope reads from
+        // another. Mirrors DefaultTenantRecordSeedProviderTests.BuildProvider.
+        var dbName = $"WorkerCompositionTest_{Guid.NewGuid():N}";
         builder.Services.AddDbContext<SpringDbContext>(options =>
-            options.UseInMemoryDatabase($"WorkerCompositionTest_{Guid.NewGuid()}"));
+            options.UseInMemoryDatabase(dbName));
 
         // No Dapr sidecar in tests — strip the workflow worker background
         // service via the shared helper that also backs #568's integration-

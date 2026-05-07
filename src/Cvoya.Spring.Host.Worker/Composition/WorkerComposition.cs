@@ -101,17 +101,23 @@ public static class WorkerComposition
             options.RegisterActivity<CompleteUnitValidationActivity>();
         });
 
-        // Register Spring services
+        // Register Spring services.
+        //
+        // ADR-0038 (#1761): the catalogue MUST register before
+        // AddCvoyaSpringDapr. AddCvoyaSpringDapr's execution layer registers a
+        // TryAddSingleton<IRuntimeCatalog> empty fallback so dependent
+        // services can resolve in test harnesses that omit the catalogue.
+        // If the real catalogue runs after AddCvoyaSpringDapr the TryAdd is a
+        // no-op and the fallback wins — silently. The default-tenant
+        // bootstrap then iterates an empty ModelProviders list, installs
+        // zero rows, and the portal fires "Claude Code requires the
+        // anthropic model provider, which is not installed on this tenant"
+        // on every fresh OSS deploy. Mirrors the API host call order in
+        // src/Cvoya.Spring.Host.Api/Program.cs.
         services
             .AddCvoyaSpringCore()
-            .AddCvoyaSpringDapr(configuration)
-            // ADR-0038 (#1761): the four per-provider AddCvoyaSpringAgentRuntime*
-            // extensions collapsed into runtime-catalog.yaml plus the
-            // Cvoya.Spring.ModelProviders adapter registry and the
-            // Cvoya.Spring.AgentRuntimes launcher registry. Order matters: the
-            // catalogue and adapter registry must be populated before the
-            // launcher registry resolves them.
             .AddCvoyaSpringRuntimeCatalog()
+            .AddCvoyaSpringDapr(configuration)
             .AddCvoyaSpringModelProviders()
             .AddCvoyaSpringAgentRuntimes()
             .AddCvoyaSpringOllamaLlm(configuration)
