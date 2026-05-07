@@ -19,7 +19,8 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import {
   useAgentExecution,
-  useAgentRuntimeModels,
+  useModelProviderModels,
+  useModelProviders,
   useProviderCredentialStatus,
   useUnitExecution,
 } from "@/lib/api/queries";
@@ -30,62 +31,28 @@ import type {
   UnitExecutionResponse,
 } from "@/lib/api/types";
 import {
-  EXECUTION_PROVIDERS,
-  EXECUTION_TOOL_KEYS,
-} from "@/lib/api/types";
-import {
-  getToolRuntimeId,
   HOSTING_MODES,
-  type ExecutionTool,
+  RUNTIME_LIST,
+  getAllowedProviders,
+  getFixedProvider,
+  isRuntimeProviderFixed,
   type HostingMode,
 } from "@/lib/ai-models";
 
 /**
- * #735: the Execution-surface Provider dropdown standardises on the
- * canonical names (`anthropic`/`openai`/`google`/`ollama`), while the
- * agent-runtimes endpoint keys on the runtime id (`claude` for the
- * Anthropic backend). Collapse the provider-string space to a runtime
- * id so the Model dropdown below can drive `useAgentRuntimeModels`
- * directly — the hook returns `null` when the runtime isn't installed
- * on the tenant, which we surface as a free-text Model input.
- */
-function providerToRuntimeId(provider: string): string | null {
-  const normalised = provider.trim().toLowerCase();
-  if (!normalised) return null;
-  switch (normalised) {
-    case "claude":
-    case "anthropic":
-      return "claude";
-    case "openai":
-      return "openai";
-    case "google":
-    case "gemini":
-    case "googleai":
-      return "google";
-    case "ollama":
-      return "ollama";
-    default:
-      return null;
-  }
-}
-
-/**
- * Agent Execution panel (#601 / #603 / #409 B-wide, portal half).
+ * Agent Execution panel (ADR-0038).
  *
  * Symmetric to the unit-side Execution tab plus the agent-exclusive
- * `hosting` slot. The panel overlays the owning unit's execution
- * defaults (via `useUnitExecution(parentUnit)`) so the operator sees
- * the inherited value as an italic grey placeholder when the agent
- * field is blank. Clicking into a field clears the placeholder and
- * lets the operator type their own value; leaving the field blank on
- * save persists `null` on the agent block, and the dispatcher merges
- * the unit default at runtime (PR #628).
+ * `hosting` slot. Overlays the owning unit's execution defaults via
+ * `useUnitExecution(parentUnit)` so the operator sees the inherited
+ * value as an italic grey placeholder when the agent field is blank.
  *
- * #1702: legacy Runtime (docker/podman) field is gone — the platform
- * picks the container runtime; operators only choose the agent
- * runtime. Labels also moved: "Tool" → "Agent Runtime", "Provider" →
- * "Model Provider". Model Provider only renders when Agent Runtime is
- * `spring-voyage`. Model is always rendered.
+ * Local form state mirrors the wire shape directly — `{image, runtime,
+ * model: {provider, id}, hosting}` — so save / clear handlers hand the
+ * form straight to the API. ADR-0038 §1's conditional provider picker:
+ *   - fixed-provider runtime → picker hidden, model dropdown filtered.
+ *   - multi-provider runtime → picker shown as a model-list filter
+ *     against the tenant's installed model providers.
  */
 
 interface ExecutionPanelProps {
@@ -95,36 +62,26 @@ interface ExecutionPanelProps {
 
 const FIELD_UNSET = "__unset__";
 
-type ExecutionField =
-  | "image"
-  | "runtime"
-  | "provider"
-  | "modelId"
-  | "hosting";
+type ExecutionField = "image" | "runtime" | "providerOnly" | "model" | "hosting";
 
-/**
- * Local form state — flat shape preserved from the legacy wire so the
- * existing UX (separate Provider dropdown when Agent Runtime ==
- * spring-voyage, Hosting selector) keeps rendering. The on-save
- * handler projects this flat state into the ADR-0038
- * `{ runtime, model: {provider, id} }` shape the API now expects.
- */
-interface ExecutionForm {
-  image: string | null;
-  runtime: string | null;
-  provider: string | null;
-  modelId: string | null;
-  hosting: string | null;
+function isEmpty(block: AgentExecutionResponse): boolean {
+  return (
+    !block.image &&
+    !block.runtime &&
+    !block.containerRuntime &&
+    !block.model &&
+    !block.hosting
+  );
 }
 
 function persistedToForm(
   persisted: AgentExecutionResponse | null,
-): ExecutionForm {
+): AgentExecutionResponse {
   return {
     image: persisted?.image ?? null,
+    containerRuntime: persisted?.containerRuntime ?? null,
     runtime: persisted?.runtime ?? null,
-    provider: persisted?.model?.provider ?? null,
-    modelId: persisted?.model?.id ?? null,
+    model: persisted?.model ?? null,
     hosting: persisted?.hosting ?? null,
   };
 }
@@ -139,12 +96,16 @@ export function AgentExecutionPanel({
   const unitExecutionQuery = useUnitExecution(parentUnitId ?? "", {
     enabled: Boolean(parentUnitId),
   });
+  const installedProvidersQuery = useModelProviders();
+  const installedProviders = installedProvidersQuery.data ?? [];
 
   const persisted = agentExecutionQuery.data ?? null;
   const unitDefaults: UnitExecutionResponse | null =
     unitExecutionQuery.data ?? null;
 
-  const [form, setForm] = useState<ExecutionForm>(() => persistedToForm(null));
+  const [form, setForm] = useState<AgentExecutionResponse>(() =>
+    persistedToForm(null),
+  );
   const [seededFor, setSeededFor] = useState<string | null>(null);
   const [imageHistory] = useState(() => loadImageHistory());
   const fingerprint = useMemo(
@@ -156,57 +117,49 @@ export function AgentExecutionPanel({
     setSeededFor(fingerprint);
   }
 
-  const setField = <K extends keyof ExecutionForm>(
-    key: K,
-    value: ExecutionForm[K],
-  ) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
-
   const dirty = useMemo(() => {
     const current = persistedToForm(persisted);
     return (
       form.image !== current.image ||
       form.runtime !== current.runtime ||
-      form.provider !== current.provider ||
-      form.modelId !== current.modelId ||
+      form.containerRuntime !== current.containerRuntime ||
+      (form.model?.provider ?? null) !== (current.model?.provider ?? null) ||
+      (form.model?.id ?? null) !== (current.model?.id ?? null) ||
       form.hosting !== current.hosting
     );
   }, [form, persisted]);
 
-  // Resolve the effective `runtime` id for gating: the agent's own
-  // value wins, unit default fills in otherwise. ADR-0038 renamed the
-  // wire field `agent` → `runtime`.
-  const effectiveToolForGating =
+  // Effective runtime for gating: agent's own value wins; unit default
+  // fills in otherwise.
+  const effectiveRuntime =
     form.runtime ?? persisted?.runtime ?? unitDefaults?.runtime ?? null;
-  const showProvider = effectiveToolForGating === "spring-voyage";
+  const providerFixed = isRuntimeProviderFixed(effectiveRuntime);
+  const fixedProvider = getFixedProvider(effectiveRuntime);
+  const allowedProviders = getAllowedProviders(effectiveRuntime);
 
-  // #641 / #1702: Model is always rendered. Derive the runtime id from
-  // the effective tool; use the explicit Provider value when
-  // spring-voyage is active. #735: route the catalog through
-  // `useAgentRuntimeModels` so the hardcoded provider→model table is
-  // gone — the tenant's installed runtimes are the single source of
-  // truth.
-  const toolForCatalog = (effectiveToolForGating ?? null) as
-    | ExecutionTool
-    | null;
-  const toolRuntimeId =
-    toolForCatalog !== null ? getToolRuntimeId(toolForCatalog) : null;
-  const effectiveProvider =
-    form.provider ??
-    persisted?.model?.provider ??
-    unitDefaults?.model?.provider ??
-    "";
-  const runtimeIdForModels = showProvider
-    ? providerToRuntimeId(effectiveProvider)
-    : toolRuntimeId;
-  const agentRuntimeModelsQuery = useAgentRuntimeModels(
-    runtimeIdForModels ?? "",
-    { enabled: runtimeIdForModels !== null },
-  );
-  const providerModelsEnabled = runtimeIdForModels !== null;
-  const providerModels =
-    agentRuntimeModelsQuery.data?.map((m) => m.id) ?? null;
+  // Effective provider for the model dropdown.
+  const effectiveProvider = providerFixed
+    ? fixedProvider
+    : (form.model?.provider ??
+        persisted?.model?.provider ??
+        unitDefaults?.model?.provider ??
+        null);
+
+  const modelsQuery = useModelProviderModels(effectiveProvider ?? "", {
+    enabled: effectiveProvider !== null,
+  });
+  const providerModels = modelsQuery.data?.map((m) => m.id) ?? null;
+
+  const providerOptions = useMemo<string[]>(() => {
+    if (providerFixed) return [];
+    const installed = installedProviders.map((p) => p.id);
+    if (allowedProviders === null || allowedProviders.length === 0) {
+      return installed;
+    }
+    return installed.filter((id) =>
+      (allowedProviders as readonly string[]).includes(id),
+    );
+  }, [providerFixed, allowedProviders, installedProviders]);
 
   const setMutation = useMutation({
     mutationFn: async (
@@ -249,28 +202,50 @@ export function AgentExecutionPanel({
     },
   });
 
-  // Project the local flat-form draft into the ADR-0038 wire shape.
-  const formToWire = (next: ExecutionForm): AgentExecutionResponse => {
-    const provider = showProvider
-      ? next.provider?.trim() || null
-      : providerToRuntimeId(next.runtime ?? "");
-    const modelId = next.modelId?.trim() || null;
-    return {
-      image: next.image,
-      runtime: next.runtime,
-      model: provider && modelId ? { provider, id: modelId } : null,
-      hosting: next.hosting,
-    };
+  const setModelField = (key: "provider" | "id", value: string | null) => {
+    setForm((prev) => {
+      const nextProvider =
+        key === "provider" ? value : (prev.model?.provider ?? null);
+      const nextId = key === "id" ? value : (prev.model?.id ?? null);
+      const model =
+        nextProvider && nextId
+          ? { provider: nextProvider, id: nextId }
+          : null;
+      return { ...prev, model };
+    });
+  };
+
+  const setRuntime = (next: string | null) => {
+    setForm((prev) => {
+      if (next === null) return { ...prev, runtime: null, model: null };
+      const fixed = getFixedProvider(next);
+      const nextProvider = fixed ?? null;
+      const prevProvider = prev.model?.provider ?? null;
+      const keepModelId =
+        prevProvider !== null && prevProvider === nextProvider
+          ? (prev.model?.id ?? null)
+          : null;
+      const model =
+        nextProvider && keepModelId
+          ? { provider: nextProvider, id: keepModelId }
+          : null;
+      return { ...prev, runtime: next, model };
+    });
   };
 
   const clearField = (field: ExecutionField) => {
-    const next: ExecutionForm = { ...form, [field]: null };
+    let next = form;
+    if (field === "image") next = { ...form, image: null };
+    if (field === "runtime") next = { ...form, runtime: null, model: null };
+    if (field === "providerOnly") next = { ...form, model: null };
+    if (field === "model") next = { ...form, model: null };
+    if (field === "hosting") next = { ...form, hosting: null };
     setForm(next);
-    setMutation.mutate(formToWire(next));
+    setMutation.mutate(next);
   };
 
   const handleSave = () => {
-    setMutation.mutate(formToWire(form));
+    setMutation.mutate(form);
   };
 
   if (agentExecutionQuery.isPending) {
@@ -279,22 +254,24 @@ export function AgentExecutionPanel({
 
   const hasAny = persisted !== null && !isEmpty(persisted);
 
-  // Inherited-value helpers. Each returns the owning unit's value for
-  // the slot when the agent leaves the slot blank — used to seed a
-  // native `placeholder` AND the accessible help copy so the source
-  // stays visible to screen readers.
+  // Inherited-value helpers — unit-default fall-back when the agent
+  // leaves the slot blank. Surface as italic placeholders so the
+  // overlay is visible to keyboard / screen-reader users.
   const inherited = (slot: ExecutionField): string | null => {
-    if (form[slot]) return null;
     if (!unitDefaults) return null;
     switch (slot) {
       case "image":
-        return unitDefaults.image ?? null;
+        return form.image ? null : (unitDefaults.image ?? null);
       case "runtime":
-        return unitDefaults.runtime ?? null;
-      case "provider":
-        return unitDefaults.model?.provider ?? null;
-      case "modelId":
-        return unitDefaults.model?.id ?? null;
+        return form.runtime ? null : (unitDefaults.runtime ?? null);
+      case "providerOnly":
+        return form.model?.provider
+          ? null
+          : (unitDefaults.model?.provider ?? null);
+      case "model":
+        return form.model?.id
+          ? null
+          : (unitDefaults.model?.id ?? null);
       case "hosting":
         return null; // Unit defaults don't carry a hosting slot.
       default:
@@ -332,8 +309,8 @@ export function AgentExecutionPanel({
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         <p className="text-xs text-muted-foreground">
-          Agent-level overrides for the agent image and runtime. Any
-          field left blank inherits from the owning unit
+          Agent-level overrides for the agent image, runtime, and model.
+          Any field left blank inherits from the owning unit
           {parentUnitId ? (
             <>
               {" "}
@@ -368,7 +345,10 @@ export function AgentExecutionPanel({
           <Input
             value={form.image ?? ""}
             onChange={(e) =>
-              setField("image", e.target.value ? e.target.value : null)
+              setForm((prev) => ({
+                ...prev,
+                image: e.target.value ? e.target.value : null,
+              }))
             }
             placeholder={
               inherited("image")
@@ -396,34 +376,37 @@ export function AgentExecutionPanel({
           onClear={persisted?.runtime ? () => clearField("runtime") : undefined}
           busy={setMutation.isPending}
         >
-          <SelectField
-            value={form.runtime}
-            onChange={(next) => setField("runtime", next)}
-            options={EXECUTION_TOOL_KEYS}
+          <RuntimeSelect
+            value={form.runtime ?? null}
+            onChange={setRuntime}
             inheritedLabel={inherited("runtime")}
             ariaLabel="Agent runtime"
             testid="agent-execution-runtime-select"
           />
         </FieldRow>
 
-        {showProvider && (
+        {/* Conditional Model Provider — hidden when the runtime fixes
+            its provider (claude-code / codex / gemini). */}
+        {!providerFixed && effectiveRuntime !== null && (
           <FieldRow
             label="Model Provider"
             help={
-              inherited("provider")
-                ? `inherited from unit: ${inherited("provider")}`
-                : "LLM provider — only meaningful when Agent Runtime is Spring Voyage Agent."
+              inherited("providerOnly")
+                ? `inherited from unit: ${inherited("providerOnly")}`
+                : providerOptions.length === 0
+                  ? "No installed model providers match this runtime. Install one with `spring model-provider install <id>`."
+                  : "LLM provider that hosts the model the runtime dispatches against."
             }
             onClear={
-              form.provider ? () => clearField("provider") : undefined
+              form.model?.provider ? () => clearField("providerOnly") : undefined
             }
             busy={setMutation.isPending}
           >
             <SelectField
-              value={form.provider}
-              onChange={(next) => setField("provider", next)}
-              options={EXECUTION_PROVIDERS}
-              inheritedLabel={inherited("provider")}
+              value={form.model?.provider ?? null}
+              onChange={(next) => setModelField("provider", next)}
+              options={providerOptions}
+              inheritedLabel={inherited("providerOnly")}
               ariaLabel="Model provider"
               testid="agent-execution-provider-select"
             />
@@ -433,28 +416,30 @@ export function AgentExecutionPanel({
         <FieldRow
           label="Model"
           help={
-            inherited("modelId")
-              ? `inherited from unit: ${inherited("modelId")}`
-              : "Model identifier."
+            inherited("model")
+              ? `inherited from unit: ${inherited("model")}`
+              : effectiveProvider === null
+                ? "Pick an Agent Runtime (and Model Provider, if multi-provider) to load the model catalogue."
+                : "Model identifier within the selected provider's catalogue."
           }
-          onClear={form.modelId ? () => clearField("modelId") : undefined}
+          onClear={form.model?.id ? () => clearField("model") : undefined}
           busy={setMutation.isPending}
         >
-          {providerModelsEnabled &&
+          {effectiveProvider !== null &&
           providerModels &&
           providerModels.length > 0 ? (
             <select
-              value={form.modelId ?? ""}
+              value={form.model?.id ?? ""}
               onChange={(e) =>
-                setField("modelId", e.target.value ? e.target.value : null)
+                setModelField("id", e.target.value ? e.target.value : null)
               }
               aria-label="Agent execution model"
               data-testid="agent-execution-model-select"
               className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <option value="">
-                {inherited("modelId")
-                  ? `inherited: ${inherited("modelId")}`
+                {inherited("model")
+                  ? `inherited: ${inherited("model")}`
                   : "(leave to default)"}
               </option>
               {providerModels.map((m) => (
@@ -465,19 +450,20 @@ export function AgentExecutionPanel({
             </select>
           ) : (
             <Input
-              value={form.modelId ?? ""}
+              value={form.model?.id ?? ""}
               onChange={(e) =>
-                setField("modelId", e.target.value ? e.target.value : null)
+                setModelField("id", e.target.value ? e.target.value : null)
               }
               placeholder={
-                inherited("modelId")
-                  ? `inherited from unit: ${inherited("modelId")}`
+                inherited("model")
+                  ? `inherited from unit: ${inherited("model")}`
                   : "e.g. claude-sonnet-4-6"
               }
               aria-label="Agent execution model"
               data-testid="agent-execution-model-input"
+              disabled={effectiveProvider === null}
               className={
-                !form.modelId && inherited("modelId")
+                !form.model?.id && inherited("model")
                   ? "italic text-muted-foreground placeholder:italic placeholder:text-muted-foreground"
                   : undefined
               }
@@ -485,27 +471,23 @@ export function AgentExecutionPanel({
           )}
         </FieldRow>
 
-        {showProvider && effectiveProvider && (
+        {effectiveProvider !== null && (
           <CredentialStatusBanner providerId={effectiveProvider} />
         )}
 
         {/* Hosting — agent-exclusive. Unit defaults don't carry a
-            hosting slot so there's nothing to inherit from. CLI parity:
-            `spring agent execution set <id> --hosting ephemeral|persistent`
-            (clear via `spring agent execution clear --field hosting`). */}
+            hosting slot so there's nothing to inherit from. */}
         <FieldRow
           label="Hosting"
           help="Agent lifecycle — ephemeral launches per-message; persistent runs continuously. Mirrors `spring agent execution set <id> --hosting`."
           onClear={persisted?.hosting ? () => clearField("hosting") : undefined}
           busy={setMutation.isPending}
         >
-          <SelectField
-            value={form.hosting ?? null}
+          <HostingSelect
+            value={(form.hosting ?? null) as HostingMode | null}
             onChange={(next) =>
-              setField("hosting", next as HostingMode | null)
+              setForm((prev) => ({ ...prev, hosting: next }))
             }
-            options={HOSTING_MODES}
-            inheritedLabel={null}
             ariaLabel="Agent hosting mode"
             testid="agent-execution-hosting-select"
           />
@@ -575,12 +557,53 @@ function FieldRow({ label, help, onClear, busy, children }: FieldRowProps) {
   );
 }
 
-type SelectOption = string | { id: string; label: string };
+interface RuntimeSelectProps {
+  value: string | null;
+  onChange: (next: string | null) => void;
+  inheritedLabel: string | null;
+  ariaLabel: string;
+  testid: string;
+}
+
+function RuntimeSelect({
+  value,
+  onChange,
+  inheritedLabel,
+  ariaLabel,
+  testid,
+}: RuntimeSelectProps) {
+  return (
+    <select
+      value={value ?? FIELD_UNSET}
+      onChange={(e) => {
+        const next = e.target.value;
+        onChange(next === FIELD_UNSET ? null : next);
+      }}
+      aria-label={ariaLabel}
+      data-testid={testid}
+      className={
+        "flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" +
+        (value === null && inheritedLabel
+          ? " italic text-muted-foreground"
+          : "")
+      }
+    >
+      <option value={FIELD_UNSET}>
+        {inheritedLabel ? `inherited: ${inheritedLabel}` : "(leave to default)"}
+      </option>
+      {RUNTIME_LIST.map((r) => (
+        <option key={r.id} value={r.id}>
+          {r.displayName}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 interface SelectFieldProps {
   value: string | null;
   onChange: (next: string | null) => void;
-  options: readonly SelectOption[];
+  options: readonly string[];
   inheritedLabel: string | null;
   ariaLabel: string;
   testid: string;
@@ -613,33 +636,52 @@ function SelectField({
       <option value={FIELD_UNSET}>
         {inheritedLabel ? `inherited: ${inheritedLabel}` : "(leave to default)"}
       </option>
-      {options.map((opt) => {
-        const id = typeof opt === "string" ? opt : opt.id;
-        const label = typeof opt === "string" ? opt : opt.label;
-        return (
-          <option key={id} value={id}>
-            {label}
-          </option>
-        );
-      })}
+      {options.map((opt) => (
+        <option key={opt} value={opt}>
+          {opt}
+        </option>
+      ))}
     </select>
   );
 }
 
-function isEmpty(block: AgentExecutionResponse): boolean {
+interface HostingSelectProps {
+  value: HostingMode | null;
+  onChange: (next: HostingMode | null) => void;
+  ariaLabel: string;
+  testid: string;
+}
+
+function HostingSelect({
+  value,
+  onChange,
+  ariaLabel,
+  testid,
+}: HostingSelectProps) {
   return (
-    !block.image &&
-    !block.runtime &&
-    !block.containerRuntime &&
-    !block.model &&
-    !block.hosting
+    <select
+      value={value ?? FIELD_UNSET}
+      onChange={(e) => {
+        const next = e.target.value;
+        onChange(next === FIELD_UNSET ? null : (next as HostingMode));
+      }}
+      aria-label={ariaLabel}
+      data-testid={testid}
+      className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      <option value={FIELD_UNSET}>(leave to default)</option>
+      {HOSTING_MODES.map((m) => (
+        <option key={m.id} value={m.id}>
+          {m.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
 /**
  * Credential-status banner — identical palette to the wizard Step 1
- * and the unit Execution tab so the three surfaces share one axe
- * sweep.
+ * and the unit Execution tab so the three surfaces share one axe sweep.
  */
 function CredentialStatusBanner({ providerId }: { providerId: string }) {
   const { data, isPending, isError } = useProviderCredentialStatus(providerId);
@@ -709,14 +751,11 @@ function CredentialStatusBanner({ providerId }: { providerId: string }) {
 
 function providerLabel(providerId: string): string {
   switch (providerId) {
-    case "claude":
     case "anthropic":
       return "Anthropic";
     case "openai":
       return "OpenAI";
     case "google":
-    case "gemini":
-    case "googleai":
       return "Google";
     case "ollama":
       return "Ollama";

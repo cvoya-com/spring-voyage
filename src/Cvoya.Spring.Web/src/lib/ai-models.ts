@@ -1,33 +1,121 @@
-// Wizard-side constants for execution-tool and hosting-mode selection.
+// Wizard-side runtime + hosting catalogue (ADR-0038).
 //
-// Provider/model catalogs are sourced exclusively from the agent-runtimes
-// endpoint (`GET /api/v1/agent-runtimes` + `GET /api/v1/agent-runtimes/{id}/models`)
-// via the `useAgentRuntimes` / `useAgentRuntimeModels` hooks in
-// `@/lib/api/queries`. The hardcoded `AI_PROVIDERS` catalog that used to
-// live here was retired in #735 once the last consumer
-// (`membership-dialog.tsx`, `execution-panel.tsx`, `execution-tab.tsx`)
-// migrated onto the runtimes endpoint.
+// ADR-0038 split the agent-execution stack into three identities:
+//   - AgentRuntime (`runtime` on the wire / manifest): the launcher key —
+//     `claude-code`, `codex`, `gemini`, `spring-voyage`, or a future
+//     `custom` entry from `runtime-catalog.yaml`.
+//   - ModelProvider: the LLM API surface — `anthropic`, `openai`,
+//     `google`, `ollama`, …  Surfaced via the
+//     `/api/v1/tenant/model-providers/installs` endpoint and consumed
+//     here as `InstalledModelProviderResponse`.
+//   - Model: a `{provider, id}` pair. Provider is intrinsic; there is no
+//     separate `provider` slot on the wire.
+//
+// The portal renders one or both of (runtime picker, provider picker)
+// depending on `RUNTIMES[id].isProviderFixed`. When the runtime fixes
+// its provider, the picker is hidden and the model dropdown is filtered
+// to that provider's models. When the runtime is multi-provider
+// (`spring-voyage`, future `custom`), the picker is rendered as a
+// model-list filter; the wire format always carries `model.provider`
+// alongside `model.id`.
+//
+// The fixed-provider mapping below mirrors the runtimes shipped in
+// `runtime-catalog.yaml`. v0.2 adds a "custom" runtime + per-tenant
+// catalogue overrides (#1761 follow-ups).
 
-/** Agent runtime identifiers — determines which agent runtime processes work. */
-export type ExecutionTool =
+/** Agent runtime identifiers — ADR-0038 launcher keys. */
+export type RuntimeId =
   | "claude-code"
   | "codex"
   | "gemini"
   | "spring-voyage"
   | "custom";
 
-export const EXECUTION_TOOLS: readonly {
-  id: ExecutionTool;
-  label: string;
-}[] = [
-  { id: "claude-code", label: "Claude Code" },
-  { id: "codex", label: "Codex (OpenAI)" },
-  { id: "gemini", label: "Gemini (Google)" },
-  { id: "spring-voyage", label: "Spring Voyage Agent" },
-  { id: "custom", label: "Custom" },
+/** ADR-0038 closed set of provider ids the platform recognises. */
+export type ProviderId = "anthropic" | "openai" | "google" | "ollama";
+
+/**
+ * Static catalogue mirror of `runtime-catalog.yaml` for the four
+ * runtimes shipped in v0.1 plus the deferred `custom` slot. Each entry
+ * is the minimum the wizard / panel UX needs to render:
+ *   - `displayName` / `description` for the dropdown.
+ *   - `isProviderFixed` — when true, the provider picker is hidden and
+ *     the model dropdown is filtered to `fixedProvider`. When false the
+ *     picker is rendered as a filter over `allowedProviders`.
+ *   - `fixedProvider` — only meaningful when `isProviderFixed` is true.
+ *   - `allowedProviders` — only meaningful when `isProviderFixed` is
+ *     false. The wizard shows the intersection with the tenant's
+ *     installed providers.
+ *
+ * v0.2 (#1761 follow-ups) replaces this static table with a live read
+ * of `runtime-catalog.yaml` so per-tenant overrides land cleanly.
+ */
+export interface RuntimeDescriptor {
+  id: RuntimeId;
+  displayName: string;
+  description: string;
+  isProviderFixed: boolean;
+  fixedProvider: ProviderId | null;
+  allowedProviders: readonly ProviderId[];
+}
+
+export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
+  "claude-code": {
+    id: "claude-code",
+    displayName: "Claude Code",
+    description:
+      "Anthropic's Claude Code launcher. Provider is fixed to Anthropic.",
+    isProviderFixed: true,
+    fixedProvider: "anthropic",
+    allowedProviders: ["anthropic"],
+  },
+  codex: {
+    id: "codex",
+    displayName: "Codex (OpenAI)",
+    description:
+      "OpenAI's Codex CLI launcher. Provider is fixed to OpenAI.",
+    isProviderFixed: true,
+    fixedProvider: "openai",
+    allowedProviders: ["openai"],
+  },
+  gemini: {
+    id: "gemini",
+    displayName: "Gemini (Google)",
+    description:
+      "Google's Gemini CLI launcher. Provider is fixed to Google.",
+    isProviderFixed: true,
+    fixedProvider: "google",
+    allowedProviders: ["google"],
+  },
+  "spring-voyage": {
+    id: "spring-voyage",
+    displayName: "Spring Voyage Agent",
+    description:
+      "Platform-managed agent that drives any installed model provider.",
+    isProviderFixed: false,
+    fixedProvider: null,
+    allowedProviders: ["anthropic", "openai", "google", "ollama"],
+  },
+  custom: {
+    id: "custom",
+    displayName: "Custom",
+    description:
+      "Operator-supplied launcher (out of scope for v0.1; reserved).",
+    isProviderFixed: false,
+    fixedProvider: null,
+    allowedProviders: [],
+  },
+};
+
+export const RUNTIME_LIST: readonly RuntimeDescriptor[] = [
+  RUNTIMES["claude-code"],
+  RUNTIMES.codex,
+  RUNTIMES.gemini,
+  RUNTIMES["spring-voyage"],
+  RUNTIMES.custom,
 ];
 
-export const DEFAULT_EXECUTION_TOOL: ExecutionTool = "claude-code";
+export const DEFAULT_RUNTIME_ID: RuntimeId = "claude-code";
 
 /** Agent hosting mode — how long the agent process lives. */
 export type HostingMode = "ephemeral" | "persistent";
@@ -40,61 +128,41 @@ export const HOSTING_MODES: readonly { id: HostingMode; label: string }[] = [
 export const DEFAULT_HOSTING_MODE: HostingMode = "ephemeral";
 
 /**
- * Maps an execution tool to the canonical runtime id the wizard and
- * related surfaces resolve via the agent-runtimes endpoint. Non-Spring-
- * Voyage tools hardcode their provider inside the CLI (Claude Code →
- * Anthropic, Codex → OpenAI, Gemini → Google), so callers can still
- * surface a Model dropdown by routing through the matching runtime.
+ * Returns true when the runtime's provider is fixed by the launcher
+ * itself (claude-code → anthropic, codex → openai, gemini → google).
+ * The wizard / Execution panel hides the provider picker in that case.
  */
-export function getToolRuntimeId(tool: ExecutionTool): string | null {
-  switch (tool) {
-    case "claude-code":
-      return "claude";
-    case "codex":
-      return "openai";
-    case "gemini":
-      return "google";
-    case "spring-voyage":
-    case "custom":
-    default:
-      return null;
-  }
+export function isRuntimeProviderFixed(runtimeId: string | null): boolean {
+  if (runtimeId === null) return false;
+  const descriptor = RUNTIMES[runtimeId as RuntimeId];
+  if (!descriptor) return false;
+  return descriptor.isProviderFixed;
 }
 
 /**
- * Resolves the agent-runtime registry ID (e.g. "ollama", "claude") from the
- * wizard's tool + provider pair. For fixed-provider tools (claude-code, codex,
- * gemini) the provider is implicit; for spring-voyage the operator-chosen
- * provider IS the registry key (with "anthropic" normalised to "claude").
- * Returns null for custom tools or when provider is absent.
+ * Resolves the provider id implied by a fixed-provider runtime, or
+ * `null` for multi-provider runtimes / unknown ids. Callers use this to
+ * default the model dropdown's filter when the picker is hidden.
  */
-export function getAgentRegistryId(
-  tool: ExecutionTool,
-  provider: string,
-): string | null {
-  switch (tool) {
-    case "claude-code":
-      return "claude";
-    case "codex":
-      return "openai";
-    case "gemini":
-      return "google";
-    case "spring-voyage": {
-      const normalised = provider.trim().toLowerCase();
-      if (!normalised) return null;
-      return normalised === "anthropic" ? "claude" : normalised;
-    }
-    case "custom":
-    default:
-      return null;
-  }
+export function getFixedProvider(
+  runtimeId: string | null,
+): ProviderId | null {
+  if (runtimeId === null) return null;
+  const descriptor = RUNTIMES[runtimeId as RuntimeId];
+  if (!descriptor) return null;
+  return descriptor.fixedProvider;
 }
 
-// Legacy helpers `getToolWireProvider` and `getRuntimeSecretName` were
-// retired in ADR-0038 (PR-1b). Both mapped the pre-ADR wire shape:
-// the former synthesised the wire-level `provider` slot from
-// (tool, runtime), and the latter mapped a runtime id to the
-// `(tenant, runtime-id)`-keyed secret name. ADR-0038 §6 re-keys
-// credentials to `(tenant, provider, authMethod)`, so the secret name
-// is no longer derivable from a runtime id; PR-3 will rebuild
-// per-provider credential UX on top of `runtime-catalog.yaml`.
+/**
+ * Resolves the providers a runtime is allowed to dispatch against.
+ * Returns `null` when the runtime id is unknown — callers fall back to
+ * "every installed provider".
+ */
+export function getAllowedProviders(
+  runtimeId: string | null,
+): readonly ProviderId[] | null {
+  if (runtimeId === null) return null;
+  const descriptor = RUNTIMES[runtimeId as RuntimeId];
+  if (!descriptor) return null;
+  return descriptor.allowedProviders;
+}

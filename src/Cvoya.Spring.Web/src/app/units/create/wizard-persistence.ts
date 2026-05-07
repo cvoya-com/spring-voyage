@@ -44,8 +44,12 @@ const RUN_ID_KEY = `${SESSION_KEY_PREFIX}run-id`;
  * (catalog/browse/scratch) per ADR-0035 decision 5 (#1563). The YAML
  * mode is removed; the template mode is superseded by catalog. Older
  * blobs are silently discarded and the wizard starts fresh at step 1.
+ *
+ * v3 → v4: ADR-0038 reshaped the AI block. The flat `tool` /
+ * `provider` / `model` triple becomes `runtime` / `modelProviderId` /
+ * `modelId`. Older blobs are silently discarded.
  */
-export const WIZARD_STATE_SCHEMA_VERSION = 3;
+export const WIZARD_STATE_SCHEMA_VERSION = 4;
 
 export type WizardStep = 1 | 2 | 3 | 4 | 5;
 export type WizardSource = "catalog" | "browse" | "scratch";
@@ -84,10 +88,13 @@ export interface WizardFormSnapshot {
   name: string;
   displayName: string;
   description: string;
-  provider: string;
-  model: string;
+  /** ADR-0038: agent runtime id (claude-code, codex, gemini, spring-voyage). */
+  runtime: string;
+  /** ADR-0038: model provider id (anthropic, openai, google, ollama). */
+  modelProviderId: string;
+  /** ADR-0038: model id within the provider's catalogue. */
+  modelId: string;
   color: string;
-  tool: string;
   hosting: string;
   image: string;
   /** Catalog branch: the selected package name. */
@@ -176,10 +183,10 @@ export function validateSnapshot(blob: unknown): WizardSnapshot | null {
     "name",
     "displayName",
     "description",
-    "provider",
-    "model",
+    "runtime",
+    "modelProviderId",
+    "modelId",
     "color",
-    "tool",
     "hosting",
     "image",
   ];
@@ -234,10 +241,10 @@ export function validateSnapshot(blob: unknown): WizardSnapshot | null {
       name: f.name as string,
       displayName: f.displayName as string,
       description: f.description as string,
-      provider: f.provider as string,
-      model: f.model as string,
+      runtime: f.runtime as string,
+      modelProviderId: f.modelProviderId as string,
+      modelId: f.modelId as string,
       color: f.color as string,
-      tool: f.tool as string,
       hosting: f.hosting as string,
       image: f.image as string,
       catalogPackageName: f.catalogPackageName as string | null,
