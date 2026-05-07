@@ -3,6 +3,7 @@
 
 using System.Text.Json.Serialization;
 
+using Cvoya.Spring.AgentRuntimes.DependencyInjection;
 using Cvoya.Spring.Connector.Arxiv.DependencyInjection;
 using Cvoya.Spring.Connector.GitHub;
 using Cvoya.Spring.Connector.GitHub.Auth;
@@ -17,6 +18,8 @@ using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Endpoints;
 using Cvoya.Spring.Host.Api.OpenApi;
 using Cvoya.Spring.Host.Api.Services;
+using Cvoya.Spring.ModelProviders.DependencyInjection;
+using Cvoya.Spring.RuntimeCatalog.DependencyInjection;
 
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -44,12 +47,11 @@ try
         // ADR-0038 (#1761) collapsed the four per-provider AgentRuntime
         // projects into runtime-catalog.yaml + Cvoya.Spring.ModelProviders
         // adapters + Cvoya.Spring.AgentRuntimes launcher consolidation.
-        // Chunk 2 of PR-1a wires AddCvoyaSpringRuntimeCatalog +
-        // AddCvoyaSpringModelProviders + AddCvoyaSpringAgentRuntimes here
-        // and rewires the credential resolver to (tenant, provider,
-        // authMethod). Chunk 1 leaves the legacy IAgentRuntimeRegistry
-        // empty so the host build is clean while the dispatch path is
-        // re-shaped.
+        // Order matters: the catalogue and adapter registry must be
+        // populated before the launcher registry resolves them.
+        .AddCvoyaSpringRuntimeCatalog()
+        .AddCvoyaSpringModelProviders()
+        .AddCvoyaSpringAgentRuntimes()
         .AddCvoyaSpringOllamaLlm(builder.Configuration)
         .AddCvoyaSpringConnectorGitHub(builder.Configuration)
         .AddCvoyaSpringConnectorArxiv(builder.Configuration)

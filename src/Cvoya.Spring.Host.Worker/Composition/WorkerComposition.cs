@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Host.Worker.Composition;
 
+using Cvoya.Spring.AgentRuntimes.DependencyInjection;
 using Cvoya.Spring.Connector.Arxiv.DependencyInjection;
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
 using Cvoya.Spring.Connector.WebSearch.DependencyInjection;
@@ -10,6 +11,8 @@ using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Workflows;
 using Cvoya.Spring.Dapr.Workflows.Activities;
+using Cvoya.Spring.ModelProviders.DependencyInjection;
+using Cvoya.Spring.RuntimeCatalog.DependencyInjection;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Runtime;
@@ -103,12 +106,14 @@ public static class WorkerComposition
             .AddCvoyaSpringCore()
             .AddCvoyaSpringDapr(configuration)
             // ADR-0038 (#1761): the four per-provider AddCvoyaSpringAgentRuntime*
-            // extensions collapsed into runtime-catalog.yaml. Chunk 2 of PR-1a
-            // re-wires AddCvoyaSpringRuntimeCatalog + AddCvoyaSpringModelProviders +
-            // AddCvoyaSpringAgentRuntimes here and replaces the legacy default-tenant
-            // AgentRuntimeInstallSeedProvider with the new provider-keyed seeder.
-            // Chunk 1 leaves the registry empty; the build is clean while the
-            // dispatch path is reshaped.
+            // extensions collapsed into runtime-catalog.yaml plus the
+            // Cvoya.Spring.ModelProviders adapter registry and the
+            // Cvoya.Spring.AgentRuntimes launcher registry. Order matters: the
+            // catalogue and adapter registry must be populated before the
+            // launcher registry resolves them.
+            .AddCvoyaSpringRuntimeCatalog()
+            .AddCvoyaSpringModelProviders()
+            .AddCvoyaSpringAgentRuntimes()
             .AddCvoyaSpringOllamaLlm(configuration)
             .AddCvoyaSpringConnectorGitHub(configuration)
             .AddCvoyaSpringConnectorArxiv(configuration)
