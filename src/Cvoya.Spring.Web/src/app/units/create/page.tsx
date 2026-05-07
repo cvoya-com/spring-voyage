@@ -1657,18 +1657,71 @@ export default function CreateUnitPage() {
     missingRequiredCatalogInputs,
   ]);
 
+  // Single source of truth for the runtime/provider readiness diagnosis
+  // on the Execution step (scratch branch). Computed once and consumed
+  // by both the in-card banner (`modelProviderCatalogIssue`) and the
+  // disabled-Next hint (`nextDisabledReason`) so the two surfaces never
+  // drift in their wording or triggering condition.
+  //
+  // The diagnosis is runtime-aware: the wizard only flags providers the
+  // *currently selected* runtime actually needs. For fixed-provider
+  // runtimes that means the runtime's `fixedProvider`; for multi-
+  // provider runtimes it means at least one entry in `allowedProviders`.
+  // A generic "no providers installed" warning fired regardless of
+  // runtime mis-led operators on the default Claude-Code path because
+  // it framed Anthropic as a configuration the operator manages.
+  const runtimeProviderIssue = useMemo<string | null>(() => {
+    if (form.source !== "scratch") return null;
+    if (form.runtime === "custom") return null;
+    if (modelProvidersQuery.isPending) return null;
+    if (modelProvidersQuery.isError) {
+      return "Could not load the model-provider catalogue.";
+    }
+    const installedIds = new Set(
+      installedProviders.map((p) => p.id.toLowerCase()),
+    );
+    if (runtimeDescriptor.isProviderFixed) {
+      const fixed = runtimeDescriptor.fixedProvider;
+      if (fixed !== null && !installedIds.has(fixed.toLowerCase())) {
+        return `${runtimeDescriptor.displayName} requires the ${fixed} model provider, which is not installed on this tenant. Install it via the host (\`spring model-provider install ${fixed}\`) or pick a different runtime.`;
+      }
+      return null;
+    }
+    const allowed = runtimeDescriptor.allowedProviders;
+    if (allowed.length === 0) return null;
+    const intersection = allowed.filter((id) =>
+      installedIds.has(id.toLowerCase()),
+    );
+    if (intersection.length === 0) {
+      return `${runtimeDescriptor.displayName} needs at least one model provider installed. Install via the host (e.g. \`spring model-provider install anthropic\`) or pick a fixed-provider runtime.`;
+    }
+    return null;
+  }, [
+    form.source,
+    form.runtime,
+    runtimeDescriptor,
+    modelProvidersQuery.isPending,
+    modelProvidersQuery.isError,
+    installedProviders,
+  ]);
+
+  // The in-card banner above the Execution form. Shows the runtime-
+  // specific catalogue issue when one is active; suppressed otherwise
+  // so the happy path stays uncluttered.
+  const modelProviderCatalogIssue = useMemo<string | null>(() => {
+    if (step !== 3) return null;
+    return runtimeProviderIssue;
+  }, [step, runtimeProviderIssue]);
+
   // Issue #927-followup (post-T-07): explain *why* Next is disabled on
-  // Step 2. Without this hint the wizard can dead-end silently — the
-  // Model dropdown only renders when the model-provider catalogue
-  // returns a matching provider for the runtime, so an unreachable
-  // platform API or an uninstalled provider collapses the model
-  // surface and leaves the operator staring at a disabled button
+  // the Execution step. Without this hint the wizard can dead-end
+  // silently — the Model dropdown only renders when the model-provider
+  // catalogue returns a matching provider for the runtime, so an
+  // unreachable platform API or an uninstalled provider collapses the
+  // model surface and leaves the operator staring at a disabled button
   // with no way to diagnose. We surface the most specific actionable
   // reason, in priority order, mirroring the gates `canGoNext` /
-  // `validateStep2` consult.
-  // nextDisabledReason is only relevant for the Execution step in the
-  // scratch branch (step 3 when source === "scratch"). For all other
-  // steps the disabled state is self-evident from the form fields.
+  // `validateStep3` consult.
   const nextDisabledReason = useMemo<string | null>(() => {
     if (form.source !== "scratch" || step !== 3) return null;
     if (canGoNext) return null;
@@ -1676,25 +1729,12 @@ export default function CreateUnitPage() {
     if (modelProvidersQuery.isPending) {
       return "Loading the model-provider catalogue…";
     }
-    if (modelProvidersQuery.isError) {
-      return "Could not load the model-provider catalogue.";
-    }
-    const runtimeLabel = runtimeDescriptor.displayName;
-    if (installedProviders.length === 0) {
-      return "No configured model providers.";
-    }
+    if (runtimeProviderIssue !== null) return runtimeProviderIssue;
     if (
       !runtimeDescriptor.isProviderFixed &&
       form.modelProviderId.trim() === ""
     ) {
-      return `Pick a model provider for the ${runtimeLabel} runtime.`;
-    }
-    if (
-      runtimeDescriptor.isProviderFixed &&
-      requiredCredentialProviderEntry === null &&
-      form.modelProviderId !== "ollama"
-    ) {
-      return `The "${runtimeLabel}" runtime requires the ${form.modelProviderId} provider, which is not installed on this server. Install the matching model provider, or pick a different runtime.`;
+      return `Pick a model provider for the ${runtimeDescriptor.displayName} runtime.`;
     }
     if (isOllamaDapr && ollamaModelsLoading) {
       return "Loading the model list from the Ollama server…";
@@ -1714,38 +1754,11 @@ export default function CreateUnitPage() {
     form.modelProviderId,
     runtimeDescriptor,
     modelProvidersQuery.isPending,
-    modelProvidersQuery.isError,
-    installedProviders.length,
-    requiredCredentialProviderEntry,
+    runtimeProviderIssue,
     isOllamaDapr,
     ollamaModelsLoading,
     showModelDropdown,
     modelIsSelected,
-  ]);
-
-  // Truthy when the model-provider catalogue itself is the cause of an
-  // empty Step 3 (no providers / fetch failure for a non-custom runtime).
-  // Drives the in-card banner above the form so the operator sees the
-  // root cause, not just the "Next is disabled" symptom underneath.
-  // The fetch-error message is intentionally short — the platform API
-  // is supposed to always be reachable from the dashboard host.
-  const modelProviderCatalogIssue = useMemo<string | null>(() => {
-    if (form.source !== "scratch") return null;
-    if (form.runtime === "custom") return null;
-    if (modelProvidersQuery.isPending) return null;
-    if (modelProvidersQuery.isError) {
-      return "Could not load the model-provider catalogue.";
-    }
-    if (installedProviders.length === 0) {
-      return "No configured model providers.";
-    }
-    return null;
-  }, [
-    form.source,
-    form.runtime,
-    modelProvidersQuery.isPending,
-    modelProvidersQuery.isError,
-    installedProviders.length,
   ]);
 
   return (
@@ -2400,9 +2413,13 @@ export default function CreateUnitPage() {
                   disabled={pickerProviders.length === 0}
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {pickerProviders.map((p) => (
-                    <option key={p.id} value={p.id}>{p.displayName}</option>
-                  ))}
+                  {pickerProviders.length === 0 ? (
+                    <option value="">(no providers installed)</option>
+                  ) : (
+                    pickerProviders.map((p) => (
+                      <option key={p.id} value={p.id}>{p.displayName}</option>
+                    ))
+                  )}
                 </select>
               </label>
             )}

@@ -4,7 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { AlertTriangle, ArrowLeft } from "lucide-react";
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Button } from "@/components/ui/button";
@@ -167,9 +167,60 @@ export default function CreateAgentPage() {
     );
   }, [providers, form.runtime, runtimeDescriptor.isProviderFixed]);
 
-  const activeProviderId = (
-    fixedProviderId ?? form.modelProviderId
-  ).trim().toLowerCase();
+  // ADR-0038: snap modelProviderId to the runtime's fixed provider when
+  // the runtime fixes one; for multi-provider runtimes default to the
+  // first installed entry that matches the allow-list. Mirrors the
+  // unit-create wizard so both flows preselect the picker on the first
+  // render where at least one allowed provider is present.
+  const effectiveProviderId = useMemo(() => {
+    if (fixedProviderId !== null) return fixedProviderId;
+    if (form.modelProviderId !== "") return form.modelProviderId;
+    return pickerProviders.length > 0 ? pickerProviders[0].id : "";
+  }, [fixedProviderId, form.modelProviderId, pickerProviders]);
+  if (effectiveProviderId !== form.modelProviderId) {
+    setForm((prev) =>
+      prev.modelProviderId === effectiveProviderId
+        ? prev
+        : { ...prev, modelProviderId: effectiveProviderId },
+    );
+  }
+
+  // ADR-0038: runtime-aware banner — replaces the generic "no providers
+  // installed" fallback with a message that names the provider(s) the
+  // *currently selected* runtime actually needs. Skip when the catalog
+  // is still loading or when the runtime is the deferred `custom` slot.
+  const runtimeProviderIssue = useMemo<string | null>(() => {
+    if (form.runtime === "custom") return null;
+    if (providersQuery.isPending) return null;
+    if (providersQuery.isError) {
+      return "Could not load the model-provider catalogue.";
+    }
+    const installedIds = new Set(providers.map((p) => p.id.toLowerCase()));
+    if (runtimeDescriptor.isProviderFixed) {
+      const fixed = runtimeDescriptor.fixedProvider;
+      if (fixed !== null && !installedIds.has(fixed.toLowerCase())) {
+        return `${runtimeDescriptor.displayName} requires the ${fixed} model provider, which is not installed on this tenant. Install it via the host (\`spring model-provider install ${fixed}\`) or pick a different runtime.`;
+      }
+      return null;
+    }
+    const allowed = runtimeDescriptor.allowedProviders;
+    if (allowed.length === 0) return null;
+    const intersection = allowed.filter((id) =>
+      installedIds.has(id.toLowerCase()),
+    );
+    if (intersection.length === 0) {
+      return `${runtimeDescriptor.displayName} needs at least one model provider installed. Install via the host (e.g. \`spring model-provider install anthropic\`) or pick a fixed-provider runtime.`;
+    }
+    return null;
+  }, [
+    form.runtime,
+    runtimeDescriptor,
+    providers,
+    providersQuery.isPending,
+    providersQuery.isError,
+  ]);
+
+  const activeProviderId = effectiveProviderId.trim().toLowerCase();
   const modelsQuery = useModelProviderModels(activeProviderId, {
     enabled: Boolean(activeProviderId),
   });
@@ -607,6 +658,16 @@ export default function CreateAgentPage() {
             <CardTitle>Execution</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {runtimeProviderIssue && (
+              <div
+                role="alert"
+                data-testid="model-provider-catalog-issue"
+                className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-foreground"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <p className="flex-1">{runtimeProviderIssue}</p>
+              </div>
+            )}
             <label className="block space-y-1">
               <span className="text-sm text-muted-foreground">Agent runtime</span>
               <select
@@ -659,12 +720,15 @@ export default function CreateAgentPage() {
                   disabled={submitting || pickerProviders.length === 0}
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <option value="">Select a provider…</option>
-                  {pickerProviders.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.displayName}
-                    </option>
-                  ))}
+                  {pickerProviders.length === 0 ? (
+                    <option value="">(no providers installed)</option>
+                  ) : (
+                    pickerProviders.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.displayName}
+                      </option>
+                    ))
+                  )}
                 </select>
                 <span className="block text-xs text-muted-foreground">
                   Mirrors <code className="font-mono">--model-provider</code>.
