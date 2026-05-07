@@ -4,40 +4,44 @@
 namespace Cvoya.Spring.Dapr.AgentRuntimes;
 
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 
 /// <summary>
-/// Default <see cref="IAgentRuntimeRegistry"/> implementation. Enumerates
-/// every <see cref="IAgentRuntime"/> instance registered in DI and serves
-/// them through a stable snapshot.
+/// Catalogue-backed <see cref="IAgentRuntimeRegistry"/> implementation.
+/// Synthesises a legacy <see cref="IAgentRuntime"/> projection over each
+/// runtime entry in <see cref="IRuntimeCatalog.AgentRuntimes"/> via
+/// <see cref="CatalogAgentRuntimeAdapter"/>. Per ADR-0038 the per-provider
+/// runtime classes are gone — runtimes are platform configuration.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The registry takes its runtime list from the DI container at
-/// construction time, which matches the singleton lifetime of the service:
-/// runtimes are expected to be registered once at host startup and never
-/// added or removed at runtime. For tests, inject a custom
-/// <see cref="IEnumerable{IAgentRuntime}"/> directly.
+/// This registry exists only to keep the legacy host-side interface
+/// surface working until PR-1b reshapes the wire DTOs. New code SHOULD
+/// consume <see cref="IRuntimeCatalog"/> directly. See follow-up issue
+/// for full retirement of <see cref="IAgentRuntime"/> and
+/// <see cref="IAgentRuntimeRegistry"/> after the wire reshape.
 /// </para>
 /// <para>
 /// <see cref="Get(string)"/> matches case-insensitively on
-/// <see cref="IAgentRuntime.Id"/>. Duplicate ids are resolved by first
-/// match; duplicates indicate a DI registration bug and callers should
-/// surface them as errors upstream.
+/// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Id"/>.
 /// </para>
 /// </remarks>
 public class AgentRuntimeRegistry : IAgentRuntimeRegistry
 {
     private readonly IReadOnlyList<IAgentRuntime> _runtimes;
+    private readonly Dictionary<string, IAgentRuntime> _byId;
 
     /// <summary>
-    /// Creates a new registry over the supplied runtimes. Typically
-    /// constructed by DI with every registered <see cref="IAgentRuntime"/>.
+    /// Creates a new registry from the catalogue. Constructed once at host
+    /// startup; the catalogue is loaded from <c>platform/runtime-catalog.yaml</c>.
     /// </summary>
-    /// <param name="runtimes">The runtimes to expose through the registry.</param>
-    public AgentRuntimeRegistry(IEnumerable<IAgentRuntime> runtimes)
+    public AgentRuntimeRegistry(IRuntimeCatalog catalog)
     {
-        ArgumentNullException.ThrowIfNull(runtimes);
-        _runtimes = runtimes.ToArray();
+        ArgumentNullException.ThrowIfNull(catalog);
+        _runtimes = catalog.AgentRuntimes
+            .Select(r => (IAgentRuntime)new CatalogAgentRuntimeAdapter(r, catalog))
+            .ToArray();
+        _byId = _runtimes.ToDictionary(r => r.Id, r => r, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <inheritdoc />
@@ -51,15 +55,6 @@ public class AgentRuntimeRegistry : IAgentRuntimeRegistry
             return null;
         }
 
-        for (var i = 0; i < _runtimes.Count; i++)
-        {
-            var runtime = _runtimes[i];
-            if (string.Equals(runtime.Id, id, StringComparison.OrdinalIgnoreCase))
-            {
-                return runtime;
-            }
-        }
-
-        return null;
+        return _byId.TryGetValue(id, out var runtime) ? runtime : null;
     }
 }
