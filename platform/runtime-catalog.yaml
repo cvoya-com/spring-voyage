@@ -1,0 +1,136 @@
+# Spring Voyage runtime catalogue — ADR-0038.
+#
+# This file is the single source of truth for the agent runtimes and
+# model providers the platform supports. Per ADR-0038 decisions 2 and 3,
+# adding a runtime, a provider, or a (runtime, provider, authMethod)
+# edge is a config edit (and a launcher / adapter strategy addition only
+# when behaviour is genuinely novel).
+#
+# A JSON schema for this file lives next door at
+# `runtime-catalog.schema.json`. CI lints the YAML against the schema so
+# typos in closed-enum fields fail at PR review rather than at startup.
+
+modelProviders:
+  - id: anthropic
+    displayName: Anthropic
+    apiBaseUrl: https://api.anthropic.com
+    modelsEndpoint: /v1/models
+    adapter: anthropic
+    authMethods: [oauth, api-key]
+    llmApiContract:
+      name: anthropic
+      version: v1
+    defaultModels:
+      - claude-opus-4-7
+      - claude-sonnet-4-6
+      - claude-haiku-4-5-20251001
+
+  - id: openai
+    displayName: OpenAI
+    apiBaseUrl: https://api.openai.com
+    modelsEndpoint: /v1/models
+    adapter: openai-compatible
+    authMethods: [api-key]
+    llmApiContract:
+      name: openai
+      version: v1
+    defaultModels:
+      - gpt-4o
+      - gpt-4o-mini
+      - gpt-4-turbo
+
+  - id: google
+    displayName: Google
+    apiBaseUrl: https://generativelanguage.googleapis.com
+    modelsEndpoint: /v1/models
+    adapter: google
+    authMethods: [api-key]
+    llmApiContract:
+      name: google
+      version: v1
+    defaultModels:
+      - gemini-2.0-flash
+      - gemini-1.5-pro
+      - gemini-1.5-flash
+
+  - id: ollama
+    displayName: Ollama
+    apiBaseUrl: http://localhost:11434
+    modelsEndpoint: /api/tags
+    adapter: openai-compatible
+    authMethods: []
+    llmApiContract:
+      name: openai
+      version: v1
+    defaultModels:
+      - llama3.2:3b
+      - llama3.2:1b
+      - qwen2.5:7b
+
+agentRuntimes:
+  - id: claude-code
+    displayName: Claude Code
+    defaultImage: ghcr.io/cvoya-com/claude-code-base:latest
+    launcher: claude-code-cli
+    threadBinding:
+      kind: cli-arg
+      argName: --resume
+    systemPromptInjection:
+      kind: file
+      filePath: AGENTS.md
+    modelProviders:
+      - id: anthropic
+        authMethod: oauth
+        credentialEnvVar: CLAUDE_CODE_OAUTH_TOKEN
+
+  - id: codex
+    displayName: Codex
+    defaultImage: ghcr.io/cvoya-com/codex-base:latest
+    launcher: codex-cli
+    threadBinding:
+      kind: cli-arg
+      argName: --conversation-id
+    systemPromptInjection:
+      kind: file
+      filePath: AGENTS.md
+    modelProviders:
+      - id: openai
+        authMethod: api-key
+        credentialEnvVar: OPENAI_API_KEY
+
+  - id: gemini
+    displayName: Gemini CLI
+    defaultImage: ghcr.io/cvoya-com/gemini-base:latest
+    launcher: gemini-cli
+    threadBinding:
+      kind: cli-arg
+      argName: --session-id
+    systemPromptInjection:
+      kind: file
+      filePath: GEMINI.md
+    modelProviders:
+      - id: google
+        authMethod: api-key
+        credentialEnvVar: GOOGLE_API_KEY
+
+  - id: spring-voyage
+    displayName: Spring Voyage Agent
+    defaultImage: ghcr.io/cvoya-com/spring-voyage-agent:latest
+    launcher: spring-voyage-agent
+    threadBinding:
+      kind: env-var
+      envVarName: SPRING_THREAD_ID
+    systemPromptInjection:
+      kind: env-var
+      envVarName: SPRING_SYSTEM_PROMPT
+    modelProviders:
+      - id: anthropic
+        authMethod: api-key
+        credentialEnvVar: ANTHROPIC_API_KEY
+      - id: openai
+        authMethod: api-key
+        credentialEnvVar: OPENAI_API_KEY
+      - id: google
+        authMethod: api-key
+        credentialEnvVar: GOOGLE_API_KEY
+      - id: ollama
