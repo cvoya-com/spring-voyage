@@ -211,6 +211,46 @@ describe("DetailPane copy-address button (#1070)", () => {
     expect(screen.queryByTestId("detail-title-id")).not.toBeInTheDocument();
   });
 
+  // #1785: when the parent's URL-driven `onTabChange` identity churns on
+  // every URL update (the prod bug: `searchParams → writeUrl →
+  // handleTabChange` returns a new function each render), the tab-
+  // correction `useEffect` must not re-fire and re-call `onTabChange` —
+  // doing so creates a tight loop that pegs the main thread. The
+  // correction should fire exactly once per `isValidTab → false`
+  // transition, not once per `onTabChange` identity change.
+  it("#1785: correction fires exactly once per isValidTab→false transition, not on every onTabChange identity change", () => {
+    const onTabChangeA = vi.fn();
+    // `Skills` is not in the Tenant tab catalog, so isValidTab=false
+    // and the correction effect should fire once on mount.
+    const { rerender } = render(
+      <DetailPane
+        node={tenant}
+        path={[tenant]}
+        tab={"Skills" as never}
+        onTabChange={onTabChangeA}
+        onSelectNode={vi.fn()}
+      />,
+    );
+    expect(onTabChangeA).toHaveBeenCalledTimes(1);
+
+    // Re-render with a fresh `onTabChange` identity (mirroring the
+    // prod URL-update churn) but the same invalid `tab` and `node`.
+    // The correction effect must NOT re-fire — neither the previous
+    // nor the new callback should be invoked again.
+    const onTabChangeB = vi.fn();
+    rerender(
+      <DetailPane
+        node={tenant}
+        path={[tenant]}
+        tab={"Skills" as never}
+        onTabChange={onTabChangeB}
+        onSelectNode={vi.fn()}
+      />,
+    );
+    expect(onTabChangeA).toHaveBeenCalledTimes(1);
+    expect(onTabChangeB).not.toHaveBeenCalled();
+  });
+
   it("swallows clipboard errors so the surface stays usable", async () => {
     const writeText = vi.fn().mockRejectedValue(new Error("denied"));
     Object.defineProperty(navigator, "clipboard", {
