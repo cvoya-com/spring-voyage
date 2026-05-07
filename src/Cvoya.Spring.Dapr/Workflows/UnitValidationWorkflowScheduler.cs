@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Workflows;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
@@ -40,7 +41,8 @@ using Microsoft.Extensions.Logging;
 public class UnitValidationWorkflowScheduler(
     DaprWorkflowClient workflowClient,
     IServiceScopeFactory scopeFactory,
-    IAgentRuntimeRegistry runtimeRegistry,
+    IRuntimeCatalog runtimeCatalog,
+    IAgentRuntimeLauncherRegistry launcherRegistry,
     ILoggerFactory loggerFactory) : IUnitValidationWorkflowScheduler
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<UnitValidationWorkflowScheduler>();
@@ -224,8 +226,16 @@ public class UnitValidationWorkflowScheduler(
     /// </summary>
     private string[]? ComputeSkipSteps(string runtimeId, string requestedModel)
     {
-        var runtime = runtimeRegistry.Get(runtimeId);
+        // ADR-0038: probe-step authoring lives on IAgentRuntimeLauncher.
+        // The launcher to dispatch is named on the catalogue runtime entry.
+        var runtime = runtimeCatalog.GetAgentRuntime(runtimeId);
         if (runtime is null)
+        {
+            return null;
+        }
+
+        var launcher = launcherRegistry.Get(runtime.Launcher);
+        if (launcher is null)
         {
             return null;
         }
@@ -238,7 +248,7 @@ public class UnitValidationWorkflowScheduler(
         HashSet<UnitValidationStep> declared;
         try
         {
-            declared = runtime.GetProbeSteps(config, string.Empty)
+            declared = launcher.GetProbeSteps(config, string.Empty)
                 .Select(s => s.Step)
                 .ToHashSet();
         }
