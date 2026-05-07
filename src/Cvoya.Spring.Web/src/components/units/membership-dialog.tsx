@@ -14,7 +14,6 @@ import type {
   UnitMembershipResponse,
 } from "@/lib/api/types";
 import {
-  AGENT_NAME_PATTERN,
   describeAgentCreateError,
   validateAgentCreateInput,
 } from "@/lib/agents/create-agent";
@@ -36,7 +35,6 @@ export interface MembershipFormValues {
  * fields the standalone `/agents/create` page surfaces.
  */
 export interface InlineAgentCreateValues {
-  id: string;
   displayName: string;
   role: string;
 }
@@ -159,7 +157,6 @@ export function MembershipDialog({
   // `assignableAgents` ourselves.
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState<InlineAgentCreateValues>({
-    id: "",
     displayName: "",
     role: "",
   });
@@ -187,7 +184,7 @@ export function MembershipDialog({
       setEnabled(true);
       setExecutionMode("Auto");
       setCreating(false);
-      setCreateForm({ id: "", displayName: "", role: "" });
+      setCreateForm({ displayName: "", role: "" });
       setCreateError(null);
       setCreatingSubmitting(false);
     }
@@ -255,7 +252,6 @@ export function MembershipDialog({
     if (!inlineCreate) return;
     setCreateError(null);
     const validation = validateAgentCreateInput({
-      id: createForm.id,
       displayName: createForm.displayName,
       // The inline form always assigns to the current unit; we feed a
       // single placeholder unit id into the validator so the
@@ -270,7 +266,6 @@ export function MembershipDialog({
     setCreatingSubmitting(true);
     try {
       await inlineCreate.onSubmit({
-        id: createForm.id.trim(),
         displayName: createForm.displayName.trim(),
         role: createForm.role.trim(),
       });
@@ -318,30 +313,6 @@ export function MembershipDialog({
           </>
         }
       >
-        <label className="block space-y-1">
-          <span className="text-sm text-muted-foreground">
-            Agent id <span className="text-destructive">*</span>
-          </span>
-          <Input
-            value={createForm.id}
-            onChange={(e) =>
-              setCreateForm((f) => ({ ...f, id: e.target.value }))
-            }
-            placeholder="ada"
-            pattern={AGENT_NAME_PATTERN.source}
-            aria-label="Agent id"
-            aria-required="true"
-            autoComplete="off"
-            spellCheck={false}
-            disabled={creatingSubmitting}
-            data-testid="membership-dialog-inline-create-id"
-            required
-          />
-          <span className="block text-xs text-muted-foreground">
-            URL-safe — lowercase letters, digits, and hyphens only.
-          </span>
-        </label>
-
         <label className="block space-y-1">
           <span className="text-sm text-muted-foreground">
             Display name <span className="text-destructive">*</span>

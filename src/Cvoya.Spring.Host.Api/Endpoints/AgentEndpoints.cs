@@ -732,18 +732,6 @@ public static class AgentEndpoints
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        // #1450: validate identity fields up-front so a malformed body
-        // can't slip past and poison the directory cache (an agent with
-        // a null/empty path used to land in `_entries` before the DB
-        // write rejected it, after which `/api/v1/tenant/tree` 500'd
-        // for the rest of the process lifetime).
-        if (string.IsNullOrWhiteSpace(request.Name))
-        {
-            return Results.Problem(
-                title: "Agent name is required",
-                detail: "Agent creation must include a non-empty 'name'.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
         // #1632: a Guid-shaped display name would collide with the Guid-first
         // addressing surface defined by #1629 — every endpoint that accepts
         // a display_name on create / update routes through DisplayNameValidator
@@ -781,7 +769,6 @@ public static class AgentEndpoints
         // creation surface never leaks the existence of other-tenant
         // units.
         var resolvedUnits = new List<(Guid Id, DirectoryEntry Entry)>(unitIds.Count);
-        var pseudoParent = Address.For("agent", request.Name);
         foreach (var unitId in unitIds)
         {
             var unitAddress = Address.ForIdentity("unit", unitId);
@@ -829,7 +816,7 @@ public static class AgentEndpoints
 
         var actorGuid = Guid.NewGuid();
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid);
-        var address = Address.For("agent", request.Name);
+        var address = Address.ForIdentity("agent", actorGuid);
         var entry = new DirectoryEntry(
             address,
             actorGuid,
@@ -902,7 +889,7 @@ public static class AgentEndpoints
         }
 
         var response = ToAgentResponse(entry, new AgentMetadata(ParentUnit: primaryUnit));
-        return Results.Created($"/api/v1/tenant/agents/{request.Name}", response);
+        return Results.Created($"/api/v1/tenant/agents/{actorId}", response);
     }
 
     private static async Task<IResult> DeleteAgentAsync(

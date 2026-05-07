@@ -10077,7 +10077,6 @@
       },
       "CreateAgentRequest": {
         "required": [
-          "name",
           "displayName",
           "description",
           "role",
@@ -10085,9 +10084,6 @@
         ],
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string"
-          },
           "displayName": {
             "type": "string"
           },

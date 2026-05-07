@@ -10,7 +10,7 @@
 //    the unit's member list immediately on success.
 //
 // Both paths funnel through `buildCreateAgentRequest` so the wire body
-// (name + displayName + description + role + unitIds + definitionJson)
+// (displayName + description + role + unitIds + definitionJson)
 // and the validation rules are owned in exactly one place. Keeping this
 // outside React (`useMutation` lives at the call site) means the helper
 // can be imported by the inline dialog without dragging the standalone
@@ -18,7 +18,7 @@
 
 import type { CreateAgentRequest } from "@/lib/api/types";
 
-/** URL-safe id pattern. Mirrors the unit-create wizard's regex. */
+/** URL-safe id pattern. Used by the package wizard for package-name validation. */
 export const AGENT_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 /**
@@ -27,8 +27,6 @@ export const AGENT_NAME_PATTERN = /^[a-z0-9-]+$/;
  * before the wire body is assembled.
  */
 export interface AgentCreateFormInput {
-  /** URL-safe id (server's `Name` field). */
-  id: string;
   /** Human-readable label (server's `DisplayName`). */
   displayName: string;
   /** Optional free text mirrored into `Description`; empty by default. */
@@ -46,10 +44,9 @@ export interface AgentCreateFormInput {
    */
   runtime?: string;
   /**
-   * Agent runtime registry id (carried as `ai.agent` in the manifest /
-   * `ai.Agent` in the agent definition document) — `claude-code`,
-   * `codex`, `gemini`, `spring-voyage`, `custom`. Defaulted into the
-   * agent definition document when supplied.
+   * Execution tool key (`execution.tool`) — `claude-code`, `codex`,
+   * `gemini`, `spring-voyage`, `custom`. Defaulted into the agent
+   * definition document when supplied.
    */
   tool?: string;
   /**
@@ -72,15 +69,10 @@ export interface AgentCreateFormInput {
  * input is acceptable.
  */
 export type AgentCreateValidationError =
-  | "id-required"
-  | "id-pattern"
   | "displayName-required"
   | "unit-required";
 
 const VALIDATION_MESSAGES: Record<AgentCreateValidationError, string> = {
-  "id-required": "Agent id is required.",
-  "id-pattern":
-    "Agent id must be URL-safe (lowercase letters, digits, and hyphens).",
   "displayName-required": "Display name is required.",
   "unit-required": "Pick at least one unit to assign the agent to.",
 };
@@ -92,10 +84,6 @@ const VALIDATION_MESSAGES: Record<AgentCreateValidationError, string> = {
 export function validateAgentCreateInput(
   input: AgentCreateFormInput,
 ): AgentCreateValidationError | null {
-  const id = (input.id ?? "").trim();
-  if (id.length === 0) return "id-required";
-  if (!AGENT_NAME_PATTERN.test(id)) return "id-pattern";
-
   const displayName = (input.displayName ?? "").trim();
   if (displayName.length === 0) return "displayName-required";
 
@@ -156,7 +144,6 @@ export function buildCreateAgentRequest(
     throw new Error(describeAgentCreateError(validation));
   }
 
-  const id = input.id.trim();
   const displayName = input.displayName.trim();
   const role = input.role?.trim() ? input.role.trim() : null;
   const description = input.description?.trim() ?? "";
@@ -172,7 +159,6 @@ export function buildCreateAgentRequest(
   });
 
   const body: CreateAgentRequest = {
-    name: id,
     displayName,
     description,
     role,

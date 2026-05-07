@@ -87,13 +87,10 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
         ArrangeUnitEntry("contract-unit", ActorUnitContract_Id);
         ArrangeAgentActorProxy();
 
-        // Post-#1629 the agent's `name` is its Guid identity; the
-        // human-readable label travels in DisplayName.
         var request = new CreateAgentRequest(
-            Guid.NewGuid().ToString("N"),
             "Contract Create",
             "An agent for contract tests",
-            Role: "backend",
+            "backend",
             UnitIds: new[] { ActorUnitContract_Id });
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);

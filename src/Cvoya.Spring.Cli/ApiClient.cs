@@ -134,7 +134,6 @@ public class SpringApiClient
     {
         var request = new CreateAgentRequest
         {
-            Name = id,
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? id : displayName,
             Description = string.Empty,
             Role = role,
