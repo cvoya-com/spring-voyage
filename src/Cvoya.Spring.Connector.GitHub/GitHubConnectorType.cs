@@ -12,10 +12,10 @@ using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.Configuration;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Secrets;
 
 using Microsoft.AspNetCore.Builder;

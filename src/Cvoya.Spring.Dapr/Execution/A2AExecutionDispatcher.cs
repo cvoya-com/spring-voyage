@@ -8,10 +8,10 @@ using System.Text.Json;
 using A2A.V0_3;
 
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Tenancy;
 
 using Microsoft.Extensions.Logging;
@@ -877,12 +877,14 @@ public class A2AExecutionDispatcher(
     /// messages for operators.
     /// </summary>
     /// <remarks>
-    /// #1732: this is the single derivation point for the launcher. The agent
-    /// definition stores the runtime id (<c>agent</c>), the registry maps it
-    /// to a <see cref="IAgentRuntime.Kind"/>, and the launcher dictionary
-    /// is keyed on the same value. Two distinct runtimes that share a
-    /// <c>Kind</c> (e.g. <c>openai</c> and <c>google</c> both =
-    /// <c>spring-voyage</c>) resolve to the same launcher.
+    /// #1732: this is the single derivation point for the launcher. The
+    /// agent definition stores the runtime id (<c>agent</c>), the
+    /// catalogue maps it to a
+    /// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/>
+    /// id, and the launcher dictionary is keyed on the same value. Two
+    /// distinct runtimes that share a launcher id (e.g. <c>openai</c>
+    /// and <c>google</c> both reference <c>spring-voyage-agent</c>)
+    /// resolve to the same launcher.
     /// </remarks>
     internal (string Kind, IAgentRuntimeLauncher Launcher) ResolveLauncher(
         string agentRuntimeId,

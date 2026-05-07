@@ -12,9 +12,9 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// Tenant seed provider that auto-installs every DI-registered
 /// <see cref="IConnectorType"/> onto the bootstrapped tenant. Parallel to
-/// <see cref="AgentRuntimes.AgentRuntimeInstallSeedProvider"/>. Registered
-/// as a Singleton; opens a child scope per call to resolve the scoped
-/// <see cref="ITenantConnectorInstallService"/>.
+/// <see cref="ModelProviders.ModelProviderInstallSeedProvider"/>.
+/// Registered as a Singleton; opens a child scope per call to resolve
+/// the scoped <see cref="ITenantConnectorInstallService"/>.
 /// </summary>
 public sealed class ConnectorInstallSeedProvider(
     IEnumerable<IConnectorType> connectorTypes,

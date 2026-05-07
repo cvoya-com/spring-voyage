@@ -12,11 +12,13 @@ namespace Cvoya.Spring.Core.Execution;
 /// to be registered as the default <see cref="IAiProvider"/> in DI.
 /// </summary>
 /// <remarks>
-/// Mirror of the <c>IAgentRuntimeRegistry</c> shape used for agent-runtime
-/// resolution (#1683). Both registries enumerate their respective DI services
-/// once at construction and answer subsequent <c>Get</c> calls in O(1); the
+/// Pairs with <see cref="IAgentRuntimeLauncherRegistry"/>: this registry
+/// indexes single-shot REST providers, that one indexes container
+/// launchers. Both enumerate their respective DI services once at
+/// construction and answer subsequent <c>Get</c> calls in O(1); the
 /// dictionary is built up-front so a misconfigured deployment with two
-/// providers reporting the same id fails at host start, not on first dispatch.
+/// providers reporting the same id fails at host start, not on first
+/// dispatch.
 /// </remarks>
 public interface IAiProviderRegistry
 {

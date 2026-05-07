@@ -5,9 +5,9 @@ namespace Cvoya.Spring.Core.Catalog;
 
 /// <summary>
 /// Read-only access to the platform's runtime catalogue
-/// (<c>platform/runtime-catalog.yaml</c>). Loaded once at startup;
-/// consumed by services that previously walked
-/// <c>IAgentRuntimeRegistry</c>.
+/// (<c>platform/runtime-catalog.yaml</c>) — the canonical source for
+/// agent-runtime and model-provider definitions per ADR-0038. Loaded
+/// once at startup.
 /// </summary>
 /// <remarks>
 /// <para>

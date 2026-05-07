@@ -58,7 +58,7 @@ function makeProvider(
   // ADR-0038: model-provider install rows carry id, displayName, models,
   // defaultModel, baseUrl, credentialKind, credentialDisplayHint, and
   // credentialSecretName. The legacy `kind` / `defaultImage` fields
-  // belonged to InstalledAgentRuntimeResponse and moved into
+  // belonged to the pre-ADR-0038 InstalledAgentRuntimeResponse and moved into
   // `runtime-catalog.yaml` — they're not on the wire anymore.
   return {
     id: "anthropic",

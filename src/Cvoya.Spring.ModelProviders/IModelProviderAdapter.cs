@@ -3,8 +3,8 @@
 
 namespace Cvoya.Spring.ModelProviders;
 
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
+using Cvoya.Spring.Core.ModelProviders;
 
 /// <summary>
 /// Adapter strategy for one wire-format family of model providers (per
@@ -38,11 +38,10 @@ public interface IModelProviderAdapter
     string AdapterId { get; }
 
     /// <summary>
-    /// Best-effort fetch of the provider's live model catalogue. Replaces
-    /// the per-runtime <c>FetchLiveModelsAsync</c> on the legacy
-    /// <c>IAgentRuntime</c> with a per-provider call so two runtimes
-    /// targeting the same provider share the catalogue per ADR-0038
-    /// decision 6.
+    /// Best-effort fetch of the provider's live model catalogue. Per
+    /// ADR-0038 decision 6, the live-catalogue contract sits on the
+    /// model provider rather than the agent runtime, so two runtimes
+    /// targeting the same provider share the catalogue.
     /// </summary>
     /// <param name="provider">The catalogue entry describing this provider.</param>
     /// <param name="credential">

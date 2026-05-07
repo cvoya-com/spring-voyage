@@ -4,7 +4,6 @@
 namespace Cvoya.Spring.Dapr.DependencyInjection;
 
 using Cvoya.Spring.Connectors;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Catalog;
@@ -12,9 +11,9 @@ using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Units;
-using Cvoya.Spring.Dapr.AgentRuntimes;
 using Cvoya.Spring.Dapr.Capabilities;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.Execution;
@@ -142,12 +141,11 @@ internal static class ServiceCollectionExtensionsExecution
         // audit logging or additional policy dimensions).
         services.TryAddSingleton<IAgentUnitPolicyCoordinator, AgentUnitPolicyCoordinator>();
 
-        // ADR-0038: services consult IRuntimeCatalog directly. The legacy
-        // IAgentRuntime / IAgentRuntimeRegistry interfaces are gone (PR-1b
-        // wire reshape). An empty fallback IRuntimeCatalog stays registered
-        // here only when the host omits AddCvoyaSpringRuntimeCatalog (test
-        // harnesses that exercise the DI graph without the catalogue
-        // project) so dependent services can resolve.
+        // ADR-0038: services consult IRuntimeCatalog directly. An empty
+        // fallback IRuntimeCatalog stays registered here only when the
+        // host omits AddCvoyaSpringRuntimeCatalog (test harnesses that
+        // exercise the DI graph without the catalogue project) so
+        // dependent services can resolve.
         services.TryAddSingleton<IRuntimeCatalog>(_ => new EmptyRuntimeCatalog());
 
         // Tier-2 LLM credential resolver (#615). Delegates to the

@@ -136,7 +136,7 @@ function makeRuntime(
   const id = overrides.id ?? "claude";
   // ADR-0038 (PR-1b): the install row no longer carries `kind` /
   // `defaultImage` — those fields belonged to the legacy
-  // `InstalledAgentRuntimeResponse` and moved into
+  // `InstalledAgentRuntimeResponse` (pre-ADR-0038) and moved into
   // `runtime-catalog.yaml`. The fixture now mirrors the new
   // model-provider install shape.
   return {

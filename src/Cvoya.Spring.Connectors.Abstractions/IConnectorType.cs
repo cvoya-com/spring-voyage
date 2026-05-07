@@ -5,7 +5,7 @@ namespace Cvoya.Spring.Connectors;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.ModelProviders;
 
 using Microsoft.AspNetCore.Routing;
 

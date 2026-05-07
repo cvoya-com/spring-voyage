@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.AgentRuntimes;
+namespace Cvoya.Spring.Core.ModelProviders;
 
 /// <summary>
 /// Identifies which consumer path will dispatch a stored credential.
@@ -16,13 +16,16 @@ namespace Cvoya.Spring.Core.AgentRuntimes;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Each <see cref="IAgentRuntime"/> declares its per-path acceptance rules
-/// via <see cref="IAgentRuntime.IsCredentialFormatAccepted"/>. The
-/// architectural boundary between these paths is documented in
-/// ADR 0021 — <c>Cvoya.Spring.Core</c> never implements a multi-turn loop
-/// itself, so both paths are thin adapters over either the provider's
-/// REST surface (for single-shot completions) or the agent-runtime CLI
-/// inside a container (for full agent dispatch).
+/// The architectural boundary between these paths is documented in
+/// ADR 0021 — <c>Cvoya.Spring.Core</c> never implements a multi-turn
+/// loop itself, so both paths are thin adapters over either the
+/// provider's REST surface (for single-shot completions) or the
+/// agent-runtime CLI inside a container (for full agent dispatch).
+/// Per-path credential acceptance now lives on
+/// <see cref="Cvoya.Spring.ModelProviders.IModelProviderAdapter"/> for
+/// the REST path and inline on each
+/// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher"/> for
+/// the agent-runtime path (ADR-0038).
 /// </para>
 /// </remarks>
 public enum CredentialDispatchPath
@@ -37,12 +40,13 @@ public enum CredentialDispatchPath
     Rest = 0,
 
     /// <summary>
-    /// The in-container agent-runtime path consumed by
-    /// <see cref="IAgentRuntime"/> via the <c>A2AExecutionDispatcher</c>.
-    /// This path runs the provider-specific CLI or SDK inside the unit's
-    /// container, which may accept a broader set of credential formats
-    /// than the REST path (for example, the <c>claude</c> CLI accepts
-    /// Claude.ai OAuth tokens).
+    /// The in-container agent-runtime path consumed by an
+    /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher"/>
+    /// via the <c>A2AExecutionDispatcher</c>. This path runs the
+    /// provider-specific CLI or SDK inside the unit's container, which
+    /// may accept a broader set of credential formats than the REST
+    /// path (for example, the <c>claude</c> CLI accepts Claude.ai OAuth
+    /// tokens).
     /// </summary>
     AgentRuntime = 1,
 }

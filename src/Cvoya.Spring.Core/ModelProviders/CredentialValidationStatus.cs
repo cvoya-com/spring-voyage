@@ -1,20 +1,21 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.AgentRuntimes;
+namespace Cvoya.Spring.Core.ModelProviders;
 
 /// <summary>
-/// Outcome of
-/// <see cref="IAgentRuntime.ValidateCredentialAsync(string, System.Threading.CancellationToken)"/>.
-/// The credential-health store maps these values to its own state machine;
-/// treat these as the raw signal from a single validation attempt.
+/// Outcome of a credential-validation attempt against a model provider's
+/// backing service. The credential-health store maps these values to its
+/// own state machine; treat these as the raw signal from a single
+/// validation attempt.
 /// </summary>
 public enum CredentialValidationStatus
 {
     /// <summary>
-    /// Validation has not been attempted, or its result cannot be determined
-    /// (e.g. the runtime requires no credential and therefore nothing was
-    /// checked). Callers should treat this as "pending" rather than "good".
+    /// Validation has not been attempted, or its result cannot be
+    /// determined (e.g. the provider requires no credential and
+    /// therefore nothing was checked). Callers should treat this as
+    /// "pending" rather than "good".
     /// </summary>
     Unknown = 0,
 

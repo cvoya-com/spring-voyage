@@ -5,8 +5,8 @@ namespace Cvoya.Spring.AgentRuntimes.Tests.Launchers;
 
 using Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

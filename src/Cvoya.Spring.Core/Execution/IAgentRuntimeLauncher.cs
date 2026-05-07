@@ -3,14 +3,15 @@
 
 namespace Cvoya.Spring.Core.Execution;
 
-using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.ModelProviders;
 
 /// <summary>
 /// Describes the container-launch contract for one specific agent runtime.
-/// Different runtimes (Claude Code, Codex, Gemini CLI, …) materialise their
-/// per-invocation configuration differently, so each gets its own launcher.
-/// The dispatcher selects the launcher whose <see cref="Kind"/> matches the
-/// resolved <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Kind"/>.
+/// Different runtimes (Claude Code, Codex, Gemini CLI, …) materialise
+/// their per-invocation configuration differently, so each gets its own
+/// launcher. The dispatcher selects the launcher whose <see cref="Kind"/>
+/// matches the catalogue runtime's
+/// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/> id.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,22 +22,26 @@ using Cvoya.Spring.Core.AgentRuntimes;
 /// resolve to a real path the container runtime can see — see issue #1042.
 /// </para>
 /// <para>
-/// #1732: launchers are keyed on the runtime's
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Kind"/>. The
-/// dispatcher looks up the runtime by the agent's persisted <c>execution.agent</c>
-/// (i.e. <see cref="AgentExecutionConfig.AgentRuntimeId"/>) and picks the
-/// launcher whose <see cref="Kind"/> matches.
+/// Per ADR-0038, launchers are keyed on the catalogue runtime's
+/// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/> id. The
+/// dispatcher looks up the runtime by the agent's persisted
+/// <c>execution.agent</c> (i.e.
+/// <see cref="AgentExecutionConfig.AgentRuntimeId"/>) through
+/// <see cref="Cvoya.Spring.Core.Catalog.IRuntimeCatalog.GetAgentRuntime"/>
+/// and picks the launcher whose <see cref="Kind"/> matches the
+/// runtime's <c>Launcher</c> field.
 /// </para>
 /// </remarks>
 public interface IAgentRuntimeLauncher
 {
     /// <summary>
-    /// The agent-runtime kind this launcher handles. Must match the
-    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Kind"/>
-    /// of every runtime that should dispatch through this launcher (multiple
-    /// runtimes may share a kind when they differ only in their LLM
-    /// backend — e.g. <c>openai</c>, <c>google</c>, and <c>ollama</c> all
-    /// share <c>spring-voyage</c>).
+    /// The launcher-strategy id this launcher handles. Must match the
+    /// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/>
+    /// field of every catalogue runtime that should dispatch through
+    /// this launcher (multiple runtimes may share a launcher when they
+    /// differ only in their LLM backend — e.g. <c>openai</c>,
+    /// <c>google</c>, and <c>ollama</c> all share
+    /// <c>spring-voyage-agent</c>).
     /// </summary>
     string Kind { get; }
 
@@ -52,11 +57,10 @@ public interface IAgentRuntimeLauncher
 
     /// <summary>
     /// Builds the declarative list of in-container probe commands the
-    /// Dapr <c>UnitValidationWorkflow</c> should execute against the unit's
-    /// chosen container image, after pulling the image and starting it.
-    /// Replaces the per-<c>IAgentRuntime</c> implementation per ADR-0038
-    /// (the per-provider runtime classes are gone; their probe logic
-    /// belongs next to the launcher that actually runs the tool).
+    /// Dapr <c>UnitValidationWorkflow</c> should execute against the
+    /// unit's chosen container image, after pulling the image and
+    /// starting it. Per ADR-0038 the probe logic lives next to the
+    /// launcher that actually runs the tool.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -71,16 +75,16 @@ public interface IAgentRuntimeLauncher
     /// </remarks>
     /// <param name="config">
     /// The tenant's stored install configuration. Implementations typically
-    /// read <see cref="AgentRuntimeInstallConfig.DefaultModel"/> to target
+    /// read <see cref="ModelProviderInstallConfig.DefaultModel"/> to target
     /// the model that the unit's binding will run, and
-    /// <see cref="AgentRuntimeInstallConfig.BaseUrl"/> to override the
+    /// <see cref="ModelProviderInstallConfig.BaseUrl"/> to override the
     /// provider endpoint.
     /// </param>
     /// <param name="credential">
     /// The raw credential to inject into the probe environment. Empty when
     /// the runtime requires no credential.
     /// </param>
-    IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential);
+    IReadOnlyList<ProbeStep> GetProbeSteps(ModelProviderInstallConfig config, string credential);
 }
 
 /// <summary>

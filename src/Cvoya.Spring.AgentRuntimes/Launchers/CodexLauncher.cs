@@ -6,9 +6,9 @@ namespace Cvoya.Spring.AgentRuntimes.Launchers;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -70,7 +70,7 @@ public class CodexLauncher(
     /// captured in the Chunk 2a final report; PR-1b regenerates these
     /// against the new <c>(runtime, model)</c> domain.
     /// </remarks>
-    public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential)
+    public IReadOnlyList<ProbeStep> GetProbeSteps(ModelProviderInstallConfig config, string credential)
     {
         ArgumentNullException.ThrowIfNull(config);
         return new[]
@@ -177,8 +177,9 @@ public class CodexLauncher(
         }
 
         // OpenAI Platform API keys start with "sk-". The format check is
-        // inline in the launcher rather than going through the
-        // deleted-by-#1770 IAgentRuntime.IsCredentialFormatAccepted seam.
+        // inline in the launcher per ADR-0038 — the agent-runtime path
+        // owns its own per-path acceptance rules; the REST path's
+        // equivalent lives on IModelProviderAdapter.
         if (!resolution.Value!.StartsWith("sk-", StringComparison.Ordinal))
         {
             throw new SpringException(

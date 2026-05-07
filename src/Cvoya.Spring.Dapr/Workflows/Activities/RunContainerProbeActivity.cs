@@ -3,9 +3,9 @@
 
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Units;
 
@@ -21,12 +21,12 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Per T-04's refinement of the T-03 contract, interpretation happens inside
-/// this activity rather than in the workflow body — the delegate lives in
-/// the runtime plugin and resolving it from a
-/// <see cref="IAgentRuntimeRegistry"/> singleton only works in a process
-/// with DI. Keeping that call here lets the workflow stay deterministic and
-/// delegate-free.
+/// Per T-04's refinement of the T-03 contract, interpretation happens
+/// inside this activity rather than in the workflow body — the delegate
+/// lives on the launcher and resolving the catalogue +
+/// <see cref="IAgentRuntimeLauncherRegistry"/> only works in a process
+/// with DI. Keeping that call here lets the workflow stay deterministic
+/// and delegate-free.
 /// </para>
 /// <para>
 /// Redaction runs twice by design: once on the raw stdout/stderr before
@@ -89,7 +89,7 @@ public class RunContainerProbeActivity(
         // when it starts the workflow from UnitActor: the default model is
         // the requested model (drives ResolvingModel), BaseUrl is left null
         // so runtimes use their seed default.
-        var config = new AgentRuntimeInstallConfig(
+        var config = new ModelProviderInstallConfig(
             Models: Array.Empty<string>(),
             DefaultModel: input.RequestedModel,
             BaseUrl: null);

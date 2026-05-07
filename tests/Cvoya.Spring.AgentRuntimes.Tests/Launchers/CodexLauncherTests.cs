@@ -7,8 +7,8 @@ using System.Text.Json;
 
 using Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 
 using Microsoft.Extensions.Logging;
 
@@ -49,8 +49,8 @@ public class CodexLauncherTests
     [Fact]
     public void Kind_IsCodexCli()
     {
-        // #1732: codex-cli is the canonical tool kind for a future Codex
-        // runtime. No IAgentRuntime currently resolves to this launcher.
+        // #1732: codex-cli is the canonical launcher id for the Codex
+        // catalogue runtime entry.
         _launcher.Kind.ShouldBe("codex-cli");
     }
 

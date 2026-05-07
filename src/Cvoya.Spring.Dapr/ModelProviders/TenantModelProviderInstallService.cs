@@ -1,12 +1,12 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.AgentRuntimes;
+namespace Cvoya.Spring.Dapr.ModelProviders;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -16,39 +16,31 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default EF Core-backed implementation of
-/// <see cref="ITenantAgentRuntimeInstallService"/>. Persists rows to
-/// <c>tenant_model_provider_installs</c> (renamed under ADR-0038 — see
+/// <see cref="ITenantModelProviderInstallService"/>. Persists rows to
+/// <c>tenant_model_provider_installs</c> (see
 /// <see cref="TenantModelProviderInstallEntity"/>) and materialises
-/// config from the runtime's seed defaults when none is supplied on
-/// install.
+/// config from the provider's catalogue defaults when none is supplied
+/// on install.
 /// </summary>
-/// <remarks>
-/// PR-1a transitional shape: the public interface still surfaces
-/// <c>RuntimeId</c> on every read/write while the wire DTOs remain
-/// runtime-keyed; the persisted column is named <c>provider_id</c>
-/// because PR-1b reshapes the wire to be provider-keyed. The runtime
-/// id flows verbatim into the column today; the wire reshape is the
-/// follow-on PR.
-/// </remarks>
-public sealed class TenantAgentRuntimeInstallService(
+public sealed class TenantModelProviderInstallService(
     SpringDbContext dbContext,
     ITenantContext tenantContext,
     IRuntimeCatalog runtimeCatalog,
-    ILogger<TenantAgentRuntimeInstallService> logger) : ITenantAgentRuntimeInstallService
+    ILogger<TenantModelProviderInstallService> logger) : ITenantModelProviderInstallService
 {
     /// <inheritdoc />
-    public async Task<InstalledAgentRuntime> InstallAsync(
-        string runtimeId,
-        AgentRuntimeInstallConfig? config,
+    public async Task<InstalledModelProvider> InstallAsync(
+        string providerId,
+        ModelProviderInstallConfig? config,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(runtimeId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
 
         // ADR-0038: installs are keyed on model-provider id, sourced from
         // the runtime catalogue (platform/runtime-catalog.yaml).
-        var provider = runtimeCatalog.GetModelProvider(runtimeId)
+        var provider = runtimeCatalog.GetModelProvider(providerId)
             ?? throw new InvalidOperationException(
-                $"Model provider '{runtimeId}' is not declared in platform/runtime-catalog.yaml.");
+                $"Model provider '{providerId}' is not declared in platform/runtime-catalog.yaml.");
 
         var tenantId = tenantContext.CurrentTenantId;
         var now = DateTimeOffset.UtcNow;
@@ -98,7 +90,7 @@ public sealed class TenantAgentRuntimeInstallService(
         // explicitly supplied one — matches the ITenantSeedProvider rule
         // that repeat invocations must not overwrite operator edits.
         var effective = config is null
-            ? Deserialize(existing.ConfigJson) ?? AgentRuntimeInstallConfig.Empty
+            ? Deserialize(existing.ConfigJson) ?? ModelProviderInstallConfig.Empty
             : config;
         if (config is not null)
         {
@@ -112,14 +104,14 @@ public sealed class TenantAgentRuntimeInstallService(
     }
 
     /// <inheritdoc />
-    public async Task UninstallAsync(string runtimeId, CancellationToken cancellationToken = default)
+    public async Task UninstallAsync(string providerId, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(runtimeId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
 
         var tenantId = tenantContext.CurrentTenantId;
         var existing = await dbContext.TenantModelProviderInstalls
             .FirstOrDefaultAsync(
-                e => e.TenantId == tenantId && e.ProviderId == runtimeId,
+                e => e.TenantId == tenantId && e.ProviderId == providerId,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -131,82 +123,82 @@ public sealed class TenantAgentRuntimeInstallService(
         existing.DeletedAt = DateTimeOffset.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         logger.LogInformation(
-            "Uninstalled agent runtime '{RuntimeId}' from tenant '{TenantId}'.",
-            runtimeId, tenantId);
+            "Uninstalled model provider '{ProviderId}' from tenant '{TenantId}'.",
+            providerId, tenantId);
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<InstalledAgentRuntime>> ListAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<InstalledModelProvider>> ListAsync(CancellationToken cancellationToken = default)
     {
         var rows = await dbContext.TenantModelProviderInstalls
             .OrderBy(e => e.ProviderId)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
-        return rows.Select(r => Project(r, Deserialize(r.ConfigJson) ?? AgentRuntimeInstallConfig.Empty)).ToArray();
+        return rows.Select(r => Project(r, Deserialize(r.ConfigJson) ?? ModelProviderInstallConfig.Empty)).ToArray();
     }
 
     /// <inheritdoc />
-    public async Task<InstalledAgentRuntime?> GetAsync(string runtimeId, CancellationToken cancellationToken = default)
+    public async Task<InstalledModelProvider?> GetAsync(string providerId, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(runtimeId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
 
         var row = await dbContext.TenantModelProviderInstalls
             .FirstOrDefaultAsync(
-                e => e.ProviderId == runtimeId,
+                e => e.ProviderId == providerId,
                 cancellationToken)
             .ConfigureAwait(false);
         return row is null
             ? null
-            : Project(row, Deserialize(row.ConfigJson) ?? AgentRuntimeInstallConfig.Empty);
+            : Project(row, Deserialize(row.ConfigJson) ?? ModelProviderInstallConfig.Empty);
     }
 
     /// <inheritdoc />
-    public async Task<InstalledAgentRuntime> UpdateConfigAsync(
-        string runtimeId,
-        AgentRuntimeInstallConfig config,
+    public async Task<InstalledModelProvider> UpdateConfigAsync(
+        string providerId,
+        ModelProviderInstallConfig config,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(runtimeId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
         ArgumentNullException.ThrowIfNull(config);
 
         var tenantId = tenantContext.CurrentTenantId;
         var row = await dbContext.TenantModelProviderInstalls
             .FirstOrDefaultAsync(
-                e => e.ProviderId == runtimeId,
+                e => e.ProviderId == providerId,
                 cancellationToken)
             .ConfigureAwait(false)
             ?? throw new InvalidOperationException(
-                $"Agent runtime '{runtimeId}' is not installed on tenant '{tenantId}'.");
+                $"Model provider '{providerId}' is not installed on tenant '{tenantId}'.");
 
         row.ConfigJson = Serialize(config);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return Project(row, config);
     }
 
-    private static AgentRuntimeInstallConfig FromCatalogueDefaults(ModelProvider provider)
+    private static ModelProviderInstallConfig FromCatalogueDefaults(ModelProvider provider)
     {
         var models = provider.DefaultModels.ToArray();
-        return new AgentRuntimeInstallConfig(
+        return new ModelProviderInstallConfig(
             Models: models,
             DefaultModel: models.Length > 0 ? models[0] : null,
             BaseUrl: null);
     }
 
-    private static InstalledAgentRuntime Project(
+    private static InstalledModelProvider Project(
         TenantModelProviderInstallEntity row,
-        AgentRuntimeInstallConfig config)
+        ModelProviderInstallConfig config)
         => new(row.ProviderId, row.TenantId, config, row.InstalledAt, row.UpdatedAt);
 
-    private static JsonElement? Serialize(AgentRuntimeInstallConfig config)
+    private static JsonElement? Serialize(ModelProviderInstallConfig config)
         => JsonSerializer.SerializeToElement(config);
 
-    private static AgentRuntimeInstallConfig? Deserialize(JsonElement? element)
+    private static ModelProviderInstallConfig? Deserialize(JsonElement? element)
     {
         if (element is null || element.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
         {
             return null;
         }
 
-        return JsonSerializer.Deserialize<AgentRuntimeInstallConfig>(element.Value.GetRawText());
+        return JsonSerializer.Deserialize<ModelProviderInstallConfig>(element.Value.GetRawText());
     }
 }

@@ -1,14 +1,14 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.AgentRuntimes;
+namespace Cvoya.Spring.Core.ModelProviders;
 
 /// <summary>
-/// The result of validating a candidate credential against a runtime's
-/// backing service.
+/// The result of validating a candidate credential against a model
+/// provider's backing service.
 /// </summary>
 /// <remarks>
-/// Intentionally not <c>sealed</c> so private-repo runtimes / connector
+/// Intentionally not <c>sealed</c> so private-repo providers / connector
 /// types can extend the shape with provider-specific diagnostic fields
 /// (e.g. throttling reasons) without forking the open-source contract.
 /// </remarks>
@@ -25,12 +25,13 @@ namespace Cvoya.Spring.Core.AgentRuntimes;
 /// <param name="Status">The raw outcome of this validation attempt.</param>
 /// <param name="ValidatedAt">
 /// Wall-clock timestamp of the probe attempt. Defaults to <c>null</c> so
-/// existing callers (and runtimes that haven't been updated to surface a
-/// timestamp) keep compiling; the host's
-/// <c>POST /api/v1/agent-runtimes/{id}/validate-credential</c> endpoint
-/// substitutes <see cref="DateTimeOffset.UtcNow"/> when this is null so
-/// the wire DTO and the persisted <c>credential_health.LastChecked</c>
-/// row always carry a value (#1066).
+/// existing callers (and providers that haven't been updated to surface
+/// a timestamp) keep compiling; the host's
+/// <c>POST /api/v1/tenant/model-providers/installs/{id}/validate-credential</c>
+/// endpoint substitutes <see cref="DateTimeOffset.UtcNow"/> when this is
+/// null so the wire DTO and the persisted
+/// <c>credential_health.LastChecked</c> row always carry a value
+/// (#1066).
 /// </param>
 public record CredentialValidationResult(
     bool Valid,

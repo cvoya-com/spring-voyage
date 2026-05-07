@@ -1,12 +1,12 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.AgentRuntimes;
+namespace Cvoya.Spring.Core.ModelProviders;
 
 /// <summary>
-/// The result of a live model-catalog fetch against a runtime's backing
-/// service. Returned by
-/// <see cref="IAgentRuntime.FetchLiveModelsAsync(string, System.Threading.CancellationToken)"/>.
+/// The result of a live model-catalog fetch against a model provider's
+/// backing service. Returned by
+/// <see cref="Cvoya.Spring.ModelProviders.IModelProviderAdapter.FetchLiveModelsAsync"/>.
 /// </summary>
 /// <param name="Status">
 /// Raw outcome of this fetch attempt. Callers MUST inspect this before
@@ -17,8 +17,8 @@ namespace Cvoya.Spring.Core.AgentRuntimes;
 /// The live model list returned by the backing service when
 /// <paramref name="Status"/> is <see cref="FetchLiveModelsStatus.Success"/>;
 /// an empty array for every other outcome. Implementations should surface
-/// the same projection shape as <see cref="IAgentRuntime.DefaultModels"/>
-/// so callers can swap the two lists without adapter code.
+/// the same projection shape as the catalogue's seed defaults so callers
+/// can swap the two lists without adapter code.
 /// </param>
 /// <param name="ErrorMessage">
 /// Human-readable explanation when the fetch did not complete successfully.
@@ -34,8 +34,8 @@ public sealed record FetchLiveModelsResult(
     public static FetchLiveModelsResult Success(IReadOnlyList<ModelDescriptor> models) =>
         new(FetchLiveModelsStatus.Success, models, ErrorMessage: null);
 
-    /// <summary>Convenience factory for a runtime that cannot enumerate live models.</summary>
-    /// <param name="reason">Operator-readable description of why the runtime is unsupported.</param>
+    /// <summary>Convenience factory for a provider that cannot enumerate live models.</summary>
+    /// <param name="reason">Operator-readable description of why the provider is unsupported.</param>
     public static FetchLiveModelsResult Unsupported(string reason) =>
         new(FetchLiveModelsStatus.Unsupported, Array.Empty<ModelDescriptor>(), reason);
 

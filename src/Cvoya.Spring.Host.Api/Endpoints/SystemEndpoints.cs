@@ -5,9 +5,9 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using System.Text.Json.Serialization;
 
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.ModelProviders;
 
@@ -67,7 +67,7 @@ public static class SystemEndpoints
     private const string ReasonFormatRejected = "format-rejected";
 
     // Accepted query-parameter values for `?dispatchPath=…` — mirrors
-    // Cvoya.Spring.Core.AgentRuntimes.CredentialDispatchPath. Kept as
+    // Cvoya.Spring.Core.ModelProviders.CredentialDispatchPath. Kept as
     // strings at the wire because enum JSON binding for minimal APIs
     // is still case-sensitive and awkward; a hand-rolled switch is
     // both smaller and gives us a clear 400 surface for bad values.

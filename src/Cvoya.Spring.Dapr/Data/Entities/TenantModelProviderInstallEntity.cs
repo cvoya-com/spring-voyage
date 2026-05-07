@@ -29,7 +29,7 @@ public class TenantModelProviderInstallEntity : ITenantScopedEntity
 
     /// <summary>
     /// Tenant-scoped configuration for this provider, stored as JSONB.
-    /// Shape mirrors <see cref="Cvoya.Spring.Core.AgentRuntimes.AgentRuntimeInstallConfig"/>
+    /// Shape mirrors <see cref="Cvoya.Spring.Core.ModelProviders.ModelProviderInstallConfig"/>
     /// (the same triple <c>{ models, defaultModel, baseUrl }</c>; field
     /// names are preserved for v0.1 to keep persistence stable while the
     /// Web API DTOs reshape in PR-1b).

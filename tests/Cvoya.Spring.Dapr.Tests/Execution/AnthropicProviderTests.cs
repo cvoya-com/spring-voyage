@@ -100,12 +100,14 @@ public class AnthropicProviderTests
     }
 
     /// <summary>
-    /// Verifies that a Claude.ai OAuth token (sk-ant-oat…) surfaces a structured
-    /// <see cref="SpringException"/> at dispatch without hitting the REST endpoint,
-    /// replacing the silent-502 behaviour reported in #981. OAuth tokens are only
-    /// usable through the in-container <c>claude</c> CLI path exposed by
-    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime"/>, so the REST
-    /// provider must fail fast with an operator-actionable message.
+    /// Verifies that a Claude.ai OAuth token (sk-ant-oat…) surfaces a
+    /// structured <see cref="SpringException"/> at dispatch without
+    /// hitting the REST endpoint, replacing the silent-502 behaviour
+    /// reported in #981. OAuth tokens are only usable through the
+    /// in-container <c>claude</c> CLI path served by an
+    /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher"/>,
+    /// so the REST provider must fail fast with an operator-actionable
+    /// message.
     /// </summary>
     [Fact]
     public async Task CompleteAsync_OAuthToken_ThrowsCredentialFormatRejectedWithoutCallingRest()

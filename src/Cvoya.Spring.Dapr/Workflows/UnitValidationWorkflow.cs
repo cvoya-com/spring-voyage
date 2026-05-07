@@ -32,13 +32,13 @@ using global::Dapr.Workflow;
 /// </list>
 /// </para>
 /// <para>
-/// <b>Skipped steps.</b> Runtimes whose credential schema is
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.AgentRuntimeCredentialKind.None"/>
+/// <b>Skipped steps.</b> Providers whose credential schema is
+/// <see cref="Cvoya.Spring.Core.ModelProviders.ModelProviderCredentialKind.None"/>
 /// (Ollama) omit <see cref="UnitValidationStep.ValidatingCredential"/> from
 /// their step list; the activity layer returns a "no step declared" error
 /// for a request that references a skipped step, so the workflow
 /// pre-filters by driving the fixed ordinal sequence and asks the activity
-/// only for steps it knows the runtime declared. T-04 hard-codes the
+/// only for steps it knows the launcher declared. T-04 hard-codes the
 /// universal ordering; T-05+ may revisit.
 /// </para>
 /// </remarks>
@@ -53,7 +53,7 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
     /// <summary>
     /// Ordered probe-step sequence the workflow walks after the image pull.
     /// Matches the contract in
-    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.GetProbeSteps(Cvoya.Spring.Core.AgentRuntimes.AgentRuntimeInstallConfig, string)"/>:
+    /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher.GetProbeSteps(Cvoya.Spring.Core.ModelProviders.ModelProviderInstallConfig, string)"/>:
     /// <see cref="UnitValidationStep.PullingImage"/> is the workflow's own
     /// first step and is not included here.
     /// </summary>

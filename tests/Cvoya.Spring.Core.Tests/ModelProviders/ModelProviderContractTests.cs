@@ -1,18 +1,18 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.Tests.AgentRuntimes;
+namespace Cvoya.Spring.Core.Tests.ModelProviders;
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.ModelProviders;
 
 using Shouldly;
 
 using Xunit;
 
-public class AgentRuntimeContractTests
+public class ModelProviderContractTests
 {
     [Fact]
     public void CredentialValidationResult_Valid_CarriesStatus()
@@ -56,11 +56,11 @@ public class AgentRuntimeContractTests
     }
 
     [Fact]
-    public void AgentRuntimeCredentialSchema_DefaultsDisplayHintToNull()
+    public void ModelProviderCredentialSchema_DefaultsDisplayHintToNull()
     {
-        var schema = new AgentRuntimeCredentialSchema(AgentRuntimeCredentialKind.ApiKey);
+        var schema = new ModelProviderCredentialSchema(ModelProviderCredentialKind.ApiKey);
 
-        schema.Kind.ShouldBe(AgentRuntimeCredentialKind.ApiKey);
+        schema.Kind.ShouldBe(ModelProviderCredentialKind.ApiKey);
         schema.DisplayHint.ShouldBeNull();
     }
 
@@ -145,12 +145,13 @@ public class AgentRuntimeContractTests
 }
 
 /// <summary>
-/// Round-trip tests for the agent-runtime seed file schema documented at
-/// <c>src/Cvoya.Spring.Core/AgentRuntimes/README.md</c>. The contract itself
-/// does not load seeds — each runtime owns its own loading logic — but the
-/// schema is stable, so we pin it here so drift shows up as a test failure.
+/// Round-trip tests for the per-runtime seed file schema documented at
+/// <c>platform/runtime-catalog.yaml</c>. The contract itself does not
+/// load seeds — each per-runtime project owns its own loading logic —
+/// but the schema is stable, so we pin it here so drift shows up as a
+/// test failure.
 /// </summary>
-public class AgentRuntimeSeedSchemaTests
+public class ModelProviderSeedSchemaTests
 {
     /// <summary>
     /// Mirror of the documented seed schema:

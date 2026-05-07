@@ -7,8 +7,8 @@ using System.Text.Json;
 
 using Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 
 using Microsoft.Extensions.Logging;
 
@@ -49,8 +49,8 @@ public class GeminiLauncherTests
     [Fact]
     public void Kind_IsGeminiCli()
     {
-        // #1732: gemini-cli is the canonical tool kind for a future Gemini
-        // runtime. No IAgentRuntime currently resolves to this launcher.
+        // #1732: gemini-cli is the canonical launcher id for a future
+        // Gemini catalogue runtime entry.
         _launcher.Kind.ShouldBe("gemini-cli");
     }
 

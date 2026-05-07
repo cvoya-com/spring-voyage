@@ -6,9 +6,9 @@ namespace Cvoya.Spring.AgentRuntimes.Launchers;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -101,7 +101,7 @@ public class ClaudeCodeLauncher(
     /// captured in the Chunk 2a final report; PR-1b regenerates these
     /// against the new <c>(runtime, model)</c> domain.
     /// </remarks>
-    public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential)
+    public IReadOnlyList<ProbeStep> GetProbeSteps(ModelProviderInstallConfig config, string credential)
     {
         ArgumentNullException.ThrowIfNull(config);
         return new[]
@@ -227,13 +227,14 @@ public class ClaudeCodeLauncher(
                 $"or configure via the Tenant defaults panel.");
         }
 
-        // Strict per-path acceptance (#1714): the Claude CLI dispatch path
-        // is OAuth-only. Reject API keys with operator guidance — they are
-        // usable on this project only via `agent: spring-voyage, provider:
-        // anthropic` (which routes through Dapr Conversation REST and
-        // accepts API keys exclusively). The format check is now inline in
-        // the launcher rather than going through the deleted-by-#1770
-        // IAgentRuntime.IsCredentialFormatAccepted seam.
+        // Strict per-path acceptance (#1714): the Claude CLI dispatch
+        // path is OAuth-only. Reject API keys with operator guidance —
+        // they are usable on this project only via `agent: spring-voyage,
+        // provider: anthropic` (which routes through Dapr Conversation
+        // REST and accepts API keys exclusively). The format check is
+        // inline here per ADR-0038 — the agent-runtime path owns its own
+        // per-path acceptance rules; the REST path's equivalent lives
+        // on IModelProviderAdapter.
         if (!resolution.Value!.StartsWith("sk-ant-oat", StringComparison.Ordinal))
         {
             throw new SpringException(

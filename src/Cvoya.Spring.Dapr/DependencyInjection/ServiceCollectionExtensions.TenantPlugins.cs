@@ -4,13 +4,13 @@
 namespace Cvoya.Spring.Dapr.DependencyInjection;
 
 using Cvoya.Spring.Connectors;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.CredentialHealth;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
-using Cvoya.Spring.Dapr.AgentRuntimes;
 using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.CredentialHealth;
+using Cvoya.Spring.Dapr.ModelProviders;
 using Cvoya.Spring.Dapr.Skills;
 using Cvoya.Spring.Dapr.Tenancy;
 
@@ -20,9 +20,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// Tenant plugin registrations: skill bundles (resolver, validator, seeder),
-/// agent-runtime and connector install services, tenant registry, and
-/// credential-health store.
+/// Tenant plugin registrations: skill bundles (resolver, validator,
+/// seeder), model-provider and connector install services, tenant
+/// registry, and credential-health store.
 /// </summary>
 internal static class ServiceCollectionExtensionsTenantPlugins
 {
@@ -66,16 +66,16 @@ internal static class ServiceCollectionExtensionsTenantPlugins
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<ITenantSeedProvider, FileSystemSkillBundleSeedProvider>());
 
-        // Per-tenant agent-runtime + connector install services (#683,
+        // Per-tenant model-provider + connector install services (#683,
         // #684). Scoped because they depend on SpringDbContext; paired
         // with singleton seed providers that crack open a child DI scope
         // per seed pass. TryAdd* so a cloud overlay can register a
         // tenant-scoped variant (e.g. backed by a different repository)
         // without touching this call site.
-        services.TryAddScoped<ITenantAgentRuntimeInstallService, TenantAgentRuntimeInstallService>();
+        services.TryAddScoped<ITenantModelProviderInstallService, TenantModelProviderInstallService>();
         services.TryAddScoped<ITenantConnectorInstallService, TenantConnectorInstallService>();
         services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<ITenantSeedProvider, AgentRuntimeInstallSeedProvider>());
+            ServiceDescriptor.Singleton<ITenantSeedProvider, ModelProviderInstallSeedProvider>());
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<ITenantSeedProvider, ConnectorInstallSeedProvider>());
 

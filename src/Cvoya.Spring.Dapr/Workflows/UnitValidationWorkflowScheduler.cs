@@ -4,9 +4,9 @@
 namespace Cvoya.Spring.Dapr.Workflows;
 
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Execution;
@@ -254,7 +254,7 @@ public class UnitValidationWorkflowScheduler(
             return null;
         }
 
-        var config = new AgentRuntimeInstallConfig(
+        var config = new ModelProviderInstallConfig(
             Models: Array.Empty<string>(),
             DefaultModel: requestedModel,
             BaseUrl: null);
