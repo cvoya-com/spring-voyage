@@ -12,9 +12,10 @@
 // using GET /api/v1/tenant/analytics/units/{id}/cost-timeseries
 // (default window 7d / bucket 1d, toggle to 30d / 1d).
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Activity, Bot, DollarSign, Layers, MessagesSquare, TrendingDown } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -26,6 +27,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/stat-card";
 import { useUnit, useUnitCostTimeseries, useUnitExecution } from "@/lib/api/queries";
+import { queryKeys } from "@/lib/api/query-keys";
 import { formatCost } from "@/lib/utils";
 
 import { aggregate, type UnitNode } from "../aggregate";
@@ -104,15 +106,38 @@ function UnitOverviewTab({ node }: TabContentProps) {
   // `node.status` is the aggregated worst-status, not the unit's actual
   // lifecycle state, so we mirror `<UnitPaneActions>` and read from the
   // per-unit endpoint instead.
-  const unitQuery = useUnit(node.id, { enabled: node.kind === "Unit" });
+  //
+  // #1787: poll while validating so the Status tile updates without a
+  // manual refresh, and invalidate the tenant-tree once validation exits
+  // so the sidebar / roll-ups follow.
+  const unitQuery = useUnit(node.id, {
+    enabled: node.kind === "Unit",
+    // Function form so the interval reads the *current* cached data on
+    // each refetch tick — using `liveUnit?.status` directly here would
+    // hit a temporal-dead-zone error (it's derived from `unitQuery`
+    // below). Returning `false` stops polling once validation exits.
+    refetchInterval: (query) =>
+      query.state.data?.status === "Validating" ? 3000 : false,
+  });
+  const liveUnit = unitQuery.data ?? null;
   const executionQuery = useUnitExecution(node.id, {
     enabled: node.kind === "Unit",
   });
 
+  const queryClient = useQueryClient();
+  const prevStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    const curr = liveUnit?.status;
+    if (prev === "Validating" && curr && curr !== "Validating") {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+    }
+    prevStatusRef.current = curr;
+  }, [liveUnit?.status, queryClient]);
+
   if (node.kind !== "Unit") return null;
   const unit = node as UnitNode;
   const roll = aggregate(unit);
-  const liveUnit = unitQuery.data ?? null;
 
   const sparklinePoints =
     timeseriesQuery.data?.points?.map((p) => p.costUsd) ?? [];
@@ -165,14 +190,15 @@ function UnitOverviewTab({ node }: TabContentProps) {
           icon={<MessagesSquare className="h-4 w-4" aria-hidden="true" />}
         />
         <StatCard
-          label="Worst status"
-          value={roll.worst}
+          label="Status"
+          value={liveUnit?.status?.toLowerCase() ?? roll.worst}
           icon={<Activity className="h-4 w-4" aria-hidden="true" />}
         />
       </div>
       <div className="text-xs text-muted-foreground">
-        Subtree roll-ups include this unit and every descendant. See the{" "}
-        <Badge variant="outline">Agents</Badge> and{" "}
+        Stat tiles for agents, sub-units, cost, and messages are subtree
+        roll-ups. Status reflects this unit&apos;s live lifecycle state. See
+        the <Badge variant="outline">Agents</Badge> and{" "}
         <Badge variant="outline">Activity</Badge> tabs for drill-downs.
       </div>
 

@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
 } from "react";
 
@@ -106,9 +107,20 @@ export function DetailPane({
   // so a screen reader can tie the tab button to the panel it controls.
   const idPrefix = useId();
 
+  // #1785: cache `onTabChange` in a ref so the correction effect below
+  // does not list it as a dep. The parent's URL-driven `onTabChange`
+  // gets a fresh identity on every URL update; if the effect re-fires
+  // on identity churn, an invalid `tab` URL drives a tight render loop.
+  // The ref is updated in its own effect (not during render — see the
+  // `react-hooks/refs` rule).
+  const onTabChangeRef = useRef(onTabChange);
   useEffect(() => {
-    if (!isValidTab) onTabChange(visibleTabs[0]);
-  }, [isValidTab, visibleTabs, onTabChange]);
+    onTabChangeRef.current = onTabChange;
+  }, [onTabChange]);
+
+  useEffect(() => {
+    if (!isValidTab) onTabChangeRef.current(visibleTabs[0]);
+  }, [isValidTab, visibleTabs]);
 
   const activeTab: TabName = isValidTab ? tab : visibleTabs[0];
   const tabId = (t: TabName) => `${idPrefix}-tab-${tabSlug(t)}`;

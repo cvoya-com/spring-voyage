@@ -28,8 +28,18 @@ const useUnitExecutionMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
   useUnitCostTimeseries: (id: string, window: string, bucket: string) =>
     useUnitCostTimeseriesMock(id, window, bucket),
-  useUnit: (id: string) => useUnitMock(id),
+  useUnit: (id: string, opts?: unknown) => useUnitMock(id, opts),
   useUnitExecution: (id: string) => useUnitExecutionMock(id),
+}));
+
+// #1787: the Status tile invalidates the tenant-tree once validation
+// exits. Stub the query client so we can assert the invalidation
+// without spinning up a real provider.
+const invalidateQueriesMock = vi.fn();
+vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({
+    invalidateQueries: invalidateQueriesMock,
+  }),
 }));
 
 // `<ValidationPanel>` is rendered for `Error` units; stub it out so the
@@ -51,6 +61,10 @@ const noUnit = { data: null, isLoading: false };
 const noExecution = { data: null, isLoading: false };
 
 beforeEach(() => {
+  useUnitCostTimeseriesMock.mockReset();
+  useUnitMock.mockReset();
+  useUnitExecutionMock.mockReset();
+  invalidateQueriesMock.mockReset();
   useUnitCostTimeseriesMock.mockReturnValue(emptyTimeseries);
   useUnitMock.mockReturnValue(noUnit);
   useUnitExecutionMock.mockReturnValue(noExecution);
@@ -188,6 +202,117 @@ describe("UnitOverviewTab", () => {
     render(<UnitOverviewTab node={node} path={[node]} />);
     const panel = screen.getByTestId("validation-panel-stub");
     expect(panel.dataset.validationCode).toBe("ConfigurationIncomplete");
+  });
+
+  // #1787: the Status tile must reflect the live unit endpoint, not
+  // the cached tenant-tree's worst-status aggregate. After validation
+  // completes the tree is stale until the user navigates or waits 30 s,
+  // so showing `liveUnit.status` is the only way the tile updates
+  // promptly.
+  it("#1787: shows live unit status in Status tile when unitQuery resolves", () => {
+    useUnitMock.mockReturnValue({
+      data: {
+        id: "engineering",
+        name: "engineering",
+        displayName: "Engineering",
+        status: "Stopped",
+        lastValidationError: null,
+      },
+      isLoading: false,
+    });
+    const node: UnitNode = {
+      kind: "Unit",
+      id: "engineering",
+      name: "Engineering",
+      // The tree-derived status is deliberately *different* from the
+      // live endpoint's "Stopped" so we can confirm the tile uses the
+      // live value, not the aggregate.
+      status: "running",
+    };
+    render(<UnitOverviewTab node={node} path={[node]} />);
+    expect(screen.getByText("Status")).toBeInTheDocument();
+    // Lower-cased to match the existing tile aesthetic (status badges
+    // and dot are lower-case throughout the explorer).
+    expect(screen.getByText("stopped")).toBeInTheDocument();
+  });
+
+  // #1787: while the unit is validating we poll every 3 s so the Status
+  // tile updates without a manual refresh; once validation exits we
+  // invalidate the tenant-tree so the sidebar / roll-ups follow.
+  it("#1787: passes a refetchInterval that returns 3000 ms while validating", () => {
+    useUnitMock.mockReturnValue({
+      data: {
+        id: "engineering",
+        name: "engineering",
+        displayName: "Engineering",
+        status: "Validating",
+        lastValidationError: null,
+      },
+      isLoading: false,
+    });
+    const node: UnitNode = {
+      kind: "Unit",
+      id: "engineering",
+      name: "Engineering",
+      status: "validating",
+    };
+    render(<UnitOverviewTab node={node} path={[node]} />);
+    // The mock captures the options object — pull `refetchInterval`
+    // off the most recent call and exercise it with a synthetic
+    // query whose state.data carries each status of interest.
+    const opts = useUnitMock.mock.calls.at(-1)?.[1] as
+      | { refetchInterval?: unknown }
+      | undefined;
+    const refetchInterval = opts?.refetchInterval;
+    expect(typeof refetchInterval).toBe("function");
+    if (typeof refetchInterval !== "function") return;
+    expect(
+      refetchInterval({ state: { data: { status: "Validating" } } }),
+    ).toBe(3000);
+    expect(
+      refetchInterval({ state: { data: { status: "Stopped" } } }),
+    ).toBe(false);
+  });
+
+  it("#1787: invalidates tenant-tree when status transitions out of Validating", () => {
+    // First render: status is Validating — no invalidation should fire.
+    useUnitMock.mockReturnValue({
+      data: {
+        id: "engineering",
+        name: "engineering",
+        displayName: "Engineering",
+        status: "Validating",
+        lastValidationError: null,
+      },
+      isLoading: false,
+    });
+    const node: UnitNode = {
+      kind: "Unit",
+      id: "engineering",
+      name: "Engineering",
+      status: "validating",
+    };
+    const { rerender } = render(<UnitOverviewTab node={node} path={[node]} />);
+    expect(invalidateQueriesMock).not.toHaveBeenCalled();
+
+    // Re-render with the live status flipped to Stopped — this is the
+    // moment validation exited and the tenant-tree cache must be
+    // invalidated so the sidebar's roll-up follows.
+    useUnitMock.mockReturnValue({
+      data: {
+        id: "engineering",
+        name: "engineering",
+        displayName: "Engineering",
+        status: "Stopped",
+        lastValidationError: null,
+      },
+      isLoading: false,
+    });
+    rerender(<UnitOverviewTab node={node} path={[node]} />);
+    expect(invalidateQueriesMock).toHaveBeenCalledTimes(1);
+    expect(invalidateQueriesMock).toHaveBeenCalledWith({
+      queryKey: ["tenant", "tree"],
+    });
   });
 
   it("does not render the validation panel for healthy units", () => {
