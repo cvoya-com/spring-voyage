@@ -45,12 +45,18 @@ public class AgentVolumeManager(
     /// <summary>
     /// Canonical mount path inside every agent container. Matches the
     /// <c>SPRING_WORKSPACE_PATH</c> env var value the launchers set and the
-    /// recommended default from the D1 spec (§ 2.1 and § 3.1).
+    /// recommended default from the D1 spec (§ 2.1 and § 3.1). Delegates
+    /// to <see cref="AgentWorkspaceContract.WorkspaceMountPath"/> in
+    /// <c>Cvoya.Spring.Core</c> so launcher projects can read the canonical
+    /// value without depending on Dapr (ADR-0038 Chunk 2a).
     /// </summary>
-    public const string WorkspaceMountPath = "/spring/workspace/";
+    public const string WorkspaceMountPath = AgentWorkspaceContract.WorkspaceMountPath;
 
-    /// <summary>Env var name the D1 spec mandates for the workspace mount path.</summary>
-    public const string WorkspacePathEnvVar = "SPRING_WORKSPACE_PATH";
+    /// <summary>
+    /// Env var name the D1 spec mandates for the workspace mount path.
+    /// Delegates to <see cref="AgentWorkspaceContract.WorkspacePathEnvVar"/>.
+    /// </summary>
+    public const string WorkspacePathEnvVar = AgentWorkspaceContract.WorkspacePathEnvVar;
 
     private static readonly TimeSpan MetricsInterval = TimeSpan.FromMinutes(5);
 

@@ -7,10 +7,10 @@ using System;
 using System.Linq;
 
 using Cvoya.Spring.Core.Configuration;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.DependencyInjection;
-using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;

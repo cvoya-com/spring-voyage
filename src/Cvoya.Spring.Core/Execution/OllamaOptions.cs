@@ -1,10 +1,10 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Execution;
+namespace Cvoya.Spring.Core.Execution;
 
 /// <summary>
-/// Configuration options for the Ollama <see cref="Cvoya.Spring.Core.Execution.IAiProvider"/>
+/// Configuration options for the Ollama <see cref="IAiProvider"/>
 /// implementation. Binds from the <c>LanguageModel:Ollama</c> section.
 /// </summary>
 /// <remarks>
@@ -28,6 +28,11 @@ namespace Cvoya.Spring.Dapr.Execution;
 /// <c>AddCvoyaSpringOllamaLlm</c>. Since OSS registrations use <c>TryAdd*</c>, the cloud's
 /// resolver wins without any changes on this side.
 /// </para>
+/// <para>
+/// Lives in <c>Cvoya.Spring.Core</c> (rather than <c>Cvoya.Spring.Dapr</c>) so the
+/// launcher project (<c>Cvoya.Spring.AgentRuntimes</c>) can bind it directly without
+/// taking a dependency on Dapr (ADR-0038 Chunk 2a).
+/// </para>
 /// </remarks>
 public class OllamaOptions
 {
@@ -38,8 +43,8 @@ public class OllamaOptions
 
     /// <summary>
     /// When <c>true</c>, the Ollama provider is registered as the primary
-    /// <see cref="Cvoya.Spring.Core.Execution.IAiProvider"/>. When <c>false</c>
-    /// (the default), the existing provider (e.g. Anthropic) remains active.
+    /// <see cref="IAiProvider"/>. When <c>false</c> (the default), the existing
+    /// provider (e.g. Anthropic) remains active.
     /// </summary>
     public bool Enabled { get; set; }
 
