@@ -86,36 +86,35 @@ agentRuntimes:
     displayName: Claude Code
     defaultImage: ghcr.io/cvoya-com/claude-code-base:latest
     launcher: claude-code-cli            # IAgentRuntimeLauncher strategy id
-    providers:
+    modelProviders:
       - id: anthropic
         authMethod: oauth
   - id: codex
     displayName: Codex
     defaultImage: ghcr.io/cvoya-com/codex-base:latest
     launcher: codex-cli
-    providers:
+    modelProviders:
       - id: openai
         authMethod: api-key
   - id: gemini
     displayName: Gemini CLI
     defaultImage: ghcr.io/cvoya-com/gemini-base:latest
     launcher: gemini-cli
-    providers:
+    modelProviders:
       - id: google
         authMethod: api-key
   - id: spring-voyage
     displayName: Spring Voyage Agent
     defaultImage: ghcr.io/cvoya-com/spring-voyage-agent:latest
     launcher: spring-voyage-agent
-    providers:
+    modelProviders:
       - id: anthropic
         authMethod: api-key
       - id: openai
         authMethod: api-key
       - id: google
         authMethod: api-key
-      - id: ollama
-        authMethod: none
+      - id: ollama        # no authMethod — Ollama requires no credential
 ```
 
 Each `agentRuntime` entry's `providers:` list carries the (provider, authMethod) edges that decision 4's matrix used to enumerate in code. The matrix is now data; adding a runtime, a provider edge, or a new auth method on an existing edge is a config edit (and a launcher strategy addition only when behaviour is genuinely novel).
@@ -165,7 +164,7 @@ modelProviders:
     apiBaseUrl: http://localhost:11434
     modelsEndpoint: /api/tags
     adapter: openai-compatible
-    authMethods: [none]
+    authMethods: []                      # empty list — Ollama requires no credential
     llmApiContract:                      # Ollama exposes an OpenAI-compatible chat-completions surface
       name: openai
       version: v1
@@ -180,7 +179,7 @@ A single generic `ModelProvider` class holds a `ModelProviderConfig` loaded from
 
 New providers can be added config-only when they are OpenAI-compatible. Otherwise the author registers a new adapter strategy and a config entry.
 
-**`authMethods`** lists the auth mechanisms the provider's API will accept. Closed enum: `oauth | api-key | none`. Per-runtime per-provider entries (decision 2) name a single `authMethod` from this list — that is the mechanism the runtime will use when talking to the provider.
+**`authMethods`** lists the auth mechanisms the provider's API will accept. Closed enum: `oauth | api-key`. An empty list (`[]`) denotes a provider that requires no credential — Ollama's local endpoint, in v0.1. Per-runtime per-provider entries (decision 2) name a single `authMethod` from this list when one is required; for providers with an empty `authMethods` list the per-edge `authMethod` field is omitted entirely. There is no `none` token in the schema — absence is the representation.
 
 **`llmApiContract`** names the LLM API surface the provider implements, as a structured `{name, version}` value. Closed enum on `name`: `anthropic | openai | google` for v0.1. The version is currently `v1` for every contract; including it explicitly leaves room for a future Anthropic Messages API v2, OpenAI v2, etc., without rewriting the schema.
 
@@ -208,18 +207,21 @@ For the v0.1 catalogue, the projection is:
 | `spring-voyage` | anthropic | api-key    |
 | `spring-voyage` | openai    | api-key    |
 | `spring-voyage` | google    | api-key    |
-| `spring-voyage` | ollama    | none       |
+| `spring-voyage` | ollama    | —          |
 
 This table is documentation, not a code constant. The runtime constructs it at startup from the YAML; CI's schema check enforces that every per-edge `authMethod` is present in the corresponding provider's `authMethods` list.
 
-Storage is keyed `(tenant, provider, authMethod)`. Dispatch resolves the runtime's per-edge `authMethod` against the catalogue, looks up that exact row, and fails with a precise error if the matching credential is absent.
+Storage is keyed `(tenant, provider, authMethod)`. Dispatch resolves the runtime's per-edge `authMethod` against the catalogue, looks up that exact row, and fails with a precise error if the matching credential is absent. Edges whose provider has an empty `authMethods` list (and therefore no per-edge `authMethod`) skip credential resolution entirely — there is no row to look up and no env var to inject.
 
 ```csharp
 // AuthMethod entries are loaded from runtime-catalog.yaml and exposed as a
 // closed enum; the C# representation is data, not behaviour. Format checks
 // and env-var injection live on the provider adapter (decision 3) keyed by
 // authMethod id.
-public enum AuthMethod { Oauth, ApiKey, None }
+public enum AuthMethod { Oauth, ApiKey }
+// "no auth" is represented by an empty authMethods list on the provider
+// and an absent authMethod field on the per-runtime per-provider edge.
+// There is no None enum value — absence is the representation.
 ```
 
 The `--bare` flag (passing an Anthropic API key to the Claude Code CLI for degraded functionality) is **not** supported. The catalogue's per-edge entry for `claude-code` × `anthropic` names `oauth` and only `oauth`. This carries forward the strict per-path matrix from #1714; the dual-acceptance framing from #1690 stays rejected.
