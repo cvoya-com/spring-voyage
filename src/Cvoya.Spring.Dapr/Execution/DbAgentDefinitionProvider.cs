@@ -35,7 +35,7 @@ using Microsoft.Extensions.Logging;
 /// #1732: the launcher is selected from the <c>agent</c> slot's runtime
 /// registry entry — <c>agent.Agent → unit.Agent → null</c>. The execution
 /// tool is no longer threaded through the manifest / DTOs / persistence;
-/// it is derived from <c>IAgentRuntime.ToolKind</c> at dispatch time.
+/// it is derived from <c>IAgentRuntime.Kind</c> at dispatch time.
 /// </para>
 /// <para>
 /// Tolerance: a missing unit membership, a missing unit execution block,
@@ -152,7 +152,7 @@ public class DbAgentDefinitionProvider(
     /// from <c>agent.Agent → unit.Agent → null</c>. The dispatcher passes
     /// the resulting value through
     /// <see cref="IAgentRuntimeRegistry.Get(string)"/> to derive the launcher
-    /// (via <c>IAgentRuntime.ToolKind</c>).
+    /// (via <c>IAgentRuntime.Kind</c>).
     /// </remarks>
     internal static AgentExecutionConfig? Merge(
         AgentExecutionConfig? agent,

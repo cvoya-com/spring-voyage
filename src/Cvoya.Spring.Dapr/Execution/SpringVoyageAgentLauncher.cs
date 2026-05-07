@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// <see cref="IAgentToolLauncher"/> for the Spring Voyage Agent container. Sets the
+/// <see cref="IAgentRuntimeLauncher"/> for the Spring Voyage Agent container. Sets the
 /// environment variables the Python Dapr Agent expects: MCP endpoint/token,
 /// LLM provider/model, and the assembled system prompt. The dispatcher
 /// materialises an empty per-invocation workspace and bind-mounts it at
@@ -34,7 +34,7 @@ public class SpringVoyageAgentLauncher(
     IOptions<OllamaOptions> ollamaOptions,
     IAgentRuntimeRegistry runtimeRegistry,
     IServiceScopeFactory scopeFactory,
-    ILoggerFactory loggerFactory) : IAgentToolLauncher
+    ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
 {
     internal const string WorkspaceMountPath = "/workspace";
 
@@ -65,7 +65,7 @@ public class SpringVoyageAgentLauncher(
 
     /// <summary>
     /// Tool-kind identifier for this launcher. Matches the
-    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.ToolKind"/>
+    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Kind"/>
     /// declared by every runtime that dispatches through it
     /// (<c>openai</c>, <c>google</c>, <c>ollama</c> — all share
     /// <c>spring-voyage</c>).
@@ -73,7 +73,7 @@ public class SpringVoyageAgentLauncher(
     public const string ToolId = "spring-voyage";
 
     /// <inheritdoc />
-    public string ToolKind => ToolId;
+    public string Kind => ToolId;
 
     /// <inheritdoc />
     public async Task<AgentLaunchSpec> PrepareAsync(

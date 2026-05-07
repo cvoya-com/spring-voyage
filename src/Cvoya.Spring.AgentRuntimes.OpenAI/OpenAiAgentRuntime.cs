@@ -101,7 +101,7 @@ public class OpenAiAgentRuntime : IAgentRuntime
     public string DisplayName => "Spring Voyage Agent (OpenAI)";
 
     /// <inheritdoc />
-    public string ToolKind => "spring-voyage";
+    public string Kind => "spring-voyage";
 
     /// <inheritdoc />
     public AgentRuntimeCredentialSchema CredentialSchema { get; } = new(

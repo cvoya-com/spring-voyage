@@ -68,7 +68,7 @@ function wrap(node: ReactNode) {
 function makeUnit(overrides: Partial<UnitResponse>): UnitResponse {
   // #1738: `unit.tool` was retired in #1732. Tests that need the
   // execution-block context for runtime resolution pass `agent` /
-  // `provider` / `toolKind` directly to <ValidationPanel> as props.
+  // `provider` / `kind` directly to <ValidationPanel> as props.
   return {
     id: "alpha-id",
     name: "alpha",

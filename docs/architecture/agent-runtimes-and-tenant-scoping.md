@@ -57,7 +57,7 @@ The filter lives on `SpringDbContext.OnModelCreating` rather than the per-entity
 ```
 
 **`IAgentRuntime`** bundles:
-- `Id` (stable, e.g. `claude`), `DisplayName`, `ToolKind` (`claude-code-cli`, `spring-voyage-agent`, …).
+- `Id` (stable, e.g. `claude`), `DisplayName`, `Kind` (`claude-code-cli`, `spring-voyage-agent`, …).
 - `CredentialSchema` — what credential the runtime expects.
 - `CredentialSecretName` — canonical secret-store key (stable; persisted).
 - `DefaultModels` — seed catalog loaded from `agent-runtimes/<id>/seed.json`.
@@ -122,12 +122,12 @@ This is ADDITIVE to `CONVENTIONS.md` § 14 (UI / CLI parity for user-facing feat
 ## Adding a new agent runtime
 
 1. Create `src/Cvoya.Spring.AgentRuntimes.<Name>/` (e.g. `Cvoya.Spring.AgentRuntimes.Foo`). Reference `Cvoya.Spring.Core` only — no Dapr, no ASP.NET.
-2. Implement `IAgentRuntime`. Pick a stable lower-case `Id`; pick a `ToolKind` (reuse `claude-code-cli` / `spring-voyage-agent` / `codex-cli` where it fits).
+2. Implement `IAgentRuntime`. Pick a stable lower-case `Id`; pick a `Kind` (reuse `claude-code-cli` / `spring-voyage-agent` / `codex-cli` where it fits).
 3. Ship a `seed.json` at `agent-runtimes/<id>/seed.json` carrying the default model catalog.
 4. Implement `GetProbeSteps(config, credential)` returning an ordered in-container probe plan — typically `VerifyingTool`, `ValidatingCredential`, `ResolvingModel` (omit `ValidatingCredential` when `CredentialKind.None`). Each step must have a bounded `Timeout` and an `InterpretOutput` delegate that never leaks the raw credential into the returned `UnitValidationError`. Do **not** emit `PullingImage` — the dispatcher owns that step.
 5. Add `AddCvoyaSpringAgentRuntime<Name>()` DI extension that registers via `TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntime, FooRuntime>())` so cloud overlays can pre-register variants.
 6. If the runtime authenticates via `HttpClient`, wire `.AddCredentialHealthWatchdog(CredentialHealthKind.AgentRuntime, "<id>", "api-key")` on the named HttpClient builder.
-7. Ship a per-project `README.md` documenting id, tool kind, credential schema, and the runtime-image contract (which binaries the probe plan needs — typically `curl`).
+7. Ship a per-project `README.md` documenting id, runtime kind, credential schema, and the runtime-image contract (which binaries the probe plan needs — typically `curl`).
 8. Append a row to the "Built-in agent runtimes" table in `AGENTS.md` and register `AddCvoyaSpringAgentRuntime<Name>()` from `src/Cvoya.Spring.Host.Api/Program.cs`.
 
 Bootstrap picks it up automatically: `AgentRuntimeInstallSeedProvider` enumerates the registry on every Worker start and calls `InstallAsync(id, config: null, …)` per runtime.

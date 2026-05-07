@@ -46,9 +46,10 @@ export interface AgentCreateFormInput {
    */
   runtime?: string;
   /**
-   * Execution tool key (`execution.tool`) — `claude-code`, `codex`,
-   * `gemini`, `spring-voyage`, `custom`. Defaulted into the agent
-   * definition document when supplied.
+   * Agent runtime registry id (carried as `ai.agent` in the manifest /
+   * `ai.Agent` in the agent definition document) — `claude-code`,
+   * `codex`, `gemini`, `spring-voyage`, `custom`. Defaulted into the
+   * agent definition document when supplied.
    */
   tool?: string;
   /**

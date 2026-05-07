@@ -100,12 +100,11 @@ describe("ExecutionTab", () => {
     expect(
       screen.getByTestId("execution-image-input"),
     ).toBeInTheDocument();
-    // #1702: Runtime row is gone.
-    expect(
-      screen.queryByTestId("execution-runtime-select"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByTestId("execution-tool-select")).toBeInTheDocument();
-    // tool unset → Model Provider hidden (only renders for spring-voyage).
+    // #1702: container Runtime row was removed; the agent-runtime select
+    // (`execution-agent-runtime-select`) is the only runtime-shaped control
+    // that should render.
+    expect(screen.getByTestId("execution-agent-runtime-select")).toBeInTheDocument();
+    // agent unset → Model Provider hidden (only renders for spring-voyage runtime kind).
     expect(
       screen.queryByTestId("execution-provider-select"),
     ).not.toBeInTheDocument();
@@ -132,7 +131,7 @@ describe("ExecutionTab", () => {
       </Wrapper>,
     );
 
-    await screen.findByTestId("execution-tool-select");
+    await screen.findByTestId("execution-agent-runtime-select");
     expect(
       screen.queryByTestId("execution-provider-select"),
     ).not.toBeInTheDocument();
@@ -223,7 +222,7 @@ describe("ExecutionTab", () => {
     );
 
     const toolSelect = (await screen.findByTestId(
-      "execution-tool-select",
+      "execution-agent-runtime-select",
     )) as HTMLSelectElement;
     expect(
       screen.queryByTestId("execution-provider-select"),
@@ -250,7 +249,7 @@ describe("ExecutionTab", () => {
       "execution-image-input",
     )) as HTMLInputElement;
     const toolSelect = screen.getByTestId(
-      "execution-tool-select",
+      "execution-agent-runtime-select",
     ) as HTMLSelectElement;
 
     fireEvent.change(imageInput, {

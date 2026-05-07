@@ -567,7 +567,7 @@ export default function CreateAgentPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <label className="block space-y-1">
-              <span className="text-sm text-muted-foreground">Execution tool</span>
+              <span className="text-sm text-muted-foreground">Agent Runtime</span>
               <select
                 value={form.executionTool}
                 onChange={(e) => {
@@ -575,7 +575,7 @@ export default function CreateAgentPage() {
                   setForm((prev) => ({ ...prev, executionTool: tool, model: "" }));
                   setValidationMessage(null);
                 }}
-                aria-label="Execution tool"
+                aria-label="Agent Runtime"
                 disabled={submitting}
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -587,7 +587,7 @@ export default function CreateAgentPage() {
               </select>
               <span className="block text-xs text-muted-foreground">
                 Determines which agent runtime processes work. Mirrors{" "}
-                <code className="font-mono">--tool</code>.
+                <code className="font-mono">--agent</code>.
               </span>
             </label>
 

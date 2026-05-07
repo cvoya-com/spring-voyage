@@ -65,12 +65,12 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public void ToolKind_IsClaudeCodeCli()
+    public void Kind_IsClaudeCodeCli()
     {
         // #1732: launcher key matches the runtime registry's
-        // IAgentRuntime.ToolKind for the `claude` runtime
+        // IAgentRuntime.Kind for the `claude` runtime
         // (claude-code-cli). The dispatcher dictionary is keyed on this.
-        _launcher.ToolKind.ShouldBe("claude-code-cli");
+        _launcher.Kind.ShouldBe("claude-code-cli");
     }
 
     [Fact]

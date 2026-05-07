@@ -45,7 +45,7 @@ public class AgentMailboxCoordinatorTests
     /// <summary>
     /// Guard 0 relocated from AgentActor (#1349): when effective.Enabled is
     /// false the coordinator must short-circuit, emit a DecisionMade
-    /// "MembershipDisabled" event, and NOT call getActiveConversation or
+    /// "MembershipDisabled" event, and NOT call getActiveThread or
     /// activateAndDispatch.
     /// </summary>
     [Fact]
@@ -53,7 +53,7 @@ public class AgentMailboxCoordinatorTests
     {
         var message = CreateMessage();
         var disabledMetadata = new AgentMetadata(Enabled: false);
-        var getActiveConversationCalled = false;
+        var getActiveThreadCalled = false;
         var activateAndDispatchCalled = false;
 
         await _coordinator.HandleDomainMessageAsync(
@@ -62,12 +62,12 @@ public class AgentMailboxCoordinatorTests
             effective: disabledMetadata,
             applyUnitPolicies: (eff, ct) =>
                 Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
-            getActiveConversation: ct =>
+            getActiveThread: ct =>
             {
-                getActiveConversationCalled = true;
+                getActiveThreadCalled = true;
                 return Task.FromResult<ThreadChannel?>(null);
             },
-            setActiveConversation: (_, _) => Task.CompletedTask,
+            setActiveThread: (_, _) => Task.CompletedTask,
             getPendingList: _ => Task.FromResult<List<ThreadChannel>?>(null),
             setPendingList: (_, _) => Task.CompletedTask,
             activateAndDispatch: (_, _, _) =>
@@ -82,7 +82,7 @@ public class AgentMailboxCoordinatorTests
             },
             cancellationToken: TestContext.Current.CancellationToken);
 
-        getActiveConversationCalled.ShouldBeFalse(
+        getActiveThreadCalled.ShouldBeFalse(
             "Guard 0 must short-circuit before reading actor state when membership is disabled.");
         activateAndDispatchCalled.ShouldBeFalse(
             "Guard 0 must not dispatch when membership is disabled.");
@@ -117,8 +117,8 @@ public class AgentMailboxCoordinatorTests
             effective: enabledMetadata,
             applyUnitPolicies: (eff, ct) =>
                 Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, verdict)),
-            getActiveConversation: _ => Task.FromResult<ThreadChannel?>(null),
-            setActiveConversation: (_, _) => Task.CompletedTask,
+            getActiveThread: _ => Task.FromResult<ThreadChannel?>(null),
+            setActiveThread: (_, _) => Task.CompletedTask,
             getPendingList: _ => Task.FromResult<List<ThreadChannel>?>(null),
             setPendingList: (_, _) => Task.CompletedTask,
             activateAndDispatch: (_, _, _) =>
@@ -158,8 +158,8 @@ public class AgentMailboxCoordinatorTests
             message: message,
             effective: metadata,
             applyUnitPolicies: (eff, _) => Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
-            getActiveConversation: _ => Task.FromResult<ThreadChannel?>(null),
-            setActiveConversation: (ch, _) =>
+            getActiveThread: _ => Task.FromResult<ThreadChannel?>(null),
+            setActiveThread: (ch, _) =>
             {
                 activatedChannel = ch;
                 return Task.CompletedTask;
@@ -196,8 +196,8 @@ public class AgentMailboxCoordinatorTests
             message: message,
             effective: metadata,
             applyUnitPolicies: (eff, _) => Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
-            getActiveConversation: _ => Task.FromResult<ThreadChannel?>(existing),
-            setActiveConversation: (ch, _) =>
+            getActiveThread: _ => Task.FromResult<ThreadChannel?>(existing),
+            setActiveThread: (ch, _) =>
             {
                 updated = ch;
                 return Task.CompletedTask;

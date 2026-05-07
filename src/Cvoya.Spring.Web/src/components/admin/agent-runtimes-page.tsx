@@ -121,7 +121,7 @@ function RuntimeRow({ runtime }: { runtime: InstalledAgentRuntimeResponse }) {
                 className="text-xs text-muted-foreground"
                 aria-label="Tool kind"
               >
-                {runtime.toolKind}
+                {runtime.kind}
               </span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">

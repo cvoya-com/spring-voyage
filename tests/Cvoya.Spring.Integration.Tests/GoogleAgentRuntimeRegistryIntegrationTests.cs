@@ -46,7 +46,7 @@ public class GoogleAgentRuntimeRegistryIntegrationTests
         runtime!.ShouldBeOfType<GoogleAgentRuntime>();
         runtime.Id.ShouldBe("google");
         runtime.DisplayName.ShouldBe("Spring Voyage Agent (Google AI)");
-        runtime.ToolKind.ShouldBe("spring-voyage");
+        runtime.Kind.ShouldBe("spring-voyage");
 
         // Lookup is case-insensitive per the contract on IAgentRuntimeRegistry.
         registry.Get("GOOGLE").ShouldBeSameAs(runtime);

@@ -55,12 +55,12 @@ unit:
   # per the agent → unit → fail resolution chain.
   # #1732: 'tool' was dropped — the execution tool is derived from
   # the runtime registry via 'ai.agent' (each IAgentRuntime declares
-  # its own ToolKind 1:1, e.g. claude → claude-code-cli).
+  # its own Kind 1:1, e.g. claude → claude-code-cli).
   execution:
     image: spring-agent:latest
     runtime: podman                  # docker | podman
-    provider: anthropic              # spring-voyage tool kind only (#598 gating)
-    model: claude-sonnet             # spring-voyage tool kind only (#598 gating)
+    provider: anthropic              # spring-voyage runtime kind only (#598 gating)
+    model: claude-sonnet             # spring-voyage runtime kind only (#598 gating)
   
   connectors:
     - type: github
@@ -264,15 +264,15 @@ This list is illustrative, not exhaustive. Any organizational pattern can be mod
             },
             "agent": {
               "type": "string",
-              "description": "Agent runtime registry id (e.g. claude, openai, google, ollama). Drives launcher selection at dispatch via IAgentRuntime.ToolKind."
+              "description": "Agent runtime registry id (e.g. claude, openai, google, ollama). Drives launcher selection at dispatch via IAgentRuntime.Kind."
             },
             "provider": {
               "type": "string",
-              "description": "Default LLM provider. Meaningful only when the resolved tool kind = spring-voyage (#598 gating)."
+              "description": "Default LLM provider. Meaningful only when the resolved runtime kind = spring-voyage (#598 gating)."
             },
             "model": {
               "type": "string",
-              "description": "Default model identifier. Meaningful only when the resolved tool kind = spring-voyage (#598 gating)."
+              "description": "Default model identifier. Meaningful only when the resolved runtime kind = spring-voyage (#598 gating)."
             }
           }
         },

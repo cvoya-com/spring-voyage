@@ -73,7 +73,7 @@ public interface IUnitExecutionStore
 /// <remarks>
 /// #1732: the standalone <c>Tool</c> slot was dropped — the execution tool
 /// is derived 1:1 from <see cref="Agent"/> (the runtime registry id) via the
-/// runtime's <c>IAgentRuntime.ToolKind</c>.
+/// runtime's <c>IAgentRuntime.Kind</c>.
 /// </remarks>
 /// <param name="Image">Default container image reference.</param>
 /// <param name="Runtime">Default container runtime identifier (<c>docker</c> / <c>podman</c>).</param>

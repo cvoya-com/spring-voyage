@@ -20,7 +20,7 @@ agent:
   capabilities: [csharp, python, fastapi, postgresql, testing]
   
   ai:
-    agent: claude                       # runtime registry id (drives tool kind via IAgentRuntime.ToolKind)
+    agent: claude                       # runtime registry id (drives runtime kind via IAgentRuntime.Kind)
     model: claude-sonnet-4-6
     environment:                        # container definition
       image: spring-agent:latest

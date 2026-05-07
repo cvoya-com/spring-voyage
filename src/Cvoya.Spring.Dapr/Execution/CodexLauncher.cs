@@ -13,7 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// <see cref="IAgentToolLauncher"/> for OpenAI Codex containers. Describes a
+/// <see cref="IAgentRuntimeLauncher"/> for OpenAI Codex containers. Describes a
 /// per-invocation workspace containing:
 /// <list type="bullet">
 ///   <item><c>AGENTS.md</c> — the assembled system prompt (all four layers).
@@ -34,7 +34,7 @@ using Microsoft.Extensions.Logging;
 public class CodexLauncher(
     IAgentRuntimeRegistry runtimeRegistry,
     IServiceScopeFactory scopeFactory,
-    ILoggerFactory loggerFactory) : IAgentToolLauncher
+    ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
 {
     /// <summary>
     /// Runtime id whose credential the Codex launcher injects. Codex uses
@@ -53,7 +53,7 @@ public class CodexLauncher(
     /// Codex agent runtime would declare. No <c>IAgentRuntime</c> currently
     /// resolves to this launcher; it ships ahead of the runtime.
     /// </remarks>
-    public string ToolKind => "codex-cli";
+    public string Kind => "codex-cli";
 
     /// <inheritdoc />
     public async Task<AgentLaunchSpec> PrepareAsync(

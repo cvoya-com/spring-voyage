@@ -12,7 +12,7 @@ All commands below assume you've authenticated the CLI (`spring auth login`). Ev
 
 ```
 $ spring agent-runtime list
-id       displayName  toolKind        defaultModel         models
+id       displayName  kind        defaultModel         models
 claude   Claude       claude-code-cli claude-opus-4-7    claude-opus-4-7,claude-sonnet-4-6,claude-haiku-4-5
 google   Google       dapr-agent      gemini-2.0-flash     gemini-2.0-flash
 ollama   Ollama       dapr-agent      llama3.2             llama3.2
@@ -25,7 +25,7 @@ openai   OpenAI       dapr-agent      gpt-4o               gpt-4o,gpt-4o-mini
 
 ```
 $ spring agent-runtime show claude
-id       displayName  toolKind        defaultModel       models
+id       displayName  kind        defaultModel       models
 claude   Claude       claude-code-cli claude-opus-4-7  claude-opus-4-7,claude-sonnet-4-6,claude-haiku-4-5
 ```
 

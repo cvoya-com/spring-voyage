@@ -112,7 +112,7 @@ public class GoogleAgentRuntime : IAgentRuntime
     public string DisplayName => "Spring Voyage Agent (Google AI)";
 
     /// <inheritdoc />
-    public string ToolKind => "spring-voyage";
+    public string Kind => "spring-voyage";
 
     /// <inheritdoc />
     public AgentRuntimeCredentialSchema CredentialSchema { get; } = new(

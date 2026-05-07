@@ -115,7 +115,7 @@ public class AgentActorEffectiveMetadataTests
 
         SetStateManager(_actor, _stateManager);
 
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(false, default!));
         _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
@@ -220,7 +220,7 @@ public class AgentActorEffectiveMetadataTests
 
         // No active conversation was written either — the agent remained idle.
         await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.ActiveConversation,
+            StateKeys.ActiveThread,
             Arg.Any<ThreadChannel>(),
             Arg.Any<CancellationToken>());
 
@@ -362,7 +362,7 @@ public class AgentActorEffectiveMetadataTests
         await _actor.PendingDispatchTask!;
 
         // After the first message the active conversation exists.
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true,
                 new ThreadChannel { ThreadId = "conv-1", Messages = [msg1] }));
 
@@ -399,7 +399,7 @@ public class AgentActorEffectiveMetadataTests
         // goes to pending — but when we promote conv-b, the membership
         // merge must run against unit-b. Simulate the flow: cancel conv-a,
         // then send conv-b fresh (no active).
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(false, default!));
 
         var msgB = DomainMessageFrom(new Address("unit", UnitBUuid), "conv-b");

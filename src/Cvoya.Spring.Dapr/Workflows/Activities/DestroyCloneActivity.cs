@@ -33,7 +33,7 @@ public class DestroyCloneActivity(
         // Clean up clone state.
         await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.CloneIdentity}");
         await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.AgentDefinition}");
-        await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.ActiveConversation}");
+        await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.ActiveThread}");
         await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.InitiativeState}");
 
         // Remove from parent's children list.

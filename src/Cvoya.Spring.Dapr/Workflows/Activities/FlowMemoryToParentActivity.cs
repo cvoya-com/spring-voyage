@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Flows memory state from an ephemeral-with-memory clone back to its parent
-/// before the clone is destroyed. Copies active conversation and initiative state.
+/// before the clone is destroyed. Copies active thread and initiative state.
 /// </summary>
 public class FlowMemoryToParentActivity(
     IStateStore stateStore,
@@ -23,12 +23,12 @@ public class FlowMemoryToParentActivity(
     /// <inheritdoc />
     public override async Task<bool> RunAsync(WorkflowActivityContext context, CloningInput input)
     {
-        // Copy active conversation state from clone to parent.
-        var cloneActiveKey = $"{input.TargetAgentId}:{StateKeys.ActiveConversation}";
+        // Copy active thread state from clone to parent.
+        var cloneActiveKey = $"{input.TargetAgentId}:{StateKeys.ActiveThread}";
         var activeThread = await stateStore.GetAsync<object>(cloneActiveKey);
         if (activeThread is not null)
         {
-            var parentActiveKey = $"{input.SourceAgentId}:{StateKeys.ActiveConversation}";
+            var parentActiveKey = $"{input.SourceAgentId}:{StateKeys.ActiveThread}";
             await stateStore.SetAsync(parentActiveKey, activeThread);
         }
 

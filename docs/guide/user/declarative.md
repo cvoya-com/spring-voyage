@@ -19,7 +19,7 @@ agent:
   capabilities: [csharp, python, postgresql, testing]
 
   ai:
-    agent: claude          # runtime registry id; tool kind is derived (#1732)
+    agent: claude          # runtime registry id; runtime kind is derived (#1732)
     model: claude-sonnet-4-6
     execution: delegated
     environment:

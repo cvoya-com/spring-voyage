@@ -33,7 +33,7 @@ Set execution defaults (image, runtime, tool, provider, model) and orchestration
 ```bash
 # Set one or more execution defaults (partial update — pass only flags you want to change)
 spring unit execution set <name> \
-  --tool claude-code \
+  --agent claude \
   --image localhost/spring-voyage-agent-claude-code:latest \
   --runtime podman \
   --model claude-sonnet-4-6
@@ -88,23 +88,23 @@ Units and agents share a five-field `execution:` block (`image`, `runtime`, `too
 
 ```bash
 spring unit execution get   <unit>
-spring unit execution set   <unit> [--image …] [--runtime docker|podman] [--tool …] [--provider …] [--model …]
+spring unit execution set   <unit> [--image …] [--runtime docker|podman] [--agent …] [--provider …] [--model …]
 spring unit execution clear <unit> [--field image|runtime|tool|provider|model]
 
 spring agent execution get   <agent>
-spring agent execution set   <agent> [--image …] [--runtime …] [--tool …] [--provider …] [--model …] [--hosting ephemeral|persistent]
+spring agent execution set   <agent> [--image …] [--runtime …] [--agent …] [--provider …] [--model …] [--hosting ephemeral|persistent]
 spring agent execution clear <agent> [--field image|runtime|tool|provider|model|hosting]
 ```
 
 - `set` is a **partial update** — pass only the flags to change.
 - `clear --field X` clears one field; `clear` without `--field` strips the whole block.
 - `--hosting` is agent-exclusive.
-- `--provider` / `--model` are meaningful only when `--tool spring-voyage`.
+- `--provider` / `--model` are meaningful only when the resolved runtime kind is `spring-voyage` (i.e. `--agent ollama|openai|google`).
 
-`spring agent create` accepts `--image`, `--runtime`, `--tool` as shorthands for the corresponding `execution.X` fields:
+`spring agent create` accepts `--image`, `--runtime`, `--agent` as shorthands for the corresponding `execution.X` fields:
 
 ```bash
-spring agent create backend-eng --tool claude-code --image ghcr.io/my/agent:v1 --runtime podman
+spring agent create backend-eng --agent claude --image ghcr.io/my/agent:v1 --runtime podman
 ```
 
 ### Managing Members
@@ -159,7 +159,7 @@ This works regardless of how the unit was originally built (imperatively or decl
 ### Creating an Agent
 
 ```bash
-spring agent create <id> --role <role> --tool <tool-name>
+spring agent create <id> --role <role> --agent <runtime-id>
 ```
 
 Agent instructions, expertise, and other properties are typically set via YAML definitions. For quick adjustments:
@@ -220,7 +220,7 @@ A denied request returns HTTP 403 with a `deniedDimension` field naming the rule
 
 ## How an agent's container is launched
 
-Every agent (ephemeral or persistent) goes through the same dispatch path: the dispatcher resolves the agent definition, calls `IAgentToolLauncher.PrepareAsync` for an `AgentLaunchSpec`, starts a container, polls `GET /.well-known/agent.json` on the A2A endpoint (default port `8999`), and sends the turn over A2A. After the turn: ephemeral containers are torn down; persistent ones remain registered. See [ADR 0025](../../decisions/0025-unified-agent-launch-contract.md) and [Architecture — Agent runtime](../../architecture/agent-runtime.md).
+Every agent (ephemeral or persistent) goes through the same dispatch path: the dispatcher resolves the agent definition, calls `IAgentRuntimeLauncher.PrepareAsync` for an `AgentLaunchSpec`, starts a container, polls `GET /.well-known/agent.json` on the A2A endpoint (default port `8999`), and sends the turn over A2A. After the turn: ephemeral containers are torn down; persistent ones remain registered. See [ADR 0025](../../decisions/0025-unified-agent-launch-contract.md) and [Architecture — Agent runtime](../../architecture/agent-runtime.md).
 
 Every agent image must satisfy the **BYOI conformance contract** ([ADR 0027](../../decisions/0027-agent-image-conformance-contract.md)):
 

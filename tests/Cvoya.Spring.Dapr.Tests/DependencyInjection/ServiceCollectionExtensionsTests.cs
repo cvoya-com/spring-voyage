@@ -183,20 +183,20 @@ public class ServiceCollectionExtensionsTests
     {
         using var provider = BuildProvider();
 
-        var launchers = provider.GetServices<IAgentToolLauncher>().ToList();
-        // #1732: launchers are keyed on IAgentRuntime.ToolKind. The dispatcher
+        var launchers = provider.GetServices<IAgentRuntimeLauncher>().ToList();
+        // #1732: launchers are keyed on IAgentRuntime.Kind. The dispatcher
         // resolves a runtime from execution.agent and looks up the launcher
         // here.
-        var launchersByToolKind = launchers.ToDictionary(l => l.ToolKind, StringComparer.OrdinalIgnoreCase);
+        var launchersByKind = launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
 
-        launchersByToolKind.ShouldContainKey("claude-code-cli");
-        launchersByToolKind["claude-code-cli"].ShouldBeOfType<ClaudeCodeLauncher>();
+        launchersByKind.ShouldContainKey("claude-code-cli");
+        launchersByKind["claude-code-cli"].ShouldBeOfType<ClaudeCodeLauncher>();
 
-        launchersByToolKind.ShouldContainKey("codex-cli");
-        launchersByToolKind["codex-cli"].ShouldBeOfType<CodexLauncher>();
+        launchersByKind.ShouldContainKey("codex-cli");
+        launchersByKind["codex-cli"].ShouldBeOfType<CodexLauncher>();
 
-        launchersByToolKind.ShouldContainKey("gemini-cli");
-        launchersByToolKind["gemini-cli"].ShouldBeOfType<GeminiLauncher>();
+        launchersByKind.ShouldContainKey("gemini-cli");
+        launchersByKind["gemini-cli"].ShouldBeOfType<GeminiLauncher>();
     }
 
     /// <summary>

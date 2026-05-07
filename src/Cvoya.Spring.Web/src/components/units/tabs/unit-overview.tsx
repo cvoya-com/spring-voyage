@@ -139,7 +139,7 @@ function UnitOverviewTab({ node }: TabContentProps) {
           unit={liveUnit}
           image={executionQuery.data?.image ?? null}
           runtime={executionQuery.data?.runtime ?? null}
-          toolKind={executionQuery.data?.toolKind ?? null}
+          kind={executionQuery.data?.kind ?? null}
           agent={executionQuery.data?.agent ?? null}
           provider={executionQuery.data?.provider ?? null}
         />
