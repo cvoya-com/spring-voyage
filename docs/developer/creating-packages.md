@@ -35,8 +35,10 @@ agent:
   capabilities: [analysis, summarization, literature-review]
 
   ai:
-    agent: claude          # runtime registry id; tool kind derived from registry (#1732)
-    model: claude-sonnet-4-6
+    runtime: claude-code   # AgentRuntime id from platform/runtime-catalog.yaml (ADR-0038)
+    model:
+      provider: anthropic  # ModelProvider id; intrinsic to the model
+      id: claude-sonnet-4-6
 
   instructions: |
     You are a research analyst. You analyze papers,
@@ -128,11 +130,13 @@ The workflow communicates with agents via its Dapr sidecar. It can use Dapr Work
 ```yaml
 unit:
   ai:
-    execution: delegated
-    tool: research-cycle
-    environment:
-      image: my-org/research-cycle:latest
-      runtime: podman
+    runtime: spring-voyage    # AgentRuntime id from platform/runtime-catalog.yaml (ADR-0038)
+    model:
+      provider: ollama
+      id: llama3.2:3b
+  execution:
+    image: my-org/research-cycle:latest
+    containerRuntime: podman
 ```
 
 ## Creating Execution Environments
@@ -151,10 +155,9 @@ The Dockerfile sets up the tools the agent needs -- Claude Code, Python packages
 Agent-level (specific to this agent):
 ```yaml
 agent:
-  ai:
-    environment:
-      image: my-org/research-env:latest
-      runtime: podman
+  execution:
+    image: my-org/research-env:latest
+    containerRuntime: podman
 ```
 
 Unit-level (default for all members):
@@ -162,7 +165,7 @@ Unit-level (default for all members):
 unit:
   execution:
     image: my-org/research-env:latest
-    runtime: podman
+    containerRuntime: podman
 ```
 
 Agents that don't specify their own environment inherit the unit's default.

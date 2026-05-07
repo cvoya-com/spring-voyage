@@ -120,11 +120,13 @@ unit:
   description: Software engineering team
   structure: hierarchical
   ai:
-    execution: delegated
-    tool: software-dev-cycle
-    environment:
-      image: spring-workflows/software-dev-cycle:latest
-      runtime: podman
+    runtime: spring-voyage    # AgentRuntime id from platform/runtime-catalog.yaml (ADR-0038)
+    model:
+      provider: ollama
+      id: llama3.2:3b
+  execution:
+    image: spring-workflows/software-dev-cycle:latest
+    containerRuntime: podman
   members:
     - agent: agents/ada.yaml           # references agent definition file
     - agent: agents/kay.yaml
