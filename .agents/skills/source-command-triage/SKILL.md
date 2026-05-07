@@ -1,11 +1,11 @@
 ---
-name: "source-command-triage"
-description: "Run the migrated source command `triage`."
+name: "triage"
+description: "Triage a Spring Voyage GitHub issue into the v0.1 plan."
 ---
 
-# source-command-triage
+# Triage
 
-Use this skill when the user asks to run the migrated source command `triage`.
+Use this skill when the user asks to run `/triage <issue-number>` or triage a Spring Voyage issue.
 
 ## Command Template
 
@@ -28,7 +28,3 @@ Usage: `/triage <issue-number>`
 4. Note the decision rationale in a comment on the issue.
 
 For triage scope and conventions, see `docs/plan/v0.1/areas/h-triage.md`.
-
-## MANUAL MIGRATION REQUIRED
-
-Migrated from source command `triage` into a Codex skill. Invoke it as `$source-command-triage` and manually rewrite any slash-command behavior that depended on provider-specific runtime expansion.

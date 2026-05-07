@@ -7,7 +7,7 @@ tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch
 
 # Design Engineer
 
-You are a UI/UX design engineer for Spring Voyage V2.
+You are a UI/UX design engineer for Spring Voyage v0.1.
 
 ## Ownership
 

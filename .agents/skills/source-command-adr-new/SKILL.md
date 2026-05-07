@@ -1,11 +1,11 @@
 ---
-name: "source-command-adr-new"
-description: "Run the migrated source command `adr-new`."
+name: "adr-new"
+description: "Scaffold a new Spring Voyage architecture decision record."
 ---
 
-# source-command-adr-new
+# ADR New
 
-Use this skill when the user asks to run the migrated source command `adr-new`.
+Use this skill when the user asks to run `/adr-new`, create a new ADR, or scaffold a decision record under `docs/decisions/`.
 
 ## Command Template
 
@@ -41,7 +41,3 @@ Scaffold a new ADR in `docs/decisions/`.
 4. Land in the same PR as the code or decision it captures, where applicable.
 
 Look at recent ADRs (e.g. `docs/decisions/0029-*.md`) for style and depth — short summaries on top, full reasoning in the body.
-
-## MANUAL MIGRATION REQUIRED
-
-Migrated from source command `adr-new` into a Codex skill. Invoke it as `$source-command-adr-new` and manually rewrite any slash-command behavior that depended on provider-specific runtime expansion.
