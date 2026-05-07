@@ -1,6 +1,6 @@
 # Agent-create flow redesign — design spec
 
-Status: Design — implementation deferred. Refs `#1763` (issue), with cross-dependencies on `#1786` (unit-as-agent vs unit-as-router) and ADR-0038 (runtime / provider / model split).
+Status: Design — implementation deferred. Refs `#1763` (issue), with cross-dependencies on `#1786` (units as agents with orchestration decisions) and ADR-0038 (runtime / provider / model split).
 
 This document is the implementation contract for the redesign described in `#1763`. It audits the three creation surfaces that exist today (the unit-tab "Add Agent" dialog, the standalone `/agents/create` wizard, and `spring agent create`), describes the unified target design, and slices the work for downstream PRs. **No production code is touched in this PR — the implementation lands separately.**
 
@@ -26,12 +26,12 @@ CreateAgentRequest = {
     displayName: string;       // required, validated; Guid-shaped names rejected (#1632)
     description: string;       // required (allowed empty)
     role: null | string;
-    unitIds: string[];         // ≥1; entries are stable Guids (#1492 / #1629)
+    unitIds: string[];         // today ≥1; target permits [] for top-level tenant-parented agents
     definitionJson?: null | string;  // optional; persisted on AgentDefinitions.Definition
 }
 ```
 
-The endpoint:
+The endpoint today:
 - Validates `displayName`, normalises and rejects empty `unitIds`.
 - Resolves every referenced unit through the directory; tenant-guards each (#745).
 - Validates `definitionJson` as a JSON document if supplied; otherwise leaves the agent's definition row untouched.
@@ -39,7 +39,7 @@ The endpoint:
 - Writes the membership rows + the legacy cached pointer; mirrors the first unit as `ParentUnit`.
 - Persists the supplied `definitionJson` blob verbatim onto `AgentDefinitionEntity.Definition` if present.
 
-Implication: **the redesign does not require any new endpoint.** Every value the new form collects either rides in `CreateAgentRequest` directly (display name, description, role, unit ids) or in the `definitionJson` blob (`execution.image`, `execution.runtime`, `execution.model.{provider,id}`, `execution.hosting`). The portal's `buildAgentDefinitionJson` (`src/lib/agents/create-agent.ts:116`) already produces a compatible shape; it needs to accept the structured `model: {provider, id}` field and `hosting` to reach full parity with the unit wizard.
+Implication: **the redesign keeps the same endpoint but changes its validation.** The target endpoint accepts an empty `unitIds` list as "top-level agent parented by the tenant," mirroring top-level units; in that case it writes no unit membership rows and resolves inherited execution config from tenant defaults. Every form value still rides in `CreateAgentRequest` directly (display name, description, role, unit ids) or in the `definitionJson` blob (`execution.image`, `execution.runtime`, `execution.model.{provider,id}`, `execution.hosting`). The portal's `buildAgentDefinitionJson` (`src/lib/agents/create-agent.ts:116`) already produces a compatible shape; it needs to accept the structured `model: {provider, id}` field and `hosting` to reach full parity with the unit wizard.
 
 ### 1.3 Inheritance semantics today
 
@@ -58,7 +58,7 @@ Step 1 of `/units/create` renders three `<SourceCard>` choices (line 1799–1840
 
 | Source | Description as written today |
 |---|---|
-| Catalog | "Install a pre-built unit from a package in the catalog. The package supplies the full definition; you only need to provide any required inputs." |
+| Catalog | "Install a pre-built unit from a package in the catalog. The package supplies the full definition; you only need to provide required connector bindings." |
 | Browse | "Search the Spring Voyage package registry for community packages. (Coming soon — use the CLI for now.)" |
 | Scratch | "Define a new unit from scratch. You supply the name, execution tool, model, and optional connector binding." |
 
@@ -69,7 +69,7 @@ The standalone agent wizard skips this step entirely — it is hard-wired to "sc
 ### 1.5 Cross-cutting concerns surfaced by the audit
 
 - **Connectors are unit-scoped, not agent-scoped.** The standalone wizard does not expose a connector field — the unit-create wizard's connector step binds the connector to the *unit*. The issue lists "connector" in the configuration coverage gap, but the operationally meaningful connector binding for an agent is resolved through the unit it joins. The redesign therefore retains "connector" as a unit-level concern; the agent-create form does not grow a connector picker. It surfaces the chosen unit's effective connector binding as **read-only display** so the operator understands the resolved environment.
-- **Multi-unit assignment.** The standalone wizard allows ≥1 unit; the unit-tab dialog implicitly assigns to the current unit only. The redesign retains both contracts: when launched from a unit's Agents tab, the unit is preselected and the multi-select widget collapses into a confirmation strip; when launched standalone, full multi-select is available.
+- **Parent assignment.** The standalone wizard currently requires ≥1 unit; the unit-tab dialog implicitly assigns to the current unit only. The redesign changes the standalone rule to match units: zero selected units means a top-level, tenant-parented agent; one or more selected units means a member agent. When launched from a unit's Agents tab, the unit is preselected and the multi-select widget collapses into a confirmation strip; when launched standalone, full multi-select is available.
 - **Unit GUID rendered in the picker dialog.** Line 380 of `membership-dialog.tsx` literally interpolates `unitLabel` (a Guid) into the dialog description — the issue's specific complaint. The fix is mechanical: the parent supplies a display name, not the Guid.
 - **`/agents/create` uses package-install pipeline; the inline path uses `POST /api/v1/tenant/agents` directly.** Convergence requires picking one pipeline. See § 6.
 
@@ -84,7 +84,7 @@ A single component — `<AgentCreateForm>` — drives every surface. It owns a s
 | Shell | Where | Defaults |
 |---|---|---|
 | `<AgentCreateDialog>` | Unit Agents tab; opens from the **Add Agent** button | `unitIds` preselected to `[currentUnit.id]`, multi-unit picker collapsed; the dialog header shows the unit's display name and Guid; submission closes the dialog and refreshes the memberships query |
-| `<AgentCreateWizardPage>` | `/agents/create` | `unitIds` empty (multi-select required); rendered as a full page with breadcrumbs |
+| `<AgentCreateWizardPage>` | `/agents/create` | `unitIds` empty (top-level tenant-parented agent); rendered as a full page with breadcrumbs |
 | `<AgentCreateWizardPage>` (with `?parent=<unitId>`) | `/agents/create?parent=<id>` | Same as standalone, but with the named unit preselected. Mirrors the unit-create wizard's `?parent=<id>` URL-seed pattern |
 
 Both shells render the same tab-by-tab inner contents; only the chrome (dialog frame vs page-with-breadcrumbs) differs. This is the unit-create wizard's existing pattern — the wizard component is huge, but the same step skeleton can drive both the page and a dialog. The form schema lives in `src/lib/agents/create-agent.ts` (already partially populated) and is the **single source of truth** for both the dialog and the page.
@@ -102,7 +102,7 @@ The unified form opens on a Source step matching `/units/create`:
 | Path | Wire path | Coverage in v0.1 |
 |---|---|---|
 | **From scratch** | `POST /api/v1/tenant/agents` with `definitionJson` carrying `execution.{image,hosting,runtime,model:{provider,id}}` | Full |
-| **From package** | `POST /api/v1/packages/install` with `{packageName, inputs}` (catalog branch) — same endpoint the unit wizard uses | Full when an `AgentPackage` is selected |
+| **From package** | `POST /api/v1/packages/install` with `{packageName, connectors, inputs}` (catalog branch) — same endpoint the unit wizard uses | Full when an `AgentPackage` is selected |
 | **Browse** | Stub — same "Coming soon, use the CLI" pattern as the unit wizard's browse branch | Stub only |
 
 The unit wizard's catalog endpoint already accepts agent packages (the CLI uses it for `spring package install <agent-pkg>`); the redesign filters the package list to entries whose manifest declares an agent (`pkg.agentTemplateCount > 0` is already on `PackageSummary`). The from-package shape unifies the standalone wizard's existing two-phase pipeline (package YAML → install → membership wiring) with the catalog code path.
@@ -112,7 +112,7 @@ The unit wizard's catalog endpoint already accepts agent packages (the CLI uses 
 Today the standalone wizard hand-rolls an `AgentPackage` YAML and posts it to `POST /api/v1/packages/install/file`. This works but introduces a code path (`build-agent-package.ts`) that exists only because direct `POST /api/v1/tenant/agents` did not historically accept the full `definitionJson`. Post-ADR-0038 the direct endpoint accepts the structured shape; the hand-rolled YAML adds no value over a direct POST and creates a divergence with the unit-tab inline-create flow (which already uses direct POST). **The redesign moves the scratch path off the package pipeline onto the direct endpoint.** The from-package path remains on `POST /api/v1/packages/install`.
 
 This collapses three install pipelines into two:
-- Direct: scratch → `POST /api/v1/tenant/agents` (+ membership wiring is implicit because `unitIds` is in the body).
+- Direct: scratch → `POST /api/v1/tenant/agents` (+ membership wiring is implicit when `unitIds` has entries; empty means tenant-parented top-level agent).
 - Catalog: from-package → `POST /api/v1/packages/install` (+ post-install membership wiring loop, same as unit wizard).
 - File-upload: gone for agents. The wizard-as-package YAML synthesis is removed; the `/api/v1/packages/install/file` endpoint stays for actual user-supplied `.spring.yaml` files (CLI `spring package install ./pkg.yaml`).
 
@@ -127,7 +127,7 @@ Field-by-field map between the unit-create scratch step and the agent-create scr
 | Identity > description | optional | optional | `description` |
 | Identity > role | n/a | optional (agents have a role; units don't) | `role` |
 | Identity > color | optional | n/a — agents do not carry a color today | (none) |
-| Identity > parent picker | required (top-level vs has-parents) | required (≥1 unit; multi-select) | `unitIds[]` |
+| Identity > parent picker | required (top-level vs has-parents) | optional (top-level tenant parent or ≥1 unit; multi-select) | `unitIds[]` |
 | Execution > runtime | required, default `claude-code` | required, default `claude-code` (or **inherit** — see §2.4) | `definitionJson.execution.runtime` |
 | Execution > model provider | required when not fixed | required when not fixed (or **inherit**) | `definitionJson.execution.model.provider` |
 | Execution > model | optional | optional (or **inherit**) | `definitionJson.execution.model.id` |
@@ -157,15 +157,15 @@ Rationale:
 
 The "explicit `Inherit` affordance" the issue calls for is the **placeholder + badge + help copy** combination — visible on every render, named in the help copy, and tied to the same `data-testid` as on the unit pane.
 
-#### 2.4.1 What does "parent" mean for an unassigned agent?
+#### 2.4.1 What does "parent" mean?
 
-When the operator has selected zero units, the inheritance source is undefined — every Execution field falls back to the **tenant default** (the runtime catalogue's defaults, mediated by `IAgentDefinitionProvider`). The placeholder text adapts:
+Agents use the same parent model as units:
 
-- **0 units selected:** `"inherited from tenant defaults: claude-code"` (italic).
-- **1 unit selected:** `"inherited from {unit-display-name}: claude-code"`.
-- **>1 units selected:** `"inherited per-unit (resolved at dispatch)"` — no concrete preview because the agent's effective config will differ across the units it joins. The `<Inherits>` badge stays; the placeholder copy declares the per-unit deferral.
+- **0 units selected:** the agent is top-level and the tenant is its parent. Execution fields inherit from tenant defaults; placeholder copy reads `"inherited from tenant defaults: claude-code"`.
+- **1 unit selected:** the agent inherits from that unit; placeholder copy reads `"inherited from {unit-display-name}: claude-code"`.
+- **>1 units selected:** inheritance is valid only when every selected unit resolves the same effective execution configuration. When the selected units disagree, the form must require the operator to define the agent's own execution configuration before save.
 
-This mirrors the unit-create wizard's existing handling for top-level vs. parented units.
+The same validation applies when an operator changes an existing agent's parent set: if the agent was inheriting and the new parents resolve different execution configurations, the platform rejects the membership change until the agent has its own execution configuration.
 
 ### 2.5 Unit-tab dialog: header copy and unit display
 
@@ -193,7 +193,7 @@ The strip is non-editable. It is the operator's confirmation that they are creat
 
 - Breadcrumbs: `Dashboard > Agents > New agent` (today's wizard already has these).
 - The Source step (catalog / browse / scratch) is the page's first step; the dialog skips it and lands directly on scratch (with a small `From package…` link in the dialog header that pivots to a package-picker substep on click — operators in the Agents-tab context who want a packaged agent get the same path without leaving the dialog).
-- The unit-assignment widget shows the full multi-select, not a fixed single-unit row.
+- The parent-assignment widget shows the full multi-select, not a fixed single-unit row; leaving it empty creates a top-level tenant-parented agent.
 - A persisted snapshot (sessionStorage) protects the form across reload — the unit-create wizard already has `wizard-persistence.ts`; reuse that pattern with a new key (`spring.agent-create.v1`).
 
 ---
@@ -321,14 +321,17 @@ Once the operator picks a value, the placeholder is replaced and the help copy d
 For 0-unit and >1-unit cases:
 
 ```
-0 units selected (rare — submit is disabled when unitIds is empty):
+0 units selected (top-level tenant-parented agent):
 ▼ inherited from tenant defaults: claude-code
 inherited from tenant defaults: claude-code
 
->1 unit selected:
-▼ inherited per-unit (resolved at dispatch)
-inherited per-unit — value will differ across the 3 units this
-agent joins. Override here to apply the same value everywhere.
+>1 unit selected with matching resolved config:
+▼ inherited from selected units: claude-code
+inherited from selected units: claude-code
+
+>1 unit selected with conflicting resolved config:
+⚠ Selected units resolve different execution configs.
+Define this agent's execution config before saving.
 ```
 
 ### 3.4 From-package state — dialog and page
@@ -339,7 +342,7 @@ Dialog (Agents tab) after the operator clicks "From package…" in the footer:
 ┌────────────────────────────────────────────────────────────────────────┐
 │  Create agent in Engineering Team — from package                  [X]  │
 │  Pick a package containing an agent template. The package's defaults   │
-│  are applied; required inputs are collected below.                     │
+│  are applied; required connector bindings are resolved below.          │
 ├────────────────────────────────────────────────────────────────────────┤
 │                                                                        │
 │  Package                                                               │
@@ -353,8 +356,8 @@ Dialog (Agents tab) after the operator clicks "From package…" in the footer:
 │  │     0 units, 1 agent, 0 skills                                   │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
 │                                                                        │
-│  Inputs (required *)                                                   │
-│  github.repo *           ┌──────────────────────────────────────┐      │
+│  Required connectors                                                  │
+│  GitHub *                ┌──────────────────────────────────────┐      │
 │                          │ cvoya-com/spring-voyage              │      │
 │                          └──────────────────────────────────────┘      │
 │                                                                        │
@@ -365,7 +368,7 @@ Dialog (Agents tab) after the operator clicks "From package…" in the footer:
 
 Notes:
 - Package list comes from `GET /api/v1/packages` (existing endpoint), filtered client-side to entries with `agentTemplateCount > 0`.
-- Inputs panel reuses the existing `<CatalogInputsPanel>` from the unit-create wizard (line 1965 of `/units/create/page.tsx`). No new component.
+- Connector requirements reuse the unit-create wizard's package-install connector affordance. Legacy package inputs still pass through the package-install API when a package declares them, but visible copy should describe connector requirements.
 - The dialog still inherits the unit context from its host: the package's agents are wired to the host unit on install. If the package declares agents that should join *other* units (`members:` block on the package manifest), the operator gets a confirmation step naming the additional unit assignments.
 
 ### 3.5 Browse state — page-only (dialog does not offer browse)
@@ -439,21 +442,23 @@ From `src/Cvoya.Spring.Cli/Commands/AgentCommand.cs:205-376`:
 
 | Flag | Required | Behaviour |
 |---|---|---|
-| `<id>` (positional) | **becomes optional** | Kept for back-compat as the `--name` shorthand. When supplied AND `--name` is also supplied, `--name` wins (current behaviour). v0.2 (issue follow-up) deprecates `<id>` in favour of `--name`. **No semantic change in this PR — the server already ignores client-supplied stable ids and allocates its own.** |
-| `--name <displayName>` | yes | Required when `<id>` is omitted |
+| `<id>` (positional) | **removed** | v0.1 is allowed to take breaking CLI changes. The server already allocates the stable Guid; display identity comes from `--name`. |
+| `--name <displayName>` | yes | Human-readable display name |
 | `--description <text>` | **new** | Mirrors the form's Description field. Lands as `description` on `CreateAgentRequest` |
 | `--role <role>` | no | Unchanged |
-| `--unit <id>` (repeatable) | yes (≥1) | Unchanged |
-| `--from-package <ref>` | **new** | Mutually exclusive with `--definition` / `--definition-file` and the execution shorthand flags. Routes through `POST /api/v1/packages/install` with `{packageName: <ref>, inputs: {…}}` |
-| `--input <key=value>` (repeatable) | **new (paired with `--from-package`)** | Supplies package inputs. Errors when used without `--from-package` |
-| `--inherit` | **new** | Boolean. When set, omits every execution shorthand flag from the wire body — even ones with defaults — so the agent inherits all execution config from the unit at dispatch. Mutually exclusive with the execution-shorthand flags (collision triggers a parse-time error with a migration message) |
+| `--unit <id>` (repeatable) | no | Optional parent assignment. Omit to create a top-level tenant-parented agent; repeat to join multiple units. |
+| `--from-package <ref>` | **new** | Mutually exclusive with `--definition` / `--definition-file` and the execution shorthand flags. Routes through `POST /api/v1/packages/install`. |
+| `--connector <binding>` (repeatable) | **new (paired with `--from-package`)** | Supplies required connector bindings using the same syntax as `spring package install --connector`. Errors when used without `--from-package`. |
+| `--input <key=value>` (repeatable) | **new (paired with `--from-package`)** | Supplies legacy non-connector package inputs when a package still declares them. UI copy should prefer connector requirements. Errors when used without `--from-package`. |
+| `--inherit` | **new** | Boolean. When set, omits every execution shorthand flag from the wire body — even ones with defaults — so the agent inherits all execution config from its parent source at dispatch. Mutually exclusive with the execution-shorthand flags (collision triggers a parse-time error with a migration message) |
 | `--definition-file <path>` | no | Unchanged. Mutually exclusive with `--from-package`/`--inherit` |
 | `--definition <inline>` | no | Unchanged. Mutually exclusive with `--from-package`/`--inherit` |
 | `--image <ref>` | no | Unchanged |
-| `--container-runtime <id>` | no | Unchanged |
 | `--runtime <id>` | no | Unchanged |
 | `--model-provider <id>` | no | Unchanged |
 | `--model <id>` | no | Unchanged |
+
+`--container-runtime` is removed from `spring agent create`. The container engine is platform/host configuration, not an agent-create choice.
 
 ### 4.3 Inheritance default in the CLI
 
@@ -461,6 +466,7 @@ The form's default-on-inherit mental model has to translate to the CLI without b
 
 - **Absence of an execution shorthand flag = inherit** (today's silent behaviour, restated explicitly in `--help`).
 - `--inherit` is sugar for "omit all execution shorthand fields." It exists for two reasons: (1) declarative parity with the portal's per-field inherit semantics (you can write the same intent both ways), and (2) self-documenting scripts — `spring agent create --name ada --unit eng --inherit` reads cleanly, where `spring agent create --name ada --unit eng` reads as "did the operator forget to set runtime?"
+- With no `--unit`, inherited fields resolve from tenant defaults. With multiple `--unit` values, inheritance is accepted only when the selected units resolve the same effective execution configuration; otherwise the server requires an explicit agent execution configuration.
 - The CLI does **not** support per-field inherit on the command line (e.g. there is no `--runtime inherit` keyword). Per-field inherit on the CLI is achieved by simply not passing the flag. The portal's per-field UX is a UX-only affordance; the wire is the same in both directions.
 
 ### 4.4 From-package on the CLI
@@ -470,11 +476,10 @@ spring agent create \
     --name ada-reviewer \
     --unit engineering-team \
     --from-package spring-voyage/software-engineering \
-    --input github.repo=cvoya-com/spring-voyage \
-    --input github.token-secret=engineering/github-token
+    --connector github=owner/repo@installation-id
 ```
 
-Mirrors `spring package install <ref>` but scoped to "install only the agents declared by this package, into the specified unit." Implementation detail: the CLI fans out to the existing `POST /api/v1/packages/install` endpoint with the package name + inputs, and assigns the resulting agent(s) to `--unit` using the same post-install loop the portal wizard runs. The server's package activator already handles the unit assignment when the manifest's `members:` block is empty (no follow-up units to wire); when the package declares its own unit assignments, the CLI prints a dry-run summary and asks for confirmation unless `--yes` is passed.
+Mirrors `spring package install <ref>` but scoped to "install the agents declared by this package." Implementation detail: the CLI fans out to the existing `POST /api/v1/packages/install` endpoint with the package name, connector bindings, and any legacy inputs, then assigns the resulting agent(s) to `--unit` when units were provided. If no `--unit` is supplied, resulting agents are top-level and tenant-parented. When the package declares its own unit assignments, the CLI prints a dry-run summary and asks for confirmation unless `--yes` is passed.
 
 ### 4.5 Browse on the CLI
 
@@ -491,36 +496,59 @@ The implementing PR(s) must add scenarios under `tests/cli-scenarios/` and corre
 | Create-from-scratch with full overrides | `spring agent create --name ada --unit eng --runtime claude-code --model-provider anthropic --model claude-opus-4-7 --image ghcr.io/…` | Standalone wizard, scratch path, all fields filled | `POST /api/v1/tenant/agents` |
 | Create-from-scratch with full inherit | `spring agent create --name ada --unit eng --inherit` | Unit-tab dialog, no field touched | `POST /api/v1/tenant/agents` (no `definitionJson`) |
 | Create-from-scratch with partial override | `spring agent create --name ada --unit eng --model claude-opus-4-7` | Unit-tab dialog, only Model overridden | `POST /api/v1/tenant/agents` (`definitionJson.execution.model.id` only) |
-| Create-from-package | `spring agent create --name ada --unit eng --from-package spring-voyage/software-engineering --input github.repo=…` | Standalone wizard, from-package path | `POST /api/v1/packages/install` |
+| Create top-level tenant-parented agent | `spring agent create --name ada --inherit` | Standalone wizard, no parent units selected | `POST /api/v1/tenant/agents` (`unitIds: []`, no `definitionJson`) |
+| Reject conflicting multi-parent inherit | `spring agent create --name ada --unit eng --unit support --inherit` when the units resolve different configs | Standalone wizard, two conflicting parent units selected and no explicit execution config | validation error |
+| Create-from-package | `spring agent create --name ada --unit eng --from-package spring-voyage/software-engineering --connector github=owner/repo@installation-id` | Standalone wizard, from-package path | `POST /api/v1/packages/install` |
 | Reject mutually exclusive flags | `spring agent create --inherit --runtime claude-code` | n/a (UI cannot express the conflict) | parse-time CLI error |
-| Reject empty `--unit` list | `spring agent create --name ada` | UI submit button stays disabled | parse-time CLI error |
 
-The first three scenarios are the new parity-critical ones; the existing CLI scenarios already cover today's flag set and stay green.
+The inherit scenarios are parity-critical because the parent model now includes tenant-parented agents and multi-parent validation. Existing CLI scenarios that expect a positional `<id>`, `--container-runtime`, or a required `--unit` must be updated or removed as part of the v0.1 breaking cleanup.
 
 ---
 
 ## 6. Open questions and cross-dependencies
 
-### 6.1 #1786 — unit-as-agent vs unit-as-router
+### 6.1 #1786 — units are agents with children
 
-`#1786` asks whether a unit configured with a runtime should self-execute (instead of always routing to a member). The resolution affects this design at three points:
+The design direction for `#1786` is simpler than the earlier router-mode framing:
 
-1. **What "inherit from parent" means for the agent.** Today `IAgentDefinitionProvider` resolves inherited fields against the parent unit's *unit-level* execution config, which is configured today via the unit-create scratch step. If `#1786` resolves to "a unit with a runtime *is* an agent and serves directly," the unit's `execution.runtime` field becomes simultaneously the inheritance source for member agents AND the unit's own runtime. The placeholder copy `"inherited from Engineering Team: claude-code"` becomes ambiguous — does the inherited value come from the unit-as-router config (the routing model, today's behaviour) or from the unit-as-agent config (the unit's own runtime, post-`#1786`)? Most likely the post-`#1786` design will say "the unit only has *one* runtime field, and member agents inherit it" — but if the design instead bifurcates the field, the agent-create form needs to know which one to display in the placeholder. **Action:** re-validate the placeholder copy against the `#1786` ADR's chosen direction before implementation lands.
+- A **unit is always an agent**. There is no separate self-execution mode and no platform-level router mode.
+- The only structural difference is that a unit has children. Because it has children, its configured runtime receives unit-only orchestration tools: list children, inspect child status/config/activity, and delegate a message to a child.
+- The platform does not store or select an orchestration policy. Workflow, AI routing, hybrid routing, or direct response are runtime/instruction/container-image concerns.
+- The platform does formalize an **orchestration decision** as evidence emitted when a unit runtime uses an orchestration tool. Only units can emit orchestration decisions because only units receive those tools.
 
-2. **Whether a "convert this agent to a unit-agent" affordance belongs in the create form.** If the post-`#1786` unit-create wizard exposes a "this unit is itself an agent" toggle, the agent-create surface should be honest about *not* being that toggle — creating an agent and creating a unit-as-agent are different operations even if the resulting wire artefacts overlap. **Action:** the agent-create form does not grow a "create as unit-agent" path. Operators wanting a unit-as-agent go through the unit-create wizard.
+Target `OrchestrationDecision` shape:
 
-3. **Whether the from-package path needs to handle agent-as-unit packages.** Some packages declare a unit-as-agent shape (a unit with a runtime + a degenerate `members: []`). When the operator picks such a package from the agent-create form, what's installed — an agent or a unit-as-agent? The cleanest answer is "the package installs whatever it declares; the agent-create form is the entry point but not the contract author." But the form's success message has to be honest about the result — "Agent created" lies if the package actually created a unit-as-agent. **Action:** flag the package's manifest shape on the from-package summary panel, and use a manifest-derived success message.
+```ts
+OrchestrationDecision = {
+    decisionId: string;
+    tenantId: string;
+    unitAddress: string;
+    threadId: string;
+    inputMessageId: string;
+    kind: "delegate" | "fanout" | "inspect" | "no_op";
+    targets: string[];
+    status: "accepted" | "routed" | "failed";
+    resultMessageIds: string[];
+    reason?: string;       // short runtime-supplied rationale, never hidden model reasoning
+    metadata?: object;
+    createdAt: string;
+}
+```
 
-The redesign of `#1763` does **not** block on `#1786`. The chosen affordances (per-field inherit, three-paths source step, single create form) are robust to either resolution. The three points above are integration concerns the implementing PR should validate against the `#1786` ADR draft before merging.
+Consequences for this design:
 
-### 6.2 Multi-unit assignment and per-field inherit
+1. **No create-time unit mode toggle.** The agent-create form does not need a "create as unit-agent" path because units already are agents. Operators who want a composite agent create a unit; operators who want a leaf participant create an agent.
+2. **One execution config per unit.** A unit's execution config is both the unit's own runtime config and the default inherited by children. There is no separate orchestration runtime/model field.
+3. **No orchestration policy surface.** Follow-up implementation should remove platform orchestration policy/strategy config from unit docs, API/CLI/portal surfaces, and replace strategy-choice language with runtime instructions plus orchestration-decision events.
+4. **Packages install what they declare.** If an agent-create from-package path selects a package that declares units, the package result is unit creation, not "agent creation." The summary panel and success copy must be manifest-derived.
 
-When the operator selects >1 unit, the per-field inherit placeholder cannot show a concrete value (different units may resolve different runtimes). The current design says `"inherited per-unit (resolved at dispatch)"`, which is honest but does not let the operator preview what the agent will run. Two follow-up moves to evaluate later:
+This redesign now depends on the `#1786` ADR direction for terminology and execution semantics. The first implementation slice below is an architecture slice that removes the policy framing before the agent-create implementation lands.
 
-1. A `[Resolve preview]` button that resolves the agent's effective config against each selected unit and renders a small per-unit table. Hits the existing `IAgentDefinitionProvider.ResolveAsync` path; needs an API endpoint.
-2. A constraint that warns when the selected units would resolve different runtimes. (Today this is silent; the agent's effective config is just whatever the unit-of-dispatch resolves.)
+### 6.2 Multi-parent inheritance validation
 
-Filing these as follow-ups (not PR-scope).
+When the operator selects >1 unit and leaves execution fields inherited, the backend must resolve each selected unit's effective execution configuration before accepting the agent create/update. If every parent resolves the same config, the agent may inherit. If any parent differs, the request is rejected unless the agent provides its own execution configuration.
+
+The same rule applies to parent changes on existing agents. A membership update that would move an inheriting agent under conflicting parents is rejected until the agent defines its own execution config.
 
 ### 6.3 Description field on `CreateAgentRequest`
 
@@ -528,7 +556,7 @@ The schema declares `description: string` (non-optional). The portal's `buildCre
 
 ### 6.4 Container runtime vs agent runtime — naming
 
-ADR-0038 split the two: `execution.containerRuntime` (docker/podman) is the host-level container engine; `execution.runtime` is the agent runtime (claude-code/codex/…). The CLI carries both as separate flags. The portal's standalone wizard exposes `--runtime` (agent runtime, line 671) but not `--container-runtime`. The redesign keeps the portal's surface narrow — `containerRuntime` is operator/host configuration and out of scope for the agent-create form per CONVENTIONS.md §13's operator carve-out.
+ADR-0038 split the two: `execution.containerRuntime` (docker/podman) is the host-level container engine; `execution.runtime` is the agent runtime (claude-code/codex/…). The target user-facing create surfaces expose only agent runtime. `containerRuntime` is platform/host configuration and is removed from both the portal plan and `spring agent create`.
 
 ### 6.5 Image-history datalist parity
 
@@ -542,19 +570,29 @@ The unit-create wizard persists state in sessionStorage with schema versioning (
 
 ## 7. Implementation slicing
 
-The redesign is non-trivial but breaks cleanly into reviewable PRs. Recommendation: **four PRs**, each independently mergeable.
+The redesign is non-trivial but breaks cleanly into reviewable PRs. Recommendation: **five PRs**, each independently mergeable.
 
-### PR 1 — Form schema + shared component (foundation)
+### PR 1 — #1786 architecture foundation
+
+- Add the ADR that states: units are agents with children; orchestration policy is not platform configuration; orchestration decisions are formal events emitted only by unit runtimes.
+- Introduce/plan the addressable execution-subject seam needed for both `agent:<id>` and `unit:<id>` dispatch.
+- Specify unit-only orchestration tools and the `OrchestrationDecision` event shape.
+- Remove or deprecate docs/API/CLI/portal language that exposes orchestration policy/strategy as a user-selectable unit setting.
+- Update architecture docs before implementation PRs below rely on the new terminology.
+
+Acceptance: reviewers can point to one architectural source of truth before the agent-create implementation begins. `#1763` copy uses the units-are-agents model consistently.
+
+### PR 2 — Form schema + shared component (foundation)
 
 - Extract `<AgentCreateForm>` from today's `app/agents/create/page.tsx`. The component owns identity, execution, and unit-assignment fields.
 - Extend `buildAgentDefinitionJson` to accept structured `model: {provider, id}` and `hosting`. Today it accepts a flat shape.
 - Add per-field inherit affordance (DESIGN.md §12.6 pattern). Adds `data-testid="inherit-indicator"` to every Execution field.
 - The standalone page is rewired to consume `<AgentCreateForm>` but otherwise preserves its current behaviour.
-- **No CLI changes.** **No new shells.** No backend changes.
+- **No CLI changes.** **No new shells.** Backend changes are limited to accepting top-level tenant-parented agents and exposing validation feedback for multi-parent inheritance conflicts if the endpoint work is small enough; otherwise that validation lands with PR 5 before CLI parity is declared complete.
 
 Acceptance: the standalone wizard renders identically to today (modulo the per-field inherit visuals) and round-trips through the same install pipeline. Existing tests stay green.
 
-### PR 2 — Unit-tab dialog rewrite
+### PR 3 — Unit-tab dialog rewrite
 
 - Replace `<MembershipDialog mode="add">` with `<AgentCreateDialog>` in `agents-tab.tsx`. The dialog wraps `<AgentCreateForm>` and preselects the host unit.
 - `<MembershipDialog mode="edit">` stays for per-membership edit.
@@ -563,56 +601,59 @@ Acceptance: the standalone wizard renders identically to today (modulo the per-f
 
 Acceptance: clicking **Add agent** opens the new create dialog; the dialog shows the unit's display name; submitting creates an agent in the host unit and refreshes memberships. Picker mode is gone; e2e tests covering the picker are deleted.
 
-### PR 3 — Three-paths Source step + from-package
+### PR 4 — Three-paths Source step + from-package
 
 - Add the Source step to `<AgentCreateForm>`. The page renders all three sources; the dialog defaults to scratch with a "From package…" link in the footer.
-- Add the package picker (reuse `<CatalogInputsPanel>`) and wire `POST /api/v1/packages/install` for the from-package branch.
+- Add the package picker and connector-requirements panel; wire `POST /api/v1/packages/install` for the from-package branch.
+- Make the package summary and success copy manifest-derived so a package that creates units is not described as "agent created."
 - Drop the `build-agent-package.ts` YAML synthesis. The scratch branch now posts directly to `POST /api/v1/tenant/agents`.
 - Add the Browse stub.
 - Add wizard persistence under `spring.agent-create.v1`.
 
 Acceptance: all three paths are reachable from the page; the dialog reaches scratch + from-package. Existing scratch-path e2e specs migrate to the new wire path. Browse is the documented stub.
 
-### PR 4 — CLI parity
+### PR 5 — CLI parity
 
-- Add `--description`, `--from-package`, `--input` (repeatable), `--inherit` to `spring agent create`.
-- Make `<id>` optional (tracking issue for v0.2 deprecation).
-- Add mutual-exclusion validation between `--inherit` / `--from-package` / `--definition*` / execution shorthands.
+- Add `--description`, `--from-package`, `--connector`, `--input` (repeatable legacy package variables), and `--inherit` to `spring agent create`.
+- Remove the positional `<id>` argument entirely.
+- Remove `--container-runtime` from `spring agent create`.
+- Make `--unit` optional; omitted means top-level tenant-parented agent.
+- Add mutual-exclusion validation between `--inherit` / `--from-package` / `--definition*` / execution shorthands, plus backend validation for conflicting multi-parent inheritance.
 - Update CLI scenarios; update `docs/cli-reference.md`.
 - Update DESIGN.md to record the new "inherit" affordance under §12.6 (cross-link to the unit-pane indicator).
 
-Acceptance: all six rows of the test matrix in §5 pass. `spring agent create --help` reads cleanly. CLI parity gap closed.
+Acceptance: all seven rows of the test matrix in §5 pass. `spring agent create --help` reads cleanly. CLI parity gap closed.
 
-### Why four PRs and not one
+### Why five PRs and not one
 
-- PR 1 is contained and high-confidence — extract + rewire. It unblocks the rest by establishing the schema.
-- PR 2 deletes UI behaviour (picker) — a clean, reviewable surgical change that is easier to audit on its own than tangled with new step plumbing.
-- PR 3 introduces wire-path changes (drop the package-install YAML synthesis) — the riskiest change, deserves its own review window.
-- PR 4 is CLI-only — different code area, different review profile (CLI tests, not React tests).
+- PR 1 changes the conceptual contract. It needs architecture review before UI and CLI copy hard-code the old "orchestration policy" model.
+- PR 2 is contained and high-confidence — extract + rewire. It unblocks the rest by establishing the schema.
+- PR 3 deletes UI behaviour (picker) — a clean, reviewable surgical change that is easier to audit on its own than tangled with new step plumbing.
+- PR 4 introduces wire-path changes (drop the package-install YAML synthesis) — the riskiest UI/API change, deserves its own review window.
+- PR 5 is CLI-heavy and includes the breaking v0.1 cleanup — different code area, different review profile (CLI tests, not React tests).
 
 Each PR ships a working portal + CLI; none leaves the tree in a broken intermediate state. Each PR's e2e and CLI scenarios stand on their own.
 
 ### What does NOT slice
 
-- The DESIGN.md update covering the new agent-create surface lives **with PR 3** (the PR that introduces the visible new pattern). Keeping it earlier orphans the doc; keeping it later violates the "update DESIGN.md in the same PR" rule.
-- `#1786` does NOT block this design or any of the four PRs. The placeholder-copy revalidation in §6.1 is a single-line change in PR 1 that the implementing engineer makes after reading the `#1786` ADR draft; if the ADR has not landed by the time PR 1 is ready, ship with the today-correct copy and update in a follow-up.
+- The DESIGN.md update covering the new agent-create surface lives **with PR 4** (the PR that introduces the visible new pattern). Keeping it earlier orphans the doc; keeping it later violates the "update DESIGN.md in the same PR" rule.
+- The `#1786` ADR direction is no longer a follow-up footnote; it is PR 1. Later implementation PRs should not introduce orchestration-policy terminology.
 
 ---
 
 ## 8. Out of scope (filed as follow-ups, not in this redesign)
 
-- **Multi-unit dispatch preview** (§6.2). Useful but cosmetic; no downstream surface depends on it.
+- **Multi-parent resolved-config preview table** (§6.2). Validation is in scope; a richer preview table is useful but cosmetic.
 - **Per-field inherit on the CLI command line** (§4.3). The CLI's inheritance model is "absence = inherit," which already works; per-flag inherit is not worth the parse-time complexity for v0.1.
 - **Agent connector binding.** Connectors stay unit-scoped. If a future ADR moves connector binding to the agent level, this design bends to it without breaking the form schema.
 - **Drag-target agent assignment from the unit tree.** Out of scope; mentioned only because operators sometimes want it as a substitute for the picker we are deleting.
-- **Removing `<id>` from `spring agent create` arguments entirely.** Filed as a v0.2 deprecation (CLI breaking change requires a release boundary).
 
 ---
 
 ## 9. References
 
 - Issue: `#1763` — "Align agent creation flow with unit creation: configuration, inheritance, and multi-path entry"
-- Cross-dependency: `#1786` — unit-as-agent vs unit-as-router
+- Cross-dependency: `#1786` — units as agents with orchestration decisions
 - ADR-0038 — runtime / image / provider / model split (the field semantics this design layers on)
 - ADR-0035 — package-install pipeline (the catalog and file-upload paths this design consolidates against)
 - `src/Cvoya.Spring.Web/DESIGN.md` §12.6 — inherit-from-parent indicator (the visual pattern this design reuses)
