@@ -10,36 +10,15 @@ import {
 
 describe("create-agent helper (#1040)", () => {
   describe("validateAgentCreateInput", () => {
-    it("requires an id", () => {
-      expect(
-        validateAgentCreateInput({ id: "  ", displayName: "x", unitIds: ["u"] }),
-      ).toBe("id-required");
-    });
-
-    it("rejects ids with uppercase or punctuation", () => {
-      expect(
-        validateAgentCreateInput({
-          id: "Bad_Name",
-          displayName: "x",
-          unitIds: ["u"],
-        }),
-      ).toBe("id-pattern");
-    });
-
     it("requires a display name", () => {
       expect(
-        validateAgentCreateInput({
-          id: "ada",
-          displayName: " ",
-          unitIds: ["u"],
-        }),
+        validateAgentCreateInput({ displayName: " ", unitIds: ["u"] }),
       ).toBe("displayName-required");
     });
 
     it("requires at least one non-empty unit", () => {
       expect(
         validateAgentCreateInput({
-          id: "ada",
           displayName: "Ada",
           unitIds: ["", "  "],
         }),
@@ -49,7 +28,6 @@ describe("create-agent helper (#1040)", () => {
     it("returns null for a well-formed input", () => {
       expect(
         validateAgentCreateInput({
-          id: "ada",
           displayName: "Ada",
           unitIds: ["engineering"],
         }),
@@ -112,24 +90,22 @@ describe("create-agent helper (#1040)", () => {
   describe("buildCreateAgentRequest", () => {
     it("trims whitespace and omits definitionJson when no exec shorthand was set", () => {
       const body = buildCreateAgentRequest({
-        id: "  ada  ",
         displayName: "  Ada  ",
         role: "  reviewer  ",
         unitIds: ["  engineering  ", " marketing "],
       });
       expect(body).toEqual({
-        name: "ada",
         displayName: "Ada",
         description: "",
         role: "reviewer",
         unitIds: ["engineering", "marketing"],
       });
       expect("definitionJson" in body).toBe(false);
+      expect("name" in body).toBe(false);
     });
 
     it("normalises an empty role to null", () => {
       const body = buildCreateAgentRequest({
-        id: "ada",
         displayName: "Ada",
         role: "   ",
         unitIds: ["engineering"],
@@ -139,7 +115,6 @@ describe("create-agent helper (#1040)", () => {
 
     it("includes definitionJson when execution shorthand is provided", () => {
       const body = buildCreateAgentRequest({
-        id: "ada",
         displayName: "Ada",
         unitIds: ["engineering"],
         tool: "claude-code",
@@ -155,11 +130,26 @@ describe("create-agent helper (#1040)", () => {
     it("throws on invalid input so the caller can surface the message", () => {
       expect(() =>
         buildCreateAgentRequest({
-          id: "BadName",
-          displayName: "x",
-          unitIds: ["u"],
+          displayName: "",
+          unitIds: ["engineering"],
         }),
-      ).toThrow(describeAgentCreateError("id-pattern"));
+      ).toThrow("Display name is required.");
+    });
+
+    it("throws when no unit is supplied", () => {
+      expect(() =>
+        buildCreateAgentRequest({
+          displayName: "Ada",
+          unitIds: [],
+        }),
+      ).toThrow("Pick at least one unit to assign the agent to.");
+    });
+  });
+
+  describe("describeAgentCreateError", () => {
+    it("returns copy for all defined error codes", () => {
+      expect(describeAgentCreateError("displayName-required")).toBeTruthy();
+      expect(describeAgentCreateError("unit-required")).toBeTruthy();
     });
   });
 });

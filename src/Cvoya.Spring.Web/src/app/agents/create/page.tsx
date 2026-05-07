@@ -22,11 +22,7 @@ import {
   useAgentRuntimes,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
-import {
-  AGENT_NAME_PATTERN,
-  describeAgentCreateError,
-  validateAgentCreateInput,
-} from "@/lib/agents/create-agent";
+import { AGENT_NAME_PATTERN } from "@/lib/agents/create-agent";
 import {
   DEFAULT_EXECUTION_TOOL,
   EXECUTION_TOOLS,
@@ -351,13 +347,24 @@ export default function CreateAgentPage() {
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const validation = validateAgentCreateInput({
-      id: form.id,
-      displayName: form.displayName,
-      unitIds: form.unitIds,
-    });
-    if (validation !== null) {
-      setValidationMessage(describeAgentCreateError(validation));
+    const agentId = form.id.trim();
+    if (!agentId) {
+      setValidationMessage("Agent id is required.");
+      return;
+    }
+    if (!AGENT_NAME_PATTERN.test(agentId)) {
+      setValidationMessage(
+        "Agent id must be URL-safe (lowercase letters, digits, and hyphens).",
+      );
+      return;
+    }
+    if (!form.displayName.trim()) {
+      setValidationMessage("Display name is required.");
+      return;
+    }
+    const unitIds = form.unitIds.filter((u) => u.trim().length > 0);
+    if (unitIds.length === 0) {
+      setValidationMessage("Pick at least one unit to assign the agent to.");
       return;
     }
     setValidationMessage(null);
@@ -567,7 +574,7 @@ export default function CreateAgentPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <label className="block space-y-1">
-              <span className="text-sm text-muted-foreground">Agent Runtime</span>
+              <span className="text-sm text-muted-foreground">Execution tool</span>
               <select
                 value={form.executionTool}
                 onChange={(e) => {
@@ -575,7 +582,7 @@ export default function CreateAgentPage() {
                   setForm((prev) => ({ ...prev, executionTool: tool, model: "" }));
                   setValidationMessage(null);
                 }}
-                aria-label="Agent Runtime"
+                aria-label="Execution tool"
                 disabled={submitting}
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -587,7 +594,7 @@ export default function CreateAgentPage() {
               </select>
               <span className="block text-xs text-muted-foreground">
                 Determines which agent runtime processes work. Mirrors{" "}
-                <code className="font-mono">--agent</code>.
+                <code className="font-mono">--tool</code>.
               </span>
             </label>
 

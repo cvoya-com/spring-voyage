@@ -147,7 +147,6 @@ export function AgentsTab({ unitId }: AgentsTabProps) {
   // a toast here mirrors the standalone /agents/create page.
   const handleInlineCreate = async (values: InlineAgentCreateValues) => {
     const body = buildCreateAgentRequest({
-      id: values.id,
       displayName: values.displayName,
       role: values.role,
       unitIds: [unitId],

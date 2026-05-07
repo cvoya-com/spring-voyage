@@ -60,7 +60,6 @@ public class DisplayNameValidationEndpointTests : IClassFixture<CustomWebApplica
         // unitIds / connector resolution must NOT have been called — the
         // validator runs before any of that work.
         var request = new CreateAgentRequest(
-            Name: Guid.NewGuid().ToString("N"),
             DisplayName: GuidShapedDashed,
             Description: "",
             Role: null,
@@ -84,7 +83,6 @@ public class DisplayNameValidationEndpointTests : IClassFixture<CustomWebApplica
         _factory.DirectoryService.ClearReceivedCalls();
 
         var request = new CreateAgentRequest(
-            Name: Guid.NewGuid().ToString("N"),
             DisplayName: "   ",
             Description: "",
             Role: null,

@@ -84,18 +84,14 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         ArrangeUnitEntry("engineering", UnitEngineeringUuid);
         ArrangeAgentActorProxy();
 
-        // Post-#1629 CreateAgentRequest.Name carries the agent's Guid hex;
-        // the human-readable label travels in DisplayName. UnitIds are
-        // typed Guids on the wire (PR5).
-        var newAgentId = Guid.NewGuid().ToString("N");
         var request = new CreateAgentRequest(
-            newAgentId, "New Agent", "A brand new agent", "frontend",
+            "New Agent", "A brand new agent", "frontend",
             UnitIds: new[] { UnitEngineeringUuid });
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
-        response.Headers.Location!.ToString().ShouldContain($"/api/v1/tenant/agents/{newAgentId}");
+        response.Headers.Location!.ToString().ShouldContain("/api/v1/tenant/agents/");
 
         await _factory.DirectoryService.Received(1).RegisterAsync(
             Arg.Is<DirectoryEntry>(e =>
@@ -119,7 +115,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.DirectoryService.ClearReceivedCalls();
 
         var request = new CreateAgentRequest(
-            Guid.NewGuid().ToString("N"), "Orphan", "A would-be orphan", "frontend",
+            "Orphan", "A would-be orphan", "frontend",
             UnitIds: Array.Empty<Guid>());
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
@@ -139,7 +135,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             .Returns((DirectoryEntry?)null);
 
         var request = new CreateAgentRequest(
-            Guid.NewGuid().ToString("N"), "Lost", "Unit does not exist", "frontend",
+            "Lost", "Unit does not exist", "frontend",
             UnitIds: new[] { Guid.NewGuid() });
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
