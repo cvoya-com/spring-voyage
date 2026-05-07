@@ -385,7 +385,11 @@ public class SpringApiClient
             Description = description ?? string.Empty,
             Model = string.IsNullOrWhiteSpace(model) ? null : model,
             Color = string.IsNullOrWhiteSpace(color) ? null : color,
-            Provider = string.IsNullOrWhiteSpace(provider) ? null : provider,
+            // ADR-0038: provider is intrinsic to the structured execution.model;
+            // the flat unit-create slot is gone. The provider parameter is
+            // retained on the C# call site signature so PR-2's CLI rewrite
+            // can re-route it through the new structured model field
+            // without touching every caller.
             Hosting = string.IsNullOrWhiteSpace(hosting) ? null : hosting,
             // Review feedback on #744: forward the parent-required inputs
             // so the server enforces the invariant. The CLI catches the
@@ -2233,179 +2237,28 @@ public class SpringApiClient
         }
     }
 
-    // Agent runtimes (#688). Mirrors the /api/v1/agent-runtimes surface
-    // landed in #715: install / list / show / models / config /
-    // credential-health / refresh-models. The CLI `spring agent-runtime`
-    // verbs ride these wrappers so the command layer stays free of Kiota
-    // ceremony.
-
-    /// <summary>Lists every agent runtime installed on the current tenant.</summary>
-    public async Task<IReadOnlyList<InstalledAgentRuntimeResponse>> ListAgentRuntimesAsync(
-        CancellationToken ct = default)
-    {
-        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs.GetAsync(cancellationToken: ct);
-        return result ?? new List<InstalledAgentRuntimeResponse>();
-    }
+    // ADR-0038: Model providers — the install / list / show / config /
+    // credential-health / refresh-models surface re-keys on provider id.
+    // The full set of CLI verbs ships in PR-2 with `ModelProviderCommand`;
+    // Chunk A keeps only the lookup helper that the credential-resolver in
+    // UnitCommand depends on.
 
     /// <summary>
-    /// Returns the install metadata for a runtime, or <c>null</c> when not installed.
+    /// Returns the install metadata for a model provider, or <c>null</c>
+    /// when not installed. Backs the credential-secret-name resolution
+    /// path inside <c>UnitCommand</c>.
     /// </summary>
-    public async Task<InstalledAgentRuntimeResponse?> GetAgentRuntimeAsync(
+    public async Task<InstalledModelProviderResponse?> GetModelProviderAsync(
         string id, CancellationToken ct = default)
     {
         try
         {
-            return await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].GetAsync(cancellationToken: ct);
+            return await _client.Api.V1.Tenant.ModelProviders.Installs[id].GetAsync(cancellationToken: ct);
         }
         catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
         {
             return null;
         }
-    }
-
-    /// <summary>Returns the tenant's configured model list for an installed runtime.</summary>
-    public async Task<IReadOnlyList<AgentRuntimeModelResponse>> GetAgentRuntimeModelsAsync(
-        string id, CancellationToken ct = default)
-    {
-        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].Models.GetAsync(cancellationToken: ct);
-        return result ?? new List<AgentRuntimeModelResponse>();
-    }
-
-    /// <summary>Installs (or refreshes) a runtime on the current tenant.</summary>
-    public async Task<InstalledAgentRuntimeResponse> InstallAgentRuntimeAsync(
-        string id,
-        IReadOnlyList<string>? models,
-        string? defaultModel,
-        string? baseUrl,
-        CancellationToken ct = default)
-    {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.AgentRuntimes.Installs.Item.Install.InstallRequestBuilder.InstallPostRequestBody
-        {
-            AgentRuntimeInstallRequest = new AgentRuntimeInstallRequest
-            {
-                Models = models?.ToList(),
-                DefaultModel = defaultModel,
-                BaseUrl = baseUrl,
-            },
-        };
-        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].Install.PostAsync(body, cancellationToken: ct);
-        return result ?? throw new InvalidOperationException(
-            $"Server returned an empty install response for agent runtime '{id}'.");
-    }
-
-    /// <summary>Uninstalls the runtime from the current tenant.</summary>
-    public Task UninstallAgentRuntimeAsync(string id, CancellationToken ct = default)
-        => _client.Api.V1.Tenant.AgentRuntimes.Installs[id].DeleteAsync(cancellationToken: ct);
-
-    /// <summary>Replaces the tenant-scoped config for an installed runtime.</summary>
-    public async Task<InstalledAgentRuntimeResponse> UpdateAgentRuntimeConfigAsync(
-        string id,
-        IReadOnlyList<string> models,
-        string? defaultModel,
-        string? baseUrl,
-        CancellationToken ct = default)
-    {
-        var request = new AgentRuntimeInstallConfig
-        {
-            Models = models.ToList(),
-            DefaultModel = defaultModel,
-            BaseUrl = baseUrl,
-        };
-        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].Config.PatchAsync(request, cancellationToken: ct);
-        return result ?? throw new InvalidOperationException(
-            $"Server returned an empty config response for agent runtime '{id}'.");
-    }
-
-    /// <summary>
-    /// Returns the current credential-health row for a runtime, or <c>null</c>
-    /// when no validation has been recorded yet.
-    /// </summary>
-    public async Task<CredentialHealthResponse?> GetAgentRuntimeCredentialHealthAsync(
-        string id,
-        string? secretName = null,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            return await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].CredentialHealth.GetAsync(
-                config => { if (!string.IsNullOrWhiteSpace(secretName)) config.QueryParameters.SecretName = secretName; },
-                cancellationToken: ct);
-        }
-        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Reads the tenant-scoped configuration slot for an installed runtime
-    /// (#1066). Returns <c>null</c> when the runtime is not registered with
-    /// the host or is not installed on the current tenant — both surface as
-    /// 404 from the server. Backs
-    /// <c>spring agent-runtime config get &lt;id&gt;</c>.
-    /// </summary>
-    public async Task<AgentRuntimeConfigResponse?> GetAgentRuntimeConfigAsync(
-        string id,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            return await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].Config.GetAsync(cancellationToken: ct);
-        }
-        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Probes the runtime's backing service with the supplied
-    /// <paramref name="credential"/> and records the outcome in the
-    /// credential-health store (#1066). Does NOT touch the tenant's
-    /// model list — the catalog rotation lives on the
-    /// <c>refresh-models</c> path. Backs
-    /// <c>spring agent-runtime validate-credential &lt;id&gt;</c>.
-    /// </summary>
-    public async Task<AgentRuntimeValidateCredentialResponse> ValidateAgentRuntimeCredentialAsync(
-        string id,
-        string? credential,
-        string? secretName,
-        CancellationToken ct = default)
-    {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.AgentRuntimes.Installs.Item.ValidateCredential.ValidateCredentialRequestBuilder.ValidateCredentialPostRequestBody
-        {
-            AgentRuntimeValidateCredentialRequest = new AgentRuntimeValidateCredentialRequest
-            {
-                Credential = credential,
-                SecretName = string.IsNullOrWhiteSpace(secretName) ? null : secretName,
-            },
-        };
-        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].ValidateCredential.PostAsync(body, cancellationToken: ct);
-        return result ?? throw new InvalidOperationException(
-            $"Server returned an empty validate-credential response for agent runtime '{id}'.");
-    }
-
-    /// <summary>
-    /// Asks the server to fetch the runtime's live model catalog from its
-    /// backing service (e.g. the provider's <c>/v1/models</c> endpoint)
-    /// and replace the tenant's stored list with the result. Backs
-    /// <c>spring agent-runtime refresh-models &lt;id&gt;</c>.
-    /// </summary>
-    public async Task<InstalledAgentRuntimeResponse> RefreshAgentRuntimeModelsAsync(
-        string id,
-        string? credential,
-        CancellationToken ct = default)
-    {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.AgentRuntimes.Installs.Item.RefreshModels.RefreshModelsRequestBuilder.RefreshModelsPostRequestBody
-        {
-            AgentRuntimeRefreshModelsRequest = new AgentRuntimeRefreshModelsRequest
-            {
-                Credential = credential,
-            },
-        };
-        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].RefreshModels.PostAsync(body, cancellationToken: ct);
-        return result ?? throw new InvalidOperationException(
-            $"Server returned an empty refresh-models response for agent runtime '{id}'.");
     }
 
     // Packages (#395). Backs `spring package list / show` and

@@ -142,7 +142,9 @@ public class UnitCreationService : IUnitCreationService
             description: request.Description,
             model: request.Model,
             color: request.Color,
-            provider: request.Provider,
+            // ADR-0038: provider is intrinsic to the structured execution.model.
+            // The Unit row no longer carries a flat provider slot.
+            provider: null,
             hosting: request.Hosting,
             members: Array.Empty<MemberManifest>(),
             warnings: new List<string>(),
@@ -1105,7 +1107,6 @@ public class UnitCreationService : IUnitCreationService
                 initialStatus,
                 metadata.Model,
                 metadata.Color,
-                metadata.Provider,
                 metadata.Hosting);
 
             return new UnitCreationResult(response, warnings, membersAdded);

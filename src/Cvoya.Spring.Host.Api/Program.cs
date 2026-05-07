@@ -43,10 +43,10 @@ try
 
     builder.Services
         .AddCvoyaSpringCore()
-        // ADR-0038 (#1770): the catalogue must register BEFORE
-        // AddCvoyaSpringDapr — Cvoya.Spring.Dapr.AgentRuntimes.AgentRuntimeRegistry
-        // synthesises legacy IAgentRuntime projections from IRuntimeCatalog,
-        // and the latter only TryAdds an empty fallback so the real
+        // ADR-0038: the catalogue must register BEFORE AddCvoyaSpringDapr
+        // because downstream services (the install seed provider, the
+        // dispatcher's launcher resolution) consult IRuntimeCatalog at
+        // construction. The latter TryAdds an empty fallback so the real
         // catalogue must be in DI first.
         .AddCvoyaSpringRuntimeCatalog()
         .AddCvoyaSpringDapr(builder.Configuration)
@@ -403,7 +403,7 @@ try
     // uninstall / config update). The full surface lives at
     // /api/v1/tenant/agent-runtimes/installs/. A future PR (follow-up to
     // #1259) introduces a /api/v1/platform/agent-runtimes/ registry view.
-    app.MapAgentRuntimeEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
+    app.MapModelProviderEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
     // Secrets endpoint group covers all three scopes (unit / tenant /
     // platform). Role gates are applied per-group inside SecretEndpoints:
     // unit/tenant groups → TenantOperator; platform group → PlatformOperator.

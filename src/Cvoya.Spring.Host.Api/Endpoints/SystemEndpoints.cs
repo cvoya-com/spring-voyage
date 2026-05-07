@@ -6,8 +6,10 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.ModelProviders;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -113,7 +115,8 @@ public static class SystemEndpoints
     private static async Task<IResult> GetCredentialStatusAsync(
         string provider,
         ILlmCredentialResolver credentialResolver,
-        IAgentRuntimeRegistry agentRuntimeRegistry,
+        IRuntimeCatalog catalog,
+        IModelProviderAdapterRegistry adapterRegistry,
         IHttpClientFactory httpClientFactory,
         IOptions<OllamaOptions> ollamaOptions,
         [FromQuery] string? dispatchPath,
@@ -141,21 +144,18 @@ public static class SystemEndpoints
             case ProviderOpenAi:
             case ProviderGoogle:
                 {
-                    // Translate the endpoint's external provider token to
-                    // the runtime id the catalogue-backed registry exposes
-                    // (the portal still calls this endpoint with the
-                    // provider spelling — `anthropic` — that operators
-                    // recognise).
-                    var runtimeId = MapProviderToRuntimeId(normalized);
+                    // ADR-0038: format-acceptance lives on
+                    // IModelProviderAdapter, keyed on the provider's
+                    // adapter id from the catalogue.
+                    var providerEntry = catalog.GetModelProvider(normalized);
+                    var adapter = providerEntry is not null
+                        ? adapterRegistry.Get(providerEntry.Adapter)
+                        : null;
 
-                    // ADR-0038 (#1770): the resolver is keyed on (provider,
-                    // authMethod). The wizard probes against API-key shape
-                    // — the Claude OAuth path is exercised separately when
-                    // the operator picks the claude-code runtime.
-                    //
-                    // No unit context — the wizard runs before the unit
-                    // exists. Resolver will fall through to the tenant-
-                    // scope secret, which is what the wizard cares about.
+                    // ADR-0038: the resolver is keyed on (provider, authMethod).
+                    // The wizard probes against API-key shape — the Claude OAuth
+                    // path is exercised separately when the operator picks the
+                    // claude-code runtime.
                     var resolution = await credentialResolver.ResolveAsync(
                         normalized,
                         Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey,
@@ -172,42 +172,35 @@ public static class SystemEndpoints
                         ? null
                         : BuildCredentialSuggestion(normalized, resolution.SecretName, resolution.Source);
 
-                    // Pre-flight format check against the dispatch path the
-                    // caller named. When the stored value has a known-bad
-                    // shape for that path we downgrade Resolvable to false
-                    // and surface `format-rejected` so the wizard does not
-                    // show a green badge for a credential that will fail
-                    // dispatch on the first message. (#1003)
-                    var runtime = agentRuntimeRegistry.Get(runtimeId);
+                    // Pre-flight format check against the named dispatch path.
+                    // Adapters apply method-specific format rules (e.g.
+                    // Anthropic OAuth tokens vs API keys); we map the dispatch
+                    // path to the auth method the path consumes.
                     if (resolvable
-                        && runtime is not null
-                        && !runtime.IsCredentialFormatAccepted(resolution.Value!, path))
+                        && providerEntry is not null
+                        && adapter is not null)
                     {
-                        resolvable = false;
-                        source = null;
-                        reason = ReasonFormatRejected;
-                        // #1397: pass the chosen agent image (when supplied by the wizard)
-                        // so the message can reference it specifically, helping operators
-                        // understand which image triggered the mismatch.
-                        suggestion = BuildFormatRejectedSuggestion(normalized, path, agentImage);
+                        var probeMethod = path == CredentialDispatchPath.AgentRuntime
+                            ? AuthMethod.Oauth
+                            : AuthMethod.ApiKey;
+                        if (!adapter.IsCredentialFormatAccepted(providerEntry, resolution.Value!, probeMethod))
+                        {
+                            resolvable = false;
+                            source = null;
+                            reason = ReasonFormatRejected;
+                            suggestion = BuildFormatRejectedSuggestion(normalized, path, agentImage);
+                        }
                     }
 
-                    // #1690: per-path resolvability matrix. Captures both
-                    // dispatch paths in a single response so the portal /
-                    // CLI can render a per-path table without firing a
-                    // second probe with a different ?dispatchPath= value.
-                    // Only emitted when a credential is actually present
-                    // (resolution.Value non-empty); for not-configured /
-                    // unreadable / format-rejected (whole-credential)
-                    // states the per-path detail is null because there is
-                    // no stored shape to evaluate against the matrix.
-                    var paths = resolution.Value is { Length: > 0 } storedValue && runtime is not null
-                        ? BuildPathResolvability(runtime, storedValue)
+                    // Per-path resolvability matrix: evaluate each dispatch
+                    // path against the adapter so the portal / CLI can render
+                    // a per-path table.
+                    var paths = resolution.Value is { Length: > 0 } storedValue
+                        && providerEntry is not null
+                        && adapter is not null
+                        ? BuildPathResolvability(adapter, providerEntry, storedValue)
                         : null;
 
-                    // NEVER include `resolution.Value` in the response —
-                    // the endpoint is read-by-anyone (within the tenant)
-                    // and the key material must stay server-side.
                     return Results.Ok(new ProviderCredentialStatusResponse(
                         Provider: normalized,
                         Resolvable: resolvable,
@@ -265,18 +258,6 @@ public static class SystemEndpoints
     {
         LlmCredentialSource.Unreadable => ReasonUnreadable,
         _ => ReasonNotConfigured,
-    };
-
-    private static string MapProviderToRuntimeId(string provider) => provider switch
-    {
-        // ADR-0038 #1770: the `anthropic` URL token maps to the
-        // `claude-code` catalogue runtime id (the runtime that consumes
-        // Anthropic via OAuth in the v0.1 closed set). Other providers
-        // map to their corresponding catalogue runtime ids.
-        ProviderAnthropic => "claude-code",
-        ProviderOpenAi => "codex",
-        ProviderGoogle => "gemini",
-        _ => provider,
     };
 
     private static string BuildCredentialSuggestion(string provider, string secretName, LlmCredentialSource source)
@@ -375,10 +356,10 @@ public static class SystemEndpoints
     /// Builds the per-path resolvability matrix for a credential the
     /// resolver has already produced. Each enum value of
     /// <see cref="CredentialDispatchPath"/> is evaluated against the
-    /// runtime's <see cref="IAgentRuntime.IsCredentialFormatAccepted"/>;
+    /// adapter's <see cref="IModelProviderAdapter.IsCredentialFormatAccepted"/>;
     /// the result is reported as one row per path with a stable
     /// machine-readable label so the portal can render a matrix without
-    /// hard-coding the per-path branching that lives in the runtime.
+    /// hard-coding the per-path branching that lives in the adapter.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -392,13 +373,14 @@ public static class SystemEndpoints
     /// </para>
     /// </remarks>
     private static CredentialPathResolvability BuildPathResolvability(
-        IAgentRuntime runtime,
+        IModelProviderAdapter adapter,
+        ModelProvider provider,
         string credential)
     {
-        var restAccepted = runtime.IsCredentialFormatAccepted(
-            credential, CredentialDispatchPath.Rest);
-        var agentRuntimeAccepted = runtime.IsCredentialFormatAccepted(
-            credential, CredentialDispatchPath.AgentRuntime);
+        var restAccepted = adapter.IsCredentialFormatAccepted(
+            provider, credential, AuthMethod.ApiKey);
+        var agentRuntimeAccepted = adapter.IsCredentialFormatAccepted(
+            provider, credential, AuthMethod.Oauth);
 
         // Strict per-path acceptance (#1714): exactly one path or none.
         // The legacy `all-paths` summary disappeared because Anthropic

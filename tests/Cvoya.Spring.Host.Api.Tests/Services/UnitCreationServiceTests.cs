@@ -498,7 +498,7 @@ public class UnitCreationServiceTests
                 Model: "claude-sonnet-4-6",
                 Color: null,
                 Connector: null,
-                Provider: "claude",
+                
                 IsTopLevel: true),
             CancellationToken.None);
 
@@ -531,7 +531,7 @@ public class UnitCreationServiceTests
                 Model: "claude-sonnet-4-6",
                 Color: null,
                 Connector: null,
-                Provider: "claude",
+                
                 IsTopLevel: true),
             CancellationToken.None);
 
@@ -576,7 +576,7 @@ public class UnitCreationServiceTests
                 Model: "llama3.2:3b",
                 Color: null,
                 Connector: null,
-                Provider: "ollama",
+                
                 IsTopLevel: true),
             CancellationToken.None);
 
@@ -621,7 +621,7 @@ public class UnitCreationServiceTests
                 Model: "llama3.2:3b",
                 Color: null,
                 Connector: null,
-                Provider: "ollama",
+                
                 Hosting: "ephemeral",
                 IsTopLevel: true),
             CancellationToken.None);

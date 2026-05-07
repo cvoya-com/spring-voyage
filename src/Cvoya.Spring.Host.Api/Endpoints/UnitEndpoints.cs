@@ -497,14 +497,14 @@ public static class UnitEndpoints
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(UnitActor));
 
-        // #1732: Tool was dropped from the unit-metadata wire shape — derived
-        // from execution.agent via the runtime registry at dispatch time.
+        // ADR-0038: Provider was dropped from the unit-metadata wire shape;
+        // the provider is intrinsic to the structured execution.model.
         var metadata = new UnitMetadata(
             DisplayName: request.DisplayName,
             Description: request.Description,
             Model: request.Model,
             Color: request.Color,
-            Provider: request.Provider,
+            Provider: null,
             Hosting: request.Hosting);
 
         await proxy.SetMetadataAsync(metadata, cancellationToken);
@@ -1298,7 +1298,6 @@ public static class UnitEndpoints
             status,
             metadata?.Model,
             metadata?.Color,
-            metadata?.Provider,
             metadata?.Hosting,
             validationTracking?.LastValidationError,
             validationTracking?.LastValidationRunId);

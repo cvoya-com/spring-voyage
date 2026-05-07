@@ -13,13 +13,17 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Integration tests for <c>/api/v1/agent-runtimes</c> — install,
-/// uninstall, list, get, config patch, and model enumeration. The test
-/// host registers every OSS runtime (Claude, OpenAI, Google, Ollama)
-/// via <c>Program.cs</c> so these tests hit real runtime descriptors;
-/// the tenant install store is fresh per test via the in-memory
-/// <c>SpringDbContext</c>.
+/// Integration tests for <c>/api/v1/tenant/model-providers/installs</c>
+/// — install, uninstall, list, get, config patch, and model
+/// enumeration. Per ADR-0038 the install table re-keys on provider id
+/// (<c>anthropic</c>, <c>openai</c>, <c>google</c>, <c>ollama</c>) and
+/// the wizard / CLI / refresh path consume the model-provider surface.
 /// </summary>
+/// <remarks>
+/// File name retained as <c>AgentRuntimeEndpointsTests</c> to keep the
+/// git diff focused on content; Chunk B / a follow-up test rename can
+/// align the file name with the new endpoint surface.
+/// </remarks>
 public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 {
     private readonly HttpClient _client;
@@ -32,65 +36,60 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task List_Returns200WithParseableArray()
     {
-        // Smoke: every test in this file shares the factory's in-memory
-        // DB via IClassFixture, so prior installs may be present here.
-        // Assert the envelope, not the contents — later tests cover the
-        // install-then-list round-trip against a known slug.
         var ct = TestContext.Current.CancellationToken;
-        var response = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/model-providers/installs", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var body = await response.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse[]>(ct);
+        var body = await response.Content.ReadFromJsonAsync<InstalledModelProviderResponse[]>(ct);
         body.ShouldNotBeNull();
     }
 
     [Fact]
-    public async Task Install_UnknownRuntime_Returns404()
+    public async Task Install_UnknownProvider_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/not-a-real-runtime/install",
-            new AgentRuntimeInstallRequest(null, null, null),
+            "/api/v1/tenant/model-providers/installs/not-a-real-provider/install",
+            new ModelProviderInstallRequest(null, null, null),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task Install_Claude_SurfacesInList()
+    public async Task Install_Anthropic_SurfacesInList()
     {
         var ct = TestContext.Current.CancellationToken;
         var install = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/claude-code/install",
-            new AgentRuntimeInstallRequest(null, null, null),
+            "/api/v1/tenant/model-providers/installs/anthropic/install",
+            new ModelProviderInstallRequest(null, null, null),
             ct);
         install.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var listResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs", ct);
-        var list = await listResponse.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse[]>(ct);
+        var listResponse = await _client.GetAsync("/api/v1/tenant/model-providers/installs", ct);
+        var list = await listResponse.Content.ReadFromJsonAsync<InstalledModelProviderResponse[]>(ct);
         list.ShouldNotBeNull();
-        list.ShouldContain(r => r.Id == "claude-code");
+        list.ShouldContain(r => r.Id == "anthropic");
     }
 
     [Fact]
-    public async Task List_Surfaces_CredentialSecretName_From_Runtime()
+    public async Task List_Surfaces_CredentialSecretName_From_Catalogue()
     {
-        // #742: the CLI wizard reads `credentialSecretName` off the
-        // agent-runtime payload. Per ADR-0038 the field is derived from
-        // the catalogue runtime entry's first provider edge — for the
-        // closed v0.1 set this matches the legacy `{provider}-api-key`
-        // shape.
+        // ADR-0038 § "Credential identity": secret name is
+        // {provider}-{authMethod-slug}. Anthropic's first declared auth
+        // method in runtime-catalog.yaml is OAuth, so the surfaced name
+        // is "anthropic-oauth".
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/claude-code/install",
-            new AgentRuntimeInstallRequest(null, null, null),
+            "/api/v1/tenant/model-providers/installs/anthropic/install",
+            new ModelProviderInstallRequest(null, null, null),
             ct);
 
-        var listResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs", ct);
-        var list = await listResponse.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse[]>(ct);
+        var listResponse = await _client.GetAsync("/api/v1/tenant/model-providers/installs", ct);
+        var list = await listResponse.Content.ReadFromJsonAsync<InstalledModelProviderResponse[]>(ct);
         list.ShouldNotBeNull();
 
-        var claude = list!.Single(r => r.Id == "claude-code");
-        claude.CredentialSecretName.ShouldBe("anthropic-api-key");
+        var anthropic = list!.Single(r => r.Id == "anthropic");
+        anthropic.CredentialSecretName.ShouldBe("anthropic-oauth");
     }
 
     [Fact]
@@ -98,13 +97,14 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/claude-code/install",
-            new AgentRuntimeInstallRequest(null, null, null),
+            "/api/v1/tenant/model-providers/installs/anthropic/install",
+            new ModelProviderInstallRequest(null, null, null),
             ct);
 
-        var response = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/claude-code/models", ct);
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/model-providers/installs/anthropic/models", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var models = await response.Content.ReadFromJsonAsync<AgentRuntimeModelResponse[]>(ct);
+        var models = await response.Content.ReadFromJsonAsync<ModelProviderModelResponse[]>(ct);
         models.ShouldNotBeNull();
         models.ShouldNotBeEmpty();
     }
@@ -113,10 +113,9 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     public async Task Get_Uninstalled_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
-        // Pre-clean because tests share the factory's in-memory DB;
-        // another test may have installed the runtime we're probing.
-        await _client.DeleteAsync("/api/v1/tenant/agent-runtimes/installs/ollama", ct);
-        var response = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/ollama", ct);
+        await _client.DeleteAsync("/api/v1/tenant/model-providers/installs/google", ct);
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/model-providers/installs/google", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -125,63 +124,55 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/codex/install",
-            new AgentRuntimeInstallRequest(null, null, null),
+            "/api/v1/tenant/model-providers/installs/openai/install",
+            new ModelProviderInstallRequest(null, null, null),
             ct);
 
-        var uninstall = await _client.DeleteAsync("/api/v1/tenant/agent-runtimes/installs/openai", ct);
+        var uninstall = await _client.DeleteAsync(
+            "/api/v1/tenant/model-providers/installs/openai", ct);
         uninstall.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        var getResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/openai", ct);
+        var getResponse = await _client.GetAsync(
+            "/api/v1/tenant/model-providers/installs/openai", ct);
         getResponse.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task GetConfig_UnknownRuntime_Returns404()
+    public async Task GetConfig_UnknownProvider_Returns404()
     {
-        // #1066: GET .../config mirrors GetAsync's 404 semantics —
-        // unregistered runtime → 404 with a hint pointing operators at
-        // the runtime registration, distinct from the
-        // "registered-but-not-installed" 404 below.
         var ct = TestContext.Current.CancellationToken;
         var response = await _client.GetAsync(
-            "/api/v1/tenant/agent-runtimes/installs/not-a-real-runtime/config", ct);
+            "/api/v1/tenant/model-providers/installs/not-a-real-provider/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task GetConfig_RuntimeNotInstalled_Returns404()
+    public async Task GetConfig_ProviderNotInstalled_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
-        // Pre-clean: tests share the in-memory DB; another test may have
-        // installed `ollama` already.
-        await _client.DeleteAsync("/api/v1/tenant/agent-runtimes/installs/ollama", ct);
+        await _client.DeleteAsync("/api/v1/tenant/model-providers/installs/google", ct);
         var response = await _client.GetAsync(
-            "/api/v1/tenant/agent-runtimes/installs/spring-voyage/config", ct);
+            "/api/v1/tenant/model-providers/installs/google/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
     public async Task GetConfig_AfterInstall_ReturnsStoredConfigSlot()
     {
-        // #1066: read-only projection over the install row's config slot
-        // — must surface exactly what was persisted (no model list
-        // expansion to the seed catalog, no defaulting) so operators
-        // can confirm `config set` round-trips before invoking it again.
         var ct = TestContext.Current.CancellationToken;
         var seedModels = new[] { "claude-opus-4-7", "claude-sonnet-4-6" };
         await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/claude-code/install",
-            new AgentRuntimeInstallRequest(seedModels, "claude-opus-4-7", null),
+            "/api/v1/tenant/model-providers/installs/anthropic/install",
+            new ModelProviderInstallRequest(seedModels, "claude-opus-4-7", null),
             ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/agent-runtimes/installs/claude-code/config", ct);
+            "/api/v1/tenant/model-providers/installs/anthropic/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var body = await response.Content.ReadFromJsonAsync<AgentRuntimeConfigResponse>(ct);
+        var body = await response.Content.ReadFromJsonAsync<ModelProviderConfigResponse>(ct);
         body.ShouldNotBeNull();
-        body!.Id.ShouldBe("claude-code");
+        body!.Id.ShouldBe("anthropic");
         body.DefaultModel.ShouldBe("claude-opus-4-7");
         body.BaseUrl.ShouldBeNull();
         body.Models.ShouldBe(seedModels);
@@ -192,8 +183,8 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/gemini/install",
-            new AgentRuntimeInstallRequest(null, null, null),
+            "/api/v1/tenant/model-providers/installs/google/install",
+            new ModelProviderInstallRequest(null, null, null),
             ct);
 
         var newConfig = new
@@ -202,15 +193,17 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
             DefaultModel = "gemini-2.0-flash",
             BaseUrl = (string?)null,
         };
-        var patch = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/tenant/agent-runtimes/installs/gemini/config")
+        var patch = new HttpRequestMessage(HttpMethod.Patch,
+            "/api/v1/tenant/model-providers/installs/google/config")
         {
             Content = JsonContent.Create(newConfig),
         };
         var patchResponse = await _client.SendAsync(patch, ct);
         patchResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var getResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/gemini", ct);
-        var body = await getResponse.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse>(ct);
+        var getResponse = await _client.GetAsync(
+            "/api/v1/tenant/model-providers/installs/google", ct);
+        var body = await getResponse.Content.ReadFromJsonAsync<InstalledModelProviderResponse>(ct);
         body.ShouldNotBeNull();
         body!.DefaultModel.ShouldBe("gemini-2.0-flash");
         body.Models.ShouldBe(new[] { "gemini-2.0-flash" });

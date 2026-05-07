@@ -9,6 +9,7 @@ using A2A.V0_3;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
@@ -52,7 +53,7 @@ public class A2AExecutionDispatcher(
     IAgentDefinitionProvider agentDefinitionProvider,
     IMcpServer mcpServer,
     IEnumerable<IAgentRuntimeLauncher> launchers,
-    IAgentRuntimeRegistry agentRuntimeRegistry,
+    IRuntimeCatalog runtimeCatalog,
     IAgentContextBuilder agentContextBuilder,
     ITenantContext tenantContext,
     PersistentAgentRegistry persistentAgentRegistry,
@@ -76,14 +77,15 @@ public class A2AExecutionDispatcher(
         ?? throw new ArgumentNullException(nameof(agentContextBuilder));
     private readonly ITenantContext _tenantContext = tenantContext
         ?? throw new ArgumentNullException(nameof(tenantContext));
-    // #1732: launchers are keyed on their Kind (matching the runtime
-    // registry's IAgentRuntime.Kind). The dispatcher resolves a runtime
-    // from the agent's persisted execution.agent slot, then picks the
-    // launcher whose Kind equals the runtime's Kind.
+    // ADR-0038: launchers are keyed on the catalogue runtime entry's
+    // launcher strategy id. The dispatcher resolves an AgentRuntime from
+    // IRuntimeCatalog using the agent's persisted execution.agent slot,
+    // then picks the launcher whose Kind equals the catalogue
+    // entry's `launcher` field.
     private readonly Dictionary<string, IAgentRuntimeLauncher> _launchersByKind =
         launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
-    private readonly IAgentRuntimeRegistry _agentRuntimeRegistry = agentRuntimeRegistry
-        ?? throw new ArgumentNullException(nameof(agentRuntimeRegistry));
+    private readonly IRuntimeCatalog _runtimeCatalog = runtimeCatalog
+        ?? throw new ArgumentNullException(nameof(runtimeCatalog));
 
     /// <summary>
     /// Default port the in-container A2A endpoint listens on. Mirrors the
@@ -886,20 +888,20 @@ public class A2AExecutionDispatcher(
         string agentRuntimeId,
         string agentId)
     {
-        var runtime = _agentRuntimeRegistry.Get(agentRuntimeId)
+        var runtime = _runtimeCatalog.GetAgentRuntime(agentRuntimeId)
             ?? throw new SpringException(
-                $"No agent runtime is registered with id '{agentRuntimeId}' " +
-                $"(agent '{agentId}'). Install the runtime plugin or set " +
-                "ai.agent to a registered runtime id.");
+                $"No agent runtime is registered in platform/runtime-catalog.yaml with id " +
+                $"'{agentRuntimeId}' (agent '{agentId}'). Add the entry to the catalogue or " +
+                "set ai.runtime to a registered runtime id.");
 
-        if (!_launchersByKind.TryGetValue(runtime.Kind, out var launcher))
+        if (!_launchersByKind.TryGetValue(runtime.Launcher, out var launcher))
         {
             throw new SpringException(
-                $"No IAgentRuntimeLauncher registered for tool kind '{runtime.Kind}' " +
-                $"(agent runtime '{agentRuntimeId}', agent '{agentId}').");
+                $"No IAgentRuntimeLauncher registered for launcher strategy id " +
+                $"'{runtime.Launcher}' (agent runtime '{agentRuntimeId}', agent '{agentId}').");
         }
 
-        return (runtime.Kind, launcher);
+        return (runtime.Launcher, launcher);
     }
 
     /// <summary>
@@ -910,14 +912,15 @@ public class A2AExecutionDispatcher(
     /// </summary>
     private string SerialiseAgentDefinitionYaml(AgentDefinition definition)
     {
-        // #1732: emit the derived kind so containers can see which
-        // in-container engine was selected for this turn. The kind is
-        // sourced from the runtime registry (IAgentRuntime.Kind).
+        // ADR-0038: emit the derived launcher strategy id so containers
+        // can see which in-container engine was selected for this turn.
+        // Sourced from the catalogue's `launcher` field on the runtime
+        // entry.
         string? kind = null;
         if (definition.Execution is not null)
         {
-            var runtime = _agentRuntimeRegistry.Get(definition.Execution.AgentRuntimeId);
-            kind = runtime?.Kind;
+            var runtime = _runtimeCatalog.GetAgentRuntime(definition.Execution.AgentRuntimeId);
+            kind = runtime?.Launcher;
         }
 
         var doc = new

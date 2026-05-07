@@ -5,56 +5,61 @@ namespace Cvoya.Spring.Host.Api.Models;
 
 /// <summary>
 /// Wire-level representation of a unit's manifest-persisted
-/// <c>execution:</c> block (#601 / #603 / #409 B-wide). Mirrors the
-/// manifest's <see cref="Cvoya.Spring.Manifest.ExecutionManifest"/>
-/// shape so the same YAML fragment authored in a unit manifest
-/// round-trips through the dedicated
-/// <c>GET/PUT/DELETE /api/v1/units/{id}/execution</c> endpoint without
-/// renaming.
+/// <c>execution:</c> block under ADR-0038. Carries the agent-runtime
+/// catalogue id and a structured <c>{provider, id}</c> model selector;
+/// the legacy flat <c>provider</c> / <c>agent</c> / <c>kind</c> fields
+/// are gone.
 /// </summary>
 /// <remarks>
 /// Every field is independently nullable: a unit can declare any
 /// subset. Resolution chain (see <c>docs/architecture/units.md</c>):
 /// agent.X → unit.X → fail-clean at dispatch / save time.
 /// <para>
-/// #1732: <c>tool</c> is no longer threaded through the wire shape — the
-/// execution tool is derived 1:1 from <see cref="Agent"/> via the runtime
-/// registry's <c>IAgentRuntime.Kind</c>. The read-only
-/// <see cref="Kind"/> field on the response captures the derived value
-/// for portal / CLI display.
+/// Example (multi-provider runtime):
+/// <code>
+/// {
+///   "image": "ghcr.io/example/agent:latest",
+///   "runtime": "spring-voyage",
+///   "model": { "provider": "ollama", "id": "llama3.2:3b" }
+/// }
+/// </code>
 /// </para>
 /// <para>
-/// <see cref="Provider"/> and <see cref="Model"/> are meaningful only when
-/// the resolved <see cref="Kind"/> = <c>spring-voyage</c> — the portal
-/// hides them for other tool kinds (#598 gating).
+/// Example (fixed-provider runtime):
+/// <code>
+/// {
+///   "image": "ghcr.io/example/claude:latest",
+///   "runtime": "claude-code",
+///   "model": { "provider": "anthropic", "id": "claude-opus-4-7" }
+/// }
+/// </code>
 /// </para>
 /// </remarks>
 /// <param name="Image">Default container image reference.</param>
-/// <param name="Runtime">Default container runtime (<c>docker</c> / <c>podman</c>).</param>
-/// <param name="Provider">Default LLM model provider (Spring Voyage Agent–specific).</param>
-/// <param name="Model">Default model identifier (Spring Voyage Agent–specific).</param>
-/// <param name="Agent">Agent-runtime registry id (e.g. <c>ollama</c>, <c>claude</c>, <c>openai</c>). The dispatcher resolves this through <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntimeRegistry"/> to pick the launcher.</param>
-/// <param name="Kind">
-/// Read-only registry-derived execution tool kind (e.g. <c>claude-code-cli</c>,
-/// <c>spring-voyage</c>). Populated by the server from
-/// <c>IAgentRuntime.Kind</c> when <see cref="Agent"/> resolves; <c>null</c>
-/// otherwise. Always <c>null</c> on request bodies — clients cannot set this
-/// field.
+/// <param name="ContainerRuntime">Default container runtime (<c>docker</c> / <c>podman</c>).</param>
+/// <param name="Runtime">
+/// Agent-runtime catalogue id (ADR-0038): <c>claude-code</c>, <c>codex</c>,
+/// <c>gemini</c>, <c>spring-voyage</c>, or a future custom runtime declared
+/// in <c>platform/runtime-catalog.yaml</c>. The dispatcher resolves this
+/// through <see cref="Cvoya.Spring.Core.Catalog.IRuntimeCatalog"/> to pick
+/// the launcher.
+/// </param>
+/// <param name="Model">
+/// Structured <c>{provider, id}</c> model selector. The provider is
+/// intrinsic to the model; there is no separate top-level
+/// <c>provider</c> slot.
 /// </param>
 public record UnitExecutionResponse(
     string? Image = null,
+    string? ContainerRuntime = null,
     string? Runtime = null,
-    string? Provider = null,
-    string? Model = null,
-    string? Agent = null,
-    string? Kind = null);
+    AiModelDto? Model = null);
 
 /// <summary>
 /// Wire-level representation of an agent's <c>execution:</c> block on
-/// the <c>AgentDefinitions.Definition</c> document (#601 / #603 / #409
-/// B-wide). Mirrors <see cref="UnitExecutionResponse"/> plus the
-/// agent-owned <c>hosting</c> field (<c>ephemeral</c> or
-/// <c>persistent</c>).
+/// the <c>AgentDefinitions.Definition</c> document. Mirrors
+/// <see cref="UnitExecutionResponse"/> plus the agent-owned
+/// <c>hosting</c> field (<c>ephemeral</c> or <c>persistent</c>).
 /// </summary>
 /// <remarks>
 /// The response shape represents the agent's <b>own declared</b>
@@ -62,23 +67,29 @@ public record UnitExecutionResponse(
 /// the parent unit — consult the portal / CLI "effective" surface for
 /// that post-merge view. When a field is <c>null</c> here it is either
 /// unset on the agent or will inherit from the unit at dispatch time.
-/// <para>
-/// #1732: <c>tool</c> is no longer threaded through the wire shape — the
-/// execution tool is derived 1:1 from <see cref="Agent"/> via the runtime
-/// registry's <c>IAgentRuntime.Kind</c>. The read-only
-/// <see cref="Kind"/> field is populated by the server when the agent's
-/// declared <see cref="Agent"/> resolves.
-/// </para>
 /// </remarks>
-/// <param name="Kind">
-/// Read-only registry-derived execution tool kind. Server-populated; clients
-/// cannot set this field on request bodies.
-/// </param>
+/// <param name="Image">Default container image reference.</param>
+/// <param name="ContainerRuntime">Default container runtime (<c>docker</c> / <c>podman</c>).</param>
+/// <param name="Runtime">Agent-runtime catalogue id (ADR-0038).</param>
+/// <param name="Model">Structured <c>{provider, id}</c> model selector.</param>
+/// <param name="Hosting">Hosting mode (<c>ephemeral</c> or <c>persistent</c>).</param>
 public record AgentExecutionResponse(
     string? Image = null,
+    string? ContainerRuntime = null,
     string? Runtime = null,
-    string? Provider = null,
-    string? Model = null,
-    string? Hosting = null,
-    string? Agent = null,
-    string? Kind = null);
+    AiModelDto? Model = null,
+    string? Hosting = null);
+
+/// <summary>
+/// Structured <c>{provider, id}</c> model selector under ADR-0038.
+/// Provider is intrinsic to the model; the matching JSON shape is
+/// <c>{ "provider": "...", "id": "..." }</c>.
+/// </summary>
+/// <param name="Provider">
+/// Provider id from <c>platform/runtime-catalog.yaml</c>:
+/// <c>anthropic</c>, <c>openai</c>, <c>google</c>, <c>ollama</c>, …
+/// </param>
+/// <param name="Id">Provider-scoped model id (e.g. <c>claude-opus-4-7</c>).</param>
+public record AiModelDto(
+    string Provider,
+    string Id);

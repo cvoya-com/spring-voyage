@@ -4,22 +4,21 @@
 namespace Cvoya.Spring.Core.AgentRuntimes;
 
 /// <summary>
-/// Tenant-scoped configuration for an installed
-/// <see cref="IAgentRuntime"/>. Persisted as JSON in
-/// <c>tenant_agent_runtime_installs.config</c> and surfaced via the
-/// <c>/api/v1/agent-runtimes/{id}</c> endpoints.
+/// Tenant-scoped configuration for an installed model provider
+/// (ADR-0038). Persisted as JSON on the install row and surfaced via
+/// <c>/api/v1/tenant/model-providers/installs/{id}</c>.
 /// </summary>
 /// <param name="Models">
-/// Model ids the tenant has enabled for this runtime. When empty, callers
-/// that need a list should fall back to the runtime's
-/// <see cref="IAgentRuntime.DefaultModels"/>.
+/// Model ids the tenant has enabled for this provider. When empty,
+/// callers that need a list should fall back to the catalogue's
+/// <c>defaultModels</c> for the provider.
 /// </param>
 /// <param name="DefaultModel">
 /// Preferred model id — used by the wizard to pre-select a value. When
 /// <c>null</c> the first entry of <paramref name="Models"/> is used.
 /// </param>
 /// <param name="BaseUrl">
-/// Optional base URL override used by runtimes that support self-hosted
+/// Optional base URL override used by providers that support self-hosted
 /// or proxied endpoints (e.g. Ollama, OpenAI-compatible gateways).
 /// </param>
 public sealed record AgentRuntimeInstallConfig(
@@ -30,20 +29,4 @@ public sealed record AgentRuntimeInstallConfig(
     /// <summary>Empty config with no models, default, or base URL.</summary>
     public static readonly AgentRuntimeInstallConfig Empty =
         new(Array.Empty<string>(), null, null);
-
-    /// <summary>
-    /// Produces an install-config built from the runtime's seed catalog.
-    /// First entry (if any) becomes the default model. Used when a tenant
-    /// installs a runtime without supplying an explicit configuration.
-    /// </summary>
-    /// <param name="runtime">The runtime whose default model list seeds the config.</param>
-    public static AgentRuntimeInstallConfig FromRuntimeDefaults(IAgentRuntime runtime)
-    {
-        ArgumentNullException.ThrowIfNull(runtime);
-        var models = runtime.DefaultModels.Select(m => m.Id).ToArray();
-        return new AgentRuntimeInstallConfig(
-            Models: models,
-            DefaultModel: models.Length > 0 ? models[0] : null,
-            BaseUrl: null);
-    }
 }

@@ -57,7 +57,8 @@ public class Program
                 EngagementCommand.Create(outputOption),
                 InboxCommand.Create(outputOption),
                 ActivityCommand.Create(outputOption),
-                AgentRuntimeCommand.Create(outputOption),
+                // ADR-0038: AgentRuntimeCommand was deleted; PR-2 introduces
+                // ModelProviderCommand keyed on provider id.
                 ConnectorCommand.Create(outputOption),
                 AnalyticsCommand.Create(outputOption),
                 CostCommand.Create(outputOption),

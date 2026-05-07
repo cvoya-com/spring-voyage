@@ -53,32 +53,30 @@ public static class AgentExecutionCommand
 
             var shape = await client.GetAgentExecutionAsync(agentId, ct);
 
+            // ADR-0038: the wire shape is { image, containerRuntime,
+            // runtime, model: {provider, id}, hosting }.
             if (output == "json")
             {
                 Console.WriteLine(OutputFormatter.FormatJsonPlain(new
                 {
                     agent = agentId,
                     image = shape.Image,
+                    container_runtime = shape.ContainerRuntime,
                     runtime = shape.Runtime,
-                    agent_runtime = shape.Agent,
-                    kind = shape.Kind,
-                    provider = shape.Provider,
-                    model = shape.Model,
+                    model_provider = shape.Model?.AiModelDto?.Provider,
+                    model = shape.Model?.AiModelDto?.Id,
                     hosting = shape.Hosting,
                 }));
                 return;
             }
 
             Console.WriteLine($"Agent:    {agentId}");
-            Console.WriteLine($"  image:         {shape.Image ?? "(inherited / unset)"}");
-            Console.WriteLine($"  runtime:       {shape.Runtime ?? "(inherited / unset)"}");
-            Console.WriteLine($"  agent_runtime: {shape.Agent ?? "(inherited / unset)"}");
-            // #1732: kind is read-only — derived from agent_runtime via
-            // the runtime registry.
-            Console.WriteLine($"  kind:     {shape.Kind ?? "(derived from agent_runtime)"}");
-            Console.WriteLine($"  provider:      {shape.Provider ?? "(inherited / unset)"}");
-            Console.WriteLine($"  model:         {shape.Model ?? "(inherited / unset)"}");
-            Console.WriteLine($"  hosting:       {shape.Hosting ?? "(default: ephemeral)"}");
+            Console.WriteLine($"  image:             {shape.Image ?? "(inherited / unset)"}");
+            Console.WriteLine($"  container_runtime: {shape.ContainerRuntime ?? "(inherited / unset)"}");
+            Console.WriteLine($"  runtime:           {shape.Runtime ?? "(inherited / unset)"}");
+            Console.WriteLine($"  model_provider:    {shape.Model?.AiModelDto?.Provider ?? "(inherited / unset)"}");
+            Console.WriteLine($"  model:             {shape.Model?.AiModelDto?.Id ?? "(inherited / unset)"}");
+            Console.WriteLine($"  hosting:           {shape.Hosting ?? "(default: ephemeral)"}");
         });
 
         return command;
@@ -152,13 +150,20 @@ public static class AgentExecutionCommand
 
             var client = ClientFactory.Create();
 
+            // ADR-0038: structured model {provider, id} on the wire.
+            var modelDto = (!string.IsNullOrWhiteSpace(provider) && !string.IsNullOrWhiteSpace(model))
+                ? new AgentExecutionResponse.AgentExecutionResponse_model
+                {
+                    AiModelDto = new AiModelDto { Provider = provider, Id = model },
+                }
+                : null;
+
             var stored = await client.SetAgentExecutionAsync(agentId, new AgentExecutionResponse
             {
                 Image = image,
-                Runtime = runtime,
-                Agent = agentRuntime,
-                Provider = provider,
-                Model = model,
+                ContainerRuntime = runtime,
+                Runtime = agentRuntime,
+                Model = modelDto,
                 Hosting = hosting,
             }, ct);
 
@@ -168,24 +173,22 @@ public static class AgentExecutionCommand
                 {
                     agent = agentId,
                     image = stored.Image,
+                    container_runtime = stored.ContainerRuntime,
                     runtime = stored.Runtime,
-                    agent_runtime = stored.Agent,
-                    kind = stored.Kind,
-                    provider = stored.Provider,
-                    model = stored.Model,
+                    model_provider = stored.Model?.AiModelDto?.Provider,
+                    model = stored.Model?.AiModelDto?.Id,
                     hosting = stored.Hosting,
                 }));
             }
             else
             {
                 Console.WriteLine($"Agent '{agentId}' execution updated.");
-                Console.WriteLine($"  image:         {stored.Image ?? "(inherited / unset)"}");
-                Console.WriteLine($"  runtime:       {stored.Runtime ?? "(inherited / unset)"}");
-                Console.WriteLine($"  agent_runtime: {stored.Agent ?? "(inherited / unset)"}");
-                Console.WriteLine($"  kind:     {stored.Kind ?? "(derived from agent_runtime)"}");
-                Console.WriteLine($"  provider:      {stored.Provider ?? "(inherited / unset)"}");
-                Console.WriteLine($"  model:         {stored.Model ?? "(inherited / unset)"}");
-                Console.WriteLine($"  hosting:       {stored.Hosting ?? "(default: ephemeral)"}");
+                Console.WriteLine($"  image:             {stored.Image ?? "(inherited / unset)"}");
+                Console.WriteLine($"  container_runtime: {stored.ContainerRuntime ?? "(inherited / unset)"}");
+                Console.WriteLine($"  runtime:           {stored.Runtime ?? "(inherited / unset)"}");
+                Console.WriteLine($"  model_provider:    {stored.Model?.AiModelDto?.Provider ?? "(inherited / unset)"}");
+                Console.WriteLine($"  model:             {stored.Model?.AiModelDto?.Id ?? "(inherited / unset)"}");
+                Console.WriteLine($"  hosting:           {stored.Hosting ?? "(default: ephemeral)"}");
             }
         });
 
@@ -236,19 +239,28 @@ public static class AgentExecutionCommand
             // UnitExecutionCommand). Falls through to block-clear when
             // the remaining state is empty.
             var current = await client.GetAgentExecutionAsync(agentId, ct);
+            // ADR-0038: structured Model {provider, id}.
+            var keepImage = !string.Equals(field, "image", StringComparison.OrdinalIgnoreCase);
+            var keepContainerRuntime = !string.Equals(field, "container_runtime", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase);
+            var keepRuntime = !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(field, "agent", StringComparison.OrdinalIgnoreCase);
+            var keepModel = !string.Equals(field, "model", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(field, "provider", StringComparison.OrdinalIgnoreCase);
+            var keepHosting = !string.Equals(field, "hosting", StringComparison.OrdinalIgnoreCase);
+
             var updated = new AgentExecutionResponse
             {
-                Image = string.Equals(field, "image", StringComparison.OrdinalIgnoreCase) ? null : current.Image,
-                Runtime = string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase) ? null : current.Runtime,
-                Agent = string.Equals(field, "agent", StringComparison.OrdinalIgnoreCase) ? null : current.Agent,
-                Provider = string.Equals(field, "provider", StringComparison.OrdinalIgnoreCase) ? null : current.Provider,
-                Model = string.Equals(field, "model", StringComparison.OrdinalIgnoreCase) ? null : current.Model,
-                Hosting = string.Equals(field, "hosting", StringComparison.OrdinalIgnoreCase) ? null : current.Hosting,
+                Image = keepImage ? current.Image : null,
+                ContainerRuntime = keepContainerRuntime ? current.ContainerRuntime : null,
+                Runtime = keepRuntime ? current.Runtime : null,
+                Model = keepModel ? current.Model : null,
+                Hosting = keepHosting ? current.Hosting : null,
             };
 
-            if (string.IsNullOrWhiteSpace(updated.Image) && string.IsNullOrWhiteSpace(updated.Runtime)
-                && string.IsNullOrWhiteSpace(updated.Agent) && string.IsNullOrWhiteSpace(updated.Provider)
-                && string.IsNullOrWhiteSpace(updated.Model) && string.IsNullOrWhiteSpace(updated.Hosting))
+            if (string.IsNullOrWhiteSpace(updated.Image) && string.IsNullOrWhiteSpace(updated.ContainerRuntime)
+                && string.IsNullOrWhiteSpace(updated.Runtime) && updated.Model is null
+                && string.IsNullOrWhiteSpace(updated.Hosting))
             {
                 await client.ClearAgentExecutionAsync(agentId, ct);
             }

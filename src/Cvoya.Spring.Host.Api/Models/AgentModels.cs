@@ -25,8 +25,10 @@ using Cvoya.Spring.Core.Agents;
 /// hex per <see cref="Cvoya.Spring.Core.Identifiers.GuidFormatter"/>.
 /// </param>
 /// <param name="DefinitionJson">
-/// Optional agent-definition JSON document serialised as a string (e.g.
-/// <c>{"execution":{"tool":"spring-voyage","image":"…","provider":"ollama","model":"llama3.2:3b"}}</c>).
+/// Optional agent-definition JSON document serialised as a string. Under
+/// ADR-0038 the execution block carries the agent-runtime catalogue id
+/// and a structured model selector (e.g.
+/// <c>{"execution":{"image":"…","runtime":"spring-voyage","model":{"provider":"ollama","id":"llama3.2:3b"}}}</c>).
 /// When supplied, the server parses it and persists the <see cref="JsonElement"/>
 /// to <c>AgentDefinitions.Definition</c> so the execution layer can read
 /// <see cref="Cvoya.Spring.Core.Execution.AgentExecutionConfig"/> from it.

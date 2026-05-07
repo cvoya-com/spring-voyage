@@ -92,31 +92,27 @@ public static class UnitExecutionCommand
 
             var defaults = await client.GetUnitExecutionAsync(unitId, ct);
 
+            // ADR-0038: { image, containerRuntime, runtime, model: {provider, id} }.
             if (output == "json")
             {
                 Console.WriteLine(OutputFormatter.FormatJsonPlain(new
                 {
                     unit = unitId,
                     image = defaults.Image,
+                    container_runtime = defaults.ContainerRuntime,
                     runtime = defaults.Runtime,
-                    agent = defaults.Agent,
-                    // #1732: kind is derived server-side from agent.
-                    kind = defaults.Kind,
-                    provider = defaults.Provider,
-                    model = defaults.Model,
+                    model_provider = defaults.Model?.AiModelDto?.Provider,
+                    model = defaults.Model?.AiModelDto?.Id,
                 }));
                 return;
             }
 
             Console.WriteLine($"Unit:     {unitId}");
-            Console.WriteLine($"  image:    {defaults.Image ?? "(unset)"}");
-            Console.WriteLine($"  runtime:  {defaults.Runtime ?? "(unset)"}");
-            Console.WriteLine($"  agent:    {defaults.Agent ?? "(unset)"}");
-            // #1732: kind is read-only — derived from agent via the
-            // runtime registry. Shows "(derived from agent)" when unset.
-            Console.WriteLine($"  kind: {defaults.Kind ?? "(derived from agent)"}");
-            Console.WriteLine($"  provider: {defaults.Provider ?? "(unset)"}");
-            Console.WriteLine($"  model:    {defaults.Model ?? "(unset)"}");
+            Console.WriteLine($"  image:             {defaults.Image ?? "(unset)"}");
+            Console.WriteLine($"  container_runtime: {defaults.ContainerRuntime ?? "(unset)"}");
+            Console.WriteLine($"  runtime:           {defaults.Runtime ?? "(unset)"}");
+            Console.WriteLine($"  model_provider:    {defaults.Model?.AiModelDto?.Provider ?? "(unset)"}");
+            Console.WriteLine($"  model:             {defaults.Model?.AiModelDto?.Id ?? "(unset)"}");
         });
 
         return command;
@@ -189,13 +185,20 @@ public static class UnitExecutionCommand
 
             var client = ClientFactory.Create();
 
+            // ADR-0038: structured Model {provider, id}.
+            var modelDto = (!string.IsNullOrWhiteSpace(provider) && !string.IsNullOrWhiteSpace(model))
+                ? new UnitExecutionResponse.UnitExecutionResponse_model
+                {
+                    AiModelDto = new AiModelDto { Provider = provider, Id = model },
+                }
+                : null;
+
             var stored = await client.SetUnitExecutionAsync(unitId, new UnitExecutionResponse
             {
                 Image = image,
-                Runtime = runtime,
-                Agent = agent,
-                Provider = provider,
-                Model = model,
+                ContainerRuntime = runtime,
+                Runtime = agent,
+                Model = modelDto,
             }, ct);
 
             if (output == "json")
@@ -204,22 +207,20 @@ public static class UnitExecutionCommand
                 {
                     unit = unitId,
                     image = stored.Image,
+                    container_runtime = stored.ContainerRuntime,
                     runtime = stored.Runtime,
-                    agent = stored.Agent,
-                    kind = stored.Kind,
-                    provider = stored.Provider,
-                    model = stored.Model,
+                    model_provider = stored.Model?.AiModelDto?.Provider,
+                    model = stored.Model?.AiModelDto?.Id,
                 }));
             }
             else
             {
                 Console.WriteLine($"Unit '{unitId}' execution updated.");
-                Console.WriteLine($"  image:    {stored.Image ?? "(unset)"}");
-                Console.WriteLine($"  runtime:  {stored.Runtime ?? "(unset)"}");
-                Console.WriteLine($"  agent:    {stored.Agent ?? "(unset)"}");
-                Console.WriteLine($"  kind: {stored.Kind ?? "(derived from agent)"}");
-                Console.WriteLine($"  provider: {stored.Provider ?? "(unset)"}");
-                Console.WriteLine($"  model:    {stored.Model ?? "(unset)"}");
+                Console.WriteLine($"  image:             {stored.Image ?? "(unset)"}");
+                Console.WriteLine($"  container_runtime: {stored.ContainerRuntime ?? "(unset)"}");
+                Console.WriteLine($"  runtime:           {stored.Runtime ?? "(unset)"}");
+                Console.WriteLine($"  model_provider:    {stored.Model?.AiModelDto?.Provider ?? "(unset)"}");
+                Console.WriteLine($"  model:             {stored.Model?.AiModelDto?.Id ?? "(unset)"}");
             }
         });
 
@@ -284,18 +285,25 @@ public static class UnitExecutionCommand
             // slot is null after this operation we fall through to the
             // full block-clear.
             var current = await client.GetUnitExecutionAsync(unitId, ct);
+            // ADR-0038: per-field clear maps to the new wire fields.
+            var keepImage = !string.Equals(field, "image", StringComparison.OrdinalIgnoreCase);
+            var keepContainerRuntime = !string.Equals(field, "container_runtime", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase);
+            var keepRuntime = !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(field, "agent", StringComparison.OrdinalIgnoreCase);
+            var keepModel = !string.Equals(field, "model", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(field, "provider", StringComparison.OrdinalIgnoreCase);
+
             var updated = new UnitExecutionResponse
             {
-                Image = string.Equals(field, "image", StringComparison.OrdinalIgnoreCase) ? null : current.Image,
-                Runtime = string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase) ? null : current.Runtime,
-                Agent = string.Equals(field, "agent", StringComparison.OrdinalIgnoreCase) ? null : current.Agent,
-                Provider = string.Equals(field, "provider", StringComparison.OrdinalIgnoreCase) ? null : current.Provider,
-                Model = string.Equals(field, "model", StringComparison.OrdinalIgnoreCase) ? null : current.Model,
+                Image = keepImage ? current.Image : null,
+                ContainerRuntime = keepContainerRuntime ? current.ContainerRuntime : null,
+                Runtime = keepRuntime ? current.Runtime : null,
+                Model = keepModel ? current.Model : null,
             };
 
-            if (string.IsNullOrWhiteSpace(updated.Image) && string.IsNullOrWhiteSpace(updated.Runtime)
-                && string.IsNullOrWhiteSpace(updated.Agent) && string.IsNullOrWhiteSpace(updated.Provider)
-                && string.IsNullOrWhiteSpace(updated.Model))
+            if (string.IsNullOrWhiteSpace(updated.Image) && string.IsNullOrWhiteSpace(updated.ContainerRuntime)
+                && string.IsNullOrWhiteSpace(updated.Runtime) && updated.Model is null)
             {
                 // Remaining state after per-field clear is empty → strip
                 // the block entirely so we don't persist an empty object.
@@ -316,10 +324,10 @@ public static class UnitExecutionCommand
                 {
                     unit = unitId,
                     image = updated.Image,
+                    container_runtime = updated.ContainerRuntime,
                     runtime = updated.Runtime,
-                    agent = updated.Agent,
-                    provider = updated.Provider,
-                    model = updated.Model,
+                    model_provider = updated.Model?.AiModelDto?.Provider,
+                    model = updated.Model?.AiModelDto?.Id,
                 }));
             }
             else

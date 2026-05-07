@@ -4,38 +4,32 @@
 namespace Cvoya.Spring.Dapr.AgentRuntimes;
 
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Tenancy;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Tenant seed provider that auto-installs every DI-registered
-/// <see cref="IAgentRuntime"/> onto the bootstrapped tenant. The install
-/// service is idempotent, so re-running this provider on an existing
-/// tenant is a no-op against previously installed rows.
+/// Tenant seed provider that auto-installs every model provider declared
+/// in <c>platform/runtime-catalog.yaml</c> onto the bootstrapped tenant.
+/// The install service is idempotent, so re-running this provider on an
+/// existing tenant is a no-op against previously installed rows.
 /// </summary>
 /// <remarks>
-/// Registered as a Singleton (the <see cref="ITenantSeedProvider"/> slot
-/// on the bootstrap hosted service is root-scoped); opens a child DI
-/// scope per call to resolve the scoped
-/// <see cref="ITenantAgentRuntimeInstallService"/>. The ambient
-/// <see cref="ITenantScopeBypass"/> opened by the bootstrap service
-/// flows through the child scope via async-local state.
+/// Per ADR-0038 § "Provider is the credential and routing boundary",
+/// installs are keyed on provider id (not runtime id) so a single
+/// Anthropic credential is shared across every runtime that consumes it.
 /// </remarks>
 public sealed class AgentRuntimeInstallSeedProvider(
-    IAgentRuntimeRegistry registry,
+    IRuntimeCatalog catalog,
     IServiceScopeFactory scopeFactory,
     ILogger<AgentRuntimeInstallSeedProvider> logger) : ITenantSeedProvider
 {
     /// <inheritdoc />
-    public string Id => "agent-runtimes";
+    public string Id => "model-providers";
 
-    /// <summary>
-    /// Runs after skill bundles (priority 10) — agent runtimes reference
-    /// no other seeded data, but grouping infrastructure at priorities
-    /// 10–30 keeps the bootstrap log coherent.
-    /// </summary>
+    /// <inheritdoc />
     public int Priority => 20;
 
     /// <inheritdoc />
@@ -46,11 +40,11 @@ public sealed class AgentRuntimeInstallSeedProvider(
             throw new ArgumentException("Tenant id must be supplied.", nameof(tenantId));
         }
 
-        var runtimes = registry.All;
-        if (runtimes.Count == 0)
+        var providers = catalog.ModelProviders;
+        if (providers.Count == 0)
         {
             logger.LogInformation(
-                "Tenant '{TenantId}' agent-runtime seed: no runtimes registered with the host; nothing to install.",
+                "Tenant '{TenantId}' model-provider seed: no providers declared in the runtime catalogue; nothing to install.",
                 tenantId);
             return;
         }
@@ -59,19 +53,23 @@ public sealed class AgentRuntimeInstallSeedProvider(
         var installService = scope.ServiceProvider
             .GetRequiredService<ITenantAgentRuntimeInstallService>();
 
-        foreach (var runtime in runtimes)
+        foreach (var provider in providers)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             logger.LogInformation(
-                "Tenant '{TenantId}' agent-runtime seed: seeding runtime '{RuntimeId}'.",
-                tenantId, runtime.Id);
-            await installService.InstallAsync(runtime.Id, config: null, cancellationToken)
+                "Tenant '{TenantId}' model-provider seed: seeding provider '{ProviderId}'.",
+                tenantId, provider.Id);
+            var seedConfig = new AgentRuntimeInstallConfig(
+                Models: provider.DefaultModels.ToArray(),
+                DefaultModel: provider.DefaultModels.Count > 0 ? provider.DefaultModels[0] : null,
+                BaseUrl: null);
+            await installService.InstallAsync(provider.Id, seedConfig, cancellationToken)
                 .ConfigureAwait(false);
         }
 
         logger.LogInformation(
-            "Tenant '{TenantId}' agent-runtime seed: processed {Count} runtime(s).",
-            tenantId, runtimes.Count);
+            "Tenant '{TenantId}' model-provider seed: processed {Count} provider(s).",
+            tenantId, providers.Count);
     }
 }
