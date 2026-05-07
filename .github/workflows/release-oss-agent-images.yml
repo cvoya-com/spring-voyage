@@ -8,13 +8,11 @@ name: Release OSS agent images
 #   (plus :latest variants for each)
 #
 # Tag shape: `oss-agents-vX.Y.Z`. Scoped prefix keeps this workflow separate
-# from `release-spring-voyage-agents.yml` (prefix: `agents-v*`) and
-# `release-agent-base.yml` (prefix: `agent-base-v*`).
+# from `release-agent-base.yml` (prefix: `agent-base-v*`).
 #
-# Each OSS image FROMs spring-voyage-agents:latest (the omnibus; published
-# by release-spring-voyage-agents.yml). Publish the omnibus first if both
-# need updating in the same release; this workflow pulls the already-published
-# omnibus from GHCR rather than rebuilding it.
+# Each OSS image FROMs spring-voyage-agent-base:latest (published by
+# release-agent-base.yml) and installs the Claude Code CLI plus the
+# role-specific toolchain on top.
 #
 # The four images build in parallel via a strategy matrix.
 #
@@ -141,7 +139,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agents:latest
+            AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

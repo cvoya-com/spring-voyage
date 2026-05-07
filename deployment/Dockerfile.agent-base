@@ -17,8 +17,8 @@
 # Stage 1 builds the sidecar from source so we don't ship build tools or
 # devDependencies in the runtime layer. Stage 2 starts from python:3.13-slim
 # (Debian trixie) so the base already has Python 3.13 — required by
-# spring-voyage-agent (python_requires>=3.12) and used by the omnibus
-# spring-voyage-agents image that layers on top of this one.
+# spring-voyage-agent (python_requires>=3.12) and useful for any role-flavored
+# image that layers on top of this one.
 
 ARG NODE_VERSION=22
 

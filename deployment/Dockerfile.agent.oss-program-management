@@ -5,16 +5,17 @@
 # Role: Program Management
 # Unit: Spring Voyage OSS dogfooding unit
 #
-# Bundles on top of the spring-voyage-agents omnibus base:
+# Bundles on top of spring-voyage-agent-base:
+#   - Claude Code CLI      — Anthropic's claude-code launcher
 #   - gh CLI               — sub-issue / blocked-by relationship management,
 #                            milestone hygiene, issue triage, and label work
 #                            via the unit's GitHub App connector
 #   - markdownlint-cli2    — lint planning and process Markdown documents
 #
-# Node 22 + npm are inherited from the omnibus base and are not re-installed.
+# Node 22 + npm are inherited from spring-voyage-agent-base and are not re-installed.
 #
-# Conforms to ADR-0027 BYOI path 1: ENTRYPOINT is inherited unchanged from the
-# omnibus base (tini → node sidecar); do NOT override it here.
+# Conforms to ADR-0027 BYOI path 1: ENTRYPOINT is inherited unchanged from
+# spring-voyage-agent-base (tini → node sidecar); do NOT override it here.
 #
 # Build (from repo root):
 #   docker build \
@@ -22,17 +23,25 @@
 #     -t ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:dev \
 #     .
 
-ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agents:latest
+ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:latest
+ARG CLAUDE_CODE_VERSION=2.1.98
 ARG GH_CLI_VERSION=2.92.0
 ARG MARKDOWNLINT_CLI2_VERSION=0.22.1
 
 FROM ${AGENT_BASE_IMAGE}
 
 # Re-declare ARGs after FROM so they are in scope for RUN steps below.
+ARG CLAUDE_CODE_VERSION
 ARG GH_CLI_VERSION
 ARG MARKDOWNLINT_CLI2_VERSION
 
 USER root
+
+# ---- Claude Code CLI -------------------------------------------------------
+RUN export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+ && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+ && command -v claude >/dev/null \
+ && claude --version
 
 # ---- gh CLI --------------------------------------------------------------------
 RUN apt-get update \
@@ -55,10 +64,11 @@ USER agent
 
 # ---- labels --------------------------------------------------------------------
 LABEL org.opencontainers.image.title="spring-voyage-agent-oss-program-management" \
-      org.opencontainers.image.description="Program management role image for the Spring Voyage OSS dogfooding unit. Bundles gh CLI and markdownlint-cli2 on top of the spring-voyage-agents omnibus base." \
+      org.opencontainers.image.description="Program management role image for the Spring Voyage OSS dogfooding unit. Bundles Claude Code CLI, gh CLI, and markdownlint-cli2 on top of spring-voyage-agent-base." \
       org.opencontainers.image.source="https://github.com/cvoya-com/spring-voyage" \
+      com.cvoya.spring-voyage.claude-code-version="${CLAUDE_CODE_VERSION}" \
       com.cvoya.spring-voyage.gh-cli-version="${GH_CLI_VERSION}" \
       com.cvoya.spring-voyage.markdownlint-cli2-version="${MARKDOWNLINT_CLI2_VERSION}"
 
-# Entrypoint inherited from spring-voyage-agents (tini → node sidecar).
+# Entrypoint inherited from spring-voyage-agent-base (tini → node sidecar).
 # ADR-0027 BYOI path 1: do NOT override ENTRYPOINT here.

@@ -1,6 +1,6 @@
 # 0034 — Spring Voyage OSS dogfooding unit (role decomposition, image strategy, hosting, identity)
 
-- **Status:** Accepted — 2026-05-01 — `packages/spring-voyage-oss/` ships a built-in template package that creates a parent unit with four role sub-units (software-engineering, design, product-management, program-management), each pinning a role-flavored agent image derived from the omnibus base and running with `execution.hosting: permanent`. The unit's GitHub work flows through a per-unit binding to the **Spring Voyage** GitHub App, collected at template-apply time on both the wizard and the CLI surfaces.
+- **Status:** Accepted — 2026-05-01 — `packages/spring-voyage-oss/` ships a built-in template package that creates a parent unit with four role sub-units (software-engineering, design, product-management, program-management), each pinning a role-flavored agent image derived from `spring-voyage-agent-base` + Claude Code and running with `execution.hosting: permanent`. The unit's GitHub work flows through a per-unit binding to the **Spring Voyage** GitHub App, collected at template-apply time on both the wizard and the CLI surfaces.
 - **Date:** 2026-05-01
 - **Closes:** [#1530](https://github.com/cvoya-com/spring-voyage/issues/1530)
 - **Related code:** `packages/spring-voyage-oss/units/{spring-voyage-oss,sv-oss-software-engineering,sv-oss-design,sv-oss-product-management,sv-oss-program-management}.yaml`, `packages/spring-voyage-oss/agents/*.yaml`, `deployment/Dockerfile.agent.oss-{software-engineering,design,product-management,program-management}`, `deployment/build-agent-images.sh`, `.github/workflows/release-oss-agent-images.yml`, `src/Cvoya.Spring.Cli/ApiClient.cs:356` (`CreateUnitFromTemplateAsync`), `src/Cvoya.Spring.Cli/ApiClient.cs:417` (`BuildGitHubConnectorBinding`), `src/Cvoya.Spring.Host.Api/Models/UnitModels.cs:152` (`CreateUnitFromTemplateRequest`), `src/Cvoya.Spring.Web/src/app/units/create/page.tsx:221` (wizard connector step), `src/Cvoya.Spring.Connector.GitHub/UnitGitHubConfig.cs:30` (`AppInstallationId`).
@@ -11,7 +11,7 @@
 The v0.1 plan-of-record lists "SV is usable for further development of SV (dogfooding)" as a stretch criterion (`docs/plan/v0.1/README.md:28`). Realising it means a single, opinionated template that, when applied, gives an operator a working multi-role team that can plan, code, review, and triage against this repository — not a kit of parts that must be assembled. Four design questions had to be locked in before the package, the Dockerfiles, and the operator playbook were written:
 
 1. What role decomposition reflects how the project actually ships?
-2. How are role-flavored images built without forking the omnibus base?
+2. How are role-flavored images built without forking the agent-base?
 3. Should the unit run ephemerally per-message or stay warm?
 4. How does GitHub identity bind to the unit at apply time?
 
@@ -30,13 +30,13 @@ The parent `spring-voyage-oss` unit has exactly four members, one per role:
 
 Rejected: a single "team" sub-unit (loses the role separation that lets operators route a turn to the right surface and lets each sub-unit pin its own toolchain); a flat list of agents under the parent (no orchestration seam — the unit-level `ai.prompt` is where each role's working norms live); arbitrary roles disconnected from how the project actually ships (e.g. "QA" as a standalone unit when QA work is already part of SE's review loop). The four chosen roles map 1:1 onto the four discriminable kinds of work that show up on this repo's issue tracker.
 
-### 2. Image strategy: `FROM` omnibus + role tooling
+### 2. Image strategy: `FROM` agent-base + Claude Code + role tooling
 
-Each role image is a thin layer over `ghcr.io/cvoya-com/spring-voyage-agents:<tag>` that adds the toolchain that role actually needs. Conformance is BYOI path 1 (ADR 0027 § "Three conformance paths"): the bundled bridge ENTRYPOINT is inherited unchanged.
+Each role image is a thin layer over `ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>` that installs the Claude Code CLI and adds the toolchain that role actually needs. Conformance is BYOI path 1 (ADR 0027 § "Three conformance paths"): the bundled bridge ENTRYPOINT is inherited unchanged.
 
-Rejected: `FROM` `agent-base` and reinstall the per-role CLI matrix (duplicates the omnibus's tool layer in every role image, doubles maintenance cost when a CLI version bumps). Rejected: a single omnibus image where role differentiation lives only in the prompt (does not satisfy "tools the role actually needs" — SE specifically needs the .NET 10 SDK and Playwright browsers + system deps that are not in the omnibus base). The path-1 derivative shape keeps the omnibus as the single source of truth for shared tooling and confines per-role drift to the additive layer.
+Rejected: a single image where role differentiation lives only in the prompt (does not satisfy "tools the role actually needs" — SE specifically needs the .NET 10 SDK and Playwright browsers + system deps that are not in `agent-base`). With ADR-0038 the per-runtime CLI is no longer a four-runtime matrix here — these images target the `claude-code` runtime specifically, so installing only the Claude Code CLI matches actual scope and avoids carrying CLIs the role will never invoke.
 
-Cost: the SE image is ~2GB+ (omnibus + .NET 10 SDK + three Playwright browser builds + system libs). Acceptable for the dogfooding case; multi-stage hygiene is filed as a follow-up under [#1540](https://github.com/cvoya-com/spring-voyage/issues/1540) and gated on a real measurement of pull time, not on speculation.
+Cost: the SE image is ~2GB+ (agent-base + claude-code CLI + .NET 10 SDK + three Playwright browser builds + system libs). Acceptable for the dogfooding case; multi-stage hygiene is filed as a follow-up under [#1540](https://github.com/cvoya-com/spring-voyage/issues/1540) and gated on a real measurement of pull time, not on speculation.
 
 ### 3. `execution.hosting: permanent` at the sub-unit level
 
@@ -77,8 +77,8 @@ The unit's GitHub work flows exclusively through the per-unit binding to the **S
 
 ### Costs
 
-- **The SE image is large.** ~2GB+ pull on a fresh host. Mitigated by the omnibus's pull cache (per-host) and by the deferred multi-stage hygiene work; not eliminated.
-- **Four role images instead of one.** Each role image needs its own Dockerfile, version pins, and release-workflow matrix entry. Bounded by the omnibus carrying everything shared.
+- **The SE image is large.** ~2GB+ pull on a fresh host. Mitigated by the agent-base pull cache (per-host) and by the deferred multi-stage hygiene work; not eliminated.
+- **Four role images instead of one.** Each role image needs its own Dockerfile, version pins, and release-workflow matrix entry. Bounded by `agent-base` carrying the sidecar/Node/Python; only the Claude Code CLI and role tooling are per-image.
 - **Connector binding-at-apply-time depends on both surfaces honouring the template's `connectors:` list.** If a future surface (a third apply path) skips the prompt, the OSS unit would land without a binding and silently fall back to no GitHub identity. Mitigated by the explicit atomic-binding contract on both existing surfaces and by the verification step that the binding is present post-apply.
 
 ### Known follow-ups
@@ -92,4 +92,4 @@ Revisit if any of the below hold:
 
 - The four-role decomposition stops matching how the project ships (e.g. a "release engineering" surface emerges as a discriminable kind of work with its own toolchain). At that point add a fifth sub-unit and amend this ADR; do not stretch an existing role to absorb it.
 - `permanent` hosting becomes a footprint problem on operator hosts (mean container count or memory pressure dominates). At that point the conversation is `Pooled` ([#362](https://github.com/cvoya-com/spring-voyage/issues/362)) per the warm-pool seam ADR 0026 already reserved, not back to `ephemeral`.
-- A second built-in dogfooding-shaped template ships and the role-flavored image strategy duplicates layers across templates. At that point the right move is probably a shared "role tooling" intermediate base, not flattening back to the omnibus.
+- A second built-in dogfooding-shaped template ships and the role-flavored image strategy duplicates layers across templates. At that point the right move is probably a shared "role tooling" intermediate base, not flattening back into a single role-agnostic image.

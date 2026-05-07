@@ -38,7 +38,7 @@ Each sub-unit pins an OSS-flavored agent image:
 | `sv-oss-product-management` | `ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:latest` |
 | `sv-oss-program-management` | `ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest` |
 
-The four images `FROM` the omnibus agent base and add per-role tooling. Build them locally with:
+The four images `FROM` `spring-voyage-agent-base`, install the Claude Code CLI, and add per-role tooling. Build them locally with:
 
 ```bash
 ./deployment/build-agent-images.sh --tag dev

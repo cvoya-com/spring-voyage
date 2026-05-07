@@ -169,6 +169,6 @@ Expected response: cites scope discipline, references `docs/plan/v0.1/README.md`
 ## Where to go next
 
 - [`docs/concepts/spring-voyage-oss.md`](../../concepts/spring-voyage-oss.md) — what the unit is: sub-unit responsibilities, orchestrator prompts, how it dogfoods the platform.
-- [`docs/decisions/0034-oss-dogfooding-unit.md`](../../decisions/0034-oss-dogfooding-unit.md) — why this design: role decomposition, FROM-omnibus image strategy, `hosting: permanent`, connector binding at apply time.
+- [`docs/decisions/0034-oss-dogfooding-unit.md`](../../decisions/0034-oss-dogfooding-unit.md) — why this design: role decomposition, FROM-agent-base + claude-code image strategy, `hosting: permanent`, connector binding at apply time.
 - [`packages/spring-voyage-oss/README.md`](../../../packages/spring-voyage-oss/README.md) — package internals: unit and agent YAML layout, connector declaration, and post-install steps.
 - [`docs/guide/operator/byoi-agent-images.md`](byoi-agent-images.md) — conformance contract the four OSS images satisfy (BYOI path 1).

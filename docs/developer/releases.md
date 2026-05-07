@@ -76,11 +76,10 @@ Use `scripts/release.sh` to cut a release. The script pushes four component tags
 | Step | Tag pushed | Workflow triggered |
 | --- | --- | --- |
 | 1 | `agent-base-v<version>` | `release-agent-base.yml` |
-| 2 | `agents-v<version>` | `release-spring-voyage-agents.yml` |
-| 3 | `oss-agents-v<version>` | `release-oss-agent-images.yml` |
-| 4 | `v<version>` | `release.yml` (platform + GitHub Release) |
+| 2 | `oss-agents-v<version>` | `release-oss-agent-images.yml` |
+| 3 | `v<version>` | `release.yml` (platform + GitHub Release) |
 
-After all four workflows succeed, the script verifies that every image referenced in `packages/**/*.yaml` is anonymously pullable from `ghcr.io`.
+After all three workflows succeed, the script verifies that every image referenced in `packages/**/*.yaml` is anonymously pullable from `ghcr.io`.
 
 **Flags:**
 
@@ -125,12 +124,11 @@ Releases are triggered by tag pushes only — never by merges to `main`. The tab
 | Workflow | Tag prefix | Publishes |
 | --- | --- | --- |
 | [`release-agent-base.yml`](../../.github/workflows/release-agent-base.yml) | `agent-base-v*` | `ghcr.io/cvoya-com/agent-base`, `@cvoya/spring-voyage-agent-sidecar` npm package, SEA binaries |
-| [`release-spring-voyage-agents.yml`](../../.github/workflows/release-spring-voyage-agents.yml) | `agents-v*` | `ghcr.io/cvoya-com/spring-voyage-agents` |
 | [`release-oss-agent-images.yml`](../../.github/workflows/release-oss-agent-images.yml) | `oss-agents-v*` | Four OSS role images (software-engineering, design, product-management, program-management) |
 | [`release.yml`](../../.github/workflows/release.yml) | `v*` | `ghcr.io/cvoya-com/spring-agent`, `ghcr.io/cvoya-com/agent-base`, `ghcr.io/cvoya-com/agent-dapr`, GitHub Release |
 | [`release-spring-dispatcher.yml`](../../.github/workflows/release-spring-dispatcher.yml) | `dispatcher-v*` | Self-contained dispatcher binaries (5 RIDs) |
 
-`scripts/release.sh` orchestrates steps 1–4 in dependency order. The dispatcher workflow is independent and not driven by the release script.
+`scripts/release.sh` orchestrates steps 1–3 in dependency order. The dispatcher workflow is independent and not driven by the release script.
 
 Each release workflow calls `gh api -X PATCH /orgs/cvoya-com/packages/container/<name> -F visibility=public` after pushing, so packages are publicly pullable from the first publish onward.
 
@@ -149,7 +147,6 @@ Container images are published to the GitHub Container Registry (`ghcr.io/cvoya-
 | `ghcr.io/cvoya-com/spring-agent` | `release.yml` | Primary agent runtime (claude-code); the default image in `UnitRuntimeOptions.cs`. |
 | `ghcr.io/cvoya-com/agent-base` | `release-agent-base.yml`, `release.yml` | BYOI conformance path-1 base image; bundles the A2A sidecar bridge. |
 | `ghcr.io/cvoya-com/agent-dapr` | `release.yml` | Dapr-native A2A agent (path-3). |
-| `ghcr.io/cvoya-com/spring-voyage-agents` | `release-spring-voyage-agents.yml` | Omnibus image: all OSS runtime CLIs pre-installed. Default for OSS unit creation. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering` | `release-oss-agent-images.yml` | OSS software-engineering role agent. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-design` | `release-oss-agent-images.yml` | OSS design role agent. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management` | `release-oss-agent-images.yml` | OSS product-management role agent. |

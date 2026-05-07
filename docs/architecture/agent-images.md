@@ -5,9 +5,9 @@ Spring Voyage ships two classes of container image for running agents:
 | Image | GHCR reference | Purpose |
 |-------|----------------|---------|
 | `agent-base` | `ghcr.io/cvoya-com/agent-base:latest` | BYOI minimal — the A2A sidecar bridge only. Operators layer their own CLI on top. |
-| `spring-voyage-agents` | `ghcr.io/cvoya-com/spring-voyage-agents:latest` | Omnibus default — all OSS runtime CLIs pre-installed. The wizard default. |
+| `spring-voyage-agent` | `ghcr.io/cvoya-com/spring-voyage-agent:latest` | Path-3 native A2A image used by the `spring-voyage` runtime. |
 
-Per-runtime images (`spring-voyage-agent-claude-code`, `spring-voyage-agent`) exist for single-runtime deployments or CI build verification and are not published to GHCR by default.
+Per ADR-0038, every entry under `agentRuntimes` in `platform/runtime-catalog.yaml` declares a `defaultImage`. The unit-creation wizard pre-fills the image field with the selected runtime's `defaultImage`. The per-runtime base images for the OSS CLI runtimes (`claude-code-base`, `codex-base`, `gemini-base`) are upstream images and are not built or published by this repository.
 
 ## agent-base (BYOI minimal)
 
@@ -21,7 +21,7 @@ The minimal layer an operator needs to plug any CLI into the Spring Voyage dispa
 - `tini` as PID 1 for clean signal forwarding.
 - Non-root `agent` user (uid/gid 1000).
 
-**When to use `agent-base`:** When you are implementing BYOI conformance path 1 (a custom CLI that is not one of the four OSS runtimes). Extend it with a single `FROM` + `RUN npm install -g <your-cli>` layer.
+**When to use `agent-base`:** When you are implementing BYOI conformance path 1 (a custom CLI that is not one of the OSS runtimes) or as the base for a role-flavored image. Extend it with a single `FROM` + `RUN npm install -g <your-cli>` layer.
 
 **Example:**
 
@@ -31,43 +31,6 @@ USER root
 RUN npm install -g my-private-agent-cli@1.2.3
 USER agent
 ```
-
-## spring-voyage-agents (omnibus default)
-
-**Source:** `deployment/Dockerfile.spring-voyage-agents`
-**Published by:** `release-spring-voyage-agents.yml` on `agents-v*` tags.
-**Wizard default:** The unit-creation wizard pre-fills this image when no runtime-specific image is set.
-
-The omnibus image layers all four OSS CLI runtimes on top of `agent-base`:
-
-| CLI | npm package | Version (pinned) | Runtime ID |
-|-----|-------------|-----------------|------------|
-| `claude` | `@anthropic-ai/claude-code` | 2.1.98 | `claude` |
-| `codex` | `@openai/codex` | 0.128.0 | `openai` |
-| `gemini` | `@google/gemini-cli` | 0.40.1 | `google` |
-| Python dapr-agent stack | PyPI (see `agents/spring-voyage-agent/requirements.txt`) | pinned in requirements | `openai`, `google`, `ollama` (via `spring-voyage-agent` tool kind) |
-
-Version ARGs are declared at the top of the Dockerfile and recorded in image labels (`com.cvoya.spring-voyage.*-version`) so `docker inspect` surfaces the exact CLI versions without a `docker exec`.
-
-### Runtime dispatch
-
-The dispatcher stamps `SPRING_AGENT_ARGV` at launch time. The A2A bridge (inherited from `agent-base`) reads this env var and spawns the correct CLI:
-
-```
-SPRING_AGENT_ARGV='["claude","--dangerously-skip-permissions"]'
-SPRING_AGENT_ARGV='["codex","--full-auto"]'
-SPRING_AGENT_ARGV='["gemini","--yolo"]'
-SPRING_AGENT_ARGV='["/opt/dapr-agent-venv/bin/python","/opt/spring-voyage/dapr-agent/agent.py"]'
-```
-
-The entrypoint is **not** overridden — it is inherited from `agent-base` (`tini → node sidecar`).
-
-### When to use the omnibus
-
-Use `spring-voyage-agents:latest` when:
-- You are creating a unit and do not need a custom CLI layer.
-- You want to switch runtimes (Claude → OpenAI → Google) without rebuilding an image.
-- You are evaluating the platform for the first time.
 
 ## Per-runtime images
 
@@ -81,16 +44,16 @@ Built by `deployment/build-agent-images.sh` for local dev and CI verification.
 **When to use per-runtime images:**
 - Smaller attack surface / image size for deployments where only one CLI is needed.
 - CI pipelines that verify a specific CLI version in isolation.
-- The `spring-voyage-agent` image implements BYOI conformance **path 3** (native A2A in Python) and is the reference for the OpenAI, Google, and Ollama runtimes when not using the omnibus.
+- The `spring-voyage-agent` image implements BYOI conformance **path 3** (native A2A in Python) and is the reference image for the `spring-voyage` runtime.
 
 ## Extension patterns
 
-### Extending spring-voyage-agents (add domain tooling)
+### Extending for a specific runtime
 
-Layer your toolchain on top of the omnibus without replacing the sidecar bridge:
+Layer your toolchain on top of the runtime's `defaultImage` from `platform/runtime-catalog.yaml`. For example, the OSS dogfooding role images extend `spring-voyage-agent-base` and install the Claude Code CLI alongside role-specific tools:
 
 ```dockerfile
-FROM ghcr.io/cvoya-com/spring-voyage-agents:latest
+FROM ghcr.io/cvoya-com/claude-code-base:latest
 USER root
 # Example: add a domain-specific dotnet SDK
 RUN apt-get update \
@@ -118,17 +81,9 @@ Set `SPRING_AGENT_ARGV='["my-agent","--flag"]'` at launch time.
 All images are publicly available on GHCR — no credentials required.
 
 ```bash
-# Pull the omnibus default
-docker pull ghcr.io/cvoya-com/spring-voyage-agents:latest
-
-# Verify the bundled CLIs (runs each binary's version command)
-docker run --rm ghcr.io/cvoya-com/spring-voyage-agents:latest \
-  sh -c 'claude --version; codex --version; gemini --version; python --version'
-
-# Inspect version labels without a shell exec
-docker inspect ghcr.io/cvoya-com/spring-voyage-agents:latest \
-  --format '{{json .Config.Labels}}' | jq .
-
 # Pull the BYOI minimal base
 docker pull ghcr.io/cvoya-com/agent-base:latest
+
+# Pull the path-3 native-A2A image
+docker pull ghcr.io/cvoya-com/spring-voyage-agent:latest
 ```

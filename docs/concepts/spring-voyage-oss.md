@@ -11,7 +11,7 @@ Confidence in a platform's primitives comes from using them. The Spring Voyage O
 - Hierarchical unit composition with four `members: [unit: ...]` entries.
 - `execution.hosting: permanent` so containers stay warm across the continuous work of a development team.
 - GitHub connector binding at template-apply time, flowing all GitHub App identity through the connector rather than hardcoding it.
-- Agent images built on the BYOI path 1 conformance contract (ADR-0027): each image extends the omnibus base, adds role tooling, and inherits the bridge ENTRYPOINT unchanged.
+- Agent images built on the BYOI path 1 conformance contract (ADR-0027): each image extends `spring-voyage-agent-base`, adds the Claude Code CLI, role tooling, and inherits the bridge ENTRYPOINT unchanged.
 
 When the SE team hits a friction point, that friction is a bug or improvement opportunity in the platform. When the PgM team needs a feature in `gh issue` integration, that need is a feature request against the platform's GitHub connector. The feedback loop is direct.
 
@@ -23,10 +23,11 @@ Responsible for implementing features, fixing bugs, and running the build/test/l
 
 **Members:** architect, dotnet-engineer, web-engineer, cli-engineer, qa-engineer, devops-engineer, security-engineer, connector-engineer, api-designer, docs-writer.
 
-**Image:** `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering` — extends the omnibus base with:
+**Image:** `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering` — extends `spring-voyage-agent-base` with:
+- Claude Code CLI (Anthropic's claude-code launcher)
 - .NET 10 SDK (for `dotnet build SpringVoyage.slnx -c Release`, `dotnet test --solution SpringVoyage.slnx`, `dotnet format SpringVoyage.slnx --verify-no-changes`)
 - `gh` CLI for GitHub App-mediated issue and PR work
-- Node 22 + npm (inherited from omnibus), `ruff`, and full Playwright browser support (Chromium, Firefox, WebKit) including all required system dependencies
+- Node 22 + npm (inherited from spring-voyage-agent-base), `ruff`, and full Playwright browser support (Chromium, Firefox, WebKit) including all required system dependencies
 
 **Orchestrator prompt:** The sub-unit's `ai.prompt` encodes the project's working norms: scope discipline (file-and-move-on default; bar for in-scope expansion is "the PR's declared goal is materially broken without it"), triage (close / route to area / park, with `area:*` labels and native issue types), PR review checklist (declared scope, ADR alignment, OpenAPI contract drift, formatting, lints, tests at the solution root), issue tracking (milestones for releases, issue types for category, labels only for what those don't cover, `sub-issues` + `blocked-by` for task dependencies), worktree workflow (branch off latest `origin/main`, rebase before push), pre-push gates (solution-wide build, test, format, lint, knip, tsc all green), and identity (all GitHub writes through the Spring Voyage GitHub App via this unit's connector binding).
 
@@ -100,5 +101,5 @@ Bugs the team encounters are bugs in Spring Voyage. Friction they hit — in the
 ## Where to go next
 
 - `docs/guide/operator/dogfooding-oss-unit.md` — step-by-step bring-up: prerequisites, CLI and wizard paths, post-create verification, and troubleshooting.
-- `docs/decisions/0034-oss-dogfooding-unit.md` — design rationale: why these four roles, the FROM-omnibus image strategy, `hosting: permanent`, and the connector-binding-at-apply-time pattern.
+- `docs/decisions/0034-oss-dogfooding-unit.md` — design rationale: why these four roles, the FROM-agent-base + claude-code image strategy, `hosting: permanent`, and the connector-binding-at-apply-time pattern.
 - `packages/spring-voyage-oss/README.md` — package internals: unit and agent YAML layout, connector declaration, and post-install steps.
