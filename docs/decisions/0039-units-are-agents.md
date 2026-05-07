@@ -125,6 +125,49 @@ Rejected: model children as resource records the runtime fetches from a generic 
 
 Rejected: scope orchestration tools per child kind (different tools for `agent` children vs `unit` children). Children are agent-shaped on the mailbox dimension (decision 1); a uniform tool surface lets the unit's runtime treat them uniformly. If a future tool genuinely needs the kind, the descriptor returns it via `inspect_child`.
 
+#### Two surfaces, one set of handlers
+
+The orchestration tool set is exposed via **two parallel surfaces**, both dispatching to the same platform-side handlers (decision 5) and emitting the same `OrchestrationDecision` events (decision 4):
+
+- **Tool-call surface for LLM-driven runtimes.** Per-runtime mechanism — MCP for `claude-code` / `codex` / `gemini`, env-var-keyed registry for `spring-voyage-agent`. The launcher attaches descriptors at launch time per the launcher contract from ADR-0025. The runtime's LLM invokes the tools through its tool-call surface; the runtime's instructions determine when to use them. This is the surface the table above describes.
+
+- **SDK surface for workflow-driven runtimes.** An HTTP callback API exposed by the host (under the dispatcher per ADR-0029), with a typed client in a new `Cvoya.Spring.AgentSdk` package. Runtime image authors whose images run a static workflow (any technology — Temporal, Dapr Workflows, custom state machines, plain code) consume the SDK to call the same orchestration tools as method calls. The agent's role in this shape is to invoke and manage the workflow; **workflow state is the developer's concern**, not the platform's.
+
+Both surfaces accept the same arguments, return the same shapes, dispatch to the same handlers, and emit the same `OrchestrationDecision` events. The runtime image author chooses which surface fits the image's implementation; the platform does not care.
+
+The SDK shape (sketch — final names land in the implementation):
+
+```csharp
+// Cvoya.Spring.AgentSdk — consumed by runtime image authors.
+public interface IOrchestrationClient
+{
+    Task<ChildDescriptor[]> ListChildrenAsync(CancellationToken ct = default);
+    Task<ChildDescriptor> InspectChildAsync(Address child, CancellationToken ct = default);
+    Task<Message> DelegateToChildAsync(Address child, Message message, string? reason = null, CancellationToken ct = default);
+    Task<FanoutResult[]> FanoutToChildrenAsync(Address[] children, Message message, string? reason = null, CancellationToken ct = default);
+    Task<ChildStatus> QueryChildStatusAsync(Address child, CancellationToken ct = default);
+}
+
+public static class SpringAgent
+{
+    // Reads SPRING_CALLBACK_URL + SPRING_CALLBACK_TOKEN from the environment;
+    // throws if either is missing or invalid.
+    public static IOrchestrationClient FromEnvironment();
+}
+```
+
+Authentication is **per-invocation**: the launcher mints a callback token with `(tenantId, agentAddress, threadId, messageId, expiresAt)` claims at launch time and injects it as `SPRING_CALLBACK_TOKEN` alongside the `SPRING_CALLBACK_URL` env var. The host validates the token on every callback. Tokens are scoped to one invocation and one runtime; they expire when the invocation ends.
+
+Both env vars are written by the launcher uniformly across runtimes (`SpringVoyageAgentLauncher`, `ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`). LLM-driven runtimes that ignore the env vars (because the tool-call surface is sufficient) waste only the bytes of the env entry; workflow images that consume the SDK find the dispatcher and the token without per-runtime configuration.
+
+Rejected: expose orchestration tools only via the LLM tool-call surface. Forces non-LLM runtimes (workflow images, deterministic agents) to wrap an MCP client even when MCP adds nothing to their actual implementation. The SDK surface lets workflow authors write code that reads as code.
+
+Rejected: bake a specific workflow technology into the platform. The platform cannot predict which technology image authors prefer (Temporal, Dapr Workflows, xstate, hand-rolled state machines, or simple imperative code), and forcing one limits the addressable runtime catalogue. The SDK exposes the orchestration primitives; the technology choice is the developer's.
+
+Rejected: persist workflow state in the platform. Workflow durability is a runtime-author concern; the platform's job is to deliver messages and record decisions, not to be a workflow engine. ADR-0039 stays deliberately small on this axis. A runtime image that needs workflow durability ships its own state store (Postgres, SQLite, S3, Dapr workflow state — author's choice) inside the image's process boundary or as a sidecar.
+
+Rejected: invent a separate `Cvoya.Spring.OrchestrationSdk` parallel to a future general-purpose `Cvoya.Spring.AgentSdk`. The orchestration surface is the *first* SDK consumer; subsequent runtime-author surfaces (read inbound message, write outbound message, read configuration, log structured events) belong in the same package. One SDK package keeps the dependency story for image authors clean.
+
 ### 4. Orchestration decisions are first-class evidence
 
 When a unit's runtime invokes a delegation tool (`delegate_to_child`, `fanout_to_children`), the platform records an `OrchestrationDecision` event in the activity stream. The shape:
@@ -175,6 +218,8 @@ Rejected: include the runtime's full tool-call payload (input + output) on the e
 6. Capture the runtime's response (or the runtime's tool calls + final response) and emit the message + any `OrchestrationDecision` events.
 
 `AgentActor.ReceiveAsync` follows the same six-step path, except step 3 always returns an empty array. The two actors share the runtime invocation but differ in what they offer the runtime; the difference is data, not code.
+
+The "runtime" the launcher invokes can be LLM-driven (image consumes the tool-call surface from decision 3) or workflow-driven (image consumes the SDK surface from decision 3). The mailbox does not branch on the runtime style — it launches, delivers, and captures. The same launcher contract serves both shapes; the same orchestration tools are reachable through both surfaces; the same `OrchestrationDecision` events emit regardless of which surface the image used to make the call.
 
 This is the delete-side counterpart to decision 2: removing `IOrchestrationStrategy` is only sound if there is one place that runs the unit. That place is the runtime launcher. The actor's work is to *deliver* the inbound message and *publish* the outbound message; the *deciding* lives in the runtime.
 
@@ -269,14 +314,18 @@ Rejected: keep the positional argument with a deprecation warning. A v0.2-deferr
 
 This ADR re-shapes:
 
-- C# types: `IOrchestrationStrategy` and friends deleted (decision 2); `LabelRoutingPolicy` deleted; `IUnitOrchestrationStore` deleted; `OrchestrationEndpoints` deleted; `UnitActor.ReceiveAsync` rewritten; `IOrchestrationToolProvider` added; `OrchestrationDecision` event added.
+- C# types: `IOrchestrationStrategy` and friends deleted (decision 2); `LabelRoutingPolicy` deleted; `IUnitOrchestrationStore` deleted; `OrchestrationEndpoints` deleted; `UnitActor.ReceiveAsync` rewritten; `IOrchestrationToolProvider` added; `OrchestrationDecision` event added; `IOrchestrationClient` added (in the new `Cvoya.Spring.AgentSdk` package — decision 3, surface 2).
+- New project: `Cvoya.Spring.AgentSdk` — runtime-author-facing typed client for the orchestration SDK surface. Reads `SPRING_CALLBACK_URL` and `SPRING_CALLBACK_TOKEN` from the env and calls the dispatcher's orchestration callback API.
+- Dispatcher (`Cvoya.Spring.Dispatcher`): new orchestration callback endpoints (one per tool name); per-invocation callback-token validation middleware; both reuse the platform-side handlers shared with the LLM tool-call surface.
+- Launcher contract (per ADR-0025): launchers mint and inject `SPRING_CALLBACK_TOKEN` (signed JWT scoped to one invocation) and `SPRING_CALLBACK_URL` for every runtime, regardless of whether the runtime consumes them. LLM-only runtimes ignore the env vars; workflow runtimes consume them via the SDK.
 - Manifest: `unit.orchestration:` block removed; `unit.execution.containerRuntime` removed.
 - Wire DTOs: orchestration HTTP surface gone; multi-parent inheritance error responses added; container-runtime fields removed from create / update payloads.
 - CLI: positional `<id>` on `spring agent create` removed; `--container-runtime` removed from agent-and-unit create surfaces.
 - Web portal: orchestration-strategy step / picker on the unit-create wizard removed; container-runtime selector removed; multi-parent inheritance conflict UX added (DESIGN.md §6.3 inline-error reuse).
 - GitHub connector: label-roundtrip subscriber rewritten against `OrchestrationDecision` events; per-binding rule replaces `LabelRoutingPolicy`.
+- Sample: a workflow-driven runtime image demonstrating SDK usage end-to-end (proof that the SDK surface can replace the deleted `WorkflowOrchestrationStrategy`).
 - Tests: every layer.
-- Docs: `docs/architecture/units.md`, `docs/concepts/agents.md`, `docs/architecture/orchestration.md` (this last file likely retired — the topic moves to `docs/concepts/agents.md` under "what happens when a unit has children").
+- Docs: `docs/architecture/units.md`, `docs/concepts/agents.md`, `docs/architecture/orchestration.md` (likely retired — moves to `docs/concepts/agents.md`); new `docs/architecture/agent-sdk.md` covering the SDK contract, env-var convention, and authoring guide.
 
 There is no transitional flag, no dual-acceptance window, no shim. Old-shape signals surface as parse / API errors with precise migration hints:
 
@@ -300,6 +349,9 @@ Rejected: ship a one-deploy compatibility shim that reads the old `orchestration
 - **Address-scheme collapse.** `unit://<id>` and `agent://<id>` stay; v0.2 may revisit.
 - **`IUnitActor` / `IAgentActor` interface collapse.** The two stay separate; v0.2 may revisit if a uniformity argument materialises.
 - **Replacement of every existing `IOrchestrationStrategy` consumer's behaviour as a runtime image.** The ADR removes the strategy types; it does not ship runtime images that reproduce label-routing or workflow-execution semantics. Operators relying on those behaviours migrate via runtime instructions or via the GitHub connector binding (decision 4); image-side reproduction is a v0.2 concern.
+- **Workflow-state durability.** The SDK surface (decision 3) makes orchestration tools available to workflow images; it does not provide workflow state or durability guarantees. Image authors choose their own state store.
+- **Non-.NET SDK languages.** v0.1 ships `Cvoya.Spring.AgentSdk` for .NET only. Python / TypeScript / Go bindings can be added when there is a real second consumer; for v0.1, runtime images that need the SDK are written in .NET or wrap the HTTP API directly.
+- **A general non-orchestration runtime SDK surface.** v0.1's SDK package contains `IOrchestrationClient` and the env-var-bootstrap entrypoint. Other runtime-author surfaces (read inbound message, write outbound, structured logging, configuration access) belong in the same package but are added as concrete consumers materialise; this ADR does not pre-stage them.
 
 ## Consequences
 
@@ -310,11 +362,13 @@ Rejected: ship a one-deploy compatibility shim that reads the old `orchestration
 - ADR-0038's runtime/model split delivers value end-to-end: the unit's `(runtime, model)` actually runs the unit, instead of being validation-only configuration that no dispatch path consults.
 - `OrchestrationDecision` events give operators a uniform record of every delegation, replacing the strategy-specific `decision = "LabelRouted"` payload with a typed shape that every connector and every audit consumer can reason about.
 - The platform's "what does this unit do when a message arrives?" question becomes "look at the runtime image and the agent's instructions" — same reasoning operators already apply to leaf agents.
+- The SDK surface (decision 3) lets workflow-driven and deterministic agents reach the same orchestration primitives as LLM-driven agents through code, without forcing every image to wrap an MCP client. Image authors keep their workflow technology of choice; the platform does not become a workflow engine.
 
 **Harder:**
 
 - Every responding unit pays runtime-launcher cost per turn. Today's cheapest path (`AiOrchestrationStrategy` round-tripping through `IAiProvider.CompleteAsync` for routing-only units) disappears. Operators with cost-sensitive routing-only units re-tune by either (a) using a small/fast runtime image or (b) accepting the cost. The cost is honest: today's cheap path was a hidden subsidy that broke the moment the unit had no members.
 - The orchestration tool contract is a new launcher responsibility. Every runtime image in the catalogue learns to surface tool calls for the v0.1 tool set. `spring-voyage` and the three CLI runtimes (`claude-code`, `codex`, `gemini`) already speak tool calls; the launcher implementations stamp the descriptors and the runtimes call them as they would any other tool.
+- A new SDK package and an HTTP callback API: per-invocation token issuance, validation middleware, typed client, sample image, and documentation. Real work, but contained — the package has a small surface (one client interface) and the HTTP endpoints share the platform-side handlers with the LLM tool-call surface (one set of handlers, two transports).
 - The GitHub connector's label-routing roundtrip rewires from a `LabelRoutingPolicy`-keyed subscriber to an `OrchestrationDecision`-keyed subscriber with per-binding label rules. This is real work and lands as part of the execution plan.
 - Operators with persisted `orchestration:` blocks lose the field; v0.1 clean-deploy covers it but the operator-comms work is real.
 
@@ -329,11 +383,13 @@ This ADR is implemented as a sequenced multi-PR initiative, tracked under the [#
 
 - **Core domain.** Delete `Cvoya.Spring.Core/Orchestration/*` and `Cvoya.Spring.Core/Policies/LabelRoutingPolicy.cs`. Add `IOrchestrationToolProvider` and `OrchestrationDecision`. Add `IExecutionConfigInheritanceResolver` for multi-parent inheritance. Lands first; everything else depends on it.
 - **Dapr layer.** Delete `Cvoya.Spring.Dapr/Orchestration/*`. Rewrite `UnitActor.ReceiveAsync` to invoke the runtime-launcher path. Add the `IOrchestrationToolProvider` implementation that reads the directory.
-- **Launcher contract.** Extend the launcher protocol from ADR-0025 to attach orchestration-tool descriptors. The four built-in launchers (`spring-voyage`, `claude-code`, `codex`, `gemini`) implement the attachment.
+- **Launcher contract.** Extend the launcher protocol from ADR-0025 to attach orchestration-tool descriptors **and** to mint and inject `SPRING_CALLBACK_URL` + `SPRING_CALLBACK_TOKEN` env vars per invocation. The four built-in launchers (`spring-voyage`, `claude-code`, `codex`, `gemini`) implement both.
+- **Dispatcher (orchestration callback API).** New endpoints in `Cvoya.Spring.Dispatcher` for the SDK surface — one per orchestration tool — protected by per-invocation callback-token validation. Both surfaces (LLM tool-call + SDK) dispatch to the same platform-side handlers.
+- **Spring Voyage Agent SDK (new project).** `src/Cvoya.Spring.AgentSdk/` — typed `IOrchestrationClient` over HTTP, env-var-bootstrap entrypoint, sample workflow image. Consumed by runtime image authors building workflow-driven runtimes.
 - **Web API / OpenAPI / Kiota.** Delete `OrchestrationEndpoints` and `OrchestrationModels`. Add 422 conflict-response shape for multi-parent inheritance. Regenerate Kiota and `openapi-typescript`.
 - **Manifest + parser.** Remove the `orchestration:` block; remove `execution.containerRuntime`. Add legacy-shape error mapping per the migration table.
 - **CLI.** Remove the positional `<id>` from `spring agent create`. Remove `--container-runtime` from agent-and-unit create commands. Update `spring unit create` to drop any orchestration-related flags.
 - **Web portal.** Remove the orchestration-strategy picker on the unit-create wizard. Remove the container-runtime selector. Add the multi-parent inheritance conflict UX (inline error per DESIGN.md §6.3). Update the agent-create wizard per the [`agent-create-redesign.md`](../design/v0.1/agent-create-redesign.md) design.
 - **GitHub connector.** Rewrite `Cvoya.Spring.Connector.GitHub/Labels/LabelRoutingRoundtripSubscriber.cs` against the `OrchestrationDecision` event shape. Move per-binding label-roundtrip rules onto the connector binding configuration.
-- **Docs.** `docs/concepts/agents.md` ("a unit is an agent" promoted from a comment in code to the canonical concept doc). `docs/concepts/units.md` shrinks (most content moves to `agents.md`, with the unit-only delta — children, permissions, lifecycle — staying). `docs/architecture/orchestration.md` retired or rewritten as a one-pager pointing at the runtime-side reasoning. `docs/architecture/agent-runtime.md` updated for the orchestration-tool surface. `docs/glossary.md` retires "orchestration strategy" / "orchestration policy"; adds "orchestration tools" and "orchestration decision."
+- **Docs.** `docs/concepts/agents.md` ("a unit is an agent" promoted from a comment in code to the canonical concept doc). `docs/concepts/units.md` shrinks (most content moves to `agents.md`, with the unit-only delta — children, permissions, lifecycle — staying). `docs/architecture/orchestration.md` retired or rewritten as a one-pager pointing at the runtime-side reasoning. `docs/architecture/agent-runtime.md` updated for the orchestration-tool surface. `docs/architecture/agent-sdk.md` (new) covers the SDK contract, env-var convention, callback-token shape, and authoring guide for workflow images. `docs/glossary.md` retires "orchestration strategy" / "orchestration policy"; adds "orchestration tools," "orchestration decision," "agent SDK."
 - **Tests.** Every layer.

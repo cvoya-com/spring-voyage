@@ -20,7 +20,7 @@ This plan is structured for execution by **less-capable code-generation agents**
 | A | Core types added (additive) | 5 | — (foundation) |
 | B | Multi-parent inheritance validation at endpoints | 9 | depends on A |
 | C | UnitActor invokes runtime launcher | 6 | depends on A |
-| D | Children-as-tools + OrchestrationDecision events | 11 | depends on C |
+| D | Children-as-tools + OrchestrationDecision events + SDK surface | 18 | depends on C |
 | E | Delete strategy taxonomy + LabelRoutingPolicy | 18 | depends on D |
 | F | GitHub connector rewrite | 5 | depends on D + E |
 | G | Container-runtime field removal | 9 | independent (depends on A only) |
@@ -31,7 +31,7 @@ This plan is structured for execution by **less-capable code-generation agents**
 | L | CLI agent-create parity | 9 | depends on H + B |
 | M | Docs overhaul | 5 | depends on D + E |
 
-**Total: 105 tasks.** Phases G, H run in parallel from the start of the initiative. Phases I–L are the UX track, weakly coupled to platform work — they begin once Phase B lands.
+**Total: 112 tasks.** Phases G, H run in parallel from the start of the initiative. Phases I–L are the UX track, weakly coupled to platform work — they begin once Phase B lands. Phase D includes both the LLM tool-call surface (D1–D11) and the SDK surface (D12–D18) — same handlers, two transports, per ADR-0039 §3.
 
 ## Task catalogue
 
@@ -269,6 +269,61 @@ Format. Each task lists **Files**, **Deliverable** (what to write / change), **A
 - **Deliverable.** Same shape as D10 but with `fanout_to_children` to both children. `OrchestrationDecision.kind: fanout, targets: [<both>]`.
 - **Acceptance.** E2E green; activity stream verified.
 - **Blocked by.** D4, D9.
+
+**D12 — Define per-invocation callback token contract + validation middleware**
+
+- **Files:** `src/Cvoya.Spring.Core/Runtime/CallbackToken.cs` (new — claim shape), `src/Cvoya.Spring.Dispatcher/Auth/CallbackTokenValidator.cs` (new), `src/Cvoya.Spring.Dispatcher/Auth/CallbackTokenIssuer.cs` (new), tests.
+- **Deliverable.** JWT-shaped token with claims: `tenantId`, `agentAddress`, `threadId`, `messageId`, `expiresAt`. Issuer signs with the existing tenant-scoped signing key (locate the existing pattern from ADR-0029 / dispatcher auth at implementation time; if no pattern exists, the issuer adds a tenant signing key abstraction). Validator middleware on the dispatcher's orchestration endpoints rejects expired, mis-scoped, unsigned, or replay-suspect tokens. Use ASP.NET's existing JWT validation with a custom claim-shape validator.
+- **Acceptance.** Unit tests cover sign/verify roundtrip, expiry, scope mismatch, signature failure.
+- **Blocked by.** A1 (depends on `Address` and `TenantId` types).
+
+**D13 — Add HTTP orchestration callback API endpoints to the dispatcher**
+
+- **Files:** `src/Cvoya.Spring.Dispatcher/OrchestrationCallbackEndpoints.cs` (new), `src/Cvoya.Spring.Dispatcher/OrchestrationCallbackModels.cs` (new — request/response DTOs), tests.
+- **Deliverable.** REST endpoints — one per orchestration tool — under a base path the dispatcher controls (e.g. `/v1/runtime/orchestration/list-children`, `/list-children`, `/inspect-child`, `/delegate-to-child`, `/fanout-to-children`, `/query-child-status`). Each endpoint runs the validation middleware from D12 (token must scope to the requesting agent + thread + message), then dispatches to the matching D8 platform-side handler, then returns the result. Endpoints are not part of the public OpenAPI surface — they are runtime-internal callbacks; document them in `docs/architecture/agent-sdk.md` (D18).
+- **Acceptance.** Integration test covers each endpoint against a mocked handler with a valid token (200 + result) and an invalid token (401). Cross-tenant token (unit `unit_a` calling on behalf of `unit_b`) rejected as 403.
+- **Blocked by.** D8, D12.
+
+**D14 — Launcher injects `SPRING_CALLBACK_URL` and `SPRING_CALLBACK_TOKEN`**
+
+- **Files:** Each of the four launchers (`SpringVoyageAgentLauncher`, `ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`), tests.
+- **Deliverable.** At launch time, the launcher computes the dispatcher URL (host config — locate at implementation), mints a callback token via D12 scoped to `(tenantId, agentAddress, threadId, messageId)`, and writes both as env vars on the runtime container. The two env-var names are uniform across all runtimes (no per-runtime variation).
+- **Acceptance.** Integration test per launcher asserts both env vars are written; the token validates against D12; the URL is reachable from the container's network namespace (or test-mocked).
+- **Blocked by.** D12.
+
+**D15 — `Cvoya.Spring.AgentSdk` package: typed `IOrchestrationClient`**
+
+- **Files:** New project `src/Cvoya.Spring.AgentSdk/Cvoya.Spring.AgentSdk.csproj`, `src/Cvoya.Spring.AgentSdk/IOrchestrationClient.cs`, `src/Cvoya.Spring.AgentSdk/OrchestrationClient.cs` (HTTP impl), `src/Cvoya.Spring.AgentSdk/SpringAgent.cs` (env-var-bootstrap entrypoint), unit tests.
+- **Deliverable.** `IOrchestrationClient` exposes the five orchestration tools as method calls (signatures match ADR-0039 §3 SDK sketch). `OrchestrationClient` posts JSON over HTTP to the dispatcher endpoints from D13, carrying the callback token from `SPRING_CALLBACK_TOKEN`. `SpringAgent.FromEnvironment()` reads `SPRING_CALLBACK_URL` and `SPRING_CALLBACK_TOKEN`, throws a precise `MissingCallbackEnvironmentException` when either is unset. The package depends only on `Cvoya.Spring.Core` (for `Address`, `Message`, `ChildDescriptor`) and `System.Net.Http`.
+- **Acceptance.** Unit tests against a mocked HTTP backend cover each method's happy path, auth-error path (401 → `OrchestrationAuthException`), and transport-error path (timeout / network → `OrchestrationTransportException`). Public surface listed in the project's `<PublicAPI>` and reviewed during PR.
+- **Blocked by.** D13.
+
+**D16 — Sample workflow image demonstrating SDK usage**
+
+- **Files:** New sample under `samples/workflow-agent-image/` (locate the conventional samples root at implementation), Dockerfile, README.
+- **Deliverable.** A minimal runtime image written in .NET that:
+  - reads the inbound message from stdin (or env, per the runtime contract — match `spring-voyage` convention),
+  - constructs `IOrchestrationClient` via `SpringAgent.FromEnvironment()`,
+  - runs a deterministic state machine (e.g. round-robin or expertise-keyed) that calls `DelegateToChildAsync` once,
+  - returns the child's response on stdout.
+
+  The state machine is illustrative; the goal is to prove the SDK round-trips. The image's Dockerfile pins the platform image base for SDK consumption (similar to existing runtime base images). README walks an operator through running the image as a unit's runtime locally.
+- **Acceptance.** Image builds; unit tests of the state-machine code pass; the image runs end-to-end in D17.
+- **Blocked by.** D15.
+
+**D17 — Tier-3 e2e: SDK-based workflow image dispatches via the SDK**
+
+- **Files:** `tests/integration/Tier3/SdkWorkflowDispatch.cs` (new).
+- **Deliverable.** Configure a unit with the sample image from D16 as its runtime, with two member agents. Send a domain message to the unit. The sample's state machine selects one child via SDK, calls `DelegateToChildAsync`, and returns the response. Activity stream contains one `OrchestrationDecision` with `kind: delegate, status: routed, targets: [<chosen-child>]` — same shape as D10 (the LLM-driven path) — proving both transports produce identical evidence.
+- **Acceptance.** E2E green; activity-stream payload verified to match D10's shape exactly.
+- **Blocked by.** D14, D15, D16, D9.
+
+**D18 — Documentation: `docs/architecture/agent-sdk.md`**
+
+- **Files:** `docs/architecture/agent-sdk.md` (new).
+- **Deliverable.** Sections: SDK package overview; env-var contract (`SPRING_CALLBACK_URL`, `SPRING_CALLBACK_TOKEN`); typed client surface (`IOrchestrationClient` + `SpringAgent.FromEnvironment()`); error model (`OrchestrationAuthException`, `OrchestrationTransportException`, `MissingCallbackEnvironmentException`); workflow-state guidance ("the platform does not provide durability; pick a state store and place it in your image or sidecar"); security model (per-invocation token; no cross-invocation reuse; tenant-scoped signing key); sample image walkthrough cross-linking the D16 sample.
+- **Acceptance.** Doc renders cleanly; CI's docs-evergreen-framing job passes.
+- **Blocked by.** D15.
 
 ---
 
@@ -854,6 +909,13 @@ D8 ← D2
 D9 ← D8
 D10 ← D4, D9
 D11 ← D4, D9
+D12 ← A1
+D13 ← D8, D12
+D14 ← D12
+D15 ← D13
+D16 ← D15
+D17 ← D14, D15, D16, D9
+D18 ← D15
 E1 ← D2
 E2 ← D2
 E3 ← D2
@@ -936,12 +998,12 @@ Pending user approval, the following actions execute as the `savasp-agent` App i
 
 ### 1. Umbrella
 
-- File **one umbrella issue** as a sub-issue of `#1786`. Title: "ADR-0039 implementation: 105 tasks, structurally wired by `blockedBy`." Type: `Task`. Milestone: `v0.1`. Body: a thin pointer to ADR-0039, this plan, and the design doc — no enumeration of tasks (the sub-issue panel surfaces them).
+- File **one umbrella issue** as a sub-issue of `#1786`. Title: "ADR-0039 implementation: 112 tasks, structurally wired by `blockedBy`." Type: `Task`. Milestone: `v0.1`. Body: a thin pointer to ADR-0039, this plan, and the design doc — no enumeration of tasks (the sub-issue panel surfaces them).
 - Set `--sub-issue-of 1786` via `gh-app issue create`.
 
 ### 2. Per-task issues
 
-For each of the 105 tasks above:
+For each of the 112 tasks above (Phases A–M, 5 + 9 + 6 + 18 + 18 + 5 + 9 + 4 + 8 + 6 + 10 + 9 + 5 = 112):
 
 - File one issue as a sub-issue of the umbrella. Title: `<phase-letter><number> — <task title>`. Type: `Task`. Milestone: `v0.1`. Body: ~10 lines — files, deliverable, acceptance criteria copy from the plan; no architectural reasoning, no rationale.
 - Apply the `area:units-are-agents` label (file label first if it does not exist).
@@ -958,7 +1020,7 @@ Issues file in dependency order so that `--blocked-by <id>` always points at an 
 
 1. Umbrella.
 2. Roots (A1, A2, A3, I1).
-3. Tasks whose prerequisites are all filed, iteratively, until all 105 are filed.
+3. Tasks whose prerequisites are all filed, iteratively, until all 112 are filed.
 
 The plan agent that executes this is mechanical — it walks the dependency table and fans out filing in topological order. No architectural calls.
 
