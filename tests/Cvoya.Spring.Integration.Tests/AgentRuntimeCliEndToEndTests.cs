@@ -125,7 +125,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         // Install OpenAI with explicit config so we can assert the stored
         // shape round-trips through list + show.
         var install = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/codex/install",
             new AgentRuntimeInstallRequest(
                 Models: new[] { "gpt-4o", "gpt-4o-mini" },
                 DefaultModel: "gpt-4o",
@@ -137,16 +137,16 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         var list = await _client.GetFromJsonAsync<InstalledAgentRuntimeResponse[]>(
             "/api/v1/tenant/agent-runtimes/installs", JsonOptions, ct);
         list.ShouldNotBeNull();
-        list!.ShouldContain(r => r.Id == "openai");
+        list!.ShouldContain(r => r.Id == "codex");
 
-        // `spring agent-runtime show openai`.
+        // `spring agent-runtime show codex`.
         var show = await _client.GetFromJsonAsync<InstalledAgentRuntimeResponse>(
-            "/api/v1/tenant/agent-runtimes/installs/openai", JsonOptions, ct);
+            "/api/v1/tenant/agent-runtimes/installs/codex", JsonOptions, ct);
         show.ShouldNotBeNull();
-        show!.Id.ShouldBe("openai");
+        show!.Id.ShouldBe("codex");
         show.DefaultModel.ShouldBe("gpt-4o");
         show.Models.ShouldBe(new[] { "gpt-4o", "gpt-4o-mini" });
-        show.Kind.ShouldBe("spring-voyage");
+        show.Kind.ShouldBe("codex-cli");
     }
 
     // ─── Scenario 2: models set / add / remove → wizard endpoint ───
@@ -162,28 +162,28 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/codex/install",
             new AgentRuntimeInstallRequest(null, null, null), ct);
 
         // models set — the CLI implements this as PATCH /config with the
         // full replacement list.
-        await PatchModelsAsync("openai", new[] { "gpt-4o", "gpt-4o-mini" }, "gpt-4o", null, ct);
+        await PatchModelsAsync("codex", new[] { "gpt-4o", "gpt-4o-mini" }, "gpt-4o", null, ct);
 
         var afterSet = await _client.GetFromJsonAsync<AgentRuntimeModelResponse[]>(
-            "/api/v1/tenant/agent-runtimes/installs/openai/models", JsonOptions, ct);
+            "/api/v1/tenant/agent-runtimes/installs/codex/models", JsonOptions, ct);
         afterSet.ShouldNotBeNull();
         afterSet!.Select(m => m.Id).ShouldBe(new[] { "gpt-4o", "gpt-4o-mini" });
 
         // models add — append a model id.
-        await PatchModelsAsync("openai", new[] { "gpt-4o", "gpt-4o-mini", "o4-mini" }, "gpt-4o", null, ct);
+        await PatchModelsAsync("codex", new[] { "gpt-4o", "gpt-4o-mini", "o4-mini" }, "gpt-4o", null, ct);
         var afterAdd = await _client.GetFromJsonAsync<AgentRuntimeModelResponse[]>(
-            "/api/v1/tenant/agent-runtimes/installs/openai/models", JsonOptions, ct);
+            "/api/v1/tenant/agent-runtimes/installs/codex/models", JsonOptions, ct);
         afterAdd!.Select(m => m.Id).ShouldBe(new[] { "gpt-4o", "gpt-4o-mini", "o4-mini" });
 
         // models remove — drop the middle entry.
-        await PatchModelsAsync("openai", new[] { "gpt-4o", "o4-mini" }, "gpt-4o", null, ct);
+        await PatchModelsAsync("codex", new[] { "gpt-4o", "o4-mini" }, "gpt-4o", null, ct);
         var afterRemove = await _client.GetFromJsonAsync<AgentRuntimeModelResponse[]>(
-            "/api/v1/tenant/agent-runtimes/installs/openai/models", JsonOptions, ct);
+            "/api/v1/tenant/agent-runtimes/installs/codex/models", JsonOptions, ct);
         afterRemove!.Select(m => m.Id).ShouldBe(new[] { "gpt-4o", "o4-mini" });
     }
 
@@ -320,9 +320,9 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         {
             var installService = scope.ServiceProvider
                 .GetRequiredService<ITenantAgentRuntimeInstallService>();
-            await installService.InstallAsync("ollama", config: null, ct);
+            await installService.InstallAsync("spring-voyage", config: null, ct);
             var alphaList = await installService.ListAsync(ct);
-            alphaList.ShouldContain(r => r.RuntimeId == "ollama");
+            alphaList.ShouldContain(r => r.RuntimeId == "spring-voyage");
         }
 
         // Switch to tenant 'beta' — the install from 'alpha' must not surface.
@@ -332,9 +332,9 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
             var installService = scope.ServiceProvider
                 .GetRequiredService<ITenantAgentRuntimeInstallService>();
             var betaList = await installService.ListAsync(ct);
-            betaList.ShouldNotContain(r => r.RuntimeId == "ollama",
+            betaList.ShouldNotContain(r => r.RuntimeId == "spring-voyage",
                 "tenant 'beta' must not see tenant 'alpha's install row — the EF Core query filter is the load-bearing isolation boundary.");
-            var betaDirect = await installService.GetAsync("ollama", ct);
+            var betaDirect = await installService.GetAsync("spring-voyage", ct);
             betaDirect.ShouldBeNull();
         }
 
@@ -346,7 +346,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
             var installService = scope.ServiceProvider
                 .GetRequiredService<ITenantAgentRuntimeInstallService>();
             var alphaAgain = await installService.ListAsync(ct);
-            alphaAgain.ShouldContain(r => r.RuntimeId == "ollama");
+            alphaAgain.ShouldContain(r => r.RuntimeId == "spring-voyage");
         }
     }
 

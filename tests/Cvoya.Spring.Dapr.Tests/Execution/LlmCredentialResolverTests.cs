@@ -65,38 +65,41 @@ public class LlmCredentialResolverTests
     }
 
     [Fact]
-    public async Task ResolveAsync_UnknownProvider_ReturnsNotFound()
+    public async Task ResolveAsync_NoSlotForUnknownProvider_ReturnsNotFoundWithCanonicalName()
     {
+        // ADR-0038: the resolver derives the secret name directly from
+        // (provider, ApiKey). With no slot configured the resolver still
+        // populates SecretName so error messages can point operators at
+        // the exact slot to create.
         var resolver = Substitute.For<ISecretResolver>();
-
+        resolver.ResolveWithPathAsync(Arg.Any<SecretRef>(), Arg.Any<CancellationToken>())
+            .Returns(new SecretResolution(null, SecretResolvePath.NotFound, null));
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("no-such-provider", AuthMethod.ApiKey, agentId: null, unitId: null, TestContext.Current.CancellationToken);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.NotFound);
-        result.SecretName.ShouldBeEmpty();
-        await resolver.DidNotReceiveWithAnyArgs().ResolveWithPathAsync(
-            default!, TestContext.Current.CancellationToken);
+        result.SecretName.ShouldBe("no-such-provider-api-key");
     }
 
     [Fact]
-    public async Task ResolveAsync_RuntimeWithoutCredentialSchema_ReturnsNotFound()
+    public async Task ResolveAsync_OllamaProviderWithNoSlot_ReturnsNotFoundWithCanonicalName()
     {
-        // Ollama-style runtime — empty CredentialSecretName means "no
-        // credential to look up"; the resolver must short-circuit before
-        // touching the secret store.
+        // ADR-0038: callers that route a no-auth provider through the
+        // resolver still get a structured NotFound + canonical secret
+        // name. The "no credential needed" gating lives in the launcher,
+        // not in the resolver — which makes this surface uniform.
         var resolver = Substitute.For<ISecretResolver>();
-
+        resolver.ResolveWithPathAsync(Arg.Any<SecretRef>(), Arg.Any<CancellationToken>())
+            .Returns(new SecretResolution(null, SecretResolvePath.NotFound, null));
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("ollama", AuthMethod.ApiKey, agentId: null, unitId: null, TestContext.Current.CancellationToken);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.NotFound);
-        result.SecretName.ShouldBeEmpty();
-        await resolver.DidNotReceiveWithAnyArgs().ResolveWithPathAsync(
-            default!, TestContext.Current.CancellationToken);
+        result.SecretName.ShouldBe("ollama-api-key");
     }
 
     [Fact]

@@ -60,7 +60,7 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         var install = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/claude/install",
+            "/api/v1/tenant/agent-runtimes/installs/claude-code/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
         install.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -68,23 +68,20 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
         var listResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs", ct);
         var list = await listResponse.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse[]>(ct);
         list.ShouldNotBeNull();
-        list.ShouldContain(r => r.Id == "claude");
+        list.ShouldContain(r => r.Id == "claude-code");
     }
 
     [Fact]
     public async Task List_Surfaces_CredentialSecretName_From_Runtime()
     {
         // #742: the CLI wizard reads `credentialSecretName` off the
-        // agent-runtime payload instead of hardcoding the provider →
-        // secret-name map, so the field must round-trip verbatim from
-        // each `IAgentRuntime.CredentialSecretName`.
+        // agent-runtime payload. Per ADR-0038 the field is derived from
+        // the catalogue runtime entry's first provider edge — for the
+        // closed v0.1 set this matches the legacy `{provider}-api-key`
+        // shape.
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/claude/install",
-            new AgentRuntimeInstallRequest(null, null, null),
-            ct);
-        await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/ollama/install",
+            "/api/v1/tenant/agent-runtimes/installs/claude-code/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
@@ -92,14 +89,8 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
         var list = await listResponse.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse[]>(ct);
         list.ShouldNotBeNull();
 
-        var claude = list!.Single(r => r.Id == "claude");
+        var claude = list!.Single(r => r.Id == "claude-code");
         claude.CredentialSecretName.ShouldBe("anthropic-api-key");
-
-        // Ollama declares no credential — the contract is an empty
-        // string (which downstream consumers, including the CLI, treat
-        // as "no credential to write").
-        var ollama = list!.Single(r => r.Id == "ollama");
-        ollama.CredentialSecretName.ShouldBe(string.Empty);
     }
 
     [Fact]
@@ -107,11 +98,11 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/claude/install",
+            "/api/v1/tenant/agent-runtimes/installs/claude-code/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
-        var response = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/claude/models", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/claude-code/models", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var models = await response.Content.ReadFromJsonAsync<AgentRuntimeModelResponse[]>(ct);
         models.ShouldNotBeNull();
@@ -134,7 +125,7 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/codex/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
@@ -166,7 +157,7 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
         // installed `ollama` already.
         await _client.DeleteAsync("/api/v1/tenant/agent-runtimes/installs/ollama", ct);
         var response = await _client.GetAsync(
-            "/api/v1/tenant/agent-runtimes/installs/ollama/config", ct);
+            "/api/v1/tenant/agent-runtimes/installs/spring-voyage/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -180,17 +171,17 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
         var ct = TestContext.Current.CancellationToken;
         var seedModels = new[] { "claude-opus-4-7", "claude-sonnet-4-6" };
         await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/claude/install",
+            "/api/v1/tenant/agent-runtimes/installs/claude-code/install",
             new AgentRuntimeInstallRequest(seedModels, "claude-opus-4-7", null),
             ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/agent-runtimes/installs/claude/config", ct);
+            "/api/v1/tenant/agent-runtimes/installs/claude-code/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<AgentRuntimeConfigResponse>(ct);
         body.ShouldNotBeNull();
-        body!.Id.ShouldBe("claude");
+        body!.Id.ShouldBe("claude-code");
         body.DefaultModel.ShouldBe("claude-opus-4-7");
         body.BaseUrl.ShouldBeNull();
         body.Models.ShouldBe(seedModels);
@@ -201,7 +192,7 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agent-runtimes/installs/google/install",
+            "/api/v1/tenant/agent-runtimes/installs/gemini/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
@@ -211,14 +202,14 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
             DefaultModel = "gemini-2.0-flash",
             BaseUrl = (string?)null,
         };
-        var patch = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/tenant/agent-runtimes/installs/google/config")
+        var patch = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/tenant/agent-runtimes/installs/gemini/config")
         {
             Content = JsonContent.Create(newConfig),
         };
         var patchResponse = await _client.SendAsync(patch, ct);
         patchResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var getResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/google", ct);
+        var getResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/gemini", ct);
         var body = await getResponse.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse>(ct);
         body.ShouldNotBeNull();
         body!.DefaultModel.ShouldBe("gemini-2.0-flash");

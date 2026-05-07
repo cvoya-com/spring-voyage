@@ -57,11 +57,12 @@ public class SpringVoyageAgentLauncherTests
     }
 
     [Fact]
-    public void Kind_IsSpringVoyage()
+    public void Kind_IsSpringVoyageAgent()
     {
-        // #1732: launcher key matches IAgentRuntime.Kind. Multiple
-        // runtimes (openai/google/ollama) share spring-voyage.
-        _launcher.Kind.ShouldBe("spring-voyage");
+        // ADR-0038: launcher key matches the catalogue runtime entry's
+        // `launcher` field. The Spring Voyage runtime entry's launcher is
+        // `spring-voyage-agent`.
+        _launcher.Kind.ShouldBe("spring-voyage-agent");
     }
 
     // Issue #1042: launchers must not materialise workspace dirs on the

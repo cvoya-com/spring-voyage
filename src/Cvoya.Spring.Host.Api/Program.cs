@@ -43,13 +43,16 @@ try
 
     builder.Services
         .AddCvoyaSpringCore()
+        // ADR-0038 (#1770): the catalogue must register BEFORE
+        // AddCvoyaSpringDapr — Cvoya.Spring.Dapr.AgentRuntimes.AgentRuntimeRegistry
+        // synthesises legacy IAgentRuntime projections from IRuntimeCatalog,
+        // and the latter only TryAdds an empty fallback so the real
+        // catalogue must be in DI first.
+        .AddCvoyaSpringRuntimeCatalog()
         .AddCvoyaSpringDapr(builder.Configuration)
         // ADR-0038 (#1761) collapsed the four per-provider AgentRuntime
         // projects into runtime-catalog.yaml + Cvoya.Spring.ModelProviders
         // adapters + Cvoya.Spring.AgentRuntimes launcher consolidation.
-        // Order matters: the catalogue and adapter registry must be
-        // populated before the launcher registry resolves them.
-        .AddCvoyaSpringRuntimeCatalog()
         .AddCvoyaSpringModelProviders()
         .AddCvoyaSpringAgentRuntimes()
         .AddCvoyaSpringOllamaLlm(builder.Configuration)

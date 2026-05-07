@@ -148,30 +148,23 @@ internal sealed class CatalogAgentRuntimeAdapter : IAgentRuntime
         }
 
         // Strict per-path acceptance carried over from the legacy
-        // IAgentRuntime.IsCredentialFormatAccepted contract:
+        // IAgentRuntime.IsCredentialFormatAccepted contract (#1714):
         //
-        // - The Anthropic Platform REST endpoint rejects OAuth tokens
-        //   (sk-ant-oat…). Every other shape passes the format check.
-        // - The Claude Code agent-runtime path accepts OAuth tokens; it
-        //   rejects Anthropic Platform API keys (sk-ant-api…) for the
-        //   same reason — the CLI's `setup-token` flow stores OAuth
-        //   tokens, not API keys.
-        // - All other (provider, dispatch path) combinations accept any
-        //   shape (the resolver / live probe surfaces real auth failures
-        //   later).
+        // - Anthropic REST path accepts only sk-ant-api… API keys.
+        // - Anthropic agent-runtime path accepts only sk-ant-oat… OAuth
+        //   tokens.
+        // - All other providers (OpenAI, Google) accept any non-empty
+        //   shape pre-flight; live auth failures surface later via the
+        //   credential-health watchdog.
         var providerId = _primaryEdge.Id;
         if (string.Equals(providerId, "anthropic", StringComparison.OrdinalIgnoreCase))
         {
-            if (dispatchPath == CredentialDispatchPath.Rest
-                && credential.StartsWith("sk-ant-oat", StringComparison.Ordinal))
+            return dispatchPath switch
             {
-                return false;
-            }
-            if (dispatchPath == CredentialDispatchPath.AgentRuntime
-                && credential.StartsWith("sk-ant-api", StringComparison.Ordinal))
-            {
-                return false;
-            }
+                CredentialDispatchPath.Rest => credential.StartsWith("sk-ant-api", StringComparison.Ordinal),
+                CredentialDispatchPath.AgentRuntime => credential.StartsWith("sk-ant-oat", StringComparison.Ordinal),
+                _ => true,
+            };
         }
 
         return true;
