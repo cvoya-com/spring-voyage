@@ -24,10 +24,11 @@ using Microsoft.Extensions.Options;
 /// <b>Mandatory flag is <c>false</c>.</b> Both the API and Worker hosts
 /// register the dispatcher client, but only the Worker actually invokes it
 /// (agent deploy, workflow-orchestration strategy). An API-only deployment
-/// with no dispatcher configured is a valid topology — we report Disabled
-/// instead of aborting boot so local / test harnesses keep working. The
-/// dispatcher-dependent features (agent deploy, workflow orchestration)
-/// surface their own errors when the endpoint is missing at first call.
+/// with no dispatcher configured is a valid, expected topology — we report
+/// Disabled instead of aborting boot, and the API host never drives
+/// delegated execution so there is no "first call" to fail. On the Worker
+/// host the dispatcher-dependent features surface their own errors when the
+/// endpoint is missing at first call.
 /// </para>
 /// <para>
 /// Replaces the silent "fail at first use" throw that used to live inside
@@ -83,11 +84,11 @@ public sealed class DispatcherConfigurationRequirement(
         if (string.IsNullOrWhiteSpace(options.BaseUrl))
         {
             return Task.FromResult(ConfigurationRequirementStatus.Disabled(
-                reason: "Dispatcher:BaseUrl is not set — delegated execution will fail at first call.",
+                reason: "Dispatcher:BaseUrl is not set — delegated-execution features (agent deploy, workflow orchestration) are unavailable on this host.",
                 suggestion:
-                    "Set Dispatcher:BaseUrl (environment variable Dispatcher__BaseUrl=...) to the spring-dispatcher HTTP endpoint " +
-                    "(e.g. http://host.containers.internal:8090/ — the dispatcher runs on the host, not in a container; see issue #1063). " +
-                    "Required for agent deploy and workflow-orchestration features."));
+                    "Leave unset on hosts that never drive delegated execution (e.g. an OSS API host running on its own). " +
+                    "On the Worker host, set Dispatcher:BaseUrl (environment variable Dispatcher__BaseUrl=...) to the spring-dispatcher HTTP endpoint " +
+                    "(e.g. http://host.containers.internal:8090/ — the dispatcher runs on the host, not in a container; see issue #1063)."));
         }
 
         if (!Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var parsed)

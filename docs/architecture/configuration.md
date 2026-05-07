@@ -86,6 +86,18 @@ four joined in PR 2 (#639):
 - **CLI:** `spring system configuration` prints the report as a table; `--json` prints raw JSON; `spring system configuration <subsystem>` drills into one section.
 - **Portal:** `/system/configuration` page lists each subsystem as a collapsible card with a status badge (Healthy / Degraded / Failed), expandable requirement rows carrying name + status + severity + reason + suggestion + docs link.
 
+The portal (and CLI) compute the **visual** severity of a requirement row from `(Status, Severity, IsMandatory)` rather than from `Severity` alone (issue #1747):
+
+| Wire shape                                  | Visual severity                |
+|---------------------------------------------|--------------------------------|
+| `Met` + `Information`                       | OK / success                   |
+| `Met` + `Warning` (`MetWithWarning`)        | Warning ("works today, fix")   |
+| `Disabled` + `IsMandatory=false`            | Info / neutral (no action)     |
+| `Disabled` + `IsMandatory=true` *(unusual)* | Error / blocking               |
+| `Invalid`                                   | Error / blocking               |
+
+The `Disabled` factory therefore defaults `Severity` to `Information` — an optional subsystem the operator deliberately left unconfigured is not a degraded state. Renderers escalate the visual severity to "Error" if the requirement is mandatory; the wire severity stays advisory.
+
 ## Extending the framework
 
 Adding a requirement for a new subsystem:

@@ -19,14 +19,19 @@ public class DispatcherConfigurationRequirementTests
         Options.Create(new DispatcherClientOptions { BaseUrl = baseUrl, BearerToken = bearerToken });
 
     [Fact]
-    public async Task ValidateAsync_MissingBaseUrl_ReturnsDisabled()
+    public async Task ValidateAsync_MissingBaseUrl_ReturnsDisabledInformation()
     {
         var requirement = new DispatcherConfigurationRequirement(Opts(baseUrl: null));
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
 
         status.Status.ShouldBe(ConfigurationStatus.Disabled);
+        // Optional + Disabled is informational, not a warning (issue #1747).
+        status.Severity.ShouldBe(SeverityLevel.Information);
         status.Reason.ShouldNotBeNull();
+        // Reason must not claim "will fail at first call" — the API host
+        // never drives delegated execution (issue #1747).
+        status.Reason!.ShouldNotContain("will fail at first call");
         status.Suggestion.ShouldNotBeNull();
         status.Suggestion!.ShouldContain("Dispatcher__BaseUrl");
     }
