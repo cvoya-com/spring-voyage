@@ -24,10 +24,10 @@ const listUnitMemberships =
 const listAgents = vi.fn<() => Promise<AgentResponse[]>>();
 const upsertUnitMembership = vi.fn();
 const deleteUnitMembership = vi.fn();
-// #735: MembershipDialog now sources its Model dropdown from the
-// agent-runtimes endpoint via `useAgentRuntimes`, so this stub is
+// ADR-0038: MembershipDialog sources its Model dropdown from the
+// model-providers endpoint via `useModelProviders`, so this stub is
 // required whenever the dialog opens.
-const listAgentRuntimes =
+const listModelProviders =
   vi.fn<() => Promise<InstalledModelProviderResponse[]>>();
 const createAgent = vi.fn();
 
@@ -39,7 +39,7 @@ vi.mock("@/lib/api/client", () => ({
       upsertUnitMembership(...args),
     deleteUnitMembership: (...args: unknown[]) =>
       deleteUnitMembership(...args),
-    listAgentRuntimes: () => listAgentRuntimes(),
+    listModelProviders: () => listModelProviders(),
     createAgent: (body: unknown) => createAgent(body),
   },
 }));
@@ -110,15 +110,15 @@ function makeMembership(
   };
 }
 
-// Minimal tenant-installed-runtime fixture modelled after
+// ADR-0038: minimal tenant-installed-provider fixture modelled after
 // `InstalledModelProviderResponse`. Only the fields the dialog reads
 // (`id`, `displayName`, `models`, `defaultModel`) are populated; the
 // rest default to whatever the test runtime tolerates so the contract
 // schema can grow without updating every test.
-const DEFAULT_RUNTIMES = [
+const DEFAULT_PROVIDERS = [
   {
-    id: "claude",
-    displayName: "Anthropic Claude",
+    id: "anthropic",
+    displayName: "Anthropic",
     models: [
       "claude-sonnet-4-6",
       "claude-opus-4-7",
@@ -139,13 +139,13 @@ describe("AgentsTab", () => {
     listAgents.mockReset();
     upsertUnitMembership.mockReset();
     deleteUnitMembership.mockReset();
-    listAgentRuntimes.mockReset();
+    listModelProviders.mockReset();
     createAgent.mockReset();
     toastMock.mockReset();
     // Every dialog-opening test needs the runtimes list available; the
     // couple of tests that never open the dialog also benefit from a
     // stable default so no path triggers an unmocked call.
-    listAgentRuntimes.mockResolvedValue(DEFAULT_RUNTIMES);
+    listModelProviders.mockResolvedValue(DEFAULT_PROVIDERS);
   });
 
   afterEach(() => {
@@ -443,13 +443,13 @@ describe("AgentsTab", () => {
     expect(options).not.toContain("ada");
   });
 
-  it("sources the Model dropdown from the tenant-installed runtimes (#735)", async () => {
+  it("sources the Model dropdown from the tenant-installed model providers (ADR-0038)", async () => {
     const hopper = makeAgent({ name: "hopper", displayName: "Hopper" });
     listAgents.mockResolvedValue([hopper]);
     listUnitMemberships.mockResolvedValue([]);
     // Override the default to prove the dropdown reflects the mocked
-    // runtimes payload rather than any hardcoded provider list.
-    listAgentRuntimes.mockResolvedValue([
+    // model-providers payload rather than any hardcoded provider list.
+    listModelProviders.mockResolvedValue([
       {
         id: "openai",
         displayName: "OpenAI",
@@ -469,7 +469,7 @@ describe("AgentsTab", () => {
 
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => {
-      expect(listAgentRuntimes).toHaveBeenCalled();
+      expect(listModelProviders).toHaveBeenCalled();
     });
 
     const modelSelect = await waitFor(() => {

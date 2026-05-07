@@ -46,6 +46,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api/client";
+import { useModelProviders } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import type {
@@ -65,10 +66,11 @@ interface Props {
   // `useUnitExecution`. Passed as optional props so the panel renders
   // cleanly even when the execution slice hasn't loaded yet.
   //
-  // ADR-0038 (PR-1b): the wire field renamed `agent` → `runtime`, the
-  // legacy `kind` field is gone, and `provider` is now nested inside
-  // `model.provider`. The fields below carry the new names; PR-3 will
-  // rework the credential-edit UX to the per-provider shape.
+  // ADR-0038: `runtime` is the launcher key; `modelProvider` is the
+  // ModelProvider id (`anthropic`, `openai`, …). The credential-edit
+  // panel resolves the secret name via the installed-providers list
+  // surfaced through `useModelProviders` — see `useSecretNameForProvider`
+  // below.
   image?: string | null;
   containerRuntime?: string | null;
   runtime?: string | null;
@@ -538,13 +540,13 @@ function ErrorActions({
   const [credentialKey, setCredentialKey] = useState("");
   const queryClient = useQueryClient();
 
-  // The secret name the backend reads for this unit's (provider, authMethod)
-  // edge. ADR-0038 §6 re-keys credentials to `(tenant, provider, authMethod)`
-  // — the legacy runtime-id-derived secret name is gone.
-  // TODO(PR-3): rebuild Edit-credential UX on top of `runtime-catalog.yaml`
-  // so the panel can resolve the per-edge `credentialEnvVar` from
-  // `(runtime, modelProvider, authMethod)`. Tracked in #1761.
-  const secretName = legacySecretNameForProvider(modelProvider, runtime);
+  // ADR-0038 §6: credentials are keyed by `(tenant, provider, authMethod)`.
+  // The portal resolves the secret name via the
+  // `InstalledModelProviderResponse.credentialSecretName` field on the
+  // tenant's installed-providers list — the backend writes that into
+  // the install row at install time, so the portal doesn't need to
+  // duplicate the catalogue.
+  const secretName = useSecretNameForProvider(modelProvider, runtime);
 
   const editAndRetryMutation = useMutation<
     void,
@@ -680,44 +682,37 @@ function ErrorActions({
 }
 
 /**
- * Placeholder secret-name resolver. ADR-0038 §6 keys credentials by
- * `(tenant, provider, authMethod)`, but the portal does not yet read
- * the per-edge `credentialEnvVar` / secret-name from
- * `runtime-catalog.yaml` — that arrives in PR-3. This helper returns
- * the legacy v0.1 secret names so the inline credential-edit panel
- * keeps writing to the same canonical names dispatch reads from.
+ * ADR-0038 §6: resolve the secret name the backend reads for this
+ * unit's (provider, authMethod) edge from the installed-providers
+ * list. Each `InstalledModelProviderResponse` carries the canonical
+ * `credentialSecretName` the backend wrote at install time, so the
+ * portal does not duplicate the runtime-catalog mapping.
  *
- * Returns null for `(spring-voyage, ollama)` (no credential required)
- * and for runtimes / providers that fall outside the v0.1 closed set.
+ * Returns `null` for providers with `credentialKind === "None"`
+ * (Ollama) and for providers that aren't installed on the tenant —
+ * the inline credential-edit panel hides itself in those cases.
  *
- * TODO(PR-3): replace with a per-edge lookup against the catalogue —
- * tracked in #1761.
+ * The `runtime` parameter is preserved for forward-compat with
+ * v0.2 #1761: when a tenant installs the same provider with two
+ * different auth methods (claude-code's OAuth vs. spring-voyage's
+ * API-key), the lookup will need the runtime to disambiguate.
+ * v0.1 ships one auth method per provider so we just match on id.
  */
-function legacySecretNameForProvider(
+function useSecretNameForProvider(
   modelProvider: string | null,
-  runtime: string | null,
+  // The `_runtime` param is preserved for v0.2 #1761 (per-edge auth
+  // method disambiguation). Not consulted in v0.1 because each
+  // provider ships exactly one auth method.
+  _runtime: string | null,
 ): string | null {
+  void _runtime;
+  const installedProvidersQuery = useModelProviders();
   const provider = (modelProvider ?? "").trim().toLowerCase();
-  // No-credential cases first.
   if (!provider) return null;
-  if (provider === "ollama") return null;
-  // Claude Code dispatching against Anthropic uses the OAuth-token
-  // credential name; every other (provider, runtime) edge uses the
-  // provider's API-key credential name.
-  if (runtime === "claude-code" && (provider === "anthropic" || provider === "claude")) {
-    return "anthropic-oauth-token";
-  }
-  switch (provider) {
-    case "anthropic":
-    case "claude":
-      return "anthropic-api-key";
-    case "openai":
-      return "openai-api-key";
-    case "google":
-    case "gemini":
-    case "googleai":
-      return "google-api-key";
-    default:
-      return null;
-  }
+  const entry = installedProvidersQuery.data?.find(
+    (p) => p.id.toLowerCase() === provider,
+  );
+  if (!entry) return null;
+  if (entry.credentialKind === "None") return null;
+  return entry.credentialSecretName ?? null;
 }

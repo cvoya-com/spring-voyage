@@ -18,63 +18,40 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import {
-  useAgentRuntimeModels,
+  useModelProviderModels,
+  useModelProviders,
   useProviderCredentialStatus,
   useUnitExecution,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import type { UnitExecutionResponse } from "@/lib/api/types";
 import {
-  EXECUTION_PROVIDERS,
-  EXECUTION_TOOL_KEYS,
-} from "@/lib/api/types";
-import { getToolRuntimeId, type ExecutionTool } from "@/lib/ai-models";
+  RUNTIME_LIST,
+  getAllowedProviders,
+  getFixedProvider,
+  isRuntimeProviderFixed,
+} from "@/lib/ai-models";
 import { loadImageHistory } from "@/lib/image-history";
 
 /**
- * #735: collapse the canonical provider string space
- * (`anthropic`/`openai`/`google`/`ollama`) onto the runtime id space the
- * agent-runtimes endpoint keys on. Anthropic's runtime id is `claude`;
- * everything else round-trips verbatim. Returns `null` when the provider
- * isn't a known runtime — the caller renders a free-text Model input in
- * that case.
- */
-function providerToRuntimeId(provider: string): string | null {
-  const normalised = provider.trim().toLowerCase();
-  if (!normalised) return null;
-  switch (normalised) {
-    case "claude":
-    case "anthropic":
-      return "claude";
-    case "openai":
-      return "openai";
-    case "google":
-    case "gemini":
-    case "googleai":
-      return "google";
-    case "ollama":
-      return "ollama";
-    default:
-      return null;
-  }
-}
-
-/**
- * Unit Execution tab (#601 / #603 / #409 B-wide, portal half).
+ * Unit Execution tab (ADR-0038).
  *
- * Exposes the unit-level defaults (image / agent runtime / model provider /
- * model) that member agents inherit at dispatch time. Reads / writes
- * through `/api/v1/units/{id}/execution` (backend landed in PR #628);
- * each field is independently editable and independently clearable so
- * the operator can declare `tool: claude-code` only and leave `image`
- * etc. for each agent to provide.
+ * Exposes the unit-level defaults (image / agent runtime / model
+ * provider / model) that member agents inherit at dispatch time. Reads
+ * / writes through `/api/v1/units/{id}/execution`; each field is
+ * independently editable and independently clearable.
  *
- * #1702: the legacy Runtime (docker/podman) field is gone — the platform
- * picks the container runtime; operators only choose the agent runtime.
- * Labels also moved: "Tool" → "Agent Runtime", "Provider" → "Model
- * Provider". Model Provider only renders when Agent Runtime is
- * `spring-voyage` — the other launchers hard-code their provider
- * inside their CLI. Model is always rendered.
+ * ADR-0038 §1: the provider picker is **conditional**.
+ *   - When the chosen runtime is fixed-provider (`claude-code` /
+ *     `codex` / `gemini`), the picker is hidden and the model
+ *     dropdown is filtered to that runtime's single allowed provider.
+ *   - When the runtime is multi-provider (`spring-voyage`, future
+ *     `custom`), the picker is shown as a model-list filter against
+ *     the tenant's installed model providers.
+ *
+ * Local form state mirrors the wire shape directly — `{image, runtime,
+ * model: {provider, id}}` — so the on-save handler can hand the form
+ * to the API without an intermediate projection.
  */
 
 interface ExecutionTabProps {
@@ -83,31 +60,23 @@ interface ExecutionTabProps {
 
 const FIELD_UNSET = "__unset__";
 
-/**
- * Local form state — flat shape preserved from the legacy wire so the
- * existing UX (separate Provider dropdown when Agent Runtime ==
- * spring-voyage) keeps rendering. The on-save handler projects this
- * flat state into the ADR-0038 `{ runtime, model: {provider, id} }`
- * shape the API now expects.
- */
-interface ExecutionForm {
-  image: string | null;
-  /** Operator-chosen agent runtime id (claude-code, codex, …). */
-  runtime: string | null;
-  /** Model provider id (anthropic, openai, …); only meaningful when runtime == "spring-voyage". */
-  provider: string | null;
-  /** Model id within the selected provider's catalog. */
-  modelId: string | null;
+function isEmpty(block: UnitExecutionResponse): boolean {
+  return (
+    !block.image &&
+    !block.runtime &&
+    !block.containerRuntime &&
+    !block.model
+  );
 }
 
 function persistedToForm(
   persisted: UnitExecutionResponse | null,
-): ExecutionForm {
+): UnitExecutionResponse {
   return {
     image: persisted?.image ?? null,
+    containerRuntime: persisted?.containerRuntime ?? null,
     runtime: persisted?.runtime ?? null,
-    provider: persisted?.model?.provider ?? null,
-    modelId: persisted?.model?.id ?? null,
+    model: persisted?.model ?? null,
   };
 }
 
@@ -115,12 +84,20 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const executionQuery = useUnitExecution(unitId);
+  const installedProvidersQuery = useModelProviders();
+  const installedProviders = useMemo(
+    () => installedProvidersQuery.data ?? [],
+    [installedProvidersQuery.data],
+  );
 
   const persisted = executionQuery.data ?? null;
 
-  // Local draft — seeded from the server payload once, then re-seeded
-  // whenever the server identity changes (keyed remount below).
-  const [form, setForm] = useState<ExecutionForm>(() => persistedToForm(null));
+  // Local draft mirrors the wire shape directly. No flat-form
+  // intermediate; no `formToWire` projector. Re-seeded whenever the
+  // server identity changes.
+  const [form, setForm] = useState<UnitExecutionResponse>(() =>
+    persistedToForm(null),
+  );
   const [seededFor, setSeededFor] = useState<string | null>(null);
   const [imageHistory] = useState(() => loadImageHistory());
   const fingerprint = useMemo(
@@ -132,58 +109,53 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     setSeededFor(fingerprint);
   }
 
-  const setField = <K extends keyof ExecutionForm>(
-    key: K,
-    value: ExecutionForm[K],
-  ) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
-
-  // Per-field dirtiness — only the fields the operator actually touched
-  // differ from the persisted block.
   const dirty = useMemo(() => {
     const current = persistedToForm(persisted);
     return (
       form.image !== current.image ||
       form.runtime !== current.runtime ||
-      form.provider !== current.provider ||
-      form.modelId !== current.modelId
+      form.containerRuntime !== current.containerRuntime ||
+      (form.model?.provider ?? null) !== (current.model?.provider ?? null) ||
+      (form.model?.id ?? null) !== (current.model?.id ?? null)
     );
   }, [form, persisted]);
 
-  const effectiveToolForGating = form.runtime;
-  const showProvider = effectiveToolForGating === "spring-voyage";
+  const runtimeId = form.runtime ?? null;
+  const providerFixed = isRuntimeProviderFixed(runtimeId);
+  const fixedProvider = getFixedProvider(runtimeId);
+  const allowedProviders = getAllowedProviders(runtimeId);
 
-  // #641 / #1702: Model is always rendered. Derive the runtime id from
-  // the effective tool; use the explicit Provider value when
-  // spring-voyage is active. #735: route the catalog through
-  // `useAgentRuntimeModels` so the hardcoded provider→model table is
-  // gone — the tenant's installed runtimes are the single source of
-  // truth.
-  const toolForCatalog = effectiveToolForGating as ExecutionTool | null;
-  const toolRuntimeId =
-    toolForCatalog !== null ? getToolRuntimeId(toolForCatalog) : null;
-  const runtimeIdForModels = showProvider
-    ? providerToRuntimeId(form.provider ?? "")
-    : toolRuntimeId;
+  // Compute the effective provider that drives the model dropdown.
+  // Fixed-provider runtimes pin it; multi-provider runtimes use the
+  // operator's pick from the picker.
+  const effectiveProvider = providerFixed
+    ? fixedProvider
+    : (form.model?.provider ?? null);
 
-  // Provider-dependent model suggestions (#597 / PR #613). The field is
-  // a plain text input when no provider is selected, falling back to a
-  // dropdown when we have a known set.
-  const providerModelsEnabled = runtimeIdForModels !== null;
-  const agentRuntimeModelsQuery = useAgentRuntimeModels(
-    runtimeIdForModels ?? "",
-    { enabled: providerModelsEnabled },
-  );
-  const providerModels =
-    agentRuntimeModelsQuery.data?.map((m) => m.id) ?? null;
+  // Model dropdown source: the per-provider catalogue.
+  const modelsQuery = useModelProviderModels(effectiveProvider ?? "", {
+    enabled: effectiveProvider !== null,
+  });
+  const providerModels = modelsQuery.data?.map((m) => m.id) ?? null;
+
+  // Provider picker options (multi-provider runtimes only): the
+  // intersection of the runtime's allow-list with the tenant's
+  // installed providers.
+  const providerOptions = useMemo<string[]>(() => {
+    if (providerFixed) return [];
+    const installed = installedProviders.map((p) => p.id);
+    if (allowedProviders === null || allowedProviders.length === 0) {
+      return installed;
+    }
+    return installed.filter((id) =>
+      (allowedProviders as readonly string[]).includes(id),
+    );
+  }, [providerFixed, allowedProviders, installedProviders]);
 
   const setMutation = useMutation({
     mutationFn: async (
       next: UnitExecutionResponse,
     ): Promise<UnitExecutionResponse> => {
-      // A fully empty PUT hits the 400; fall through to DELETE so the
-      // "clear everything" intent is covered by the dedicated verb.
       if (isEmpty(next)) {
         await api.clearUnitExecution(unitId);
         return {};
@@ -221,33 +193,59 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     },
   });
 
-  // Project the local flat-form draft into the ADR-0038 wire shape.
-  // The model object is only emitted when both provider + id are set;
-  // the structured `{provider, id}` is non-nullable in either field on
-  // the server side, so partial entries collapse to `model: null`.
-  const formToWire = (next: ExecutionForm): UnitExecutionResponse => {
-    const provider = showProvider
-      ? next.provider?.trim() || null
-      : providerToRuntimeId(next.runtime ?? "");
-    const modelId = next.modelId?.trim() || null;
-    return {
-      image: next.image,
-      runtime: next.runtime,
-      model: provider && modelId ? { provider, id: modelId } : null,
-    };
+  // Mutate the model object as a unit. Setting either provider or id
+  // alone produces a partial model — the wire shape requires both
+  // keys, so we collapse partial entries to `null`.
+  const setModelField = (key: "provider" | "id", value: string | null) => {
+    setForm((prev) => {
+      const nextProvider =
+        key === "provider" ? value : (prev.model?.provider ?? null);
+      const nextId = key === "id" ? value : (prev.model?.id ?? null);
+      const model =
+        nextProvider && nextId
+          ? { provider: nextProvider, id: nextId }
+          : null;
+      return { ...prev, model };
+    });
   };
 
-  // Per-field clear: re-PUT with the remaining fields, or DELETE when
-  // the residual block is empty. Matches PR #628's partial-update
-  // contract — the scope doc names this explicitly.
-  const clearField = (field: keyof ExecutionForm) => {
-    const next: ExecutionForm = { ...form, [field]: null };
+  // Switching runtime must reset the model — its provider domain
+  // changed (claude-code can only host anthropic models, etc.).
+  const setRuntime = (next: string | null) => {
+    setForm((prev) => {
+      if (next === null) return { ...prev, runtime: null, model: null };
+      const fixed = getFixedProvider(next);
+      // Fixed-provider runtimes seed the provider eagerly so the
+      // model dropdown filters on it without a second click.
+      const nextProvider = fixed ?? null;
+      // Reset model id whenever the provider changes.
+      const prevProvider = prev.model?.provider ?? null;
+      const keepModelId =
+        prevProvider !== null && prevProvider === nextProvider
+          ? (prev.model?.id ?? null)
+          : null;
+      const model =
+        nextProvider && keepModelId
+          ? { provider: nextProvider, id: keepModelId }
+          : null;
+      return { ...prev, runtime: next, model };
+    });
+  };
+
+  const clearField = (
+    field: "image" | "runtime" | "providerOnly" | "model",
+  ) => {
+    let next = form;
+    if (field === "image") next = { ...form, image: null };
+    if (field === "runtime") next = { ...form, runtime: null, model: null };
+    if (field === "providerOnly") next = { ...form, model: null };
+    if (field === "model") next = { ...form, model: null };
     setForm(next);
-    setMutation.mutate(formToWire(next));
+    setMutation.mutate(next);
   };
 
   const handleSave = () => {
-    setMutation.mutate(formToWire(form));
+    setMutation.mutate(form);
   };
 
   if (executionQuery.isPending) {
@@ -292,8 +290,8 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <p className="text-xs text-muted-foreground">
-            Unit-level defaults for the agent image and runtime that
-            member agents inherit at dispatch time. Every field is
+            Unit-level defaults for the agent image, runtime, and model
+            that member agents inherit at dispatch time. Every field is
             independently optional — declare only what you want enforced
             here; agents can override any value on their own Execution
             panel. Round-trips the same shape as{" "}
@@ -317,7 +315,10 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
             <Input
               value={form.image ?? ""}
               onChange={(e) =>
-                setField("image", e.target.value ? e.target.value : null)
+                setForm((prev) => ({
+                  ...prev,
+                  image: e.target.value ? e.target.value : null,
+                }))
               }
               placeholder="ghcr.io/... or localhost/spring-voyage-agent-claude-code:latest"
               list={imageHistory.length > 0 ? "unit-execution-image-suggestions" : undefined}
@@ -327,43 +328,48 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
           </FieldRow>
 
           {/* Agent Runtime — launcher key. ADR-0038 renamed the wire
-              field `agent` → `runtime`; the legacy server-derived
-              `kind` badge was retired with the field.
-              TODO(PR-3): rebuild a richer runtime descriptor read-out
-              (display name, status) from the new catalogue — tracked
-              in #1761. */}
+              field `agent` → `runtime`. */}
           <FieldRow
             label="Agent Runtime"
             help="Agent runtime the dispatcher uses to bring the agent container up."
             onClear={persisted?.runtime ? () => clearField("runtime") : undefined}
             busy={setMutation.isPending}
           >
-            <SelectField
-              value={form.runtime}
-              onChange={(next) => setField("runtime", next)}
-              options={EXECUTION_TOOL_KEYS}
-              unsetLabel="(leave to default)"
+            <RuntimeSelect
+              value={form.runtime ?? null}
+              onChange={setRuntime}
               ariaLabel="Agent runtime"
               testid="execution-agent-runtime-select"
             />
           </FieldRow>
 
-          {/* Model Provider — gated behind runtime=spring-voyage. */}
-          {showProvider && (
+          {/* Model Provider — conditional. Hidden when the runtime
+              fixes its provider (claude-code / codex / gemini); shown
+              as a model-list filter when the runtime is multi-provider
+              (spring-voyage). The `custom` slot is reserved for v0.2
+              and ships with an empty allow-list — the picker stays
+              hidden until that lands. */}
+          {!providerFixed &&
+            runtimeId !== null &&
+            runtimeId !== "custom" && (
             <FieldRow
               label="Model Provider"
-              help="LLM provider — only meaningful when Agent Runtime is Spring Voyage Agent."
+              help={
+                providerOptions.length === 0
+                  ? "No installed model providers match this runtime. Install one with `spring model-provider install <id>`."
+                  : "LLM provider that hosts the model the runtime dispatches against."
+              }
               onClear={
-                form.provider
-                  ? () => clearField("provider")
+                form.model?.provider
+                  ? () => clearField("providerOnly")
                   : undefined
               }
               busy={setMutation.isPending}
             >
               <SelectField
-                value={form.provider}
-                onChange={(next) => setField("provider", next)}
-                options={EXECUTION_PROVIDERS}
+                value={form.model?.provider ?? null}
+                onChange={(next) => setModelField("provider", next)}
+                options={providerOptions}
                 unsetLabel="(leave to default)"
                 ariaLabel="Model provider"
                 testid="execution-provider-select"
@@ -371,25 +377,28 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
             </FieldRow>
           )}
 
-          {/* Model — #1702: always rendered. Populated from the tool's
-              implicit catalog (claude-code / codex / gemini) or the
-              selected Model Provider's catalog (spring-voyage). */}
+          {/* Model — always rendered. Populated from the effective
+              provider's catalogue. */}
           <FieldRow
             label="Model"
-            help="Model identifier. Populated from the provider's live catalog when available."
+            help={
+              effectiveProvider === null
+                ? "Pick an Agent Runtime (and Model Provider, if multi-provider) to load the model catalogue."
+                : "Model identifier within the selected provider's catalogue."
+            }
             onClear={
-              form.modelId ? () => clearField("modelId") : undefined
+              form.model?.id ? () => clearField("model") : undefined
             }
             busy={setMutation.isPending}
           >
-            {providerModelsEnabled &&
+            {effectiveProvider !== null &&
             providerModels &&
             providerModels.length > 0 ? (
               <select
-                value={form.modelId ?? ""}
+                value={form.model?.id ?? ""}
                 onChange={(e) =>
-                  setField(
-                    "modelId",
+                  setModelField(
+                    "id",
                     e.target.value ? e.target.value : null,
                   )
                 }
@@ -406,22 +415,23 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
               </select>
             ) : (
               <Input
-                value={form.modelId ?? ""}
+                value={form.model?.id ?? ""}
                 onChange={(e) =>
-                  setField(
-                    "modelId",
+                  setModelField(
+                    "id",
                     e.target.value ? e.target.value : null,
                   )
                 }
                 placeholder="e.g. claude-sonnet-4-6"
                 aria-label="Execution model"
                 data-testid="execution-model-input"
+                disabled={effectiveProvider === null}
               />
             )}
           </FieldRow>
 
-          {showProvider && form.provider && (
-            <CredentialStatusBanner providerId={form.provider} />
+          {effectiveProvider !== null && (
+            <CredentialStatusBanner providerId={effectiveProvider} />
           )}
 
           <div className="flex items-center justify-end gap-2 pt-2">
@@ -478,6 +488,40 @@ function FieldRow({ label, help, onClear, busy, children }: FieldRowProps) {
   );
 }
 
+interface RuntimeSelectProps {
+  value: string | null;
+  onChange: (next: string | null) => void;
+  ariaLabel: string;
+  testid: string;
+}
+
+function RuntimeSelect({
+  value,
+  onChange,
+  ariaLabel,
+  testid,
+}: RuntimeSelectProps) {
+  return (
+    <select
+      value={value ?? FIELD_UNSET}
+      onChange={(e) => {
+        const next = e.target.value;
+        onChange(next === FIELD_UNSET ? null : next);
+      }}
+      aria-label={ariaLabel}
+      data-testid={testid}
+      className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      <option value={FIELD_UNSET}>(leave to default)</option>
+      {RUNTIME_LIST.map((r) => (
+        <option key={r.id} value={r.id}>
+          {r.displayName}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 interface SelectFieldProps {
   value: string | null;
   onChange: (next: string | null) => void;
@@ -516,20 +560,10 @@ function SelectField({
   );
 }
 
-function isEmpty(block: UnitExecutionResponse): boolean {
-  return (
-    !block.image &&
-    !block.runtime &&
-    !block.containerRuntime &&
-    !block.model
-  );
-}
-
 /**
- * Inline credential-status banner — the same pattern PR #627 added on
- * the unit-create wizard Step 1. Reused here so the Execution tab
- * surfaces "provider not configured" at edit time rather than at
- * dispatch. Mirrors DESIGN.md §7.4a (warning/success alert palette).
+ * Inline credential-status banner — the same pattern as the
+ * unit-create wizard Step 1. Reused here so the Execution tab surfaces
+ * "provider not configured" at edit time rather than at dispatch.
  */
 function CredentialStatusBanner({ providerId }: { providerId: string }) {
   const { data, isPending, isError } = useProviderCredentialStatus(providerId);
@@ -599,14 +633,11 @@ function CredentialStatusBanner({ providerId }: { providerId: string }) {
 
 function providerLabel(providerId: string): string {
   switch (providerId) {
-    case "claude":
     case "anthropic":
       return "Anthropic";
     case "openai":
       return "OpenAI";
     case "google":
-    case "gemini":
-    case "googleai":
       return "Google";
     case "ollama":
       return "Ollama";

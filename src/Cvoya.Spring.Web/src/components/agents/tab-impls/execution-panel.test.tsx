@@ -23,7 +23,7 @@ const setAgentExecution =
 const clearAgentExecution = vi.fn<(id: string) => Promise<void>>();
 const getUnitExecution =
   vi.fn<(id: string) => Promise<UnitExecutionResponse>>();
-const getAgentRuntimeModels =
+const getModelProviderModels =
   vi.fn<
     (id: string) => Promise<
       { id: string; displayName: string; contextWindow: number | null }[]
@@ -41,7 +41,8 @@ vi.mock("@/lib/api/client", () => ({
       setAgentExecution(id, body),
     clearAgentExecution: (id: string) => clearAgentExecution(id),
     getUnitExecution: (id: string) => getUnitExecution(id),
-    getAgentRuntimeModels: (id: string) => getAgentRuntimeModels(id),
+    getModelProviderModels: (id: string) => getModelProviderModels(id),
+    listModelProviders: () => Promise.resolve([]),
     getProviderCredentialStatus: (provider: string) =>
       getProviderCredentialStatus(provider),
   },
@@ -84,10 +85,10 @@ describe("AgentExecutionPanel", () => {
     setAgentExecution.mockReset();
     clearAgentExecution.mockReset();
     getUnitExecution.mockReset();
-    getAgentRuntimeModels.mockReset();
+    getModelProviderModels.mockReset();
     getProviderCredentialStatus.mockReset();
     toastMock.mockReset();
-    getAgentRuntimeModels.mockResolvedValue([]);
+    getModelProviderModels.mockResolvedValue([]);
     getProviderCredentialStatus.mockResolvedValue({
       provider: "anthropic",
       resolvable: true,
@@ -160,7 +161,7 @@ describe("AgentExecutionPanel", () => {
     // operator can still pick a model family (e.g. gpt-4o for Codex).
     getAgentExecution.mockResolvedValue({ runtime: "codex" });
     getUnitExecution.mockResolvedValue({});
-    getAgentRuntimeModels.mockResolvedValue([{ id: "gpt-4o", displayName: "gpt-4o", contextWindow: null }, { id: "gpt-4o-mini", displayName: "gpt-4o-mini", contextWindow: null }]);
+    getModelProviderModels.mockResolvedValue([{ id: "gpt-4o", displayName: "gpt-4o", contextWindow: null }, { id: "gpt-4o-mini", displayName: "gpt-4o-mini", contextWindow: null }]);
 
     render(
       <Wrapper>
@@ -177,7 +178,7 @@ describe("AgentExecutionPanel", () => {
   it("renders a Model dropdown populated from the tool's catalog when tool=codex (#641)", async () => {
     getAgentExecution.mockResolvedValue({ runtime: "codex" });
     getUnitExecution.mockResolvedValue({});
-    getAgentRuntimeModels.mockImplementation(async (id: string) => {
+    getModelProviderModels.mockImplementation(async (id: string) => {
       if (id === "openai") {
         return [
           { id: "gpt-4o", displayName: "gpt-4o", contextWindow: null },
@@ -196,7 +197,7 @@ describe("AgentExecutionPanel", () => {
 
     await screen.findByTestId("agent-execution-panel");
     await waitFor(() => {
-      expect(getAgentRuntimeModels).toHaveBeenCalledWith("openai");
+      expect(getModelProviderModels).toHaveBeenCalledWith("openai");
     });
 
     const modelSelect = (await screen.findByTestId(
@@ -213,7 +214,7 @@ describe("AgentExecutionPanel", () => {
   it("shows both Model Provider and Model when tool=spring-voyage", async () => {
     getAgentExecution.mockResolvedValue({ runtime: "spring-voyage" });
     getUnitExecution.mockResolvedValue({});
-    getAgentRuntimeModels.mockResolvedValue([]);
+    getModelProviderModels.mockResolvedValue([]);
 
     render(
       <Wrapper>
@@ -230,7 +231,7 @@ describe("AgentExecutionPanel", () => {
   it("keeps the Model slot visible when tool=custom (always rendered post-#1702)", async () => {
     getAgentExecution.mockResolvedValue({ runtime: "custom" });
     getUnitExecution.mockResolvedValue({});
-    getAgentRuntimeModels.mockResolvedValue([]);
+    getModelProviderModels.mockResolvedValue([]);
 
     render(
       <Wrapper>

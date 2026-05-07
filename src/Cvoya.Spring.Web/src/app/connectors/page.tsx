@@ -6,7 +6,7 @@
  * Mirrors the data the CLI's `spring connector catalog` consumes: the
  * generic `/api/v1/connectors` endpoint feeds both surfaces. Post-#714
  * this page lists only the connectors installed on the current tenant
- * (aligned with the agent-runtimes surface); a connector registered
+ * (aligned with the model-providers surface); a connector registered
  * with the host but not installed on the tenant is invisible here and
  * in the unit Connector tab. Each card deep-links to `/connectors/[type]`
  * — the same destination the unit Connector tab points at when an

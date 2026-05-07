@@ -403,44 +403,13 @@ export type UnitExecutionResponse = Schemas["UnitExecutionResponse"];
  */
 export type AgentExecutionResponse = Schemas["AgentExecutionResponse"];
 
-/**
- * Platform-offered runtime keys (#601). The portal surfaces only these
- * two because the reference dispatcher knows how to launch containers
- * through them; custom runtimes are registered on the host as an
- * extension but a generic dropdown can't describe them.
- */
-export const EXECUTION_RUNTIMES = ["docker", "podman"] as const;
-
-/**
- * Launcher keys the reference dispatcher ships with (#601). Mirrors the
- * `ExecutionTool` set in `src/lib/ai-models.ts` one-for-one — kept here
- * alongside the execution wire shapes so the unit/agent Execution panels
- * can render the dropdown without pulling in the AI-model catalog.
- */
-export const EXECUTION_TOOL_KEYS = [
-  "claude-code",
-  "codex",
-  "gemini",
-  "spring-voyage",
-  "custom",
-] as const;
-
-/**
- * Provider keys accepted by the unit/agent Execution surfaces when the
- * launcher is `spring-voyage`. The backend's canonical mapping now lives on
- * each runtime's <c>IAgentRuntime.CredentialSecretName</c>; the
- * credential-status endpoint (<c>GET /system/credentials/&lcub;provider&rcub;/status</c>)
- * accepts `anthropic`, `openai`, `google`, `ollama` and translates
- * `anthropic` to the Claude runtime id before consulting the registry.
- * The portal dropdown standardises on these canonical names so the
- * value round-trips cleanly.
- */
-export const EXECUTION_PROVIDERS = [
-  "anthropic",
-  "openai",
-  "google",
-  "ollama",
-] as const;
+// ADR-0038 retired the static `EXECUTION_RUNTIMES` /
+// `EXECUTION_TOOL_KEYS` / `EXECUTION_PROVIDERS` arrays — runtime ids
+// and their fixed-provider mapping live in `src/lib/ai-models.ts`
+// (`RUNTIMES`); model-provider ids come from the
+// `useModelProviders` hook (the tenant's installed providers). The
+// container-runtime dropdown (`docker` / `podman`) is gone too: ADR-0038
+// derives the container runtime from platform configuration.
 
 /** Matches Cvoya.Spring.Core.Initiative.InitiativePolicy record. */
 export type InitiativePolicy = Schemas["InitiativePolicy"];
@@ -489,7 +458,7 @@ export type InstallPackageDetail = Schemas["InstallPackageDetail"];
 export type InstalledConnectorResponse = Schemas["InstalledConnectorResponse"];
 
 // ---------------------------------------------------------------------------
-// Model providers (ADR-0038, was: agent-runtimes #690)
+// Model providers (ADR-0038)
 // ---------------------------------------------------------------------------
 
 /**

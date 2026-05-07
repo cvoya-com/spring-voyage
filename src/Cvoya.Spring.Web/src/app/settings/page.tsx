@@ -17,12 +17,10 @@
  *     extension seam the retired drawer used.
  *
  *  2. A tile grid of links into the Settings subpages
- *     (`/settings/skills`, `/settings/packages`, `/settings/agent-runtimes`,
- *     `/settings/system-configuration`). Those routes host the content
- *     that used to live at the retired top-level paths (`/skills`,
- *     `/packages`, `/admin/agent-runtimes`, `/system/configuration`).
- *     The legacy routes keep rendering until their `DEL-*-top`
- *     follow-ups land.
+ *     (`/settings/skills`, `/settings/packages`,
+ *     `/settings/model-providers`, `/settings/system-configuration`).
+ *     Those routes host the content that used to live at the retired
+ *     top-level paths.
  */
 
 import Link from "next/link";
@@ -69,10 +67,10 @@ const SETTINGS_TILES: readonly SettingsTile[] = [
     icon: PackageIcon,
   },
   {
-    href: "/settings/agent-runtimes",
-    label: "Agent runtimes",
+    href: "/settings/model-providers",
+    label: "Model providers",
     description:
-      "Installed agent runtimes on the tenant, their model catalogs, and credential health.",
+      "Installed model providers on the tenant, their model catalogues, and credential health.",
     icon: Cpu,
   },
   {

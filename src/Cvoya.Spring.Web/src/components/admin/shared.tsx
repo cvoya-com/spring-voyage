@@ -7,7 +7,7 @@
  * surfaces are CLI-only" carve-out: install/configure/credential
  * validation ride `spring`, the portal renders visibility-only tables
  * and a consistent credential-health badge. These primitives keep the
- * two admin routes (`/admin/agent-runtimes`, `/admin/connectors`)
+ * two admin routes (`/settings/model-providers`, `/connectors`)
  * visually consistent without each page reinventing the patterns.
  */
 
@@ -19,7 +19,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import type { CredentialHealthStatus } from "@/lib/api/types";
 
 interface CliCalloutProps {
-  /** CLI command family the operator should reach for (e.g. `spring agent-runtime`). */
+  /** CLI command family the operator should reach for (e.g. `spring model-provider`). */
   cliCommand: string;
   /** Path to the user-guide doc under `docs/user-guide/`. */
   docsHref?: string;

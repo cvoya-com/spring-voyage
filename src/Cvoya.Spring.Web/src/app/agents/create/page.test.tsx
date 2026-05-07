@@ -18,16 +18,18 @@ import type {
 // ---------------------------------------------------------------------------
 // Mocks
 //
-// The new-agent page reads four endpoints and calls three write endpoints:
+// ADR-0038: the new-agent page reads four endpoints and calls three
+// write endpoints:
 //   - api.listUnits                     (initial-assignment picker)
-//   - api.listAgentRuntimes / api.getAgentRuntimeModels  (model dropdown)
+//   - api.listModelProviders /
+//     api.getModelProviderModels        (model dropdown)
 //   - api.installPackageFile            (submit — replaces createAgent)
 //   - api.getInstallStatus              (polling)
 //   - api.assignUnitAgent               (post-install membership wiring)
 // ---------------------------------------------------------------------------
 const listUnits = vi.fn();
-const listAgentRuntimes = vi.fn();
-const getAgentRuntimeModels = vi.fn();
+const listModelProviders = vi.fn();
+const getModelProviderModels = vi.fn();
 const installPackageFile = vi.fn();
 const getInstallStatus = vi.fn();
 const assignUnitAgent = vi.fn();
@@ -37,8 +39,8 @@ const abortInstall = vi.fn();
 vi.mock("@/lib/api/client", () => ({
   api: {
     listUnits: () => listUnits(),
-    listAgentRuntimes: () => listAgentRuntimes(),
-    getAgentRuntimeModels: (id: string) => getAgentRuntimeModels(id),
+    listModelProviders: () => listModelProviders(),
+    getModelProviderModels: (id: string) => getModelProviderModels(id),
     installPackageFile: (yaml: string) => installPackageFile(yaml),
     getInstallStatus: (id: string) => getInstallStatus(id),
     assignUnitAgent: (unitId: string, agentId: string) =>
@@ -160,8 +162,8 @@ function renderPage(): { client: QueryClient } {
 beforeEach(() => {
   vi.clearAllMocks();
   listUnits.mockResolvedValue([makeUnit()]);
-  listAgentRuntimes.mockResolvedValue([makeRuntime()]);
-  getAgentRuntimeModels.mockResolvedValue([
+  listModelProviders.mockResolvedValue([makeRuntime()]);
+  getModelProviderModels.mockResolvedValue([
     { id: "claude-3-5-sonnet", displayName: "Claude 3.5 Sonnet" },
   ]);
   // Default: install returns active immediately (no polling needed).
@@ -199,9 +201,12 @@ describe("CreateAgentPage", () => {
     expect(screen.getByLabelText(/agent id/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^role$/i)).toBeInTheDocument();
+    // ADR-0038: the wizard exposes Agent Runtime + Model fields. The
+    // legacy "Container runtime" dropdown was retired — container
+    // runtime is platform configuration, not an operator choice.
     expect(screen.getByLabelText(/agent runtime/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/container image/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/container runtime/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^model$/i)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
@@ -288,14 +293,15 @@ describe("CreateAgentPage", () => {
       role: "reviewer",
       description: "Test agent",
       image: "ghcr.io/example/agent:latest",
-      runtime: "docker",
-      agent: "claude-code",
-      model: "claude-3-5-sonnet",
+      // ADR-0038: ai.runtime + ai.model.{provider,id} replace the
+      // legacy flat ai.tool / ai.agent shape.
+      runtime: "claude-code",
+      modelProvider: "anthropic",
+      modelId: "claude-3-5-sonnet",
       unitIds: ["alpha"],
     });
 
-    // #1718 items 1+2: no `kind:`; agent body lives under content[].agent.
-    // #1738: `ai.tool` renamed to `ai.agent` (runtime registry id).
+    // No `kind:` field; the agent body lives under content[].agent.
     expect(yaml).not.toContain("kind:");
     expect(yaml).toContain("content:");
     expect(yaml).toContain("- agent:");
@@ -305,9 +311,10 @@ describe("CreateAgentPage", () => {
     expect(yaml).toContain("role: reviewer");
     expect(yaml).toContain("description: Test agent");
     expect(yaml).toContain("image: ghcr.io/example/agent:latest");
-    expect(yaml).toContain("runtime: docker");
-    expect(yaml).toContain("agent: claude-code");
-    expect(yaml).toContain("model: claude-3-5-sonnet");
+    // ADR-0038 ai block.
+    expect(yaml).toContain("runtime: claude-code");
+    expect(yaml).toContain("provider: anthropic");
+    expect(yaml).toContain("id: claude-3-5-sonnet");
   });
 
   it("omits optional fields from the YAML when they are empty", () => {

@@ -217,11 +217,11 @@ export const defaultRoutes: readonly RouteEntry[] = [
       "about",
       "packages",
       "skills",
-      "agent-runtimes",
+      "model-providers",
       "system configuration",
     ],
     description:
-      "Tenant defaults, account, packages, skills, agent runtimes, and system configuration.",
+      "Tenant defaults, account, packages, skills, model providers, and system configuration.",
   },
 ];
 
@@ -398,10 +398,10 @@ export const defaultActions: readonly PaletteAction[] = [
       "system configuration",
       "packages",
       "skills",
-      "agent runtimes",
+      "model providers",
     ],
     description:
-      "Tenant defaults, account, packages, skills, agent runtimes, and system configuration.",
+      "Tenant defaults, account, packages, skills, model providers, and system configuration.",
     href: "/settings",
   },
 ];

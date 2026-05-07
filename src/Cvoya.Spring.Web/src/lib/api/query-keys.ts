@@ -207,16 +207,16 @@ export const queryKeys = {
     models: () => ["ollama", "models"] as const,
   },
 
-  // Tenant-installed agent runtimes (#690) — per-runtime cache so
-  // switching the runtime dropdown doesn't clobber the previous
-  // runtime's model list.
-  agentRuntimes: {
-    all: ["agentRuntimes"] as const,
-    list: () => ["agentRuntimes", "list"] as const,
-    models: (runtimeId: string) =>
-      ["agentRuntimes", runtimeId, "models"] as const,
-    credentialHealth: (runtimeId: string, secretName?: string) =>
-      ["agentRuntimes", runtimeId, "credentialHealth", secretName ?? null] as const,
+  // Tenant-installed model providers (ADR-0038, was: agent runtimes
+  // #690) — per-provider cache so switching the provider dropdown
+  // doesn't clobber the previous provider's model list.
+  modelProviders: {
+    all: ["modelProviders"] as const,
+    list: () => ["modelProviders", "list"] as const,
+    models: (providerId: string) =>
+      ["modelProviders", providerId, "models"] as const,
+    credentialHealth: (providerId: string, secretName?: string) =>
+      ["modelProviders", providerId, "credentialHealth", secretName ?? null] as const,
   },
 
   // Settings drawer (#451) — drawer panels fetch a small amount of

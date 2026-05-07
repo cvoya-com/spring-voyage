@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useAgentRuntimes } from "@/lib/api/queries";
+import { useModelProviders } from "@/lib/api/queries";
 import type {
   AgentExecutionMode,
   AgentResponse,
@@ -117,30 +117,31 @@ export function MembershipDialog({
   onCancel,
   onSubmit,
 }: MembershipDialogProps) {
-  // #690 / #735: model catalog is sourced from the tenant-installed agent
-  // runtimes. The hook returns the runtimes + their configured model lists
-  // so the dropdown can render grouped options without a hardcoded
-  // fallback. Runtimes the tenant has not installed are invisible here —
-  // the caller can still type any server-accepted value via the "keep
-  // current" option below, so an unknown persisted model round-trips
-  // losslessly.
-  const agentRuntimesQuery = useAgentRuntimes();
-  const runtimes = useMemo<InstalledModelProviderResponse[]>(
-    () => agentRuntimesQuery.data ?? [],
-    [agentRuntimesQuery.data],
+  // ADR-0038: model catalogue is sourced from the tenant-installed
+  // model providers. The hook returns each provider + its configured
+  // model list so the dropdown can render grouped options without a
+  // hardcoded fallback. Providers the tenant has not installed are
+  // invisible here — the caller can still type any server-accepted
+  // value via the "keep current" option below, so an unknown persisted
+  // model round-trips losslessly.
+  const modelProvidersQuery = useModelProviders();
+  const providers = useMemo<InstalledModelProviderResponse[]>(
+    () => modelProvidersQuery.data ?? [],
+    [modelProvidersQuery.data],
   );
 
-  // Default model: the first installed runtime's `defaultModel` (falling
-  // back to its first configured model), or the empty string when no
-  // runtimes are installed yet. Resolved lazily via a helper so the
-  // useEffect seeding below can read the freshest value each time.
+  // Default model: the first installed provider's `defaultModel`
+  // (falling back to its first configured model), or the empty string
+  // when no providers are installed yet. Resolved lazily via a helper
+  // so the useEffect seeding below can read the freshest value each
+  // time.
   const defaultModel = useMemo<string>(() => {
-    for (const r of runtimes) {
-      if (r.defaultModel) return r.defaultModel;
-      if (r.models && r.models.length > 0) return r.models[0];
+    for (const p of providers) {
+      if (p.defaultModel) return p.defaultModel;
+      if (p.models && p.models.length > 0) return p.models[0];
     }
     return "";
-  }, [runtimes]);
+  }, [providers]);
 
   const [agentAddress, setAgentAddress] = useState("");
   const [model, setModel] = useState<string>("");
@@ -190,27 +191,27 @@ export function MembershipDialog({
     }
   }, [open, mode, initial, defaultModel]);
 
-  // Group the dropdown by runtime (display name) so operators can see
-  // which provider a model comes from. Each runtime carries its own
+  // Group the dropdown by provider (display name) so operators can see
+  // which provider a model comes from. Each provider carries its own
   // configured `models` list; empty lists collapse the optgroup entirely.
   const modelGroups = useMemo(
     () =>
-      runtimes
-        .map((r) => ({
-          id: r.id,
-          label: r.displayName,
-          models: r.models ?? [],
+      providers
+        .map((p) => ({
+          id: p.id,
+          label: p.displayName,
+          models: p.models ?? [],
         }))
         .filter((g) => g.models.length > 0),
-    [runtimes],
+    [providers],
   );
 
   // Also include the current model value in the dropdown even when the
-  // catalog doesn't know it (server-side the model may be anything, and
-  // runtimes that aren't installed on this tenant aren't surfaced by the
-  // agent-runtimes endpoint). Without this, editing a membership whose
-  // model is outside the catalog would silently switch it to the default
-  // on next change.
+  // catalogue doesn't know it (server-side the model may be anything,
+  // and providers that aren't installed on this tenant aren't surfaced
+  // by the model-providers endpoint). Without this, editing a
+  // membership whose model is outside the catalogue would silently
+  // switch it to the default on next change.
   const isModelInCatalog = useMemo(() => {
     return modelGroups.some((g) => g.models.includes(model));
   }, [model, modelGroups]);

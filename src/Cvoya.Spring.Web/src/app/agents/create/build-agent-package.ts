@@ -7,8 +7,8 @@
  * submits it through `POST /api/v1/packages/install/file`, the same
  * endpoint the CLI uses).
  *
- * The generated YAML shape (#1718 items 1+2; #1738 renames `ai.tool`
- * → `ai.agent`):
+ * The generated YAML shape (ADR-0038 — `ai.runtime` + structured
+ * `ai.model: {provider, id}` replace the legacy flat `ai.agent`/`ai.tool`):
  * ```yaml
  * apiVersion: spring.cvoya.com/v1
  * metadata:
@@ -22,19 +22,19 @@
  *       description: <description>  # omitted when empty
  *       execution:
  *         image: <image>    # omitted when empty
- *         runtime: <runtime> # omitted when empty
  *         hosting: <hosting> # omitted when empty
  *       ai:
- *         agent: <agent>    # runtime registry id; omitted when empty
- *         model: <model>    # omitted when empty
+ *         runtime: <runtime>  # omitted when empty
+ *         model:              # omitted when neither provider nor id present
+ *           provider: <modelProvider>
+ *           id: <modelId>
  * ```
  *
  * The wizard embeds the full agent definition inline as the value of
  * the `content[].agent` entry. The backend install pipeline resolves
  * this via the file-upload path (ADR-0035 decision 13) and the
  * activator consumes the inline body the same way it would a
- * disk-resolved reference. Full AgentPackage activation is tracked in
- * #1559.
+ * disk-resolved reference.
  */
 
 export interface AgentPackageFormState {
@@ -48,18 +48,17 @@ export interface AgentPackageFormState {
   description?: string;
   /** Container image reference (`execution.image`). */
   image?: string;
-  /** Container runtime key (`execution.runtime`). */
-  runtime?: string;
-  /** Hosting mode (`execution.hosting`): ephemeral or permanent. */
+  /** Hosting mode (`execution.hosting`): ephemeral or persistent. */
   hosting?: string;
   /**
-   * Agent runtime registry id (`ai.agent`): claude-code, codex,
-   * spring-voyage, etc. Renamed from `tool` in #1738 to match the
-   * post-#1732 wire shape.
+   * ADR-0038 agent runtime id (`ai.runtime`): claude-code, codex,
+   * gemini, spring-voyage, custom.
    */
-  agent?: string;
-  /** Model id (`ai.model`). */
-  model?: string;
+  runtime?: string;
+  /** ADR-0038 model provider id (`ai.model.provider`). */
+  modelProvider?: string;
+  /** ADR-0038 model id (`ai.model.id`). */
+  modelId?: string;
   /**
    * Unit ids the agent should join after install. These are handled as
    * post-install side-effects (sequential membership-add calls) because
@@ -80,10 +79,10 @@ export function buildAgentPackageYaml(state: AgentPackageFormState): string {
   const role = state.role?.trim();
   const description = state.description?.trim();
   const image = state.image?.trim();
-  const runtime = state.runtime?.trim();
   const hosting = state.hosting?.trim();
-  const agent = state.agent?.trim();
-  const model = state.model?.trim();
+  const runtime = state.runtime?.trim();
+  const modelProvider = state.modelProvider?.trim();
+  const modelId = state.modelId?.trim();
 
   const lines: string[] = [
     "apiVersion: spring.cvoya.com/v1",
@@ -95,9 +94,9 @@ export function buildAgentPackageYaml(state: AgentPackageFormState): string {
     lines.push(`  displayName: ${yamlScalar(displayName)}`);
   }
 
-  // #1718 item 2: the agent body lives inline under a single content
-  // entry. The activator consumes the inline mapping the same way it
-  // would a disk-resolved reference (#1559).
+  // The agent body lives inline under a single content entry. The
+  // activator consumes the inline mapping the same way it would a
+  // disk-resolved reference.
   lines.push("content:");
   lines.push("  - agent:");
   lines.push(`      id: ${yamlScalar(id)}`);
@@ -112,22 +111,26 @@ export function buildAgentPackageYaml(state: AgentPackageFormState): string {
   }
 
   // Execution block
-  const hasExecution = image || runtime || hosting;
+  const hasExecution = image || hosting;
   if (hasExecution) {
     lines.push("      execution:");
     if (image) lines.push(`        image: ${yamlScalar(image)}`);
-    if (runtime) lines.push(`        runtime: ${yamlScalar(runtime)}`);
     if (hosting) lines.push(`        hosting: ${yamlScalar(hosting)}`);
   }
 
-  // AI block — #1738 renames `ai.tool` → `ai.agent` to match the
-  // post-#1732 wire shape (`agent` = runtime registry id; the server
-  // derives `kind`).
-  const hasAi = agent || model;
+  // ADR-0038 AI block: `runtime` is the launcher key; `model` is a
+  // structured `{provider, id}` pair. Either may be omitted.
+  const hasModel = modelProvider || modelId;
+  const hasAi = runtime || hasModel;
   if (hasAi) {
     lines.push("      ai:");
-    if (agent) lines.push(`        agent: ${yamlScalar(agent)}`);
-    if (model) lines.push(`        model: ${yamlScalar(model)}`);
+    if (runtime) lines.push(`        runtime: ${yamlScalar(runtime)}`);
+    if (hasModel) {
+      lines.push("        model:");
+      if (modelProvider)
+        lines.push(`          provider: ${yamlScalar(modelProvider)}`);
+      if (modelId) lines.push(`          id: ${yamlScalar(modelId)}`);
+    }
   }
 
   return lines.join("\n") + "\n";

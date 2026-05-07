@@ -44,14 +44,15 @@ export interface AgentCreateFormInput {
    */
   runtime?: string;
   /**
-   * Execution tool key (`execution.tool`) — `claude-code`, `codex`,
+   * ADR-0038 agent runtime id (`ai.runtime`) — `claude-code`, `codex`,
    * `gemini`, `spring-voyage`, `custom`. Defaulted into the agent
    * definition document when supplied.
    */
   tool?: string;
   /**
-   * Model id (`execution.model`) — pulled from the chosen runtime's
-   * `/api/v1/agent-runtimes/{id}/models` catalog by the caller.
+   * Model id (`ai.model.id`) — pulled from the chosen provider's
+   * `/api/v1/tenant/model-providers/installs/{id}/models` catalogue
+   * by the caller.
    */
   model?: string;
   /**

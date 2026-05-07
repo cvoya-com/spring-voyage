@@ -17,13 +17,13 @@ test.describe("settings — sub-pages", () => {
     expect(tileCount).toBeGreaterThanOrEqual(1);
   });
 
-  test("/settings/agent-runtimes lists the dapr-agent + ollama runtimes", async ({ page }) => {
-    await page.goto("/settings/agent-runtimes");
-    await expect(page.getByRole("heading", { name: /agent.?runtimes?/i }).first()).toBeVisible();
+  test("/settings/model-providers lists the installed model providers (ADR-0038)", async ({ page }) => {
+    await page.goto("/settings/model-providers");
+    await expect(page.getByRole("heading", { name: /model.?providers?/i }).first()).toBeVisible();
 
-    // The dapr-agent runtime label varies; match by text containing
-    // either "Dapr" or "ollama".
-    await expect(page.getByText(/dapr|ollama/i).first()).toBeVisible({ timeout: 10_000 });
+    // The OSS dev environment installs at least anthropic + ollama
+    // by default; match either to keep the assertion lenient.
+    await expect(page.getByText(/anthropic|ollama/i).first()).toBeVisible({ timeout: 10_000 });
   });
 
   test("/settings/skills renders the skills registry", async ({ page }) => {

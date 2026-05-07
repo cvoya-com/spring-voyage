@@ -24,10 +24,11 @@ function makeForm(overrides: Partial<WizardFormSnapshot> = {}): WizardFormSnapsh
     name: "acme",
     displayName: "Acme",
     description: "",
-    provider: "claude",
-    model: "claude-sonnet-4-6",
+    // ADR-0038 (schema v4): runtime + structured model {provider, id}.
+    runtime: "claude-code",
+    modelProviderId: "anthropic",
+    modelId: "claude-sonnet-4-6",
     color: "#6366f1",
-    tool: "claude-code",
     hosting: "default",
     image: "",
     connectorSlug: null,
@@ -75,7 +76,7 @@ describe("wizard-persistence", () => {
   it("returns null for a snapshot whose schema version doesn't match", () => {
     const runId = "run-2";
     const stale: WizardSnapshot = {
-      schemaVersion: (WIZARD_STATE_SCHEMA_VERSION + 99) as 3,
+      schemaVersion: (WIZARD_STATE_SCHEMA_VERSION + 99) as 4,
       currentStep: 4,
       form: makeForm(),
     };
@@ -199,25 +200,24 @@ describe("wizard-persistence", () => {
     expect(loaded?.form.parentUnitIds).toEqual(["engineering"]);
   });
 
-  it("accepts v3 blobs that omit parentUnitId, defaulting to null", () => {
+  it("accepts v4 blobs that omit parentUnitId, defaulting to null", () => {
     const runId = "run-parent-2";
-    // Hand-craft a v3 snapshot that omits `parentUnitId` (it's a nullable
+    // Hand-craft a v4 snapshot that omits `parentUnitId` (it's a nullable
     // string — the loader treats the missing key as `null`).
     const blob = {
       schemaVersion: WIZARD_STATE_SCHEMA_VERSION,
       currentStep: 3,
       form: {
-        // ADR-0035 / #1563: v3 uses source/catalogPackageName/catalogInputs.
         source: "scratch",
         catalogPackageName: null,
         catalogInputs: {},
         name: "acme",
         displayName: "Acme",
         description: "",
-        provider: "claude",
-        model: "claude-sonnet-4-6",
+        runtime: "claude-code",
+        modelProviderId: "anthropic",
+        modelId: "claude-sonnet-4-6",
         color: "#6366f1",
-        tool: "claude-code",
         hosting: "default",
         image: "",
         connectorSlug: null,

@@ -132,7 +132,7 @@ describe("SettingsPage", () => {
     expect(hrefs).toEqual([
       "/settings/skills",
       "/settings/packages",
-      "/settings/agent-runtimes",
+      "/settings/model-providers",
       "/settings/system-configuration",
     ]);
 
@@ -141,7 +141,7 @@ describe("SettingsPage", () => {
     const labelsByHref: Record<string, string> = {
       "/settings/skills": "Skills",
       "/settings/packages": "Packages",
-      "/settings/agent-runtimes": "Agent runtimes",
+      "/settings/model-providers": "Model providers",
       "/settings/system-configuration": "System configuration",
     };
     for (const link of links) {

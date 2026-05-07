@@ -1271,15 +1271,11 @@ export function useOllamaModels(
 
 /**
  * Tenant-installed model providers (ADR-0038). The wizard reads every
- * available provider from this hook — the list drives the model
- * dropdown and each entry's `credentialKind` + `credentialDisplayHint`
- * drive the credential input.
- *
- * TODO(PR-3): rename hook surface to `useModelProviders` and rework
- * UX to match the per-provider grouping ADR-0038 §1 prescribes —
- * tracked in #1761.
+ * installed provider from this hook — the list drives the provider
+ * picker on multi-provider runtimes and each entry's `credentialKind`
+ * + `credentialDisplayHint` drive the credential input.
  */
-export function useAgentRuntimes(
+export function useModelProviders(
   opts?: SliceOptions<
     import("./types").InstalledModelProviderResponse[]
   >,
@@ -1288,8 +1284,8 @@ export function useAgentRuntimes(
   Error
 > {
   return useQuery({
-    queryKey: queryKeys.agentRuntimes.list(),
-    queryFn: () => api.listAgentRuntimes(),
+    queryKey: queryKeys.modelProviders.list(),
+    queryFn: () => api.listModelProviders(),
     staleTime: opts?.staleTime ?? 60 * 60 * 1000,
     refetchInterval: opts?.refetchInterval,
     enabled: opts?.enabled ?? true,
@@ -1298,18 +1294,16 @@ export function useAgentRuntimes(
 
 /**
  * Per-provider model catalog (ADR-0038). Returns the tenant's configured
- * model list for a provider install; feeds the wizard's Model dropdown
- * when a provider is selected.
- *
- * TODO(PR-3): rename to `useModelProviderModels` — tracked in #1761.
+ * model list for a provider install; feeds the wizard / Execution panel
+ * Model dropdown when a provider is selected.
  */
-export function useAgentRuntimeModels(
+export function useModelProviderModels(
   providerId: string,
   opts?: SliceOptions<import("./types").ModelProviderModelResponse[]>,
 ): UseQueryResult<import("./types").ModelProviderModelResponse[], Error> {
   return useQuery({
-    queryKey: queryKeys.agentRuntimes.models(providerId),
-    queryFn: () => api.getAgentRuntimeModels(providerId),
+    queryKey: queryKeys.modelProviders.models(providerId),
+    queryFn: () => api.getModelProviderModels(providerId),
     staleTime: opts?.staleTime ?? 60 * 60 * 1000,
     refetchInterval: opts?.refetchInterval,
     enabled: opts?.enabled ?? Boolean(providerId),
@@ -1319,24 +1313,21 @@ export function useAgentRuntimeModels(
 /**
  * Persistent credential-health row for a model provider install
  * (ADR-0038). Feeds the read-only admin view at
- * `/settings/agent-runtimes`. Returns `null` when the endpoint 404s —
+ * `/settings/model-providers`. Returns `null` when the endpoint 404s —
  * a fresh install that has never been probed has no row yet, so the
  * portal renders a muted "No signal yet" state rather than trapping
  * the admin error boundary.
- *
- * TODO(PR-3): rename to `useModelProviderCredentialHealth` and rework
- * the route to `/settings/model-providers/` — tracked in #1761.
  */
-export function useAgentRuntimeCredentialHealth(
+export function useModelProviderCredentialHealth(
   providerId: string,
   secretName?: string,
   opts?: SliceOptions<import("./types").CredentialHealthResponse | null>,
 ): UseQueryResult<import("./types").CredentialHealthResponse | null, Error> {
   return useQuery({
-    queryKey: queryKeys.agentRuntimes.credentialHealth(providerId, secretName),
+    queryKey: queryKeys.modelProviders.credentialHealth(providerId, secretName),
     queryFn: async () => {
       try {
-        return await api.getAgentRuntimeCredentialHealth(providerId, secretName);
+        return await api.getModelProviderCredentialHealth(providerId, secretName);
       } catch {
         return null;
       }
@@ -1350,7 +1341,7 @@ export function useAgentRuntimeCredentialHealth(
 /**
  * Persistent credential-health row for a connector (#691). Feeds the
  * read-only admin view at `/admin/connectors`. Mirrors
- * {@link useAgentRuntimeCredentialHealth}; same null-on-404 semantics.
+ * {@link useModelProviderCredentialHealth}; same null-on-404 semantics.
  */
 export function useConnectorCredentialHealth(
   slugOrId: string,

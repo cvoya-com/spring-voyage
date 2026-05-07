@@ -22,8 +22,10 @@ import type {
 // supports inline unit definitions; see the comment in
 // `page.tsx::installMutation`.
 const listOllamaModels = vi.fn();
-const listAgentRuntimes = vi.fn();
-const getAgentRuntimeModels = vi.fn();
+// ADR-0038: renamed from listModelProviders / getModelProviderModels to
+// match the model-provider surface.
+const listModelProviders = vi.fn();
+const getModelProviderModels = vi.fn();
 const getProviderCredentialStatus = vi.fn();
 const installPackages = vi.fn();
 const createUnit = vi.fn();
@@ -45,8 +47,8 @@ const listConnectorTypes = vi.fn();
 vi.mock("@/lib/api/client", () => ({
   api: {
     listOllamaModels: () => listOllamaModels(),
-    listAgentRuntimes: () => listAgentRuntimes(),
-    getAgentRuntimeModels: (id: string) => getAgentRuntimeModels(id),
+    listModelProviders: () => listModelProviders(),
+    getModelProviderModels: (id: string) => getModelProviderModels(id),
     getProviderCredentialStatus: (p: string) => getProviderCredentialStatus(p),
     getConnectorTypes: vi.fn().mockResolvedValue([]),
     listConnectorTypes: () => listConnectorTypes(),
@@ -152,17 +154,15 @@ function makeRuntime(
   } as InstalledModelProviderResponse;
 }
 
-function defaultRuntimes(): InstalledModelProviderResponse[] {
-  // The wizard's `deriveRequiredCredentialRuntime` helper still looks up
-  // installed entries by the legacy runtime ids (claude/openai/google).
-  // PR-3 retires that mapping when the wizard reads
-  // `runtime-catalog.yaml` directly (#1761) — until then the fixture
-  // keeps the legacy ids so the surrounding UX (credential banner,
-  // help links) keeps rendering.
+function defaultProviders(): InstalledModelProviderResponse[] {
+  // ADR-0038: provider ids are (anthropic / openai / google / ollama).
+  // The legacy runtime id "claude" was retired — the runtime is now
+  // claude-code (per the runtime catalogue), and the credential it
+  // resolves against is the anthropic provider install.
   return [
     makeRuntime({
-      id: "claude",
-      displayName: "Claude (Anthropic)",
+      id: "anthropic",
+      displayName: "Anthropic",
       models: [
         "claude-opus-4-7",
         "claude-sonnet-4-6",
@@ -271,10 +271,10 @@ async function selectTopLevel() {
 
 function seedDefaultMocks() {
   listOllamaModels.mockResolvedValue([]);
-  listAgentRuntimes.mockResolvedValue(defaultRuntimes());
-  getAgentRuntimeModels.mockImplementation(async (id: string) => {
-    const runtime = defaultRuntimes().find((r) => r.id === id);
-    return (runtime?.models ?? []).map((m) => ({
+  listModelProviders.mockResolvedValue(defaultProviders());
+  getModelProviderModels.mockImplementation(async (id: string) => {
+    const provider = defaultProviders().find((p) => p.id === id);
+    return (provider?.models ?? []).map((m) => ({
       id: m,
       displayName: m,
       contextWindow: null,
@@ -655,17 +655,17 @@ describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)
     sessionStorage.clear();
   });
 
-  it("hides the Provider dropdown when the tool is Claude Code", async () => {
+  it("hides the Model Provider dropdown when the runtime is Claude Code (fixed-provider, ADR-0038 §1)", async () => {
     renderPage();
     await advanceToExecution();
 
     expect(
-      screen.queryByLabelText(/^LLM provider$/i),
+      screen.queryByLabelText(/^Model Provider$/i),
     ).not.toBeInTheDocument();
     expect(await screen.findByLabelText(/^Model$/i)).toBeInTheDocument();
   });
 
-  it("populates the Model dropdown from GET /api/v1/agent-runtimes/{id}/models", async () => {
+  it("populates the Model dropdown from the runtime's fixed provider (claude-code → anthropic)", async () => {
     renderPage();
     await advanceToExecution();
 
@@ -673,8 +673,10 @@ describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)
       /^Model$/i,
     )) as HTMLSelectElement;
 
+    // ADR-0038: claude-code runtime is fixed to the anthropic provider;
+    // the wizard's per-provider catalogue fetch uses the provider id.
     await waitFor(() => {
-      expect(getAgentRuntimeModels).toHaveBeenCalledWith("claude");
+      expect(getModelProviderModels).toHaveBeenCalledWith("anthropic");
     });
 
     const options = Array.from(modelSelect.options).map((o) => o.value);
@@ -683,15 +685,15 @@ describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)
     expect(options).toContain("claude-haiku-4-5");
   });
 
-  it("switches to the openai runtime catalog when Tool=Codex", async () => {
+  it("switches to the openai catalogue when runtime=Codex (fixed-provider)", async () => {
     renderPage();
     await advanceToExecution();
     await selectTool("codex");
 
-    expect(screen.queryByLabelText(/^LLM provider$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Model Provider$/i)).not.toBeInTheDocument();
 
     await waitFor(() => {
-      expect(getAgentRuntimeModels).toHaveBeenCalledWith("openai");
+      expect(getModelProviderModels).toHaveBeenCalledWith("openai");
     });
 
     const modelSelect = (await screen.findByLabelText(
@@ -701,35 +703,32 @@ describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)
     expect(options).toContain("gpt-4o");
   });
 
-  it("shows installed model providers in the Provider dropdown", async () => {
+  it("shows installed model providers in the Model Provider dropdown when runtime=spring-voyage (ADR-0038 §1)", async () => {
     renderPage();
     await advanceToExecution();
     await selectTool("spring-voyage");
 
     const providerSelect = (await screen.findByLabelText(
-      /^LLM provider$/i,
+      /^Model Provider$/i,
     )) as HTMLSelectElement;
     const options = Array.from(providerSelect.options).map((o) => o.value);
 
-    // ADR-0038: every installed model provider is eligible for the
-    // spring-voyage runtime — `runtime-catalog.yaml` lists every
-    // provider on the spring-voyage entry, and the legacy
-    // `kind === "spring-voyage"` filter was retired with the wire
-    // reshape. PR-3 will narrow this back to the catalogue's
-    // `agentRuntimes[].modelProviders[]` set (#1761).
+    // ADR-0038: spring-voyage's catalogue entry lists every provider in
+    // `runtime-catalog.yaml`, so the picker shows the intersection
+    // with the tenant's installed providers.
+    expect(options).toContain("anthropic");
     expect(options).toContain("openai");
     expect(options).toContain("google");
     expect(options).toContain("ollama");
-    expect(options).toContain("claude");
   });
 
-  it("hides the credential input for runtimes with CredentialKind=None (ollama)", async () => {
+  it("hides the credential input for providers with CredentialKind=None (ollama)", async () => {
     renderPage();
     await advanceToExecution();
     await selectTool("spring-voyage");
 
     const providerSelect = screen.getByLabelText(
-      /^LLM provider$/i,
+      /^Model Provider$/i,
     ) as HTMLSelectElement;
     await act(async () => {
       fireEvent.change(providerSelect, { target: { value: "ollama" } });
@@ -750,7 +749,7 @@ describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)
     await selectTool("spring-voyage");
 
     const providerSelect = screen.getByLabelText(
-      /^LLM provider$/i,
+      /^Model Provider$/i,
     ) as HTMLSelectElement;
     await act(async () => {
       fireEvent.change(providerSelect, { target: { value: "ollama" } });
@@ -842,41 +841,41 @@ describe("CreateUnitPage — Step 3 scratch explains a disabled Next", () => {
     sessionStorage.clear();
   });
 
-  it("warns when the agent-runtime catalog is empty and Claude Code is selected", async () => {
-    listAgentRuntimes.mockResolvedValue([]);
+  it("warns when the model-provider catalogue is empty and Claude Code is selected", async () => {
+    listModelProviders.mockResolvedValue([]);
     renderPage();
     await advanceToExecution();
 
-    const banner = await screen.findByTestId("agent-runtime-catalog-issue");
-    expect(banner.textContent).toMatch(/no configured agent runtimes/i);
+    const banner = await screen.findByTestId("model-provider-catalog-issue");
+    expect(banner.textContent).toMatch(/no configured model providers/i);
 
     const next = screen.getByRole("button", { name: /^next$/i });
     expect(next).toBeDisabled();
 
     const reason = await screen.findByTestId("next-disabled-reason");
-    expect(reason.textContent).toMatch(/no configured agent runtimes/i);
+    expect(reason.textContent).toMatch(/no configured model providers/i);
   });
 
-  it("warns when the agent-runtime catalog fetch fails", async () => {
-    listAgentRuntimes.mockRejectedValue(
+  it("warns when the model-provider catalogue fetch fails", async () => {
+    listModelProviders.mockRejectedValue(
       new Error("API error 502: Bad Gateway"),
     );
     renderPage();
     await advanceToExecution();
 
-    const banner = await screen.findByTestId("agent-runtime-catalog-issue");
+    const banner = await screen.findByTestId("model-provider-catalog-issue");
     expect(banner.textContent).toBe(
-      "Could not load the agent-runtime catalog.",
+      "Could not load the model-provider catalogue.",
     );
 
     const reason = await screen.findByTestId("next-disabled-reason");
     expect(reason.textContent).toBe(
-      "Could not load the agent-runtime catalog.",
+      "Could not load the model-provider catalogue.",
     );
   });
 
-  it("explains the missing runtime when the selected tool's runtime isn't installed", async () => {
-    listAgentRuntimes.mockResolvedValue([
+  it("explains the missing provider when the selected runtime's fixed provider isn't installed", async () => {
+    listModelProviders.mockResolvedValue([
       makeRuntime({
         id: "openai",
         displayName: "OpenAI",
@@ -889,8 +888,11 @@ describe("CreateUnitPage — Step 3 scratch explains a disabled Next", () => {
     await advanceToExecution();
 
     const reason = await screen.findByTestId("next-disabled-reason");
+    // The Claude Code runtime is fixed to the anthropic provider; the
+    // wizard reports the provider id directly, not the legacy runtime
+    // id (`claude` was retired in ADR-0038).
     expect(reason.textContent).toMatch(
-      /Claude Code.*runtime is not installed/i,
+      /Claude Code.*runtime requires the anthropic provider/i,
     );
     expect(screen.getByRole("button", { name: /^next$/i })).toBeDisabled();
   });
@@ -1030,11 +1032,11 @@ describe("CreateUnitPage — #1132 wizard state persistence", () => {
     );
   }
 
-  it("rehydrates the wizard at the saved step with the saved field values (schema v3)", async () => {
-    // Schema v3: source/catalogPackageName/catalogInputs replace
-    // mode/templateId/yamlText/yamlFileName.
+  it("rehydrates the wizard at the saved step with the saved field values (schema v4, ADR-0038)", async () => {
+    // Schema v4: ADR-0038 reshape — flat {tool, provider, model}
+    // becomes {runtime, modelProviderId, modelId}.
     seedSnapshot({
-      schemaVersion: 3,
+      schemaVersion: 4,
       currentStep: 3,
       form: {
         source: "scratch",
@@ -1043,13 +1045,12 @@ describe("CreateUnitPage — #1132 wizard state persistence", () => {
         name: "rehydrated-unit",
         displayName: "Rehydrated Unit",
         description: "Came back from a refresh.",
-        provider: "claude",
-        model: "claude-sonnet-4-6",
+        runtime: "claude-code",
+        modelProviderId: "anthropic",
+        modelId: "claude-sonnet-4-6",
         color: "#abcdef",
-        tool: "claude-code",
         hosting: "default",
         image: "",
-        runtime: "",
         connectorSlug: null,
         connectorTypeId: null,
         connectorConfig: null,

@@ -1384,17 +1384,17 @@ export const api = {
   },
 
   // Ollama model discovery (#350) — C1.2b retired the legacy
-  // /api/v1/ollama/models route. Callers now read the per-runtime
-  // tenant-install model catalogue via getAgentRuntimeModels("ollama"),
-  // which returns the union of the runtime's seed catalogue and any
+  // /api/v1/ollama/models route. Callers now read the per-provider
+  // tenant-install model catalogue via getModelProviderModels("ollama"),
+  // which returns the union of the provider's seed catalogue and any
   // tenant-configured overrides. Kept as a thin shim to preserve the
   // existing portal hook shape; the wizard's hook layer maps the
-  // AgentRuntimeModelResponse to the legacy `{name, size, modifiedAt}`
+  // ModelProviderModelResponse to the legacy `{name, size, modifiedAt}`
   // tuple it consumed.
   listOllamaModels: async (): Promise<
     { name: string; size: number; modifiedAt: string | null }[]
   > => {
-    const models = await api.getAgentRuntimeModels("ollama");
+    const models = await api.getModelProviderModels("ollama");
     return models.map((m) => ({
       name: m.id,
       size: 0,
@@ -1431,20 +1431,18 @@ export const api = {
   // Tenant-installed model providers (ADR-0038). Feeds the unit-creation
   // wizard's model dropdown: the wizard reads the available providers
   // from this endpoint, then per-provider models from
-  // `getAgentRuntimeModels`. Host-side credential validation was retired
-  // in T-03 (#945) and the transitional stub `validateAgentRuntimeCredential`
-  // was removed in T-07 (#949) — validation now runs as a backend Dapr
-  // workflow and the outcome is reported through the detail-page
-  // Validation panel via SSE + the unit's `lastValidationError`.
-  //
-  // TODO(PR-3): rename to `listModelProviders` /
-  // `getModelProviderModels` — tracked in #1761.
-  listAgentRuntimes: async (): Promise<
+  // `getModelProviderModels`. Host-side credential validation was
+  // retired in T-03 (#945) and the transitional stub
+  // `validateAgentRuntimeCredential` was removed in T-07 (#949) —
+  // validation now runs as a backend Dapr workflow and the outcome is
+  // reported through the detail-page Validation panel via SSE + the
+  // unit's `lastValidationError`.
+  listModelProviders: async (): Promise<
     import("./types").InstalledModelProviderResponse[]
   > =>
     unwrap(await fetchClient.GET("/api/v1/tenant/model-providers/installs")) as import("./types").InstalledModelProviderResponse[],
 
-  getAgentRuntimeModels: async (
+  getModelProviderModels: async (
     id: string,
   ): Promise<import("./types").ModelProviderModelResponse[]> =>
     unwrap(
@@ -1469,14 +1467,11 @@ export const api = {
 
   // Credential health (ADR-0038, was #691). Read-only inspection of the
   // persistent credential status the watchdog + accept-time validation
-  // write to. The admin portal views (`/admin/agent-runtimes`,
-  // `/admin/connectors`) ride these; mutation stays CLI-only per the
+  // write to. The admin portal views (`/settings/model-providers`,
+  // `/settings/connectors`) ride these; mutation stays CLI-only per the
   // AGENTS.md carve-out. 404 normalises to null so the caller can render
   // a "no signal yet" row without a try/catch.
-  //
-  // TODO(PR-3): rename to `getModelProviderCredentialHealth` —
-  // tracked in #1761.
-  getAgentRuntimeCredentialHealth: async (
+  getModelProviderCredentialHealth: async (
     id: string,
     secretName?: string,
   ): Promise<import("./types").CredentialHealthResponse | null> => {

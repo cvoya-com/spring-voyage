@@ -18,18 +18,19 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import {
-  useAgentRuntimeModels,
-  useAgentRuntimes,
+  useModelProviderModels,
+  useModelProviders,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import { AGENT_NAME_PATTERN } from "@/lib/agents/create-agent";
 import {
-  DEFAULT_EXECUTION_TOOL,
-  EXECUTION_TOOLS,
-  getToolRuntimeId,
-  type ExecutionTool,
+  DEFAULT_RUNTIME_ID,
+  RUNTIMES,
+  RUNTIME_LIST,
+  getAllowedProviders,
+  getFixedProvider,
+  type RuntimeId,
 } from "@/lib/ai-models";
-import { EXECUTION_RUNTIMES } from "@/lib/api/types";
 import type { UnitResponse } from "@/lib/api/types";
 import { buildAgentPackageYaml } from "./build-agent-package";
 
@@ -42,10 +43,13 @@ interface FormState {
   displayName: string;
   role: string;
   description: string;
-  executionTool: ExecutionTool;
+  /** ADR-0038 agent runtime id (`ai.runtime`). */
+  runtime: RuntimeId;
+  /** ADR-0038 model provider id (`ai.model.provider`). */
+  modelProviderId: string;
+  /** ADR-0038 model id within the provider's catalogue (`ai.model.id`). */
+  modelId: string;
   image: string;
-  runtime: string;
-  model: string;
   unitIds: string[];
 }
 
@@ -54,10 +58,13 @@ const INITIAL_FORM: FormState = {
   displayName: "",
   role: "",
   description: "",
-  executionTool: DEFAULT_EXECUTION_TOOL,
+  // ADR-0038: default to claude-code (the runtime catalogue's reference
+  // entry). Fixed-provider runtimes seed `modelProviderId` from the
+  // catalogue; multi-provider ones leave it for the operator to pick.
+  runtime: DEFAULT_RUNTIME_ID,
+  modelProviderId: getFixedProvider(DEFAULT_RUNTIME_ID) ?? "",
+  modelId: "",
   image: "",
-  runtime: "",
-  model: "",
   unitIds: [],
 };
 
@@ -142,26 +149,43 @@ export default function CreateAgentPage() {
     staleTime: 30_000,
   });
 
-  const runtimesQuery = useAgentRuntimes();
-  const runtimes = useMemo(() => runtimesQuery.data ?? [], [runtimesQuery.data]);
+  const providersQuery = useModelProviders();
+  const providers = useMemo(
+    () => providersQuery.data ?? [],
+    [providersQuery.data],
+  );
 
-  const toolRuntimeId = getToolRuntimeId(form.executionTool);
-  const modelsQuery = useAgentRuntimeModels(toolRuntimeId ?? "", {
-    enabled: Boolean(toolRuntimeId),
+  // ADR-0038 §1: the runtime descriptor decides whether the provider
+  // is fixed or operator-picked.
+  const runtimeDescriptor = RUNTIMES[form.runtime];
+  const fixedProviderId = getFixedProvider(form.runtime);
+  const pickerProviders = useMemo(() => {
+    if (runtimeDescriptor.isProviderFixed) return [];
+    const allowed = getAllowedProviders(form.runtime) ?? [];
+    return providers.filter((p) =>
+      (allowed as readonly string[]).includes(p.id),
+    );
+  }, [providers, form.runtime, runtimeDescriptor.isProviderFixed]);
+
+  const activeProviderId = (
+    fixedProviderId ?? form.modelProviderId
+  ).trim().toLowerCase();
+  const modelsQuery = useModelProviderModels(activeProviderId, {
+    enabled: Boolean(activeProviderId),
   });
 
   const modelOptions = useMemo(() => {
-    if (toolRuntimeId) {
+    if (activeProviderId) {
       const list = modelsQuery.data ?? [];
       return list.map((m) => ({ id: m.id, label: m.displayName ?? m.id }));
     }
-    return runtimes.flatMap((r) =>
-      (r.models ?? []).map((m) => ({
+    return providers.flatMap((p) =>
+      (p.models ?? []).map((m) => ({
         id: m,
-        label: `${m} — ${r.displayName}`,
+        label: `${m} — ${p.displayName}`,
       })),
     );
-  }, [toolRuntimeId, modelsQuery.data, runtimes]);
+  }, [activeProviderId, modelsQuery.data, providers]);
 
   // ── Install flow ───────────────────────────────────────────────────────
 
@@ -250,11 +274,13 @@ export default function CreateAgentPage() {
         role: form.role.trim() || undefined,
         description: form.description.trim() || undefined,
         image: form.image.trim() || undefined,
-        runtime: form.runtime.trim() || undefined,
-        // #1738: emit `ai.agent` (runtime registry id) — `ai.tool`
-        // was retired in #1732.
-        agent: form.executionTool || undefined,
-        model: form.model.trim() || undefined,
+        // ADR-0038: emit `ai.runtime` + structured
+        // `ai.model: {provider, id}`. The legacy `ai.agent` /
+        // `ai.tool` shape is rejected by the manifest parser.
+        runtime: form.runtime || undefined,
+        modelProvider:
+          (fixedProviderId ?? form.modelProviderId).trim() || undefined,
+        modelId: form.modelId.trim() || undefined,
         unitIds,
       });
       const resp = await api.installPackageFile(yaml);
@@ -343,7 +369,15 @@ export default function CreateAgentPage() {
     } else {
       router.push("/units");
     }
-  }, [form, addMemberships, pollUntilTerminal, queryClient, router, toast]);
+  }, [
+    form,
+    fixedProviderId,
+    addMemberships,
+    pollUntilTerminal,
+    queryClient,
+    router,
+    toast,
+  ]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -574,29 +608,69 @@ export default function CreateAgentPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <label className="block space-y-1">
-              <span className="text-sm text-muted-foreground">Execution tool</span>
+              <span className="text-sm text-muted-foreground">Agent runtime</span>
               <select
-                value={form.executionTool}
+                value={form.runtime}
                 onChange={(e) => {
-                  const tool = e.target.value as ExecutionTool;
-                  setForm((prev) => ({ ...prev, executionTool: tool, model: "" }));
+                  const nextRuntime = e.target.value as RuntimeId;
+                  const nextFixed = getFixedProvider(nextRuntime);
+                  setForm((prev) => ({
+                    ...prev,
+                    runtime: nextRuntime,
+                    // ADR-0038: snap the provider id when the new runtime
+                    // fixes its provider; keep the operator's choice
+                    // otherwise (the picker re-renders if multi-provider).
+                    modelProviderId: nextFixed ?? prev.modelProviderId,
+                    modelId: "",
+                  }));
                   setValidationMessage(null);
                 }}
-                aria-label="Execution tool"
+                aria-label="Agent runtime"
+                data-testid="agent-create-runtime-select"
                 disabled={submitting}
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {EXECUTION_TOOLS.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
+                {RUNTIME_LIST.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.displayName}
                   </option>
                 ))}
               </select>
               <span className="block text-xs text-muted-foreground">
-                Determines which agent runtime processes work. Mirrors{" "}
-                <code className="font-mono">--tool</code>.
+                ADR-0038 launcher key. Mirrors{" "}
+                <code className="font-mono">--runtime</code>.
               </span>
             </label>
+
+            {!runtimeDescriptor.isProviderFixed && (
+              <label className="block space-y-1">
+                <span className="text-sm text-muted-foreground">Model provider</span>
+                <select
+                  value={form.modelProviderId}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      modelProviderId: e.target.value,
+                      modelId: "",
+                    }))
+                  }
+                  aria-label="Model provider"
+                  data-testid="agent-create-model-provider-select"
+                  disabled={submitting || pickerProviders.length === 0}
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">Select a provider…</option>
+                  {pickerProviders.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.displayName}
+                    </option>
+                  ))}
+                </select>
+                <span className="block text-xs text-muted-foreground">
+                  Mirrors <code className="font-mono">--model-provider</code>.
+                </span>
+              </label>
+            )}
 
             <label className="block space-y-1">
               <span className="text-sm text-muted-foreground">
@@ -618,32 +692,13 @@ export default function CreateAgentPage() {
 
             <label className="block space-y-1">
               <span className="text-sm text-muted-foreground">
-                Container runtime (optional)
-              </span>
-              <select
-                value={form.runtime}
-                onChange={(e) => update("runtime", e.target.value)}
-                aria-label="Container runtime"
-                disabled={submitting}
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value="">Inherit from unit</option>
-                {EXECUTION_RUNTIMES.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block space-y-1">
-              <span className="text-sm text-muted-foreground">
                 Model (optional)
               </span>
               <select
-                value={form.model}
-                onChange={(e) => update("model", e.target.value)}
+                value={form.modelId}
+                onChange={(e) => update("modelId", e.target.value)}
                 aria-label="Model"
+                data-testid="agent-create-model-select"
                 disabled={submitting || modelOptions.length === 0}
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -654,10 +709,10 @@ export default function CreateAgentPage() {
                   </option>
                 ))}
               </select>
-              {modelOptions.length === 0 && !runtimesQuery.isPending && (
+              {modelOptions.length === 0 && !providersQuery.isPending && (
                 <span className="block text-xs text-muted-foreground">
-                  No models available for this tool. The agent will inherit the
-                  unit&apos;s default model at dispatch.
+                  No models available for this provider. The agent will inherit
+                  the unit&apos;s default model at dispatch.
                 </span>
               )}
             </label>
