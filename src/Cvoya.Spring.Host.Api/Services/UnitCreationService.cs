@@ -1141,8 +1141,14 @@ public class UnitCreationService : IUnitCreationService
 
         try
         {
+            // ADR-0038 (#1770): the resolver is keyed on (provider,
+            // authMethod). The unit-creation gate today only resolves the
+            // tenant-default secret to flip the Draft → Ready state; pass
+            // ApiKey as the auth method since that matches the legacy
+            // {provider}-api-key shape the resolver still falls back on.
             var resolution = await _credentialResolver.ResolveAsync(
                 providerId: provider,
+                authMethod: Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey,
                 agentId: null,
                 unitId: unitId,
                 cancellationToken);

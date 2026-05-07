@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Execution;
 
+using Cvoya.Spring.Core.AgentRuntimes;
+
 /// <summary>
 /// Describes the container-launch contract for one specific agent runtime.
 /// Different runtimes (Claude Code, Codex, Gemini CLI, …) materialise their
@@ -47,6 +49,38 @@ public interface IAgentRuntimeLauncher
     /// agent's response. Launchers MUST NOT write to the local filesystem.
     /// </summary>
     Task<AgentLaunchSpec> PrepareAsync(AgentLaunchContext context, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Builds the declarative list of in-container probe commands the
+    /// Dapr <c>UnitValidationWorkflow</c> should execute against the unit's
+    /// chosen container image, after pulling the image and starting it.
+    /// Replaces the per-<c>IAgentRuntime</c> implementation per ADR-0038
+    /// (the per-provider runtime classes are gone; their probe logic
+    /// belongs next to the launcher that actually runs the tool).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Returning an empty list means the launcher has nothing to probe;
+    /// the workflow treats that as "skip post-pull validation" and
+    /// proceeds.
+    /// </para>
+    /// <para>
+    /// <see cref="Cvoya.Spring.Core.Units.UnitValidationStep.PullingImage"/>
+    /// is the dispatcher's concern and MUST NOT appear here.
+    /// </para>
+    /// </remarks>
+    /// <param name="config">
+    /// The tenant's stored install configuration. Implementations typically
+    /// read <see cref="AgentRuntimeInstallConfig.DefaultModel"/> to target
+    /// the model that the unit's binding will run, and
+    /// <see cref="AgentRuntimeInstallConfig.BaseUrl"/> to override the
+    /// provider endpoint.
+    /// </param>
+    /// <param name="credential">
+    /// The raw credential to inject into the probe environment. Empty when
+    /// the runtime requires no credential.
+    /// </param>
+    IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential);
 }
 
 /// <summary>

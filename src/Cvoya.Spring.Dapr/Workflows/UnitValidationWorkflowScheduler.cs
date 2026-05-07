@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Workflows;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
@@ -40,7 +41,8 @@ using Microsoft.Extensions.Logging;
 public class UnitValidationWorkflowScheduler(
     DaprWorkflowClient workflowClient,
     IServiceScopeFactory scopeFactory,
-    IAgentRuntimeRegistry runtimeRegistry,
+    IRuntimeCatalog runtimeCatalog,
+    IAgentRuntimeLauncherRegistry launcherRegistry,
     ILoggerFactory loggerFactory) : IUnitValidationWorkflowScheduler
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<UnitValidationWorkflowScheduler>();
@@ -138,14 +140,28 @@ public class UnitValidationWorkflowScheduler(
                 }));
         }
 
-        // Resolve the credential via the two-tier chain (unit → tenant).
-        // When the runtime declares CredentialKind.None the resolver
-        // returns NotFound and we pass the empty string through — the
-        // workflow's RunContainerProbe layer pre-filters "no credential"
-        // step for runtimes that do not authenticate.
+        // ADR-0038 (#1770): the resolver is keyed on (provider, authMethod).
+        // The workflow scheduler resolves the credential against the
+        // catalogue runtime entry's first edge — that's the auth method
+        // the chosen launcher consumes. When the runtime declares no
+        // credential (e.g. Ollama) the resolver returns NotFound and we
+        // pass the empty string through — the workflow's RunContainerProbe
+        // layer pre-filters "no credential" steps for runtimes that do not
+        // authenticate.
+        var providerForCredential = defaults.Provider ?? runtimeId;
+        var authForCredential = AuthMethod.ApiKey;
+        var catalogRuntime = runtimeCatalog.GetAgentRuntime(runtimeId);
+        if (catalogRuntime is { ModelProviders.Count: > 0 })
+        {
+            var edge = catalogRuntime.ModelProviders[0];
+            providerForCredential = edge.Id;
+            authForCredential = edge.AuthMethod ?? AuthMethod.ApiKey;
+        }
+
         var credentialResolution = await credentialResolver
             .ResolveAsync(
-                providerId: defaults.Provider ?? runtimeId,
+                providerId: providerForCredential,
+                authMethod: authForCredential,
                 agentId: null,
                 unitId: entity.Id,
                 cancellationToken);
@@ -224,8 +240,16 @@ public class UnitValidationWorkflowScheduler(
     /// </summary>
     private string[]? ComputeSkipSteps(string runtimeId, string requestedModel)
     {
-        var runtime = runtimeRegistry.Get(runtimeId);
+        // ADR-0038: probe-step authoring lives on IAgentRuntimeLauncher.
+        // The launcher to dispatch is named on the catalogue runtime entry.
+        var runtime = runtimeCatalog.GetAgentRuntime(runtimeId);
         if (runtime is null)
+        {
+            return null;
+        }
+
+        var launcher = launcherRegistry.Get(runtime.Launcher);
+        if (launcher is null)
         {
             return null;
         }
@@ -238,7 +262,7 @@ public class UnitValidationWorkflowScheduler(
         HashSet<UnitValidationStep> declared;
         try
         {
-            declared = runtime.GetProbeSteps(config, string.Empty)
+            declared = launcher.GetProbeSteps(config, string.Empty)
                 .Select(s => s.Step)
                 .ToHashSet();
         }

@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Workflows.Activities;
@@ -27,19 +28,34 @@ public class RunContainerProbeActivityTests
 {
     private const string TestImage = "ghcr.io/cvoya/test:1";
     private const string TestRuntimeId = "test-runtime";
+    private const string TestLauncherId = "test-launcher";
     private const string TestModel = "gpt-4o";
 
-    private readonly IAgentRuntimeRegistry _registry;
+    private readonly IRuntimeCatalog _catalog;
+    private readonly IAgentRuntimeLauncherRegistry _launcherRegistry;
     private readonly IContainerRuntime _containerRuntime;
     private readonly RunContainerProbeActivity _activity;
 
     public RunContainerProbeActivityTests()
     {
-        _registry = Substitute.For<IAgentRuntimeRegistry>();
+        _catalog = Substitute.For<IRuntimeCatalog>();
+        _launcherRegistry = Substitute.For<IAgentRuntimeLauncherRegistry>();
         _containerRuntime = Substitute.For<IContainerRuntime>();
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _activity = new RunContainerProbeActivity(_registry, _containerRuntime, loggerFactory);
+        _activity = new RunContainerProbeActivity(_catalog, _launcherRegistry, _containerRuntime, loggerFactory);
+
+        // Default: the catalogue has a runtime entry that points at the
+        // test launcher id. Tests can override via Substitute.
+        var runtime = new Cvoya.Spring.Core.Catalog.AgentRuntime(
+            Id: TestRuntimeId,
+            DisplayName: "Test Runtime",
+            DefaultImage: TestImage,
+            Launcher: TestLauncherId,
+            ThreadBinding: new ThreadBinding(ThreadBindingKind.EnvVar, EnvVarName: "T_ID"),
+            SystemPromptInjection: new SystemPromptInjection(SystemPromptInjectionKind.EnvVar, EnvVarName: "P_ID"),
+            ModelProviders: Array.Empty<AgentRuntimeProviderEdge>());
+        _catalog.GetAgentRuntime(TestRuntimeId).Returns(runtime);
     }
 
     private static Func<int, string, string, StepResult> SuccessInterpreter(
@@ -54,9 +70,9 @@ public class RunContainerProbeActivityTests
         UnitValidationStep step,
         Func<int, string, string, StepResult> interpreter)
     {
-        var runtime = Substitute.For<IAgentRuntime>();
-        runtime.Id.Returns(TestRuntimeId);
-        runtime.GetProbeSteps(Arg.Any<AgentRuntimeInstallConfig>(), Arg.Any<string>())
+        var launcher = Substitute.For<IAgentRuntimeLauncher>();
+        launcher.Kind.Returns(TestLauncherId);
+        launcher.GetProbeSteps(Arg.Any<AgentRuntimeInstallConfig>(), Arg.Any<string>())
             .Returns(new[]
             {
                 new ProbeStep(
@@ -66,7 +82,7 @@ public class RunContainerProbeActivityTests
                     Timeout: TimeSpan.FromSeconds(5),
                     InterpretOutput: interpreter),
             });
-        _registry.Get(TestRuntimeId).Returns(runtime);
+        _launcherRegistry.Get(TestLauncherId).Returns(launcher);
     }
 
     private static RunContainerProbeActivityInput Input(
@@ -167,7 +183,7 @@ public class RunContainerProbeActivityTests
     [Fact]
     public async Task RunAsync_RuntimeNotRegistered_ReturnsProbeInternalError()
     {
-        _registry.Get(TestRuntimeId).Returns((IAgentRuntime?)null);
+        _catalog.GetAgentRuntime(TestRuntimeId).Returns((Cvoya.Spring.Core.Catalog.AgentRuntime?)null);
         var context = Substitute.For<WorkflowActivityContext>();
 
         var result = await _activity.RunAsync(context, Input());

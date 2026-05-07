@@ -142,17 +142,23 @@ public static class SystemEndpoints
             case ProviderGoogle:
                 {
                     // Translate the endpoint's external provider token to
-                    // the runtime id the registry-backed resolver expects.
-                    // The portal's URL still uses the provider spelling
-                    // (`anthropic`) that operators recognise, but the
-                    // resolver looks runtimes up by id (`claude`).
+                    // the runtime id the catalogue-backed registry exposes
+                    // (the portal still calls this endpoint with the
+                    // provider spelling — `anthropic` — that operators
+                    // recognise).
                     var runtimeId = MapProviderToRuntimeId(normalized);
 
+                    // ADR-0038 (#1770): the resolver is keyed on (provider,
+                    // authMethod). The wizard probes against API-key shape
+                    // — the Claude OAuth path is exercised separately when
+                    // the operator picks the claude-code runtime.
+                    //
                     // No unit context — the wizard runs before the unit
                     // exists. Resolver will fall through to the tenant-
                     // scope secret, which is what the wizard cares about.
                     var resolution = await credentialResolver.ResolveAsync(
-                        runtimeId,
+                        normalized,
+                        Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey,
                         agentId: null,
                         unitId: null,
                         cancellationToken);
@@ -263,11 +269,13 @@ public static class SystemEndpoints
 
     private static string MapProviderToRuntimeId(string provider) => provider switch
     {
-        // The `anthropic` token in the endpoint's URL maps to the Claude
-        // runtime id (the runtime is the plugin; `anthropic` is the
-        // credential-issuing authority). Other supported providers use
-        // matching spellings.
-        ProviderAnthropic => "claude",
+        // ADR-0038 #1770: the `anthropic` URL token maps to the
+        // `claude-code` catalogue runtime id (the runtime that consumes
+        // Anthropic via OAuth in the v0.1 closed set). Other providers
+        // map to their corresponding catalogue runtime ids.
+        ProviderAnthropic => "claude-code",
+        ProviderOpenAi => "codex",
+        ProviderGoogle => "gemini",
         _ => provider,
     };
 

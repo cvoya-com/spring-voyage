@@ -532,16 +532,16 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.ToTable("secret_registry_entries", "spring");
                 });
 
-            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.TenantAgentRuntimeInstallEntity", b =>
+            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.TenantModelProviderInstallEntity", b =>
                 {
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
 
-                    b.Property<string>("RuntimeId")
+                    b.Property<string>("ProviderId")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
-                        .HasColumnName("runtime_id");
+                        .HasColumnName("provider_id");
 
                     b.Property<JsonElement?>("ConfigJson")
                         .HasColumnType("jsonb")
@@ -559,11 +559,11 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
-                    b.HasKey("TenantId", "RuntimeId");
+                    b.HasKey("TenantId", "ProviderId");
 
                     b.HasIndex("TenantId");
 
-                    b.ToTable("tenant_agent_runtime_installs", "spring");
+                    b.ToTable("tenant_model_provider_installs", "spring");
                 });
 
             modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.TenantConnectorInstallEntity", b =>

@@ -170,7 +170,7 @@ public class PersistentAgentLifecycle(
         // launch spec into a container config across all dispatch paths.
         var baseConfig = ContainerConfigBuilder.Build(image, prepWithVolume);
         var useDaprSidecar = string.Equals(
-            kind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
+            kind, LauncherIds.SpringVoyageAgent, StringComparison.OrdinalIgnoreCase);
 
         string containerId;
         string? sidecarId = null;

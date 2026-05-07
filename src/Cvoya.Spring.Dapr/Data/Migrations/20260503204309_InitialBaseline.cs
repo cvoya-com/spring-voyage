@@ -201,12 +201,12 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "tenant_agent_runtime_installs",
+                name: "tenant_model_provider_installs",
                 schema: "spring",
                 columns: table => new
                 {
                     tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    runtime_id = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    provider_id = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
                     config = table.Column<JsonElement>(type: "jsonb", nullable: true),
                     installed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
@@ -214,7 +214,7 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_tenant_agent_runtime_installs", x => new { x.tenant_id, x.runtime_id });
+                    table.PrimaryKey("PK_tenant_model_provider_installs", x => new { x.tenant_id, x.provider_id });
                 });
 
             migrationBuilder.CreateTable(
@@ -467,9 +467,9 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_tenant_agent_runtime_installs_tenant_id",
+                name: "IX_tenant_model_provider_installs_tenant_id",
                 schema: "spring",
-                table: "tenant_agent_runtime_installs",
+                table: "tenant_model_provider_installs",
                 column: "tenant_id");
 
             migrationBuilder.CreateIndex(
@@ -543,7 +543,7 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                 schema: "spring");
 
             migrationBuilder.DropTable(
-                name: "tenant_agent_runtime_installs",
+                name: "tenant_model_provider_installs",
                 schema: "spring");
 
             migrationBuilder.DropTable(

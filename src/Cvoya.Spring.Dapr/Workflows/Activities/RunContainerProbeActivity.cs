@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Units;
@@ -36,7 +37,8 @@ using Microsoft.Extensions.Logging;
 /// </para>
 /// </remarks>
 public class RunContainerProbeActivity(
-    IAgentRuntimeRegistry runtimeRegistry,
+    IRuntimeCatalog runtimeCatalog,
+    IAgentRuntimeLauncherRegistry launcherRegistry,
     IContainerRuntime containerRuntime,
     ILoggerFactory loggerFactory)
     : WorkflowActivity<RunContainerProbeActivityInput, RunContainerProbeActivityOutput>
@@ -49,7 +51,9 @@ public class RunContainerProbeActivity(
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        var runtime = runtimeRegistry.Get(input.RuntimeId);
+        // ADR-0038: probe steps are authored by IAgentRuntimeLauncher, named
+        // by the catalogue runtime entry's `launcher` field.
+        var runtime = runtimeCatalog.GetAgentRuntime(input.RuntimeId);
         if (runtime is null)
         {
             _logger.LogWarning(
@@ -60,6 +64,22 @@ public class RunContainerProbeActivity(
                 input.Step,
                 UnitValidationCodes.ProbeInternalError,
                 $"No agent runtime is registered with id '{input.RuntimeId}'.",
+                details: null,
+                redactedStdOut: string.Empty,
+                redactedStdErr: string.Empty);
+        }
+
+        var launcher = launcherRegistry.Get(runtime.Launcher);
+        if (launcher is null)
+        {
+            _logger.LogWarning(
+                "No launcher registered for runtime '{RuntimeId}' (launcher='{Launcher}') for probe step {Step}.",
+                input.RuntimeId, runtime.Launcher, input.Step);
+            return FailureOutput(
+                input,
+                input.Step,
+                UnitValidationCodes.ProbeInternalError,
+                $"Runtime '{input.RuntimeId}' references unknown launcher '{runtime.Launcher}'.",
                 details: null,
                 redactedStdOut: string.Empty,
                 redactedStdErr: string.Empty);
@@ -77,14 +97,14 @@ public class RunContainerProbeActivity(
         IReadOnlyList<ProbeStep> steps;
         try
         {
-            steps = runtime.GetProbeSteps(config, input.Credential ?? string.Empty);
+            steps = launcher.GetProbeSteps(config, input.Credential ?? string.Empty);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(
                 ex,
-                "Runtime {RuntimeId} threw from GetProbeSteps for step {Step}.",
-                input.RuntimeId, input.Step);
+                "Launcher '{Launcher}' for runtime '{RuntimeId}' threw from GetProbeSteps for step {Step}.",
+                runtime.Launcher, input.RuntimeId, input.Step);
             return FailureOutput(
                 input,
                 input.Step,

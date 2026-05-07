@@ -4,75 +4,100 @@
 namespace Cvoya.Spring.Dapr.Tests.AgentRuntimes;
 
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Dapr.AgentRuntimes;
-
-using Microsoft.Extensions.DependencyInjection;
 
 using Shouldly;
 
 using Xunit;
 
+/// <summary>
+/// Verifies that the catalogue-backed <see cref="AgentRuntimeRegistry"/>
+/// projects every catalogue runtime entry through
+/// <see cref="CatalogAgentRuntimeAdapter"/> with the correct case-
+/// insensitive lookup semantics.
+/// </summary>
 public class AgentRuntimeRegistryTests
 {
     [Fact]
-    public void All_NoRuntimesRegistered_IsEmpty()
+    public void All_EmptyCatalog_IsEmpty()
     {
-        var registry = new AgentRuntimeRegistry(Array.Empty<IAgentRuntime>());
+        var registry = new AgentRuntimeRegistry(BuildCatalog(Array.Empty<Core.Catalog.AgentRuntime>(), Array.Empty<ModelProvider>()));
 
         registry.All.ShouldBeEmpty();
     }
 
     [Fact]
-    public void All_EnumeratesEveryRegisteredRuntime()
+    public void All_EnumeratesEveryCatalogRuntime()
     {
-        var r1 = new FakeAgentRuntime("alpha", "Alpha");
-        var r2 = new FakeAgentRuntime("beta", "Beta");
+        var providers = new[]
+        {
+            new ModelProvider("alpha-prov", "Alpha Provider", "https://alpha.example", "/v1/models", "openai-compatible", new[] { AuthMethod.ApiKey }, new LlmApiContract("openai", "v1"), Array.Empty<string>()),
+            new ModelProvider("beta-prov", "Beta Provider", "https://beta.example", "/v1/models", "openai-compatible", new[] { AuthMethod.ApiKey }, new LlmApiContract("openai", "v1"), Array.Empty<string>()),
+        };
+        var runtimes = new[]
+        {
+            new Core.Catalog.AgentRuntime("alpha", "Alpha", "alpha:latest", "spring-voyage-agent",
+                new ThreadBinding(ThreadBindingKind.EnvVar, EnvVarName: "T_ID"),
+                new SystemPromptInjection(SystemPromptInjectionKind.EnvVar, EnvVarName: "P_ID"),
+                new[] { new AgentRuntimeProviderEdge("alpha-prov", AuthMethod.ApiKey, "ALPHA_KEY") }),
+            new Core.Catalog.AgentRuntime("beta", "Beta", "beta:latest", "spring-voyage-agent",
+                new ThreadBinding(ThreadBindingKind.EnvVar, EnvVarName: "T_ID"),
+                new SystemPromptInjection(SystemPromptInjectionKind.EnvVar, EnvVarName: "P_ID"),
+                new[] { new AgentRuntimeProviderEdge("beta-prov", AuthMethod.ApiKey, "BETA_KEY") }),
+        };
 
-        var registry = new AgentRuntimeRegistry(new IAgentRuntime[] { r1, r2 });
+        var registry = new AgentRuntimeRegistry(BuildCatalog(runtimes, providers));
 
         registry.All.Count.ShouldBe(2);
-        registry.All.ShouldContain(r1);
-        registry.All.ShouldContain(r2);
+        registry.All.ShouldContain(r => r.Id == "alpha");
+        registry.All.ShouldContain(r => r.Id == "beta");
     }
 
     [Fact]
     public void Get_UnknownId_ReturnsNull()
     {
-        var registry = new AgentRuntimeRegistry(new IAgentRuntime[]
+        var providers = new[]
         {
-            new FakeAgentRuntime("alpha", "Alpha"),
-        });
+            new ModelProvider("alpha-prov", "Alpha", "https://alpha.example", "/v1/models", "openai-compatible", new[] { AuthMethod.ApiKey }, new LlmApiContract("openai", "v1"), Array.Empty<string>()),
+        };
+        var runtimes = new[]
+        {
+            new Core.Catalog.AgentRuntime("alpha", "Alpha", "alpha:latest", "spring-voyage-agent",
+                new ThreadBinding(ThreadBindingKind.EnvVar, EnvVarName: "T_ID"),
+                new SystemPromptInjection(SystemPromptInjectionKind.EnvVar, EnvVarName: "P_ID"),
+                new[] { new AgentRuntimeProviderEdge("alpha-prov", AuthMethod.ApiKey, "ALPHA_KEY") }),
+        };
+        var registry = new AgentRuntimeRegistry(BuildCatalog(runtimes, providers));
 
         registry.Get("gamma").ShouldBeNull();
     }
 
     [Fact]
-    public void Get_ExactMatch_ReturnsRuntime()
+    public void Get_CaseInsensitive_Match()
     {
-        var alpha = new FakeAgentRuntime("alpha", "Alpha");
-        var registry = new AgentRuntimeRegistry(new IAgentRuntime[] { alpha });
+        var providers = new[]
+        {
+            new ModelProvider("alpha-prov", "Alpha", "https://alpha.example", "/v1/models", "openai-compatible", new[] { AuthMethod.ApiKey }, new LlmApiContract("openai", "v1"), Array.Empty<string>()),
+        };
+        var runtimes = new[]
+        {
+            new Core.Catalog.AgentRuntime("Alpha", "Alpha Display", "alpha:latest", "spring-voyage-agent",
+                new ThreadBinding(ThreadBindingKind.EnvVar, EnvVarName: "T_ID"),
+                new SystemPromptInjection(SystemPromptInjectionKind.EnvVar, EnvVarName: "P_ID"),
+                new[] { new AgentRuntimeProviderEdge("alpha-prov", AuthMethod.ApiKey, "ALPHA_KEY") }),
+        };
+        var registry = new AgentRuntimeRegistry(BuildCatalog(runtimes, providers));
 
-        registry.Get("alpha").ShouldBe(alpha);
-    }
-
-    [Fact]
-    public void Get_CaseInsensitiveMatch_ReturnsRuntime()
-    {
-        var alpha = new FakeAgentRuntime("Alpha", "Alpha Display");
-        var registry = new AgentRuntimeRegistry(new IAgentRuntime[] { alpha });
-
-        registry.Get("alpha").ShouldBe(alpha);
-        registry.Get("ALPHA").ShouldBe(alpha);
-        registry.Get("AlPhA").ShouldBe(alpha);
+        registry.Get("alpha").ShouldNotBeNull();
+        registry.Get("ALPHA").ShouldNotBeNull();
+        registry.Get("AlPhA").ShouldNotBeNull();
     }
 
     [Fact]
     public void Get_NullOrWhitespace_ReturnsNull()
     {
-        var registry = new AgentRuntimeRegistry(new IAgentRuntime[]
-        {
-            new FakeAgentRuntime("alpha", "Alpha"),
-        });
+        var registry = new AgentRuntimeRegistry(BuildCatalog(Array.Empty<Core.Catalog.AgentRuntime>(), Array.Empty<ModelProvider>()));
 
         registry.Get(null!).ShouldBeNull();
         registry.Get(string.Empty).ShouldBeNull();
@@ -80,52 +105,50 @@ public class AgentRuntimeRegistryTests
     }
 
     [Fact]
-    public void DefaultDiRegistration_ResolvesEveryRegisteredIAgentRuntime()
+    public void Adapter_DerivesKindFromLauncherAndSecretNameFromEdge()
     {
-        // Confirms that when a host does
-        //   services.AddSingleton<IAgentRuntime>(...) x N
-        //   services.TryAddSingleton<IAgentRuntimeRegistry, AgentRuntimeRegistry>()
-        // the registry transparently picks every registered runtime up.
-        var services = new ServiceCollection();
-        services.AddSingleton<IAgentRuntime>(new FakeAgentRuntime("alpha", "Alpha"));
-        services.AddSingleton<IAgentRuntime>(new FakeAgentRuntime("beta", "Beta"));
-        services.AddSingleton<IAgentRuntimeRegistry, AgentRuntimeRegistry>();
+        var providers = new[]
+        {
+            new ModelProvider("anthropic", "Anthropic", "https://api.anthropic.com", "/v1/models", "anthropic", new[] { AuthMethod.Oauth }, new LlmApiContract("anthropic", "v1"), new[] { "claude-opus-4-7" }),
+        };
+        var runtimes = new[]
+        {
+            new Core.Catalog.AgentRuntime("claude-code", "Claude Code", "claude-code:latest", "claude-code-cli",
+                new ThreadBinding(ThreadBindingKind.CliArg, ArgName: "--resume"),
+                new SystemPromptInjection(SystemPromptInjectionKind.File, FilePath: "AGENTS.md"),
+                new[] { new AgentRuntimeProviderEdge("anthropic", AuthMethod.Oauth, "CLAUDE_CODE_OAUTH_TOKEN") }),
+        };
+        var registry = new AgentRuntimeRegistry(BuildCatalog(runtimes, providers));
 
-        using var provider = services.BuildServiceProvider();
-        var registry = provider.GetRequiredService<IAgentRuntimeRegistry>();
-
-        registry.All.Count.ShouldBe(2);
-        registry.Get("alpha").ShouldNotBeNull();
-        registry.Get("BETA").ShouldNotBeNull();
+        var runtime = registry.Get("claude-code")!;
+        runtime.Kind.ShouldBe("claude-code-cli");
+        runtime.CredentialEnvVar.ShouldBe("CLAUDE_CODE_OAUTH_TOKEN");
+        runtime.CredentialSchema.Kind.ShouldBe(AgentRuntimeCredentialKind.OAuthToken);
+        // PR-1a transitional: emit legacy `{provider}-api-key` shape so wire
+        // DTOs stay byte-identical. PR-1b switches to canonical
+        // `{provider}-{authMethod-slug}` (CredentialNaming.SecretNameFor).
+        runtime.CredentialSecretName.ShouldBe("anthropic-api-key");
+        runtime.DefaultImage.ShouldBe("claude-code:latest");
+        runtime.DefaultModels.ShouldContain(m => m.Id == "claude-opus-4-7");
     }
 
-    private sealed class FakeAgentRuntime(string id, string displayName) : IAgentRuntime
+    private static IRuntimeCatalog BuildCatalog(
+        IReadOnlyList<Core.Catalog.AgentRuntime> runtimes,
+        IReadOnlyList<ModelProvider> providers)
+        => new TestRuntimeCatalog(runtimes, providers);
+
+    private sealed class TestRuntimeCatalog(
+        IReadOnlyList<Core.Catalog.AgentRuntime> runtimes,
+        IReadOnlyList<ModelProvider> providers) : IRuntimeCatalog
     {
-        public string Id { get; } = id;
+        public IReadOnlyList<Core.Catalog.AgentRuntime> AgentRuntimes => runtimes;
 
-        public string DisplayName { get; } = displayName;
+        public IReadOnlyList<ModelProvider> ModelProviders => providers;
 
-        public string Kind => "fake";
+        public Core.Catalog.AgentRuntime? GetAgentRuntime(string id) =>
+            runtimes.FirstOrDefault(r => string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase));
 
-        public AgentRuntimeCredentialSchema CredentialSchema { get; } =
-            new(AgentRuntimeCredentialKind.None);
-
-        public string CredentialSecretName => string.Empty;
-
-        public string CredentialEnvVar => string.Empty;
-
-        public IReadOnlyList<ModelDescriptor> DefaultModels { get; } = Array.Empty<ModelDescriptor>();
-
-        public string DefaultImage => "fake-image:latest";
-
-        public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential) =>
-            Array.Empty<ProbeStep>();
-
-        public Task<FetchLiveModelsResult> FetchLiveModelsAsync(
-            string credential,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(FetchLiveModelsResult.Unsupported("Fake runtime does not expose a live catalog."));
-
-        public bool IsCredentialFormatAccepted(string credential, CredentialDispatchPath dispatchPath) => true;
+        public ModelProvider? GetModelProvider(string id) =>
+            providers.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
     }
 }

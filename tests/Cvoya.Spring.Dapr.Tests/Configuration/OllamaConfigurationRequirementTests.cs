@@ -9,8 +9,8 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Core.Configuration;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Configuration;
-using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.Extensions.Options;
 

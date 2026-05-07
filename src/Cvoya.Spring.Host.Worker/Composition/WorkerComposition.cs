@@ -3,10 +3,7 @@
 
 namespace Cvoya.Spring.Host.Worker.Composition;
 
-using Cvoya.Spring.AgentRuntimes.Claude.DependencyInjection;
-using Cvoya.Spring.AgentRuntimes.Google.DependencyInjection;
-using Cvoya.Spring.AgentRuntimes.Ollama.DependencyInjection;
-using Cvoya.Spring.AgentRuntimes.OpenAI.DependencyInjection;
+using Cvoya.Spring.AgentRuntimes.DependencyInjection;
 using Cvoya.Spring.Connector.Arxiv.DependencyInjection;
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
 using Cvoya.Spring.Connector.WebSearch.DependencyInjection;
@@ -14,6 +11,8 @@ using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Workflows;
 using Cvoya.Spring.Dapr.Workflows.Activities;
+using Cvoya.Spring.ModelProviders.DependencyInjection;
+using Cvoya.Spring.RuntimeCatalog.DependencyInjection;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Runtime;
@@ -106,25 +105,15 @@ public static class WorkerComposition
         services
             .AddCvoyaSpringCore()
             .AddCvoyaSpringDapr(configuration)
-            // Agent-runtime registrations mirror the API host (#682). They
-            // need to land here too because the Worker owns the
-            // default-tenant bootstrap (see comment further down): the
-            // bootstrap's AgentRuntimeInstallSeedProvider walks
-            // IAgentRuntimeRegistry.All to install one row per registered
-            // runtime onto the default tenant. Without these calls the
-            // worker registry is empty and the seed pass logs "no runtimes
-            // registered with the host", leaving a fresh OSS deployment
-            // with an empty agent-runtime catalog.
-            //
-            // The runtime DI extensions are idempotent (TryAddSingleton +
-            // TryAddEnumerable) and only register a named HttpClient plus
-            // a singleton runtime instance, so co-existing with the API
-            // host's registrations is safe — each process has its own DI
-            // container.
-            .AddCvoyaSpringAgentRuntimeClaude()
-            .AddCvoyaSpringAgentRuntimeGoogle()
-            .AddCvoyaSpringAgentRuntimeOllama(configuration)
-            .AddCvoyaSpringAgentRuntimeOpenAI()
+            // ADR-0038 (#1761): the four per-provider AddCvoyaSpringAgentRuntime*
+            // extensions collapsed into runtime-catalog.yaml plus the
+            // Cvoya.Spring.ModelProviders adapter registry and the
+            // Cvoya.Spring.AgentRuntimes launcher registry. Order matters: the
+            // catalogue and adapter registry must be populated before the
+            // launcher registry resolves them.
+            .AddCvoyaSpringRuntimeCatalog()
+            .AddCvoyaSpringModelProviders()
+            .AddCvoyaSpringAgentRuntimes()
             .AddCvoyaSpringOllamaLlm(configuration)
             .AddCvoyaSpringConnectorGitHub(configuration)
             .AddCvoyaSpringConnectorArxiv(configuration)

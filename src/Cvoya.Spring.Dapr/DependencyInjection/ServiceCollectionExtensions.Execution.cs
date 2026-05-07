@@ -7,6 +7,7 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
@@ -141,15 +142,15 @@ internal static class ServiceCollectionExtensionsExecution
         // audit logging or additional policy dimensions).
         services.TryAddSingleton<IAgentUnitPolicyCoordinator, AgentUnitPolicyCoordinator>();
 
-        // Agent-runtime plugin registry (#678, cornerstone of the #674
-        // refactor). Enumerates every DI-registered IAgentRuntime so the
-        // API layer, wizard, and CLI can resolve runtimes by id without
-        // importing concrete runtime packages. Per-runtime migrations
-        // (#679–#682) register the concrete IAgentRuntime implementations
-        // via their own AddCvoyaSpringAgentRuntime<Name>() extensions.
-        // TryAdd so the private cloud host can supply a tenant-scoped
-        // registry (e.g. one that filters on tenant_agent_runtime_installs)
-        // without forking.
+        // ADR-0038 #1770: the agent-runtime registry is now catalogue-
+        // backed. AgentRuntimeRegistry synthesises legacy IAgentRuntime
+        // projections from the catalogue's runtime entries; the host
+        // composes a real catalogue via AddCvoyaSpringRuntimeCatalog.
+        // We register an empty fallback IRuntimeCatalog here only when
+        // none is wired (test harnesses that exercise DI graph without
+        // the catalogue project), so AgentRuntimeRegistry can always
+        // resolve.
+        services.TryAddSingleton<IRuntimeCatalog>(_ => new EmptyRuntimeCatalog());
         services.TryAddSingleton<IAgentRuntimeRegistry, AgentRuntimeRegistry>();
 
         // Tier-2 LLM credential resolver (#615). Delegates to the
@@ -190,12 +191,13 @@ internal static class ServiceCollectionExtensionsExecution
         services.AddOptions<AgentContextOptions>().BindConfiguration(AgentContextOptions.SectionName);
         services.TryAddSingleton<IAgentContextBuilder, AgentContextBuilder>();
 
-        // Agent definition + tool launchers used by A2AExecutionDispatcher.
+        // Agent definition is owned by Dapr (DB-backed). The four
+        // IAgentRuntimeLauncher strategies (ClaudeCodeLauncher, CodexLauncher,
+        // GeminiLauncher, SpringVoyageAgentLauncher) moved into
+        // Cvoya.Spring.AgentRuntimes per ADR-0038 Chunk 2a; their DI
+        // registration is via AddCvoyaSpringAgentRuntimes() in the host
+        // composition root.
         services.TryAddSingleton<IAgentDefinitionProvider, DbAgentDefinitionProvider>();
-        services.AddSingleton<IAgentRuntimeLauncher, ClaudeCodeLauncher>();
-        services.AddSingleton<IAgentRuntimeLauncher, CodexLauncher>();
-        services.AddSingleton<IAgentRuntimeLauncher, GeminiLauncher>();
-        services.AddSingleton<IAgentRuntimeLauncher, SpringVoyageAgentLauncher>();
         // D3c: per-agent workspace volume manager. Provisions volumes before
         // agent containers start, reclaims them on agent delete / ephemeral
         // completion, and emits volume-level telemetry (size, growth rate).
@@ -238,5 +240,23 @@ internal static class ServiceCollectionExtensionsExecution
         }
 
         return services;
+    }
+
+    /// <summary>
+    /// DI-fallback empty <see cref="IRuntimeCatalog"/>. Used only when no
+    /// real catalogue is wired (test harnesses). Production hosts always
+    /// register the YAML-backed catalogue via
+    /// <c>AddCvoyaSpringRuntimeCatalog()</c> before <c>AddCvoyaSpringDapr</c>;
+    /// <c>TryAddSingleton</c> guarantees the real registration wins.
+    /// </summary>
+    private sealed class EmptyRuntimeCatalog : IRuntimeCatalog
+    {
+        public IReadOnlyList<Cvoya.Spring.Core.Catalog.AgentRuntime> AgentRuntimes => Array.Empty<Cvoya.Spring.Core.Catalog.AgentRuntime>();
+
+        public IReadOnlyList<ModelProvider> ModelProviders => Array.Empty<ModelProvider>();
+
+        public Cvoya.Spring.Core.Catalog.AgentRuntime? GetAgentRuntime(string id) => null;
+
+        public ModelProvider? GetModelProvider(string id) => null;
     }
 }

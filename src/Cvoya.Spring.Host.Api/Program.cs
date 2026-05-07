@@ -3,14 +3,7 @@
 
 using System.Text.Json.Serialization;
 
-using Cvoya.Spring.AgentRuntimes.Claude;
-using Cvoya.Spring.AgentRuntimes.Claude.DependencyInjection;
-using Cvoya.Spring.AgentRuntimes.Google;
-using Cvoya.Spring.AgentRuntimes.Google.DependencyInjection;
-using Cvoya.Spring.AgentRuntimes.Ollama;
-using Cvoya.Spring.AgentRuntimes.Ollama.DependencyInjection;
-using Cvoya.Spring.AgentRuntimes.OpenAI;
-using Cvoya.Spring.AgentRuntimes.OpenAI.DependencyInjection;
+using Cvoya.Spring.AgentRuntimes.DependencyInjection;
 using Cvoya.Spring.Connector.Arxiv.DependencyInjection;
 using Cvoya.Spring.Connector.GitHub;
 using Cvoya.Spring.Connector.GitHub.Auth;
@@ -25,6 +18,8 @@ using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Endpoints;
 using Cvoya.Spring.Host.Api.OpenApi;
 using Cvoya.Spring.Host.Api.Services;
+using Cvoya.Spring.ModelProviders.DependencyInjection;
+using Cvoya.Spring.RuntimeCatalog.DependencyInjection;
 
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -48,22 +43,18 @@ try
 
     builder.Services
         .AddCvoyaSpringCore()
+        // ADR-0038 (#1770): the catalogue must register BEFORE
+        // AddCvoyaSpringDapr — Cvoya.Spring.Dapr.AgentRuntimes.AgentRuntimeRegistry
+        // synthesises legacy IAgentRuntime projections from IRuntimeCatalog,
+        // and the latter only TryAdds an empty fallback so the real
+        // catalogue must be in DI first.
+        .AddCvoyaSpringRuntimeCatalog()
         .AddCvoyaSpringDapr(builder.Configuration)
-        .AddCvoyaSpringAgentRuntimeClaude()
-        .AddCvoyaSpringAgentRuntimeGoogle()
-        .AddCvoyaSpringAgentRuntimeOllama(builder.Configuration)
-        .AddCvoyaSpringAgentRuntimeOpenAI()
-        // Phase 2.8 (#682) replaced the legacy Ollama call-site with the new
-        // agent-runtime registration above, but one host-side binding still
-        // rides on AddCvoyaSpringOllamaLlm: OllamaOptions (consumed by
-        // SystemEndpoints for the BaseUrl/timeout knobs operators set via
-        // LanguageModel__Ollama__*) and the OllamaConfigurationRequirement
-        // startup probe (#616). The new AgentRuntimes:Ollama section +
-        // OllamaAgentRuntimeOptions don't feed those legacy seams yet, so
-        // keep the legacy registration alongside the runtime one until
-        // the API-host code paths are retired — tracked in #728 (follow-up
-        // to #711). C1.2b retired /api/v1/ollama/models; the Ollama probe
-        // path through SystemEndpoints still consumes OllamaOptions.
+        // ADR-0038 (#1761) collapsed the four per-provider AgentRuntime
+        // projects into runtime-catalog.yaml + Cvoya.Spring.ModelProviders
+        // adapters + Cvoya.Spring.AgentRuntimes launcher consolidation.
+        .AddCvoyaSpringModelProviders()
+        .AddCvoyaSpringAgentRuntimes()
         .AddCvoyaSpringOllamaLlm(builder.Configuration)
         .AddCvoyaSpringConnectorGitHub(builder.Configuration)
         .AddCvoyaSpringConnectorArxiv(builder.Configuration)
@@ -82,29 +73,13 @@ try
     // named options entry but accumulates handlers across repeat builders,
     // so re-registering the named client here only attaches the watchdog —
     // it does not reset any configuration the plugin already applied.
-    builder.Services.AddHttpClient(ClaudeAgentRuntime.HttpClientName)
-        .AddCredentialHealthWatchdog(
-            CredentialHealthKind.AgentRuntime,
-            subjectId: ClaudeAgentRuntime.RuntimeId,
-            secretName: "api-key");
-    builder.Services.AddHttpClient(GoogleAgentRuntime.HttpClientName)
-        .AddCredentialHealthWatchdog(
-            CredentialHealthKind.AgentRuntime,
-            subjectId: "google",
-            secretName: "api-key");
-    builder.Services.AddHttpClient(OpenAiAgentRuntime.HttpClientName)
-        .AddCredentialHealthWatchdog(
-            CredentialHealthKind.AgentRuntime,
-            subjectId: "openai",
-            secretName: "api-key");
-    // Ollama is typically deployed locally without auth, so the watchdog
-    // normally never flips the row. Wiring it anyway covers the reverse-
-    // proxy-with-auth deployment shape flagged in ProbeTagsEndpointAsync.
-    builder.Services.AddHttpClient(OllamaAgentRuntime.HttpClientName)
-        .AddCredentialHealthWatchdog(
-            CredentialHealthKind.AgentRuntime,
-            subjectId: OllamaAgentRuntime.RuntimeId,
-            secretName: "api-key");
+    // ADR-0038 (#1761): per-runtime credential-health watchdog wiring
+    // moves to a per-provider model-provider-adapter wiring in Chunk 2 of
+    // PR-1a, when the credential resolver re-keys from (tenant, runtime)
+    // to (tenant, provider, authMethod). The wiring is gone in Chunk 1
+    // because the per-runtime HttpClient names came from the deleted
+    // ClaudeAgentRuntime/GoogleAgentRuntime/OpenAiAgentRuntime/OllamaAgentRuntime
+    // classes.
     // GitHub: all three named clients (OAuth token exchange, App-auth
     // installation-token mint, Octokit repo-API calls) route through
     // IHttpClientFactory / IHttpMessageHandlerFactory, so the watchdog

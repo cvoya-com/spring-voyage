@@ -94,8 +94,8 @@ public class SpringDbContext : DbContext
     /// <summary>Gets the set of unit-policy rows.</summary>
     public DbSet<UnitPolicyEntity> UnitPolicies => Set<UnitPolicyEntity>();
 
-    /// <summary>Gets the set of per-tenant agent-runtime install rows.</summary>
-    public DbSet<TenantAgentRuntimeInstallEntity> TenantAgentRuntimeInstalls => Set<TenantAgentRuntimeInstallEntity>();
+    /// <summary>Gets the set of per-tenant model-provider install rows (#1770 / ADR-0038).</summary>
+    public DbSet<TenantModelProviderInstallEntity> TenantModelProviderInstalls => Set<TenantModelProviderInstallEntity>();
 
     /// <summary>Gets the set of per-tenant connector install rows.</summary>
     public DbSet<TenantConnectorInstallEntity> TenantConnectorInstalls => Set<TenantConnectorInstallEntity>();
@@ -142,7 +142,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new UnitMembershipEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitSubunitMembershipEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitPolicyEntityConfiguration());
-        modelBuilder.ApplyConfiguration(new TenantAgentRuntimeInstallEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantModelProviderInstallEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantConnectorInstallEntityConfiguration());
         modelBuilder.ApplyConfiguration(new CredentialHealthEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantSkillBundleBindingEntityConfiguration());
@@ -173,7 +173,7 @@ public class SpringDbContext : DbContext
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<UnitPolicyEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
-        modelBuilder.Entity<TenantAgentRuntimeInstallEntity>()
+        modelBuilder.Entity<TenantModelProviderInstallEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId && e.DeletedAt == null);
         modelBuilder.Entity<TenantConnectorInstallEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId && e.DeletedAt == null);

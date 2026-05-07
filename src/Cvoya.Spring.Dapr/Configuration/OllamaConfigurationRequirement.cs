@@ -10,7 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Core.Configuration;
-using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.Core.Execution;
 
 using Microsoft.Extensions.Options;
 

@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Cvoya.Spring.RuntimeCatalog</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Cvoya.Spring.RuntimeCatalog.Tests" />
+    <InternalsVisibleTo Include="Cvoya.Spring.AgentRuntimes.Tests" />
+    <InternalsVisibleTo Include="Cvoya.Spring.ModelProviders.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+  <!--
+    Embedded copy of platform/runtime-catalog.yaml so the loader can boot
+    without depending on the host's working directory layout. The YAML
+    file at the repo root is the source of truth; this MSBuild item links
+    it into the assembly as a resource for the DefaultRuntimeCatalog
+    fallback. Hosts may override the load path via the RuntimeCatalog
+    options.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\platform\runtime-catalog.yaml" Link="runtime-catalog.yaml" LogicalName="Cvoya.Spring.RuntimeCatalog.runtime-catalog.yaml" />
+  </ItemGroup>
+
+</Project>
