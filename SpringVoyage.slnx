@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Cvoya.Spring.A2A/Cvoya.Spring.A2A.csproj" />
+    <Project Path="src/Cvoya.Spring.AgentRuntimes/Cvoya.Spring.AgentRuntimes.csproj" />
     <Project Path="src/Cvoya.Spring.AgentRuntimes.Claude/Cvoya.Spring.AgentRuntimes.Claude.csproj" />
     <Project Path="src/Cvoya.Spring.AgentRuntimes.Google/Cvoya.Spring.AgentRuntimes.Google.csproj" />
     <Project Path="src/Cvoya.Spring.AgentRuntimes.Ollama/Cvoya.Spring.AgentRuntimes.Ollama.csproj" />
