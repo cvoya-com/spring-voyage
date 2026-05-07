@@ -68,7 +68,7 @@ public class LlmCredentialResolverTests
     public async Task ResolveAsync_UnknownProvider_ReturnsNotFound()
     {
         var resolver = Substitute.For<ISecretResolver>();
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("no-such-provider", AuthMethod.ApiKey, agentId: null, unitId: null, TestContext.Current.CancellationToken);
@@ -87,7 +87,7 @@ public class LlmCredentialResolverTests
         // credential to look up"; the resolver must short-circuit before
         // touching the secret store.
         var resolver = Substitute.For<ISecretResolver>();
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("ollama", AuthMethod.ApiKey, agentId: null, unitId: null, TestContext.Current.CancellationToken);
@@ -108,7 +108,7 @@ public class LlmCredentialResolverTests
                 Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitU1 && r.Name == "anthropic-api-key"),
                 ct)
             .Returns(new SecretResolution("sk-unit", SecretResolvePath.Direct, new SecretRef(SecretScope.Unit, UnitU1, "anthropic-api-key")));
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitU1, ct);
@@ -130,7 +130,7 @@ public class LlmCredentialResolverTests
                 "sk-tenant",
                 SecretResolvePath.InheritedFromTenant,
                 tenantRef));
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("openai", AuthMethod.ApiKey, agentId: null, unitId: UnitU1, ct);
@@ -152,7 +152,7 @@ public class LlmCredentialResolverTests
                 "sk-tenant-default",
                 SecretResolvePath.Direct,
                 new SecretRef(SecretScope.Tenant, TenantId, "anthropic-api-key")));
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: null, ct);
@@ -169,7 +169,7 @@ public class LlmCredentialResolverTests
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(Arg.Any<SecretRef>(), ct)
             .Returns(new SecretResolution(null, SecretResolvePath.NotFound, null));
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitU1, ct);
@@ -188,7 +188,7 @@ public class LlmCredentialResolverTests
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(Arg.Any<SecretRef>(), ct)
             .Returns(new SecretResolution(null, SecretResolvePath.NotFound, null));
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("google", AuthMethod.ApiKey, agentId: null, unitId: null, ct);
@@ -267,7 +267,7 @@ public class LlmCredentialResolverTests
                 Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant && r.Name == "anthropic-api-key"),
                 ct)
             .Returns(Task.FromException<SecretResolution>(new SecretUnreadableException()));
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: null, ct);
@@ -289,7 +289,7 @@ public class LlmCredentialResolverTests
                 Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitU1),
                 ct)
             .Returns(Task.FromException<SecretResolution>(new SecretUnreadableException()));
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitU1, ct);
@@ -351,7 +351,7 @@ public class LlmCredentialResolverTests
                 "sk-unit",
                 SecretResolvePath.Direct,
                 new SecretRef(SecretScope.Unit, UnitU1, "anthropic-api-key")));
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: AgentA1, unitId: UnitU1, ct);
@@ -379,7 +379,7 @@ public class LlmCredentialResolverTests
                 "sk-unit",
                 SecretResolvePath.Direct,
                 new SecretRef(SecretScope.Unit, UnitU1, "anthropic-api-key")));
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: AgentA1, unitId: UnitU1, ct);
@@ -435,7 +435,7 @@ public class LlmCredentialResolverTests
         unitSubunit.ListByChildAsync(TenantId, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<UnitSubunitMembership>());
 
-        
+
         var sut = CreateSut(resolver, secretRegistry, unitSubunit);
 
         var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitChild, ct);
@@ -474,7 +474,7 @@ public class LlmCredentialResolverTests
         unitSubunit.ListByChildAsync(UnitParent, Arg.Any<CancellationToken>())
             .Returns(new[] { new UnitSubunitMembership(TenantId, UnitParent) });
 
-        
+
         var sut = CreateSut(resolver, secretRegistry, unitSubunit);
 
         var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitChild, ct);
@@ -531,7 +531,7 @@ public class LlmCredentialResolverTests
         unitSubunit.ListByChildAsync(UnitGrandparent, Arg.Any<CancellationToken>())
             .Returns(new[] { new UnitSubunitMembership(TenantId, UnitGrandparent) });
 
-        
+
         var sut = CreateSut(resolver, secretRegistry, unitSubunit);
 
         var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: null, unitId: UnitChild, ct);
@@ -547,7 +547,7 @@ public class LlmCredentialResolverTests
         // tiers and assert the resolver picks Agent. Then progressively
         // remove tiers and re-verify each subsequent tier wins.
         var ct = TestContext.Current.CancellationToken;
-        
+
 
         // Helper: set up resolvers for each requested combination.
         async Task<LlmCredentialResolution> RunAsync(
@@ -619,7 +619,7 @@ public class LlmCredentialResolverTests
                 Arg.Is<SecretRef>(r => r.Scope == SecretScope.Agent && r.OwnerId == AgentA1),
                 ct)
             .Returns(Task.FromException<SecretResolution>(new SecretUnreadableException()));
-        
+
         var sut = CreateSut(resolver);
 
         var result = await sut.ResolveAsync("anthropic", AuthMethod.ApiKey, agentId: AgentA1, unitId: null, ct);
