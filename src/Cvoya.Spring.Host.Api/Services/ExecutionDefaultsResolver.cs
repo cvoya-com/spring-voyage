@@ -86,9 +86,13 @@ public static class ExecutionDefaultsResolver
             {
                 // Field-wise merge: member non-null beats package; null
                 // member fields fall through to the package's values.
+                // ADR-0038: ExecutionManifest no longer carries `provider` —
+                // it's intrinsic to ai.model.provider. The package-level
+                // declaration still surfaces it during the inheritance
+                // transition; the unit-level write reads only image/runtime/model.
                 image = FirstNonBlank(memberExec?.Image, packageExec.Image);
                 runtime = FirstNonBlank(memberExec?.Runtime, packageExec.Runtime);
-                provider = FirstNonBlank(memberExec?.Provider, packageExec.Provider);
+                provider = packageExec.Provider;
                 model = FirstNonBlank(memberExec?.Model, packageExec.Model);
             }
             else
@@ -98,7 +102,7 @@ public static class ExecutionDefaultsResolver
                 // declared. The member's own block is the only source.
                 image = NullIfBlank(memberExec?.Image);
                 runtime = NullIfBlank(memberExec?.Runtime);
-                provider = NullIfBlank(memberExec?.Provider);
+                provider = null;
                 model = NullIfBlank(memberExec?.Model);
             }
 

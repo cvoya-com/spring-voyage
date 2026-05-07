@@ -6,8 +6,10 @@ id: docs-writer
 role: docs-writer
 capabilities: ["documentation", "architecture-docs", "concept-docs", "user-guides", "decision-records"]
 ai:
-  agent: claude
-  model: claude-opus-4-7
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-opus-4-7
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
 instructions: |

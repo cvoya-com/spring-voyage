@@ -169,16 +169,34 @@ public class OrchestrationManifest
     public string? Strategy { get; set; }
 }
 
-/// <summary>AI configuration for a unit (parsed; not yet applied).</summary>
+/// <summary>
+/// AI configuration for a unit / agent under ADR-0038. Carries the
+/// agent runtime id (<see cref="Runtime"/>) and the structured
+/// <c>{provider, id}</c> model selector (<see cref="Model"/>).
+/// </summary>
+/// <remarks>
+/// The legacy slots — <c>ai.agent</c> (pre-ADR-0038 runtime selector)
+/// and the string form of <c>ai.model</c> — are captured on
+/// <see cref="LegacyAgent"/> / <see cref="LegacyModelString"/> so the
+/// parser can surface precise migration hints (ADR-0038 § "Migration").
+/// </remarks>
 public class AiManifest
 {
-    /// <summary>Provider agent identifier (e.g. <c>claude</c>).</summary>
-    [YamlMember(Alias = "agent")]
-    public string? Agent { get; set; }
+    /// <summary>
+    /// Agent runtime id (ADR-0038): <c>claude-code</c>, <c>codex</c>,
+    /// <c>gemini</c>, <c>spring-voyage</c>, or a future custom runtime
+    /// declared in <c>platform/runtime-catalog.yaml</c>.
+    /// </summary>
+    [YamlMember(Alias = "runtime")]
+    public string? Runtime { get; set; }
 
-    /// <summary>Model identifier (e.g. <c>claude-sonnet-4-6</c>).</summary>
+    /// <summary>
+    /// Structured model selector — <c>{provider, id}</c>. Provider is
+    /// intrinsic to the model; there is no separate <c>provider</c>
+    /// slot anywhere in the manifest or wire shape.
+    /// </summary>
     [YamlMember(Alias = "model")]
-    public string? Model { get; set; }
+    public AiModelManifest? Model { get; set; }
 
     /// <summary>System prompt for the orchestrator.</summary>
     [YamlMember(Alias = "prompt")]
@@ -187,6 +205,54 @@ public class AiManifest
     /// <summary>Skills available to the orchestrator.</summary>
     [YamlMember(Alias = "skills")]
     public List<SkillReference>? Skills { get; set; }
+
+    /// <summary>
+    /// Captured legacy <c>ai.agent</c> field. Present only so the parser
+    /// can surface a precise <c>LegacyAiAgentField</c> migration error
+    /// per ADR-0038 § "Migration".
+    /// </summary>
+    [YamlMember(Alias = "agent")]
+    public string? LegacyAgent { get; set; }
+
+    /// <summary>
+    /// Captured legacy <c>ai.model</c> field when authored as a string
+    /// instead of the new <c>{provider, id}</c> object form. Present
+    /// only so the parser can surface a precise
+    /// <c>LegacyAiModelStringForm</c> migration error per ADR-0038
+    /// § "Migration".
+    /// </summary>
+    /// <remarks>
+    /// The parser inspects the raw YAML and populates this field when
+    /// <c>ai.model</c> is a scalar — <see cref="Model"/> stays null in
+    /// that case and the legacy detection branch fires.
+    /// </remarks>
+    [YamlIgnore]
+    public string? LegacyModelString { get; set; }
+}
+
+/// <summary>
+/// Structured model selector under ADR-0038 — the model id together
+/// with its hosting provider. Provider is intrinsic to the model.
+/// </summary>
+/// <remarks>
+/// The matching wire JSON form is <c>{ "provider": "...", "id": "..." }</c>.
+/// </remarks>
+public class AiModelManifest
+{
+    /// <summary>
+    /// Provider id (matches <c>ModelProvider.Id</c> in
+    /// <c>platform/runtime-catalog.yaml</c>): <c>anthropic</c>,
+    /// <c>openai</c>, <c>google</c>, <c>ollama</c>, …
+    /// </summary>
+    [YamlMember(Alias = "provider")]
+    public string? Provider { get; set; }
+
+    /// <summary>
+    /// Provider-scoped model id (e.g. <c>claude-opus-4-7</c>,
+    /// <c>gpt-4o</c>, <c>llama3.2:3b</c>).
+    /// </summary>
+    [YamlMember(Alias = "id")]
+    public string? Id { get; set; }
 }
 
 /// <summary>Reference to a skill from a package.</summary>
@@ -242,12 +308,12 @@ public class MemberManifest
 /// Unit-level execution defaults (#601 / #603 / #409 — "B-wide" shape).
 /// </summary>
 /// <remarks>
-/// #1732: <c>tool:</c> was dropped — the execution tool is now derived
-/// from the runtime registry via <c>ai.agent</c>'s
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Kind"/>.
-/// The <see cref="LegacyTool"/> slot is captured only so the parser can
-/// surface a precise migration error per ADR-0037 decision 6 when an
-/// old-shape file still carries it.
+/// ADR-0038: <c>execution.provider</c> is removed — the provider is
+/// intrinsic to <c>ai.model.provider</c>. <c>execution.tool</c> stays
+/// out (dropped in #1732). The corresponding capture slots
+/// (<see cref="LegacyTool"/>, <see cref="LegacyProvider"/>) survive
+/// only so the parser can surface precise migration errors when an
+/// old-shape file still declares them.
 /// </remarks>
 public class ExecutionManifest
 {
@@ -258,10 +324,6 @@ public class ExecutionManifest
     /// <summary>Container runtime identifier (<c>docker</c> or <c>podman</c>).</summary>
     [YamlMember(Alias = "runtime")]
     public string? Runtime { get; set; }
-
-    /// <summary>Default LLM provider.</summary>
-    [YamlMember(Alias = "provider")]
-    public string? Provider { get; set; }
 
     /// <summary>Default model identifier.</summary>
     [YamlMember(Alias = "model")]
@@ -275,12 +337,20 @@ public class ExecutionManifest
     [YamlMember(Alias = "tool")]
     public string? LegacyTool { get; set; }
 
+    /// <summary>
+    /// Captured legacy <c>provider:</c> field. Present only so the parser
+    /// can surface an actionable <c>LegacyExecutionProviderField</c>
+    /// error per ADR-0038 § "Migration" when an old-shape file still
+    /// carries it.
+    /// </summary>
+    [YamlMember(Alias = "provider")]
+    public string? LegacyProvider { get; set; }
+
     /// <summary>True when every field is null / whitespace.</summary>
     [YamlIgnore]
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
         && string.IsNullOrWhiteSpace(Runtime)
-        && string.IsNullOrWhiteSpace(Provider)
         && string.IsNullOrWhiteSpace(Model);
 }
 

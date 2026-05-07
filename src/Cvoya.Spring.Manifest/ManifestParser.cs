@@ -6,6 +6,9 @@ namespace Cvoya.Spring.Manifest;
 using System.Collections.Generic;
 using System.IO;
 
+using YamlDotNet.Core;
+using YamlDotNet.Core.Events;
+using YamlDotNet.RepresentationModel;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -35,6 +38,14 @@ public static class ManifestParser
     /// </summary>
     public static UnitManifest Parse(string yamlText)
     {
+        // Detect legacy ai-block shapes (ai.agent / ai.model-as-string)
+        // by walking the raw YAML stream BEFORE typed deserialisation —
+        // YamlDotNet's typed binder silently drops unmatched keys, and
+        // an `ai.model:` scalar where we expect a mapping would surface
+        // as a confusing parse error. Doing this first lets us emit a
+        // precise ADR-0038 migration hint instead.
+        DetectLegacyAiShapes(yamlText);
+
         UnitManifest? manifest;
         try
         {
@@ -83,10 +94,18 @@ public static class ManifestParser
         {
             throw new ManifestParseException(
                 "LegacyExecutionToolField: 'execution.tool:' is removed in #1732. " +
-                "The execution tool is now derived from the runtime registry via 'ai.agent:' " +
-                "(each IAgentRuntime declares its own Kind 1:1). " +
-                "Drop 'execution.tool:' and ensure 'ai.agent:' names a registered runtime " +
-                "(e.g. 'claude', 'openai', 'google', 'ollama').");
+                "The execution tool is now derived from the runtime registry via 'ai.runtime:' " +
+                "(ADR-0038). Drop 'execution.tool:' and ensure 'ai.runtime:' names a registered " +
+                "agent runtime (e.g. 'claude-code', 'codex', 'gemini', 'spring-voyage').");
+        }
+
+        if (manifest.Execution is { LegacyProvider: { } legacyExecProvider } && !string.IsNullOrWhiteSpace(legacyExecProvider))
+        {
+            throw new ManifestParseException(
+                "LegacyExecutionProviderField: 'execution.provider:' is removed in ADR-0038. " +
+                "The provider is intrinsic to 'ai.model.provider'. Drop 'execution.provider:' " +
+                "and declare the provider on the structured model selector " +
+                "(e.g. 'ai.model: { provider: anthropic, id: claude-opus-4-7 }').");
         }
 
         if (string.IsNullOrWhiteSpace(manifest.ApiVersion))
@@ -198,6 +217,95 @@ public static class ManifestParser
         "humans" => manifest.Humans is { Count: > 0 },
         _ => false,
     };
+
+    /// <summary>
+    /// Walks the raw YAML and rejects pre-ADR-0038 ai-block shapes with
+    /// precise migration hints:
+    /// <list type="bullet">
+    /// <item><description><c>ai.agent</c> → <c>LegacyAiAgentField</c>.</description></item>
+    /// <item><description><c>ai.model</c> as a scalar → <c>LegacyAiModelStringForm</c>.</description></item>
+    /// </list>
+    /// Emitted by both <see cref="ManifestParser.Parse"/> and the agent
+    /// manifest path on <c>PackageManifestParser</c> via
+    /// <see cref="DetectLegacyAiShapes"/> so unit and agent YAMLs share
+    /// one rejection rule.
+    /// </summary>
+    internal static void DetectLegacyAiShapes(string yamlText)
+    {
+        if (string.IsNullOrWhiteSpace(yamlText))
+        {
+            return;
+        }
+
+        YamlStream stream;
+        try
+        {
+            stream = new YamlStream();
+            stream.Load(new StringReader(yamlText));
+        }
+        catch (YamlException)
+        {
+            // Typed deserialisation will surface the same parse error
+            // with a richer message; bail out and let it run.
+            return;
+        }
+
+        foreach (var doc in stream.Documents)
+        {
+            if (doc.RootNode is not YamlMappingNode root)
+            {
+                continue;
+            }
+
+            if (!TryGetMapping(root, "ai", out var aiNode))
+            {
+                continue;
+            }
+
+            if (TryGetScalar(aiNode!, "agent", out _))
+            {
+                throw new ManifestParseException(
+                    "LegacyAiAgentField: 'ai.agent:' is removed in ADR-0038. " +
+                    "Use 'ai.runtime:' with a runtime id ('claude-code', 'codex', " +
+                    "'gemini', 'spring-voyage', or a future custom runtime declared " +
+                    "in platform/runtime-catalog.yaml).");
+            }
+
+            if (aiNode!.Children.TryGetValue(new YamlScalarNode("model"), out var modelNode)
+                && modelNode is YamlScalarNode)
+            {
+                throw new ManifestParseException(
+                    "LegacyAiModelStringForm: 'ai.model:' is now a structured " +
+                    "{provider, id} object in ADR-0038. Replace the scalar with " +
+                    "'ai.model: { provider: <provider-id>, id: <model-id> }' " +
+                    "(e.g. 'ai.model: { provider: anthropic, id: claude-opus-4-7 }').");
+            }
+        }
+    }
+
+    private static bool TryGetMapping(YamlMappingNode parent, string key, out YamlMappingNode? value)
+    {
+        if (parent.Children.TryGetValue(new YamlScalarNode(key), out var node)
+            && node is YamlMappingNode mapping)
+        {
+            value = mapping;
+            return true;
+        }
+        value = null;
+        return false;
+    }
+
+    private static bool TryGetScalar(YamlMappingNode parent, string key, out string? value)
+    {
+        if (parent.Children.TryGetValue(new YamlScalarNode(key), out var node)
+            && node is YamlScalarNode scalar)
+        {
+            value = scalar.Value;
+            return true;
+        }
+        value = null;
+        return false;
+    }
 }
 
 /// <summary>

@@ -3,8 +3,10 @@ kind: Unit
 name: Software Engineering
 description: Software engineering team for Spring Voyage OSS — implements features, fixes bugs, runs the build/test/lint loop.
 ai:
-  agent: claude
-  model: claude-opus-4-7
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-opus-4-7
   prompt: |
     You orchestrate the Spring Voyage OSS software engineering team.
     Route work to the persona whose ownership best matches the files or

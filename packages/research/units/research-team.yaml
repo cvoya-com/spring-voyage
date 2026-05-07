@@ -3,8 +3,10 @@ kind: Unit
 name: research-team
 description: A research team that combines a generalist researcher, a literature reviewer, and a data analyst to investigate open questions end-to-end.
 ai:
-  agent: claude
-  model: claude-sonnet-4-6
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
   prompt: |
     You coordinate a research team made up of a researcher, a literature
     reviewer, and a data analyst. Route incoming research asks to the

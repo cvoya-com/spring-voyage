@@ -6,8 +6,10 @@ id: qa-engineer
 role: qa-engineer
 capabilities: ["testing", "test-automation", "quality-assurance", "bug-analysis"]
 ai:
-  agent: claude
-  model: claude-sonnet-4-6
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
   environment:
     image: localhost/spring-voyage-agent-claude-code:latest
 instructions: |

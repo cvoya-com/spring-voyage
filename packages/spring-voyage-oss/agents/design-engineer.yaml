@@ -6,8 +6,10 @@ id: design-engineer
 role: design-engineer
 capabilities: ["visual-design", "ui-ux", "accessibility", "design-system", "interaction-design"]
 ai:
-  agent: claude
-  model: claude-opus-4-7
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-opus-4-7
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest
 instructions: |

@@ -6,8 +6,10 @@ id: web-engineer
 role: web-engineer
 capabilities: ["web-development", "nextjs", "typescript", "portal-ux", "openapi-clients"]
 ai:
-  agent: claude
-  model: claude-opus-4-7
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-opus-4-7
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
 instructions: |

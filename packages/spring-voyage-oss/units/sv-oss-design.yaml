@@ -3,8 +3,10 @@ kind: Unit
 name: Design
 description: Design team for Spring Voyage OSS — owns visual design, accessibility, and DESIGN.md alignment for the portal.
 ai:
-  agent: claude
-  model: claude-sonnet-4-6
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
   prompt: |
     You orchestrate the Spring Voyage OSS design team. Focus on visual
     review of portal changes, accessibility audits (contrast, keyboard

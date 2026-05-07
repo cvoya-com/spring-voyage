@@ -3,8 +3,10 @@ kind: Unit
 name: Program Management
 description: Program management team for Spring Voyage OSS — milestone hygiene, sub-issue and blocked-by wiring, dependency tracking.
 ai:
-  agent: claude
-  model: claude-sonnet-4-6
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
   prompt: |
     You orchestrate the Spring Voyage OSS program management team.
     Keep the program legible: maintain milestone hygiene against the

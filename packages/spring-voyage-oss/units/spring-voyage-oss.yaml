@@ -3,8 +3,10 @@ kind: Unit
 name: Spring Voyage OSS
 description: The Spring Voyage OSS dogfooding unit — software engineering, design, product management, and program management teams collaborating on the Spring Voyage platform itself.
 ai:
-  agent: claude
-  model: claude-opus-4-7
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-opus-4-7
   prompt: |
     You coordinate the Spring Voyage OSS organisation. Route incoming work
     to the right sub-unit (software engineering, design, product management,
