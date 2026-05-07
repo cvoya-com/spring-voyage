@@ -85,7 +85,10 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
   const queryClient = useQueryClient();
   const executionQuery = useUnitExecution(unitId);
   const installedProvidersQuery = useModelProviders();
-  const installedProviders = installedProvidersQuery.data ?? [];
+  const installedProviders = useMemo(
+    () => installedProvidersQuery.data ?? [],
+    [installedProvidersQuery.data],
+  );
 
   const persisted = executionQuery.data ?? null;
 

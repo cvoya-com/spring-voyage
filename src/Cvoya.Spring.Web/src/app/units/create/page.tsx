@@ -805,13 +805,13 @@ export default function CreateUnitPage() {
   // The provider picker is rendered only when the runtime allows the
   // operator to choose. The set of options is the intersection of the
   // runtime's `allowedProviders` and the tenant-installed providers.
-  const allowedProviders = getAllowedProviders(form.runtime) ?? [];
   const pickerProviders = useMemo<InstalledModelProviderResponse[]>(() => {
     if (runtimeDescriptor.isProviderFixed) return [];
+    const allowed = getAllowedProviders(form.runtime) ?? [];
     return installedProviders.filter((p) =>
-      (allowedProviders as readonly string[]).includes(p.id),
+      (allowed as readonly string[]).includes(p.id),
     );
-  }, [installedProviders, allowedProviders, runtimeDescriptor.isProviderFixed]);
+  }, [installedProviders, form.runtime, runtimeDescriptor.isProviderFixed]);
 
   // #350: Ollama is the multi-provider runtime's "no-credential" path —
   // we still ask the live server for its model list because it surfaces

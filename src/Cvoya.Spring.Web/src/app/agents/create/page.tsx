@@ -159,13 +159,13 @@ export default function CreateAgentPage() {
   // is fixed or operator-picked.
   const runtimeDescriptor = RUNTIMES[form.runtime];
   const fixedProviderId = getFixedProvider(form.runtime);
-  const allowedProviders = getAllowedProviders(form.runtime) ?? [];
   const pickerProviders = useMemo(() => {
     if (runtimeDescriptor.isProviderFixed) return [];
+    const allowed = getAllowedProviders(form.runtime) ?? [];
     return providers.filter((p) =>
-      (allowedProviders as readonly string[]).includes(p.id),
+      (allowed as readonly string[]).includes(p.id),
     );
-  }, [providers, allowedProviders, runtimeDescriptor.isProviderFixed]);
+  }, [providers, form.runtime, runtimeDescriptor.isProviderFixed]);
 
   const activeProviderId = (
     fixedProviderId ?? form.modelProviderId
@@ -369,7 +369,15 @@ export default function CreateAgentPage() {
     } else {
       router.push("/units");
     }
-  }, [form, addMemberships, pollUntilTerminal, queryClient, router, toast]);
+  }, [
+    form,
+    fixedProviderId,
+    addMemberships,
+    pollUntilTerminal,
+    queryClient,
+    router,
+    toast,
+  ]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

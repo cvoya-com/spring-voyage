@@ -97,7 +97,10 @@ export function AgentExecutionPanel({
     enabled: Boolean(parentUnitId),
   });
   const installedProvidersQuery = useModelProviders();
-  const installedProviders = installedProvidersQuery.data ?? [];
+  const installedProviders = useMemo(
+    () => installedProvidersQuery.data ?? [],
+    [installedProvidersQuery.data],
+  );
 
   const persisted = agentExecutionQuery.data ?? null;
   const unitDefaults: UnitExecutionResponse | null =

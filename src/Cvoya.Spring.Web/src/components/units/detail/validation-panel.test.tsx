@@ -39,6 +39,24 @@ vi.mock("@/lib/api/client", () => ({
     revalidateUnit: (id: string) => revalidateUnitMock(id),
     createUnitSecret: (id: string, body: unknown) =>
       createUnitSecretMock(id, body),
+    // ADR-0038: the credential-edit sub-panel resolves the secret
+    // name from the installed-providers list. Tests need a stable
+    // anthropic install row so the (claude-code, anthropic) edge
+    // resolves to the OAuth-token secret name.
+    listModelProviders: async () => [
+      {
+        id: "anthropic",
+        displayName: "Anthropic",
+        installedAt: "2026-04-01T00:00:00Z",
+        updatedAt: "2026-04-01T00:00:00Z",
+        models: ["claude-opus-4-7"],
+        defaultModel: "claude-opus-4-7",
+        baseUrl: null,
+        credentialKind: "OAuthToken",
+        credentialDisplayHint: null,
+        credentialSecretName: "anthropic-oauth-token",
+      },
+    ],
   },
 }));
 
@@ -276,11 +294,10 @@ describe("ValidationPanel — Error status", () => {
       expect(createUnitSecretMock).toHaveBeenCalledTimes(1);
       expect(revalidateUnitMock).toHaveBeenCalledTimes(1);
     });
-    // ADR-0038 (PR-1b): the panel's placeholder secret-name resolver
-    // returns the OAuth-token credential name for the
-    // `(claude-code, anthropic)` edge — matching the per-edge entry in
-    // `runtime-catalog.yaml`. PR-3 will read this from the catalogue
-    // directly (#1761).
+    // ADR-0038: the panel resolves the secret name via the
+    // installed-providers list. The mocked `anthropic` install carries
+    // `credentialSecretName: "anthropic-oauth-token"`, matching the
+    // per-edge entry in `runtime-catalog.yaml`.
     expect(createUnitSecretMock).toHaveBeenCalledWith("alpha", {
       name: "anthropic-oauth-token",
       value: "sk-ant-new",
