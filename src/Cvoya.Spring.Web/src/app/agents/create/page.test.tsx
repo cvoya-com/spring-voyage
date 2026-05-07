@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import type {
-  InstalledAgentRuntimeResponse,
+  InstalledModelProviderResponse,
   InstallStatusResponse,
   UnitResponse,
 } from "@/lib/api/types";
@@ -91,21 +91,24 @@ function makeUnit(overrides: Partial<UnitResponse> = {}): UnitResponse {
     status: overrides.status ?? "Stopped",
     model: overrides.model ?? null,
     color: overrides.color ?? null,
-    // #1738: `tool` retired in #1732; `UnitResponse` no longer carries
-    // execution fields beyond model/provider/hosting.
-    provider: overrides.provider ?? null,
+    // ADR-0038 (PR-1b): the legacy flat `provider` field is gone from
+    // `UnitResponse` — the model provider lives inside `model.provider`
+    // on the execution block, not on the unit row.
     hosting: overrides.hosting ?? null,
   } as UnitResponse;
 }
 
 function makeRuntime(
-  overrides: Partial<InstalledAgentRuntimeResponse> = {},
-): InstalledAgentRuntimeResponse {
+  overrides: Partial<InstalledModelProviderResponse> = {},
+): InstalledModelProviderResponse {
   const now = new Date().toISOString();
+  // ADR-0038 (PR-1b): the install row no longer carries `kind` /
+  // `defaultImage` — those fields belonged to the legacy
+  // `InstalledAgentRuntimeResponse` and moved into
+  // `runtime-catalog.yaml`.
   return {
-    id: overrides.id ?? "claude",
-    displayName: overrides.displayName ?? "Claude",
-    kind: overrides.kind ?? "claude-code",
+    id: overrides.id ?? "anthropic",
+    displayName: overrides.displayName ?? "Anthropic",
     installedAt: overrides.installedAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
     models: overrides.models ?? ["claude-3-5-sonnet"],
@@ -115,10 +118,7 @@ function makeRuntime(
     credentialDisplayHint: overrides.credentialDisplayHint ?? null,
     credentialSecretName:
       overrides.credentialSecretName ?? "anthropic-api-key",
-    defaultImage:
-      overrides.defaultImage ??
-      "ghcr.io/cvoya-com/spring-voyage-agent-claude-code:latest",
-  } as InstalledAgentRuntimeResponse;
+  } as InstalledModelProviderResponse;
 }
 
 function makeInstallStatus(

@@ -6,8 +6,6 @@ import {
   EXECUTION_TOOLS,
   HOSTING_MODES,
   getToolRuntimeId,
-  getToolWireProvider,
-  getRuntimeSecretName,
 } from "./ai-models";
 
 describe("execution tools", () => {
@@ -50,34 +48,6 @@ describe("getToolRuntimeId", () => {
   });
 });
 
-describe("getToolWireProvider", () => {
-  it("carries a fixed provider for Claude / Codex / Gemini", () => {
-    expect(getToolWireProvider("claude-code", null)).toBe("claude");
-    expect(getToolWireProvider("codex", null)).toBe("openai");
-    expect(getToolWireProvider("gemini", null)).toBe("google");
-  });
-
-  it("passes the spring-voyage runtime id through verbatim", () => {
-    expect(getToolWireProvider("spring-voyage", "ollama")).toBe("ollama");
-    expect(getToolWireProvider("spring-voyage", null)).toBeUndefined();
-  });
-
-  it("returns undefined for custom tools", () => {
-    expect(getToolWireProvider("custom", null)).toBeUndefined();
-  });
-});
-
-describe("getRuntimeSecretName", () => {
-  it("returns the canonical secret name for each provider alias", () => {
-    expect(getRuntimeSecretName("claude")).toBe("anthropic-api-key");
-    expect(getRuntimeSecretName("anthropic")).toBe("anthropic-api-key");
-    expect(getRuntimeSecretName("openai")).toBe("openai-api-key");
-    expect(getRuntimeSecretName("google")).toBe("google-api-key");
-    expect(getRuntimeSecretName("gemini")).toBe("google-api-key");
-  });
-
-  it("returns null for providers without a known secret", () => {
-    expect(getRuntimeSecretName("ollama")).toBeNull();
-    expect(getRuntimeSecretName("unknown")).toBeNull();
-  });
-});
+// `getToolWireProvider` and `getRuntimeSecretName` were retired in
+// ADR-0038 (PR-1b). Their replacement — per-edge resolution against
+// `runtime-catalog.yaml` — lands in PR-3 (#1761).

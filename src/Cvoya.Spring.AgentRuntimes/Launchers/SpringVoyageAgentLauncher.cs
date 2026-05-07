@@ -116,8 +116,9 @@ public class SpringVoyageAgentLauncher(
         // when the definition specifies execution.provider / execution.model those win.
         // Otherwise the launcher falls back to Ollama defaults so existing definitions
         // without the fields continue to work. These env vars map to the Dapr
-        // Conversation component name ("llm-provider") and model metadata consumed by
-        // the Python agent; changing provider is a YAML-only change (#480 acceptance).
+        // Conversation component name (`llm-{provider}`, ADR-0038) and model
+        // metadata consumed by the Python agent; changing provider is a
+        // YAML-only change.
         var provider = !string.IsNullOrWhiteSpace(context.Provider) ? context.Provider! : "ollama";
         var model = !string.IsNullOrWhiteSpace(context.Model)
             ? context.Model!
@@ -133,7 +134,7 @@ public class SpringVoyageAgentLauncher(
         // SPRING_LLM_COMPONENT remains launcher-specific (Dapr Conversation component
         // name) and is not part of the D1 spec.
         //
-        // #1328: OLLAMA_ENDPOINT removed — conversation-ollama.yaml now reads
+        // #1328: OLLAMA_ENDPOINT removed — llm-ollama.yaml now reads
         // SPRING_LLM_PROVIDER_URL.
         //
         // SPRING_THREAD_ID and SPRING_SYSTEM_PROMPT have no D1-spec equivalents
@@ -168,7 +169,7 @@ public class SpringVoyageAgentLauncher(
         };
 
         // #1328: OLLAMA_ENDPOINT removed. The Dapr Conversation component YAML
-        // (conversation-ollama.yaml) now reads SPRING_LLM_PROVIDER_URL, which is
+        // (llm-ollama.yaml) now reads SPRING_LLM_PROVIDER_URL, which is
         // emitted by AgentContextBuilder for every launcher. OLLAMA_ENDPOINT is no
         // longer set here.
 
@@ -202,12 +203,12 @@ public class SpringVoyageAgentLauncher(
     {
         // Always pin the conversation component so the Python agent dials
         // the right Dapr Conversation YAML. The component-naming convention
-        // is `conversation-<provider-id>` — set on every dispatch (including
+        // is `llm-<provider-id>` (ADR-0038) — set on every dispatch (including
         // Ollama, which has no credential to inject) so agent.py never
-        // silently falls back to the legacy "llm-provider" default.
-        envVars["SPRING_LLM_COMPONENT"] = $"conversation-{provider.ToLowerInvariant()}";
+        // silently falls back to a stale default.
+        envVars["SPRING_LLM_COMPONENT"] = $"llm-{provider.ToLowerInvariant()}";
 
-        // Ollama has no credential to inject; the conversation-ollama.yaml
+        // Ollama has no credential to inject; the llm-ollama.yaml
         // component carries a literal "ollama" key. Skip resolution.
         if (string.Equals(provider, "ollama", StringComparison.OrdinalIgnoreCase))
         {
@@ -215,7 +216,7 @@ public class SpringVoyageAgentLauncher(
         }
 
         // The env-var name on the REST path is provider-specific and must match
-        // both `dapr/components/delegated-spring-voyage-agent/conversation-<provider>.yaml`'s
+        // both `dapr/components/delegated-spring-voyage-agent/llm-<provider>.yaml`'s
         // secretKeyRef name AND `ContainerLifecycleManager.CredentialEnvVarsToPropagate`
         // — the daprd sidecar reads the secret from its own process env via the
         // local-env secret store. The legacy IAgentRuntime.CredentialEnvVar
@@ -229,7 +230,7 @@ public class SpringVoyageAgentLauncher(
             _ => throw new SpringException(
                 $"Spring Voyage launcher cannot map provider '{provider}' to a Conversation REST env var. " +
                 $"Supported providers: anthropic, openai, google. Add the mapping (and a matching " +
-                $"conversation-<provider>.yaml + ContainerLifecycleManager propagation entry) to extend.")
+                $"llm-<provider>.yaml + ContainerLifecycleManager propagation entry) to extend.")
         };
 
         // The Spring Voyage runtime dispatches via Dapr Conversation REST.

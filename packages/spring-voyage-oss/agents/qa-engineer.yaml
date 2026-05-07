@@ -6,8 +6,10 @@ id: qa-engineer
 role: qa-engineer
 capabilities: ["test-engineering", "unit-testing", "integration-testing", "e2e-testing", "test-coverage"]
 ai:
-  agent: claude
-  model: claude-opus-4-7
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-opus-4-7
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
 instructions: |

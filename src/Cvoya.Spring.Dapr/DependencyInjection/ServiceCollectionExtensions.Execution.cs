@@ -142,16 +142,13 @@ internal static class ServiceCollectionExtensionsExecution
         // audit logging or additional policy dimensions).
         services.TryAddSingleton<IAgentUnitPolicyCoordinator, AgentUnitPolicyCoordinator>();
 
-        // ADR-0038 #1770: the agent-runtime registry is now catalogue-
-        // backed. AgentRuntimeRegistry synthesises legacy IAgentRuntime
-        // projections from the catalogue's runtime entries; the host
-        // composes a real catalogue via AddCvoyaSpringRuntimeCatalog.
-        // We register an empty fallback IRuntimeCatalog here only when
-        // none is wired (test harnesses that exercise DI graph without
-        // the catalogue project), so AgentRuntimeRegistry can always
-        // resolve.
+        // ADR-0038: services consult IRuntimeCatalog directly. The legacy
+        // IAgentRuntime / IAgentRuntimeRegistry interfaces are gone (PR-1b
+        // wire reshape). An empty fallback IRuntimeCatalog stays registered
+        // here only when the host omits AddCvoyaSpringRuntimeCatalog (test
+        // harnesses that exercise the DI graph without the catalogue
+        // project) so dependent services can resolve.
         services.TryAddSingleton<IRuntimeCatalog>(_ => new EmptyRuntimeCatalog());
-        services.TryAddSingleton<IAgentRuntimeRegistry, AgentRuntimeRegistry>();
 
         // Tier-2 LLM credential resolver (#615). Delegates to the
         // existing ISecretResolver (Unit → Tenant inheritance, ADR 0003).

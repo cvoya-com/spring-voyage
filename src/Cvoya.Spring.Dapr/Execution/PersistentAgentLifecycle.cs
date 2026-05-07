@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Execution;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 
 using Microsoft.Extensions.Logging;
@@ -34,7 +35,7 @@ public class PersistentAgentLifecycle(
     IAgentDefinitionProvider agentDefinitionProvider,
     IMcpServer mcpServer,
     IEnumerable<IAgentRuntimeLauncher> launchers,
-    IAgentRuntimeRegistry agentRuntimeRegistry,
+    IRuntimeCatalog runtimeCatalog,
     PersistentAgentRegistry persistentAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
     AgentVolumeManager volumeManager,
@@ -43,14 +44,14 @@ public class PersistentAgentLifecycle(
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<PersistentAgentLifecycle>();
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
-    // #1732: launchers are keyed on their Kind (matching
-    // IAgentRuntime.Kind). The lifecycle service derives the tool kind
-    // from the agent's persisted execution.agent slot via the runtime
-    // registry.
+    // ADR-0038: launchers are keyed on the catalogue runtime entry's
+    // launcher strategy id; the lifecycle service derives that id from
+    // the agent's persisted execution.agent slot (= ai.runtime) via the
+    // runtime catalogue.
     private readonly Dictionary<string, IAgentRuntimeLauncher> _launchersByKind =
         launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
-    private readonly IAgentRuntimeRegistry _agentRuntimeRegistry = agentRuntimeRegistry
-        ?? throw new ArgumentNullException(nameof(agentRuntimeRegistry));
+    private readonly IRuntimeCatalog _runtimeCatalog = runtimeCatalog
+        ?? throw new ArgumentNullException(nameof(runtimeCatalog));
 
     /// <summary>
     /// Stands up a persistent agent. Idempotent: when the agent is already
@@ -113,18 +114,19 @@ public class PersistentAgentLifecycle(
                 "Set execution.image in the agent YAML or pass --image on deploy.");
         }
 
-        var runtime = _agentRuntimeRegistry.Get(definition.Execution.AgentRuntimeId)
+        var runtime = _runtimeCatalog.GetAgentRuntime(definition.Execution.AgentRuntimeId)
             ?? throw new SpringException(
-                $"No agent runtime is registered with id '{definition.Execution.AgentRuntimeId}' " +
-                $"(agent '{agentId}'). Install the runtime plugin or set ai.agent " +
-                "to a registered runtime id before deploying.");
-        if (!_launchersByKind.TryGetValue(runtime.Kind, out var launcher))
+                $"No agent runtime is registered in platform/runtime-catalog.yaml with id " +
+                $"'{definition.Execution.AgentRuntimeId}' (agent '{agentId}'). Add the entry " +
+                "to the catalogue or set ai.runtime to a registered runtime id before deploying.");
+        if (!_launchersByKind.TryGetValue(runtime.Launcher, out var launcher))
         {
             throw new SpringException(
-                $"No IAgentRuntimeLauncher registered for tool kind '{runtime.Kind}' " +
-                $"(agent runtime '{definition.Execution.AgentRuntimeId}', agent '{agentId}').");
+                $"No IAgentRuntimeLauncher registered for launcher strategy id " +
+                $"'{runtime.Launcher}' (agent runtime '{definition.Execution.AgentRuntimeId}', " +
+                $"agent '{agentId}').");
         }
-        var kind = runtime.Kind;
+        var kind = runtime.Launcher;
 
         if (mcpServer.Endpoint is null)
         {

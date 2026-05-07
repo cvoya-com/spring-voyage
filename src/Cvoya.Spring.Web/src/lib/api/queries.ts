@@ -1270,17 +1270,21 @@ export function useOllamaModels(
 }
 
 /**
- * Tenant-installed agent runtimes (#690). The wizard reads every
- * available runtime from this hook — the list drives the provider/tool
+ * Tenant-installed model providers (ADR-0038). The wizard reads every
+ * available provider from this hook — the list drives the model
  * dropdown and each entry's `credentialKind` + `credentialDisplayHint`
  * drive the credential input.
+ *
+ * TODO(PR-3): rename hook surface to `useModelProviders` and rework
+ * UX to match the per-provider grouping ADR-0038 §1 prescribes —
+ * tracked in #1761.
  */
 export function useAgentRuntimes(
   opts?: SliceOptions<
-    import("./types").InstalledAgentRuntimeResponse[]
+    import("./types").InstalledModelProviderResponse[]
   >,
 ): UseQueryResult<
-  import("./types").InstalledAgentRuntimeResponse[],
+  import("./types").InstalledModelProviderResponse[],
   Error
 > {
   return useQuery({
@@ -1293,47 +1297,53 @@ export function useAgentRuntimes(
 }
 
 /**
- * Per-runtime model catalog (#690). Returns the tenant's configured
- * model list for a runtime; feeds the wizard's Model dropdown when a
- * runtime is selected.
+ * Per-provider model catalog (ADR-0038). Returns the tenant's configured
+ * model list for a provider install; feeds the wizard's Model dropdown
+ * when a provider is selected.
+ *
+ * TODO(PR-3): rename to `useModelProviderModels` — tracked in #1761.
  */
 export function useAgentRuntimeModels(
-  runtimeId: string,
-  opts?: SliceOptions<import("./types").AgentRuntimeModelResponse[]>,
-): UseQueryResult<import("./types").AgentRuntimeModelResponse[], Error> {
+  providerId: string,
+  opts?: SliceOptions<import("./types").ModelProviderModelResponse[]>,
+): UseQueryResult<import("./types").ModelProviderModelResponse[], Error> {
   return useQuery({
-    queryKey: queryKeys.agentRuntimes.models(runtimeId),
-    queryFn: () => api.getAgentRuntimeModels(runtimeId),
+    queryKey: queryKeys.agentRuntimes.models(providerId),
+    queryFn: () => api.getAgentRuntimeModels(providerId),
     staleTime: opts?.staleTime ?? 60 * 60 * 1000,
     refetchInterval: opts?.refetchInterval,
-    enabled: opts?.enabled ?? Boolean(runtimeId),
+    enabled: opts?.enabled ?? Boolean(providerId),
   });
 }
 
 /**
- * Persistent credential-health row for an agent runtime (#691). Feeds
- * the read-only admin view at `/admin/agent-runtimes`. Returns `null`
- * when the endpoint 404s — a fresh install that has never been probed
- * has no row yet, so the portal renders a muted "No signal yet" state
- * rather than trapping the admin error boundary.
+ * Persistent credential-health row for a model provider install
+ * (ADR-0038). Feeds the read-only admin view at
+ * `/settings/agent-runtimes`. Returns `null` when the endpoint 404s —
+ * a fresh install that has never been probed has no row yet, so the
+ * portal renders a muted "No signal yet" state rather than trapping
+ * the admin error boundary.
+ *
+ * TODO(PR-3): rename to `useModelProviderCredentialHealth` and rework
+ * the route to `/settings/model-providers/` — tracked in #1761.
  */
 export function useAgentRuntimeCredentialHealth(
-  runtimeId: string,
+  providerId: string,
   secretName?: string,
   opts?: SliceOptions<import("./types").CredentialHealthResponse | null>,
 ): UseQueryResult<import("./types").CredentialHealthResponse | null, Error> {
   return useQuery({
-    queryKey: queryKeys.agentRuntimes.credentialHealth(runtimeId, secretName),
+    queryKey: queryKeys.agentRuntimes.credentialHealth(providerId, secretName),
     queryFn: async () => {
       try {
-        return await api.getAgentRuntimeCredentialHealth(runtimeId, secretName);
+        return await api.getAgentRuntimeCredentialHealth(providerId, secretName);
       } catch {
         return null;
       }
     },
     staleTime: opts?.staleTime ?? 30 * 1000,
     refetchInterval: opts?.refetchInterval,
-    enabled: opts?.enabled ?? Boolean(runtimeId),
+    enabled: opts?.enabled ?? Boolean(providerId),
   });
 }
 

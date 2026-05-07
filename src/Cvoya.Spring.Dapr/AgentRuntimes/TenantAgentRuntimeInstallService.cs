@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.AgentRuntimes;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -32,7 +33,7 @@ using Microsoft.Extensions.Logging;
 public sealed class TenantAgentRuntimeInstallService(
     SpringDbContext dbContext,
     ITenantContext tenantContext,
-    IAgentRuntimeRegistry runtimeRegistry,
+    IRuntimeCatalog runtimeCatalog,
     ILogger<TenantAgentRuntimeInstallService> logger) : ITenantAgentRuntimeInstallService
 {
     /// <inheritdoc />
@@ -43,9 +44,11 @@ public sealed class TenantAgentRuntimeInstallService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runtimeId);
 
-        var runtime = runtimeRegistry.Get(runtimeId)
+        // ADR-0038: installs are keyed on model-provider id, sourced from
+        // the runtime catalogue (platform/runtime-catalog.yaml).
+        var provider = runtimeCatalog.GetModelProvider(runtimeId)
             ?? throw new InvalidOperationException(
-                $"Agent runtime '{runtimeId}' is not registered with the host.");
+                $"Model provider '{runtimeId}' is not declared in platform/runtime-catalog.yaml.");
 
         var tenantId = tenantContext.CurrentTenantId;
         var now = DateTimeOffset.UtcNow;
@@ -55,17 +58,17 @@ public sealed class TenantAgentRuntimeInstallService(
         var existing = await dbContext.TenantModelProviderInstalls
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(
-                e => e.TenantId == tenantId && e.ProviderId == runtime.Id,
+                e => e.TenantId == tenantId && e.ProviderId == provider.Id,
                 cancellationToken)
             .ConfigureAwait(false);
 
         if (existing is null)
         {
-            var resolved = config ?? AgentRuntimeInstallConfig.FromRuntimeDefaults(runtime);
+            var resolved = config ?? FromCatalogueDefaults(provider);
             var entity = new TenantModelProviderInstallEntity
             {
                 TenantId = tenantId,
-                ProviderId = runtime.Id,
+                ProviderId = provider.Id,
                 ConfigJson = Serialize(resolved),
                 InstalledAt = now,
                 UpdatedAt = now,
@@ -73,23 +76,21 @@ public sealed class TenantAgentRuntimeInstallService(
             dbContext.TenantModelProviderInstalls.Add(entity);
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             logger.LogInformation(
-                "Installed agent runtime '{RuntimeId}' on tenant '{TenantId}'.",
-                runtime.Id, tenantId);
+                "Installed model provider '{ProviderId}' on tenant '{TenantId}'.",
+                provider.Id, tenantId);
             return Project(entity, resolved);
         }
 
         if (existing.DeletedAt is not null)
         {
-            // Revive a previously uninstalled row. Treat as a fresh install
-            // so InstalledAt reflects the resurrection.
-            var resolved = config ?? AgentRuntimeInstallConfig.FromRuntimeDefaults(runtime);
+            var resolved = config ?? FromCatalogueDefaults(provider);
             existing.DeletedAt = null;
             existing.InstalledAt = now;
             existing.ConfigJson = Serialize(resolved);
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             logger.LogInformation(
-                "Re-installed agent runtime '{RuntimeId}' on tenant '{TenantId}' (was previously uninstalled).",
-                runtime.Id, tenantId);
+                "Re-installed model provider '{ProviderId}' on tenant '{TenantId}' (was previously uninstalled).",
+                provider.Id, tenantId);
             return Project(existing, resolved);
         }
 
@@ -105,8 +106,8 @@ public sealed class TenantAgentRuntimeInstallService(
         }
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         logger.LogDebug(
-            "Agent runtime '{RuntimeId}' was already installed on tenant '{TenantId}'; refreshed UpdatedAt.",
-            runtime.Id, tenantId);
+            "Model provider '{ProviderId}' was already installed on tenant '{TenantId}'; refreshed UpdatedAt.",
+            provider.Id, tenantId);
         return Project(existing, effective);
     }
 
@@ -180,6 +181,15 @@ public sealed class TenantAgentRuntimeInstallService(
         row.ConfigJson = Serialize(config);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return Project(row, config);
+    }
+
+    private static AgentRuntimeInstallConfig FromCatalogueDefaults(ModelProvider provider)
+    {
+        var models = provider.DefaultModels.ToArray();
+        return new AgentRuntimeInstallConfig(
+            Models: models,
+            DefaultModel: models.Length > 0 ? models[0] : null,
+            BaseUrl: null);
     }
 
     private static InstalledAgentRuntime Project(

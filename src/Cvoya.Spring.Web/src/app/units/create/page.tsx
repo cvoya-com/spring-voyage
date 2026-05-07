@@ -61,26 +61,79 @@ import {
 import { queryKeys } from "@/lib/api/query-keys";
 import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
 import type {
-  InstalledAgentRuntimeResponse,
+  InstalledModelProviderResponse,
   InstallStatusResponse,
   PackageConnectorBindings,
   PackageInputSummary,
   UnitConnectorBindingRequest,
   UnitStatus,
 } from "@/lib/api/types";
-import ValidationPanel from "@/components/units/detail/validation-panel";
 import {
   DEFAULT_EXECUTION_TOOL,
   DEFAULT_HOSTING_MODE,
   EXECUTION_TOOLS,
   HOSTING_MODES,
   getAgentRegistryId,
-  getRuntimeSecretName,
   getToolRuntimeId,
-  getToolWireProvider,
   type ExecutionTool,
   type HostingMode,
 } from "@/lib/ai-models";
+
+/**
+ * Placeholder secret-name resolver. ADR-0038 §6 keys credentials by
+ * `(tenant, provider, authMethod)`, but the wizard does not yet read
+ * the per-edge `credentialEnvVar` / secret-name from
+ * `runtime-catalog.yaml` — that arrives in PR-3. Returns the legacy
+ * v0.1 secret names so the inline credential entry keeps writing to
+ * the same canonical names dispatch reads from.
+ *
+ * TODO(PR-3): replace with a per-edge lookup against the catalogue —
+ * tracked in #1761.
+ */
+function getRuntimeSecretName(runtimeId: string): string | null {
+  switch (runtimeId) {
+    case "claude":
+    case "anthropic":
+      return "anthropic-api-key";
+    case "openai":
+      return "openai-api-key";
+    case "google":
+    case "gemini":
+    case "googleai":
+      return "google-api-key";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Placeholder wire-provider resolver. ADR-0038 collapsed the flat
+ * `provider` slot into the structured `model.provider` field, so the
+ * wizard no longer emits a separate provider on the wire — this helper
+ * survives only to populate `model.provider` from the form's flat
+ * `(tool, runtime-id)` pair.
+ *
+ * TODO(PR-3): drop this helper when the wizard's flat `provider` form
+ * field is replaced by a per-provider model picker — tracked in #1761.
+ */
+function getToolWireProvider(
+  tool: ExecutionTool,
+  runtimeId: string | null,
+): string | undefined {
+  switch (tool) {
+    case "claude-code":
+      return "claude";
+    case "codex":
+      return "openai";
+    case "gemini":
+      return "google";
+    case "spring-voyage":
+      return runtimeId ?? undefined;
+    case "custom":
+    default:
+      return undefined;
+  }
+}
 import { cn } from "@/lib/utils";
 import {
   WIZARD_STATE_SCHEMA_VERSION,
@@ -333,8 +386,8 @@ function runtimeIdToProviderId(
 export function deriveRequiredCredentialRuntime(
   tool: ExecutionTool,
   provider: string,
-  runtimes: InstalledAgentRuntimeResponse[] | null,
-): InstalledAgentRuntimeResponse | null {
+  runtimes: InstalledModelProviderResponse[] | null,
+): InstalledModelProviderResponse | null {
   if (!runtimes || runtimes.length === 0) return null;
 
   const lookup = (id: string) =>
@@ -366,33 +419,23 @@ export function deriveRequiredCredentialRuntime(
  * #1508: resolve the defaultImage for the runtime that matches the
  * current tool + provider selection, or null when no matching runtime
  * is installed.
+ *
+ * ADR-0038 moved per-runtime container images into
+ * `runtime-catalog.yaml` (`agentRuntimes[].defaultImage`); the legacy
+ * `InstalledAgentRuntimeResponse.defaultImage` field is gone from the
+ * wire because model providers don't ship container images.
+ *
+ * TODO(PR-3): rebuild this on top of the catalogue once the portal
+ * loads `runtime-catalog.yaml` — tracked in #1761. Until then the
+ * wizard's image field stays empty by default; operators set the
+ * image manually as before the pre-fill landed.
  */
 function deriveRuntimeDefaultImage(
-  tool: ExecutionTool,
-  provider: string,
-  runtimes: InstalledAgentRuntimeResponse[] | null,
+  _tool: ExecutionTool,
+  _provider: string,
+  _runtimes: InstalledModelProviderResponse[] | null,
 ): string | null {
-  if (!runtimes || runtimes.length === 0) return null;
-
-  const lookup = (id: string) =>
-    runtimes.find((r) => r.id.toLowerCase() === id.toLowerCase()) ?? null;
-
-  switch (tool) {
-    case "claude-code":
-      return lookup("claude")?.defaultImage ?? null;
-    case "codex":
-      return lookup("openai")?.defaultImage ?? null;
-    case "gemini":
-      return lookup("google")?.defaultImage ?? null;
-    case "spring-voyage": {
-      const normalised = provider.trim().toLowerCase();
-      const runtimeId = normalised === "anthropic" ? "claude" : normalised;
-      return lookup(runtimeId)?.defaultImage ?? null;
-    }
-    case "custom":
-    default:
-      return null;
-  }
+  return null;
 }
 
 /**
@@ -864,7 +907,7 @@ export default function CreateUnitPage() {
   // provider dropdown (spring-voyage path) and the per-runtime
   // credential/model metadata consumed by the execution step.
   const agentRuntimesQuery = useAgentRuntimes();
-  const agentRuntimes = useMemo<InstalledAgentRuntimeResponse[]>(
+  const agentRuntimes = useMemo<InstalledModelProviderResponse[]>(
     () => agentRuntimesQuery.data ?? [],
     [agentRuntimesQuery.data],
   );
@@ -910,16 +953,16 @@ export default function CreateUnitPage() {
   const providerModels =
     agentRuntimeModelsQuery.data?.map((m) => m.id) ?? null;
 
-  // #690: seed the provider dropdown from the first installed
-  // spring-voyage runtime the first time the runtimes list arrives.
-  // The wizard stayed empty before this because the initial form
-  // declares `provider: ""` — without the seed the dropdown would
-  // render with no selection.
+  // ADR-0038: every installed model provider is eligible for the
+  // `spring-voyage` runtime (its catalogue entry lists every provider
+  // in `runtime-catalog.yaml`). The legacy `kind` field on the install
+  // row was retired; we no longer pre-filter — the dropdown shows
+  // every tenant install.
+  // TODO(PR-3): drive this from `runtime-catalog.yaml` so the dropdown
+  // surfaces only the providers the selected runtime allows — tracked
+  // in #1761.
   const springVoyageRuntimes = useMemo(
-    () =>
-      agentRuntimes.filter(
-        (r) => r.kind === "spring-voyage",
-      ),
+    () => agentRuntimes,
     [agentRuntimes],
   );
   // Seed the provider + model fields when the runtimes list arrives
@@ -1244,9 +1287,14 @@ export default function CreateUnitPage() {
    * direct unit-creation endpoint that the wizard used pre-#1563.
    */
   const buildScratchCreateRequest = () => {
+    // ADR-0038: `CreateUnitRequest` no longer carries `tool` or
+    // `provider` slots — runtime + model.provider land via the
+    // dedicated `setUnitExecution` PUT after creation. The flat
+    // `model` field on the create request is preserved as a free-text
+    // model id for backwards compatibility within v0.1; the structured
+    // execution block carries the authoritative `{provider, id}`.
     const wireProvider = getToolWireProvider(form.tool, form.provider.trim() || null);
     const provider = wireProvider ?? (form.provider.trim() || undefined);
-    const tool = form.tool !== "custom" ? form.tool : undefined;
     const model = form.model.trim() || undefined;
     const hosting =
       form.hosting !== DEFAULT_HOSTING_MODE ? form.hosting : undefined;
@@ -1261,18 +1309,26 @@ export default function CreateUnitPage() {
         ? form.parentUnitIds
         : undefined;
 
+    // Helper return shape: keep `provider` / `model` on the local
+    // record so the downstream `setUnitExecution` call can read both,
+    // even though the create-unit endpoint doesn't accept `provider`.
     return {
-      name: form.name.trim(),
-      displayName,
-      description,
-      model,
-      color,
-      tool,
+      // Wire payload — only fields `CreateUnitRequest` accepts.
+      wire: {
+        name: form.name.trim(),
+        displayName,
+        description,
+        model,
+        color,
+        hosting,
+        connector,
+        parentUnitIds,
+        isTopLevel,
+      },
+      // Side-band: surfaced to setUnitExecution to populate
+      // `execution.model.provider` and `execution.model.id`.
       provider,
-      hosting,
-      connector,
-      parentUnitIds,
-      isTopLevel,
+      model,
     };
   };
 
@@ -1356,19 +1412,26 @@ export default function CreateUnitPage() {
       // the dedicated execution endpoint (CreateUnitRequest does not
       // accept those two fields).
       const req = buildScratchCreateRequest();
-      const created = await api.createUnit(req);
+      const created = await api.createUnit(req.wire);
       const image = form.image.trim();
       if (image) {
         try {
-          // #1738: the wire shape carries `agent` (the agent-runtime
-          // registry id like "ollama" or "claude"), not the tool kind.
-          // For spring-voyage the registry id is the provider, not "spring-voyage".
+          // ADR-0038 (PR-1b): the wire field renamed `agent` →
+          // `runtime` (operator-chosen runtime id), the legacy flat
+          // `provider` slot is gone, and `model` is now structured
+          // `{provider, id}`. We only emit a model object when both
+          // provider and id are resolvable; otherwise it stays null
+          // and the dispatcher falls through to defaults.
+          const wireProvider = req.provider ?? null;
+          const wireModelId = req.model ?? null;
           await api.setUnitExecution(created.name, {
             image: image || null,
-            runtime: null,
-            agent: getAgentRegistryId(form.tool, form.provider),
-            provider: req.provider ?? null,
-            model: req.model ?? null,
+            containerRuntime: null,
+            runtime: form.tool !== "custom" ? form.tool : null,
+            model:
+              wireProvider && wireModelId
+                ? { provider: wireProvider, id: wireModelId }
+                : null,
           });
         } catch (e) {
           // Best-effort: surface the error but the unit row already

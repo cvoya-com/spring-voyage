@@ -161,6 +161,32 @@ Activity-log entries store the source actor's `Guid`. The display name renders a
 
 ---
 
+## 10. Execution-config shape: `(runtime, model)`
+
+The user-facing execution config on units and agents — the `ai:` block in
+manifests, on the wire DTOs, and in the portal/CLI — is the structured pair
+**`(runtime, model)`**, where `model` is itself the structured pair
+`{provider, id}`. The provider is intrinsic to the model and is not a
+separate user-facing axis.
+
+```yaml
+ai:
+  runtime: spring-voyage              # AgentRuntime id (closed set)
+  model:
+    provider: ollama                  # ModelProvider id (open set)
+    id: llama3.2:3b                   # provider-native model identifier
+```
+
+Runtime ids and provider ids are short kebab-case strings, matched
+case-sensitively against entries in `platform/runtime-catalog.yaml`. Model
+ids are provider-native — Ollama model ids may contain `/`, `:`, and `-`;
+the structured `{provider, id}` shape avoids the parser ambiguity a flat
+`provider/id` string would carry. The pair is the single source of truth for
+provider routing and credential resolution; there is no separate `provider`
+slot stored on a unit / agent. See [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md).
+
+---
+
 ## See also
 
 - [ADR 0036 — Single-identity model](../decisions/0036-single-identity-model.md) — the durable decision.

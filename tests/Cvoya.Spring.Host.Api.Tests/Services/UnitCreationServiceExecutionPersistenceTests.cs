@@ -60,17 +60,17 @@ public class UnitCreationServiceExecutionPersistenceTests
         {
             Name = "sv-oss-software-engineering",
             Description = "regression #1666 — execution block must persist",
-            // #1732: ai.agent (the runtime registry id) is the durable id;
-            // ExecutionManifest no longer carries Tool.
+            // ADR-0038: ai.runtime (the agent-runtime catalogue id) is the
+            // durable id; ExecutionManifest no longer carries Tool or Provider.
             Ai = new AiManifest
             {
-                Agent = "claude",
+                Runtime = "claude-code",
+                Model = new AiModelManifest { Provider = "anthropic", Id = "claude-sonnet-4" },
             },
             Execution = new ExecutionManifest
             {
                 Image = "ghcr.io/cvoya/sv-oss-software-engineering:latest",
                 Runtime = "podman",
-                Provider = "anthropic",
                 Model = "claude-sonnet-4",
             },
         };
@@ -99,11 +99,12 @@ public class UnitCreationServiceExecutionPersistenceTests
         execution.GetProperty("image").GetString()
             .ShouldBe("ghcr.io/cvoya/sv-oss-software-engineering:latest");
         execution.GetProperty("runtime").GetString().ShouldBe("podman");
-        // #1732: tool is no longer persisted; agent (runtime id) is the
-        // durable identity.
+        // ADR-0038: tool/provider no longer persisted. The internal
+        // `agent` slot (renamed to `runtime` on the wire) carries the
+        // catalogue runtime id.
         execution.TryGetProperty("tool", out _).ShouldBeFalse();
-        execution.GetProperty("agent").GetString().ShouldBe("claude");
-        execution.GetProperty("provider").GetString().ShouldBe("anthropic");
+        execution.TryGetProperty("provider", out _).ShouldBeFalse();
+        execution.GetProperty("agent").GetString().ShouldBe("claude-code");
         execution.GetProperty("model").GetString().ShouldBe("claude-sonnet-4");
     }
 
@@ -125,8 +126,8 @@ public class UnitCreationServiceExecutionPersistenceTests
             Description = "regression #1683 — agent-runtime id must persist",
             Ai = new AiManifest
             {
-                Agent = "claude",
-                Model = "claude-sonnet-4",
+                Runtime = "claude-code",
+                Model = new AiModelManifest { Provider = "anthropic", Id = "claude-sonnet-4" },
             },
             Execution = new ExecutionManifest
             {
@@ -149,7 +150,7 @@ public class UnitCreationServiceExecutionPersistenceTests
         persisted.Definition.ShouldNotBeNull();
         var json = persisted.Definition!.Value;
         json.TryGetProperty("execution", out var execution).ShouldBeTrue();
-        execution.GetProperty("agent").GetString().ShouldBe("claude");
+        execution.GetProperty("agent").GetString().ShouldBe("claude-code");
         // The runtime slot remains the container-runtime selector — not
         // overwritten with the agent-runtime id.
         execution.GetProperty("runtime").GetString().ShouldBe("podman");
@@ -172,7 +173,7 @@ public class UnitCreationServiceExecutionPersistenceTests
             Description = "agent-only manifest",
             Ai = new AiManifest
             {
-                Agent = "openai",
+                Runtime = "codex",
             },
         };
 
@@ -190,7 +191,7 @@ public class UnitCreationServiceExecutionPersistenceTests
         persisted.Definition.ShouldNotBeNull();
         var json = persisted.Definition!.Value;
         json.TryGetProperty("execution", out var execution).ShouldBeTrue();
-        execution.GetProperty("agent").GetString().ShouldBe("openai");
+        execution.GetProperty("agent").GetString().ShouldBe("codex");
     }
 
     private static (UnitCreationService Service, IServiceScopeFactory ScopeFactory) BuildService(

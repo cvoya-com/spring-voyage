@@ -317,6 +317,24 @@ public static class PackageValidator
                 continue;
             }
 
+            // ADR-0038: reject legacy ai-block shapes with a precise
+            // migration hint. Mirrors the unit-side detection in
+            // ManifestParser.DetectLegacyAiShapes so unit and agent
+            // YAMLs share one rejection rule.
+            try
+            {
+                ManifestParser.DetectLegacyAiShapes(agentYaml);
+            }
+            catch (ManifestParseException ex)
+            {
+                diagnostics.Add(new PackageValidationDiagnostic(
+                    agentFile,
+                    PackageValidationSeverity.Error,
+                    "agent-legacy-ai-shape",
+                    ex.Message));
+                continue;
+            }
+
             if (string.IsNullOrWhiteSpace(doc.ApiVersion))
             {
                 diagnostics.Add(new PackageValidationDiagnostic(
@@ -347,13 +365,19 @@ public static class PackageValidator
                 continue;
             }
 
-            if (string.IsNullOrWhiteSpace(doc.Ai?.Model))
+            // ADR-0038: ai.model is the structured {provider, id} object;
+            // require both fields so the activator has enough to bind to
+            // a model entry in the catalogue.
+            var modelId = doc.Ai?.Model?.Id;
+            var modelProvider = doc.Ai?.Model?.Provider;
+            if (string.IsNullOrWhiteSpace(modelId) || string.IsNullOrWhiteSpace(modelProvider))
             {
                 diagnostics.Add(new PackageValidationDiagnostic(
                     agentFile,
                     PackageValidationSeverity.Error,
                     "agent-missing-model",
-                    $"agent '{doc.Id ?? doc.Name ?? "<unnamed>"}': ai.model is required."));
+                    $"agent '{doc.Id ?? doc.Name ?? "<unnamed>"}': ai.model is required " +
+                    "as a structured {provider, id} object (ADR-0038)."));
             }
         }
 
@@ -480,6 +504,19 @@ public static class PackageValidator
 
     private sealed class AgentAiDoc
     {
-        public string? Model { get; set; }
+        [YamlDotNet.Serialization.YamlMember(Alias = "runtime")]
+        public string? Runtime { get; set; }
+
+        [YamlDotNet.Serialization.YamlMember(Alias = "model")]
+        public AgentAiModelDoc? Model { get; set; }
+    }
+
+    private sealed class AgentAiModelDoc
+    {
+        [YamlDotNet.Serialization.YamlMember(Alias = "provider")]
+        public string? Provider { get; set; }
+
+        [YamlDotNet.Serialization.YamlMember(Alias = "id")]
+        public string? Id { get; set; }
     }
 }

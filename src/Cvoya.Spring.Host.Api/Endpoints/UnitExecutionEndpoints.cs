@@ -3,7 +3,6 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
@@ -72,7 +71,6 @@ public static class UnitExecutionEndpoints
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitExecutionStore store,
-        [FromServices] IAgentRuntimeRegistry runtimeRegistry,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("unit", id), cancellationToken);
@@ -83,13 +81,9 @@ public static class UnitExecutionEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        // #1748: stores are keyed by the unit's actor Guid. The route
-        // already requires `id` to be Guid-shaped (Address.For above
-        // throws otherwise), but normalising through entry.ActorId keeps
-        // the contract explicit and matches every other unit-keyed surface.
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
         var defaults = await store.GetAsync(actorId, cancellationToken);
-        return Results.Ok(ToResponse(defaults, runtimeRegistry));
+        return Results.Ok(ToResponse(defaults));
     }
 
     private static async Task<IResult> SetExecutionAsync(
@@ -97,7 +91,6 @@ public static class UnitExecutionEndpoints
         UnitExecutionResponse request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitExecutionStore store,
-        [FromServices] IAgentRuntimeRegistry runtimeRegistry,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("unit", id), cancellationToken);
@@ -108,14 +101,15 @@ public static class UnitExecutionEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        // #1732: Kind is read-only on the wire — derived from Agent.
-        // The request's Kind value (if any) is silently ignored.
+        // ADR-0038: the wire shape carries `runtime` (catalogue id) and
+        // structured `model: {provider, id}`. Internal store retains the
+        // legacy field names — the wire-domain mapping happens here.
         var defaults = new UnitExecutionDefaults(
             Image: request.Image,
-            Runtime: request.Runtime,
-            Provider: request.Provider,
-            Model: request.Model,
-            Agent: request.Agent);
+            Runtime: request.ContainerRuntime,
+            Provider: request.Model?.Provider,
+            Model: request.Model?.Id,
+            Agent: request.Runtime);
 
         if (defaults.IsEmpty)
         {
@@ -127,7 +121,7 @@ public static class UnitExecutionEndpoints
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
         await store.SetAsync(actorId, defaults, cancellationToken);
         var stored = await store.GetAsync(actorId, cancellationToken);
-        return Results.Ok(ToResponse(stored, runtimeRegistry));
+        return Results.Ok(ToResponse(stored));
     }
 
     private static async Task<IResult> ClearExecutionAsync(
@@ -149,29 +143,26 @@ public static class UnitExecutionEndpoints
         return Results.NoContent();
     }
 
-    internal static UnitExecutionResponse ToResponse(
-        UnitExecutionDefaults? defaults,
-        IAgentRuntimeRegistry runtimeRegistry)
+    internal static UnitExecutionResponse ToResponse(UnitExecutionDefaults? defaults)
     {
         if (defaults is null)
         {
             return new UnitExecutionResponse();
         }
 
-        // #1732: derive Kind from the runtime registry. Returns null when
-        // Agent is unset or names a runtime that is not registered here.
-        string? kind = null;
-        if (!string.IsNullOrWhiteSpace(defaults.Agent))
+        // ADR-0038: project the internal store fields onto the new wire
+        // shape — `runtime` (catalogue id), `containerRuntime`
+        // (docker/podman), and structured `model: {provider, id}`.
+        AiModelDto? model = null;
+        if (!string.IsNullOrWhiteSpace(defaults.Model) && !string.IsNullOrWhiteSpace(defaults.Provider))
         {
-            kind = runtimeRegistry.Get(defaults.Agent)?.Kind;
+            model = new AiModelDto(defaults.Provider!, defaults.Model!);
         }
 
         return new UnitExecutionResponse(
             Image: defaults.Image,
-            Runtime: defaults.Runtime,
-            Provider: defaults.Provider,
-            Model: defaults.Model,
-            Agent: defaults.Agent,
-            Kind: kind);
+            ContainerRuntime: defaults.Runtime,
+            Runtime: defaults.Agent,
+            Model: model);
     }
 }

@@ -21,6 +21,9 @@ An autonomous AI-powered entity. The fundamental building block of the platform.
 **Agent Actor (AgentActor)**
 The Dapr virtual actor implementing an agent. Manages runtime state, AI cognition, pub/sub subscriptions, and the mailbox.
 
+**AgentRuntime**
+The in-container execution engine that runs an agent's turn — Claude Code, Codex, Gemini CLI, Spring Voyage Agent. Closed set in v0.1; declared as data in `platform/runtime-catalog.yaml`. Each runtime entry declares the providers it can dispatch to (`modelProviders[]`), the per-edge `authMethod` and `credentialEnvVar`, the thread-binding mechanism, and the system-prompt injection mode. Per-runtime *behaviour* lives behind the `IAgentRuntimeLauncher` strategy interface, dispatched by the catalogue entry's `launcher` id. The user-facing execution config is the tuple `(runtime, model)` — a runtime plus a structured `model: {provider, id}`. See `docs/architecture/agent-runtime.md` and ADR-0038.
+
 **AgentMemory**
 The agent's single, ordered, append-only memory store. Entries are **MemoryEntry** records with optional `thread_id` and `threadOnly` attributes. When the agent is operating in any thread, it reads the visible subset — entries whose `thread_id == current_thread`, or `threadOnly == false`, or `thread_id == null` (thread-less). Writes go through the `store(memory)` MCP tool; reads through `recall(query)`. Visibility is governed at write time by the thread's **ThreadMemoryPolicy**. See `docs/concepts/threads.md` for positioning, `docs/architecture/thread-model.md` § Q4 for design detail, and ADR-0030 for the durable decision.
 
@@ -98,6 +101,12 @@ A single record in an agent's **AgentMemory**. Shape: `{ id, timestamp, payload,
 
 **MemoryPromotionPolicy**
 **Superseded by ThreadMemoryPolicy.** The prior draft's framing of "promotion between two stores" is replaced by "visibility attribute on a single store"; the underlying intent — a per-thread privacy knob — is preserved under the new name. See `docs/architecture/thread-model.md` § Q4.
+
+**Model**
+A specific LLM identified by the structured pair `{provider, id}` (e.g. `{provider: anthropic, id: claude-opus-4-7}`). The provider is intrinsic to the model — there is no separate `provider` axis in the manifest, on the wire, or stored on a tenant install row. The platform validates that `model.provider` is in the chosen runtime's allowed-provider set. See ADR-0038.
+
+**ModelProvider**
+The company or service whose API hosts a set of LLMs — `anthropic`, `openai`, `google`, `ollama`, future additions. Open set, declared as data in `platform/runtime-catalog.yaml`. Each entry carries `apiBaseUrl`, `modelsEndpoint`, an `adapter` strategy id (`anthropic`, `openai-compatible`, `google`), the auth methods the provider accepts (`authMethods`), the LLM API contract it implements (`llmApiContract: {name, version}`), and a seed list of `defaultModels`. ModelProviders are the routing / credential boundary the platform uses internally — `ILlmCredentialResolver` is keyed on `(tenant, provider, authMethod)`. Per-wire-format behaviour lives behind `IModelProviderAdapter` strategies. See ADR-0038.
 
 **Message**
 A typed communication between addressable entities. Contains an ID, sender, recipient, type, conversation ID, payload, and timestamp.

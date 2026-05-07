@@ -6,8 +6,10 @@ id: cli-engineer
 role: cli-engineer
 capabilities: ["cli-development", "kiota-integration", "command-parsing", "e2e-testing"]
 ai:
-  agent: claude
-  model: claude-opus-4-7
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-opus-4-7
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
 instructions: |

@@ -1,16 +1,19 @@
-# Dapr Conversation → OpenAI Chat Completions API. The Spring Voyage
-# launcher pins this component by name via
-# SPRING_LLM_COMPONENT=conversation-openai whenever a unit is configured
-# with `agent: spring-voyage, provider: openai`.
+# Dapr Conversation -> OpenAI Chat Completions API. The Spring Voyage
+# launcher pins this component by name via SPRING_LLM_COMPONENT=llm-openai
+# whenever a unit's ai.model.provider is `openai`.
 #
 # Credential injection mirrors the Anthropic component: the launcher sets
 # OPENAI_API_KEY on the agent app, ContainerLifecycleManager propagates it
 # into the daprd sidecar's env, and secretstores.local.env satisfies the
 # secretKeyRef below.
+#
+# Naming follows ADR-0038: in-tree Dapr component files use the
+# `llm-{provider.id}` convention. The Dapr `type:` field stays
+# `conversation.openai` because that is Dapr's contract, not ours.
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: conversation-openai
+  name: llm-openai
 spec:
   type: conversation.openai
   version: v1

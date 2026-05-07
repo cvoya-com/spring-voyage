@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
@@ -36,7 +37,7 @@ public class PersistentDispatchIntegrationTests
     private readonly IAgentDefinitionProvider _agentProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
     private readonly IAgentRuntimeLauncher _launcher = Substitute.For<IAgentRuntimeLauncher>();
-    private readonly IAgentRuntimeRegistry _agentRuntimeRegistry = Substitute.For<IAgentRuntimeRegistry>();
+    private readonly IRuntimeCatalog _runtimeCatalog = Substitute.For<IRuntimeCatalog>();
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
@@ -53,12 +54,23 @@ public class PersistentDispatchIntegrationTests
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         var daprOptions = new DaprSidecarOptions();
         _launcher.Kind.Returns("claude-code-cli");
-        // #1732: registry maps the runtime id ("claude") to the launcher's
-        // Kind so the dispatcher can derive the launcher.
-        var claudeRuntime = Substitute.For<IAgentRuntime>();
-        claudeRuntime.Id.Returns("claude");
-        claudeRuntime.Kind.Returns("claude-code-cli");
-        _agentRuntimeRegistry.Get("claude").Returns(claudeRuntime);
+        // ADR-0038: catalogue maps the runtime id ("claude") to the
+        // launcher strategy id so the dispatcher can derive the launcher.
+        var claudeRuntime = new Cvoya.Spring.Core.Catalog.AgentRuntime(
+            Id: "claude",
+            DisplayName: "Claude",
+            DefaultImage: "ghcr.io/test/claude:latest",
+            Launcher: "claude-code-cli",
+            ThreadBinding: new ThreadBinding(ThreadBindingKind.CliArg, ArgName: "--resume"),
+            SystemPromptInjection: new SystemPromptInjection(SystemPromptInjectionKind.File, FilePath: "AGENTS.md"),
+            ModelProviders: new[]
+            {
+                new AgentRuntimeProviderEdge(
+                    Id: "anthropic",
+                    AuthMethod: AuthMethod.Oauth,
+                    CredentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN"),
+            });
+        _runtimeCatalog.GetAgentRuntime("claude").Returns(claudeRuntime);
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(new AgentLaunchSpec(
                 WorkspaceFiles: new Dictionary<string, string>(),
@@ -103,7 +115,7 @@ public class PersistentDispatchIntegrationTests
         persistentServices.AddSingleton(_launcher);
         persistentServices.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(
             p => [p.GetRequiredService<IAgentRuntimeLauncher>()]);
-        persistentServices.AddSingleton(_agentRuntimeRegistry);
+        persistentServices.AddSingleton(_runtimeCatalog);
         persistentServices.AddSingleton<PersistentAgentRegistry>();
         persistentServices.AddSingleton<PersistentAgentLifecycle>();
         _persistentRegistry = persistentServices
@@ -126,7 +138,7 @@ public class PersistentDispatchIntegrationTests
             _agentProvider,
             _mcpServer,
             [_launcher],
-            _agentRuntimeRegistry,
+            _runtimeCatalog,
             _agentContextBuilder,
             _tenantContext,
             _persistentRegistry,

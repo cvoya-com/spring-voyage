@@ -274,9 +274,9 @@ These fields are delivered by the Dapr-agent launcher only. Generic launchers (C
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `model` | string | no | LLM model name to use for inference (e.g. `llama3.2:3b`, `gpt-4o-mini`). The Dapr Conversation component reads the model from its own metadata (deployed `conversation-*.yaml`); `model` is kept here for telemetry and agent-card rendering. Defaults to `llama3.2:3b` when absent. |
+| `model` | string | no | LLM model name to use for inference (e.g. `llama3.2:3b`, `gpt-4o-mini`). The Dapr Conversation component reads the model from its own metadata (deployed `llm-*.yaml`, per [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md)); `model` is kept here for telemetry and agent-card rendering. Defaults to `llama3.2:3b` when absent. |
 | `llm_provider` | string | no | Provider type label for telemetry and agent-card description (e.g. `ollama`, `openai`). Defaults to `ollama` when absent. |
-| `llm_component` | string | no | Optional override for the Dapr Conversation component name. Defaults to `llm-provider` when absent. Dapr-agent-specific — other SDKs MUST ignore this field. |
+| `llm_component` | string | no | Dapr Conversation component name to dial. Per [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md), in-tree component files follow the `llm-{provider.id}` naming convention; the launcher resolves this to e.g. `llm-anthropic`, `llm-openai`. Dapr-agent-specific — other SDKs MUST ignore this field. |
 
 #### Concurrent-threads policy
 
@@ -296,8 +296,11 @@ The composite logical view, for an SDK that materialises `IAgentContext` as a ty
   "agent_definition": {
     "id": "agent_backend-engineer-3",
     "instructions": "...",
+    "ai": {
+      "runtime": "claude-code",
+      "model": { "provider": "anthropic", "id": "claude-opus-4-7" }
+    },
     "execution": {
-      "tool": "claude-code",
       "image": "ghcr.io/cvoya-com/agent-claude-code:1.4.2",
       "hosting": "persistent",
       "concurrent_threads": true
@@ -670,3 +673,4 @@ The following surfaces are deliberately not specified by this document. Each has
 | v0.1.1 | 2026-04-28 | § 2.2.3 (Credential rotation): replace "TBD in Stage 2" with the restart-as-rotation-primitive contract — per-launch minting, restart re-injection, no-in-place-mutation, SDK auth-failure contract. § 2.3, § 5 conformance updated. Long-running zero-downtime rotation deferred to a future revision; see [`docs/architecture/agent-credential-rotation.md`](../architecture/agent-credential-rotation.md). Closes #1325 (design phase). |
 | v0.1.2 | 2026-04-29 | § 2.1 static metadata: add `thread_id` field (optional; present when launch originates from a known dispatch thread, absent on supervisor-driven restarts). § 2.2.1 env-var table: add `SPRING_THREAD_ID` (optional). Closes #1300 (propagation) and closes #1347 (D3d implementation: `IAgentContextBuilder.RefreshForRestartAsync`, `SupervisorState` identity fields, `ContainerSupervisorActor.RestartAsync` re-mint). |
 | v0.1.3 | 2026-04-29 | § 2.1: add "LLM selection (Dapr-agent-specific)" subsection — `model`, `llm_provider`, `llm_component` fields (all optional, Dapr-agent only). § 2.2.1 env-var table: add `SPRING_MODEL`, `SPRING_LLM_PROVIDER`, `SPRING_LLM_COMPONENT` (all optional, Dapr-agent only). These were already emitted by `SpringVoyageAgentLauncher`; this revision makes them normative so they can be safely removed from launcher-specific code if they migrate into `AgentContextBuilder`. Closes #1327. |
+| v0.1.4 | 2026-05-07 | § 2.1: align `model` / `llm_component` descriptions with [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md) — Dapr component files now follow the `llm-{provider.id}` naming convention; the launcher resolves `SPRING_LLM_COMPONENT` to `llm-anthropic` / `llm-openai` / `llm-google` / `llm-ollama`. Example `agent_definition` updated to the structured `(runtime, model)` shape (`ai.runtime` + `ai.model.{provider, id}`). |

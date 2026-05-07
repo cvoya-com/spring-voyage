@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 
 import { expectNoAxeViolations } from "@/test/a11y";
 import type {
-  InstalledAgentRuntimeResponse,
+  InstalledModelProviderResponse,
   InstallStatusResponse,
   ProviderCredentialStatusResponse,
 } from "@/lib/api/types";
@@ -128,28 +128,18 @@ function makeStatus(
 }
 
 function makeRuntime(
-  overrides: Partial<InstalledAgentRuntimeResponse>,
-): InstalledAgentRuntimeResponse {
+  overrides: Partial<InstalledModelProviderResponse>,
+): InstalledModelProviderResponse {
   const now = new Date().toISOString();
   const id = overrides.id ?? "claude";
-  const defaultImageForId = (runtimeId: string) => {
-    switch (runtimeId) {
-      case "claude":
-        return "ghcr.io/cvoya-com/spring-voyage-agent-claude-code:latest";
-      case "openai":
-        return "ghcr.io/cvoya-com/spring-voyage-agent-codex:latest";
-      case "google":
-        return "ghcr.io/cvoya-com/spring-voyage-agent-google:latest";
-      case "ollama":
-        return "ghcr.io/cvoya-com/spring-voyage-agent-ollama:latest";
-      default:
-        return "ghcr.io/cvoya-com/spring-voyage-agent-base:latest";
-    }
-  };
+  // ADR-0038 (PR-1b): the install row no longer carries `kind` /
+  // `defaultImage` — those fields belonged to the legacy
+  // `InstalledAgentRuntimeResponse` and moved into
+  // `runtime-catalog.yaml`. The fixture now mirrors the new
+  // model-provider install shape.
   return {
     id,
-    displayName: "Claude",
-    kind: "claude-code-cli",
+    displayName: "Anthropic",
     installedAt: now,
     updatedAt: now,
     models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"],
@@ -158,17 +148,21 @@ function makeRuntime(
     credentialKind: "ApiKey",
     credentialDisplayHint: null,
     credentialSecretName: "anthropic-api-key",
-    defaultImage: defaultImageForId(id),
     ...overrides,
-  } as InstalledAgentRuntimeResponse;
+  } as InstalledModelProviderResponse;
 }
 
-function defaultRuntimes(): InstalledAgentRuntimeResponse[] {
+function defaultRuntimes(): InstalledModelProviderResponse[] {
+  // The wizard's `deriveRequiredCredentialRuntime` helper still looks up
+  // installed entries by the legacy runtime ids (claude/openai/google).
+  // PR-3 retires that mapping when the wizard reads
+  // `runtime-catalog.yaml` directly (#1761) — until then the fixture
+  // keeps the legacy ids so the surrounding UX (credential banner,
+  // help links) keeps rendering.
   return [
     makeRuntime({
       id: "claude",
-      displayName: "Claude (Claude Code CLI + Anthropic API)",
-      kind: "claude-code-cli",
+      displayName: "Claude (Anthropic)",
       models: [
         "claude-opus-4-7",
         "claude-sonnet-4-6",
@@ -179,24 +173,21 @@ function defaultRuntimes(): InstalledAgentRuntimeResponse[] {
     }),
     makeRuntime({
       id: "openai",
-      displayName: "OpenAI (spring-voyage + OpenAI API)",
-      kind: "spring-voyage",
+      displayName: "OpenAI",
       models: ["gpt-4o", "gpt-4o-mini", "o3-mini"],
       defaultModel: "gpt-4o",
       credentialKind: "ApiKey",
     }),
     makeRuntime({
       id: "google",
-      displayName: "Google AI (spring-voyage + Google AI API)",
-      kind: "spring-voyage",
+      displayName: "Google",
       models: ["gemini-2.5-pro", "gemini-2.5-flash"],
       defaultModel: "gemini-2.5-pro",
       credentialKind: "ApiKey",
     }),
     makeRuntime({
       id: "ollama",
-      displayName: "Ollama (spring-voyage + local Ollama)",
-      kind: "spring-voyage",
+      displayName: "Ollama",
       models: ["qwen2.5:14b", "llama3.2:3b"],
       defaultModel: "qwen2.5:14b",
       credentialKind: "None",
@@ -710,7 +701,7 @@ describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)
     expect(options).toContain("gpt-4o");
   });
 
-  it("shows installed spring-voyage runtimes in the Provider dropdown", async () => {
+  it("shows installed model providers in the Provider dropdown", async () => {
     renderPage();
     await advanceToExecution();
     await selectTool("spring-voyage");
@@ -720,12 +711,16 @@ describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)
     )) as HTMLSelectElement;
     const options = Array.from(providerSelect.options).map((o) => o.value);
 
-    // Only spring-voyage runtimes are listed — the claude runtime's
-    // kind is claude-code-cli and is filtered out.
+    // ADR-0038: every installed model provider is eligible for the
+    // spring-voyage runtime — `runtime-catalog.yaml` lists every
+    // provider on the spring-voyage entry, and the legacy
+    // `kind === "spring-voyage"` filter was retired with the wire
+    // reshape. PR-3 will narrow this back to the catalogue's
+    // `agentRuntimes[].modelProviders[]` set (#1761).
     expect(options).toContain("openai");
     expect(options).toContain("google");
     expect(options).toContain("ollama");
-    expect(options).not.toContain("claude");
+    expect(options).toContain("claude");
   });
 
   it("hides the credential input for runtimes with CredentialKind=None (ollama)", async () => {
@@ -885,7 +880,6 @@ describe("CreateUnitPage — Step 3 scratch explains a disabled Next", () => {
       makeRuntime({
         id: "openai",
         displayName: "OpenAI",
-        kind: "spring-voyage",
         models: ["gpt-4o"],
         defaultModel: "gpt-4o",
         credentialKind: "ApiKey",

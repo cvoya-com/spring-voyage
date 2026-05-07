@@ -95,7 +95,7 @@ public class SpringVoyageAgentLauncherTests
         prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("llama3.2:3b");
         prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("ollama");
         prep.EnvironmentVariables["AGENT_PORT"].ShouldBe("8999");
-        // #1328: OLLAMA_ENDPOINT removed from launcher; conversation-ollama.yaml now reads SPRING_LLM_PROVIDER_URL.
+        // #1328: OLLAMA_ENDPOINT removed from launcher; llm-ollama.yaml now reads SPRING_LLM_PROVIDER_URL.
         prep.EnvironmentVariables.ShouldNotContainKey("OLLAMA_ENDPOINT",
             "OLLAMA_ENDPOINT must not be emitted by the launcher after #1328; " +
             "the Dapr Conversation YAML now reads SPRING_LLM_PROVIDER_URL.");
@@ -244,12 +244,12 @@ public class SpringVoyageAgentLauncherTests
     [Fact]
     public async Task PrepareAsync_AnthropicProvider_PropagatesAnthropicApiKey()
     {
-        // #1714 step 1: with `agent: spring-voyage, provider: anthropic, model: <m>`
+        // ADR-0038: with `runtime: spring-voyage` and `model.provider: anthropic`
         // the launcher resolves the API key through ILlmCredentialResolver
         // and injects it as ANTHROPIC_API_KEY so the daprd sidecar's
-        // local-env secret store can satisfy conversation-anthropic.yaml's
+        // local-env secret store can satisfy llm-anthropic.yaml's
         // secretKeyRef. The launcher also pins SPRING_LLM_COMPONENT to
-        // conversation-anthropic so agent.py dials the right Conversation
+        // llm-anthropic so agent.py dials the right Conversation
         // component instead of silently routing through Ollama.
         SeedTenantSecret("anthropic", "anthropic-api-key", "sk-ant-api-fake");
         var context = MakeContext("anthropic", "claude-sonnet-4-6");
@@ -258,7 +258,7 @@ public class SpringVoyageAgentLauncherTests
 
         prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("anthropic");
         prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("claude-sonnet-4-6");
-        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("conversation-anthropic");
+        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("llm-anthropic");
         prep.EnvironmentVariables["ANTHROPIC_API_KEY"].ShouldBe("sk-ant-api-fake");
         // The Claude runtime's CredentialEnvVar is CLAUDE_CODE_OAUTH_TOKEN — that
         // env var name is intentionally for the CLI / agent-runtime path. The
@@ -293,7 +293,7 @@ public class SpringVoyageAgentLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("conversation-openai");
+        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("llm-openai");
         prep.EnvironmentVariables["OPENAI_API_KEY"].ShouldBe("sk-openai-fake");
     }
 
@@ -305,7 +305,7 @@ public class SpringVoyageAgentLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("conversation-google");
+        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("llm-google");
         prep.EnvironmentVariables["GOOGLE_API_KEY"].ShouldBe("test-google-key");
     }
 
@@ -315,12 +315,12 @@ public class SpringVoyageAgentLauncherTests
         // Ollama is credential-less; the launcher must NOT consult the
         // resolver and must NOT inject any provider env var. It still
         // pins SPRING_LLM_COMPONENT so agent.py never falls back to a
-        // legacy "llm-provider" default.
+        // stale default.
         var context = CreateContext();
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("conversation-ollama");
+        prep.EnvironmentVariables["SPRING_LLM_COMPONENT"].ShouldBe("llm-ollama");
         prep.EnvironmentVariables.ShouldNotContainKey("ANTHROPIC_API_KEY");
         prep.EnvironmentVariables.ShouldNotContainKey("OPENAI_API_KEY");
         prep.EnvironmentVariables.ShouldNotContainKey("GOOGLE_API_KEY");

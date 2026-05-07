@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -41,17 +42,28 @@ public class PersistentAgentLifecycleTests
     public PersistentAgentLifecycleTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        // #1732: launcher.Kind matches IAgentRuntime.Kind
-        // (claude-code-cli for the claude runtime).
+        // ADR-0038: launcher.Kind matches the catalogue runtime entry's
+        // launcher strategy id (claude-code-cli for the claude runtime).
         _launcher.Kind.Returns("claude-code-cli");
 
-        // #1732: registry maps the runtime id ("claude") to the launcher's
-        // Kind so the lifecycle can derive the launcher.
-        var claudeRuntime = Substitute.For<IAgentRuntime>();
-        claudeRuntime.Id.Returns("claude");
-        claudeRuntime.Kind.Returns("claude-code-cli");
-        var registry = Substitute.For<IAgentRuntimeRegistry>();
-        registry.Get("claude").Returns(claudeRuntime);
+        // ADR-0038: catalogue maps the runtime id ("claude") to the
+        // launcher strategy id so the lifecycle can derive the launcher.
+        var claudeRuntime = new Cvoya.Spring.Core.Catalog.AgentRuntime(
+            Id: "claude",
+            DisplayName: "Claude",
+            DefaultImage: "ghcr.io/test/claude:latest",
+            Launcher: "claude-code-cli",
+            ThreadBinding: new ThreadBinding(ThreadBindingKind.CliArg, ArgName: "--resume"),
+            SystemPromptInjection: new SystemPromptInjection(SystemPromptInjectionKind.File, FilePath: "AGENTS.md"),
+            ModelProviders: new[]
+            {
+                new AgentRuntimeProviderEdge(
+                    Id: "anthropic",
+                    AuthMethod: AuthMethod.Oauth,
+                    CredentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN"),
+            });
+        var catalog = Substitute.For<IRuntimeCatalog>();
+        catalog.GetAgentRuntime("claude").Returns(claudeRuntime);
 
         var daprOptions = new DaprSidecarOptions();
         var services = new ServiceCollection();
@@ -66,7 +78,7 @@ public class PersistentAgentLifecycleTests
         services.AddSingleton(_mcpServer);
         services.AddSingleton(_launcher);
         services.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(_ => new[] { _launcher });
-        services.AddSingleton(registry);
+        services.AddSingleton(catalog);
         services.AddSingleton<PersistentAgentRegistry>();
         services.AddSingleton<PersistentAgentLifecycle>();
         var sp = services.BuildServiceProvider();

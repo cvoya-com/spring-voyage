@@ -6886,13 +6886,13 @@
         }
       }
     },
-    "/api/v1/tenant/agent-runtimes/installs": {
+    "/api/v1/tenant/model-providers/installs": {
       "get": {
         "tags": [
-          "AgentRuntimes"
+          "ModelProviders"
         ],
-        "summary": "List every agent runtime installed on the current tenant",
-        "operationId": "ListInstalledAgentRuntimes",
+        "summary": "List every model provider installed on the current tenant",
+        "operationId": "ListInstalledModelProviders",
         "responses": {
           "200": {
             "description": "OK",
@@ -6901,7 +6901,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/InstalledAgentRuntimeResponse"
+                    "$ref": "#/components/schemas/InstalledModelProviderResponse"
                   }
                 }
               }
@@ -6910,13 +6910,13 @@
         }
       }
     },
-    "/api/v1/tenant/agent-runtimes/installs/{id}": {
+    "/api/v1/tenant/model-providers/installs/{id}": {
       "get": {
         "tags": [
-          "AgentRuntimes"
+          "ModelProviders"
         ],
-        "summary": "Get a single installed agent runtime by id",
-        "operationId": "GetInstalledAgentRuntime",
+        "summary": "Get a single installed model provider by id",
+        "operationId": "GetInstalledModelProvider",
         "parameters": [
           {
             "name": "id",
@@ -6933,7 +6933,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InstalledAgentRuntimeResponse"
+                  "$ref": "#/components/schemas/InstalledModelProviderResponse"
                 }
               }
             }
@@ -6952,10 +6952,10 @@
       },
       "delete": {
         "tags": [
-          "AgentRuntimes"
+          "ModelProviders"
         ],
-        "summary": "Uninstall the runtime from the current tenant",
-        "operationId": "UninstallAgentRuntime",
+        "summary": "Uninstall the provider from the current tenant",
+        "operationId": "UninstallModelProvider",
         "parameters": [
           {
             "name": "id",
@@ -6973,13 +6973,13 @@
         }
       }
     },
-    "/api/v1/tenant/agent-runtimes/installs/{id}/models": {
+    "/api/v1/tenant/model-providers/installs/{id}/models": {
       "get": {
         "tags": [
-          "AgentRuntimes"
+          "ModelProviders"
         ],
-        "summary": "Get the tenant's configured model list for an installed agent runtime",
-        "operationId": "GetInstalledAgentRuntimeModels",
+        "summary": "Get the tenant's configured model list for an installed provider",
+        "operationId": "GetInstalledModelProviderModels",
         "parameters": [
           {
             "name": "id",
@@ -6998,7 +6998,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/AgentRuntimeModelResponse"
+                    "$ref": "#/components/schemas/ModelProviderModelResponse"
                   }
                 }
               }
@@ -7017,13 +7017,13 @@
         }
       }
     },
-    "/api/v1/tenant/agent-runtimes/installs/{id}/install": {
+    "/api/v1/tenant/model-providers/installs/{id}/install": {
       "post": {
         "tags": [
-          "AgentRuntimes"
+          "ModelProviders"
         ],
-        "summary": "Install the runtime on the current tenant (idempotent)",
-        "operationId": "InstallAgentRuntime",
+        "summary": "Install the provider on the current tenant (idempotent)",
+        "operationId": "InstallModelProvider",
         "parameters": [
           {
             "name": "id",
@@ -7043,7 +7043,7 @@
                     "type": "null"
                   },
                   {
-                    "$ref": "#/components/schemas/AgentRuntimeInstallRequest"
+                    "$ref": "#/components/schemas/ModelProviderInstallRequest"
                   }
                 ]
               }
@@ -7056,7 +7056,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InstalledAgentRuntimeResponse"
+                  "$ref": "#/components/schemas/InstalledModelProviderResponse"
                 }
               }
             }
@@ -7074,13 +7074,13 @@
         }
       }
     },
-    "/api/v1/tenant/agent-runtimes/installs/{id}/config": {
+    "/api/v1/tenant/model-providers/installs/{id}/config": {
       "patch": {
         "tags": [
-          "AgentRuntimes"
+          "ModelProviders"
         ],
-        "summary": "Replace the tenant-scoped configuration for an installed runtime",
-        "operationId": "UpdateAgentRuntimeConfig",
+        "summary": "Replace the tenant-scoped configuration for an installed provider",
+        "operationId": "UpdateModelProviderConfig",
         "parameters": [
           {
             "name": "id",
@@ -7107,7 +7107,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InstalledAgentRuntimeResponse"
+                  "$ref": "#/components/schemas/InstalledModelProviderResponse"
                 }
               }
             }
@@ -7126,10 +7126,10 @@
       },
       "get": {
         "tags": [
-          "AgentRuntimes"
+          "ModelProviders"
         ],
-        "summary": "Get the tenant-scoped configuration slot for an installed runtime",
-        "operationId": "GetAgentRuntimeConfig",
+        "summary": "Get the tenant-scoped configuration slot for an installed provider",
+        "operationId": "GetModelProviderConfig",
         "parameters": [
           {
             "name": "id",
@@ -7146,7 +7146,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentRuntimeConfigResponse"
+                  "$ref": "#/components/schemas/ModelProviderConfigResponse"
                 }
               }
             }
@@ -7164,13 +7164,13 @@
         }
       }
     },
-    "/api/v1/tenant/agent-runtimes/installs/{id}/credential-health": {
+    "/api/v1/tenant/model-providers/installs/{id}/credential-health": {
       "get": {
         "tags": [
-          "AgentRuntimes"
+          "ModelProviders"
         ],
-        "summary": "Get the current credential-health row for a runtime on the current tenant",
-        "operationId": "GetAgentRuntimeCredentialHealth",
+        "summary": "Get the current credential-health row for a provider on the current tenant",
+        "operationId": "GetModelProviderCredentialHealth",
         "parameters": [
           {
             "name": "id",
@@ -7212,13 +7212,13 @@
         }
       }
     },
-    "/api/v1/tenant/agent-runtimes/installs/{id}/validate-credential": {
+    "/api/v1/tenant/model-providers/installs/{id}/validate-credential": {
       "post": {
         "tags": [
-          "AgentRuntimes"
+          "ModelProviders"
         ],
-        "summary": "Probe the runtime with the supplied credential and record the outcome in the credential-health store; does not touch the model catalog",
-        "operationId": "ValidateAgentRuntimeCredential",
+        "summary": "Probe the provider with the supplied credential; record the outcome in the credential-health store; does not touch the model catalogue",
+        "operationId": "ValidateModelProviderCredential",
         "parameters": [
           {
             "name": "id",
@@ -7238,7 +7238,7 @@
                     "type": "null"
                   },
                   {
-                    "$ref": "#/components/schemas/AgentRuntimeValidateCredentialRequest"
+                    "$ref": "#/components/schemas/ModelProviderValidateCredentialRequest"
                   }
                 ]
               }
@@ -7251,7 +7251,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentRuntimeValidateCredentialResponse"
+                  "$ref": "#/components/schemas/ModelProviderValidateCredentialResponse"
                 }
               }
             }
@@ -7269,13 +7269,13 @@
         }
       }
     },
-    "/api/v1/tenant/agent-runtimes/installs/{id}/refresh-models": {
+    "/api/v1/tenant/model-providers/installs/{id}/refresh-models": {
       "post": {
         "tags": [
-          "AgentRuntimes"
+          "ModelProviders"
         ],
-        "summary": "Best-effort live-catalog lookup; replaces the tenant's configured model list on success",
-        "operationId": "RefreshAgentRuntimeModels",
+        "summary": "Best-effort live-catalogue lookup; replaces the tenant's configured model list on success",
+        "operationId": "RefreshModelProviderModels",
         "parameters": [
           {
             "name": "id",
@@ -7295,7 +7295,7 @@
                     "type": "null"
                   },
                   {
-                    "$ref": "#/components/schemas/AgentRuntimeRefreshModelsRequest"
+                    "$ref": "#/components/schemas/ModelProviderRefreshModelsRequest"
                   }
                 ]
               }
@@ -7308,7 +7308,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InstalledAgentRuntimeResponse"
+                  "$ref": "#/components/schemas/InstalledModelProviderResponse"
                 }
               }
             }
@@ -9099,37 +9099,29 @@
               "string"
             ]
           },
+          "containerRuntime": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "runtime": {
             "type": [
               "null",
               "string"
             ]
           },
-          "provider": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "model": {
-            "type": [
-              "null",
-              "string"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AiModelDto"
+              }
             ]
           },
           "hosting": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "agent": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "kind": {
             "type": [
               "null",
               "string"
@@ -9214,38 +9206,6 @@
           }
         }
       },
-      "AgentRuntimeConfigResponse": {
-        "required": [
-          "id",
-          "models",
-          "defaultModel",
-          "baseUrl"
-        ],
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "models": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "defaultModel": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "baseUrl": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
       "AgentRuntimeCredentialKind": {
         "enum": [
           "None",
@@ -9278,122 +9238,6 @@
               "null",
               "string"
             ]
-          }
-        }
-      },
-      "AgentRuntimeInstallRequest": {
-        "required": [
-          "models",
-          "defaultModel",
-          "baseUrl"
-        ],
-        "type": "object",
-        "properties": {
-          "models": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "defaultModel": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "baseUrl": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "AgentRuntimeModelResponse": {
-        "required": [
-          "id",
-          "displayName",
-          "contextWindow"
-        ],
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "displayName": {
-            "type": "string"
-          },
-          "contextWindow": {
-            "type": [
-              "null",
-              "integer"
-            ],
-            "format": "int32"
-          }
-        }
-      },
-      "AgentRuntimeRefreshModelsRequest": {
-        "required": [
-          "credential"
-        ],
-        "type": "object",
-        "properties": {
-          "credential": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "AgentRuntimeValidateCredentialRequest": {
-        "required": [
-          "credential",
-          "secretName"
-        ],
-        "type": "object",
-        "properties": {
-          "credential": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "secretName": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "AgentRuntimeValidateCredentialResponse": {
-        "required": [
-          "ok",
-          "status",
-          "detail",
-          "validatedAt"
-        ],
-        "type": "object",
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "status": {
-            "$ref": "#/components/schemas/CredentialHealthStatus"
-          },
-          "detail": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "validatedAt": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -9498,6 +9342,21 @@
           "computedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "AiModelDto": {
+        "required": [
+          "provider",
+          "id"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
           }
         }
       },
@@ -10275,12 +10134,6 @@
               }
             ]
           },
-          "provider": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "hosting": {
             "type": [
               "null",
@@ -10952,75 +10805,6 @@
           }
         }
       },
-      "InstalledAgentRuntimeResponse": {
-        "required": [
-          "id",
-          "displayName",
-          "kind",
-          "installedAt",
-          "updatedAt",
-          "models",
-          "defaultModel",
-          "baseUrl",
-          "credentialKind",
-          "credentialDisplayHint",
-          "credentialSecretName",
-          "defaultImage"
-        ],
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "displayName": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "installedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "models": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "defaultModel": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "baseUrl": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "credentialKind": {
-            "$ref": "#/components/schemas/AgentRuntimeCredentialKind"
-          },
-          "credentialDisplayHint": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "credentialSecretName": {
-            "type": "string"
-          },
-          "defaultImage": {
-            "type": "string"
-          }
-        }
-      },
       "InstalledConnectorResponse": {
         "required": [
           "typeId",
@@ -11068,6 +10852,67 @@
           },
           "config": {
             "$ref": "#/components/schemas/JsonElement"
+          }
+        }
+      },
+      "InstalledModelProviderResponse": {
+        "required": [
+          "id",
+          "displayName",
+          "installedAt",
+          "updatedAt",
+          "models",
+          "defaultModel",
+          "baseUrl",
+          "credentialKind",
+          "credentialDisplayHint",
+          "credentialSecretName"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "installedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultModel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "credentialKind": {
+            "$ref": "#/components/schemas/AgentRuntimeCredentialKind"
+          },
+          "credentialDisplayHint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "credentialSecretName": {
+            "type": "string"
           }
         }
       },
@@ -11358,6 +11203,154 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "ModelProviderConfigResponse": {
+        "required": [
+          "id",
+          "models",
+          "defaultModel",
+          "baseUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultModel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ModelProviderInstallRequest": {
+        "required": [
+          "models",
+          "defaultModel",
+          "baseUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultModel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ModelProviderModelResponse": {
+        "required": [
+          "id",
+          "displayName",
+          "contextWindow"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "contextWindow": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "ModelProviderRefreshModelsRequest": {
+        "required": [
+          "credential"
+        ],
+        "type": "object",
+        "properties": {
+          "credential": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ModelProviderValidateCredentialRequest": {
+        "required": [
+          "credential",
+          "secretName"
+        ],
+        "type": "object",
+        "properties": {
+          "credential": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "secretName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ModelProviderValidateCredentialResponse": {
+        "required": [
+          "ok",
+          "status",
+          "detail",
+          "validatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CredentialHealthStatus"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "validatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -13051,34 +13044,26 @@
               "string"
             ]
           },
+          "containerRuntime": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "runtime": {
             "type": [
               "null",
               "string"
             ]
           },
-          "provider": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "model": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "agent": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "kind": {
-            "type": [
-              "null",
-              "string"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AiModelDto"
+              }
             ]
           }
         }
@@ -13407,12 +13392,6 @@
               "string"
             ]
           },
-          "provider": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "hosting": {
             "type": [
               "null",
@@ -13684,12 +13663,6 @@
               "string"
             ]
           },
-          "provider": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "hosting": {
             "type": [
               "null",
@@ -13938,7 +13911,7 @@
       "name": "Connectors.WebSearch"
     },
     {
-      "name": "AgentRuntimes"
+      "name": "ModelProviders"
     },
     {
       "name": "Secrets"

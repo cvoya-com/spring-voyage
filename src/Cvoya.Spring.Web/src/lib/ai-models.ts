@@ -90,51 +90,11 @@ export function getAgentRegistryId(
   }
 }
 
-/**
- * Maps an execution tool to the wire-level `provider` field the unit
- * creation endpoint expects. `spring-voyage` passes the explicit provider
- * the caller picked; all other tools have a fixed provider derived from
- * the CLI they drive.
- */
-export function getToolWireProvider(
-  tool: ExecutionTool,
-  runtimeId: string | null,
-): string | undefined {
-  switch (tool) {
-    case "claude-code":
-      return "claude";
-    case "codex":
-      return "openai";
-    case "gemini":
-      return "google";
-    case "spring-voyage":
-      return runtimeId ?? undefined;
-    case "custom":
-    default:
-      return undefined;
-  }
-}
-
-/**
- * Maps a runtime id to the secret name tier-2 resolution looks up in
- * the secret registry. The wizard writes the operator-supplied key
- * under this name (either unit- or tenant-scoped) so downstream
- * dispatch resolves through `ILlmCredentialResolver` without further
- * config. Returns `null` when the runtime requires no credential
- * (e.g. local Ollama).
- */
-export function getRuntimeSecretName(runtimeId: string): string | null {
-  switch (runtimeId) {
-    case "claude":
-    case "anthropic":
-      return "anthropic-api-key";
-    case "openai":
-      return "openai-api-key";
-    case "google":
-    case "gemini":
-    case "googleai":
-      return "google-api-key";
-    default:
-      return null;
-  }
-}
+// Legacy helpers `getToolWireProvider` and `getRuntimeSecretName` were
+// retired in ADR-0038 (PR-1b). Both mapped the pre-ADR wire shape:
+// the former synthesised the wire-level `provider` slot from
+// (tool, runtime), and the latter mapped a runtime id to the
+// `(tenant, runtime-id)`-keyed secret name. ADR-0038 §6 re-keys
+// credentials to `(tenant, provider, authMethod)`, so the secret name
+// is no longer derivable from a runtime id; PR-3 will rebuild
+// per-provider credential UX on top of `runtime-catalog.yaml`.

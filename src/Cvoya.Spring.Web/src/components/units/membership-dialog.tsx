@@ -10,7 +10,7 @@ import { useAgentRuntimes } from "@/lib/api/queries";
 import type {
   AgentExecutionMode,
   AgentResponse,
-  InstalledAgentRuntimeResponse,
+  InstalledModelProviderResponse,
   UnitMembershipResponse,
 } from "@/lib/api/types";
 import {
@@ -125,7 +125,7 @@ export function MembershipDialog({
   // current" option below, so an unknown persisted model round-trips
   // losslessly.
   const agentRuntimesQuery = useAgentRuntimes();
-  const runtimes = useMemo<InstalledAgentRuntimeResponse[]>(
+  const runtimes = useMemo<InstalledModelProviderResponse[]>(
     () => agentRuntimesQuery.data ?? [],
     [agentRuntimesQuery.data],
   );

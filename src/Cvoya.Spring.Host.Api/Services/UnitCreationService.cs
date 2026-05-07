@@ -142,7 +142,9 @@ public class UnitCreationService : IUnitCreationService
             description: request.Description,
             model: request.Model,
             color: request.Color,
-            provider: request.Provider,
+            // ADR-0038: provider is intrinsic to the structured execution.model.
+            // The Unit row no longer carries a flat provider slot.
+            provider: null,
             hosting: request.Hosting,
             members: Array.Empty<MemberManifest>(),
             warnings: new List<string>(),
@@ -176,8 +178,10 @@ public class UnitCreationService : IUnitCreationService
             ? overrides.DisplayName!
             : name;
         var description = manifest.Description ?? string.Empty;
+        // ADR-0038: ai.model is structured {provider, id}; the Model
+        // hint surfaced on the unit row is the provider-scoped id.
         var model = overrides.Model
-            ?? manifest.Ai?.Model;
+            ?? manifest.Ai?.Model?.Id;
         var color = overrides.Color;
 
         var warnings = new List<string>();
@@ -267,12 +271,12 @@ public class UnitCreationService : IUnitCreationService
         // defaults match what a PUT /api/v1/units/{id}/execution call
         // would produce. An absent or all-empty block is a no-op so an
         // operator who clears the YAML doesn't re-apply a stale default.
-        // #1683: also forward the manifest's `ai.agent` value into the
-        // execution block's new `agent` slot. The validator reads
-        // `defaults.Agent` first as the agent-runtime registry id; without
-        // this propagation every manifest-installed unit failed Step 1
-        // with `No agent runtime is registered with id 'docker'.`
-        var manifestAgent = manifest.Ai?.Agent;
+        // ADR-0038: forward the manifest's `ai.runtime` value into the
+        // execution block's `agent` slot (still named "agent" on the
+        // store contract — internal field name; renamed on the wire to
+        // "runtime" by PR-1b). The validator reads `defaults.Agent` as
+        // the agent-runtime registry id.
+        var manifestAgent = manifest.Ai?.Runtime;
         if (manifest.Execution is { IsEmpty: false } || !string.IsNullOrWhiteSpace(manifestAgent))
         {
             // #1666: IUnitExecutionStore is keyed by the unit's actor Guid
@@ -324,12 +328,15 @@ public class UnitCreationService : IUnitCreationService
 
         try
         {
-            // #1732: ExecutionManifest no longer carries Tool — derived from
-            // ai.agent via the runtime registry at dispatch time.
+            // ADR-0038: ExecutionManifest no longer carries `provider`
+            // (intrinsic to ai.model.provider) or `tool` (derived from
+            // ai.runtime via the catalogue). The internal store retains
+            // the Provider slot during PR-1b transitional work — fed
+            // from the structured manifest model when present.
             var defaults = new UnitExecutionDefaults(
                 Image: execution.Image,
                 Runtime: execution.Runtime,
-                Provider: execution.Provider,
+                Provider: null,
                 Model: execution.Model,
                 Agent: agent);
             // #1666: the store is Guid-keyed — see DbUnitExecutionStore
@@ -1100,7 +1107,6 @@ public class UnitCreationService : IUnitCreationService
                 initialStatus,
                 metadata.Model,
                 metadata.Color,
-                metadata.Provider,
                 metadata.Hosting);
 
             return new UnitCreationResult(response, warnings, membersAdded);

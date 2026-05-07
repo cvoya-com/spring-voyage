@@ -706,7 +706,7 @@ public static class UnitCommand
         new("displayName", u => u.DisplayName ?? u.Name),
         new("description", u => u.Description),
         new("hosting", u => u.Hosting),
-        new("provider", u => u.Provider),
+        // ADR-0038: provider is intrinsic to ai.model.provider; flat slot is gone.
         new("model", u => u.Model),
     };
 
@@ -1515,21 +1515,26 @@ public static class UnitCommand
     // both helpers are obsolete and were removed.
 
     /// <summary>
-    /// #742: adapter over <see cref="SpringApiClient.GetAgentRuntimeAsync"/>
+    /// ADR-0038: adapter over <see cref="SpringApiClient.GetModelProviderAsync"/>
     /// that satisfies the
     /// <c>Func&lt;string, CancellationToken, Task&lt;string?&gt;&gt;</c>
     /// resolver signature expected by
-    /// <see cref="ResolveCredentialOptionsAsync"/>. Returns the runtime's
-    /// <c>CredentialSecretName</c> verbatim — <c>null</c> when the runtime
+    /// <see cref="ResolveCredentialOptionsAsync"/>. Returns the provider's
+    /// <c>CredentialSecretName</c> verbatim — <c>null</c> when the provider
     /// is not installed on the current tenant, <see cref="string.Empty"/>
-    /// when the runtime declares no credential (for example Ollama).
+    /// when the provider declares no credential (for example Ollama).
     /// </summary>
+    /// <remarks>
+    /// PR-2 will rewire the unit / agent CLI commands to ask for a
+    /// provider id directly; in Chunk A this resolver is invoked with the
+    /// runtime id which the host translates to a provider id internally.
+    /// </remarks>
     private static Func<string, CancellationToken, Task<string?>> RuntimeSecretNameResolver(
         SpringApiClient client)
-        => async (runtimeId, ct) =>
+        => async (providerId, ct) =>
         {
-            var runtime = await client.GetAgentRuntimeAsync(runtimeId, ct);
-            return runtime?.CredentialSecretName;
+            var provider = await client.GetModelProviderAsync(providerId, ct);
+            return provider?.CredentialSecretName;
         };
 
     /// <summary>

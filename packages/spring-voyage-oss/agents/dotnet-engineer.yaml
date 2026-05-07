@@ -6,8 +6,10 @@ id: dotnet-engineer
 role: dotnet-engineer
 capabilities: ["dotnet-development", "dapr-actors", "domain-implementation", "orchestration", "backend-implementation"]
 ai:
-  agent: claude
-  model: claude-opus-4-7
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-opus-4-7
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
 instructions: |

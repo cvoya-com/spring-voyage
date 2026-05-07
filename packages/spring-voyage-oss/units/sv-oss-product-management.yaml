@@ -3,8 +3,10 @@ kind: Unit
 name: Product Management
 description: Product management team for Spring Voyage OSS — triage, roadmap, and sprint planning against the v0.1 plan-of-record.
 ai:
-  agent: claude
-  model: claude-sonnet-4-6
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
   prompt: |
     You orchestrate the Spring Voyage OSS product management team.
     Drive issue triage (close / route / park), maintain the roadmap

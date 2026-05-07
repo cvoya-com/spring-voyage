@@ -3,8 +3,10 @@ kind: Unit
 name: product-squad
 description: A product squad that combines product management and design to shape and prioritize work.
 ai:
-  agent: claude
-  model: claude-sonnet-4-6
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
   prompt: |
     You coordinate a product squad made up of a product manager and a
     product designer. Route incoming work to the most appropriate squad

@@ -22,7 +22,7 @@ import {
   useAgentRuntimeCredentialHealth,
   useAgentRuntimes,
 } from "@/lib/api/queries";
-import type { InstalledAgentRuntimeResponse } from "@/lib/api/types";
+import type { InstalledModelProviderResponse } from "@/lib/api/types";
 
 import { CliCallout, CredentialHealthBadge, Timestamp } from "./shared";
 
@@ -93,7 +93,7 @@ export default function AgentRuntimesAdminPage() {
   );
 }
 
-function RuntimeRow({ runtime }: { runtime: InstalledAgentRuntimeResponse }) {
+function RuntimeRow({ runtime }: { runtime: InstalledModelProviderResponse }) {
   const healthQuery = useAgentRuntimeCredentialHealth(runtime.id);
   const healthStatus = healthQuery.data?.status ?? null;
   const lastChecked = healthQuery.data?.lastChecked ?? null;
@@ -113,16 +113,15 @@ function RuntimeRow({ runtime }: { runtime: InstalledAgentRuntimeResponse }) {
               </h2>
               <code
                 className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-muted-foreground"
-                aria-label="Runtime id"
+                aria-label="Provider id"
               >
                 {runtime.id}
               </code>
-              <span
-                className="text-xs text-muted-foreground"
-                aria-label="Tool kind"
-              >
-                {runtime.kind}
-              </span>
+              {/* TODO(PR-3): restore the tool-kind chip with the new
+                  shape — the legacy `kind` field was removed from
+                  `InstalledModelProviderResponse` in ADR-0038. PR-3
+                  surfaces the runtime via the catalogue. Tracked in
+                  #1761. */}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               Installed <Timestamp value={runtime.installedAt} />

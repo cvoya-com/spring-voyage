@@ -1,5 +1,5 @@
-# Dapr Conversation → Ollama (OpenAI-compatible). The Python agent's
-# dapr_agents DaprChatClient uses component name llm-provider.
+# Dapr Conversation -> Ollama (OpenAI-compatible). The Python agent's
+# DaprChatClient is wired to this component name via SPRING_LLM_COMPONENT.
 #
 # Notes on metadata values:
 #   * Dapr does NOT do POSIX-style `${VAR:-default}` substitution in
@@ -16,14 +16,15 @@
 #     dropped the per-call model kwarg from `DaprChatClient`); the
 #     agent's `SPRING_MODEL` env var is kept for telemetry and the
 #     A2A agent card description, but it does not flow into daprd.
+#
+# Naming follows ADR-0038: in-tree Dapr component files use the
+# `llm-{provider.id}` convention. The Dapr `type:` field stays
+# `conversation.openai` because Ollama exposes an OpenAI-compatible
+# surface and that is Dapr's contract, not ours.
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  # #1714 step 4: renamed from `llm-provider` to `conversation-ollama` so
-  # SPRING_LLM_COMPONENT=conversation-ollama (set by the Spring Voyage
-  # launcher when `provider: ollama`) resolves consistently with the
-  # other per-provider conversation YAMLs (anthropic / openai / google).
-  name: conversation-ollama
+  name: llm-ollama
 spec:
   type: conversation.openai
   version: v1

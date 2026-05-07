@@ -151,7 +151,6 @@ public static class AgentEndpoints
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IAgentExecutionStore store,
-        [FromServices] IAgentRuntimeRegistry runtimeRegistry,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -160,10 +159,9 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        // #1748: store is keyed by the agent's actor Guid.
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
         var shape = await store.GetAsync(actorId, cancellationToken);
-        return Results.Ok(ToAgentExecutionResponse(shape, runtimeRegistry));
+        return Results.Ok(ToAgentExecutionResponse(shape));
     }
 
     private static async Task<IResult> SetAgentExecutionAsync(
@@ -171,7 +169,6 @@ public static class AgentEndpoints
         AgentExecutionResponse request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IAgentExecutionStore store,
-        [FromServices] IAgentRuntimeRegistry runtimeRegistry,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -180,14 +177,14 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        // #1732: Kind is read-only on the wire — derived from Agent.
+        // ADR-0038: map the new wire shape onto the internal store shape.
         var shape = new AgentExecutionShape(
             Image: request.Image,
-            Runtime: request.Runtime,
-            Provider: request.Provider,
-            Model: request.Model,
+            Runtime: request.ContainerRuntime,
+            Provider: request.Model?.Provider,
+            Model: request.Model?.Id,
             Hosting: request.Hosting,
-            Agent: request.Agent);
+            Agent: request.Runtime);
 
         if (shape.IsEmpty)
         {
@@ -217,7 +214,7 @@ public static class AgentEndpoints
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
         await store.SetAsync(actorId, shape, cancellationToken);
         var stored = await store.GetAsync(actorId, cancellationToken);
-        return Results.Ok(ToAgentExecutionResponse(stored, runtimeRegistry));
+        return Results.Ok(ToAgentExecutionResponse(stored));
     }
 
     private static async Task<IResult> ClearAgentExecutionAsync(
@@ -237,31 +234,28 @@ public static class AgentEndpoints
         return Results.NoContent();
     }
 
-    internal static AgentExecutionResponse ToAgentExecutionResponse(
-        AgentExecutionShape? shape,
-        IAgentRuntimeRegistry runtimeRegistry)
+    internal static AgentExecutionResponse ToAgentExecutionResponse(AgentExecutionShape? shape)
     {
         if (shape is null)
         {
             return new AgentExecutionResponse();
         }
 
-        // #1732: derive Kind from the runtime registry. Returns null when
-        // Agent is unset or names a runtime that is not registered here.
-        string? kind = null;
-        if (!string.IsNullOrWhiteSpace(shape.Agent))
+        // ADR-0038: project the internal store shape onto the new wire
+        // form — `runtime` (catalogue id), `containerRuntime`, structured
+        // `model: {provider, id}`, and `hosting`.
+        AiModelDto? model = null;
+        if (!string.IsNullOrWhiteSpace(shape.Model) && !string.IsNullOrWhiteSpace(shape.Provider))
         {
-            kind = runtimeRegistry.Get(shape.Agent)?.Kind;
+            model = new AiModelDto(shape.Provider!, shape.Model!);
         }
 
         return new AgentExecutionResponse(
             Image: shape.Image,
-            Runtime: shape.Runtime,
-            Provider: shape.Provider,
-            Model: shape.Model,
-            Hosting: shape.Hosting,
-            Agent: shape.Agent,
-            Kind: kind);
+            ContainerRuntime: shape.Runtime,
+            Runtime: shape.Agent,
+            Model: model,
+            Hosting: shape.Hosting);
     }
 
     private static async Task<IResult> DeployPersistentAgentAsync(

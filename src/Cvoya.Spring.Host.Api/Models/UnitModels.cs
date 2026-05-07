@@ -41,7 +41,6 @@ public record CreateUnitRequest(
     string? Model = null,
     string? Color = null,
     UnitConnectorBindingRequest? Connector = null,
-    string? Provider = null,
     string? Hosting = null,
     IReadOnlyList<Guid>? ParentUnitIds = null,
     bool? IsTopLevel = null);
@@ -59,7 +58,6 @@ public record UpdateUnitRequest(
     string? Description = null,
     string? Model = null,
     string? Color = null,
-    string? Provider = null,
     string? Hosting = null);
 
 /// <summary>
@@ -73,15 +71,15 @@ public record UpdateUnitRequest(
 /// <param name="Status">The current lifecycle status of the unit.</param>
 /// <param name="Model">An optional model identifier hint, if set.</param>
 /// <param name="Color">An optional UI color hint, if set.</param>
-/// <param name="Provider">Optional provider identifier.</param>
 /// <param name="Hosting">Optional hosting hint.</param>
 /// <param name="LastValidationError">Structured outcome of the most recent failed validation run, or <c>null</c> when the most recent run succeeded or the unit has never been validated.</param>
 /// <param name="LastValidationRunId">Dapr workflow instance id of the most recent validation run. Null until the first run.</param>
 /// <remarks>
-/// #1732: the standalone <c>Tool</c> slot was dropped — the execution tool
-/// is derived from the runtime registry via the unit's
-/// <c>execution.agent</c> slot. Use <c>GET /api/v1/tenant/units/{id}/execution</c>
-/// for the read-only derived view.
+/// ADR-0038: the standalone <c>Provider</c> slot is dropped — provider is
+/// intrinsic to <c>execution.model.provider</c>. The execution tool slot
+/// is derived from the catalogue via the unit's <c>execution.runtime</c>.
+/// Use <c>GET /api/v1/tenant/units/{id}/execution</c> for the structured
+/// view.
 /// </remarks>
 public record UnitResponse(
     Guid Id,
@@ -92,7 +90,6 @@ public record UnitResponse(
     UnitStatus Status,
     string? Model,
     string? Color,
-    string? Provider = null,
     string? Hosting = null,
     UnitValidationError? LastValidationError = null,
     string? LastValidationRunId = null);

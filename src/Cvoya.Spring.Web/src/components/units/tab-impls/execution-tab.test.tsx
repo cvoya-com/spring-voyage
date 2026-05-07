@@ -119,7 +119,7 @@ describe("ExecutionTab", () => {
     // dropdown is now rendered against the runtime's catalog so the
     // operator can still pick a model family (e.g. claude-opus-4 for
     // Claude Code).
-    getUnitExecution.mockResolvedValue({ agent: "claude-code" });
+    getUnitExecution.mockResolvedValue({ runtime: "claude-code" });
     getAgentRuntimeModels.mockResolvedValue([
       { id: "claude-sonnet-4-6", displayName: "claude-sonnet-4-6", contextWindow: null },
       { id: "claude-opus-4-7", displayName: "claude-opus-4-7", contextWindow: null },
@@ -138,7 +138,7 @@ describe("ExecutionTab", () => {
   });
 
   it("renders a Model dropdown populated from the runtime's catalog when agent=codex (#641)", async () => {
-    getUnitExecution.mockResolvedValue({ agent: "codex" });
+    getUnitExecution.mockResolvedValue({ runtime: "codex" });
     getAgentRuntimeModels.mockImplementation(async (id: string) => {
       if (id === "openai") {
         return [
@@ -173,7 +173,7 @@ describe("ExecutionTab", () => {
   });
 
   it("shows both Model Provider and Model when agent=spring-voyage (#641)", async () => {
-    getUnitExecution.mockResolvedValue({ agent: "spring-voyage" });
+    getUnitExecution.mockResolvedValue({ runtime: "spring-voyage" });
     getAgentRuntimeModels.mockResolvedValue([]);
 
     render(
@@ -192,7 +192,7 @@ describe("ExecutionTab", () => {
   });
 
   it("keeps the Model slot visible when agent=custom (always rendered post-#1702)", async () => {
-    getUnitExecution.mockResolvedValue({ agent: "custom" });
+    getUnitExecution.mockResolvedValue({ runtime: "custom" });
     getAgentRuntimeModels.mockResolvedValue([]);
 
     render(
@@ -213,7 +213,7 @@ describe("ExecutionTab", () => {
   });
 
   it("shows Model Provider and Model again when agent flips back to spring-voyage", async () => {
-    getUnitExecution.mockResolvedValue({ agent: "codex" });
+    getUnitExecution.mockResolvedValue({ runtime: "codex" });
 
     render(
       <Wrapper>
@@ -236,7 +236,7 @@ describe("ExecutionTab", () => {
     getUnitExecution.mockResolvedValue({});
     setUnitExecution.mockResolvedValue({
       image: "ghcr.io/acme/spring-agent:v1",
-      agent: "claude-code",
+      runtime: "claude-code",
     });
 
     render(
@@ -265,13 +265,13 @@ describe("ExecutionTab", () => {
     const [id, body] = setUnitExecution.mock.calls[0];
     expect(id).toBe("eng-team");
     expect(body?.image).toBe("ghcr.io/acme/spring-agent:v1");
-    // #1738: the wire shape now carries `agent` only; the legacy `tool`
-    // field was retired in #1732.
-    expect(body?.agent).toBe("claude-code");
+    // ADR-0038 (PR-1b): the wire field renamed `agent` → `runtime`;
+    // the legacy `kind` field was removed; `model` is now structured
+    // `{provider, id}` (null when only one of the two is set).
+    expect(body?.runtime).toBe("claude-code");
+    expect((body as { agent?: string | null })?.agent).toBeUndefined();
     expect((body as { tool?: string | null })?.tool).toBeUndefined();
-    // #1702: portal no longer sends runtime — the legacy field is gone.
-    expect((body as { runtime?: string | null })?.runtime).toBeUndefined();
-    expect(body?.provider).toBeNull();
+    expect((body as { provider?: string | null })?.provider).toBeUndefined();
     expect(body?.model).toBeNull();
   });
 
@@ -279,9 +279,9 @@ describe("ExecutionTab", () => {
     // Initial state: image + agent set.
     getUnitExecution.mockResolvedValue({
       image: "ghcr.io/acme/spring-agent:v1",
-      agent: "claude-code",
+      runtime: "claude-code",
     });
-    setUnitExecution.mockResolvedValue({ agent: "claude-code" });
+    setUnitExecution.mockResolvedValue({ runtime: "claude-code" });
 
     render(
       <Wrapper>
@@ -296,9 +296,9 @@ describe("ExecutionTab", () => {
       expect(setUnitExecution).toHaveBeenCalledTimes(1);
     });
     const [, body] = setUnitExecution.mock.calls[0];
-    // Image cleared, agent carried through verbatim.
+    // Image cleared, runtime carried through verbatim.
     expect(body?.image).toBeNull();
-    expect(body?.agent).toBe("claude-code");
+    expect(body?.runtime).toBe("claude-code");
   });
 
   it("DELETEs the execution block when the operator clears every field", async () => {

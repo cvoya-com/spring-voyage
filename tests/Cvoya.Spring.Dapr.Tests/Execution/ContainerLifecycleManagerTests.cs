@@ -269,8 +269,8 @@ public class ContainerLifecycleManagerTests
         // sidecar's process env. The lifecycle manager must filter the
         // agent app's env vars down to the credential names and feed
         // them into DaprSidecarConfig.EnvironmentVariables so the
-        // sidecar's secret store can satisfy conversation-*.yaml's
-        // secretKeyRef entries.
+        // sidecar's secret store can satisfy llm-*.yaml's
+        // secretKeyRef entries (per ADR-0038).
         DaprSidecarConfig? capturedSidecarConfig = null;
         _sidecarManager.StartSidecarAsync(
                 Arg.Do<DaprSidecarConfig>(c => capturedSidecarConfig = c),
@@ -287,7 +287,7 @@ public class ContainerLifecycleManagerTests
             EnvironmentVariables: new Dictionary<string, string>
             {
                 ["ANTHROPIC_API_KEY"] = "sk-ant-api-fake",
-                ["SPRING_LLM_COMPONENT"] = "conversation-anthropic",
+                ["SPRING_LLM_COMPONENT"] = "llm-anthropic",
                 // Non-credential env vars should NOT propagate to the sidecar.
                 ["SPRING_THREAD_ID"] = "conv-1",
             });
@@ -324,7 +324,7 @@ public class ContainerLifecycleManagerTests
             DaprEnabled: true,
             EnvironmentVariables: new Dictionary<string, string>
             {
-                ["SPRING_LLM_COMPONENT"] = "conversation-ollama",
+                ["SPRING_LLM_COMPONENT"] = "llm-ollama",
                 ["SPRING_THREAD_ID"] = "conv-1",
             });
 

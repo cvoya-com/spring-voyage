@@ -6,8 +6,10 @@ id: program-manager
 role: program-manager
 capabilities: ["triage", "milestone-management", "sub-issue-relationships", "blocked-by-relationships", "dependency-tracking"]
 ai:
-  agent: claude
-  model: claude-sonnet-4-6
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest
 instructions: |

@@ -13,6 +13,7 @@ using A2A.V0_3;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
@@ -47,8 +48,21 @@ public class A2AExecutionDispatcherTests
     private readonly IAgentDefinitionProvider _agentProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
     private readonly IAgentRuntimeLauncher _launcher = Substitute.For<IAgentRuntimeLauncher>();
-    private readonly IAgentRuntimeRegistry _agentRuntimeRegistry = Substitute.For<IAgentRuntimeRegistry>();
-    private readonly IAgentRuntime _claudeRuntime = Substitute.For<IAgentRuntime>();
+    private readonly IRuntimeCatalog _runtimeCatalog = Substitute.For<IRuntimeCatalog>();
+    private static readonly Cvoya.Spring.Core.Catalog.AgentRuntime ClaudeRuntime = new(
+        Id: "claude",
+        DisplayName: "Claude",
+        DefaultImage: "ghcr.io/test/claude:latest",
+        Launcher: "claude-code-cli",
+        ThreadBinding: new ThreadBinding(ThreadBindingKind.CliArg, ArgName: "--resume"),
+        SystemPromptInjection: new SystemPromptInjection(SystemPromptInjectionKind.File, FilePath: "AGENTS.md"),
+        ModelProviders: new[]
+        {
+            new AgentRuntimeProviderEdge(
+                Id: "anthropic",
+                AuthMethod: Cvoya.Spring.Core.Catalog.AuthMethod.Oauth,
+                CredentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN"),
+        });
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
@@ -102,21 +116,17 @@ public class A2AExecutionDispatcherTests
             .BuildServiceProvider()
             .GetRequiredService<PersistentAgentRegistry>();
 
-        // #1732: launcher.Kind matches IAgentRuntime.Kind
-        // (claude-code-cli for the claude runtime).
+        // ADR-0038: launcher.Kind matches the catalogue runtime entry's
+        // launcher strategy id (claude-code-cli for the claude runtime).
         _launcher.Kind.Returns("claude-code-cli");
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(DefaultSpec);
 
-        // #1732: registry maps the runtime id ("claude") to the launcher's
-        // Kind ("claude-code-cli") so the dispatcher can derive the
-        // launcher without the agent definition carrying a Tool field.
-        _claudeRuntime.Id.Returns("claude");
-        _claudeRuntime.Kind.Returns("claude-code-cli");
-        // NSubstitute auto-mocks unknown-id calls; pin the default to null
-        // so the unknown-runtime branch in the dispatcher fires.
-        _agentRuntimeRegistry.Get(Arg.Any<string>()).Returns((IAgentRuntime?)null);
-        _agentRuntimeRegistry.Get("claude").Returns(_claudeRuntime);
+        // ADR-0038: catalogue maps the runtime id ("claude") to the
+        // launcher strategy id ("claude-code-cli") so the dispatcher can
+        // derive the launcher from the agent definition's runtime slot.
+        _runtimeCatalog.GetAgentRuntime(Arg.Any<string>()).Returns((Cvoya.Spring.Core.Catalog.AgentRuntime?)null);
+        _runtimeCatalog.GetAgentRuntime("claude").Returns(ClaudeRuntime);
 
         // D3a: the context builder returns a minimal bootstrap bundle so the
         // dispatcher's MergeBootstrapContext does not crash during tests.
@@ -173,7 +183,7 @@ public class A2AExecutionDispatcherTests
             _agentProvider,
             _mcpServer,
             [_launcher],
-            _agentRuntimeRegistry,
+            _runtimeCatalog,
             _agentContextBuilder,
             _tenantContext,
             _persistentRegistry,
@@ -469,10 +479,10 @@ public class A2AExecutionDispatcherTests
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
-        // The Claude runtime resolved through the registry, and the
+        // The Claude runtime resolved through the catalogue, and the
         // launcher whose Kind matches (claude-code-cli) was used to
         // prepare the launch context.
-        _agentRuntimeRegistry.Received().Get("claude");
+        _runtimeCatalog.Received().GetAgentRuntime("claude");
         await _launcher.Received().PrepareAsync(
             Arg.Any<AgentLaunchContext>(),
             Arg.Any<CancellationToken>());

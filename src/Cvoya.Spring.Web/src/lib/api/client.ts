@@ -1428,27 +1428,30 @@ export const api = {
     return (await resp.json()) as import("./types").ProviderCredentialStatusResponse;
   },
 
-  // Tenant-installed agent runtimes (#690). Feeds the unit-creation
-  // wizard's provider + model dropdowns: the wizard reads the available
-  // runtimes from this endpoint, then per-runtime models from
+  // Tenant-installed model providers (ADR-0038). Feeds the unit-creation
+  // wizard's model dropdown: the wizard reads the available providers
+  // from this endpoint, then per-provider models from
   // `getAgentRuntimeModels`. Host-side credential validation was retired
   // in T-03 (#945) and the transitional stub `validateAgentRuntimeCredential`
   // was removed in T-07 (#949) — validation now runs as a backend Dapr
   // workflow and the outcome is reported through the detail-page
   // Validation panel via SSE + the unit's `lastValidationError`.
+  //
+  // TODO(PR-3): rename to `listModelProviders` /
+  // `getModelProviderModels` — tracked in #1761.
   listAgentRuntimes: async (): Promise<
-    import("./types").InstalledAgentRuntimeResponse[]
+    import("./types").InstalledModelProviderResponse[]
   > =>
-    unwrap(await fetchClient.GET("/api/v1/tenant/agent-runtimes/installs")) as import("./types").InstalledAgentRuntimeResponse[],
+    unwrap(await fetchClient.GET("/api/v1/tenant/model-providers/installs")) as import("./types").InstalledModelProviderResponse[],
 
   getAgentRuntimeModels: async (
     id: string,
-  ): Promise<import("./types").AgentRuntimeModelResponse[]> =>
+  ): Promise<import("./types").ModelProviderModelResponse[]> =>
     unwrap(
-      await fetchClient.GET("/api/v1/tenant/agent-runtimes/installs/{id}/models", {
+      await fetchClient.GET("/api/v1/tenant/model-providers/installs/{id}/models", {
         params: { path: { id } },
       }),
-    ) as import("./types").AgentRuntimeModelResponse[],
+    ) as import("./types").ModelProviderModelResponse[],
 
   // T-05 (#947): re-run backend validation for a unit that's in
   // `Error` or `Stopped`. POST is fire-and-forget — the workflow
@@ -1464,12 +1467,15 @@ export const api = {
     );
   },
 
-  // Credential health (#691). Read-only inspection of the persistent
-  // credential status the watchdog + accept-time validation write to. The
-  // admin portal views (`/admin/agent-runtimes`, `/admin/connectors`) ride
-  // these; mutation stays CLI-only per the AGENTS.md carve-out. 404
-  // normalises to null so the caller can render a "no signal yet" row
-  // without a try/catch.
+  // Credential health (ADR-0038, was #691). Read-only inspection of the
+  // persistent credential status the watchdog + accept-time validation
+  // write to. The admin portal views (`/admin/agent-runtimes`,
+  // `/admin/connectors`) ride these; mutation stays CLI-only per the
+  // AGENTS.md carve-out. 404 normalises to null so the caller can render
+  // a "no signal yet" row without a try/catch.
+  //
+  // TODO(PR-3): rename to `getModelProviderCredentialHealth` —
+  // tracked in #1761.
   getAgentRuntimeCredentialHealth: async (
     id: string,
     secretName?: string,
@@ -1477,7 +1483,7 @@ export const api = {
     const query: Record<string, string> = {};
     if (secretName) query.secretName = secretName;
     const result = await fetchClient.GET(
-      "/api/v1/tenant/agent-runtimes/installs/{id}/credential-health",
+      "/api/v1/tenant/model-providers/installs/{id}/credential-health",
       {
         params: { path: { id }, query: query as never },
       },

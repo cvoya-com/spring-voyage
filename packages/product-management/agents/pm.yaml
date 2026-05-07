@@ -6,8 +6,10 @@ id: pm
 role: product-manager
 capabilities: ["triage", "roadmap", "planning", "prioritization", "requirements"]
 ai:
-  agent: claude
-  model: claude-sonnet-4-6
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
   environment:
     image: localhost/spring-voyage-agent-claude-code:latest
 instructions: |

@@ -240,9 +240,9 @@ public class Adr0037Tests
     [Fact]
     public void ManifestParser_LegacyExecutionToolField_Rejected()
     {
-        // #1732: execution.tool was dropped — the runtime registry derives
-        // the tool kind from ai.agent. The parser surfaces a clear migration
-        // hint per ADR-0037 D6 when an old-shape file still carries it.
+        // #1732: execution.tool was dropped — the catalogue derives the
+        // tool from ai.runtime (ADR-0038). The parser surfaces a clear
+        // migration hint when an old-shape file still carries it.
         var yaml = """
             apiVersion: spring.voyage/v1
             kind: Unit
@@ -255,7 +255,71 @@ public class Adr0037Tests
 
         var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
         ex.Message.ShouldContain("LegacyExecutionToolField");
-        ex.Message.ShouldContain("ai.agent");
+        ex.Message.ShouldContain("ai.runtime");
+    }
+
+    [Fact]
+    public void ManifestParser_LegacyAiAgentField_Rejected()
+    {
+        // ADR-0038: ai.agent was renamed to ai.runtime. The parser
+        // surfaces a clear migration hint when an old-shape file still
+        // carries ai.agent.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: my-unit
+            description: x
+            ai:
+              agent: claude
+              model:
+                provider: anthropic
+                id: claude-opus-4-7
+            """;
+
+        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
+        ex.Message.ShouldContain("LegacyAiAgentField");
+        ex.Message.ShouldContain("ai.runtime");
+    }
+
+    [Fact]
+    public void ManifestParser_LegacyAiModelStringForm_Rejected()
+    {
+        // ADR-0038: ai.model is now a structured {provider, id} object.
+        // A string-form model selector trips the legacy detection branch.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: my-unit
+            description: x
+            ai:
+              runtime: claude-code
+              model: claude-opus-4-7
+            """;
+
+        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
+        ex.Message.ShouldContain("LegacyAiModelStringForm");
+        ex.Message.ShouldContain("provider");
+    }
+
+    [Fact]
+    public void ManifestParser_LegacyExecutionProviderField_Rejected()
+    {
+        // ADR-0038: execution.provider was removed; the provider is
+        // intrinsic to ai.model.provider. Old-shape files trip the
+        // legacy detection branch.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: my-unit
+            description: x
+            execution:
+              image: ghcr.io/example/agent:latest
+              provider: anthropic
+            """;
+
+        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
+        ex.Message.ShouldContain("LegacyExecutionProviderField");
+        ex.Message.ShouldContain("ai.model.provider");
     }
 
     [Fact]

@@ -2,8 +2,9 @@
 
 - **Status:** Accepted — the platform coordinates external agent runtimes (Claude Code, Codex, Gemini CLI, dapr-agent, …) running in containers; it does not implement its own multi-turn tool-use loop. The legacy `Hosted` execution mode was removed in [#118](https://github.com/cvoya-com/spring-voyage/issues/118).
 - **Date:** 2026-04-21
-- **Related code:** `src/Cvoya.Spring.Core/AgentRuntimes/`, `src/Cvoya.Spring.AgentRuntimes.*`, `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Dispatcher/`.
+- **Related code:** `src/Cvoya.Spring.Core/AgentRuntimes/`, `src/Cvoya.Spring.AgentRuntimes/`, `src/Cvoya.Spring.ModelProviders/`, `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Dispatcher/`.
 - **Related docs:** [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md), [`docs/architecture/units.md`](../architecture/units.md), [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtimes-and-tenant-scoping.md).
+- **Related ADRs:** [ADR-0038 — AgentRuntime and ModelProvider as separate identities](0038-agent-runtime-and-model-provider-split.md) — separates the in-container engine identity (this ADR's "agent runtime") from the model-provider identity, and replaces the per-runtime / per-provider classes referenced above with a single checked-in `runtime-catalog.yaml` plus small strategy registries.
 
 ## Context
 

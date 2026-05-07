@@ -143,10 +143,9 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             {
                 manifest.Execution.Runtime = executionDefaults.Runtime;
             }
-            if (!string.IsNullOrWhiteSpace(executionDefaults.Provider))
-            {
-                manifest.Execution.Provider = executionDefaults.Provider;
-            }
+            // ADR-0038: ExecutionManifest no longer carries `provider`.
+            // The package-level inherited Provider is dropped here on the
+            // unit-write path; the model id still flows through.
             if (!string.IsNullOrWhiteSpace(executionDefaults.Model))
             {
                 manifest.Execution.Model = executionDefaults.Model;

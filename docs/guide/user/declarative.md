@@ -19,12 +19,13 @@ agent:
   capabilities: [csharp, python, postgresql, testing]
 
   ai:
-    agent: claude          # runtime registry id; runtime kind is derived (#1732)
-    model: claude-sonnet-4-6
-    execution: delegated
-    environment:
-      image: spring-agent:latest
-      runtime: podman
+    runtime: claude-code   # AgentRuntime id from platform/runtime-catalog.yaml (ADR-0038)
+    model:
+      provider: anthropic  # ModelProvider id; intrinsic to the model
+      id: claude-sonnet-4-6
+  execution:
+    image: spring-agent:latest
+    containerRuntime: podman
 
   cloning:
     policy: ephemeral-with-memory
@@ -63,11 +64,13 @@ unit:
   structure: hierarchical
 
   ai:
-    execution: delegated
-    tool: software-dev-cycle
-    environment:
-      image: spring-workflows/software-dev-cycle:latest
-      runtime: podman
+    runtime: spring-voyage  # AgentRuntime id from platform/runtime-catalog.yaml (ADR-0038)
+    model:
+      provider: ollama
+      id: llama3.2:3b
+  execution:
+    image: spring-workflows/software-dev-cycle:latest
+    containerRuntime: podman
 
   members:
     - agent: agents/ada.yaml
