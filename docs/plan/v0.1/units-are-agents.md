@@ -273,15 +273,28 @@ Format. Each task lists **Files**, **Deliverable** (what to write / change), **A
 **D12 — Define per-invocation callback token contract + validation middleware**
 
 - **Files:** `src/Cvoya.Spring.Core/Runtime/CallbackToken.cs` (new — claim shape), `src/Cvoya.Spring.Dispatcher/Auth/CallbackTokenValidator.cs` (new), `src/Cvoya.Spring.Dispatcher/Auth/CallbackTokenIssuer.cs` (new), tests.
-- **Deliverable.** JWT-shaped token with claims: `tenantId`, `agentAddress`, `threadId`, `messageId`, `expiresAt`. Issuer signs with the existing tenant-scoped signing key (locate the existing pattern from ADR-0029 / dispatcher auth at implementation time; if no pattern exists, the issuer adds a tenant signing key abstraction). Validator middleware on the dispatcher's orchestration endpoints rejects expired, mis-scoped, unsigned, or replay-suspect tokens. Use ASP.NET's existing JWT validation with a custom claim-shape validator.
-- **Acceptance.** Unit tests cover sign/verify roundtrip, expiry, scope mismatch, signature failure.
+- **Deliverable.** JWT-shaped token with claims: `tenantId`, `agentAddress`, `threadId`, `messageId`, `expiresAt`. Issuer signs with the existing tenant-scoped signing key (locate the existing pattern from ADR-0029 / dispatcher auth at implementation time; if no pattern exists, the issuer adds a tenant signing key abstraction). Validator middleware on the dispatcher's orchestration endpoints rejects expired, mis-scoped, unsigned, or replay-suspect tokens. **Validation only checks token integrity and claim shape — the caller-has-children and target-is-child authorization checks live in the endpoint handlers (D13), per ADR-0039 §3 "Authorization rules."** Use ASP.NET's existing JWT validation with a custom claim-shape validator.
+- **Acceptance.** Unit tests cover sign/verify roundtrip, expiry, scope mismatch, signature failure. The validator does **not** consult the directory (that is D13's responsibility).
 - **Blocked by.** A1 (depends on `Address` and `TenantId` types).
 
 **D13 — Add HTTP orchestration callback API endpoints to the dispatcher**
 
 - **Files:** `src/Cvoya.Spring.Dispatcher/OrchestrationCallbackEndpoints.cs` (new), `src/Cvoya.Spring.Dispatcher/OrchestrationCallbackModels.cs` (new — request/response DTOs), tests.
-- **Deliverable.** REST endpoints — one per orchestration tool — under a base path the dispatcher controls (e.g. `/v1/runtime/orchestration/list-children`, `/list-children`, `/inspect-child`, `/delegate-to-child`, `/fanout-to-children`, `/query-child-status`). Each endpoint runs the validation middleware from D12 (token must scope to the requesting agent + thread + message), then dispatches to the matching D8 platform-side handler, then returns the result. Endpoints are not part of the public OpenAPI surface — they are runtime-internal callbacks; document them in `docs/architecture/agent-sdk.md` (D18).
-- **Acceptance.** Integration test covers each endpoint against a mocked handler with a valid token (200 + result) and an invalid token (401). Cross-tenant token (unit `unit_a` calling on behalf of `unit_b`) rejected as 403.
+- **Deliverable.** REST endpoints — one per orchestration tool — under a base path the dispatcher controls (e.g. `/v1/runtime/orchestration/list-children`, `/inspect-child`, `/delegate-to-child`, `/fanout-to-children`, `/query-child-status`). Each endpoint applies, in order:
+  1. Token validation via D12 middleware. Failure → 401.
+  2. **Caller-has-children check.** Resolve `claims.agentAddress` against the directory; if the caller has zero children, return **403 with `error: "OrchestrationCallerIsLeaf"`** and the message from ADR-0039 §3. This is the gate that prevents leaf agents from using the orchestration SDK even though they receive `SPRING_CALLBACK_TOKEN` for future non-orchestration SDK surfaces.
+  3. **Target-is-current-child check** (for `delegate_to_child`, `fanout_to_children`, `inspect_child`, `query_child_status`). Each target address must be a direct child of the caller at call time. Non-child target → **404 with `error: "OrchestrationTargetNotChild"`**. Membership at token-mint time is not frozen; the directory at call time is authoritative.
+  4. **Cross-tenant containment.** `claims.tenantId` must match the caller's tenant; mismatch → 403.
+  5. Dispatch to the matching D8 platform-side handler; return the result.
+
+  Endpoints are not part of the public OpenAPI surface — they are runtime-internal callbacks; document them in `docs/architecture/agent-sdk.md` (D18).
+- **Acceptance.** Integration test covers each endpoint with:
+  - **Happy path** (caller is a unit with the target as a child) → 200.
+  - **Leaf caller** → 403 `OrchestrationCallerIsLeaf`. **This is the test that pins the unit-callable-only contract.** Without this test, the contract is undefended.
+  - **Caller has children but target is not a child** → 404 `OrchestrationTargetNotChild`.
+  - **Caller has children, target was a child but is not now** (membership shrank between mint and call) → 404 `OrchestrationTargetNotChild`.
+  - **Cross-tenant token** → 403.
+  - **Invalid / expired token** → 401.
 - **Blocked by.** D8, D12.
 
 **D14 — Launcher injects `SPRING_CALLBACK_URL` and `SPRING_CALLBACK_TOKEN`**
@@ -293,9 +306,10 @@ Format. Each task lists **Files**, **Deliverable** (what to write / change), **A
 
 **D15 — `Cvoya.Spring.AgentSdk` package: typed `IOrchestrationClient`**
 
-- **Files:** New project `src/Cvoya.Spring.AgentSdk/Cvoya.Spring.AgentSdk.csproj`, `src/Cvoya.Spring.AgentSdk/IOrchestrationClient.cs`, `src/Cvoya.Spring.AgentSdk/OrchestrationClient.cs` (HTTP impl), `src/Cvoya.Spring.AgentSdk/SpringAgent.cs` (env-var-bootstrap entrypoint), unit tests.
+- **Files:** New project `src/Cvoya.Spring.AgentSdk/Cvoya.Spring.AgentSdk.csproj`, `src/Cvoya.Spring.AgentSdk/IOrchestrationClient.cs`, `src/Cvoya.Spring.AgentSdk/OrchestrationClient.cs` (HTTP impl), `src/Cvoya.Spring.AgentSdk/SpringAgent.cs` (env-var-bootstrap entrypoint), `src/Cvoya.Spring.AgentSdk/Exceptions.cs` (typed exception hierarchy), unit tests.
 - **Deliverable.** `IOrchestrationClient` exposes the five orchestration tools as method calls (signatures match ADR-0039 §3 SDK sketch). `OrchestrationClient` posts JSON over HTTP to the dispatcher endpoints from D13, carrying the callback token from `SPRING_CALLBACK_TOKEN`. `SpringAgent.FromEnvironment()` reads `SPRING_CALLBACK_URL` and `SPRING_CALLBACK_TOKEN`, throws a precise `MissingCallbackEnvironmentException` when either is unset. The package depends only on `Cvoya.Spring.Core` (for `Address`, `Message`, `ChildDescriptor`) and `System.Net.Http`.
-- **Acceptance.** Unit tests against a mocked HTTP backend cover each method's happy path, auth-error path (401 → `OrchestrationAuthException`), and transport-error path (timeout / network → `OrchestrationTransportException`). Public surface listed in the project's `<PublicAPI>` and reviewed during PR.
+- **Typed exceptions.** `OrchestrationAuthException` carries an `OrchestrationAuthReason` enum with at least: `InvalidToken` (401), `CallerIsLeaf` (403, ADR-0039 §3), `TargetNotChild` (404), `CrossTenant` (403). `OrchestrationTransportException` for timeouts and network errors. `MissingCallbackEnvironmentException` for the env-var bootstrap failure. The `IOrchestrationClient` XML documentation explicitly notes that **every method throws `OrchestrationAuthException(Reason = CallerIsLeaf)` when the caller has no children** — leaf-agent image authors must not write code paths that quietly swallow this.
+- **Acceptance.** Unit tests against a mocked HTTP backend cover each method's happy path, the four `OrchestrationAuthException.Reason` branches (one test per reason), the `MissingCallbackEnvironmentException` branch, and the transport-error path. Public surface listed in the project's `<PublicAPI>` and reviewed during PR.
 - **Blocked by.** D13.
 
 **D16 — Sample workflow image demonstrating SDK usage**
@@ -321,8 +335,8 @@ Format. Each task lists **Files**, **Deliverable** (what to write / change), **A
 **D18 — Documentation: `docs/architecture/agent-sdk.md`**
 
 - **Files:** `docs/architecture/agent-sdk.md` (new).
-- **Deliverable.** Sections: SDK package overview; env-var contract (`SPRING_CALLBACK_URL`, `SPRING_CALLBACK_TOKEN`); typed client surface (`IOrchestrationClient` + `SpringAgent.FromEnvironment()`); error model (`OrchestrationAuthException`, `OrchestrationTransportException`, `MissingCallbackEnvironmentException`); workflow-state guidance ("the platform does not provide durability; pick a state store and place it in your image or sidecar"); security model (per-invocation token; no cross-invocation reuse; tenant-scoped signing key); sample image walkthrough cross-linking the D16 sample.
-- **Acceptance.** Doc renders cleanly; CI's docs-evergreen-framing job passes.
+- **Deliverable.** Sections: SDK package overview; env-var contract (`SPRING_CALLBACK_URL`, `SPRING_CALLBACK_TOKEN`); typed client surface (`IOrchestrationClient` + `SpringAgent.FromEnvironment()`); error model with each `OrchestrationAuthException.Reason` value documented (`InvalidToken`, `CallerIsLeaf`, `TargetNotChild`, `CrossTenant`); **authorization model** — the SDK is structurally unit-callable only (per ADR-0039 §3 "Authorization rules"); leaf-agent images that consume the SDK get `CallerIsLeaf` on every call; A2A messaging remains available to leaf agents through the existing A2A protocol, separately from this SDK; workflow-state guidance ("the platform does not provide durability; pick a state store and place it in your image or sidecar"); security model (per-invocation token; no cross-invocation reuse; tenant-scoped signing key; live directory check at call time); sample image walkthrough cross-linking the D16 sample.
+- **Acceptance.** Doc renders cleanly; CI's docs-evergreen-framing job passes. Leaf-agent rejection behaviour described before any code-sample callouts so image authors see it.
 - **Blocked by.** D15.
 
 ---

@@ -160,6 +160,33 @@ Authentication is **per-invocation**: the launcher mints a callback token with `
 
 Both env vars are written by the launcher uniformly across runtimes (`SpringVoyageAgentLauncher`, `ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`). LLM-driven runtimes that ignore the env vars (because the tool-call surface is sufficient) waste only the bytes of the env entry; workflow images that consume the SDK find the dispatcher and the token without per-runtime configuration.
 
+#### Authorization rules — the SDK is unit-callable only
+
+Because orchestration is meaningful only when the calling agent has children (decision 1), the dispatcher applies a strict authorization model on the SDK surface, layered on top of token validation:
+
+1. **Token validation.** The signature, expiry, and `(tenantId, agentAddress, threadId, messageId)` claim shape are validated as the first gate. Invalid → 401.
+2. **Caller-has-children check.** The dispatcher resolves the caller's `agentAddress` against the directory at call time. If the caller has zero children, every orchestration endpoint returns **403 `OrchestrationCallerIsLeaf`** with the message "this endpoint is only available to agents that have children; the calling agent has none." This is what the question "are leaf agents prevented from using the orchestration SDK?" hinges on, and the answer is: **yes, at the dispatcher level, by the resolved-children check at call time**. The launcher injects the env vars uniformly because runtime images may legitimately read them for non-orchestration future SDK surfaces; the dispatcher is the authoritative gate.
+3. **Target-is-current-child check.** For `delegate_to_child`, `fanout_to_children`, `inspect_child`, and `query_child_status`, the dispatcher resolves each target address against the caller's *current* children at call time. A non-child target → **404 `OrchestrationTargetNotChild`**. This handles the membership-changed-mid-invocation race: the token was minted when the caller had a particular child set, but membership may have shifted by the time the SDK call lands. The token does not freeze membership; the directory at call time is authoritative.
+4. **Cross-tenant containment.** The token's `tenantId` claim must match the caller's tenant on every call; mismatch is 403. ADR-0029's tenant boundary stays uncrossable through this surface.
+
+This model means the SDK is **structurally unit-callable only**. A leaf agent's runtime image can invoke `IOrchestrationClient` constructors and method calls; every method returns `OrchestrationAuthException` (403, code `OrchestrationCallerIsLeaf`). The SDK's per-method documentation calls this out so image authors do not write code that quietly fails for leaf-agent images.
+
+**What leaf agents (and units) keep.** Inter-agent messaging — sending a message to a peer, replying to a thread, addressing another unit — is **not** an orchestration concern. It is the existing Agent-to-Agent (A2A) protocol surface (see `Cvoya.Spring.A2A`), gated by the existing membership graph and per-thread permission model. Leaf agents can message any addressable peer for which they hold the required permissions; the orchestration SDK does not gate, replace, or shadow that path. The SDK is a *strict subset* of the platform's runtime-callback surface, scoped to the single thing only units do: orchestrate their children.
+
+| Capability | Leaf agent | Unit (agent with children) |
+|---|---|---|
+| Send a message to a peer (A2A) | yes (existing A2A protocol, permission-gated) | yes |
+| Reply to the inbound message | yes (existing runtime-output channel) | yes |
+| Call orchestration SDK (`list_children`, `delegate_to_child`, …) | **no — 403 `OrchestrationCallerIsLeaf`** | yes |
+| Inspect / delegate to a non-child via the SDK | n/a (cannot reach SDK) | **no — 404 `OrchestrationTargetNotChild`** |
+| Cross-tenant calls | **no — 403** | **no — 403** |
+
+Rejected: skip the env-var injection on leaf-agent runtimes. The launcher would have to know the SDK surface's eligibility at launch time; over time, as more SDK surfaces are added (A2A from runtime, structured logging, configuration access), the eligibility check becomes a brittle list that the launcher has to keep in sync. Cleaner: inject uniformly, gate at the endpoint.
+
+Rejected: gate on a static "is this address a unit?" type field in the directory rather than the live "does this address have children right now?" check. The directory's children-list is the source of truth; an empty children-list with the kind flag set to "unit" is operationally identical to a leaf agent and the platform's behaviour should match. Live check.
+
+Rejected: return 401 for leaf-agent calls (the token is "valid"). The token *is* valid; the caller is just not authorized for this surface. 403 with a precise error code is the conventional shape and lets the SDK throw a typed exception (`OrchestrationAuthException` with `Reason = OrchestrationCallerIsLeaf`) that image authors can catch.
+
 Rejected: expose orchestration tools only via the LLM tool-call surface. Forces non-LLM runtimes (workflow images, deterministic agents) to wrap an MCP client even when MCP adds nothing to their actual implementation. The SDK surface lets workflow authors write code that reads as code.
 
 Rejected: bake a specific workflow technology into the platform. The platform cannot predict which technology image authors prefer (Temporal, Dapr Workflows, xstate, hand-rolled state machines, or simple imperative code), and forcing one limits the addressable runtime catalogue. The SDK exposes the orchestration primitives; the technology choice is the developer's.
