@@ -10,10 +10,11 @@ using Cvoya.Spring.Cli.Output;
 
 /// <summary>
 /// Builds the <c>spring agent execution get|set|clear</c> verb subtree
-/// (#601 / #603 / #409 B-wide). Symmetric with <see cref="UnitExecutionCommand"/>
-/// — same five fields plus the agent-exclusive <c>--hosting</c> flag
-/// (ephemeral / persistent). Operates on the agent's own on-disk block;
-/// inherited unit defaults are merged in at dispatch time by the
+/// (#601 / #603 / #409 B-wide; ADR-0038). Symmetric with
+/// <see cref="UnitExecutionCommand"/> — same set of fields plus the
+/// agent-exclusive <c>--hosting</c> flag (ephemeral / persistent).
+/// Operates on the agent's own on-disk block; inherited unit defaults
+/// are merged in at dispatch time by the
 /// <c>IAgentDefinitionProvider</c>.
 /// </summary>
 public static class AgentExecutionCommand
@@ -26,8 +27,8 @@ public static class AgentExecutionCommand
         var command = new Command(
             "execution",
             "Read / write the agent's on-disk execution block. Fields: image, " +
-            "runtime, tool, provider, model, hosting. Missing fields fall back to the parent " +
-            "unit's execution defaults at dispatch time.");
+            "container-runtime, runtime, model-provider, model, hosting. Missing fields fall back to " +
+            "the parent unit's execution defaults at dispatch time.");
 
         command.Subcommands.Add(CreateGetCommand(outputOption));
         command.Subcommands.Add(CreateSetCommand(outputOption));
@@ -89,25 +90,26 @@ public static class AgentExecutionCommand
         {
             Description = "Container image reference.",
         };
+        var containerRuntimeOption = new Option<string?>("--container-runtime")
+        {
+            Description = "Container runtime. Allowed values: " + string.Join(", ", UnitExecutionCommand.ContainerRuntimeKeys) + ".",
+        };
+        containerRuntimeOption.AcceptOnlyFromAmong(UnitExecutionCommand.ContainerRuntimeKeys);
+
         var runtimeOption = new Option<string?>("--runtime")
         {
-            Description = "Container runtime. Allowed values: " + string.Join(", ", UnitExecutionCommand.RuntimeKeys) + ".",
-        };
-        runtimeOption.AcceptOnlyFromAmong(UnitExecutionCommand.RuntimeKeys);
-
-        var agentRuntimeOption = new Option<string?>("--agent")
-        {
-            Description = "Agent runtime registry id (e.g. claude, openai, google, ollama). " +
-                "Drives launcher selection at dispatch via IAgentRuntime.Kind.",
+            Description = "Agent runtime id (e.g. claude-code, codex, gemini, spring-voyage). " +
+                "Drives launcher selection at dispatch.",
         };
 
-        var providerOption = new Option<string?>("--provider")
+        var modelProviderOption = new Option<string?>("--model-provider")
         {
-            Description = "LLM provider (Spring Voyage Agent–specific).",
+            Description = "Model-provider id (e.g. anthropic, openai, google, ollama). " +
+                "Required for multi-provider runtimes (spring-voyage); optional otherwise.",
         };
         var modelOption = new Option<string?>("--model")
         {
-            Description = "Model identifier (Spring Voyage Agent–specific).",
+            Description = "Model id (the structured execution.model.id).",
         };
         var hostingOption = new Option<string?>("--hosting")
         {
@@ -115,54 +117,83 @@ public static class AgentExecutionCommand
         };
         hostingOption.AcceptOnlyFromAmong(HostingKeys);
 
+        // ADR-0038 §7: legacy `--agent` rejected at parse time.
+        var legacyAgentOption = new Option<string?>("--agent")
+        {
+            Description = "REJECTED — use --runtime instead (ADR-0038).",
+            Hidden = true,
+        };
+        legacyAgentOption.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(AgentCommand.LegacyAgentFlagRejectionMessage);
+            }
+        });
+        // ADR-0038: flat `--provider` is gone; use --model-provider.
+        var legacyProviderOption = new Option<string?>("--provider")
+        {
+            Description = "REJECTED — use --model-provider instead (ADR-0038).",
+            Hidden = true,
+        };
+        legacyProviderOption.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(UnitExecutionCommand.LegacyProviderFlagRejectionMessage);
+            }
+        });
+
         var command = new Command(
             "set",
             "Upsert one or more fields on the agent's execution block. Partial update — " +
             "pass only the flags you want to change.");
         command.Arguments.Add(agentArg);
         command.Options.Add(imageOption);
+        command.Options.Add(containerRuntimeOption);
         command.Options.Add(runtimeOption);
-        command.Options.Add(agentRuntimeOption);
-        command.Options.Add(providerOption);
+        command.Options.Add(modelProviderOption);
         command.Options.Add(modelOption);
         command.Options.Add(hostingOption);
+        command.Options.Add(legacyAgentOption);
+        command.Options.Add(legacyProviderOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var agentId = parseResult.GetValue(agentArg)!;
             var image = parseResult.GetValue(imageOption);
+            var containerRuntime = parseResult.GetValue(containerRuntimeOption);
             var runtime = parseResult.GetValue(runtimeOption);
-            var agentRuntime = parseResult.GetValue(agentRuntimeOption);
-            var provider = parseResult.GetValue(providerOption);
+            var modelProvider = parseResult.GetValue(modelProviderOption);
             var model = parseResult.GetValue(modelOption);
             var hosting = parseResult.GetValue(hostingOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (string.IsNullOrWhiteSpace(image) && string.IsNullOrWhiteSpace(runtime)
-                && string.IsNullOrWhiteSpace(agentRuntime) && string.IsNullOrWhiteSpace(provider)
+            if (string.IsNullOrWhiteSpace(image) && string.IsNullOrWhiteSpace(containerRuntime)
+                && string.IsNullOrWhiteSpace(runtime) && string.IsNullOrWhiteSpace(modelProvider)
                 && string.IsNullOrWhiteSpace(model) && string.IsNullOrWhiteSpace(hosting))
             {
                 await Console.Error.WriteLineAsync(
-                    "Nothing to set. Pass at least one of --image, --runtime, --agent, --provider, --model, --hosting.");
+                    "Nothing to set. Pass at least one of --image, --container-runtime, --runtime, --model-provider, --model, --hosting.");
                 Environment.Exit(1);
                 return;
             }
 
             var client = ClientFactory.Create();
 
-            // ADR-0038: structured model {provider, id} on the wire.
-            var modelDto = (!string.IsNullOrWhiteSpace(provider) && !string.IsNullOrWhiteSpace(model))
+            // ADR-0038: structured execution.model = {provider, id} on the wire.
+            var modelDto = (!string.IsNullOrWhiteSpace(modelProvider) && !string.IsNullOrWhiteSpace(model))
                 ? new AgentExecutionResponse.AgentExecutionResponse_model
                 {
-                    AiModelDto = new AiModelDto { Provider = provider, Id = model },
+                    AiModelDto = new AiModelDto { Provider = modelProvider, Id = model },
                 }
                 : null;
 
             var stored = await client.SetAgentExecutionAsync(agentId, new AgentExecutionResponse
             {
                 Image = image,
-                ContainerRuntime = runtime,
-                Runtime = agentRuntime,
+                ContainerRuntime = containerRuntime,
+                Runtime = runtime,
                 Model = modelDto,
                 Hosting = hosting,
             }, ct);
@@ -198,9 +229,12 @@ public static class AgentExecutionCommand
     private static Command CreateClearCommand(Option<string> outputOption)
     {
         var agentArg = new Argument<string>("agent") { Description = "The agent identifier" };
-        // #1732: tool was dropped — agent (the runtime registry id) is the
-        // input; kind is derived from it server-side.
-        var fieldKeys = new[] { "image", "runtime", "agent", "provider", "model", "hosting" };
+        // ADR-0038: the field-key surface is
+        // (image, container-runtime, runtime, model-provider, model, hosting).
+        var fieldKeys = new[]
+        {
+            "image", "container-runtime", "runtime", "model-provider", "model", "hosting",
+        };
         var fieldOption = new Option<string?>("--field")
         {
             Description = "Clear one field only. Allowed: " + string.Join(", ", fieldKeys) + ". " +
@@ -239,14 +273,15 @@ public static class AgentExecutionCommand
             // UnitExecutionCommand). Falls through to block-clear when
             // the remaining state is empty.
             var current = await client.GetAgentExecutionAsync(agentId, ct);
-            // ADR-0038: structured Model {provider, id}.
+            // ADR-0038: per-field clear targets one of
+            // { image | container-runtime | runtime | model-provider | model | hosting }.
+            // model-provider clears just the provider half of the structured
+            // execution.model; clearing model wipes the whole {provider, id} pair.
             var keepImage = !string.Equals(field, "image", StringComparison.OrdinalIgnoreCase);
-            var keepContainerRuntime = !string.Equals(field, "container_runtime", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase);
-            var keepRuntime = !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(field, "agent", StringComparison.OrdinalIgnoreCase);
+            var keepContainerRuntime = !string.Equals(field, "container-runtime", StringComparison.OrdinalIgnoreCase);
+            var keepRuntime = !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase);
             var keepModel = !string.Equals(field, "model", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(field, "provider", StringComparison.OrdinalIgnoreCase);
+                && !string.Equals(field, "model-provider", StringComparison.OrdinalIgnoreCase);
             var keepHosting = !string.Equals(field, "hosting", StringComparison.OrdinalIgnoreCase);
 
             var updated = new AgentExecutionResponse

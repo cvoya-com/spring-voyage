@@ -10,13 +10,10 @@ using Cvoya.Spring.Cli.Output;
 
 /// <summary>
 /// Builds the <c>spring unit execution get|set|clear</c> verb subtree
-/// (#601 / #603 / #409 B-wide). Direct read/write access to the
-/// manifest-persisted unit <c>execution:</c> block (image / runtime /
-/// tool / provider / model) without needing a full <c>spring apply -f
-/// unit.yaml</c> re-apply. Wraps
-/// <see cref="SpringApiClient.GetUnitExecutionAsync(string, System.Threading.CancellationToken)"/>
-/// et al so UI / CLI parity is identical to the Execution tab delivered
-/// in the follow-up portal PR.
+/// (#601 / #603 / #409 B-wide; ADR-0038). Direct read/write access to
+/// the manifest-persisted unit <c>execution:</c> block (image /
+/// container-runtime / runtime / model-provider / model) without
+/// needing a full <c>spring apply -f unit.yaml</c> re-apply.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -26,33 +23,28 @@ using Cvoya.Spring.Cli.Output;
 /// clears one field only.
 /// </para>
 /// <para>
-/// <c>--provider</c> is meaningful only when <c>--tool spring-voyage</c>
-/// is set on the unit (or the agent inheriting from it); the other
-/// tools bake their provider in. <c>--model</c> is meaningful for every
-/// tool that carries a known provider family — <c>claude-code</c>
-/// (Anthropic), <c>codex</c> (OpenAI), <c>gemini</c> (Google), and
-/// <c>spring-voyage</c> — and the CLI treats the value as opaque per the
-/// #644 parity fix. The <c>set</c> verb does not enforce either rule
-/// today (no whitelist on the server either) so the gating behaviour
-/// lives in one place (<c>UnitCommand.ValidateProviderModelAgainstTool</c>);
-/// see <c>docs/architecture/cli-and-web.md § Provider + Model flag
-/// validation</c>.
+/// ADR-0038 reshapes the model surface: <c>--model-provider</c>
+/// + <c>--model</c> ship the structured <c>execution.model = {provider, id}</c>
+/// pair on the wire. <c>--model-provider</c> is required only when the
+/// chosen runtime accepts more than one provider (e.g. <c>spring-voyage</c>);
+/// for fixed-provider runtimes (<c>claude-code</c> → anthropic,
+/// <c>codex</c> → openai, <c>gemini</c> → google) the flag is optional
+/// and the dispatcher rejects mismatches.
 /// </para>
 /// </remarks>
 public static class UnitExecutionCommand
 {
-    /// <summary>Container runtime keys offered on <c>--runtime</c>.</summary>
-    internal static readonly string[] RuntimeKeys = { "docker", "podman" };
+    /// <summary>Container runtime keys offered on <c>--container-runtime</c>.</summary>
+    internal static readonly string[] ContainerRuntimeKeys = { "docker", "podman" };
 
     /// <summary>Field keys accepted on <c>clear --field</c>.</summary>
     /// <remarks>
-    /// #1732: <c>tool</c> was dropped — the execution tool is derived
-    /// 1:1 from <c>agent</c> via the runtime registry's
-    /// <c>IAgentRuntime.Kind</c>.
+    /// ADR-0038: the field-key surface is
+    /// (image, container-runtime, runtime, model-provider, model).
     /// </remarks>
     internal static readonly string[] FieldKeys =
     {
-        "image", "runtime", "agent", "provider", "model",
+        "image", "container-runtime", "runtime", "model-provider", "model",
     };
 
     /// <summary>
@@ -64,8 +56,8 @@ public static class UnitExecutionCommand
         var command = new Command(
             "execution",
             "Read / write the unit's manifest-persisted execution defaults. " +
-            "Fields: image, runtime, tool, provider, model. Inherited by member agents that " +
-            "don't declare their own value per the agent → unit → fail resolution chain.");
+            "Fields: image, container-runtime, runtime, model-provider, model. Inherited by member " +
+            "agents that don't declare their own value per the agent → unit → fail resolution chain.");
 
         command.Subcommands.Add(CreateGetCommand(outputOption));
         command.Subcommands.Add(CreateSetCommand(outputOption));
@@ -127,29 +119,56 @@ public static class UnitExecutionCommand
         {
             Description = "Default container image reference (e.g. ghcr.io/... or localhost/spring-voyage-agent-claude-code:latest).",
         };
+        var containerRuntimeOption = new Option<string?>("--container-runtime")
+        {
+            Description = "Default container runtime. Allowed values: " + string.Join(", ", ContainerRuntimeKeys) + ".",
+        };
+        containerRuntimeOption.AcceptOnlyFromAmong(ContainerRuntimeKeys);
+
         var runtimeOption = new Option<string?>("--runtime")
         {
-            Description = "Default container runtime. Allowed values: " + string.Join(", ", RuntimeKeys) + ".",
-        };
-        runtimeOption.AcceptOnlyFromAmong(RuntimeKeys);
-
-        var agentOption = new Option<string?>("--agent")
-        {
-            Description = "Default agent runtime registry id (e.g. claude, openai, google, ollama). " +
-                "Drives launcher selection at dispatch via IAgentRuntime.Kind.",
+            Description = "Default agent runtime id (e.g. claude-code, codex, gemini, spring-voyage). " +
+                "Drives launcher selection at dispatch.",
         };
 
-        var providerOption = new Option<string?>("--provider")
+        var modelProviderOption = new Option<string?>("--model-provider")
         {
-            Description = "Default LLM provider (Spring Voyage Agent–specific; e.g. ollama, openai, anthropic, googleai).",
+            Description = "Default model-provider id (e.g. anthropic, openai, google, ollama). " +
+                "Required for multi-provider runtimes (spring-voyage); optional otherwise (must match the runtime's implied provider when supplied).",
         };
         var modelOption = new Option<string?>("--model")
         {
             Description =
-                "Default model identifier. Meaningful for every tool kind that carries a known provider family " +
-                "(claude-code-cli, spring-voyage); the value is accepted as opaque and validated at " +
-                "unit activation.",
+                "Default model id. The value is accepted as opaque on the wire and validated at unit activation.",
         };
+
+        // ADR-0038 §7: legacy `--agent` rejected at parse time.
+        var legacyAgentOption = new Option<string?>("--agent")
+        {
+            Description = "REJECTED — use --runtime instead (ADR-0038).",
+            Hidden = true,
+        };
+        legacyAgentOption.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(AgentCommand.LegacyAgentFlagRejectionMessage);
+            }
+        });
+        // ADR-0038: the flat `--provider` flag is gone — provider lives
+        // inside the structured execution.model and is named via --model-provider.
+        var legacyProviderOption = new Option<string?>("--provider")
+        {
+            Description = "REJECTED — use --model-provider instead (ADR-0038).",
+            Hidden = true,
+        };
+        legacyProviderOption.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(LegacyProviderFlagRejectionMessage);
+            }
+        });
 
         var command = new Command(
             "set",
@@ -157,27 +176,29 @@ public static class UnitExecutionCommand
             "pass only the flags you want to change; unlisted fields keep their current value.");
         command.Arguments.Add(unitArg);
         command.Options.Add(imageOption);
+        command.Options.Add(containerRuntimeOption);
         command.Options.Add(runtimeOption);
-        command.Options.Add(agentOption);
-        command.Options.Add(providerOption);
+        command.Options.Add(modelProviderOption);
         command.Options.Add(modelOption);
+        command.Options.Add(legacyAgentOption);
+        command.Options.Add(legacyProviderOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var unitId = parseResult.GetValue(unitArg)!;
             var image = parseResult.GetValue(imageOption);
+            var containerRuntime = parseResult.GetValue(containerRuntimeOption);
             var runtime = parseResult.GetValue(runtimeOption);
-            var agent = parseResult.GetValue(agentOption);
-            var provider = parseResult.GetValue(providerOption);
+            var modelProvider = parseResult.GetValue(modelProviderOption);
             var model = parseResult.GetValue(modelOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (string.IsNullOrWhiteSpace(image) && string.IsNullOrWhiteSpace(runtime)
-                && string.IsNullOrWhiteSpace(agent) && string.IsNullOrWhiteSpace(provider)
+            if (string.IsNullOrWhiteSpace(image) && string.IsNullOrWhiteSpace(containerRuntime)
+                && string.IsNullOrWhiteSpace(runtime) && string.IsNullOrWhiteSpace(modelProvider)
                 && string.IsNullOrWhiteSpace(model))
             {
                 await Console.Error.WriteLineAsync(
-                    "Nothing to set. Pass at least one of --image, --runtime, --agent, --provider, --model. " +
+                    "Nothing to set. Pass at least one of --image, --container-runtime, --runtime, --model-provider, --model. " +
                     "Use 'clear' to wipe the block or 'clear --field X' to clear one field.");
                 Environment.Exit(1);
                 return;
@@ -185,19 +206,19 @@ public static class UnitExecutionCommand
 
             var client = ClientFactory.Create();
 
-            // ADR-0038: structured Model {provider, id}.
-            var modelDto = (!string.IsNullOrWhiteSpace(provider) && !string.IsNullOrWhiteSpace(model))
+            // ADR-0038: structured execution.model = {provider, id}.
+            var modelDto = (!string.IsNullOrWhiteSpace(modelProvider) && !string.IsNullOrWhiteSpace(model))
                 ? new UnitExecutionResponse.UnitExecutionResponse_model
                 {
-                    AiModelDto = new AiModelDto { Provider = provider, Id = model },
+                    AiModelDto = new AiModelDto { Provider = modelProvider, Id = model },
                 }
                 : null;
 
             var stored = await client.SetUnitExecutionAsync(unitId, new UnitExecutionResponse
             {
                 Image = image,
-                ContainerRuntime = runtime,
-                Runtime = agent,
+                ContainerRuntime = containerRuntime,
+                Runtime = runtime,
                 Model = modelDto,
             }, ct);
 
@@ -226,6 +247,15 @@ public static class UnitExecutionCommand
 
         return command;
     }
+
+    /// <summary>
+    /// Stderr message used by the legacy <c>--provider</c> flag's
+    /// parser-level rejection. Pinned by tests so a future flag rename
+    /// doesn't slip past CI.
+    /// </summary>
+    public const string LegacyProviderFlagRejectionMessage =
+        "--provider was removed in ADR-0038. Provider now lives inside the structured " +
+        "execution.model field — pass --model-provider <id> alongside --model <id>.";
 
     // ---- clear -------------------------------------------------------------
 
@@ -285,14 +315,15 @@ public static class UnitExecutionCommand
             // slot is null after this operation we fall through to the
             // full block-clear.
             var current = await client.GetUnitExecutionAsync(unitId, ct);
-            // ADR-0038: per-field clear maps to the new wire fields.
+            // ADR-0038: per-field clear targets one of
+            // { image | container-runtime | runtime | model-provider | model }.
+            // model-provider clears just the provider half of the structured
+            // model; clearing model wipes the whole {provider, id} pair.
             var keepImage = !string.Equals(field, "image", StringComparison.OrdinalIgnoreCase);
-            var keepContainerRuntime = !string.Equals(field, "container_runtime", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase);
-            var keepRuntime = !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(field, "agent", StringComparison.OrdinalIgnoreCase);
+            var keepContainerRuntime = !string.Equals(field, "container-runtime", StringComparison.OrdinalIgnoreCase);
+            var keepRuntime = !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase);
             var keepModel = !string.Equals(field, "model", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(field, "provider", StringComparison.OrdinalIgnoreCase);
+                && !string.Equals(field, "model-provider", StringComparison.OrdinalIgnoreCase);
 
             var updated = new UnitExecutionResponse
             {

@@ -57,8 +57,10 @@ public class Program
                 EngagementCommand.Create(outputOption),
                 InboxCommand.Create(outputOption),
                 ActivityCommand.Create(outputOption),
-                // ADR-0038: AgentRuntimeCommand was deleted; PR-2 introduces
-                // ModelProviderCommand keyed on provider id.
+                // ADR-0038: ModelProviderCommand replaces the legacy
+                // `agent-runtime` verb tree. No alias — the parser
+                // surfaces "unknown command" for `spring agent-runtime ...`.
+                ModelProviderCommand.Create(outputOption),
                 ConnectorCommand.Create(outputOption),
                 AnalyticsCommand.Create(outputOption),
                 CostCommand.Create(outputOption),

@@ -237,20 +237,51 @@ public static class AgentCommand
         {
             Description = "Container image reference (shorthand for execution.image on the agent definition).",
         };
+        var containerRuntimeOption = new Option<string?>("--container-runtime")
+        {
+            Description = "Container runtime (shorthand for execution.containerRuntime). Allowed: " +
+                string.Join(", ", UnitExecutionCommand.ContainerRuntimeKeys) + ".",
+        };
+        containerRuntimeOption.AcceptOnlyFromAmong(UnitExecutionCommand.ContainerRuntimeKeys);
+
+        // ADR-0038: agent-runtime selection is `--runtime <id>` (e.g.
+        // claude-code, codex, gemini, spring-voyage). The structured model
+        // pair `--model-provider` + `--model` ships the {provider, id} half
+        // of the new wire shape. Provider is required only when the chosen
+        // runtime accepts more than one provider; for fixed-provider
+        // runtimes the flag MAY be supplied but its value MUST equal the
+        // implied provider — the dispatcher rejects mismatches with a
+        // precise error.
         var runtimeOption = new Option<string?>("--runtime")
         {
-            Description = "Container runtime (shorthand for execution.runtime). Allowed: " +
-                string.Join(", ", UnitExecutionCommand.RuntimeKeys) + ".",
+            Description = "Agent runtime id (shorthand for execution.runtime; e.g. claude-code, codex, gemini, spring-voyage).",
         };
-        runtimeOption.AcceptOnlyFromAmong(UnitExecutionCommand.RuntimeKeys);
-
-        // #1732: --tool was dropped — the execution tool is derived 1:1 from
-        // the runtime registry via --agent. Operators name the runtime here;
-        // the dispatcher picks the launcher whose Kind matches.
-        var agentRuntimeOption = new Option<string?>("--agent")
+        var modelProviderOption = new Option<string?>("--model-provider")
         {
-            Description = "Agent runtime registry id (shorthand for execution.agent; e.g. claude, openai, google, ollama).",
+            Description = "Model-provider id (shorthand for execution.model.provider; e.g. anthropic, openai, google, ollama). " +
+                "Required for multi-provider runtimes (spring-voyage); optional for fixed-provider runtimes (must match the implied provider when supplied).",
         };
+        var modelOption = new Option<string?>("--model")
+        {
+            Description = "Model id (shorthand for execution.model.id; e.g. claude-opus-4-7).",
+        };
+
+        // ADR-0038 §7: legacy `--agent` flag is rejected at parse time
+        // with a clear hint — the rejection lives in the option's
+        // ParseArgument hook so callers see the migration path before
+        // the action runs.
+        var legacyAgentOption = new Option<string?>("--agent")
+        {
+            Description = "REJECTED — use --runtime instead (ADR-0038).",
+            Hidden = true,
+        };
+        legacyAgentOption.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(LegacyAgentFlagRejectionMessage);
+            }
+        });
 
         var command = new Command("create", "Create a new agent");
         command.Arguments.Add(idArg);
@@ -260,8 +291,11 @@ public static class AgentCommand
         command.Options.Add(definitionFileOption);
         command.Options.Add(definitionOption);
         command.Options.Add(imageOption);
+        command.Options.Add(containerRuntimeOption);
         command.Options.Add(runtimeOption);
-        command.Options.Add(agentRuntimeOption);
+        command.Options.Add(modelProviderOption);
+        command.Options.Add(modelOption);
+        command.Options.Add(legacyAgentOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -272,8 +306,10 @@ public static class AgentCommand
             var definitionFile = parseResult.GetValue(definitionFileOption);
             var definitionInline = parseResult.GetValue(definitionOption);
             var image = parseResult.GetValue(imageOption);
+            var containerRuntime = parseResult.GetValue(containerRuntimeOption);
             var runtime = parseResult.GetValue(runtimeOption);
-            var agentRuntime = parseResult.GetValue(agentRuntimeOption);
+            var modelProvider = parseResult.GetValue(modelProviderOption);
+            var model = parseResult.GetValue(modelOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             string? definitionJson = definitionInline;
@@ -296,11 +332,15 @@ public static class AgentCommand
             // JSON so the single server write covers everything. When the
             // caller also passed a --definition / --definition-file, the
             // shorthand flags overlay on top.
-            // #1732: --tool was replaced by --agent (runtime registry id);
-            // the tool kind is derived from the runtime at dispatch.
-            if (!string.IsNullOrWhiteSpace(image) || !string.IsNullOrWhiteSpace(runtime) || !string.IsNullOrWhiteSpace(agentRuntime))
+            // ADR-0038: the shorthand surface is now
+            // (image, container-runtime, runtime, model-provider, model).
+            // The structured model pair lands as `execution.model = {provider, id}`.
+            if (!string.IsNullOrWhiteSpace(image) || !string.IsNullOrWhiteSpace(containerRuntime)
+                || !string.IsNullOrWhiteSpace(runtime) || !string.IsNullOrWhiteSpace(modelProvider)
+                || !string.IsNullOrWhiteSpace(model))
             {
-                definitionJson = MergeExecutionShorthand(definitionJson, image, runtime, agentRuntime);
+                definitionJson = MergeExecutionShorthand(
+                    definitionJson, image, containerRuntime, runtime, modelProvider, model);
             }
 
             var client = ClientFactory.Create();
@@ -336,20 +376,36 @@ public static class AgentCommand
     }
 
     /// <summary>
-    /// Merges <c>--image / --runtime / --agent</c> shorthand flags into
-    /// an optional agent-definition JSON string. When
-    /// <paramref name="definitionJson"/> is null / empty, a fresh
-    /// document carrying just the shorthand fields is produced.
+    /// Stderr message used by the legacy <c>--agent</c> flag's parser
+    /// rejection. Pinned by tests so a future flag rename doesn't slip
+    /// past CI.
     /// </summary>
     /// <remarks>
-    /// #1732: <c>--tool</c> was replaced by <c>--agent</c> (the runtime
-    /// registry id). The dispatcher derives the tool kind from the runtime.
+    /// ADR-0038 §7: the rejection is parser-level only — there is no
+    /// stub command, no aliased handler. Operators see the migration
+    /// path before any action runs.
     /// </remarks>
+    public const string LegacyAgentFlagRejectionMessage =
+        "--agent was removed in ADR-0038. Use --runtime <id> to pick the agent runtime " +
+        "(claude-code / codex / gemini / spring-voyage); pair with --model-provider and --model " +
+        "for the structured execution.model field.";
+
+    /// <summary>
+    /// Merges the ADR-0038 execution-shorthand flags
+    /// (<c>--image</c> / <c>--container-runtime</c> / <c>--runtime</c> /
+    /// <c>--model-provider</c> / <c>--model</c>) into an optional
+    /// agent-definition JSON string. When <paramref name="definitionJson"/>
+    /// is null / empty, a fresh document carrying just the shorthand
+    /// fields is produced. The structured model pair lands as
+    /// <c>execution.model = {provider, id}</c>.
+    /// </summary>
     internal static string MergeExecutionShorthand(
         string? definitionJson,
         string? image,
+        string? containerRuntime,
         string? runtime,
-        string? agentRuntime)
+        string? modelProvider,
+        string? model)
     {
         using var document = string.IsNullOrWhiteSpace(definitionJson)
             ? System.Text.Json.JsonDocument.Parse("{}")
@@ -375,8 +431,30 @@ public static class AgentCommand
             }
         }
         if (!string.IsNullOrWhiteSpace(image)) exec["image"] = image;
+        if (!string.IsNullOrWhiteSpace(containerRuntime)) exec["containerRuntime"] = containerRuntime;
         if (!string.IsNullOrWhiteSpace(runtime)) exec["runtime"] = runtime;
-        if (!string.IsNullOrWhiteSpace(agentRuntime)) exec["agent"] = agentRuntime;
+
+        // ADR-0038 structured model: { provider, id }. We carry forward
+        // any existing model object the caller's --definition file
+        // declared, then overlay the shorthand fields on top.
+        if (!string.IsNullOrWhiteSpace(modelProvider) || !string.IsNullOrWhiteSpace(model))
+        {
+            var modelMap = new Dictionary<string, object?>();
+            if (exec.TryGetValue("model", out var existingModel)
+                && existingModel is System.Text.Json.JsonElement el
+                && el.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var p in el.EnumerateObject())
+                {
+                    modelMap[p.Name] = p.Value.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? p.Value.GetString()
+                        : (object?)p.Value;
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(modelProvider)) modelMap["provider"] = modelProvider;
+            if (!string.IsNullOrWhiteSpace(model)) modelMap["id"] = model;
+            exec["model"] = modelMap;
+        }
 
         var payload = new Dictionary<string, object?>();
         foreach (var kvp in properties)

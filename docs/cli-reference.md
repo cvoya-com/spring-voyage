@@ -1,105 +1,160 @@
-# CLI Reference — `spring agent-runtime` and `spring connector`
+# CLI Reference — `spring model-provider` and `spring connector`
 
-> Reference for the CLI-only admin surfaces introduced by the #674 refactor. The `spring` CLI ships many other verbs (`unit`, `agent`, `secret`, `boundary`, …) — this doc focuses on the two verb families dedicated to the tenant-install + credential-health layer. Every mutation below is CLI-only by design; the portal shows read-only views only.
+> Reference for the CLI-only admin surfaces. The `spring` CLI ships many other verbs (`unit`, `agent`, `secret`, `boundary`, …) — this doc focuses on the two verb families dedicated to the tenant-install + credential-health layer. Every mutation below is CLI-only by design; the portal shows read-only views only.
 
 All examples assume you've authenticated (`spring auth login`). Use `-o json` on any list / show verb for script-friendly output.
 
-## `spring agent-runtime`
+> **ADR-0038 reshape.** The `spring agent-runtime …` verb tree was deleted and re-keyed on **provider id** as `spring model-provider …`. Agent runtime (the launcher kind) and model provider (the credential-bearing service) are now distinct concepts — see [`docs/decisions/0038-agent-runtime-and-model-provider-split.md`](decisions/0038-agent-runtime-and-model-provider-split.md). The legacy `agent-runtime` verb is **not aliased** — typing it surfaces the parser's standard "unknown command" error.
 
-Manage tenant-scoped agent runtime installs.
+## `spring model-provider`
+
+Manage tenant-scoped model-provider installs (Anthropic, OpenAI, Google, Ollama, …). Provider id — not runtime id — is the routing key.
 
 ### `list`
 
 ```
-$ spring agent-runtime list
+$ spring model-provider list
 ```
 
-Lists every agent runtime installed on the current tenant. Distinct from "everything the host can serve" — to inspect the registered superset, hit `GET /api/v1/agent-runtimes` directly (or query the DI registry from a debug session).
+Lists every model provider installed on the current tenant. The runtime catalogue (`claude-code`, `codex`, `gemini`, `spring-voyage`, `custom`) is a closed enum on the host and not part of this listing — provider installs are the operator-controlled axis.
 
 ### `show <id>`
 
 ```
-$ spring agent-runtime show claude
+$ spring model-provider show anthropic
 ```
 
-Shows an installed runtime's metadata and configured models. Exits 1 with a "not installed" message if no install row exists.
+Shows an installed provider's metadata and configured models. Exits 1 with a "not installed" message if no install row exists. Allowed ids today: `anthropic`, `openai`, `google`, `ollama` (consult the host's runtime-catalog for the live superset).
 
 ### `install <id> [--model m ...] [--default-model m] [--base-url url]`
 
 ```
 # Seed defaults
-$ spring agent-runtime install claude
+$ spring model-provider install anthropic
 
 # Pin a model list on install
-$ spring agent-runtime install openai \
+$ spring model-provider install openai \
     --model gpt-4o --model gpt-4o-mini \
     --default-model gpt-4o
 
 # Ollama via a custom host
-$ spring agent-runtime install ollama --base-url http://ollama.internal:11434
+$ spring model-provider install ollama --base-url http://ollama.internal:11434
 ```
 
-Idempotent. Re-running with no flags preserves operator-edited config. Repeat `--model` for multiple entries.
+Idempotent. Re-running with no flags preserves operator-edited config. Repeat `--model` for multiple entries; the first value becomes `--default-model` if that flag is absent.
 
 ### `uninstall <id> [--force]`
 
 ```
-$ spring agent-runtime uninstall claude --force
+$ spring model-provider uninstall anthropic --force
 ```
 
 Soft-deletes the install row. Without `--force`, the CLI prompts for `y/N` confirmation.
 
-### `models list|set|add|remove`
+### `config get <id>` / `config set <id> <key=value>`
 
 ```
-$ spring agent-runtime models list claude
-$ spring agent-runtime models set claude claude-opus-4-7,claude-sonnet-4-6,claude-haiku-4-5
-$ spring agent-runtime models add claude claude-haiku-4-5
-$ spring agent-runtime models remove claude claude-haiku-4-5
+$ spring model-provider config get anthropic
+id            anthropic
+defaultModel  claude-opus-4-7
+baseUrl       (none)
+models        claude-opus-4-7,claude-sonnet-4-6
+
+$ spring model-provider config set anthropic defaultModel=claude-opus-4-7
+$ spring model-provider config set ollama       baseUrl=http://ollama.internal:11434
+$ spring model-provider config set ollama       baseUrl=                # clears
+$ spring model-provider config set anthropic    models=claude-opus-4-7,claude-sonnet-4-6
 ```
 
-Sugar over `PATCH /config` that reshapes the tenant's model list. `add` is a no-op if the id is already present (case-insensitive).
-
-### `config set <id> <key=value>`
-
-```
-$ spring agent-runtime config set claude defaultModel=claude-opus-4-7
-$ spring agent-runtime config set ollama baseUrl=http://ollama.internal:11434
-$ spring agent-runtime config set ollama baseUrl=        # clears
-```
-
-Supported keys: `defaultModel`, `baseUrl`. Any other key rejects with a clear message pointing at the `models` verb tree for model-list changes.
+Supported keys: `defaultModel`, `baseUrl`, `models` (comma-separated). Any other key rejects with a clear message. `config get` is the lighter-weight read counterpart to `model-provider show` and renders only the configurable slot.
 
 ### `credentials status <id> [--secret-name name]`
 
 ```
-$ spring agent-runtime credentials status claude
-claude / default → Valid (last checked 2026-04-20 09:03:12Z)
+$ spring model-provider credentials status anthropic
+anthropic / default → Valid (last checked 2026-04-20 09:03:12Z)
 ```
 
-Reads the shared credential-health store, which is now fed by the **use-time** watchdog only — the host-side accept-time `POST /validate-credential` endpoint was removed in #941. A 404 means no watchdog observation has landed yet; exercise the runtime once (create a unit, or run `spring unit revalidate <name>`) to prime the row. Pass `--secret-name` for multi-credential runtimes.
+Reads the shared credential-health store, which is fed by both the use-time watchdog and the `validate-credential` probe. A 404 means no row has been recorded yet — run `spring model-provider validate-credential <id> --credential <key>` (or use the portal's `/settings/model-providers` page) to prime it. Pass `--secret-name` for multi-credential providers.
 
-> **Backend-side validation — [#941](https://github.com/cvoya-com/spring-voyage/issues/941) landed.** Accept-time probes now run inside the chosen container image via `UnitValidationWorkflow`, a Dapr Workflow dispatched when a unit enters `Validating`. Four steps (image pull → tool verify → credential validate → model resolve) run in order; the first failure short-circuits with a structured `UnitValidationError`. The CLI surfaces progress via `spring unit create` (default `--wait`) and exposes `spring unit revalidate <name>` for retries. Exit codes 20–27 map one-to-one onto `UnitValidationCodes`.
+### `validate-credential <id> [--credential <value>] [--secret-name <name>]`
+
+```
+$ spring model-provider validate-credential anthropic --credential sk-ant-api-...
+$ spring model-provider validate-credential ollama                     # no credential needed
+```
+
+Probes the provider with the supplied credential and updates the credential-health row. **Does not** rotate the model catalogue — see `refresh-models` for that. Exits non-zero when the probe response carries `ok=false`, even if the HTTP call itself succeeded — script callers can tell "host unreachable" from "host reached, credential rejected".
 
 ### `refresh-models <id> [--credential <value>]`
 
 ```
-# Provider-authenticated runtimes (OpenAI / Claude / Google)
-$ spring agent-runtime refresh-models openai --credential sk-proj-...
-$ spring agent-runtime refresh-models claude --credential sk-ant-api-...
-$ spring agent-runtime refresh-models google --credential AIza...
+# Provider-authenticated providers
+$ spring model-provider refresh-models openai     --credential sk-proj-...
+$ spring model-provider refresh-models anthropic  --credential sk-ant-api-...
+$ spring model-provider refresh-models google     --credential AIza...
 
-# Credential-less runtimes (local Ollama)
-$ spring agent-runtime refresh-models ollama
+# Credential-less providers (local Ollama)
+$ spring model-provider refresh-models ollama
 ```
 
-Fetches the runtime's live model catalog from its backing service (typically `/v1/models` or equivalent) and replaces the tenant's configured model list with the returned entries. `DefaultModel` is preserved if it is still in the refreshed list; otherwise it resets to the first live entry. `BaseUrl` is never touched — refresh is about the catalog, not the endpoint.
+Fetches the provider's live model catalogue from its backing service (typically `/v1/models` or equivalent) and replaces the tenant's configured model list with the returned entries. `defaultModel` is preserved if it is still in the refreshed list; otherwise it resets to the first live entry. `baseUrl` is never touched — refresh is about the catalogue, not the endpoint.
 
 The command exits 1 when:
 
-- The runtime is not installed on the current tenant (404).
+- The provider is not installed on the current tenant (404).
 - The provider rejects the supplied credential (401).
-- The runtime cannot enumerate live models — e.g. Claude.ai OAuth tokens against the Anthropic Platform REST surface, or an unreachable Ollama endpoint (502). The stored model list is left untouched in every failure case.
+- The provider cannot enumerate live models — e.g. an unreachable Ollama endpoint (502). The stored model list is left untouched in every failure case.
+
+## `spring agent` and `spring unit` (execution-shorthand flags)
+
+ADR-0038 reshapes the per-agent / per-unit execution shorthands into three flags:
+
+| Flag | What it sets | Required when |
+|------|--------------|---------------|
+| `--runtime <id>` | `execution.runtime` (agent runtime kind, closed enum: `claude-code`, `codex`, `gemini`, `spring-voyage`, `custom`) | always when supplying inline credentials |
+| `--model-provider <id>` | `execution.model.provider` (the structured-model provider half) | required for multi-provider runtimes (`spring-voyage`, `custom`); optional for fixed-provider runtimes — must match the implied provider when supplied |
+| `--model <id>` | `execution.model.id` (the structured-model id half) | whenever you want to pin a specific model |
+
+Container shorthands are unchanged: `--image <ref>`, `--container-runtime <docker|podman>`. The agent-only `--hosting <ephemeral|persistent>` flag also remains.
+
+The legacy `--agent` and flat `--provider` flags are **rejected at parse time** with a clear migration hint — there is no compatibility alias.
+
+### `spring unit create` / `spring unit execution set`
+
+```
+# Create a top-level unit pinned to a fixed-provider runtime
+$ spring unit create my-unit --top-level --runtime claude-code --model claude-opus-4-7
+
+# Pin a Spring Voyage Agent unit to OpenAI
+$ spring unit create my-unit --top-level \
+    --runtime spring-voyage \
+    --model-provider openai \
+    --model gpt-4o
+
+# Update the unit's execution defaults later
+$ spring unit execution set my-unit \
+    --runtime claude-code --model claude-opus-4-7 \
+    --image ghcr.io/example/claude:1
+```
+
+Inline credentials are still supplied via `--api-key` / `--api-key-from-file`, paired with `--runtime`. The CLI consults the runtime catalogue to pick the matching provider id and writes the secret on that provider's install row.
+
+### `spring agent create` / `spring agent execution set`
+
+```
+# Author a new agent on a fixed-provider runtime
+$ spring agent create ada --runtime claude-code --model claude-opus-4-7
+
+# Spring Voyage Agent agent → must name the provider explicitly
+$ spring agent create ada \
+    --runtime spring-voyage --model-provider anthropic --model claude-opus-4-7
+
+# Override only the model id later — provider is preserved
+$ spring agent execution set ada --model claude-sonnet-4-6
+```
+
+Per-field clear targets the new field-key surface: `image`, `container-runtime`, `runtime`, `model-provider`, `model`, `hosting` (agent only). Clearing `model-provider` wipes only the provider half of the structured `execution.model`; clearing `model` wipes the whole `{provider, id}` pair.
 
 ## `spring unit` (validation surface)
 
@@ -108,11 +163,11 @@ The `unit` verb family carries many subcommands (see `spring unit --help`); the 
 ### `create [--wait | --no-wait]`
 
 ```
-$ spring unit create my-unit --top-level --agent claude
+$ spring unit create my-unit --top-level --runtime claude-code
 $ spring unit execution set my-unit --image ghcr.io/example/claude:1 --no-wait
 ```
 
-On success the CLI returns 201 and then **polls** the unit's terminal state. `--wait` is the **default**; the command blocks until the `UnitValidationWorkflow` finishes and exits with a validation-code-derived exit code (see the table below). `--no-wait` returns immediately after the 201, leaving the unit in `Validating` — useful for scripts that kick off many units in parallel and reconcile later via `spring unit status`.
+On success the CLI returns 201 and then **polls** the unit's terminal state. `--wait` is the **default**; the command blocks until the `UnitValidationWorkflow` finishes and exits with a validation-code-derived exit code (see the table below). `--no-wait` returns immediately after the 201, leaving the unit in `Validating`.
 
 ### `revalidate <name> [--wait | --no-wait]`
 
@@ -206,20 +261,21 @@ These predate the tenant-install surface and work for units whose tenant has the
 
 ## Top scenarios
 
-1. **Fresh tenant, Claude auth check.** `spring agent-runtime credentials status claude` → primes via the wizard if 404.
-2. **Add a new Claude model to the tenant.** `spring agent-runtime models add claude claude-haiku-4-5`.
-3. **Reconcile the tenant's list with what the provider currently publishes.** `spring agent-runtime refresh-models openai --credential sk-proj-…` (closes #720 — replaces the refresh-script).
-4. **Retire a model from the catalog.** `spring agent-runtime models remove openai gpt-4o-mini` (existing units keep their pinned id per #674's pass-through rule).
+1. **Fresh tenant, Anthropic auth check.** `spring model-provider credentials status anthropic` → if 404, prime via `spring model-provider validate-credential anthropic --credential sk-ant-...`.
+2. **Pin a model list on install.** `spring model-provider install anthropic --model claude-opus-4-7 --model claude-sonnet-4-6`.
+3. **Reconcile the tenant's list with what the provider currently publishes.** `spring model-provider refresh-models openai --credential sk-proj-…`.
+4. **Retire a model from the catalogue.** `spring model-provider config set openai models=gpt-4o` (existing units keep their pinned id per the pass-through rule).
 5. **Re-run backend validation on a failed unit.** `spring unit revalidate my-unit` — dispatches a fresh `UnitValidationWorkflow` run; exits 20–27 map onto the underlying `UnitValidationCodes`.
-6. **Install Ollama with a custom node URL.** `spring agent-runtime install ollama --base-url http://ollama.internal:11434`.
-7. **Hide OpenAI from a tenant.** `spring agent-runtime uninstall openai --force`.
-8. **Re-enable OpenAI later.** `spring agent-runtime install openai` — install is upsert-shaped; prior config is preserved where possible.
-9. **Install GitHub connector on a tenant that didn't auto-seed it.** `spring connector install github`.
-10. **Audit GitHub credential state.** `spring connector credentials status github --secret-name github-app-private-key`.
-11. **See which units would break if we uninstall GitHub.** `spring connector bindings github`.
+6. **Install Ollama with a custom node URL.** `spring model-provider install ollama --base-url http://ollama.internal:11434`.
+7. **Hide OpenAI from a tenant.** `spring model-provider uninstall openai --force`.
+8. **Re-enable OpenAI later.** `spring model-provider install openai` — install is upsert-shaped; prior config is preserved where possible.
+9. **Author a Spring Voyage Agent unit pinned to a specific provider.** `spring unit create my-unit --top-level --runtime spring-voyage --model-provider openai --model gpt-4o`.
+10. **Override only the model id on an existing agent.** `spring agent execution set ada --model claude-sonnet-4-6`.
+11. **Install GitHub connector on a tenant that didn't auto-seed it.** `spring connector install github`.
+12. **Audit GitHub credential state.** `spring connector credentials status github --secret-name github-app-private-key`.
+13. **See which units would break if we uninstall GitHub.** `spring connector bindings github`.
 
 ## See also
 
-- [Agent Runtimes operator guide](guide/operator/agent-runtimes.md) — prose walkthroughs for every verb.
+- [ADR-0038: Agent Runtime and Model Provider split](decisions/0038-agent-runtime-and-model-provider-split.md) — the architectural split this surface implements.
 - [Connectors operator guide](guide/operator/connectors.md) — prose walkthroughs for connector verbs.
-- [Architecture: Agent Runtimes & Tenant Scoping](architecture/agent-runtimes-and-tenant-scoping.md) — the plugin model these verbs manipulate.

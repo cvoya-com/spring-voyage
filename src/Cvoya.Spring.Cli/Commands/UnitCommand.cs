@@ -180,34 +180,63 @@ public static class UnitCommand
         {
             Description = "Optional UI accent colour hint (e.g. #6366f1).",
         };
-        // #350: execution provider, and hosting mode.
-        // #1732: --tool was dropped — the execution tool is derived 1:1 from
-        // the runtime registry via --agent. The credential bootstrap path
-        // routes inline keys to the runtime named here.
-        var agentRuntimeOption = new Option<string?>("--agent")
+        // ADR-0038: agent-runtime selection is `--runtime <id>`. The
+        // structured model surface lives behind unit-create only as a
+        // shorthand for the credential-write target — provider id is
+        // captured by --model-provider when supplied. Unit-level
+        // execution defaults (image / container-runtime / runtime /
+        // model) belong on `spring unit execution set`, not here.
+        var runtimeOption = new Option<string?>("--runtime")
         {
-            Description = "Agent runtime registry id (e.g. claude, openai, google, ollama). " +
-                "Drives both the launcher selection at dispatch and the credential write target " +
-                "for --api-key / --api-key-from-file.",
+            Description = "Agent runtime id (e.g. claude-code, codex, gemini, spring-voyage). " +
+                "Drives the credential write target for --api-key / --api-key-from-file via the runtime → provider edge.",
         };
-        var providerOption = new Option<string?>("--provider")
+        var modelProviderOption = new Option<string?>("--model-provider")
         {
-            Description = "LLM provider (ollama, openai, google, anthropic). Relevant when the agent runtime resolves to the spring-voyage tool kind.",
+            Description = "Model-provider id (e.g. anthropic, openai, google, ollama). " +
+                "Required for multi-provider runtimes (spring-voyage); optional for fixed-provider runtimes.",
         };
-        providerOption.AcceptOnlyFromAmong("ollama", "openai", "google", "anthropic", "claude");
+
+        // ADR-0038 §7: legacy --agent flag is rejected at parse time.
+        var legacyAgentOption = new Option<string?>("--agent")
+        {
+            Description = "REJECTED — use --runtime instead (ADR-0038).",
+            Hidden = true,
+        };
+        legacyAgentOption.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(AgentCommand.LegacyAgentFlagRejectionMessage);
+            }
+        });
+        // ADR-0038: legacy flat --provider is rejected.
+        var legacyProviderOption = new Option<string?>("--provider")
+        {
+            Description = "REJECTED — use --model-provider instead (ADR-0038).",
+            Hidden = true,
+        };
+        legacyProviderOption.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(UnitExecutionCommand.LegacyProviderFlagRejectionMessage);
+            }
+        });
         var hostingOption = new Option<string?>("--hosting")
         {
             Description = "Agent hosting mode (ephemeral, persistent).",
         };
         hostingOption.AcceptOnlyFromAmong("ephemeral", "persistent");
 
-        // #626: inline credential entry. Pair these flags with --provider /
-        // --tool to supply the LLM API key at unit-create time. See
+        // #626: inline credential entry. Pair these flags with --runtime
+        // (and optionally --model-provider for multi-provider runtimes)
+        // to supply the LLM API key at unit-create time. See
         // `UnitCredentialOptions` for the full rejection matrix.
         var apiKeyOption = new Option<string?>("--api-key")
         {
             Description =
-                "LLM API key for the derived provider (set inline). Rejected when the tool / provider has no key (ollama, custom). Mutually exclusive with --api-key-from-file.",
+                "LLM API key for the chosen provider (set inline). Rejected when the runtime / provider has no key (e.g. ollama). Mutually exclusive with --api-key-from-file.",
         };
         var apiKeyFromFileOption = new Option<string?>("--api-key-from-file")
         {
@@ -262,8 +291,10 @@ public static class UnitCommand
         command.Options.Add(descriptionOption);
         command.Options.Add(modelOption);
         command.Options.Add(colorOption);
-        command.Options.Add(agentRuntimeOption);
-        command.Options.Add(providerOption);
+        command.Options.Add(runtimeOption);
+        command.Options.Add(modelProviderOption);
+        command.Options.Add(legacyAgentOption);
+        command.Options.Add(legacyProviderOption);
         command.Options.Add(hostingOption);
         command.Options.Add(apiKeyOption);
         command.Options.Add(apiKeyFromFileOption);
@@ -279,8 +310,7 @@ public static class UnitCommand
             var description = parseResult.GetValue(descriptionOption);
             var model = parseResult.GetValue(modelOption);
             var color = parseResult.GetValue(colorOption);
-            var agentRuntime = parseResult.GetValue(agentRuntimeOption);
-            var provider = parseResult.GetValue(providerOption);
+            var runtimeId = parseResult.GetValue(runtimeOption);
             var hosting = parseResult.GetValue(hostingOption);
             var apiKey = parseResult.GetValue(apiKeyOption);
             var apiKeyFromFile = parseResult.GetValue(apiKeyFromFileOption);
@@ -326,13 +356,14 @@ public static class UnitCommand
                 return;
             }
 
-            // #1732: when an inline credential is supplied, the operator MUST
-            // also name the runtime via --agent so the CLI knows which secret
-            // to write. Pre-#1732 the CLI inferred this from --tool; now that
-            // the tool is derived, --agent is the input.
+            // ADR-0038: when an inline credential is supplied, the
+            // operator MUST also name the runtime via --runtime so the
+            // CLI knows which provider edge owns the secret. The
+            // resolver consults the runtime catalogue to pick the
+            // provider id and hands that to the install service.
             var credentialClient = ClientFactory.Create();
             var credentialResolution = await ResolveCredentialOptionsAsync(
-                agentRuntime,
+                runtimeId,
                 apiKey,
                 apiKeyFromFile,
                 saveAsTenantDefault,
@@ -387,7 +418,6 @@ public static class UnitCommand
                 description,
                 model: model,
                 color: color,
-                provider: provider,
                 hosting: hosting,
                 parentUnitIds: parentUnits.Count > 0 ? (IReadOnlyList<Guid>)parentUnits : null,
                 isTopLevel: topLevel ? true : null,
@@ -1555,22 +1585,22 @@ public static class UnitCommand
     /// without an API round-trip.
     /// </param>
     /// <remarks>
-    /// The secret-name mapping used to live in a client-side switch
-    /// (<c>SecretNameForProvider</c>) that mirrored each runtime's
-    /// <c>IAgentRuntime.CredentialSecretName</c>. #742 deleted the switch
-    /// and routes the lookup through
-    /// <c>GET /api/v1/agent-runtimes/{id}</c> so the CLI, portal, and
-    /// resolver stay in lock-step off a single authority.
+    /// The secret-name mapping is sourced from the runtime catalogue
+    /// (ADR-0038) — the resolver passes the runtime id (or, in
+    /// multi-provider runtimes, the provider id) to the platform's
+    /// <c>GET /api/v1/tenant/model-providers/installs/{id}</c> which
+    /// returns the canonical <c>credentialSecretName</c>. CLI, portal,
+    /// and resolver stay in lock-step off the single authority.
     /// </remarks>
     public static async Task<UnitCredentialOptions> ResolveCredentialOptionsAsync(
-        string? agentRuntimeId,
+        string? runtimeId,
         string? apiKey,
         string? apiKeyFromFile,
         bool saveAsTenantDefault,
-        Func<string, CancellationToken, Task<string?>> runtimeSecretNameResolver,
+        Func<string, CancellationToken, Task<string?>> credentialSecretNameResolver,
         CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(runtimeSecretNameResolver);
+        ArgumentNullException.ThrowIfNull(credentialSecretNameResolver);
 
         var hasKeyFlag = !string.IsNullOrEmpty(apiKey);
         var hasKeyFileFlag = !string.IsNullOrEmpty(apiKeyFromFile);
@@ -1593,31 +1623,32 @@ public static class UnitCommand
                 "--api-key and --api-key-from-file are mutually exclusive. Pass exactly one.");
         }
 
-        // #1732: --tool was dropped — the runtime id is the credential
-        // routing key. Operators name it directly via --agent.
-        var runtimeId = string.IsNullOrWhiteSpace(agentRuntimeId)
+        // ADR-0038: --runtime names the credential routing key. The
+        // platform translates the runtime id → provider id internally
+        // when the install service writes the secret.
+        var resolvedRuntimeId = string.IsNullOrWhiteSpace(runtimeId)
             ? null
-            : agentRuntimeId.Trim();
-        if (runtimeId is null)
+            : runtimeId.Trim();
+        if (resolvedRuntimeId is null)
         {
             return UnitCredentialOptions.Rejected(
-                "--api-key / --api-key-from-file requires --agent to name the runtime that owns the credential.");
+                "--api-key / --api-key-from-file requires --runtime to name the runtime that owns the credential.");
         }
 
-        // Ollama's runtime id is known but its CredentialSecretName is
-        // the empty string — that means "no credential to write", so the
-        // inline-key flags have nowhere to land.
-        var secretName = await runtimeSecretNameResolver(runtimeId, ct);
+        // Ollama's runtime id is known but its credential secret name
+        // is empty — "no credential to write", so the inline-key flags
+        // have nowhere to land.
+        var secretName = await credentialSecretNameResolver(resolvedRuntimeId, ct);
         if (secretName is null)
         {
             return UnitCredentialOptions.Rejected(
-                $"Agent runtime '{runtimeId}' is not installed on the current tenant. " +
-                "Install it (`spring agent-runtime install " + runtimeId + "`) before supplying an API key.");
+                $"Provider for runtime '{resolvedRuntimeId}' is not installed on the current tenant. " +
+                "Install it (`spring model-provider install " + resolvedRuntimeId + "`) before supplying an API key.");
         }
         if (secretName.Length == 0)
         {
             return UnitCredentialOptions.Rejected(
-                $"Agent runtime '{runtimeId}' declares no credential (runs without an API key). " +
+                $"Runtime '{resolvedRuntimeId}' declares no credential (runs without an API key). " +
                 "Drop --api-key / --api-key-from-file for this runtime.");
         }
 
