@@ -96,6 +96,6 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 
 ## See also
 
-- [Agent Runtimes operator guide](agent-runtimes.md) — parallel guide for per-tenant agent-runtime installs.
-- [Architecture: Agent Runtimes & Tenant Scoping](../../architecture/agent-runtimes-and-tenant-scoping.md) — plugin model, credential-health state machine.
+- [Model Providers operator guide](model-providers.md) — parallel guide for per-tenant model-provider installs (the LLM-side counterpart to connectors). Per [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md), agent runtimes themselves are not per-tenant-installed — they are a closed v0.1 set picked at unit/agent create time.
+- [Architecture: Agent Runtime](../../architecture/agent-runtime.md) — the dispatcher, the launcher tiers, and how the runtime catalogue drives runtime selection.
 - [Per-unit connector binding](../user/units-and-agents.md) — wiring a unit to an installed connector.

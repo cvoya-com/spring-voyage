@@ -28,7 +28,7 @@ Running a Spring Voyage deployment — installing, configuring tenants, runtimes
 - [Secrets](operator/secrets.md)
 - [GitHub App setup](operator/github-app-setup.md)
 - [BYOI agent images](operator/byoi-agent-images.md)
-- [Agent runtimes](operator/agent-runtimes.md)
+- [Model providers](operator/model-providers.md)
 - [Connectors](operator/connectors.md)
 
 ## [Developer Guide](developer/README.md)
