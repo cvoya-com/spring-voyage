@@ -7,8 +7,8 @@ using System.Text.Json;
 
 using Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 
 using Microsoft.Extensions.Logging;
 
@@ -49,9 +49,9 @@ public class ClaudeCodeLauncherTests
     [Fact]
     public void Kind_IsClaudeCodeCli()
     {
-        // #1732: launcher key matches the runtime registry's
-        // IAgentRuntime.Kind for the `claude` runtime
-        // (claude-code-cli). The dispatcher dictionary is keyed on this.
+        // #1732: launcher key matches the catalogue runtime's `Launcher`
+        // field for the `claude` entry (claude-code-cli). The dispatcher
+        // dictionary is keyed on this.
         _launcher.Kind.ShouldBe("claude-code-cli");
     }
 

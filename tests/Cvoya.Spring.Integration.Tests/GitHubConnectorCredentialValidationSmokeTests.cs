@@ -6,7 +6,7 @@ namespace Cvoya.Spring.Integration.Tests;
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
-using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.ModelProviders;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

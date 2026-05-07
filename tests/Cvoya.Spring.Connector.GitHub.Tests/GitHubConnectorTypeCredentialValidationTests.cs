@@ -11,7 +11,7 @@ using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.Configuration;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
-using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.ModelProviders;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;

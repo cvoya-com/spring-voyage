@@ -17,11 +17,10 @@ using Cvoya.Spring.Core.Execution;
 /// instead of on first dispatch.
 /// </summary>
 /// <remarks>
-/// Same shape as <c>AgentRuntimeRegistry</c> for <c>IAgentRuntime</c>: a
-/// thin enumerator over a DI-registered set, owning no state of its own.
-/// Registered as a singleton; consumers in actor / orchestration code
-/// resolve through the registry rather than directly injecting
-/// <see cref="IAiProvider"/>.
+/// Pairs with <c>IAgentRuntimeLauncherRegistry</c>: a thin enumerator
+/// over a DI-registered set, owning no state of its own. Registered as
+/// a singleton; consumers in actor / orchestration code resolve through
+/// the registry rather than directly injecting <see cref="IAiProvider"/>.
 /// </remarks>
 public sealed class AiProviderRegistry : IAiProviderRegistry
 {

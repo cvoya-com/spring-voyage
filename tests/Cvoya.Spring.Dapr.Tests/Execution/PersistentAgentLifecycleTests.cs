@@ -4,9 +4,9 @@
 namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.Extensions.DependencyInjection;

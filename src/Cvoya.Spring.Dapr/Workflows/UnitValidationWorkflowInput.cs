@@ -27,15 +27,16 @@ namespace Cvoya.Spring.Dapr.Workflows;
 /// <c>RunContainerProbeActivity</c> will run the step command inside.
 /// </param>
 /// <param name="RuntimeId">
-/// Stable id of the <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime"/>
-/// whose probe steps the workflow should execute. Resolved inside activities
-/// via <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntimeRegistry.Get(string)"/>
+/// Stable id of the catalogue
+/// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime"/> whose probe
+/// steps the workflow should execute. Resolved inside activities via
+/// <see cref="Cvoya.Spring.Core.Catalog.IRuntimeCatalog.GetAgentRuntime"/>
 /// — the workflow body stays delegate-free.
 /// </param>
 /// <param name="Credential">
 /// Raw credential value to inject into the probe environment and use as the
-/// redaction key. Empty string when the runtime declares
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.AgentRuntimeCredentialKind.None"/> —
+/// redaction key. Empty string when the provider declares
+/// <see cref="Cvoya.Spring.Core.ModelProviders.ModelProviderCredentialKind.None"/> —
 /// <see cref="Cvoya.Spring.Core.Security.CredentialRedactor"/> short-circuits
 /// on empty input so no destructive redaction runs.
 /// </param>
@@ -46,10 +47,11 @@ namespace Cvoya.Spring.Dapr.Workflows;
 /// <see cref="Cvoya.Spring.Core.Units.UnitValidationCodes.ModelNotFound"/>.
 /// </param>
 /// <param name="SkipSteps">
-/// Probe steps the runtime does not declare and the workflow should skip
-/// entirely (emitting no events for them so the UI shows them as
+/// Probe steps the launcher does not declare and the workflow should
+/// skip entirely (emitting no events for them so the UI shows them as
 /// "skipped"). Computed by <see cref="UnitValidationWorkflowScheduler"/>
-/// from the runtime's <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.GetProbeSteps"/>
+/// from the launcher's
+/// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher.GetProbeSteps"/>
 /// result and stored as string names (e.g. <c>"ValidatingCredential"</c>)
 /// so the record stays JSON-serializable across the Dapr Workflow boundary.
 /// <c>null</c> or empty means all post-pull steps are attempted.

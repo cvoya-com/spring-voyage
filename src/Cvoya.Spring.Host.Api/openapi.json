@@ -7095,7 +7095,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AgentRuntimeInstallConfig"
+                "$ref": "#/components/schemas/ModelProviderInstallConfig"
               }
             }
           },
@@ -9206,41 +9206,6 @@
           }
         }
       },
-      "AgentRuntimeCredentialKind": {
-        "enum": [
-          "None",
-          "ApiKey",
-          "OAuthToken"
-        ]
-      },
-      "AgentRuntimeInstallConfig": {
-        "required": [
-          "models",
-          "defaultModel",
-          "baseUrl"
-        ],
-        "type": "object",
-        "properties": {
-          "models": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "defaultModel": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "baseUrl": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
       "AgentSkillsResponse": {
         "required": [
           "skills"
@@ -10903,7 +10868,7 @@
             ]
           },
           "credentialKind": {
-            "$ref": "#/components/schemas/AgentRuntimeCredentialKind"
+            "$ref": "#/components/schemas/ModelProviderCredentialKind"
           },
           "credentialDisplayHint": {
             "type": [
@@ -11218,6 +11183,41 @@
           "id": {
             "type": "string"
           },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultModel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ModelProviderCredentialKind": {
+        "enum": [
+          "None",
+          "ApiKey",
+          "OAuthToken"
+        ]
+      },
+      "ModelProviderInstallConfig": {
+        "required": [
+          "models",
+          "defaultModel",
+          "baseUrl"
+        ],
+        "type": "object",
+        "properties": {
           "models": {
             "type": "array",
             "items": {

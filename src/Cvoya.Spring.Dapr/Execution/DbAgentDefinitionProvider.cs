@@ -5,8 +5,8 @@ namespace Cvoya.Spring.Dapr.Execution;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -32,10 +32,11 @@ using Microsoft.Extensions.Logging;
 /// change whether an agent is ephemeral or persistent.
 /// </para>
 /// <para>
-/// #1732: the launcher is selected from the <c>agent</c> slot's runtime
-/// registry entry — <c>agent.Agent → unit.Agent → null</c>. The execution
-/// tool is no longer threaded through the manifest / DTOs / persistence;
-/// it is derived from <c>IAgentRuntime.Kind</c> at dispatch time.
+/// #1732: the launcher is selected from the <c>agent</c> slot's
+/// catalogue runtime entry — <c>agent.Agent → unit.Agent → null</c>.
+/// The execution tool is no longer threaded through the manifest /
+/// DTOs / persistence; it is derived from the catalogue runtime's
+/// <c>Launcher</c> field at dispatch time.
 /// </para>
 /// <para>
 /// Tolerance: a missing unit membership, a missing unit execution block,
@@ -151,8 +152,9 @@ public class DbAgentDefinitionProvider(
     /// #1732: <see cref="AgentExecutionConfig.AgentRuntimeId"/> is sourced
     /// from <c>agent.Agent → unit.Agent → null</c>. The dispatcher passes
     /// the resulting value through
-    /// <see cref="IAgentRuntimeRegistry.Get(string)"/> to derive the launcher
-    /// (via <c>IAgentRuntime.Kind</c>).
+    /// <see cref="Cvoya.Spring.Core.Catalog.IRuntimeCatalog.GetAgentRuntime"/>
+    /// to derive the launcher (via the catalogue runtime's
+    /// <c>Launcher</c> field).
     /// </remarks>
     internal static AgentExecutionConfig? Merge(
         AgentExecutionConfig? agent,

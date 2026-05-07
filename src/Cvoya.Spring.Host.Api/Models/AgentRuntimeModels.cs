@@ -3,7 +3,7 @@
 
 namespace Cvoya.Spring.Host.Api.Models;
 
-using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.ModelProviders;
 
 /// <summary>
 /// Response body for <c>GET /api/v1/tenant/model-providers/installs</c>
@@ -43,7 +43,7 @@ using Cvoya.Spring.Core.AgentRuntimes;
 /// <param name="CredentialKind">
 /// The kind of credential this provider expects. Drives whether the
 /// wizard renders a credential input at all
-/// (<see cref="AgentRuntimeCredentialKind.None"/> = skip).
+/// (<see cref="ModelProviderCredentialKind.None"/> = skip).
 /// </param>
 /// <param name="CredentialDisplayHint">Human-facing hint for the credential input.</param>
 /// <param name="CredentialSecretName">
@@ -59,7 +59,7 @@ public record InstalledModelProviderResponse(
     IReadOnlyList<string> Models,
     string? DefaultModel,
     string? BaseUrl,
-    AgentRuntimeCredentialKind CredentialKind,
+    ModelProviderCredentialKind CredentialKind,
     string? CredentialDisplayHint,
     string CredentialSecretName);
 

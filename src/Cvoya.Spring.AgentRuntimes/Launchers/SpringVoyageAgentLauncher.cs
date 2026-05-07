@@ -4,9 +4,9 @@
 namespace Cvoya.Spring.AgentRuntimes.Launchers;
 
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -83,7 +83,7 @@ public class SpringVoyageAgentLauncher(
     /// reshape in PR-1b — see follow-up captured in the Chunk 2a final
     /// report.
     /// </remarks>
-    public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential)
+    public IReadOnlyList<ProbeStep> GetProbeSteps(ModelProviderInstallConfig config, string credential)
     {
         ArgumentNullException.ThrowIfNull(config);
         return new[]
@@ -219,9 +219,12 @@ public class SpringVoyageAgentLauncher(
         // both `dapr/components/delegated-spring-voyage-agent/llm-<provider>.yaml`'s
         // secretKeyRef name AND `ContainerLifecycleManager.CredentialEnvVarsToPropagate`
         // — the daprd sidecar reads the secret from its own process env via the
-        // local-env secret store. The legacy IAgentRuntime.CredentialEnvVar
-        // seam is gone (#1770); the mapping is inline here for the v0.1
-        // closed provider set.
+        // local-env secret store. The mapping is inline here for the v0.1
+        // closed provider set; the catalogue's AgentRuntimeProviderEdge
+        // carries the same env-var name for the agent-runtime path
+        // (per ADR-0038), but Dapr Conversation YAMLs reference the env
+        // var by literal name so we keep the inline switch authoritative
+        // for the REST path.
         var providerEnvVar = provider.ToLowerInvariant() switch
         {
             "anthropic" => "ANTHROPIC_API_KEY",
@@ -268,9 +271,10 @@ public class SpringVoyageAgentLauncher(
         // routes `provider: anthropic` via REST, which only accepts
         // Anthropic Platform API keys (sk-ant-api…). OAuth tokens
         // (sk-ant-oat…) belong on the Claude agent-runtime path. The
-        // format check is inline in the launcher rather than going
-        // through the deleted-by-#1770 IAgentRuntime.IsCredentialFormatAccepted
-        // seam.
+        // format check is inline in the launcher per ADR-0038 — REST-
+        // path acceptance lives on each IModelProviderAdapter (the
+        // single-shot path), agent-runtime-path acceptance lives here
+        // on the launcher that actually invokes the CLI.
         if (string.Equals(provider, "anthropic", StringComparison.OrdinalIgnoreCase)
             && resolution.Value!.StartsWith("sk-ant-oat", StringComparison.Ordinal))
         {

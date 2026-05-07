@@ -13,10 +13,10 @@ using Cvoya.Spring.Core.Units;
 /// <remarks>
 /// <para>
 /// T-04 refined the T-03 contract: the workflow body must stay deterministic
-/// and serializable, but <see cref="Cvoya.Spring.Core.AgentRuntimes.ProbeStep.InterpretOutput"/>
+/// and serializable, but <see cref="Cvoya.Spring.Core.ModelProviders.ProbeStep.InterpretOutput"/>
 /// is a <see cref="System.Func{T1, T2, T3, TResult}"/> delegate (not
-/// serializable) and <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntimeRegistry"/>
-/// is a DI singleton (not available in the workflow body). Moving both the
+/// serializable) and the runtime catalogue + launcher registry are DI
+/// services (not available in the workflow body). Moving both the
 /// container exec AND the <c>InterpretOutput</c> call inside this activity
 /// keeps the workflow delegate-free and keeps interpreter injection where
 /// DI lives. The activity is passed just enough context to resolve the
@@ -27,16 +27,16 @@ using Cvoya.Spring.Core.Units;
 /// The activity MUST pass produced <c>stdout</c> / <c>stderr</c> through
 /// <see cref="Cvoya.Spring.Core.Security.CredentialRedactor"/> keyed on
 /// <paramref name="Credential"/> BEFORE invoking
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.ProbeStep.InterpretOutput"/>
+/// <see cref="Cvoya.Spring.Core.ModelProviders.ProbeStep.InterpretOutput"/>
 /// so the interpreter never sees the raw credential — and also redact any
 /// returned <c>Message</c> / <c>Details</c> values a second time as belt-and-braces.
 /// </para>
 /// </remarks>
-/// <param name="RuntimeId">Stable id of the agent runtime whose probe step this is; resolved via <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntimeRegistry.Get(string)"/>.</param>
-/// <param name="Step">Which step to run from the runtime's <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.GetProbeSteps(Cvoya.Spring.Core.AgentRuntimes.AgentRuntimeInstallConfig, string)"/> list — one of <see cref="UnitValidationStep.VerifyingTool"/>, <see cref="UnitValidationStep.ValidatingCredential"/>, or <see cref="UnitValidationStep.ResolvingModel"/>.</param>
+/// <param name="RuntimeId">Stable id of the catalogue agent runtime whose probe step this is; resolved via <see cref="Cvoya.Spring.Core.Catalog.IRuntimeCatalog.GetAgentRuntime"/>.</param>
+/// <param name="Step">Which step to run from the launcher's <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher.GetProbeSteps(Cvoya.Spring.Core.ModelProviders.ModelProviderInstallConfig, string)"/> list — one of <see cref="UnitValidationStep.VerifyingTool"/>, <see cref="UnitValidationStep.ValidatingCredential"/>, or <see cref="UnitValidationStep.ResolvingModel"/>.</param>
 /// <param name="Image">The container image reference; the image MUST have been pulled by <c>PullImageActivity</c> first.</param>
-/// <param name="Credential">The raw credential to inject into the probe environment and use as the redaction key. Empty when the runtime requires no credential — <see cref="Cvoya.Spring.Core.Security.CredentialRedactor"/> short-circuits on empty input.</param>
-/// <param name="RequestedModel">The model id the unit's install targets; used by the runtime to build the <see cref="UnitValidationStep.ResolvingModel"/> probe and by its interpreter to classify 404s as <see cref="UnitValidationCodes.ModelNotFound"/>.</param>
+/// <param name="Credential">The raw credential to inject into the probe environment and use as the redaction key. Empty when the provider requires no credential — <see cref="Cvoya.Spring.Core.Security.CredentialRedactor"/> short-circuits on empty input.</param>
+/// <param name="RequestedModel">The model id the unit's install targets; used by the launcher to build the <see cref="UnitValidationStep.ResolvingModel"/> probe and by its interpreter to classify 404s as <see cref="UnitValidationCodes.ModelNotFound"/>.</param>
 public record RunContainerProbeActivityInput(
     string RuntimeId,
     UnitValidationStep Step,

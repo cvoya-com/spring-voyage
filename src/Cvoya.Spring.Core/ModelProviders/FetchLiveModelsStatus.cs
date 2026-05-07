@@ -1,15 +1,14 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.AgentRuntimes;
+namespace Cvoya.Spring.Core.ModelProviders;
 
 /// <summary>
-/// Outcome of
-/// <see cref="IAgentRuntime.FetchLiveModelsAsync(string, System.Threading.CancellationToken)"/>.
-/// Treat these as the raw signal from a single fetch attempt — callers may
-/// retry <see cref="NetworkError"/> and should surface
-/// <see cref="Unsupported"/> as a "this runtime cannot enumerate live models"
-/// message rather than an error.
+/// Outcome of a live-models fetch against a model provider's backing
+/// service. Treat these as the raw signal from a single fetch attempt —
+/// callers may retry <see cref="NetworkError"/> and should surface
+/// <see cref="Unsupported"/> as a "this provider cannot enumerate live
+/// models" message rather than an error.
 /// </summary>
 public enum FetchLiveModelsStatus
 {
@@ -38,11 +37,10 @@ public enum FetchLiveModelsStatus
     NetworkError = 3,
 
     /// <summary>
-    /// The runtime does not expose a live model-enumeration endpoint in
-    /// its backing service. Callers should keep the runtime's seed
-    /// catalog (see <see cref="IAgentRuntime.DefaultModels"/>) as the
-    /// authoritative list and surface "refresh not supported" to
-    /// operators.
+    /// The provider does not expose a live model-enumeration endpoint in
+    /// its backing service. Callers should keep the catalogue's seed
+    /// model list as the authoritative source and surface "refresh not
+    /// supported" to operators.
     /// </summary>
     Unsupported = 4,
 }

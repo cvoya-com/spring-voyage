@@ -3,9 +3,9 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.CredentialHealth;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.ModelProviders;
 
@@ -95,13 +95,13 @@ public static class ModelProviderEndpoints
     }
 
     private static async Task<IResult> ListAsync(
-        [FromServices] ITenantAgentRuntimeInstallService installService,
+        [FromServices] ITenantModelProviderInstallService installService,
         [FromServices] IRuntimeCatalog catalog,
         CancellationToken cancellationToken)
     {
         var installs = await installService.ListAsync(cancellationToken);
         var rows = installs
-            .Select(install => ToResponse(install, catalog.GetModelProvider(install.RuntimeId)))
+            .Select(install => ToResponse(install, catalog.GetModelProvider(install.ProviderId)))
             .Where(r => r is not null)
             .Cast<InstalledModelProviderResponse>()
             .ToArray();
@@ -110,7 +110,7 @@ public static class ModelProviderEndpoints
 
     private static async Task<IResult> GetAsync(
         string id,
-        [FromServices] ITenantAgentRuntimeInstallService installService,
+        [FromServices] ITenantModelProviderInstallService installService,
         [FromServices] IRuntimeCatalog catalog,
         CancellationToken cancellationToken)
     {
@@ -121,7 +121,7 @@ public static class ModelProviderEndpoints
                 detail: $"Model provider '{id}' is not installed on the current tenant.",
                 statusCode: StatusCodes.Status404NotFound);
         }
-        var response = ToResponse(install, catalog.GetModelProvider(install.RuntimeId));
+        var response = ToResponse(install, catalog.GetModelProvider(install.ProviderId));
         return response is null
             ? Results.Problem(
                 detail: $"Model provider '{id}' is installed but no longer registered with the host.",
@@ -131,7 +131,7 @@ public static class ModelProviderEndpoints
 
     private static async Task<IResult> GetModelsAsync(
         string id,
-        [FromServices] ITenantAgentRuntimeInstallService installService,
+        [FromServices] ITenantModelProviderInstallService installService,
         [FromServices] IRuntimeCatalog catalog,
         CancellationToken cancellationToken)
     {
@@ -143,7 +143,7 @@ public static class ModelProviderEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        var provider = catalog.GetModelProvider(install.RuntimeId);
+        var provider = catalog.GetModelProvider(install.ProviderId);
         var seedIds = provider?.DefaultModels ?? Array.Empty<string>();
         var configured = install.Config.Models.Count > 0
             ? install.Config.Models
@@ -158,7 +158,7 @@ public static class ModelProviderEndpoints
     private static async Task<IResult> InstallAsync(
         string id,
         [FromBody] ModelProviderInstallRequest? body,
-        [FromServices] ITenantAgentRuntimeInstallService installService,
+        [FromServices] ITenantModelProviderInstallService installService,
         [FromServices] IRuntimeCatalog catalog,
         CancellationToken cancellationToken)
     {
@@ -170,9 +170,9 @@ public static class ModelProviderEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        AgentRuntimeInstallConfig? config = body is null
+        ModelProviderInstallConfig? config = body is null
             ? null
-            : new AgentRuntimeInstallConfig(
+            : new ModelProviderInstallConfig(
                 Models: body.Models ?? Array.Empty<string>(),
                 DefaultModel: body.DefaultModel,
                 BaseUrl: body.BaseUrl);
@@ -188,7 +188,7 @@ public static class ModelProviderEndpoints
 
     private static async Task<IResult> UninstallAsync(
         string id,
-        [FromServices] ITenantAgentRuntimeInstallService installService,
+        [FromServices] ITenantModelProviderInstallService installService,
         CancellationToken cancellationToken)
     {
         await installService.UninstallAsync(id, cancellationToken);
@@ -197,8 +197,8 @@ public static class ModelProviderEndpoints
 
     private static async Task<IResult> UpdateConfigAsync(
         string id,
-        [FromBody] AgentRuntimeInstallConfig config,
-        [FromServices] ITenantAgentRuntimeInstallService installService,
+        [FromBody] ModelProviderInstallConfig config,
+        [FromServices] ITenantModelProviderInstallService installService,
         [FromServices] IRuntimeCatalog catalog,
         CancellationToken cancellationToken)
     {
@@ -265,7 +265,7 @@ public static class ModelProviderEndpoints
         [FromBody] ModelProviderRefreshModelsRequest? body,
         [FromServices] IRuntimeCatalog catalog,
         [FromServices] IModelProviderAdapterRegistry adapterRegistry,
-        [FromServices] ITenantAgentRuntimeInstallService installService,
+        [FromServices] ITenantModelProviderInstallService installService,
         CancellationToken cancellationToken)
     {
         var provider = catalog.GetModelProvider(id);
@@ -318,7 +318,7 @@ public static class ModelProviderEndpoints
             ? existingDefault
             : (liveIds.Length > 0 ? liveIds[0] : null);
 
-        var nextConfig = new AgentRuntimeInstallConfig(
+        var nextConfig = new ModelProviderInstallConfig(
             Models: liveIds,
             DefaultModel: nextDefault,
             BaseUrl: install.Config.BaseUrl);
@@ -343,7 +343,7 @@ public static class ModelProviderEndpoints
 
     private static async Task<IResult> GetConfigAsync(
         string id,
-        [FromServices] ITenantAgentRuntimeInstallService installService,
+        [FromServices] ITenantModelProviderInstallService installService,
         [FromServices] IRuntimeCatalog catalog,
         CancellationToken cancellationToken)
     {
@@ -362,7 +362,7 @@ public static class ModelProviderEndpoints
         }
 
         return Results.Ok(new ModelProviderConfigResponse(
-            Id: install.RuntimeId,
+            Id: install.ProviderId,
             Models: install.Config.Models,
             DefaultModel: install.Config.DefaultModel,
             BaseUrl: install.Config.BaseUrl));
@@ -453,7 +453,7 @@ public static class ModelProviderEndpoints
     }
 
     private static InstalledModelProviderResponse? ToResponse(
-        InstalledAgentRuntime install,
+        InstalledModelProvider install,
         ModelProvider? provider)
     {
         if (provider is null)
@@ -467,16 +467,16 @@ public static class ModelProviderEndpoints
         var primaryAuth = provider.AuthMethods.Count > 0 ? provider.AuthMethods[0] : (AuthMethod?)null;
         var credentialKind = primaryAuth switch
         {
-            AuthMethod.Oauth => AgentRuntimeCredentialKind.OAuthToken,
-            AuthMethod.ApiKey => AgentRuntimeCredentialKind.ApiKey,
-            _ => AgentRuntimeCredentialKind.None,
+            AuthMethod.Oauth => ModelProviderCredentialKind.OAuthToken,
+            AuthMethod.ApiKey => ModelProviderCredentialKind.ApiKey,
+            _ => ModelProviderCredentialKind.None,
         };
         var secretName = primaryAuth is AuthMethod method
             ? CredentialNaming.SecretNameFor(provider.Id, method)
             : string.Empty;
 
         return new InstalledModelProviderResponse(
-            Id: install.RuntimeId,
+            Id: install.ProviderId,
             DisplayName: provider.DisplayName,
             InstalledAt: install.InstalledAt,
             UpdatedAt: install.UpdatedAt,

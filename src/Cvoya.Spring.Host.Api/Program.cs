@@ -399,10 +399,9 @@ try
     // mounted by MapUnitConnectorPointerEndpoints chain off the units
     // group, which already carries TenantUser.
     app.MapConnectorEndpoints();
-    // Agent-runtime install lifecycle — TenantOperator (config / install /
-    // uninstall / config update). The full surface lives at
-    // /api/v1/tenant/agent-runtimes/installs/. A future PR (follow-up to
-    // #1259) introduces a /api/v1/platform/agent-runtimes/ registry view.
+    // Model-provider install lifecycle — TenantOperator (config /
+    // install / uninstall / config update). The full surface lives at
+    // /api/v1/tenant/model-providers/installs/ per ADR-0038.
     app.MapModelProviderEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
     // Secrets endpoint group covers all three scopes (unit / tenant /
     // platform). Role gates are applied per-group inside SecretEndpoints:
@@ -414,8 +413,8 @@ try
     // policy rather than elevating it.
     app.MapSecretEndpoints();
     // /api/v1/ollama/models was retired in C1.2b. Callers (CLI / portal)
-    // discover Ollama models through the per-runtime install path:
-    // GET /api/v1/tenant/agent-runtimes/installs/ollama/models.
+    // discover Ollama models through the per-provider install path:
+    // GET /api/v1/tenant/model-providers/installs/ollama/models.
     // Provider credential-status probe (#598) feeds the unit-creation
     // wizard's "is this provider configured" banner. Now lives under
     // /api/v1/platform/credentials/{provider}/status — PlatformOperator.

@@ -65,25 +65,28 @@ public enum AgentHostingMode
 }
 
 /// <summary>
-/// Execution configuration derived from the agent YAML <c>execution:</c> block
-/// (or the legacy <c>ai.environment</c> block). The launcher fundamentally
-/// needs the runtime registry id (<paramref name="AgentRuntimeId"/>) — which
-/// determines the execution tool 1:1 via the registry's
-/// <c>IAgentRuntime.Kind</c> — and the container <paramref name="Image"/>.
+/// Execution configuration derived from the agent YAML <c>execution:</c>
+/// block (or the legacy <c>ai.environment</c> block). The launcher
+/// fundamentally needs the runtime registry id
+/// (<paramref name="AgentRuntimeId"/>) — which the catalogue resolves
+/// 1:1 to a launcher strategy via
+/// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/> — and
+/// the container <paramref name="Image"/>.
 /// </summary>
 /// <remarks>
-/// #1732: dropped the standalone <c>Tool</c> slot; an
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime"/> declares both
-/// <c>Id</c> (e.g. <c>claude</c>) and <c>Kind</c> (e.g.
-/// <c>claude-code-cli</c>), and the registry resolves one to the other 1:1.
+/// #1732: dropped the standalone <c>Tool</c> slot; the catalogue's
+/// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime"/> declares both
+/// <c>Id</c> (e.g. <c>claude</c>) and <c>Launcher</c> (e.g.
+/// <c>claude-code-cli</c>), and the catalogue resolves one to the other
+/// 1:1.
 /// </remarks>
 /// <param name="AgentRuntimeId">
-/// The agent-runtime registry id sourced from the YAML <c>ai.agent</c> /
-/// persisted <c>execution.agent</c> slot (e.g. <c>claude</c>, <c>openai</c>).
-/// The dispatcher resolves this through
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntimeRegistry"/> to pick
-/// the matching launcher and to surface the derived <c>Kind</c> on
-/// read-only response surfaces.
+/// The agent-runtime registry id sourced from the YAML <c>ai.agent</c>
+/// / persisted <c>execution.agent</c> slot (e.g. <c>claude</c>,
+/// <c>codex</c>). The dispatcher resolves this through
+/// <see cref="Cvoya.Spring.Core.Catalog.IRuntimeCatalog.GetAgentRuntime"/>
+/// to pick the matching launcher and to surface the derived launcher id
+/// on read-only response surfaces.
 /// </param>
 /// <param name="Image">
 /// The container image to run. Nullable for A2A-native agents that do not

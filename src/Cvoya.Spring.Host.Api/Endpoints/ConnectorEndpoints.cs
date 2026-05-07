@@ -4,9 +4,9 @@
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Connectors;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.CredentialHealth;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;

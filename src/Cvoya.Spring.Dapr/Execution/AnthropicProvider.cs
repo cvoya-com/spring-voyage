@@ -45,8 +45,8 @@ public class AnthropicProvider(
     /// <c>claude setup-token</c>. The Anthropic Platform REST endpoint
     /// rejects this format — OAuth tokens are only usable through the
     /// <c>claude</c> CLI running inside a unit container via the
-    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime"/> dispatch
-    /// path. Detected here so we fail fast with an operator-actionable
+    /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher"/>
+    /// dispatch path. Detected here so we fail fast with an operator-actionable
     /// message instead of surfacing a silent upstream 401 as a 502.
     /// </summary>
     private const string OAuthTokenPrefix = "sk-ant-oat";
@@ -326,8 +326,8 @@ public class AnthropicProvider(
     /// error path would surface as a silent 502 on the first user message
     /// (see #981). OAuth tokens are usable only through the <c>claude</c>
     /// CLI running inside a unit container via the
-    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime"/> dispatch
-    /// path — this <see cref="IAiProvider"/> implementation is host-side
+    /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher"/>
+    /// dispatch path — this <see cref="IAiProvider"/> implementation is host-side
     /// REST only (ADR 0021) and so cannot serve them.
     /// </summary>
     private static void RejectOAuthToken(string? credential)

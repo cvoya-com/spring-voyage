@@ -13,8 +13,11 @@ namespace Cvoya.Spring.Core.CredentialHealth;
 public enum CredentialHealthKind
 {
     /// <summary>
-    /// The subject is an <see cref="AgentRuntimes.IAgentRuntime"/> — the
-    /// row's <c>subject_id</c> is the runtime's <c>Id</c>.
+    /// The subject is a model provider declared in the runtime catalogue
+    /// (ADR-0038) — the row's <c>subject_id</c> is the provider's id
+    /// (e.g. <c>anthropic</c>, <c>openai</c>). The value name is kept as
+    /// <c>AgentRuntime</c> for v0.1 wire stability while the persisted
+    /// rows migrate; the conceptual subject is the provider.
     /// </summary>
     AgentRuntime = 0,
 

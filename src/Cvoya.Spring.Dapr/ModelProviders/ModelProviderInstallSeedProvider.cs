@@ -1,10 +1,10 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.AgentRuntimes;
+namespace Cvoya.Spring.Dapr.ModelProviders;
 
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Tenancy;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -21,10 +21,10 @@ using Microsoft.Extensions.Logging;
 /// installs are keyed on provider id (not runtime id) so a single
 /// Anthropic credential is shared across every runtime that consumes it.
 /// </remarks>
-public sealed class AgentRuntimeInstallSeedProvider(
+public sealed class ModelProviderInstallSeedProvider(
     IRuntimeCatalog catalog,
     IServiceScopeFactory scopeFactory,
-    ILogger<AgentRuntimeInstallSeedProvider> logger) : ITenantSeedProvider
+    ILogger<ModelProviderInstallSeedProvider> logger) : ITenantSeedProvider
 {
     /// <inheritdoc />
     public string Id => "model-providers";
@@ -51,7 +51,7 @@ public sealed class AgentRuntimeInstallSeedProvider(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var installService = scope.ServiceProvider
-            .GetRequiredService<ITenantAgentRuntimeInstallService>();
+            .GetRequiredService<ITenantModelProviderInstallService>();
 
         foreach (var provider in providers)
         {
@@ -60,7 +60,7 @@ public sealed class AgentRuntimeInstallSeedProvider(
             logger.LogInformation(
                 "Tenant '{TenantId}' model-provider seed: seeding provider '{ProviderId}'.",
                 tenantId, provider.Id);
-            var seedConfig = new AgentRuntimeInstallConfig(
+            var seedConfig = new ModelProviderInstallConfig(
                 Models: provider.DefaultModels.ToArray(),
                 DefaultModel: provider.DefaultModels.Count > 0 ? provider.DefaultModels[0] : null,
                 BaseUrl: null);

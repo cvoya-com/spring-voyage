@@ -3,9 +3,9 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Workflows.Activities;
 
@@ -72,7 +72,7 @@ public class RunContainerProbeActivityTests
     {
         var launcher = Substitute.For<IAgentRuntimeLauncher>();
         launcher.Kind.Returns(TestLauncherId);
-        launcher.GetProbeSteps(Arg.Any<AgentRuntimeInstallConfig>(), Arg.Any<string>())
+        launcher.GetProbeSteps(Arg.Any<ModelProviderInstallConfig>(), Arg.Any<string>())
             .Returns(new[]
             {
                 new ProbeStep(

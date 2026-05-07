@@ -6,10 +6,10 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Execution;
 

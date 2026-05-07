@@ -71,9 +71,10 @@ public interface IUnitExecutionStore
 /// subset.
 /// </summary>
 /// <remarks>
-/// #1732: the standalone <c>Tool</c> slot was dropped — the execution tool
-/// is derived 1:1 from <see cref="Agent"/> (the runtime registry id) via the
-/// runtime's <c>IAgentRuntime.Kind</c>.
+/// #1732: the standalone <c>Tool</c> slot was dropped — the execution
+/// tool is derived 1:1 from <see cref="Agent"/> (the runtime registry
+/// id) via the catalogue runtime's
+/// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/> field.
 /// </remarks>
 /// <param name="Image">Default container image reference.</param>
 /// <param name="Runtime">Default container runtime identifier (<c>docker</c> / <c>podman</c>).</param>
@@ -82,12 +83,12 @@ public interface IUnitExecutionStore
 /// <param name="Agent">
 /// Agent runtime registry id (#1683) — sourced from the unit / agent
 /// manifest's <c>ai.agent</c> field. Matches an
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Id"/>
-/// registration (e.g. <c>claude</c>, <c>openai</c>, <c>google</c>,
-/// <c>ollama</c>). The validation scheduler reads this slot first when
-/// composing the workflow input; <see cref="Runtime"/> is the container
-/// runtime selector and is preserved as a back-compat fallback for units
-/// persisted before the slot existed.
+/// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Id"/> entry in the
+/// runtime catalogue (e.g. <c>claude</c>, <c>codex</c>,
+/// <c>spring-voyage</c>). The validation scheduler reads this slot first
+/// when composing the workflow input; <see cref="Runtime"/> is the
+/// container runtime selector and is preserved as a back-compat fallback
+/// for units persisted before the slot existed.
 /// </param>
 public record UnitExecutionDefaults(
     string? Image = null,

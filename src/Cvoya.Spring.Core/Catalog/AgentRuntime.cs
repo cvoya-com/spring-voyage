@@ -5,9 +5,9 @@ namespace Cvoya.Spring.Core.Catalog;
 
 /// <summary>
 /// One agent runtime entry from <c>platform/runtime-catalog.yaml</c>. Per
-/// ADR-0038 decision 2, runtimes are platform configuration; the previous
-/// <c>IAgentRuntime</c> interface and <c>Kind</c> property are removed.
-/// Per-runtime behaviour stays in code as <c>IAgentRuntimeLauncher</c>
+/// ADR-0038 decision 2, runtimes are platform configuration; per-runtime
+/// behaviour lives in code as
+/// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher"/>
 /// strategies dispatched by <see cref="Launcher"/>.
 /// </summary>
 /// <param name="Id">
@@ -21,7 +21,8 @@ namespace Cvoya.Spring.Core.Catalog;
 /// </param>
 /// <param name="Launcher">
 /// Launcher strategy id (e.g. <c>claude-code-cli</c>, <c>spring-voyage-agent</c>).
-/// Resolved via DI to an <c>IAgentRuntimeLauncher</c>.
+/// Resolved via DI to an
+/// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher"/>.
 /// </param>
 /// <param name="ThreadBinding">How the platform delivers the thread id to the runtime.</param>
 /// <param name="SystemPromptInjection">How the assembled system prompt reaches the runtime.</param>

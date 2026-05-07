@@ -90,10 +90,11 @@ public sealed class LlmCredentialResolver : ILlmCredentialResolver
 
         // ADR-0038: legacy-compat — the wire DTOs still emit the
         // `{provider}-api-key` shape so the resolver's cache key matches
-        // what tenants have stored under the legacy
-        // IAgentRuntime.CredentialSecretName. PR-1b switches the wire to
-        // the canonical form (CredentialNaming.SecretNameFor), at which
-        // point this branch collapses to the helper call.
+        // what tenants have stored. PR-1b switched the wire surface to
+        // the canonical (provider, authMethod) form via
+        // CredentialNaming.SecretNameFor; this branch will collapse to
+        // the helper call once stored secrets have all been re-keyed
+        // under the canonical name.
         var secretName = $"{providerId.ToLowerInvariant()}-api-key";
 
         // A SecretUnreadableException at any tier means a slot exists but

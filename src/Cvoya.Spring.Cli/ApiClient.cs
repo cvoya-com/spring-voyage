@@ -2331,7 +2331,7 @@ public class SpringApiClient
         string? baseUrl,
         CancellationToken ct = default)
     {
-        var body = new AgentRuntimeInstallConfig
+        var body = new ModelProviderInstallConfig
         {
             Models = new List<string>(models),
             DefaultModel = string.IsNullOrWhiteSpace(defaultModel) ? null : defaultModel,

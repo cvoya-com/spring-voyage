@@ -6,9 +6,9 @@ namespace Cvoya.Spring.AgentRuntimes.Launchers;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -70,7 +70,7 @@ public class GeminiLauncher(
     /// captured in the Chunk 2a final report; PR-1b regenerates these
     /// against the new <c>(runtime, model)</c> domain.
     /// </remarks>
-    public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential)
+    public IReadOnlyList<ProbeStep> GetProbeSteps(ModelProviderInstallConfig config, string credential)
     {
         ArgumentNullException.ThrowIfNull(config);
         return new[]
