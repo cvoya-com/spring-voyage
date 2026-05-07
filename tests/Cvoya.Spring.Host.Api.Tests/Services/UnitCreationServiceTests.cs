@@ -473,37 +473,30 @@ public class UnitCreationServiceTests
     // --- T-05 (#947): differentiated creation — Draft vs Validating ---
 
     [Fact]
-    public async Task CreateAsync_FullConfig_TransitionsToValidating()
+    public async Task CreateAsync_DirectCreate_StaysInDraftPendingExecutionConfig()
     {
-        // Full execution config (model + provider) + a resolvable credential
-        // must send the unit straight into Validating so the Dapr
-        // UnitValidationWorkflow kicks off the in-container probe.
+        // ADR-0038: the CreateUnitRequest body no longer carries flat
+        // `provider`. The IsFullyConfiguredForValidationAsync gate
+        // requires both model and provider, so a direct-create stays in
+        // Draft until the operator pushes a structured execution block
+        // through `PUT /units/{id}/execution`. PR-2 will revisit the
+        // direct-create flow to take the structured shape.
         var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
-        fixture.CredentialResolver
-            .ResolveAsync(
-                Arg.Any<string>(), Arg.Any<Cvoya.Spring.Core.Catalog.AuthMethod>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
-            .Returns(new Cvoya.Spring.Core.Execution.LlmCredentialResolution(
-                Value: "sk-live",
-                Source: Cvoya.Spring.Core.Execution.LlmCredentialSource.Tenant,
-                SecretName: "anthropic-api-key"));
-        fixture.Proxy.TransitionAsync(UnitStatus.Validating, Arg.Any<CancellationToken>())
-            .Returns(new TransitionResult(true, UnitStatus.Validating, null));
 
         var result = await fixture.Service.CreateAsync(
             new CreateUnitRequest(
-                Name: "full-config-unit",
-                DisplayName: "full-config-unit",
+                Name: "model-only-unit",
+                DisplayName: "model-only-unit",
                 Description: "test",
                 Model: "claude-sonnet-4-6",
                 Color: null,
                 Connector: null,
-                
                 IsTopLevel: true),
             CancellationToken.None);
 
-        result.Unit.Status.ShouldBe(UnitStatus.Validating);
-        await fixture.Proxy.Received(1).TransitionAsync(
+        result.Unit.Status.ShouldBe(UnitStatus.Draft);
+        await fixture.Proxy.DidNotReceive().TransitionAsync(
             UnitStatus.Validating, Arg.Any<CancellationToken>());
     }
 
@@ -531,7 +524,7 @@ public class UnitCreationServiceTests
                 Model: "claude-sonnet-4-6",
                 Color: null,
                 Connector: null,
-                
+
                 IsTopLevel: true),
             CancellationToken.None);
 
@@ -556,15 +549,13 @@ public class UnitCreationServiceTests
     // --- #1065: provider must NOT leak into the execution-defaults Runtime slot ---
 
     [Fact]
-    public async Task CreateAsync_WithProviderOnly_DoesNotMirrorProviderIntoRuntime()
+    public async Task CreateAsync_WithModelOnly_PersistsModelInExecutionDefaults()
     {
-        // Regression for #1065. The CreateUnitRequest body carries no
-        // `runtime` field — that lives on the dedicated execution-set
-        // surface (`unit execution set --runtime <docker|podman>`).
-        // Pre-fix, the direct-create execution-defaults mirror wrote
-        // `Runtime: provider`, so a unit created with `--provider ollama`
-        // surfaced as `runtime: ollama` on `GET /api/v1/units/{id}/execution`
-        // — a category error (LLM provider in the container-runtime slot).
+        // ADR-0038: the CreateUnitRequest body no longer carries flat
+        // `provider`; the direct-create execution-defaults mirror writes
+        // only the model id. Provider lives on the structured
+        // `execution.model.provider` slot now and is set via the
+        // dedicated execution-set endpoint.
         var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
@@ -576,21 +567,14 @@ public class UnitCreationServiceTests
                 Model: "llama3.2:3b",
                 Color: null,
                 Connector: null,
-                
                 IsTopLevel: true),
             CancellationToken.None);
 
-        // #1732: Tool was dropped from the wire shape. The execution defaults
-        // persist Provider/Model from the request; Runtime stays null —
-        // provider must not be mirrored into the runtime slot.
-        // #1666: the unit id passed to the store is the actor's Guid in
-        // GuidFormatter.Format ("N") form — DbUnitExecutionStore parses it
-        // as a Guid, so the user-facing name would be silently rejected.
         await fixture.ExecutionStore.Received(1).SetAsync(
             Arg.Is<string>(id => IsGuidN(id)),
             Arg.Is<Cvoya.Spring.Core.Execution.UnitExecutionDefaults>(d =>
                 d.Runtime == null
-                && d.Provider == "ollama"
+                && d.Provider == null
                 && d.Model == "llama3.2:3b"),
             Arg.Any<CancellationToken>());
     }
@@ -608,8 +592,10 @@ public class UnitCreationServiceTests
     // execution.agent at dispatch.
 
     [Fact]
-    public async Task CreateAsync_WithProviderHosting_FlowsThroughSetMetadata()
+    public async Task CreateAsync_WithHosting_FlowsThroughSetMetadata()
     {
+        // ADR-0038: provider was dropped from the unit-create wire shape;
+        // hosting still flows through SetMetadataAsync.
         var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
@@ -621,15 +607,13 @@ public class UnitCreationServiceTests
                 Model: "llama3.2:3b",
                 Color: null,
                 Connector: null,
-                
                 Hosting: "ephemeral",
                 IsTopLevel: true),
             CancellationToken.None);
 
         await fixture.Proxy.Received(1).SetMetadataAsync(
             Arg.Is<UnitMetadata>(m =>
-                m.Provider == "ollama"
-                && m.Hosting == "ephemeral"
+                m.Hosting == "ephemeral"
                 && m.Model == "llama3.2:3b"),
             Arg.Any<CancellationToken>());
     }
