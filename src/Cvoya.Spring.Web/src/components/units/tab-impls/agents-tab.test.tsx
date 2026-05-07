@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   AgentResponse,
-  InstalledAgentRuntimeResponse,
+  InstalledModelProviderResponse,
   UnitMembershipResponse,
 } from "@/lib/api/types";
 
@@ -28,7 +28,7 @@ const deleteUnitMembership = vi.fn();
 // agent-runtimes endpoint via `useAgentRuntimes`, so this stub is
 // required whenever the dialog opens.
 const listAgentRuntimes =
-  vi.fn<() => Promise<InstalledAgentRuntimeResponse[]>>();
+  vi.fn<() => Promise<InstalledModelProviderResponse[]>>();
 const createAgent = vi.fn();
 
 vi.mock("@/lib/api/client", () => ({
@@ -111,7 +111,7 @@ function makeMembership(
 }
 
 // Minimal tenant-installed-runtime fixture modelled after
-// `InstalledAgentRuntimeResponse`. Only the fields the dialog reads
+// `InstalledModelProviderResponse`. Only the fields the dialog reads
 // (`id`, `displayName`, `models`, `defaultModel`) are populated; the
 // rest default to whatever the test runtime tolerates so the contract
 // schema can grow without updating every test.
@@ -131,7 +131,7 @@ const DEFAULT_RUNTIMES = [
     models: ["gpt-4o", "gpt-4o-mini"],
     defaultModel: "gpt-4o",
   },
-] as unknown as InstalledAgentRuntimeResponse[];
+] as unknown as InstalledModelProviderResponse[];
 
 describe("AgentsTab", () => {
   beforeEach(() => {
@@ -455,7 +455,7 @@ describe("AgentsTab", () => {
         displayName: "OpenAI",
         models: ["gpt-4o", "o3-mini"],
         defaultModel: "gpt-4o",
-      } as unknown as InstalledAgentRuntimeResponse,
+      } as unknown as InstalledModelProviderResponse,
     ]);
 
     renderAgentsTab("engineering");

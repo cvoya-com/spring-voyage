@@ -67,8 +67,8 @@ function wrap(node: ReactNode) {
 
 function makeUnit(overrides: Partial<UnitResponse>): UnitResponse {
   // #1738: `unit.tool` was retired in #1732. Tests that need the
-  // execution-block context for runtime resolution pass `agent` /
-  // `provider` / `kind` directly to <ValidationPanel> as props.
+  // execution-block context for runtime resolution pass `runtime` /
+  // `modelProvider` directly to <ValidationPanel> as props.
   return {
     id: "alpha-id",
     name: "alpha",
@@ -78,7 +78,6 @@ function makeUnit(overrides: Partial<UnitResponse>): UnitResponse {
     status: "Validating",
     model: "claude-sonnet-4.7",
     color: null,
-    provider: null,
     hosting: null,
     lastValidationError: null,
     lastValidationRunId: null,
@@ -242,9 +241,18 @@ describe("ValidationPanel — Error status", () => {
       callOrder.push("revalidateUnit");
     });
 
-    // #1738: pass the runtime registry id via the `agent` prop —
-    // `resolveRuntimeId` reads it directly (not from `unit.tool`).
-    render(wrap(<ValidationPanel unit={unit} agent="claude-code" />));
+    // ADR-0038 (PR-1b): pass the runtime via the renamed `runtime`
+    // prop. The legacy `agent` prop was retired with the wire-shape
+    // rename.
+    render(
+      wrap(
+        <ValidationPanel
+          unit={unit}
+          runtime="claude-code"
+          modelProvider="anthropic"
+        />,
+      ),
+    );
 
     // Open the inline editor.
     const edit = screen.getByTestId("validation-panel-edit-credential");
@@ -268,10 +276,13 @@ describe("ValidationPanel — Error status", () => {
       expect(createUnitSecretMock).toHaveBeenCalledTimes(1);
       expect(revalidateUnitMock).toHaveBeenCalledTimes(1);
     });
-    // claude-code → claude runtime → `anthropic-api-key` secret per
-    // `getRuntimeSecretName`.
+    // ADR-0038 (PR-1b): the panel's placeholder secret-name resolver
+    // returns the OAuth-token credential name for the
+    // `(claude-code, anthropic)` edge — matching the per-edge entry in
+    // `runtime-catalog.yaml`. PR-3 will read this from the catalogue
+    // directly (#1761).
     expect(createUnitSecretMock).toHaveBeenCalledWith("alpha", {
-      name: "anthropic-api-key",
+      name: "anthropic-oauth-token",
       value: "sk-ant-new",
     });
     // Order matters — secret write first, then revalidate.

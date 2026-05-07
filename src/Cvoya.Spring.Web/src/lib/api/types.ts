@@ -489,29 +489,29 @@ export type InstallPackageDetail = Schemas["InstallPackageDetail"];
 export type InstalledConnectorResponse = Schemas["InstalledConnectorResponse"];
 
 // ---------------------------------------------------------------------------
-// Agent runtimes (#690)
+// Model providers (ADR-0038, was: agent-runtimes #690)
 // ---------------------------------------------------------------------------
 
 /**
- * GET /api/v1/agent-runtimes item — an agent runtime installed on the
- * current tenant (#690). Combines runtime-descriptor fields
- * (`id`, `displayName`, `kind`, `credentialKind`,
- * `credentialDisplayHint`) with the tenant install config (`models`,
- * `defaultModel`, `baseUrl`). Feeds the unit-creation wizard's provider
- * + model dropdowns.
+ * GET /api/v1/tenant/model-providers/installs item — a model provider
+ * installed on the current tenant. Combines provider-descriptor fields
+ * (`id`, `displayName`, `credentialKind`, `credentialDisplayHint`) with
+ * the tenant install config (`models`, `defaultModel`, `baseUrl`).
+ * Feeds the unit-creation wizard's model dropdown and the credential
+ * health views.
  */
-export type InstalledAgentRuntimeResponse =
-  Schemas["InstalledAgentRuntimeResponse"];
+export type InstalledModelProviderResponse =
+  Schemas["InstalledModelProviderResponse"];
 
 /**
- * One entry in GET /api/v1/agent-runtimes/{id}/models.
+ * One entry in GET /api/v1/tenant/model-providers/installs/{id}/models.
  * @public Re-export consumed via the namespaced `types.*` import in
  * `client.ts` / `queries.ts` (knip can't trace namespace re-exports).
  */
-export type AgentRuntimeModelResponse = Schemas["AgentRuntimeModelResponse"];
+export type ModelProviderModelResponse = Schemas["ModelProviderModelResponse"];
 
 /**
- * Response body for POST /api/v1/agent-runtimes/{id}/validate-credential.
+ * Response body for POST /api/v1/tenant/model-providers/installs/{id}/validate-credential.
  * @public Re-export consumed via the namespaced `types.*` import in
  * `client.ts` (knip can't trace namespace re-exports).
  */
@@ -527,7 +527,7 @@ export type CredentialHealthStatus = Schemas["CredentialHealthStatus"];
 
 /**
  * GET response body for
- * `/api/v1/agent-runtimes/{id}/credential-health` and
+ * `/api/v1/tenant/model-providers/installs/{id}/credential-health` and
  * `/api/v1/connectors/{slugOrId}/credential-health`.
  */
 export type CredentialHealthResponse = Schemas["CredentialHealthResponse"];

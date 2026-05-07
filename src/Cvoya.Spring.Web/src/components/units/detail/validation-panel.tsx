@@ -54,26 +54,25 @@ import type {
   UnitValidationError,
   UnitValidationStep,
 } from "@/lib/api/types";
-import { getRuntimeSecretName } from "@/lib/ai-models";
 import { cn } from "@/lib/utils";
 
 interface Props {
   unit: UnitResponse;
-  // Image / runtime / kind / agent context needed for a few error-copy
-  // strings (e.g. "The <kind> command isn't available in <image>")
-  // and for runtime-id resolution. None sit on `UnitResponse` — the
-  // detail page pulls them from `useUnitExecution`. Passed as optional
-  // props so the panel renders cleanly even when the execution slice
-  // hasn't loaded yet.
+  // Image / containerRuntime / runtime / model.provider context needed
+  // for a few error-copy strings (e.g. "The <runtime> command isn't
+  // available in <image>") and for credential-secret-name resolution.
+  // None sit on `UnitResponse` — the detail page pulls them from
+  // `useUnitExecution`. Passed as optional props so the panel renders
+  // cleanly even when the execution slice hasn't loaded yet.
   //
-  // #1738: replaces the legacy `unit.tool` read with explicit
-  // execution-block context. `kind` is server-derived (read-only);
-  // `agent` is the operator-chosen runtime registry id.
+  // ADR-0038 (PR-1b): the wire field renamed `agent` → `runtime`, the
+  // legacy `kind` field is gone, and `provider` is now nested inside
+  // `model.provider`. The fields below carry the new names; PR-3 will
+  // rework the credential-edit UX to the per-provider shape.
   image?: string | null;
+  containerRuntime?: string | null;
   runtime?: string | null;
-  kind?: string | null;
-  agent?: string | null;
-  provider?: string | null;
+  modelProvider?: string | null;
 }
 
 /**
@@ -213,10 +212,9 @@ function extractProgressStep(event: ActivityEvent): UnitValidationStep | null {
 export default function ValidationPanel({
   unit,
   image,
+  containerRuntime,
   runtime,
-  kind,
-  agent,
-  provider,
+  modelProvider,
 }: Props) {
   const status = unit.status;
 
@@ -338,11 +336,13 @@ export default function ValidationPanel({
   const err = unit.lastValidationError ?? null;
   const ctx: CopyContext = {
     image: image ?? null,
-    runtime: runtime ?? null,
-    // #1738: copy strings reference the server-derived `kind`
-    // (CLI shape — claude-code/codex/gemini/spring-voyage) so the
-    // hint matches what shows in the agent container.
-    tool: kind ?? null,
+    runtime: containerRuntime ?? null,
+    // ADR-0038: the legacy `kind` field was removed. The `runtime`
+    // field is now the operator-chosen runtime id (claude-code,
+    // codex, gemini, spring-voyage) and the in-container CLI binary
+    // is implied by it 1:1, so `runtime` doubles as the "tool" name
+    // in error copy.
+    tool: runtime ?? null,
     model: unit.model ?? null,
     runId: unit.lastValidationRunId ?? null,
   };
@@ -407,8 +407,8 @@ export default function ValidationPanel({
 
         <ErrorActions
           unit={unit}
-          agent={agent ?? null}
-          provider={provider ?? null}
+          runtime={runtime ?? null}
+          modelProvider={modelProvider ?? null}
           revalidateMutation={revalidateMutation}
         />
       </CardContent>
@@ -525,28 +525,26 @@ function StepChecklist({
  */
 function ErrorActions({
   unit,
-  agent,
-  provider,
+  runtime,
+  modelProvider,
   revalidateMutation,
 }: {
   unit: UnitResponse;
-  agent: string | null;
-  provider: string | null;
+  runtime: string | null;
+  modelProvider: string | null;
   revalidateMutation: UseMutationResult<void, Error, void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [credentialKey, setCredentialKey] = useState("");
   const queryClient = useQueryClient();
 
-  // The secret the backend reads for this unit's runtime. #1738: the
-  // runtime id is the operator-chosen `agent` field on the unit's
-  // execution block (claude-code → "claude", etc.) OR `provider` for
-  // spring-voyage. We map through `getRuntimeSecretName` so the name
-  // stays in sync with the wizard's and the backend's naming conventions.
-  const runtimeIdForSecret = resolveRuntimeId(agent, provider);
-  const secretName = runtimeIdForSecret
-    ? getRuntimeSecretName(runtimeIdForSecret)
-    : null;
+  // The secret name the backend reads for this unit's (provider, authMethod)
+  // edge. ADR-0038 §6 re-keys credentials to `(tenant, provider, authMethod)`
+  // — the legacy runtime-id-derived secret name is gone.
+  // TODO(PR-3): rebuild Edit-credential UX on top of `runtime-catalog.yaml`
+  // so the panel can resolve the per-edge `credentialEnvVar` from
+  // `(runtime, modelProvider, authMethod)`. Tracked in #1761.
+  const secretName = legacySecretNameForProvider(modelProvider, runtime);
 
   const editAndRetryMutation = useMutation<
     void,
@@ -682,34 +680,43 @@ function ErrorActions({
 }
 
 /**
- * Resolve the runtime id the unit's credential is keyed against.
- * Mirrors `deriveRequiredCredentialRuntime` in the wizard but without
- * the agent-runtimes catalog — the panel only needs the id, and the
- * secret name is derived from it via `getRuntimeSecretName`. Returns
- * null when the unit runs a custom tool (no declared credential).
+ * Placeholder secret-name resolver. ADR-0038 §6 keys credentials by
+ * `(tenant, provider, authMethod)`, but the portal does not yet read
+ * the per-edge `credentialEnvVar` / secret-name from
+ * `runtime-catalog.yaml` — that arrives in PR-3. This helper returns
+ * the legacy v0.1 secret names so the inline credential-edit panel
+ * keeps writing to the same canonical names dispatch reads from.
  *
- * #1738: takes the runtime registry id (`agent`) directly instead of
- * reading the retired `unit.tool` field; the wire shape now carries
- * the operator-chosen value on `execution.agent`.
+ * Returns null for `(spring-voyage, ollama)` (no credential required)
+ * and for runtimes / providers that fall outside the v0.1 closed set.
+ *
+ * TODO(PR-3): replace with a per-edge lookup against the catalogue —
+ * tracked in #1761.
  */
-function resolveRuntimeId(
-  agent: string | null,
-  provider: string | null,
+function legacySecretNameForProvider(
+  modelProvider: string | null,
+  runtime: string | null,
 ): string | null {
-  if (!agent) return null;
-  switch (agent) {
-    case "claude-code":
-      return "claude";
-    case "codex":
-      return "openai";
+  const provider = (modelProvider ?? "").trim().toLowerCase();
+  // No-credential cases first.
+  if (!provider) return null;
+  if (provider === "ollama") return null;
+  // Claude Code dispatching against Anthropic uses the OAuth-token
+  // credential name; every other (provider, runtime) edge uses the
+  // provider's API-key credential name.
+  if (runtime === "claude-code" && (provider === "anthropic" || provider === "claude")) {
+    return "anthropic-oauth-token";
+  }
+  switch (provider) {
+    case "anthropic":
+    case "claude":
+      return "anthropic-api-key";
+    case "openai":
+      return "openai-api-key";
+    case "google":
     case "gemini":
-      return "google";
-    case "spring-voyage": {
-      const normalised = (provider ?? "").trim().toLowerCase();
-      if (!normalised || normalised === "ollama") return null;
-      return normalised === "anthropic" ? "claude" : normalised;
-    }
-    case "custom":
+    case "googleai":
+      return "google-api-key";
     default:
       return null;
   }

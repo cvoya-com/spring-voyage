@@ -6,11 +6,11 @@ import type { ReactNode } from "react";
 import { expectNoAxeViolations } from "@/test/a11y";
 import type {
   CredentialHealthResponse,
-  InstalledAgentRuntimeResponse,
+  InstalledModelProviderResponse,
 } from "@/lib/api/types";
 
 const listAgentRuntimes =
-  vi.fn<() => Promise<InstalledAgentRuntimeResponse[]>>();
+  vi.fn<() => Promise<InstalledModelProviderResponse[]>>();
 const getAgentRuntimeCredentialHealth =
   vi.fn<(id: string) => Promise<CredentialHealthResponse | null>>();
 
@@ -53,12 +53,15 @@ function renderPage() {
 }
 
 function makeRuntime(
-  overrides: Partial<InstalledAgentRuntimeResponse> = {},
-): InstalledAgentRuntimeResponse {
+  overrides: Partial<InstalledModelProviderResponse> = {},
+): InstalledModelProviderResponse {
+  // ADR-0038 (PR-1b): the install row no longer carries `kind` /
+  // `defaultImage`; those fields belonged to the legacy
+  // `InstalledAgentRuntimeResponse` and moved into
+  // `runtime-catalog.yaml`.
   return {
     id: "claude",
     displayName: "Claude",
-    kind: "claude-code-cli",
     installedAt: "2026-04-01T00:00:00Z",
     updatedAt: "2026-04-10T00:00:00Z",
     models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"],
@@ -67,9 +70,8 @@ function makeRuntime(
     credentialKind: "ApiKey",
     credentialDisplayHint: "ANTHROPIC_API_KEY",
     credentialSecretName: "anthropic-api-key",
-    defaultImage: "ghcr.io/cvoya-com/spring-voyage-agent-claude-code:latest",
     ...overrides,
-  } as InstalledAgentRuntimeResponse;
+  } as InstalledModelProviderResponse;
 }
 
 describe("SettingsAgentRuntimesPage", () => {
@@ -94,7 +96,6 @@ describe("SettingsAgentRuntimesPage", () => {
       makeRuntime({
         id: "openai",
         displayName: "OpenAI",
-        kind: "spring-voyage",
         models: ["gpt-4o", "gpt-4o-mini"],
         defaultModel: "gpt-4o",
       }),

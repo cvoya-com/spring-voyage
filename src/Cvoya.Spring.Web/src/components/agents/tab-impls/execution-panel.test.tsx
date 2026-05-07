@@ -100,7 +100,7 @@ describe("AgentExecutionPanel", () => {
     getAgentExecution.mockResolvedValue({});
     getUnitExecution.mockResolvedValue({
       image: "ghcr.io/acme/spring-agent:v1",
-      agent: "claude-code",
+      runtime: "claude-code",
     });
 
     render(
@@ -158,7 +158,7 @@ describe("AgentExecutionPanel", () => {
     // #641: Provider stays hidden for non-spring-voyage launchers, but the
     // Model dropdown is now rendered against the tool's catalog so the
     // operator can still pick a model family (e.g. gpt-4o for Codex).
-    getAgentExecution.mockResolvedValue({ agent: "codex" });
+    getAgentExecution.mockResolvedValue({ runtime: "codex" });
     getUnitExecution.mockResolvedValue({});
     getAgentRuntimeModels.mockResolvedValue([{ id: "gpt-4o", displayName: "gpt-4o", contextWindow: null }, { id: "gpt-4o-mini", displayName: "gpt-4o-mini", contextWindow: null }]);
 
@@ -175,7 +175,7 @@ describe("AgentExecutionPanel", () => {
   });
 
   it("renders a Model dropdown populated from the tool's catalog when tool=codex (#641)", async () => {
-    getAgentExecution.mockResolvedValue({ agent: "codex" });
+    getAgentExecution.mockResolvedValue({ runtime: "codex" });
     getUnitExecution.mockResolvedValue({});
     getAgentRuntimeModels.mockImplementation(async (id: string) => {
       if (id === "openai") {
@@ -211,7 +211,7 @@ describe("AgentExecutionPanel", () => {
   });
 
   it("shows both Model Provider and Model when tool=spring-voyage", async () => {
-    getAgentExecution.mockResolvedValue({ agent: "spring-voyage" });
+    getAgentExecution.mockResolvedValue({ runtime: "spring-voyage" });
     getUnitExecution.mockResolvedValue({});
     getAgentRuntimeModels.mockResolvedValue([]);
 
@@ -228,7 +228,7 @@ describe("AgentExecutionPanel", () => {
   });
 
   it("keeps the Model slot visible when tool=custom (always rendered post-#1702)", async () => {
-    getAgentExecution.mockResolvedValue({ agent: "custom" });
+    getAgentExecution.mockResolvedValue({ runtime: "custom" });
     getUnitExecution.mockResolvedValue({});
     getAgentRuntimeModels.mockResolvedValue([]);
 
@@ -254,7 +254,7 @@ describe("AgentExecutionPanel", () => {
     getUnitExecution.mockResolvedValue({
       image: "ghcr.io/acme/spring-agent:v1",
     });
-    setAgentExecution.mockResolvedValue({ agent: "claude-code" });
+    setAgentExecution.mockResolvedValue({ runtime: "claude-code" });
 
     render(
       <Wrapper>
@@ -274,11 +274,12 @@ describe("AgentExecutionPanel", () => {
     });
     const [id, body] = setAgentExecution.mock.calls[0];
     expect(id).toBe("alpha");
-    // #1738: the wire shape carries `agent` only; legacy `tool` retired.
-    expect(body?.agent).toBe("claude-code");
+    // ADR-0038 (PR-1b): wire field renamed `agent` → `runtime`;
+    // legacy `tool`, flat `provider`, and `kind` are gone.
+    expect(body?.runtime).toBe("claude-code");
+    expect((body as { agent?: string | null })?.agent).toBeUndefined();
     expect((body as { tool?: string | null })?.tool).toBeUndefined();
-    // #1702: portal no longer sends runtime.
-    expect((body as { runtime?: string | null })?.runtime).toBeUndefined();
+    expect((body as { provider?: string | null })?.provider).toBeUndefined();
     // Image is still inherited — not explicitly set — so the wire
     // payload carries null, matching the backend's "resolve at
     // dispatch" contract.
@@ -289,7 +290,7 @@ describe("AgentExecutionPanel", () => {
     getAgentExecution.mockResolvedValue({});
     getUnitExecution.mockResolvedValue({
       image: "ghcr.io/acme/spring-agent:v1",
-      agent: "claude-code",
+      runtime: "claude-code",
     });
 
     const { container } = render(

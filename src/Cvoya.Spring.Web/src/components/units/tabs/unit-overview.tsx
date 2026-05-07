@@ -138,10 +138,9 @@ function UnitOverviewTab({ node }: TabContentProps) {
         <ValidationPanel
           unit={liveUnit}
           image={executionQuery.data?.image ?? null}
+          containerRuntime={executionQuery.data?.containerRuntime ?? null}
           runtime={executionQuery.data?.runtime ?? null}
-          kind={executionQuery.data?.kind ?? null}
-          agent={executionQuery.data?.agent ?? null}
-          provider={executionQuery.data?.provider ?? null}
+          modelProvider={executionQuery.data?.model?.provider ?? null}
         />
       )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

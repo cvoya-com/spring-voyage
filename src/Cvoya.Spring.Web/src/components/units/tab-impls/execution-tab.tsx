@@ -83,6 +83,34 @@ interface ExecutionTabProps {
 
 const FIELD_UNSET = "__unset__";
 
+/**
+ * Local form state — flat shape preserved from the legacy wire so the
+ * existing UX (separate Provider dropdown when Agent Runtime ==
+ * spring-voyage) keeps rendering. The on-save handler projects this
+ * flat state into the ADR-0038 `{ runtime, model: {provider, id} }`
+ * shape the API now expects.
+ */
+interface ExecutionForm {
+  image: string | null;
+  /** Operator-chosen agent runtime id (claude-code, codex, …). */
+  runtime: string | null;
+  /** Model provider id (anthropic, openai, …); only meaningful when runtime == "spring-voyage". */
+  provider: string | null;
+  /** Model id within the selected provider's catalog. */
+  modelId: string | null;
+}
+
+function persistedToForm(
+  persisted: UnitExecutionResponse | null,
+): ExecutionForm {
+  return {
+    image: persisted?.image ?? null,
+    runtime: persisted?.runtime ?? null,
+    provider: persisted?.model?.provider ?? null,
+    modelId: persisted?.model?.id ?? null,
+  };
+}
+
 export function ExecutionTab({ unitId }: ExecutionTabProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -92,7 +120,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
 
   // Local draft — seeded from the server payload once, then re-seeded
   // whenever the server identity changes (keyed remount below).
-  const [form, setForm] = useState<UnitExecutionResponse>({});
+  const [form, setForm] = useState<ExecutionForm>(() => persistedToForm(null));
   const [seededFor, setSeededFor] = useState<string | null>(null);
   const [imageHistory] = useState(() => loadImageHistory());
   const fingerprint = useMemo(
@@ -100,34 +128,30 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     [persisted],
   );
   if (fingerprint !== seededFor) {
-    setForm(persisted ?? {});
+    setForm(persistedToForm(persisted));
     setSeededFor(fingerprint);
   }
 
-  const setField = <K extends keyof UnitExecutionResponse>(
+  const setField = <K extends keyof ExecutionForm>(
     key: K,
-    value: UnitExecutionResponse[K],
+    value: ExecutionForm[K],
   ) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
   // Per-field dirtiness — only the fields the operator actually touched
-  // differ from the persisted block. #1702: the legacy `runtime` field
-  // is no longer surfaced from this panel, so it doesn't take part in
-  // the dirty calculation. #1738: the operator-chosen runtime now lives
-  // in `agent` (a runtime-registry id); `kind` is server-derived
-  // and read-only.
+  // differ from the persisted block.
   const dirty = useMemo(() => {
-    const current = persisted ?? {};
+    const current = persistedToForm(persisted);
     return (
-      (form.image ?? null) !== (current.image ?? null) ||
-      (form.agent ?? null) !== (current.agent ?? null) ||
-      (form.provider ?? null) !== (current.provider ?? null) ||
-      (form.model ?? null) !== (current.model ?? null)
+      form.image !== current.image ||
+      form.runtime !== current.runtime ||
+      form.provider !== current.provider ||
+      form.modelId !== current.modelId
     );
   }, [form, persisted]);
 
-  const effectiveToolForGating = form.agent ?? null;
+  const effectiveToolForGating = form.runtime;
   const showProvider = effectiveToolForGating === "spring-voyage";
 
   // #641 / #1702: Model is always rendered. Derive the runtime id from
@@ -197,27 +221,33 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     },
   });
 
+  // Project the local flat-form draft into the ADR-0038 wire shape.
+  // The model object is only emitted when both provider + id are set;
+  // the structured `{provider, id}` is non-nullable in either field on
+  // the server side, so partial entries collapse to `model: null`.
+  const formToWire = (next: ExecutionForm): UnitExecutionResponse => {
+    const provider = showProvider
+      ? next.provider?.trim() || null
+      : providerToRuntimeId(next.runtime ?? "");
+    const modelId = next.modelId?.trim() || null;
+    return {
+      image: next.image,
+      runtime: next.runtime,
+      model: provider && modelId ? { provider, id: modelId } : null,
+    };
+  };
+
   // Per-field clear: re-PUT with the remaining fields, or DELETE when
   // the residual block is empty. Matches PR #628's partial-update
   // contract — the scope doc names this explicitly.
-  const clearField = (field: keyof UnitExecutionResponse) => {
-    const next: UnitExecutionResponse = { ...(persisted ?? {}), [field]: null };
+  const clearField = (field: keyof ExecutionForm) => {
+    const next: ExecutionForm = { ...form, [field]: null };
     setForm(next);
-    setMutation.mutate(next);
+    setMutation.mutate(formToWire(next));
   };
 
   const handleSave = () => {
-    // #1738: the wire shape now carries `agent` (operator-chosen runtime
-    // id) only; the legacy `tool` field was retired in #1732. The
-    // server derives `kind` from the registry — read-only.
-    // Provider stays gated on `spring-voyage`.
-    const next: UnitExecutionResponse = {
-      image: form.image ?? null,
-      agent: form.agent ?? null,
-      provider: showProvider ? (form.provider ?? null) : null,
-      model: form.model ?? null,
-    };
-    setMutation.mutate(next);
+    setMutation.mutate(formToWire(form));
   };
 
   if (executionQuery.isPending) {
@@ -296,53 +326,42 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
             />
           </FieldRow>
 
-          {/* Agent Runtime — launcher key (#1702 renamed from "Tool";
-              #1738 wire field renamed `tool` → `agent`). The server-
-              derived `kind` is shown as a read-only badge so
-              operators can see which CLI shape the chosen runtime
-              maps to without choosing it directly. */}
+          {/* Agent Runtime — launcher key. ADR-0038 renamed the wire
+              field `agent` → `runtime`; the legacy server-derived
+              `kind` badge was retired with the field.
+              TODO(PR-3): rebuild a richer runtime descriptor read-out
+              (display name, status) from the new catalogue — tracked
+              in #1761. */}
           <FieldRow
             label="Agent Runtime"
             help="Agent runtime the dispatcher uses to bring the agent container up."
-            onClear={persisted?.agent ? () => clearField("agent") : undefined}
+            onClear={persisted?.runtime ? () => clearField("runtime") : undefined}
             busy={setMutation.isPending}
           >
-            <div className="flex items-center gap-2">
-              <SelectField
-                value={form.agent ?? null}
-                onChange={(next) => setField("agent", next)}
-                options={EXECUTION_TOOL_KEYS}
-                unsetLabel="(leave to default)"
-                ariaLabel="Agent runtime"
-                testid="execution-agent-runtime-select"
-              />
-              {persisted?.kind ? (
-                <Badge
-                  variant="outline"
-                  className="shrink-0 text-xs font-normal"
-                  data-testid="execution-agent-runtime-kind"
-                >
-                  {persisted.kind}
-                </Badge>
-              ) : null}
-            </div>
+            <SelectField
+              value={form.runtime}
+              onChange={(next) => setField("runtime", next)}
+              options={EXECUTION_TOOL_KEYS}
+              unsetLabel="(leave to default)"
+              ariaLabel="Agent runtime"
+              testid="execution-agent-runtime-select"
+            />
           </FieldRow>
 
-          {/* Model Provider — gated behind tool=spring-voyage (#1702
-              renamed from "Provider"). */}
+          {/* Model Provider — gated behind runtime=spring-voyage. */}
           {showProvider && (
             <FieldRow
               label="Model Provider"
               help="LLM provider — only meaningful when Agent Runtime is Spring Voyage Agent."
               onClear={
-                persisted?.provider
+                form.provider
                   ? () => clearField("provider")
                   : undefined
               }
               busy={setMutation.isPending}
             >
               <SelectField
-                value={form.provider ?? null}
+                value={form.provider}
                 onChange={(next) => setField("provider", next)}
                 options={EXECUTION_PROVIDERS}
                 unsetLabel="(leave to default)"
@@ -359,7 +378,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
             label="Model"
             help="Model identifier. Populated from the provider's live catalog when available."
             onClear={
-              persisted?.model ? () => clearField("model") : undefined
+              form.modelId ? () => clearField("modelId") : undefined
             }
             busy={setMutation.isPending}
           >
@@ -367,10 +386,10 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
             providerModels &&
             providerModels.length > 0 ? (
               <select
-                value={form.model ?? ""}
+                value={form.modelId ?? ""}
                 onChange={(e) =>
                   setField(
-                    "model",
+                    "modelId",
                     e.target.value ? e.target.value : null,
                   )
                 }
@@ -387,10 +406,10 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
               </select>
             ) : (
               <Input
-                value={form.model ?? ""}
+                value={form.modelId ?? ""}
                 onChange={(e) =>
                   setField(
-                    "model",
+                    "modelId",
                     e.target.value ? e.target.value : null,
                   )
                 }
@@ -499,7 +518,10 @@ function SelectField({
 
 function isEmpty(block: UnitExecutionResponse): boolean {
   return (
-    !block.image && !block.agent && !block.provider && !block.model
+    !block.image &&
+    !block.runtime &&
+    !block.containerRuntime &&
+    !block.model
   );
 }
 
