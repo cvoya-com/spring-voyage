@@ -368,16 +368,16 @@ public class SpringApiClient
         string? description,
         string? model = null,
         string? color = null,
-        string? provider = null,
         string? hosting = null,
         IReadOnlyList<Guid>? parentUnitIds = null,
         bool? isTopLevel = null,
         CancellationToken ct = default)
     {
-        // #1732: 'tool' is no longer threaded through the wire shape — the
-        // execution tool is derived from the runtime registry at dispatch
-        // time. Operators set ai.agent on the unit / agent manifest or
-        // `spring unit execution set --agent`.
+        // ADR-0038: the flat `provider` field is gone from the unit-create
+        // wire. Provider is intrinsic to the structured execution.model
+        // ({provider, id}) and is set via the unit / agent execution
+        // surface (`spring unit execution set --model-provider ...`),
+        // not the unit-create call.
         var request = new CreateUnitRequest
         {
             Name = name,
@@ -385,11 +385,6 @@ public class SpringApiClient
             Description = description ?? string.Empty,
             Model = string.IsNullOrWhiteSpace(model) ? null : model,
             Color = string.IsNullOrWhiteSpace(color) ? null : color,
-            // ADR-0038: provider is intrinsic to the structured execution.model;
-            // the flat unit-create slot is gone. The provider parameter is
-            // retained on the C# call site signature so PR-2's CLI rewrite
-            // can re-route it through the new structured model field
-            // without touching every caller.
             Hosting = string.IsNullOrWhiteSpace(hosting) ? null : hosting,
             // Review feedback on #744: forward the parent-required inputs
             // so the server enforces the invariant. The CLI catches the
@@ -2238,15 +2233,25 @@ public class SpringApiClient
     }
 
     // ADR-0038: Model providers — the install / list / show / config /
-    // credential-health / refresh-models surface re-keys on provider id.
-    // The full set of CLI verbs ships in PR-2 with `ModelProviderCommand`;
-    // Chunk A keeps only the lookup helper that the credential-resolver in
-    // UnitCommand depends on.
+    // credential-health / validate-credential / refresh-models surface
+    // re-keys on provider id. PR-2 (this surface) wires the full
+    // `ModelProviderCommand` verb tree on top of these helpers.
+
+    /// <summary>
+    /// Lists every model provider installed on the current tenant. Backs
+    /// <c>spring model-provider list</c>.
+    /// </summary>
+    public async Task<IReadOnlyList<InstalledModelProviderResponse>> ListModelProvidersAsync(
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.ModelProviders.Installs.GetAsync(cancellationToken: ct);
+        return result ?? new List<InstalledModelProviderResponse>();
+    }
 
     /// <summary>
     /// Returns the install metadata for a model provider, or <c>null</c>
     /// when not installed. Backs the credential-secret-name resolution
-    /// path inside <c>UnitCommand</c>.
+    /// path inside <c>UnitCommand</c> as well as <c>spring model-provider show</c>.
     /// </summary>
     public async Task<InstalledModelProviderResponse?> GetModelProviderAsync(
         string id, CancellationToken ct = default)
@@ -2259,6 +2264,150 @@ public class SpringApiClient
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Returns the lighter-weight tenant-scoped configuration slot
+    /// (default-model / base-URL / models) for an installed provider, or
+    /// <c>null</c> when not installed. Backs <c>spring model-provider
+    /// config get</c>.
+    /// </summary>
+    public async Task<ModelProviderConfigResponse?> GetModelProviderConfigAsync(
+        string id, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.Api.V1.Tenant.ModelProviders.Installs[id].Config.GetAsync(cancellationToken: ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Installs (or re-installs) a model provider on the current tenant.
+    /// Idempotent — re-running with no flags preserves operator-edited
+    /// config. Backs <c>spring model-provider install</c>.
+    /// </summary>
+    public async Task<InstalledModelProviderResponse> InstallModelProviderAsync(
+        string id,
+        IReadOnlyList<string>? models,
+        string? defaultModel,
+        string? baseUrl,
+        CancellationToken ct = default)
+    {
+        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.ModelProviders.Installs.Item.Install.InstallRequestBuilder.InstallPostRequestBody
+        {
+            ModelProviderInstallRequest = new ModelProviderInstallRequest
+            {
+                Models = models is null ? null : new List<string>(models),
+                DefaultModel = string.IsNullOrWhiteSpace(defaultModel) ? null : defaultModel,
+                BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? null : baseUrl,
+            },
+        };
+        var result = await _client.Api.V1.Tenant.ModelProviders.Installs[id].Install.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty install response for provider '{id}'.");
+    }
+
+    /// <summary>
+    /// Uninstalls a model provider from the current tenant. Backs
+    /// <c>spring model-provider uninstall</c>.
+    /// </summary>
+    public async Task UninstallModelProviderAsync(string id, CancellationToken ct = default)
+    {
+        await _client.Api.V1.Tenant.ModelProviders.Installs[id].DeleteAsync(cancellationToken: ct);
+    }
+
+    /// <summary>
+    /// Replaces the tenant-scoped configuration slot for an installed
+    /// provider. Backs <c>spring model-provider config set</c>.
+    /// </summary>
+    public async Task<InstalledModelProviderResponse> UpdateModelProviderConfigAsync(
+        string id,
+        IReadOnlyList<string> models,
+        string? defaultModel,
+        string? baseUrl,
+        CancellationToken ct = default)
+    {
+        var body = new AgentRuntimeInstallConfig
+        {
+            Models = new List<string>(models),
+            DefaultModel = string.IsNullOrWhiteSpace(defaultModel) ? null : defaultModel,
+            BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? null : baseUrl,
+        };
+        var result = await _client.Api.V1.Tenant.ModelProviders.Installs[id].Config.PatchAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty config response for provider '{id}'.");
+    }
+
+    /// <summary>
+    /// Returns the current credential-health row for a model provider,
+    /// or <c>null</c> when no validation has been recorded yet. Backs
+    /// <c>spring model-provider credentials status</c>.
+    /// </summary>
+    public async Task<CredentialHealthResponse?> GetModelProviderCredentialHealthAsync(
+        string id,
+        string? secretName = null,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.Api.V1.Tenant.ModelProviders.Installs[id].CredentialHealth.GetAsync(
+                config => { if (!string.IsNullOrWhiteSpace(secretName)) config.QueryParameters.SecretName = secretName; },
+                cancellationToken: ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Probes the provider with the supplied credential and updates the
+    /// credential-health row. Does NOT rotate the model catalogue. Backs
+    /// <c>spring model-provider validate-credential</c>.
+    /// </summary>
+    public async Task<ModelProviderValidateCredentialResponse> ValidateModelProviderCredentialAsync(
+        string id,
+        string? credential,
+        string? secretName,
+        CancellationToken ct = default)
+    {
+        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.ModelProviders.Installs.Item.ValidateCredential.ValidateCredentialRequestBuilder.ValidateCredentialPostRequestBody
+        {
+            ModelProviderValidateCredentialRequest = new ModelProviderValidateCredentialRequest
+            {
+                Credential = string.IsNullOrWhiteSpace(credential) ? null : credential,
+                SecretName = string.IsNullOrWhiteSpace(secretName) ? null : secretName,
+            },
+        };
+        var result = await _client.Api.V1.Tenant.ModelProviders.Installs[id].ValidateCredential.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty validate-credential response for provider '{id}'.");
+    }
+
+    /// <summary>
+    /// Fetches the live model catalogue from the provider and replaces
+    /// the tenant's configured model list with it. Backs
+    /// <c>spring model-provider refresh-models</c>.
+    /// </summary>
+    public async Task<InstalledModelProviderResponse> RefreshModelProviderModelsAsync(
+        string id,
+        string? credential,
+        CancellationToken ct = default)
+    {
+        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.ModelProviders.Installs.Item.RefreshModels.RefreshModelsRequestBuilder.RefreshModelsPostRequestBody
+        {
+            ModelProviderRefreshModelsRequest = new ModelProviderRefreshModelsRequest
+            {
+                Credential = string.IsNullOrWhiteSpace(credential) ? null : credential,
+            },
+        };
+        var result = await _client.Api.V1.Tenant.ModelProviders.Installs[id].RefreshModels.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty refresh-models response for provider '{id}'.");
     }
 
     // Packages (#395). Backs `spring package list / show` and
