@@ -479,6 +479,10 @@ jobs:
         run: |
           set -euo pipefail
           npm install --global ajv-cli@5 ajv-formats@3 yaml@2 >/dev/null
+          # `node -e` does not consult global npm modules by default, so make
+          # the global install location resolvable via NODE_PATH. The `ajv`
+          # CLI itself works without this because npm global bin is on PATH.
+          export NODE_PATH="$(npm root -g)"
           # Convert YAML to JSON in-memory then validate. ajv-cli reads the
           # JSON Schema natively; the YAML→JSON one-liner avoids a separate
           # Python dependency.
