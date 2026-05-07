@@ -1,11 +1,11 @@
 ---
-name: "source-command-lint"
-description: "Run the migrated source command `lint`."
+name: "lint"
+description: "Run the canonical Spring Voyage lint and formatting gates."
 ---
 
-# source-command-lint
+# Lint
 
-Use this skill when the user asks to run the migrated source command `lint`.
+Use this skill when the user asks to run `/lint`, lint Spring Voyage, check formatting, or verify static-quality gates before pushing.
 
 ## Command Template
 
@@ -55,7 +55,3 @@ explicitly when touching the relevant area:
   solution and check `git status` on `Migrations/` (when editing entities)
 
 The `/build` and `/test` skills are separate and remain mandatory pre-push.
-
-## MANUAL MIGRATION REQUIRED
-
-Migrated from source command `lint` into a Codex skill. Invoke it as `$source-command-lint` and manually rewrite any slash-command behavior that depended on provider-specific runtime expansion.

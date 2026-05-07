@@ -85,5 +85,9 @@ test-results/
 ## Claude Code working dirs (parallel subagent worktrees, agent state).
 .claude/worktrees/
 
+## Codex / shared agent worktrees. Each task should get its own worktree,
+## but those checkouts are local coordination state, not repo content.
+.worktrees/
+
 # CodeGraph data files — these are local to each machine and should not be committed.
 .codegraph/

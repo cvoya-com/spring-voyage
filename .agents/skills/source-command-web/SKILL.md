@@ -1,11 +1,11 @@
 ---
-name: "source-command-web"
-description: "Run the migrated source command `web`."
+name: "web"
+description: "Start the Spring Voyage portal dev server."
 ---
 
-# source-command-web
+# Web
 
-Use this skill when the user asks to run the migrated source command `web`.
+Use this skill when the user asks to run `/web`, start the portal, or launch the local Spring Web dev server.
 
 ## Command Template
 
@@ -16,7 +16,3 @@ cd src/Cvoya.Spring.Web && npm run dev
 ```
 
 If dependencies are missing, run `npm ci` from the repo root first — the workspace is `spring-voyage-dashboard`.
-
-## MANUAL MIGRATION REQUIRED
-
-Migrated from source command `web` into a Codex skill. Invoke it as `$source-command-web` and manually rewrite any slash-command behavior that depended on provider-specific runtime expansion.

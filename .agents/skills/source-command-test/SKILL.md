@@ -1,11 +1,11 @@
 ---
-name: "source-command-test"
-description: "Run the migrated source command `test`."
+name: "test"
+description: "Run the canonical Spring Voyage test suite."
 ---
 
-# source-command-test
+# Test
 
-Use this skill when the user asks to run the migrated source command `test`.
+Use this skill when the user asks to run `/test`, test Spring Voyage, or verify behaviour before pushing.
 
 ## Command Template
 
@@ -26,7 +26,3 @@ Pitfalls to avoid:
   ```
 
 All tests must pass. If tests fail, investigate and fix before committing.
-
-## MANUAL MIGRATION REQUIRED
-
-Migrated from source command `test` into a Codex skill. Invoke it as `$source-command-test` and manually rewrite any slash-command behavior that depended on provider-specific runtime expansion.
