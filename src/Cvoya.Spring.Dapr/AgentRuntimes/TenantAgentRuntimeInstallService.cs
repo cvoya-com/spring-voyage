@@ -16,9 +16,19 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// Default EF Core-backed implementation of
 /// <see cref="ITenantAgentRuntimeInstallService"/>. Persists rows to
-/// <c>tenant_agent_runtime_installs</c> and materialises config from the
-/// runtime's seed defaults when none is supplied on install.
+/// <c>tenant_model_provider_installs</c> (renamed under ADR-0038 — see
+/// <see cref="TenantModelProviderInstallEntity"/>) and materialises
+/// config from the runtime's seed defaults when none is supplied on
+/// install.
 /// </summary>
+/// <remarks>
+/// PR-1a transitional shape: the public interface still surfaces
+/// <c>RuntimeId</c> on every read/write while the wire DTOs remain
+/// runtime-keyed; the persisted column is named <c>provider_id</c>
+/// because PR-1b reshapes the wire to be provider-keyed. The runtime
+/// id flows verbatim into the column today; the wire reshape is the
+/// follow-on PR.
+/// </remarks>
 public sealed class TenantAgentRuntimeInstallService(
     SpringDbContext dbContext,
     ITenantContext tenantContext,
@@ -42,25 +52,25 @@ public sealed class TenantAgentRuntimeInstallService(
 
         // IgnoreQueryFilters so we can revive a soft-deleted row instead
         // of leaving it orphaned and inserting a duplicate.
-        var existing = await dbContext.TenantAgentRuntimeInstalls
+        var existing = await dbContext.TenantModelProviderInstalls
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(
-                e => e.TenantId == tenantId && e.RuntimeId == runtime.Id,
+                e => e.TenantId == tenantId && e.ProviderId == runtime.Id,
                 cancellationToken)
             .ConfigureAwait(false);
 
         if (existing is null)
         {
             var resolved = config ?? AgentRuntimeInstallConfig.FromRuntimeDefaults(runtime);
-            var entity = new TenantAgentRuntimeInstallEntity
+            var entity = new TenantModelProviderInstallEntity
             {
                 TenantId = tenantId,
-                RuntimeId = runtime.Id,
+                ProviderId = runtime.Id,
                 ConfigJson = Serialize(resolved),
                 InstalledAt = now,
                 UpdatedAt = now,
             };
-            dbContext.TenantAgentRuntimeInstalls.Add(entity);
+            dbContext.TenantModelProviderInstalls.Add(entity);
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             logger.LogInformation(
                 "Installed agent runtime '{RuntimeId}' on tenant '{TenantId}'.",
@@ -106,9 +116,9 @@ public sealed class TenantAgentRuntimeInstallService(
         ArgumentException.ThrowIfNullOrWhiteSpace(runtimeId);
 
         var tenantId = tenantContext.CurrentTenantId;
-        var existing = await dbContext.TenantAgentRuntimeInstalls
+        var existing = await dbContext.TenantModelProviderInstalls
             .FirstOrDefaultAsync(
-                e => e.TenantId == tenantId && e.RuntimeId == runtimeId,
+                e => e.TenantId == tenantId && e.ProviderId == runtimeId,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -127,8 +137,8 @@ public sealed class TenantAgentRuntimeInstallService(
     /// <inheritdoc />
     public async Task<IReadOnlyList<InstalledAgentRuntime>> ListAsync(CancellationToken cancellationToken = default)
     {
-        var rows = await dbContext.TenantAgentRuntimeInstalls
-            .OrderBy(e => e.RuntimeId)
+        var rows = await dbContext.TenantModelProviderInstalls
+            .OrderBy(e => e.ProviderId)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
         return rows.Select(r => Project(r, Deserialize(r.ConfigJson) ?? AgentRuntimeInstallConfig.Empty)).ToArray();
@@ -139,9 +149,9 @@ public sealed class TenantAgentRuntimeInstallService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runtimeId);
 
-        var row = await dbContext.TenantAgentRuntimeInstalls
+        var row = await dbContext.TenantModelProviderInstalls
             .FirstOrDefaultAsync(
-                e => e.RuntimeId == runtimeId,
+                e => e.ProviderId == runtimeId,
                 cancellationToken)
             .ConfigureAwait(false);
         return row is null
@@ -159,9 +169,9 @@ public sealed class TenantAgentRuntimeInstallService(
         ArgumentNullException.ThrowIfNull(config);
 
         var tenantId = tenantContext.CurrentTenantId;
-        var row = await dbContext.TenantAgentRuntimeInstalls
+        var row = await dbContext.TenantModelProviderInstalls
             .FirstOrDefaultAsync(
-                e => e.RuntimeId == runtimeId,
+                e => e.ProviderId == runtimeId,
                 cancellationToken)
             .ConfigureAwait(false)
             ?? throw new InvalidOperationException(
@@ -173,9 +183,9 @@ public sealed class TenantAgentRuntimeInstallService(
     }
 
     private static InstalledAgentRuntime Project(
-        TenantAgentRuntimeInstallEntity row,
+        TenantModelProviderInstallEntity row,
         AgentRuntimeInstallConfig config)
-        => new(row.RuntimeId, row.TenantId, config, row.InstalledAt, row.UpdatedAt);
+        => new(row.ProviderId, row.TenantId, config, row.InstalledAt, row.UpdatedAt);
 
     private static JsonElement? Serialize(AgentRuntimeInstallConfig config)
         => JsonSerializer.SerializeToElement(config);
