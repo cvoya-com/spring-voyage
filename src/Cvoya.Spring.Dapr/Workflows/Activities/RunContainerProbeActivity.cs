@@ -129,7 +129,8 @@ public class RunContainerProbeActivity(
             Command: commandArgs,
             EnvironmentVariables: step.Env,
             Timeout: step.Timeout,
-            Entrypoint: entrypoint);
+            Entrypoint: entrypoint,
+            NetworkName: step.NetworkName);
 
         ContainerResult containerResult;
         try

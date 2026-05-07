@@ -155,6 +155,14 @@ public class OllamaAgentRuntime : IAgentRuntime
         var tagsCmd = $"curl -sS -o /dev/null -w '%{{http_code}}' '{baseUrl}/api/tags'";
         var resolveModelCmd = $"curl -sS -w '\\n%{{http_code}}' '{baseUrl}/api/tags'";
 
+        // Attach the probe container to the platform bridge so it can
+        // resolve the Ollama hostname (e.g. spring-ollama on spring-net).
+        // An empty ProbeNetworkName means the probe inherits the default
+        // network, which is appropriate when BaseUrl uses host.containers.internal.
+        var probeNetwork = string.IsNullOrWhiteSpace(_options.Value.ProbeNetworkName)
+            ? null
+            : _options.Value.ProbeNetworkName;
+
         return new[]
         {
             new ProbeStep(
@@ -162,14 +170,16 @@ public class OllamaAgentRuntime : IAgentRuntime
                 Args: new[] { "sh", "-c", tagsCmd },
                 Env: new Dictionary<string, string>(StringComparer.Ordinal),
                 Timeout: VerifyToolTimeout,
-                InterpretOutput: InterpretVerifyTool),
+                InterpretOutput: InterpretVerifyTool,
+                NetworkName: probeNetwork),
 
             new ProbeStep(
                 Step: UnitValidationStep.ResolvingModel,
                 Args: new[] { "sh", "-c", resolveModelCmd },
                 Env: new Dictionary<string, string>(StringComparer.Ordinal),
                 Timeout: ResolveModelTimeout,
-                InterpretOutput: (exit, stdout, stderr) => InterpretResolveModel(exit, stdout, stderr, model)),
+                InterpretOutput: (exit, stdout, stderr) => InterpretResolveModel(exit, stdout, stderr, model),
+                NetworkName: probeNetwork),
         };
     }
 

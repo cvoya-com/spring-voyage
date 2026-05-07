@@ -72,9 +72,17 @@ using Cvoya.Spring.Core.Units;
 /// a failure with code <see cref="UnitValidationCodes.ProbeInternalError"/>
 /// for any unexpected shape.
 /// </param>
+/// <param name="NetworkName">
+/// Optional container-network name to attach the probe container to before
+/// running <see cref="Args"/>. Set when the probe must reach a service that
+/// is only resolvable on a named bridge (e.g. the Ollama runtime's
+/// <c>spring-ollama</c> hostname lives on <c>spring-net</c>). When
+/// <c>null</c> the probe container inherits the runtime's default network.
+/// </param>
 public sealed record ProbeStep(
     UnitValidationStep Step,
     IReadOnlyList<string> Args,
     IReadOnlyDictionary<string, string> Env,
     TimeSpan Timeout,
-    Func<int, string, string, StepResult> InterpretOutput);
+    Func<int, string, string, StepResult> InterpretOutput,
+    string? NetworkName = null);
