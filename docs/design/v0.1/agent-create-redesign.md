@@ -1,8 +1,10 @@
 # Agent-create flow redesign — design spec
 
-Status: Design — implementation deferred. Refs `#1763` (issue), with cross-dependencies on `#1786` (units as agents with orchestration decisions) and ADR-0038 (runtime / provider / model split).
+Status: Design — implementation deferred. Refs `#1763` (UX redesign issue), `#1786` (units-are-agents architecture umbrella). Layers on top of [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md) (runtime / provider / model split) and **[ADR-0039](../../decisions/0039-units-are-agents.md)** (units are agents — orchestration is runtime behaviour, not platform configuration). Sequenced alongside the broader platform work in [`docs/plan/v0.1/units-are-agents.md`](../../plan/v0.1/units-are-agents.md).
 
-This document is the implementation contract for the redesign described in `#1763`. It audits the three creation surfaces that exist today (the unit-tab "Add Agent" dialog, the standalone `/agents/create` wizard, and `spring agent create`), describes the unified target design, and slices the work for downstream PRs. **No production code is touched in this PR — the implementation lands separately.**
+This document is the implementation contract for the agent-create UX redesign described in `#1763`. It audits the three creation surfaces that exist today (the unit-tab "Add Agent" dialog, the standalone `/agents/create` wizard, and `spring agent create`), describes the unified target design under the units-are-agents framing recorded in ADR-0039, and slices the UX-side work for downstream PRs. **No production code is touched in this PR — the implementation lands separately.**
+
+ADR-0039 is the architectural prerequisite: it decides that a unit is an agent, that orchestration policy is not platform configuration, and that inheritance generalises to "top-level under tenant; multi-parent must define their own when parents diverge; reparenting revalidates." This design assumes those rules and treats them as fixed. The platform-side implementation of ADR-0039 (PRs 2–9 in the execution plan) precedes most of this design's UX-side work; only the multi-parent inheritance backend (plan PR 3) is a strict prerequisite for the form work that begins with PR 10.
 
 ---
 
@@ -507,42 +509,24 @@ The inherit scenarios are parity-critical because the parent model now includes 
 
 ## 6. Open questions and cross-dependencies
 
-### 6.1 #1786 — units are agents with children
+### 6.1 ADR-0039 — units are agents (architectural prerequisite)
 
-The design direction for `#1786` is simpler than the earlier router-mode framing:
+[ADR-0039](../../decisions/0039-units-are-agents.md) is the architectural prerequisite this design assumes. The relevant decisions:
 
-- A **unit is always an agent**. There is no separate self-execution mode and no platform-level router mode.
-- The only structural difference is that a unit has children. Because it has children, its configured runtime receives unit-only orchestration tools: list children, inspect child status/config/activity, and delegate a message to a child.
-- The platform does not store or select an orchestration policy. Workflow, AI routing, hybrid routing, or direct response are runtime/instruction/container-image concerns.
-- The platform does formalize an **orchestration decision** as evidence emitted when a unit runtime uses an orchestration tool. Only units can emit orchestration decisions because only units receive those tools.
-
-Target `OrchestrationDecision` shape:
-
-```ts
-OrchestrationDecision = {
-    decisionId: string;
-    tenantId: string;
-    unitAddress: string;
-    threadId: string;
-    inputMessageId: string;
-    kind: "delegate" | "fanout" | "inspect" | "no_op";
-    targets: string[];
-    status: "accepted" | "routed" | "failed";
-    resultMessageIds: string[];
-    reason?: string;       // short runtime-supplied rationale, never hidden model reasoning
-    metadata?: object;
-    createdAt: string;
-}
-```
+- **A unit is an agent.** Same address shape, same mailbox, same execution config, same runtime path. The only structural difference is that a unit has children. There is no separate "unit-as-router" or "unit-as-agent" mode; there is no creation-time toggle to declare what a unit "is."
+- **Orchestration is runtime behaviour.** No `IOrchestrationStrategy`, no `LabelRoutingPolicy`, no `unit.orchestration:` block on the manifest, no orchestration HTTP endpoint. Workflow / AI routing / hybrid routing / direct response are runtime-image and instruction concerns.
+- **Children are exposed as orchestration tools.** When a unit has children, its runtime launcher attaches a closed set of orchestration tools to the running container (`list_children`, `inspect_child`, `delegate_to_child`, `fanout_to_children`, `query_child_status`). The agent's instructions decide whether and when to use them.
+- **Orchestration decisions are first-class evidence.** Every delegation tool call records an `OrchestrationDecision` event. The shape is in ADR-0039 §4; the GitHub label-roundtrip subscriber rewrites against this shape.
+- **Inheritance generalises.** Top-level agents are tenant-parented (same as top-level units). A multi-parent agent that leaves any execution field inherited must have every parent resolve identical effective config; otherwise the platform rejects with a structured 422 naming the diverging field. Reparenting revalidates the same rule.
+- **Container-runtime is platform configuration.** Operators do not pick podman vs docker. The selector is removed from CLI and portal.
 
 Consequences for this design:
 
-1. **No create-time unit mode toggle.** The agent-create form does not need a "create as unit-agent" path because units already are agents. Operators who want a composite agent create a unit; operators who want a leaf participant create an agent.
-2. **One execution config per unit.** A unit's execution config is both the unit's own runtime config and the default inherited by children. There is no separate orchestration runtime/model field.
-3. **No orchestration policy surface.** Follow-up implementation should remove platform orchestration policy/strategy config from unit docs, API/CLI/portal surfaces, and replace strategy-choice language with runtime instructions plus orchestration-decision events.
+1. **No create-time unit mode toggle.** Units already are agents; the form needs no "create as unit-agent" path. Operators who want a composite agent create a unit (an agent with children); operators who want a leaf participant create an agent.
+2. **One execution config per unit.** A unit's execution config is both the unit's own runtime config and the default inherited by children. There is no separate "orchestration runtime" or "self-execution runtime" field; there is one `(runtime, model, image, hosting)` per the ADR-0038 shape.
+3. **No orchestration policy surface anywhere.** The agent-create form has no orchestration field, no strategy picker, no routing toggle. The unit-create wizard's strategy step is removed by ADR-0039 PR 6 (see [`units-are-agents.md`](../../plan/v0.1/units-are-agents.md)).
 4. **Packages install what they declare.** If an agent-create from-package path selects a package that declares units, the package result is unit creation, not "agent creation." The summary panel and success copy must be manifest-derived.
-
-This redesign now depends on the `#1786` ADR direction for terminology and execution semantics. The first implementation slice below is an architecture slice that removes the policy framing before the agent-create implementation lands.
+5. **Multi-parent inheritance is enforced server-side.** This design's inheritance UX surfaces the conflict; the validation lives in `IExecutionConfigInheritanceResolver` (added in plan PR 2, wired in plan PR 3). The form does not own the rule; it surfaces it.
 
 ### 6.2 Multi-parent inheritance validation
 
@@ -570,74 +554,13 @@ The unit-create wizard persists state in sessionStorage with schema versioning (
 
 ## 7. Implementation slicing
 
-The redesign is non-trivial but breaks cleanly into reviewable PRs. Recommendation: **five PRs**, each independently mergeable.
+This design is implemented as **per-task issues** under the [`#1786` umbrella](https://github.com/cvoya-com/spring-voyage/issues/1786), not as a small set of coarse PRs. The fine-grained task list and dependency graph live in [`docs/plan/v0.1/units-are-agents.md`](../../plan/v0.1/units-are-agents.md). The UX-side work for this design is **Phases I–L** in the plan: 33 small tasks covering the form schema (I1–I8), the unit-tab dialog rewrite (J1–J6), the three-paths Source step (K1–K10), and the CLI agent-create parity (L1–L9).
 
-### PR 1 — #1786 architecture foundation
+Each task is sized for execution by a less-capable code-generation agent: concrete files, concrete deliverable, mechanically-verifiable acceptance, no architecture decisions left to the implementer. Cross-task dependencies are wired structurally on GitHub via the native `blockedBy` edge on each task issue (not stated in prose); the task picker walks the dependency graph and never starts a task whose prerequisites have not landed.
 
-- Add the ADR that states: units are agents with children; orchestration policy is not platform configuration; orchestration decisions are formal events emitted only by unit runtimes.
-- Introduce/plan the addressable execution-subject seam needed for both `agent:<id>` and `unit:<id>` dispatch.
-- Specify unit-only orchestration tools and the `OrchestrationDecision` event shape.
-- Remove or deprecate docs/API/CLI/portal language that exposes orchestration policy/strategy as a user-selectable unit setting.
-- Update architecture docs before implementation PRs below rely on the new terminology.
+The platform-side prerequisites (delete strategy taxonomy, label-routing rewrite, container-runtime removal, multi-parent inheritance backend) are sequenced earlier in the same plan (Phases A–H, 67 tasks). Phase B's multi-parent inheritance validation (`IExecutionConfigInheritanceResolver` wired into create / update / membership endpoints) is the strict prerequisite for Phase I; phase H's positional `<id>` removal is the strict prerequisite for Phase L.
 
-Acceptance: reviewers can point to one architectural source of truth before the agent-create implementation begins. `#1763` copy uses the units-are-agents model consistently.
-
-### PR 2 — Form schema + shared component (foundation)
-
-- Extract `<AgentCreateForm>` from today's `app/agents/create/page.tsx`. The component owns identity, execution, and unit-assignment fields.
-- Extend `buildAgentDefinitionJson` to accept structured `model: {provider, id}` and `hosting`. Today it accepts a flat shape.
-- Add per-field inherit affordance (DESIGN.md §12.6 pattern). Adds `data-testid="inherit-indicator"` to every Execution field.
-- The standalone page is rewired to consume `<AgentCreateForm>` but otherwise preserves its current behaviour.
-- **No CLI changes.** **No new shells.** Backend changes are limited to accepting top-level tenant-parented agents and exposing validation feedback for multi-parent inheritance conflicts if the endpoint work is small enough; otherwise that validation lands with PR 5 before CLI parity is declared complete.
-
-Acceptance: the standalone wizard renders identically to today (modulo the per-field inherit visuals) and round-trips through the same install pipeline. Existing tests stay green.
-
-### PR 3 — Unit-tab dialog rewrite
-
-- Replace `<MembershipDialog mode="add">` with `<AgentCreateDialog>` in `agents-tab.tsx`. The dialog wraps `<AgentCreateForm>` and preselects the host unit.
-- `<MembershipDialog mode="edit">` stays for per-membership edit.
-- Update the Agents tab's `displayNameMap` lookup to feed the dialog the unit's display name (fixes issue § Problem 2).
-- Remove the picker code from `<MembershipDialog>` (or carve out a `<MembershipEditDialog>` if the cleanup is large; choose at implementation time).
-
-Acceptance: clicking **Add agent** opens the new create dialog; the dialog shows the unit's display name; submitting creates an agent in the host unit and refreshes memberships. Picker mode is gone; e2e tests covering the picker are deleted.
-
-### PR 4 — Three-paths Source step + from-package
-
-- Add the Source step to `<AgentCreateForm>`. The page renders all three sources; the dialog defaults to scratch with a "From package…" link in the footer.
-- Add the package picker and connector-requirements panel; wire `POST /api/v1/packages/install` for the from-package branch.
-- Make the package summary and success copy manifest-derived so a package that creates units is not described as "agent created."
-- Drop the `build-agent-package.ts` YAML synthesis. The scratch branch now posts directly to `POST /api/v1/tenant/agents`.
-- Add the Browse stub.
-- Add wizard persistence under `spring.agent-create.v1`.
-
-Acceptance: all three paths are reachable from the page; the dialog reaches scratch + from-package. Existing scratch-path e2e specs migrate to the new wire path. Browse is the documented stub.
-
-### PR 5 — CLI parity
-
-- Add `--description`, `--from-package`, `--connector`, `--input` (repeatable legacy package variables), and `--inherit` to `spring agent create`.
-- Remove the positional `<id>` argument entirely.
-- Remove `--container-runtime` from `spring agent create`.
-- Make `--unit` optional; omitted means top-level tenant-parented agent.
-- Add mutual-exclusion validation between `--inherit` / `--from-package` / `--definition*` / execution shorthands, plus backend validation for conflicting multi-parent inheritance.
-- Update CLI scenarios; update `docs/cli-reference.md`.
-- Update DESIGN.md to record the new "inherit" affordance under §12.6 (cross-link to the unit-pane indicator).
-
-Acceptance: all seven rows of the test matrix in §5 pass. `spring agent create --help` reads cleanly. CLI parity gap closed.
-
-### Why five PRs and not one
-
-- PR 1 changes the conceptual contract. It needs architecture review before UI and CLI copy hard-code the old "orchestration policy" model.
-- PR 2 is contained and high-confidence — extract + rewire. It unblocks the rest by establishing the schema.
-- PR 3 deletes UI behaviour (picker) — a clean, reviewable surgical change that is easier to audit on its own than tangled with new step plumbing.
-- PR 4 introduces wire-path changes (drop the package-install YAML synthesis) — the riskiest UI/API change, deserves its own review window.
-- PR 5 is CLI-heavy and includes the breaking v0.1 cleanup — different code area, different review profile (CLI tests, not React tests).
-
-Each PR ships a working portal + CLI; none leaves the tree in a broken intermediate state. Each PR's e2e and CLI scenarios stand on their own.
-
-### What does NOT slice
-
-- The DESIGN.md update covering the new agent-create surface lives **with PR 4** (the PR that introduces the visible new pattern). Keeping it earlier orphans the doc; keeping it later violates the "update DESIGN.md in the same PR" rule.
-- The `#1786` ADR direction is no longer a follow-up footnote; it is PR 1. Later implementation PRs should not introduce orchestration-policy terminology.
+DESIGN.md updates land as task **K10** with the rest of Phase K. The `#1786` ADR direction is recorded in [ADR-0039](../../decisions/0039-units-are-agents.md), filed in this same PR.
 
 ---
 
@@ -653,9 +576,11 @@ Each PR ships a working portal + CLI; none leaves the tree in a broken intermedi
 ## 9. References
 
 - Issue: `#1763` — "Align agent creation flow with unit creation: configuration, inheritance, and multi-path entry"
-- Cross-dependency: `#1786` — units as agents with orchestration decisions
-- ADR-0038 — runtime / image / provider / model split (the field semantics this design layers on)
-- ADR-0035 — package-install pipeline (the catalog and file-upload paths this design consolidates against)
+- Architecture umbrella: `#1786` — Design: unit-as-agent vs unit-as-router (recorded in ADR-0039)
+- [ADR-0039](../../decisions/0039-units-are-agents.md) — units are agents (orchestration is runtime behaviour, not platform configuration); the architectural prerequisite this design assumes
+- [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md) — runtime / image / provider / model split (the field semantics this design layers on)
+- [ADR-0035](../../decisions/0035-package-as-bundling-unit.md) — package-install pipeline (the catalog and file-upload paths this design consolidates against)
+- [Execution plan](../../plan/v0.1/units-are-agents.md) — fine-grained per-task breakdown for ADR-0039 implementation, including Phases I–L for this design's UX-side work
 - `src/Cvoya.Spring.Web/DESIGN.md` §12.6 — inherit-from-parent indicator (the visual pattern this design reuses)
 - `src/Cvoya.Spring.Web/DESIGN.md` §12.12 / §12.13 — create-unit wizard parent-picker and image-history datalist (the patterns the agent wizard mirrors)
 - `CONVENTIONS.md` §13 — UI / CLI feature parity (the rule that gates §4 of this design)
