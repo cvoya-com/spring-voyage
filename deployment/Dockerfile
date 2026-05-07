@@ -17,6 +17,10 @@ WORKDIR /src
 COPY SpringVoyage.slnx global.json Directory.Build.props Directory.Packages.props ./
 COPY .config/ .config/
 COPY src/ src/
+# platform/runtime-catalog.yaml is embedded as a resource by
+# src/Cvoya.Spring.RuntimeCatalog/Cvoya.Spring.RuntimeCatalog.csproj
+# (ADR-0038); the build fails with CS1566 if this directory is missing.
+COPY platform/ platform/
 
 RUN dotnet restore src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj \
  && dotnet restore src/Cvoya.Spring.Host.Worker/Cvoya.Spring.Host.Worker.csproj \
