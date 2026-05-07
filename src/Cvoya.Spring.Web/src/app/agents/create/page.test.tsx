@@ -712,3 +712,106 @@ describe("CreateAgentPage", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Runtime-aware provider banner + picker (Bug 1 / Bug 2)
+// ---------------------------------------------------------------------------
+
+describe("CreateAgentPage — runtime-aware provider banner + picker", () => {
+  it("names the missing fixed provider on Claude Code when no providers are installed", async () => {
+    listModelProviders.mockResolvedValue([]);
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText(/agent runtime/i)).toBeInTheDocument();
+    });
+
+    const banner = await screen.findByTestId("model-provider-catalog-issue");
+    expect(banner.textContent).toMatch(
+      /Claude Code requires the anthropic model provider/i,
+    );
+  });
+
+  it("does not show a banner on Claude Code when Anthropic is installed", async () => {
+    // The default beforeEach already mocks an anthropic install.
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText(/agent runtime/i)).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("model-provider-catalog-issue"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("warns runtime-specifically on Spring Voyage Agent when no allowed provider is installed", async () => {
+    listModelProviders.mockResolvedValue([]);
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText(/agent runtime/i)).toBeInTheDocument();
+    });
+
+    const runtimeSelect = screen.getByLabelText(
+      /agent runtime/i,
+    ) as HTMLSelectElement;
+    await act(async () => {
+      fireEvent.change(runtimeSelect, { target: { value: "spring-voyage" } });
+    });
+
+    const banner = await screen.findByTestId("model-provider-catalog-issue");
+    expect(banner.textContent).toMatch(
+      /Spring Voyage Agent needs at least one model provider installed/i,
+    );
+
+    // Picker is rendered but disabled and shows a placeholder option.
+    const providerSelect = screen.getByLabelText(
+      /^model provider$/i,
+    ) as HTMLSelectElement;
+    expect(providerSelect).toBeDisabled();
+    const optionTexts = Array.from(providerSelect.options).map(
+      (o) => o.textContent ?? "",
+    );
+    expect(optionTexts.some((t) => /no providers installed/i.test(t))).toBe(
+      true,
+    );
+  });
+
+  it("preselects the first allowed provider on Spring Voyage Agent (Bug 2)", async () => {
+    listModelProviders.mockResolvedValue([
+      makeRuntime({
+        id: "anthropic",
+        displayName: "Anthropic",
+        models: ["claude-3-5-sonnet"],
+        defaultModel: "claude-3-5-sonnet",
+      }),
+      makeRuntime({
+        id: "openai",
+        displayName: "OpenAI",
+        models: ["gpt-4o"],
+        defaultModel: "gpt-4o",
+      }),
+    ]);
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText(/agent runtime/i)).toBeInTheDocument();
+    });
+
+    const runtimeSelect = screen.getByLabelText(
+      /agent runtime/i,
+    ) as HTMLSelectElement;
+    await act(async () => {
+      fireEvent.change(runtimeSelect, { target: { value: "spring-voyage" } });
+    });
+
+    const providerSelect = (await screen.findByLabelText(
+      /^model provider$/i,
+    )) as HTMLSelectElement;
+    expect(providerSelect).not.toBeDisabled();
+    // First provider in the install list is anthropic; the picker
+    // should auto-snap to it without operator interaction.
+    await waitFor(() => {
+      expect(providerSelect.value).toBe("anthropic");
+    });
+  });
+});

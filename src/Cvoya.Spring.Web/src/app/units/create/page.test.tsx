@@ -841,19 +841,100 @@ describe("CreateUnitPage — Step 3 scratch explains a disabled Next", () => {
     sessionStorage.clear();
   });
 
-  it("warns when the model-provider catalogue is empty and Claude Code is selected", async () => {
+  it("names the missing fixed provider when no providers are installed and Claude Code is selected", async () => {
     listModelProviders.mockResolvedValue([]);
     renderPage();
     await advanceToExecution();
 
+    // ADR-0038: Claude Code's provider is fixed to Anthropic — the
+    // banner should call that out specifically rather than emitting a
+    // generic "no providers" warning that frames Anthropic as a config
+    // the operator manages.
     const banner = await screen.findByTestId("model-provider-catalog-issue");
-    expect(banner.textContent).toMatch(/no configured model providers/i);
+    expect(banner.textContent).toMatch(
+      /Claude Code requires the anthropic model provider/i,
+    );
+    expect(banner.textContent).toMatch(/spring model-provider install anthropic/);
 
     const next = screen.getByRole("button", { name: /^next$/i });
     expect(next).toBeDisabled();
 
     const reason = await screen.findByTestId("next-disabled-reason");
-    expect(reason.textContent).toMatch(/no configured model providers/i);
+    expect(reason.textContent).toMatch(
+      /Claude Code requires the anthropic model provider/i,
+    );
+  });
+
+  it("names the multi-provider runtime's needs when the picker has no allowed providers installed", async () => {
+    // Spring Voyage Agent allows anthropic / openai / google / ollama.
+    // When none of them are installed the wizard should call that out
+    // with a message that matches the runtime's vocabulary, not a
+    // generic "no providers" warning.
+    listModelProviders.mockResolvedValue([]);
+    renderPage();
+    await advanceToExecution();
+    await selectTool("spring-voyage");
+
+    const banner = await screen.findByTestId("model-provider-catalog-issue");
+    expect(banner.textContent).toMatch(
+      /Spring Voyage Agent needs at least one model provider installed/i,
+    );
+
+    // The picker should still render (multi-provider runtime) but be
+    // disabled and surface a placeholder instead of an empty list.
+    const providerSelect = screen.getByLabelText(
+      /^Model Provider$/i,
+    ) as HTMLSelectElement;
+    expect(providerSelect).toBeDisabled();
+    const optionTexts = Array.from(providerSelect.options).map(
+      (o) => o.textContent ?? "",
+    );
+    expect(optionTexts.some((t) => /no providers installed/i.test(t))).toBe(
+      true,
+    );
+  });
+
+  it("does not show the catalogue warning on Claude Code when Anthropic is installed", async () => {
+    // Bug 1: the banner used to fire whenever zero of the four providers
+    // were installed, even though Claude Code only needs Anthropic.
+    listModelProviders.mockResolvedValue([
+      makeRuntime({
+        id: "anthropic",
+        displayName: "Anthropic",
+        models: ["claude-sonnet-4-6"],
+        defaultModel: "claude-sonnet-4-6",
+        credentialKind: "ApiKey",
+      }),
+    ]);
+    renderPage();
+    await advanceToExecution();
+
+    // Wait for the model query to resolve so the form has finished
+    // settling — only then can we be confident the absence of the
+    // banner is intentional rather than a render-race.
+    await waitFor(() => {
+      expect(getModelProviderModels).toHaveBeenCalledWith("anthropic");
+    });
+    expect(
+      screen.queryByTestId("model-provider-catalog-issue"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("preselects the first allowed provider on Spring Voyage Agent (Bug 2)", async () => {
+    // Default-mocked providers cover all four allowed providers; the
+    // dropdown should preselect the first allowed entry without the
+    // user having to pick.
+    renderPage();
+    await advanceToExecution();
+    await selectTool("spring-voyage");
+
+    const providerSelect = (await screen.findByLabelText(
+      /^Model Provider$/i,
+    )) as HTMLSelectElement;
+    expect(providerSelect).not.toBeDisabled();
+    // First allowed in the catalogue is anthropic — match the
+    // intersection's natural order against `installedProviders`.
+    expect(providerSelect.value).toBe("anthropic");
   });
 
   it("warns when the model-provider catalogue fetch fails", async () => {
@@ -892,7 +973,7 @@ describe("CreateUnitPage — Step 3 scratch explains a disabled Next", () => {
     // wizard reports the provider id directly, not the legacy runtime
     // id (`claude` was retired in ADR-0038).
     expect(reason.textContent).toMatch(
-      /Claude Code.*runtime requires the anthropic provider/i,
+      /Claude Code requires the anthropic model provider/i,
     );
     expect(screen.getByRole("button", { name: /^next$/i })).toBeDisabled();
   });
