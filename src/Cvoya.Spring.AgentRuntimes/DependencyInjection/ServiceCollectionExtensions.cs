@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.AgentRuntimes.DependencyInjection;
 
+using Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core.Execution;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -15,16 +16,23 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the default <see cref="IAgentRuntimeLauncherRegistry"/>.
-    /// The actual launcher implementations
-    /// (<c>ClaudeCodeLauncher</c>, <c>CodexLauncher</c>,
-    /// <c>GeminiLauncher</c>, <c>SpringVoyageAgentLauncher</c>) are
-    /// registered by <c>AddCvoyaSpringDapr</c> until Chunk 2 of PR-1a
-    /// physically relocates them into this project.
+    /// Registers the v0.1 closed set of <see cref="IAgentRuntimeLauncher"/>
+    /// strategies (<see cref="ClaudeCodeLauncher"/>,
+    /// <see cref="CodexLauncher"/>, <see cref="GeminiLauncher"/>,
+    /// <see cref="SpringVoyageAgentLauncher"/>) plus the default
+    /// <see cref="IAgentRuntimeLauncherRegistry"/>. The runtime catalogue's
+    /// per-runtime <c>launcher</c> field selects which strategy services
+    /// each invocation.
     /// </summary>
     public static IServiceCollection AddCvoyaSpringAgentRuntimes(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntimeLauncher, ClaudeCodeLauncher>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntimeLauncher, CodexLauncher>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntimeLauncher, GeminiLauncher>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntimeLauncher, SpringVoyageAgentLauncher>());
+
         services.TryAddSingleton<IAgentRuntimeLauncherRegistry, AgentRuntimeLauncherRegistry>();
         return services;
     }

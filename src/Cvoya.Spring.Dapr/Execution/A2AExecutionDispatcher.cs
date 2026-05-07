@@ -231,7 +231,7 @@ public class A2AExecutionDispatcher(
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
         var useDaprSidecar = string.Equals(
-            kind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
+            kind, LauncherIds.SpringVoyageAgent, StringComparison.OrdinalIgnoreCase);
 
         string? containerId = null;
         string? sidecarId = null;
@@ -548,7 +548,7 @@ public class A2AExecutionDispatcher(
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
         var useDaprSidecar = string.Equals(
-            kind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
+            kind, LauncherIds.SpringVoyageAgent, StringComparison.OrdinalIgnoreCase);
 
         string containerId;
         string? sidecarId = null;

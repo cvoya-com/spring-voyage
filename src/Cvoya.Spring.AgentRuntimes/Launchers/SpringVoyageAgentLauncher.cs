@@ -1,11 +1,12 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Execution;
+namespace Cvoya.Spring.AgentRuntimes.Launchers;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -64,16 +65,41 @@ public class SpringVoyageAgentLauncher(
     private readonly ILogger _logger = loggerFactory.CreateLogger<SpringVoyageAgentLauncher>();
 
     /// <summary>
-    /// Tool-kind identifier for this launcher. Matches the
-    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Kind"/>
-    /// declared by every runtime that dispatches through it
-    /// (<c>openai</c>, <c>google</c>, <c>ollama</c> — all share
-    /// <c>spring-voyage</c>).
+    /// Tool-kind identifier for this launcher. Matches the catalogue
+    /// runtime entry's <c>launcher</c> field for every runtime that
+    /// dispatches through this launcher.
     /// </summary>
-    public const string ToolId = "spring-voyage";
+    public const string ToolId = LauncherIds.SpringVoyageAgent;
 
     /// <inheritdoc />
     public string Kind => ToolId;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Verify-tool baseline only — the Spring Voyage Agent launches via
+    /// <c>python agent.py</c> so the equivalent of "is the binary
+    /// present" check is whether <c>python</c> can resolve. Per-provider
+    /// credential and model probes migrate alongside the manifest
+    /// reshape in PR-1b — see follow-up captured in the Chunk 2a final
+    /// report.
+    /// </remarks>
+    public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return new[]
+        {
+            new ProbeStep(
+                Step: UnitValidationStep.VerifyingTool,
+                Args: new[] { "python", "--version" },
+                Env: new Dictionary<string, string>(StringComparer.Ordinal),
+                Timeout: TimeSpan.FromSeconds(10),
+                InterpretOutput: (exit, _, stderr) => exit == 0
+                    ? StepResult.Succeed()
+                    : StepResult.Fail(
+                        UnitValidationCodes.ToolMissing,
+                        $"`python --version` exited with code {exit}. {stderr}".TrimEnd())),
+        };
+    }
 
     /// <inheritdoc />
     public async Task<AgentLaunchSpec> PrepareAsync(
@@ -138,7 +164,7 @@ public class SpringVoyageAgentLauncher(
             ["DAPR_API_TIMEOUT_SECONDS"] = "600",
             // D3c: canonical path where the per-agent workspace volume is
             // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
-            [AgentVolumeManager.WorkspacePathEnvVar] = AgentVolumeManager.WorkspaceMountPath,
+            [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
         };
 
         // #1328: OLLAMA_ENDPOINT removed. The Dapr Conversation component YAML

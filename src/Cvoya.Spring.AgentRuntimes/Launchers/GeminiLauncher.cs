@@ -1,59 +1,84 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Execution;
+namespace Cvoya.Spring.AgentRuntimes.Launchers;
 
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// <see cref="IAgentRuntimeLauncher"/> for OpenAI Codex containers. Describes a
+/// <see cref="IAgentRuntimeLauncher"/> for Gemini CLI containers. Describes a
 /// per-invocation workspace containing:
 /// <list type="bullet">
-///   <item><c>AGENTS.md</c> — the assembled system prompt (all four layers).
-///         Codex reads this file as its instructions equivalent of Claude Code's <c>CLAUDE.md</c>.</item>
-///   <item><c>.mcp.json</c> — MCP server endpoint + bearer token the Codex agent will dial.</item>
+///   <item><c>GEMINI.md</c> — the assembled system prompt (all four layers).
+///         Gemini CLI reads this file as its instructions file.</item>
+///   <item><c>.mcp.json</c> — MCP server endpoint + bearer token the Gemini agent will dial.</item>
 /// </list>
 /// The dispatcher materialises this workspace on its own host filesystem and
 /// bind-mounts it at <c>/workspace</c> inside the container — see issue #1042.
 /// <para>
-/// <b>Expected container image shape:</b> The image must bundle the Codex CLI
+/// <b>Expected container image shape:</b> The image must bundle the Gemini CLI
 /// and the A2A sidecar from <c>agents/a2a-sidecar/</c>. The sidecar wraps the
-/// <c>codex</c> CLI binary, exposing it behind an A2A endpoint. The container
-/// must read <c>AGENTS.md</c> and <c>.mcp.json</c> from the <c>/workspace</c>
-/// mount and honour the <c>OPENAI_API_KEY</c> environment variable for
-/// authentication with the OpenAI API.
+/// <c>gemini</c> CLI binary, exposing it behind an A2A endpoint. The container
+/// must read <c>GEMINI.md</c> and <c>.mcp.json</c> from the <c>/workspace</c>
+/// mount and honour the <c>GOOGLE_API_KEY</c> environment variable for
+/// authentication with the Google AI API.
 /// </para>
 /// </summary>
-public class CodexLauncher(
+public class GeminiLauncher(
     IAgentRuntimeRegistry runtimeRegistry,
     IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
 {
     /// <summary>
-    /// Runtime id whose credential the Codex launcher injects. Codex uses
-    /// the OpenAI Platform API, so the credential is the OpenAI API key
-    /// (the same secret slot the Spring Voyage runtime uses for
-    /// <c>provider: openai</c>).
+    /// Runtime id whose credential the Gemini launcher injects. Gemini
+    /// CLI uses the Google Generative Language API, so the credential is
+    /// the Google AI Studio API key (the same secret slot the Spring
+    /// Voyage runtime uses for <c>provider: google</c>).
     /// </summary>
-    internal const string OpenAiRuntimeId = "openai";
+    internal const string GoogleRuntimeId = "google";
 
     internal const string WorkspaceMountPath = "/workspace";
-    private readonly ILogger _logger = loggerFactory.CreateLogger<CodexLauncher>();
+    private readonly ILogger _logger = loggerFactory.CreateLogger<GeminiLauncher>();
 
     /// <inheritdoc />
     /// <remarks>
-    /// #1732: keyed on <c>codex-cli</c> — the canonical tool kind a future
-    /// Codex agent runtime would declare. No <c>IAgentRuntime</c> currently
-    /// resolves to this launcher; it ships ahead of the runtime.
+    /// Matches the <c>launcher</c> field on the runtime catalogue's
+    /// <c>gemini</c> entry per ADR-0038 decision 2.
     /// </remarks>
-    public string Kind => "codex-cli";
+    public string Kind => LauncherIds.GeminiCli;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Verify-tool baseline only. Per-runtime credential and model probes
+    /// migrate alongside the manifest reshape in PR-1b — see follow-up
+    /// captured in the Chunk 2a final report; PR-1b regenerates these
+    /// against the new <c>(runtime, model)</c> domain.
+    /// </remarks>
+    public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return new[]
+        {
+            new ProbeStep(
+                Step: UnitValidationStep.VerifyingTool,
+                Args: new[] { "gemini", "--version" },
+                Env: new Dictionary<string, string>(StringComparer.Ordinal),
+                Timeout: TimeSpan.FromSeconds(10),
+                InterpretOutput: (exit, _, stderr) => exit == 0
+                    ? StepResult.Succeed()
+                    : StepResult.Fail(
+                        UnitValidationCodes.ToolMissing,
+                        $"`gemini --version` exited with code {exit}. {stderr}".TrimEnd())),
+        };
+    }
 
     /// <inheritdoc />
     public async Task<AgentLaunchSpec> PrepareAsync(
@@ -78,12 +103,12 @@ public class CodexLauncher(
 
         var workspaceFiles = new Dictionary<string, string>
         {
-            ["AGENTS.md"] = context.Prompt,
+            ["GEMINI.md"] = context.Prompt,
             [".mcp.json"] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true })
         };
 
         _logger.LogInformation(
-            "Prepared Codex workspace request ({FileCount} files) for agent {AgentId} thread {ThreadId}",
+            "Prepared Gemini workspace request ({FileCount} files) for agent {AgentId} thread {ThreadId}",
             workspaceFiles.Count, context.AgentId, context.ThreadId);
 
         // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN are
@@ -97,13 +122,12 @@ public class CodexLauncher(
             ["SPRING_SYSTEM_PROMPT"] = context.Prompt,
             // D3c: canonical path where the per-agent workspace volume is
             // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
-            [AgentVolumeManager.WorkspacePathEnvVar] = AgentVolumeManager.WorkspaceMountPath,
+            [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
         };
 
-        // #1714 step 2: inject the OpenAI API key into OPENAI_API_KEY.
-        // Codex uses the OpenAI Platform API; its credential schema is
-        // a single accepted shape (sk-… API keys) so there is no
-        // shape-branching at the launcher.
+        // #1714 step 2: inject the Google AI Studio API key into
+        // GOOGLE_API_KEY. Gemini's credential schema is a single accepted
+        // shape, so there is no shape-branching at the launcher.
         await ResolveRuntimeCredentialAsync(context, envVars, cancellationToken);
 
         return new AgentLaunchSpec(
@@ -117,10 +141,10 @@ public class CodexLauncher(
         IDictionary<string, string> envVars,
         CancellationToken cancellationToken)
     {
-        var runtime = runtimeRegistry.Get(OpenAiRuntimeId)
+        var runtime = runtimeRegistry.Get(GoogleRuntimeId)
             ?? throw new SpringException(
-                $"OpenAI agent runtime is not registered (required by the Codex launcher). " +
-                $"Install the Cvoya.Spring.AgentRuntimes.OpenAI package or remove `tool: codex` from this unit's manifest.");
+                $"Google agent runtime is not registered (required by the Gemini launcher). " +
+                $"Install the Cvoya.Spring.AgentRuntimes.Google package or remove `tool: gemini` from this unit's manifest.");
 
         Guid? agentGuid = Guid.TryParse(context.AgentId, out var parsedAgentId)
             ? parsedAgentId
@@ -134,29 +158,29 @@ public class CodexLauncher(
         var credentialResolver = scope.ServiceProvider
             .GetRequiredService<ILlmCredentialResolver>();
         var resolution = await credentialResolver.ResolveAsync(
-            OpenAiRuntimeId, agentGuid, unitGuid, cancellationToken);
+            GoogleRuntimeId, agentGuid, unitGuid, cancellationToken);
 
         if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
             || string.IsNullOrEmpty(resolution.Value))
         {
             throw new SpringException(
-                $"Codex agent runtime requires secret '{resolution.SecretName}' but no value resolved at " +
+                $"Gemini agent runtime requires secret '{resolution.SecretName}' but no value resolved at " +
                 $"agent, unit, parent-unit chain, or tenant scope. " +
-                $"Generate an API key at https://platform.openai.com/api-keys and store it under '{resolution.SecretName}', " +
+                $"Generate an API key at https://aistudio.google.com/apikey and store it under '{resolution.SecretName}', " +
                 $"or configure via the Tenant defaults panel.");
         }
 
         if (!runtime.IsCredentialFormatAccepted(resolution.Value!, CredentialDispatchPath.AgentRuntime))
         {
             throw new SpringException(
-                $"Codex agent runtime did not accept the configured '{resolution.SecretName}' value at scope " +
-                $"'{resolution.Source}'. The OpenAI Platform CLI path requires an OpenAI API key (sk-…).");
+                $"Gemini agent runtime did not accept the configured '{resolution.SecretName}' value at scope " +
+                $"'{resolution.Source}'. The Google AI CLI path requires a Google AI Studio API key.");
         }
 
         envVars[runtime.CredentialEnvVar] = resolution.Value!;
 
         _logger.LogInformation(
-            "Codex credential resolved from {Source} into {EnvVar} for agent {AgentId}",
+            "Gemini credential resolved from {Source} into {EnvVar} for agent {AgentId}",
             resolution.Source, runtime.CredentialEnvVar, context.AgentId);
     }
 }

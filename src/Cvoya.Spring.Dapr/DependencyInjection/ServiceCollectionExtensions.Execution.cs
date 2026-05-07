@@ -190,12 +190,13 @@ internal static class ServiceCollectionExtensionsExecution
         services.AddOptions<AgentContextOptions>().BindConfiguration(AgentContextOptions.SectionName);
         services.TryAddSingleton<IAgentContextBuilder, AgentContextBuilder>();
 
-        // Agent definition + tool launchers used by A2AExecutionDispatcher.
+        // Agent definition is owned by Dapr (DB-backed). The four
+        // IAgentRuntimeLauncher strategies (ClaudeCodeLauncher, CodexLauncher,
+        // GeminiLauncher, SpringVoyageAgentLauncher) moved into
+        // Cvoya.Spring.AgentRuntimes per ADR-0038 Chunk 2a; their DI
+        // registration is via AddCvoyaSpringAgentRuntimes() in the host
+        // composition root.
         services.TryAddSingleton<IAgentDefinitionProvider, DbAgentDefinitionProvider>();
-        services.AddSingleton<IAgentRuntimeLauncher, ClaudeCodeLauncher>();
-        services.AddSingleton<IAgentRuntimeLauncher, CodexLauncher>();
-        services.AddSingleton<IAgentRuntimeLauncher, GeminiLauncher>();
-        services.AddSingleton<IAgentRuntimeLauncher, SpringVoyageAgentLauncher>();
         // D3c: per-agent workspace volume manager. Provisions volumes before
         // agent containers start, reclaims them on agent delete / ephemeral
         // completion, and emits volume-level telemetry (size, growth rate).

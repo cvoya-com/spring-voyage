@@ -1,14 +1,14 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Tests.Execution;
+namespace Cvoya.Spring.AgentRuntimes.Tests.Launchers;
 
 using System.Text.Json;
 
+using Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
-using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.Extensions.Logging;
 
@@ -187,9 +187,9 @@ public class ClaudeCodeLauncherTests
     {
         var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables.ShouldContainKey(AgentVolumeManager.WorkspacePathEnvVar);
-        prep.EnvironmentVariables[AgentVolumeManager.WorkspacePathEnvVar]
-            .ShouldBe(AgentVolumeManager.WorkspaceMountPath);
+        prep.EnvironmentVariables.ShouldContainKey(AgentWorkspaceContract.WorkspacePathEnvVar);
+        prep.EnvironmentVariables[AgentWorkspaceContract.WorkspacePathEnvVar]
+            .ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
     }
 
     [Fact]

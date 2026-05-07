@@ -178,26 +178,11 @@ public class ServiceCollectionExtensionsTests
         ex.Message.ShouldContain("ConnectionStrings:SpringDb");
     }
 
-    [Fact]
-    public void AddCvoyaSpringDapr_RegistersAllAgentToolLaunchers()
-    {
-        using var provider = BuildProvider();
-
-        var launchers = provider.GetServices<IAgentRuntimeLauncher>().ToList();
-        // #1732: launchers are keyed on IAgentRuntime.Kind. The dispatcher
-        // resolves a runtime from execution.agent and looks up the launcher
-        // here.
-        var launchersByKind = launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
-
-        launchersByKind.ShouldContainKey("claude-code-cli");
-        launchersByKind["claude-code-cli"].ShouldBeOfType<ClaudeCodeLauncher>();
-
-        launchersByKind.ShouldContainKey("codex-cli");
-        launchersByKind["codex-cli"].ShouldBeOfType<CodexLauncher>();
-
-        launchersByKind.ShouldContainKey("gemini-cli");
-        launchersByKind["gemini-cli"].ShouldBeOfType<GeminiLauncher>();
-    }
+    // ADR-0038 Chunk 2a: launcher DI registration moved out of
+    // AddCvoyaSpringDapr into AddCvoyaSpringAgentRuntimes (in the
+    // Cvoya.Spring.AgentRuntimes project). The equivalent regression
+    // lives there under
+    // Cvoya.Spring.AgentRuntimes.Tests.LauncherRegistrationTests.
 
     /// <summary>
     /// Complements the regression test above: when the test harness

@@ -1,13 +1,14 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Execution;
+namespace Cvoya.Spring.AgentRuntimes.Launchers;
 
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -76,10 +77,35 @@ public class ClaudeCodeLauncher(
 
     /// <inheritdoc />
     /// <remarks>
-    /// #1732: matches <c>ClaudeAgentRuntime.Kind</c> (<c>claude-code-cli</c>),
-    /// the registry's 1:1 tool kind for the <c>claude</c> runtime.
+    /// Matches the <c>launcher</c> field on the runtime catalogue's
+    /// <c>claude-code</c> entry per ADR-0038 decision 2.
     /// </remarks>
-    public string Kind => "claude-code-cli";
+    public string Kind => LauncherIds.ClaudeCodeCli;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Verify-tool baseline only. Per-runtime credential and model probes
+    /// migrate alongside the manifest reshape in PR-1b — see follow-up
+    /// captured in the Chunk 2a final report; PR-1b regenerates these
+    /// against the new <c>(runtime, model)</c> domain.
+    /// </remarks>
+    public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return new[]
+        {
+            new ProbeStep(
+                Step: UnitValidationStep.VerifyingTool,
+                Args: new[] { "claude", "--version" },
+                Env: new Dictionary<string, string>(StringComparer.Ordinal),
+                Timeout: TimeSpan.FromSeconds(10),
+                InterpretOutput: (exit, _, stderr) => exit == 0
+                    ? StepResult.Succeed()
+                    : StepResult.Fail(
+                        UnitValidationCodes.ToolMissing,
+                        $"`claude --version` exited with code {exit}. {stderr}".TrimEnd())),
+        };
+    }
 
     /// <inheritdoc />
     public async Task<AgentLaunchSpec> PrepareAsync(
@@ -130,7 +156,7 @@ public class ClaudeCodeLauncher(
             // mounted. The dispatcher provisions the volume and adds the
             // -v mount; the env var tells the in-container SDK where to find
             // it (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
-            [AgentVolumeManager.WorkspacePathEnvVar] = AgentVolumeManager.WorkspaceMountPath,
+            [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
         };
 
         // #1714 step 2: inject the Claude OAuth token into

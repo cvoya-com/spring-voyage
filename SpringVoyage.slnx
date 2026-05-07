@@ -17,6 +17,7 @@
     <Project Path="src/Cvoya.Spring.RuntimeCatalog/Cvoya.Spring.RuntimeCatalog.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Cvoya.Spring.AgentRuntimes.Tests/Cvoya.Spring.AgentRuntimes.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.Cli.Tests/Cvoya.Spring.Cli.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.Connector.Arxiv.Tests/Cvoya.Spring.Connector.Arxiv.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.Connector.GitHub.Tests/Cvoya.Spring.Connector.GitHub.Tests.csproj" />
