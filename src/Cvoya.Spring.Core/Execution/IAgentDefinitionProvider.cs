@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Execution;
 
+using Cvoya.Spring.Core.Catalog;
+
 /// <summary>
 /// Resolves an agent identifier to the concrete configuration needed to launch
 /// its external runtime (image, tool, instructions). The OSS default reads from
@@ -119,4 +121,22 @@ public record AgentExecutionConfig(
     AgentHostingMode Hosting = AgentHostingMode.Ephemeral,
     string? Provider = null,
     string? Model = null,
-    bool ConcurrentThreads = true);
+    bool ConcurrentThreads = true)
+{
+    /// <summary>
+    /// ADR-0038: structured agent-runtime selection. Until Chunk 2 of
+    /// PR-1a swaps every callsite, this property coexists with the legacy
+    /// <see cref="AgentRuntimeId"/> string slot. Chunk 2 deletes the legacy
+    /// slot and reshapes the constructor.
+    /// </summary>
+    public Cvoya.Spring.Core.Catalog.AgentRuntime? RuntimeRef { get; init; }
+
+    /// <summary>
+    /// ADR-0038: structured <c>{provider, id}</c> model selection. Until
+    /// Chunk 2 of PR-1a swaps every callsite, this property coexists with
+    /// the legacy <see cref="Provider"/> + string <see cref="Model"/>
+    /// fields. Chunk 2 deletes the legacy fields and reshapes the
+    /// constructor.
+    /// </summary>
+    public Cvoya.Spring.Core.Catalog.Model? ModelRef { get; init; }
+}
