@@ -1,6 +1,6 @@
 # 0038 — AgentRuntime and ModelProvider as separate identities
 
-- **Status:** Proposed — 2026-05-06 — `AgentRuntime`, `ModelProvider`, and `Model{provider, id}` become three distinct identities; the user-facing execution config collapses to `(runtime, model)`; the model provider is intrinsic to the model and is the credential / routing boundary; both runtimes and providers are platform configuration in a checked-in `runtime-catalog.yaml`; per-provider and per-runtime classes are replaced by small strategy registries; `IAgentRuntime.Kind` is removed; credentials re-key to `(tenant, provider, authMethod)` with unit-level inheritance carried forward per ADR-0003; the wizard hides the provider picker for fixed-provider runtimes and shows it as a model-list filter otherwise; Dapr component files rename `conversation-*` → `llm-*`; clean-deploy hard rename across CLI, manifest, OpenAPI, Kiota, portal, and docs.
+- **Status:** Proposed — 2026-05-06 — `AgentRuntime`, `ModelProvider`, and `Model{provider, id}` become three distinct identities; the user-facing execution config collapses to `(runtime, model)`; the model provider is intrinsic to the model and is the credential / routing boundary; both runtimes and providers are platform configuration in a checked-in `runtime-catalog.yaml` with universal cross-runtime fields (`threadBinding`, `systemPromptInjection`, per-edge `credentialEnvVar`); per-provider and per-runtime classes are replaced by small strategy registries; `IAgentRuntime.Kind` is removed; credentials re-key to `(tenant, provider, authMethod)` with unit-level inheritance carried forward per ADR-0003; the wizard hides the provider picker for fixed-provider runtimes and shows it as a model-list filter otherwise; Dapr component files rename `conversation-*` → `llm-*`; clean-deploy hard rename across CLI, manifest, OpenAPI, Kiota, portal, and docs.
 - **Date:** 2026-05-06
 - **Umbrella:** [#1761](https://github.com/cvoya-com/spring-voyage/issues/1761) — AgentRuntime and ModelProvider split — multi-PR initiative (ADR-0038).
 - **Related code:** see "Surface affected" below — the change touches Core domain, Manifest, Host.Api, AgentRuntimes projects, ModelProviders (new), Cli, Web, Dapr components, and docs.
@@ -86,41 +86,104 @@ agentRuntimes:
     displayName: Claude Code
     defaultImage: ghcr.io/cvoya-com/claude-code-base:latest
     launcher: claude-code-cli            # IAgentRuntimeLauncher strategy id
+    threadBinding:
+      kind: cli-arg
+      argName: --resume                  # claude resumes by --resume <session-id>
+    systemPromptInjection:
+      kind: file
+      filePath: AGENTS.md                # workspace-relative; the runtime reads it
     modelProviders:
       - id: anthropic
         authMethod: oauth
+        credentialEnvVar: CLAUDE_CODE_OAUTH_TOKEN
   - id: codex
     displayName: Codex
     defaultImage: ghcr.io/cvoya-com/codex-base:latest
     launcher: codex-cli
+    threadBinding:
+      kind: cli-arg
+      argName: --conversation-id         # codex's resume flag
+    systemPromptInjection:
+      kind: file
+      filePath: AGENTS.md
     modelProviders:
       - id: openai
         authMethod: api-key
+        credentialEnvVar: OPENAI_API_KEY
   - id: gemini
     displayName: Gemini CLI
     defaultImage: ghcr.io/cvoya-com/gemini-base:latest
     launcher: gemini-cli
+    threadBinding:
+      kind: cli-arg
+      argName: --session-id
+    systemPromptInjection:
+      kind: file
+      filePath: GEMINI.md                # gemini's own file convention
     modelProviders:
       - id: google
         authMethod: api-key
+        credentialEnvVar: GOOGLE_API_KEY
   - id: spring-voyage
     displayName: Spring Voyage Agent
     defaultImage: ghcr.io/cvoya-com/spring-voyage-agent:latest
     launcher: spring-voyage-agent
+    threadBinding:
+      kind: env-var
+      envVarName: SPRING_THREAD_ID
+    systemPromptInjection:
+      kind: env-var
+      envVarName: SPRING_SYSTEM_PROMPT
     modelProviders:
       - id: anthropic
         authMethod: api-key
+        credentialEnvVar: ANTHROPIC_API_KEY
       - id: openai
         authMethod: api-key
+        credentialEnvVar: OPENAI_API_KEY
       - id: google
         authMethod: api-key
-      - id: ollama        # no authMethod — Ollama requires no credential
+        credentialEnvVar: GOOGLE_API_KEY
+      - id: ollama        # no authMethod, no credentialEnvVar — Ollama requires no credential
 ```
 
-Each `agentRuntime` entry's `providers:` list carries the (provider, authMethod) edges that decision 4's matrix used to enumerate in code. The matrix is now data; adding a runtime, a provider edge, or a new auth method on an existing edge is a config edit (and a launcher strategy addition only when behaviour is genuinely novel).
+Each `agentRuntime` entry's `modelProviders:` list carries the (provider, authMethod, credentialEnvVar) edges that decision 4's matrix used to enumerate in code. The matrix is now data; adding a runtime, a provider edge, or a new auth method on an existing edge is a config edit (and a launcher strategy addition only when behaviour is genuinely novel).
 
-`AllowedProviders` and `IsProviderFixed` (used by the wizard rule in decision 1) are derived from `providers[].id` on the runtime's entry. A custom runtime, when added in a future release (decision 8), declares its own non-empty `providers:` list in this same file.
+`AllowedProviders` and `IsProviderFixed` (used by the wizard rule in decision 1) are derived from `modelProviders[].id` on the runtime's entry. A custom runtime, when added in a future release (decision 8), declares its own non-empty `modelProviders:` list in this same file.
 
+#### Universal cross-runtime fields
+
+Three fields on each `agentRuntime` entry capture features the platform's cross-cutting code reasons about uniformly across runtimes. Each one carries data the platform would otherwise have to ask a per-runtime class. The line is: anything the platform-side code reads across runtimes goes in YAML; runtime-protocol details (argv shape, output parsing, A2A choreography, MCP stamping) stay in the launcher strategy.
+
+**`threadBinding` — how the platform thread reaches the runtime's session/conversation.** Every runtime has some kind of session-resume mechanism — Claude Code calls it a "session," Codex calls it a "conversation," Spring Voyage Agent calls it a "thread." The platform's [Thread](thread-model.md) is the binding key: every unique participant set gets one runtime session, stable across invocations. The platform persists `(agent, thread) → runtime-session-id` in its own store; the YAML describes how to *deliver* that id to the runtime.
+
+```yaml
+threadBinding:
+  kind: cli-arg | env-var | none
+  argName: --resume               # required when kind: cli-arg
+  envVarName: SPRING_THREAD_ID    # required when kind: env-var
+```
+
+`kind: none` is for runtimes that have no session concept (none ship today; reserved for completeness). The launcher strategy handles allocation flow — whether the runtime allocates the id and the launcher captures it from output (Claude Code, Codex, Gemini), or the platform passes the thread id verbatim (Spring Voyage Agent). Only the *delivery* axis (cli-arg vs env-var) is uniform enough to live in YAML.
+
+**`systemPromptInjection` — how the assembled prompt reaches the agent.** The platform's prompt assembler (`IPromptAssembler`) produces the system prompt from the four-layer composition described in [`docs/concepts/agents.md`](../concepts/agents.md). The runtime receives the result via one of three mechanisms:
+
+```yaml
+systemPromptInjection:
+  kind: file | env-var | argv
+  filePath: AGENTS.md             # required when kind: file (workspace-relative)
+  envVarName: SPRING_SYSTEM_PROMPT  # required when kind: env-var
+  argName: --system-prompt        # required when kind: argv
+```
+
+CLI runtimes typically use `kind: file` because their CLIs already read a fixed-name file (`AGENTS.md` for Claude Code, `GEMINI.md` for Gemini). Spring Voyage Agent uses `kind: env-var`. A future runtime that takes the prompt as a flag uses `kind: argv`.
+
+**`credentialEnvVar` (per-edge) — the env var the launcher writes the resolved credential into.** Naturally per-edge, because the env var name depends on **both** the runtime and the provider. Claude Code dispatching against Anthropic uses `CLAUDE_CODE_OAUTH_TOKEN`. Spring Voyage Agent dispatching against Anthropic uses `ANTHROPIC_API_KEY`. Modelling this on the (runtime, provider) edge is the only place it fits cleanly.
+
+Edges whose `authMethod` is omitted (Ollama on Spring Voyage Agent) also omit `credentialEnvVar` — there is no credential to inject.
+
+Rejected: lift the executable path / argv template into YAML. Each CLI runtime's argv is genuinely bespoke; YAML-level templating would need a placeholder language for `${THREAD_ID}` substitution and stays in the strategy more cheaply.
+Rejected: `threadBinding.kind: file` (write the thread id to a file in the workspace). No runtime ships this convention today; introduce when one does.
 Rejected: keep `IAgentRuntime` as a code interface and persist the matrix in C# constants. Doubles the surface — every matrix change is a code change.
 Rejected: split the YAML into one file per runtime. Loses the central audit surface; a contributor cannot answer "which auth method does Codex accept from OpenAI?" by reading one file.
 Rejected: keep `Kind` for forward compatibility. There is no extant or planned use case in which two runtimes share a `Kind`. Reintroduce when there is.
@@ -199,19 +262,19 @@ A provider declares the auth methods it accepts (decision 3's `authMethods`). Ea
 
 For the v0.1 catalogue, the projection is:
 
-| Runtime         | Provider  | authMethod |
-|-----------------|-----------|------------|
-| `claude-code`   | anthropic | oauth      |
-| `codex`         | openai    | api-key    |
-| `gemini`        | google    | api-key    |
-| `spring-voyage` | anthropic | api-key    |
-| `spring-voyage` | openai    | api-key    |
-| `spring-voyage` | google    | api-key    |
-| `spring-voyage` | ollama    | —          |
+| Runtime         | Provider  | authMethod | credentialEnvVar          |
+|-----------------|-----------|------------|---------------------------|
+| `claude-code`   | anthropic | oauth      | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `codex`         | openai    | api-key    | `OPENAI_API_KEY`          |
+| `gemini`        | google    | api-key    | `GOOGLE_API_KEY`          |
+| `spring-voyage` | anthropic | api-key    | `ANTHROPIC_API_KEY`       |
+| `spring-voyage` | openai    | api-key    | `OPENAI_API_KEY`          |
+| `spring-voyage` | google    | api-key    | `GOOGLE_API_KEY`          |
+| `spring-voyage` | ollama    | —          | —                         |
 
 This table is documentation, not a code constant. The runtime constructs it at startup from the YAML; CI's schema check enforces that every per-edge `authMethod` is present in the corresponding provider's `authMethods` list.
 
-Storage is keyed `(tenant, provider, authMethod)`. Dispatch resolves the runtime's per-edge `authMethod` against the catalogue, looks up that exact row, and fails with a precise error if the matching credential is absent. Edges whose provider has an empty `authMethods` list (and therefore no per-edge `authMethod`) skip credential resolution entirely — there is no row to look up and no env var to inject.
+Storage is keyed `(tenant, provider, authMethod)` — the credential row is shared across every runtime that consumes the same `(provider, authMethod)` pair (per decision 6). Dispatch resolves the runtime's per-edge `authMethod` against the catalogue, looks up that exact row, fails with a precise error if the matching credential is absent, and otherwise hands the resolved value to the launcher to inject into the container env under the same edge's `credentialEnvVar` name (per decision 2's universal cross-runtime fields). Edges whose provider has an empty `authMethods` list — and therefore no per-edge `authMethod` or `credentialEnvVar` — skip credential resolution entirely.
 
 ```csharp
 // AuthMethod entries are loaded from runtime-catalog.yaml and exposed as a
