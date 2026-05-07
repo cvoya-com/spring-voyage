@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * Agent-runtimes admin surface (#691).
+ * Model providers admin surface (ADR-0038).
  *
- * Rendered at `/settings/agent-runtimes`. Surfaces the tenant's
- * installed agent runtimes, their model lists, and the persistent
+ * Rendered at `/settings/model-providers`. Surfaces the tenant's
+ * installed model providers, their model lists, and the persistent
  * credential-health row written by accept-time validation and the
  * watchdog middleware. Every mutation (install, uninstall, configure,
- * credential validation) ships through the `spring agent-runtime …`
+ * credential validation) ships through the `spring model-provider …`
  * CLI per the AGENTS.md carve-out.
  *
- * Cross-reference: `docs/guide/operator/agent-runtimes.md` covers the CLI
- * workflows the "Operator guide" link deep-links into.
+ * Cross-reference: `docs/guide/operator/model-providers.md` covers the
+ * CLI workflows the "Operator guide" link deep-links into.
  */
 
 import { Cpu } from "lucide-react";
@@ -19,33 +19,33 @@ import { Cpu } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  useAgentRuntimeCredentialHealth,
-  useAgentRuntimes,
+  useModelProviderCredentialHealth,
+  useModelProviders,
 } from "@/lib/api/queries";
 import type { InstalledModelProviderResponse } from "@/lib/api/types";
 
 import { CliCallout, CredentialHealthBadge, Timestamp } from "./shared";
 
-export default function AgentRuntimesAdminPage() {
-  const query = useAgentRuntimes();
-  const runtimes = query.data ?? [];
+export default function ModelProvidersAdminPage() {
+  const query = useModelProviders();
+  const providers = query.data ?? [];
   const loading = query.isPending;
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Cpu className="h-5 w-5" aria-hidden="true" /> Agent runtimes
+          <Cpu className="h-5 w-5" aria-hidden="true" /> Model providers
         </h1>
         <p className="text-sm text-muted-foreground">
-          Installed agent runtimes on the current tenant, their model
-          catalogs, and credential-health status.
+          Installed model providers on the current tenant, their model
+          catalogues, and credential-health status.
         </p>
       </div>
 
       <CliCallout
-        cliCommand="spring agent-runtime"
-        docsHref="/docs/guide/operator/agent-runtimes.md"
+        cliCommand="spring model-provider"
+        docsHref="/docs/guide/operator/model-providers.md"
         docsLabel="Operator guide"
       />
 
@@ -59,11 +59,11 @@ export default function AgentRuntimesAdminPage() {
         <Card>
           <CardContent className="p-6">
             <p className="text-sm text-destructive" role="alert">
-              Failed to load agent runtimes: {query.error.message}
+              Failed to load model providers: {query.error.message}
             </p>
           </CardContent>
         </Card>
-      ) : runtimes.length === 0 ? (
+      ) : providers.length === 0 ? (
         <Card>
           <CardContent className="space-y-2 p-6 text-center">
             <Cpu
@@ -71,9 +71,9 @@ export default function AgentRuntimesAdminPage() {
               aria-hidden="true"
             />
             <p className="text-sm text-muted-foreground">
-              No agent runtimes installed on this tenant. Install one with{" "}
+              No model providers installed on this tenant. Install one with{" "}
               <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                spring agent-runtime install &lt;id&gt;
+                spring model-provider install &lt;id&gt;
               </code>
               .
             </p>
@@ -82,10 +82,10 @@ export default function AgentRuntimesAdminPage() {
       ) : (
         <div
           className="space-y-3"
-          data-testid="admin-agent-runtimes-list"
+          data-testid="admin-model-providers-list"
         >
-          {runtimes.map((runtime) => (
-            <RuntimeRow key={runtime.id} runtime={runtime} />
+          {providers.map((provider) => (
+            <ProviderRow key={provider.id} provider={provider} />
           ))}
         </div>
       )}
@@ -93,15 +93,19 @@ export default function AgentRuntimesAdminPage() {
   );
 }
 
-function RuntimeRow({ runtime }: { runtime: InstalledModelProviderResponse }) {
-  const healthQuery = useAgentRuntimeCredentialHealth(runtime.id);
+function ProviderRow({
+  provider,
+}: {
+  provider: InstalledModelProviderResponse;
+}) {
+  const healthQuery = useModelProviderCredentialHealth(provider.id);
   const healthStatus = healthQuery.data?.status ?? null;
   const lastChecked = healthQuery.data?.lastChecked ?? null;
   const lastError = healthQuery.data?.lastError ?? null;
 
   return (
     <Card
-      data-testid={`admin-agent-runtime-row-${runtime.id}`}
+      data-testid={`admin-model-provider-row-${provider.id}`}
       className="transition-colors"
     >
       <CardContent className="space-y-3 p-4">
@@ -109,28 +113,23 @@ function RuntimeRow({ runtime }: { runtime: InstalledModelProviderResponse }) {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="truncate text-base font-semibold">
-                {runtime.displayName}
+                {provider.displayName}
               </h2>
               <code
                 className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-muted-foreground"
                 aria-label="Provider id"
               >
-                {runtime.id}
+                {provider.id}
               </code>
-              {/* TODO(PR-3): restore the tool-kind chip with the new
-                  shape — the legacy `kind` field was removed from
-                  `InstalledModelProviderResponse` in ADR-0038. PR-3
-                  surfaces the runtime via the catalogue. Tracked in
-                  #1761. */}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Installed <Timestamp value={runtime.installedAt} />
-              {runtime.credentialKind !== "None" && (
+              Installed <Timestamp value={provider.installedAt} />
+              {provider.credentialKind !== "None" && (
                 <>
                   {" "}
                   · credential:{" "}
                   <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
-                    {runtime.credentialKind}
+                    {provider.credentialKind}
                   </code>
                 </>
               )}
@@ -138,11 +137,11 @@ function RuntimeRow({ runtime }: { runtime: InstalledModelProviderResponse }) {
           </div>
           <div
             className="flex flex-col items-end gap-1 text-xs"
-            aria-label={`Credential health for ${runtime.displayName}`}
+            aria-label={`Credential health for ${provider.displayName}`}
           >
             <CredentialHealthBadge
               status={healthStatus}
-              data-testid={`admin-agent-runtime-health-${runtime.id}`}
+              data-testid={`admin-model-provider-health-${provider.id}`}
             />
             {lastChecked && (
               <span className="text-muted-foreground">
@@ -154,11 +153,11 @@ function RuntimeRow({ runtime }: { runtime: InstalledModelProviderResponse }) {
 
         <div>
           <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Models ({runtime.models.length})
+            Models ({provider.models.length})
           </div>
           <ModelList
-            models={runtime.models}
-            defaultModel={runtime.defaultModel ?? null}
+            models={provider.models}
+            defaultModel={provider.defaultModel ?? null}
           />
         </div>
 
@@ -182,7 +181,7 @@ function ModelList({
   if (models.length === 0) {
     return (
       <p className="text-xs text-muted-foreground">
-        (no models configured — the runtime reports its catalog at install time)
+        (no models configured — the provider reports its catalogue at install time)
       </p>
     );
   }

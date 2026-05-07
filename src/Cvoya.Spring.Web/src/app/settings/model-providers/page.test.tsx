@@ -9,16 +9,16 @@ import type {
   InstalledModelProviderResponse,
 } from "@/lib/api/types";
 
-const listAgentRuntimes =
+const listModelProviders =
   vi.fn<() => Promise<InstalledModelProviderResponse[]>>();
-const getAgentRuntimeCredentialHealth =
+const getModelProviderCredentialHealth =
   vi.fn<(id: string) => Promise<CredentialHealthResponse | null>>();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
-    listAgentRuntimes: () => listAgentRuntimes(),
-    getAgentRuntimeCredentialHealth: (id: string) =>
-      getAgentRuntimeCredentialHealth(id),
+    listModelProviders: () => listModelProviders(),
+    getModelProviderCredentialHealth: (id: string) =>
+      getModelProviderCredentialHealth(id),
   },
 }));
 
@@ -37,7 +37,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import SettingsAgentRuntimesPage from "./page";
+import SettingsModelProvidersPage from "./page";
 
 function renderPage() {
   const client = new QueryClient({
@@ -49,19 +49,20 @@ function renderPage() {
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
-  return render(<SettingsAgentRuntimesPage />, { wrapper: Wrapper });
+  return render(<SettingsModelProvidersPage />, { wrapper: Wrapper });
 }
 
-function makeRuntime(
+function makeProvider(
   overrides: Partial<InstalledModelProviderResponse> = {},
 ): InstalledModelProviderResponse {
-  // ADR-0038 (PR-1b): the install row no longer carries `kind` /
-  // `defaultImage`; those fields belonged to the legacy
-  // `InstalledAgentRuntimeResponse` and moved into
-  // `runtime-catalog.yaml`.
+  // ADR-0038: model-provider install rows carry id, displayName, models,
+  // defaultModel, baseUrl, credentialKind, credentialDisplayHint, and
+  // credentialSecretName. The legacy `kind` / `defaultImage` fields
+  // belonged to InstalledAgentRuntimeResponse and moved into
+  // `runtime-catalog.yaml` — they're not on the wire anymore.
   return {
-    id: "claude",
-    displayName: "Claude",
+    id: "anthropic",
+    displayName: "Anthropic",
     installedAt: "2026-04-01T00:00:00Z",
     updatedAt: "2026-04-10T00:00:00Z",
     models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"],
@@ -74,44 +75,44 @@ function makeRuntime(
   } as InstalledModelProviderResponse;
 }
 
-describe("SettingsAgentRuntimesPage", () => {
+describe("SettingsModelProvidersPage", () => {
   beforeEach(() => {
-    listAgentRuntimes.mockReset();
-    getAgentRuntimeCredentialHealth.mockReset();
+    listModelProviders.mockReset();
+    getModelProviderCredentialHealth.mockReset();
   });
 
   it("renders the h1 landmark (shared admin component)", async () => {
-    listAgentRuntimes.mockResolvedValue([]);
+    listModelProviders.mockResolvedValue([]);
     renderPage();
     await waitFor(() => {
       expect(
-        screen.getByRole("heading", { level: 1, name: /agent runtimes/i }),
+        screen.getByRole("heading", { level: 1, name: /model providers/i }),
       ).toBeInTheDocument();
     });
   });
 
-  it("renders installed runtimes with models, credential health, and CLI callout", async () => {
-    listAgentRuntimes.mockResolvedValue([
-      makeRuntime(),
-      makeRuntime({
+  it("renders installed providers with models, credential health, and CLI callout", async () => {
+    listModelProviders.mockResolvedValue([
+      makeProvider(),
+      makeProvider({
         id: "openai",
         displayName: "OpenAI",
         models: ["gpt-4o", "gpt-4o-mini"],
         defaultModel: "gpt-4o",
       }),
     ]);
-    getAgentRuntimeCredentialHealth.mockImplementation(async (id) => ({
+    getModelProviderCredentialHealth.mockImplementation(async (id) => ({
       subjectId: id,
       secretName: "default",
-      status: id === "claude" ? "Valid" : "Invalid",
-      lastError: id === "claude" ? null : "401 Unauthorized",
+      status: id === "anthropic" ? "Valid" : "Invalid",
+      lastError: id === "anthropic" ? null : "401 Unauthorized",
       lastChecked: "2026-04-18T12:00:00Z",
     }));
 
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Claude")).toBeInTheDocument();
+      expect(screen.getByText("Anthropic")).toBeInTheDocument();
     });
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.getByText("claude-opus-4-7 · default")).toBeInTheDocument();
@@ -119,53 +120,53 @@ describe("SettingsAgentRuntimesPage", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByTestId("admin-agent-runtime-health-claude"),
+        screen.getByTestId("admin-model-provider-health-anthropic"),
       ).toHaveTextContent("Valid");
     });
     expect(
-      screen.getByTestId("admin-agent-runtime-health-openai"),
+      screen.getByTestId("admin-model-provider-health-openai"),
     ).toHaveTextContent("Invalid");
     expect(screen.getByText(/401 Unauthorized/)).toBeInTheDocument();
 
     expect(
       screen.getByText(/Read-only view — mutations go through the CLI\./i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/spring agent-runtime/i)).toBeInTheDocument();
+    expect(screen.getByText(/spring model-provider/i)).toBeInTheDocument();
   });
 
-  it("renders the empty state when no runtimes are installed", async () => {
-    listAgentRuntimes.mockResolvedValue([]);
+  it("renders the empty state when no providers are installed", async () => {
+    listModelProviders.mockResolvedValue([]);
 
     renderPage();
 
     await waitFor(() => {
       expect(
-        screen.getByText(/No agent runtimes installed on this tenant\./i),
+        screen.getByText(/No model providers installed on this tenant\./i),
       ).toBeInTheDocument();
     });
   });
 
   it("renders 'No signal yet' when the credential-health row is 404", async () => {
-    listAgentRuntimes.mockResolvedValue([makeRuntime({ id: "google" })]);
-    getAgentRuntimeCredentialHealth.mockResolvedValue(null);
+    listModelProviders.mockResolvedValue([makeProvider({ id: "google" })]);
+    getModelProviderCredentialHealth.mockResolvedValue(null);
 
     renderPage();
 
     await waitFor(() => {
       expect(
-        screen.getByTestId("admin-agent-runtime-health-google"),
+        screen.getByTestId("admin-model-provider-health-google"),
       ).toHaveTextContent(/No signal yet/i);
     });
   });
 
   it("exposes no mutation controls (no install/uninstall/configure buttons)", async () => {
-    listAgentRuntimes.mockResolvedValue([makeRuntime()]);
-    getAgentRuntimeCredentialHealth.mockResolvedValue(null);
+    listModelProviders.mockResolvedValue([makeProvider()]);
+    getModelProviderCredentialHealth.mockResolvedValue(null);
 
     const { container } = renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("Claude")).toBeInTheDocument();
+      expect(screen.getByText("Anthropic")).toBeInTheDocument();
     });
 
     // The page must not render any buttons — all mutations are CLI-only.
@@ -180,9 +181,9 @@ describe("SettingsAgentRuntimesPage", () => {
   });
 
   it("is axe-clean with populated data", async () => {
-    listAgentRuntimes.mockResolvedValue([makeRuntime()]);
-    getAgentRuntimeCredentialHealth.mockResolvedValue({
-      subjectId: "claude",
+    listModelProviders.mockResolvedValue([makeProvider()]);
+    getModelProviderCredentialHealth.mockResolvedValue({
+      subjectId: "anthropic",
       secretName: "default",
       status: "Valid",
       lastError: null,
@@ -191,7 +192,7 @@ describe("SettingsAgentRuntimesPage", () => {
 
     const { container } = renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Claude")).toBeInTheDocument();
+      expect(screen.getByText("Anthropic")).toBeInTheDocument();
     });
     await expectNoAxeViolations(container);
   });

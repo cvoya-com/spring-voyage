@@ -43,8 +43,8 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { getConnectorWizardStep } from "@/connectors/registry";
 import {
-  useAgentRuntimeModels,
-  useAgentRuntimes,
+  useModelProviderModels,
+  useModelProviders,
   useConnectorTypes,
   useOllamaModels,
   usePackage,
@@ -69,71 +69,17 @@ import type {
   UnitStatus,
 } from "@/lib/api/types";
 import {
-  DEFAULT_EXECUTION_TOOL,
   DEFAULT_HOSTING_MODE,
-  EXECUTION_TOOLS,
+  DEFAULT_RUNTIME_ID,
   HOSTING_MODES,
-  getAgentRegistryId,
-  getToolRuntimeId,
-  type ExecutionTool,
+  RUNTIME_LIST,
+  RUNTIMES,
+  getAllowedProviders,
+  getFixedProvider,
+  isRuntimeProviderFixed,
   type HostingMode,
+  type RuntimeId,
 } from "@/lib/ai-models";
-
-/**
- * Placeholder secret-name resolver. ADR-0038 §6 keys credentials by
- * `(tenant, provider, authMethod)`, but the wizard does not yet read
- * the per-edge `credentialEnvVar` / secret-name from
- * `runtime-catalog.yaml` — that arrives in PR-3. Returns the legacy
- * v0.1 secret names so the inline credential entry keeps writing to
- * the same canonical names dispatch reads from.
- *
- * TODO(PR-3): replace with a per-edge lookup against the catalogue —
- * tracked in #1761.
- */
-function getRuntimeSecretName(runtimeId: string): string | null {
-  switch (runtimeId) {
-    case "claude":
-    case "anthropic":
-      return "anthropic-api-key";
-    case "openai":
-      return "openai-api-key";
-    case "google":
-    case "gemini":
-    case "googleai":
-      return "google-api-key";
-    default:
-      return null;
-  }
-}
-
-/**
- * Placeholder wire-provider resolver. ADR-0038 collapsed the flat
- * `provider` slot into the structured `model.provider` field, so the
- * wizard no longer emits a separate provider on the wire — this helper
- * survives only to populate `model.provider` from the form's flat
- * `(tool, runtime-id)` pair.
- *
- * TODO(PR-3): drop this helper when the wizard's flat `provider` form
- * field is replaced by a per-provider model picker — tracked in #1761.
- */
-function getToolWireProvider(
-  tool: ExecutionTool,
-  runtimeId: string | null,
-): string | undefined {
-  switch (tool) {
-    case "claude-code":
-      return "claude";
-    case "codex":
-      return "openai";
-    case "gemini":
-      return "google";
-    case "spring-voyage":
-      return runtimeId ?? undefined;
-    case "custom":
-    default:
-      return undefined;
-  }
-}
 import { cn } from "@/lib/utils";
 import {
   WIZARD_STATE_SCHEMA_VERSION,
@@ -257,12 +203,12 @@ function stepLabel(source: Source | null, step: Step): string {
   }
 }
 
-// #690: "where do I get an API key?" deep links live on the wizard
-// because the agent-runtime descriptor's `credentialDisplayHint` is a
+// "Where do I get an API key?" deep links live on the wizard because
+// the model-provider descriptor's `credentialDisplayHint` is a
 // free-text hint — these URLs are the stable landing pages we know
 // operators should go to for each backend. The hint renders alongside
-// them. Keyed by the canonical provider id (the wizard uses
-// "anthropic" / "openai" / "google" throughout the credential surface).
+// them. Keyed by the canonical provider id ("anthropic" / "openai" /
+// "google"); Ollama doesn't surface a "get an API key" path.
 const PROVIDER_KEY_HELP: Readonly<
   Record<"anthropic" | "openai" | "google", { href: string; label: string }>
 > = {
@@ -294,14 +240,11 @@ interface FormState {
   name: string;
   displayName: string;
   description: string;
-  // Bug #258: provider is a UI hint only — the server contract carries just
-  // `model`. We keep the provider around so the model dropdown can filter,
-  // and to make a future typed DTO extension painless.
-  provider: string;
-  model: string;
+  // ADR-0038: structured (runtime, modelProviderId, modelId) shape.
+  runtime: RuntimeId;
+  modelProviderId: string;
+  modelId: string;
   color: string;
-  // #350: execution tool, hosting mode
-  tool: ExecutionTool;
   hosting: HostingMode;
   // #601: unit-level image default inherited by member agents. Empty
   // string means "don't declare"; the wizard only PUTs through the
@@ -351,91 +294,26 @@ interface FormState {
 }
 
 /**
- * #690: map a runtime id to the canonical provider string previous
- * wizard code passed around for credential-status probes and
- * secret-name resolution. Keeps the `credentialProvider` returned to
- * the CredentialSection as one of the three known tokens
- * ("anthropic" | "openai" | "google") while the agent-runtimes list
- * uses `claude` for the Anthropic backend.
+ * Resolve the installed model-provider entry the wizard needs a
+ * credential for, given the structured (runtime, modelProviderId)
+ * pair. Returns `null` when:
+ *   - no runtime is selected (custom),
+ *   - the selected provider isn't installed on the tenant, or
+ *   - the provider declares `CredentialKind === "None"` (e.g. Ollama).
  */
-function runtimeIdToProviderId(
-  runtimeId: string,
-): "anthropic" | "openai" | "google" | null {
-  switch (runtimeId.toLowerCase()) {
-    case "claude":
-    case "anthropic":
-      return "anthropic";
-    case "openai":
-      return "openai";
-    case "google":
-    case "gemini":
-    case "googleai":
-      return "google";
-    default:
-      return null;
-  }
-}
-
-/**
- * #690: resolve the runtime the wizard needs a credential for, given
- * the current tool+provider inputs and the list of installed runtimes.
- * Returns `null` when no runtime is selected (custom tool), when the
- * selected runtime declares `CredentialKind === "None"` (e.g. local
- * Ollama), or when the runtime is not installed on the tenant.
- */
-export function deriveRequiredCredentialRuntime(
-  tool: ExecutionTool,
-  provider: string,
-  runtimes: InstalledModelProviderResponse[] | null,
+function deriveRequiredCredentialProvider(
+  runtime: RuntimeId,
+  modelProviderId: string,
+  providers: InstalledModelProviderResponse[] | null,
 ): InstalledModelProviderResponse | null {
-  if (!runtimes || runtimes.length === 0) return null;
-
-  const lookup = (id: string) =>
-    runtimes.find((r) => r.id.toLowerCase() === id.toLowerCase()) ?? null;
-
-  switch (tool) {
-    case "claude-code":
-      return lookup("claude");
-    case "codex":
-      return lookup("openai");
-    case "gemini":
-      return lookup("google");
-    case "spring-voyage": {
-      const normalised = provider.trim().toLowerCase();
-      const runtimeId =
-        normalised === "anthropic" ? "claude" : normalised;
-      const runtime = lookup(runtimeId);
-      if (!runtime) return null;
-      if (runtime.credentialKind === "None") return null;
-      return runtime;
-    }
-    case "custom":
-    default:
-      return null;
-  }
-}
-
-/**
- * #1508: resolve the defaultImage for the runtime that matches the
- * current tool + provider selection, or null when no matching runtime
- * is installed.
- *
- * ADR-0038 moved per-runtime container images into
- * `runtime-catalog.yaml` (`agentRuntimes[].defaultImage`); the legacy
- * `InstalledAgentRuntimeResponse.defaultImage` field is gone from the
- * wire because model providers don't ship container images.
- *
- * TODO(PR-3): rebuild this on top of the catalogue once the portal
- * loads `runtime-catalog.yaml` — tracked in #1761. Until then the
- * wizard's image field stays empty by default; operators set the
- * image manually as before the pre-fill landed.
- */
-function deriveRuntimeDefaultImage(
-  _tool: ExecutionTool,
-  _provider: string,
-  _runtimes: InstalledModelProviderResponse[] | null,
-): string | null {
-  return null;
+  if (!providers || providers.length === 0) return null;
+  if (runtime === "custom") return null;
+  const id = modelProviderId.trim().toLowerCase();
+  if (!id) return null;
+  const entry = providers.find((p) => p.id.toLowerCase() === id) ?? null;
+  if (!entry) return null;
+  if (entry.credentialKind === "None") return null;
+  return entry;
 }
 
 /**
@@ -448,9 +326,12 @@ function deriveRuntimeDefaultImage(
  * provides empty defaults for those slots.
  */
 function mergeSnapshotIntoForm(snap: WizardFormSnapshot): FormState {
-  const tool: ExecutionTool = EXECUTION_TOOLS.some((t) => t.id === snap.tool)
-    ? (snap.tool as ExecutionTool)
-    : DEFAULT_EXECUTION_TOOL;
+  // ADR-0038: validate the persisted runtime against the live catalogue;
+  // fall back to the default if the value is no longer recognised (e.g.
+  // a snapshot from an older runtime-catalog.yaml release).
+  const runtime: RuntimeId = (RUNTIMES[snap.runtime as RuntimeId]
+    ? (snap.runtime as RuntimeId)
+    : DEFAULT_RUNTIME_ID);
   const hosting: HostingMode = HOSTING_MODES.some((m) => m.id === snap.hosting)
     ? (snap.hosting as HostingMode)
     : DEFAULT_HOSTING_MODE;
@@ -462,10 +343,10 @@ function mergeSnapshotIntoForm(snap: WizardFormSnapshot): FormState {
     name: snap.name,
     displayName: snap.displayName,
     description: snap.description,
-    provider: snap.provider,
-    model: snap.model,
+    runtime,
+    modelProviderId: snap.modelProviderId,
+    modelId: snap.modelId,
     color: snap.color,
-    tool,
     hosting,
     image: snap.image,
     connectorSlug: snap.connectorSlug,
@@ -495,10 +376,10 @@ function extractWizardFormSnapshot(form: FormState): WizardFormSnapshot {
     name: form.name,
     displayName: form.displayName,
     description: form.description,
-    provider: form.provider,
-    model: form.model,
+    runtime: form.runtime,
+    modelProviderId: form.modelProviderId,
+    modelId: form.modelId,
     color: form.color,
-    tool: form.tool,
     hosting: form.hosting,
     image: form.image,
     connectorSlug: form.connectorSlug,
@@ -518,13 +399,14 @@ const INITIAL_FORM: FormState = {
   name: "",
   displayName: "",
   description: "",
-  // #690: provider is seeded lazily once the agent-runtimes list
-  // arrives. An empty string until then; the Execution step renders a
-  // loading placeholder.
-  provider: "",
-  model: "",
+  // ADR-0038: structured (runtime, model.provider, model.id) shape.
+  // The provider picker is shown only when the runtime is multi-provider
+  // (`spring-voyage`); fixed-provider runtimes (`claude-code`, `codex`,
+  // `gemini`) seed `modelProviderId` lazily from the runtime catalogue.
+  runtime: DEFAULT_RUNTIME_ID,
+  modelProviderId: getFixedProvider(DEFAULT_RUNTIME_ID) ?? "",
+  modelId: "",
   color: DEFAULT_COLOR,
-  tool: DEFAULT_EXECUTION_TOOL,
   hosting: DEFAULT_HOSTING_MODE,
   // #1508: pre-fill the base image so the field is never blank.
   image: BASE_IMAGE,
@@ -903,174 +785,139 @@ export default function CreateUnitPage() {
       : String(connectorTypesQuery.error)
     : null;
 
-  // #690: agent runtimes installed on the current tenant. Feeds the
-  // provider dropdown (spring-voyage path) and the per-runtime
-  // credential/model metadata consumed by the execution step.
-  const agentRuntimesQuery = useAgentRuntimes();
-  const agentRuntimes = useMemo<InstalledModelProviderResponse[]>(
-    () => agentRuntimesQuery.data ?? [],
-    [agentRuntimesQuery.data],
+  // ADR-0038: model providers installed on the current tenant. Feeds
+  // the conditional provider picker (multi-provider runtimes) and
+  // surfaces credential/model metadata consumed by the Execution step.
+  const modelProvidersQuery = useModelProviders();
+  const installedProviders = useMemo<InstalledModelProviderResponse[]>(
+    () => modelProvidersQuery.data ?? [],
+    [modelProvidersQuery.data],
   );
 
-  // #350: Ollama model discovery — enabled only when spring-voyage +
-  // ollama is selected. The Ollama endpoint is still consulted directly
-  // because it surfaces richer per-model metadata (pull status) than the
-  // agent-runtimes catalog lookup.
-  const ollamaEnabled =
-    form.tool === "spring-voyage" && form.provider === "ollama";
+  // ADR-0038 §1: the runtime descriptor decides whether the provider is
+  // fixed or operator-picked. `effectiveProviderId` resolves the
+  // currently-active model provider id for the runtime — fixed when
+  // the runtime is single-provider, falling back to whatever the
+  // operator selected (or first installed) when multi-provider.
+  const runtimeDescriptor = RUNTIMES[form.runtime];
+  const fixedProviderId = getFixedProvider(form.runtime);
+
+  // The provider picker is rendered only when the runtime allows the
+  // operator to choose. The set of options is the intersection of the
+  // runtime's `allowedProviders` and the tenant-installed providers.
+  const allowedProviders = getAllowedProviders(form.runtime) ?? [];
+  const pickerProviders = useMemo<InstalledModelProviderResponse[]>(() => {
+    if (runtimeDescriptor.isProviderFixed) return [];
+    return installedProviders.filter((p) =>
+      (allowedProviders as readonly string[]).includes(p.id),
+    );
+  }, [installedProviders, allowedProviders, runtimeDescriptor.isProviderFixed]);
+
+  // #350: Ollama is the multi-provider runtime's "no-credential" path —
+  // we still ask the live server for its model list because it surfaces
+  // richer per-model metadata than the catalogue.
+  const ollamaEnabled = form.modelProviderId === "ollama";
   const ollamaQuery = useOllamaModels({ enabled: ollamaEnabled });
   const ollamaModels = ollamaQuery.data?.map((m) => m.name) ?? null;
   const ollamaModelsLoading = ollamaEnabled && ollamaQuery.isPending;
 
-  // #690: Model catalog for the active runtime. The wizard selects
-  // the runtime based on tool (fixed-provider tools) or the provider
-  // dropdown (spring-voyage). Ollama keeps its dedicated hook above.
-  const activeRuntimeId = useMemo<string | null>(() => {
-    if (form.tool === "custom") return null;
-    if (form.tool === "spring-voyage") {
-      const normalised = form.provider.trim().toLowerCase();
-      if (!normalised || normalised === "ollama") return null;
-      return normalised === "anthropic" ? "claude" : normalised;
-    }
-    return getToolRuntimeId(form.tool);
-  }, [form.tool, form.provider]);
-  // Only query the runtime's model catalog when that runtime is
-  // actually installed on the tenant — otherwise the wizard surfaces
-  // the "no configured agent runtimes" banner, and firing the model
-  // fetch would return data for a runtime the platform can't dispatch
-  // to. T-07 (#949): with wizard-time credential validation gone, this
-  // gate is what keeps the Model dropdown — and therefore Next —
-  // disabled when the platform has no matching runtime.
-  const activeRuntimeInstalled = useMemo<boolean>(() => {
-    if (activeRuntimeId === null) return false;
-    return agentRuntimes.some(
-      (r) => r.id.toLowerCase() === activeRuntimeId.toLowerCase(),
+  // ADR-0038: per-provider model catalogue. The wizard reads it
+  // whenever the active provider id is non-empty AND installed on the
+  // tenant. The Ollama branch keeps its dedicated hook above.
+  const activeProviderId = form.modelProviderId.trim().toLowerCase();
+  const activeProviderInstalled = useMemo<boolean>(() => {
+    if (!activeProviderId) return false;
+    return installedProviders.some(
+      (p) => p.id.toLowerCase() === activeProviderId,
     );
-  }, [activeRuntimeId, agentRuntimes]);
-  const agentRuntimeModelsQuery = useAgentRuntimeModels(activeRuntimeId ?? "", {
-    enabled: activeRuntimeId !== null && activeRuntimeInstalled,
+  }, [activeProviderId, installedProviders]);
+  const modelProviderModelsQuery = useModelProviderModels(activeProviderId, {
+    enabled:
+      activeProviderId !== "" &&
+      activeProviderId !== "ollama" &&
+      activeProviderInstalled,
   });
   const providerModels =
-    agentRuntimeModelsQuery.data?.map((m) => m.id) ?? null;
+    modelProviderModelsQuery.data?.map((m) => m.id) ?? null;
 
-  // ADR-0038: every installed model provider is eligible for the
-  // `spring-voyage` runtime (its catalogue entry lists every provider
-  // in `runtime-catalog.yaml`). The legacy `kind` field on the install
-  // row was retired; we no longer pre-filter — the dropdown shows
-  // every tenant install.
-  // TODO(PR-3): drive this from `runtime-catalog.yaml` so the dropdown
-  // surfaces only the providers the selected runtime allows — tracked
-  // in #1761.
-  const springVoyageRuntimes = useMemo(
-    () => agentRuntimes,
-    [agentRuntimes],
-  );
-  // Seed the provider + model fields when the runtimes list arrives
-  // and whenever tool/provider changes move the current selection
-  // outside the live catalog. Using `useEffect` would trigger
-  // cascading renders (react-hooks/set-state-in-effect); the
-  // effective values are derived below and the setForm calls are
-  // gated through memoised identifiers so they only fire when the
-  // stored value actually needs to change.
+  // ADR-0038: when the runtime fixes its provider, snap the
+  // modelProviderId to the fixed value. When multi-provider, default to
+  // the first installed entry that matches the runtime's allow-list.
+  // The setForm calls are guarded so they only fire when the value
+  // actually needs to change (no infinite render loop).
   const effectiveProvider = useMemo(() => {
-    if (form.tool !== "spring-voyage") return form.provider;
-    if (form.provider !== "") return form.provider;
-    return springVoyageRuntimes.length > 0 ? springVoyageRuntimes[0].id : "";
-  }, [form.tool, form.provider, springVoyageRuntimes]);
-  if (form.tool === "spring-voyage" && effectiveProvider !== form.provider) {
+    if (fixedProviderId !== null) return fixedProviderId;
+    if (form.modelProviderId !== "") return form.modelProviderId;
+    return pickerProviders.length > 0 ? pickerProviders[0].id : "";
+  }, [fixedProviderId, form.modelProviderId, pickerProviders]);
+  if (effectiveProvider !== form.modelProviderId) {
     setForm((prev) =>
-      prev.provider === "" && prev.tool === "spring-voyage"
-        ? { ...prev, provider: effectiveProvider }
-        : prev,
+      prev.modelProviderId === effectiveProvider
+        ? prev
+        : { ...prev, modelProviderId: effectiveProvider },
     );
   }
 
+  // ADR-0038: snap the model id to the first available entry whenever
+  // the current value is no longer in the active provider's catalogue.
+  // The `custom` runtime keeps the operator-typed value as-is — there
+  // is no catalogue to validate against.
   const effectiveModel = useMemo(() => {
-    if (form.tool === "custom") return form.model;
-    // Issue #1072: spring-voyage + ollama sources its model list from the
-    // live Ollama server (not the agent-runtimes catalog), so it needs
-    // its own auto-seed branch. Without it the controlled <select>
-    // shows the first option visually while `form.model` stays "" —
-    // `modelIsSelected` then returns false and Next is disabled with
-    // no way to advance, even though the dropdown only has one entry
-    // already on screen. Mirror the catalog branch below: keep the
-    // current value if it's still in the list, otherwise snap to the
-    // first available model.
-    if (form.tool === "spring-voyage" && form.provider === "ollama") {
-      if (!ollamaModels || ollamaModels.length === 0) return form.model;
-      if (ollamaModels.includes(form.model)) return form.model;
+    if (form.runtime === "custom") return form.modelId;
+    if (form.modelProviderId === "ollama") {
+      if (!ollamaModels || ollamaModels.length === 0) return form.modelId;
+      if (ollamaModels.includes(form.modelId)) return form.modelId;
       return ollamaModels[0];
     }
-    if (!providerModels || providerModels.length === 0) return form.model;
-    if (providerModels.includes(form.model)) return form.model;
+    if (!providerModels || providerModels.length === 0) return form.modelId;
+    if (providerModels.includes(form.modelId)) return form.modelId;
     return providerModels[0];
-  }, [form.tool, form.provider, form.model, providerModels, ollamaModels]);
-  if (effectiveModel !== form.model) {
+  }, [
+    form.runtime,
+    form.modelProviderId,
+    form.modelId,
+    providerModels,
+    ollamaModels,
+  ]);
+  if (effectiveModel !== form.modelId) {
     setForm((prev) =>
-      prev.model === effectiveModel ? prev : { ...prev, model: effectiveModel },
-    );
-  }
-
-  // #1508: when the agent-runtimes catalog first arrives and the image
-  // field is still at the base placeholder, apply the active runtime's
-  // default image. This handles the case where runtimes load after
-  // initial render (the onChange handler can't fire before runtimes
-  // arrive). The same "base → applied" state machine applies: once
-  // applied we never overwrite again. We gate on `imageSource === "base"`
-  // so a rehydrated snapshot with a non-base image is never touched.
-  const initialRuntimeImage = useMemo(
-    () =>
-      deriveRuntimeDefaultImage(
-        form.tool,
-        form.provider,
-        agentRuntimes.length > 0 ? agentRuntimes : null,
-      ),
-    // Re-derive only when runtimes first arrive (agentRuntimes.length
-    // flips 0 → N) or when the tool/provider changes (handled separately
-    // by the onChange handlers above; this catches the initial load race).
-    [form.tool, form.provider, agentRuntimes],
-  );
-  if (
-    imageSource === "base" &&
-    initialRuntimeImage !== null &&
-    form.image !== initialRuntimeImage
-  ) {
-    setImageSource("applied");
-    setForm((prev) =>
-      prev.image === initialRuntimeImage
+      prev.modelId === effectiveModel
         ? prev
-        : { ...prev, image: initialRuntimeImage },
+        : { ...prev, modelId: effectiveModel },
     );
   }
 
-  // #690: derive the runtime that actually needs a credential for the
-  // current tool+provider selection. `null` means "no credential
-  // required" (custom tool, uninstalled runtime, or `CredentialKind.None`).
-  const requiredCredentialRuntime = useMemo(
+  // ADR-0038: derive the installed model-provider entry the wizard
+  // needs a credential for. Returns `null` when no credential is
+  // required (custom runtime, uninstalled provider, or
+  // `credentialKind === "None"` — Ollama).
+  const requiredCredentialProviderEntry = useMemo(
     () =>
-      deriveRequiredCredentialRuntime(
-        form.tool,
-        form.provider,
-        agentRuntimes.length > 0 ? agentRuntimes : null,
+      deriveRequiredCredentialProvider(
+        form.runtime,
+        form.modelProviderId,
+        installedProviders.length > 0 ? installedProviders : null,
       ),
-    [form.tool, form.provider, agentRuntimes],
+    [form.runtime, form.modelProviderId, installedProviders],
   );
-  const requiredCredentialProvider = requiredCredentialRuntime
-    ? runtimeIdToProviderId(requiredCredentialRuntime.id)
-    : null;
+  // The credential UI only knows about the closed set of key-bearing
+  // providers. Ollama (credentialKind === "None") is filtered upstream
+  // by `deriveRequiredCredentialProvider`; anything else outside this
+  // set carries no key entry and we surface no credential prompt.
+  const requiredCredentialProvider: KeyedProviderId | null = (() => {
+    const id = requiredCredentialProviderEntry?.id;
+    if (id === "anthropic" || id === "openai" || id === "google") return id;
+    return null;
+  })();
 
   // Status probe runs whenever a provider needs a key. For the
-  // spring-voyage+ollama case it still runs so the existing reachability
-  // banner stays visible; when the derivation returns null (custom
-  // tool) the query is disabled entirely.
+  // ollama case it still runs so the existing reachability banner
+  // stays visible; when the derivation returns null (custom runtime)
+  // the query is disabled entirely.
   const credentialProbeProvider =
     requiredCredentialProvider ??
-    // When tool=spring-voyage + provider=ollama we still want the banner
-    // because the operator expects a reachability read-out. Any other
-    // `null` (custom, tool mismatch) skips the probe.
-    (form.tool === "spring-voyage" && form.provider === "ollama"
-      ? "ollama"
-      : null);
+    // Multi-provider runtime + ollama still gets the reachability probe.
+    (form.modelProviderId === "ollama" ? "ollama" : null);
   const credentialStatusQuery = useProviderCredentialStatus(
     credentialProbeProvider ?? "",
     {
@@ -1090,14 +937,13 @@ export default function CreateUnitPage() {
   );
   const credentialStatus = credentialStatusQuery.data ?? null;
 
-  // T-07 (#949): host-side credential validation in the wizard is gone
-  // — `POST /api/v1/units` returns 201 immediately and the backend
-  // workflow drives validation. The wizard only persists the key; the
-  // detail page's Validation panel reports whether the backend accepted
-  // it. The Model dropdown always renders against the agent-runtime
-  // catalog so Next is never gated on a live reach-out to the LLM.
-  const isOllamaDapr =
-    form.tool === "spring-voyage" && form.provider === "ollama";
+  // T-07 (#949): host-side credential validation in the wizard is gone.
+  // POST /api/v1/units returns 201 immediately and the backend workflow
+  // drives validation. The wizard only persists the key; the detail
+  // page's Validation panel reports whether the backend accepted it.
+  // The Model dropdown renders against the per-provider catalogue so
+  // Next is never gated on a live reach-out to the LLM.
+  const isOllamaDapr = form.modelProviderId === "ollama";
   const activeModelList: readonly string[] | null = useMemo(() => {
     if (isOllamaDapr) return ollamaModels;
     if (providerModels && providerModels.length > 0) return providerModels;
@@ -1106,13 +952,13 @@ export default function CreateUnitPage() {
   const showModelDropdown = isOllamaDapr || activeModelList !== null;
 
   // Issue #661: Next on the Execution screen is disabled until a model
-  // is selected from the catalog. `form.tool === "custom"` is handled
-  // as a separate escape hatch by `canGoNext` / `validateStep2`; they
-  // bypass this check entirely.
+  // is selected from the catalog. `form.runtime === "custom"` is
+  // handled as a separate escape hatch by `canGoNext` / `validateStep3`;
+  // they bypass this check entirely.
   const modelIsSelected =
     activeModelList !== null &&
-    form.model.trim().length > 0 &&
-    activeModelList.includes(form.model);
+    form.modelId.trim().length > 0 &&
+    activeModelList.includes(form.modelId);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -1184,7 +1030,7 @@ export default function CreateUnitPage() {
     // path; the one branch it doesn't cover is "tool=custom" (no catalog
     // at all — skip the check) and "spring-voyage + ollama still loading"
     // (the list is empty, so the user cannot pick anything yet).
-    if (form.tool === "custom") return null;
+    if (form.runtime === "custom") return null;
     if (isOllamaDapr && ollamaModelsLoading) {
       return "Wait for the Ollama model list to load before continuing.";
     }
@@ -1293,9 +1139,8 @@ export default function CreateUnitPage() {
     // `model` field on the create request is preserved as a free-text
     // model id for backwards compatibility within v0.1; the structured
     // execution block carries the authoritative `{provider, id}`.
-    const wireProvider = getToolWireProvider(form.tool, form.provider.trim() || null);
-    const provider = wireProvider ?? (form.provider.trim() || undefined);
-    const model = form.model.trim() || undefined;
+    const provider = form.modelProviderId.trim() || undefined;
+    const model = form.modelId.trim() || undefined;
     const hosting =
       form.hosting !== DEFAULT_HOSTING_MODE ? form.hosting : undefined;
     const color = form.color.trim() || undefined;
@@ -1427,7 +1272,7 @@ export default function CreateUnitPage() {
           await api.setUnitExecution(created.name, {
             image: image || null,
             containerRuntime: null,
-            runtime: form.tool !== "custom" ? form.tool : null,
+            runtime: form.runtime !== "custom" ? form.runtime : null,
             model:
               wireProvider && wireModelId
                 ? { provider: wireProvider, id: wireModelId }
@@ -1787,7 +1632,7 @@ export default function CreateUnitPage() {
       }
       // Scratch step 3 = Execution.
       if (!form.image.trim()) return false;
-      if (form.tool === "custom") return true;
+      if (form.runtime === "custom") return true;
       if (isOllamaDapr && ollamaModelsLoading) return false;
       return modelIsSelected;
     }
@@ -1826,29 +1671,35 @@ export default function CreateUnitPage() {
   const nextDisabledReason = useMemo<string | null>(() => {
     if (form.source !== "scratch" || step !== 3) return null;
     if (canGoNext) return null;
-    if (form.tool === "custom") return null;
-    if (agentRuntimesQuery.isPending) {
-      return "Loading the agent-runtime catalog…";
+    if (form.runtime === "custom") return null;
+    if (modelProvidersQuery.isPending) {
+      return "Loading the model-provider catalogue…";
     }
-    if (agentRuntimesQuery.isError) {
-      return "Could not load the agent-runtime catalog.";
+    if (modelProvidersQuery.isError) {
+      return "Could not load the model-provider catalogue.";
     }
-    const toolLabel =
-      EXECUTION_TOOLS.find((t) => t.id === form.tool)?.label ?? form.tool;
-    if (agentRuntimes.length === 0) {
-      return "No configured agent runtimes.";
+    const runtimeLabel = runtimeDescriptor.displayName;
+    if (installedProviders.length === 0) {
+      return "No configured model providers.";
     }
-    if (form.tool === "spring-voyage" && form.provider.trim() === "") {
-      return "Pick an LLM provider for the Spring Voyage Agent runtime.";
+    if (
+      !runtimeDescriptor.isProviderFixed &&
+      form.modelProviderId.trim() === ""
+    ) {
+      return `Pick a model provider for the ${runtimeLabel} runtime.`;
     }
-    if (form.tool !== "spring-voyage" && requiredCredentialRuntime === null) {
-      return `The "${toolLabel}" agent runtime is not installed on this server. Pick a different execution tool, or install the matching runtime.`;
+    if (
+      runtimeDescriptor.isProviderFixed &&
+      requiredCredentialProviderEntry === null &&
+      form.modelProviderId !== "ollama"
+    ) {
+      return `The "${runtimeLabel}" runtime requires the ${form.modelProviderId} provider, which is not installed on this server. Install the matching model provider, or pick a different runtime.`;
     }
     if (isOllamaDapr && ollamaModelsLoading) {
       return "Loading the model list from the Ollama server…";
     }
     if (!showModelDropdown) {
-      return "No model catalog is available yet — wait for the catalog to load, or pick a different execution tool.";
+      return "No model catalog is available yet — wait for the catalog to load, or pick a different runtime.";
     }
     if (!modelIsSelected) {
       return "Select a model from the dropdown to continue.";
@@ -1858,46 +1709,42 @@ export default function CreateUnitPage() {
     form.source,
     step,
     canGoNext,
-    form.tool,
-    form.provider,
-    agentRuntimesQuery.isPending,
-    agentRuntimesQuery.isError,
-    agentRuntimes.length,
-    requiredCredentialRuntime,
+    form.runtime,
+    form.modelProviderId,
+    runtimeDescriptor,
+    modelProvidersQuery.isPending,
+    modelProvidersQuery.isError,
+    installedProviders.length,
+    requiredCredentialProviderEntry,
     isOllamaDapr,
     ollamaModelsLoading,
     showModelDropdown,
     modelIsSelected,
   ]);
 
-  // Truthy when the agent-runtime catalog itself is the cause of an
-  // empty Step 2 (no runtimes / fetch failure for a non-custom tool).
+  // Truthy when the model-provider catalogue itself is the cause of an
+  // empty Step 3 (no providers / fetch failure for a non-custom runtime).
   // Drives the in-card banner above the form so the operator sees the
   // root cause, not just the "Next is disabled" symptom underneath.
   // The fetch-error message is intentionally short — the platform API
-  // is supposed to always be reachable from the dashboard host (the
-  // OSS deployment proxies `/api/v1/*` to it; private cloud serves
-  // both off the same origin), so a failure here is an infrastructure
-  // problem the operator needs to debug from logs, not from a banner
-  // dump of the response body.
-  const agentRuntimeCatalogIssue = useMemo<string | null>(() => {
-    // Only relevant for the Execution step in the scratch branch.
+  // is supposed to always be reachable from the dashboard host.
+  const modelProviderCatalogIssue = useMemo<string | null>(() => {
     if (form.source !== "scratch") return null;
-    if (form.tool === "custom") return null;
-    if (agentRuntimesQuery.isPending) return null;
-    if (agentRuntimesQuery.isError) {
-      return "Could not load the agent-runtime catalog.";
+    if (form.runtime === "custom") return null;
+    if (modelProvidersQuery.isPending) return null;
+    if (modelProvidersQuery.isError) {
+      return "Could not load the model-provider catalogue.";
     }
-    if (agentRuntimes.length === 0) {
-      return "No configured agent runtimes.";
+    if (installedProviders.length === 0) {
+      return "No configured model providers.";
     }
     return null;
   }, [
     form.source,
-    form.tool,
-    agentRuntimesQuery.isPending,
-    agentRuntimesQuery.isError,
-    agentRuntimes.length,
+    form.runtime,
+    modelProvidersQuery.isPending,
+    modelProvidersQuery.isError,
+    installedProviders.length,
   ]);
 
   return (
@@ -2497,69 +2344,63 @@ export default function CreateUnitPage() {
             <CardTitle>Agent Runtime &amp; Model</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {agentRuntimeCatalogIssue && (
+            {modelProviderCatalogIssue && (
               <div
                 role="alert"
-                data-testid="agent-runtime-catalog-issue"
+                data-testid="model-provider-catalog-issue"
                 className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-foreground"
               >
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                <p className="flex-1">{agentRuntimeCatalogIssue}</p>
+                <p className="flex-1">{modelProviderCatalogIssue}</p>
               </div>
             )}
             <label className="block space-y-1">
               <span className="text-sm text-muted-foreground">Agent Runtime</span>
               <select
-                value={form.tool}
+                value={form.runtime}
                 onChange={(e) => {
-                  const nextTool = e.target.value as ExecutionTool;
-                  const runtimeImage = deriveRuntimeDefaultImage(
-                    nextTool,
-                    form.provider,
-                    agentRuntimes.length > 0 ? agentRuntimes : null,
-                  );
-                  setImageSource(runtimeImage ? "applied" : "base");
+                  const nextRuntime = e.target.value as RuntimeId;
+                  const nextFixed = getFixedProvider(nextRuntime);
                   setForm((prev) => ({
                     ...prev,
-                    tool: nextTool,
-                    model: "",
-                    image: runtimeImage ?? BASE_IMAGE,
+                    runtime: nextRuntime,
+                    // ADR-0038: snap the provider id when the new
+                    // runtime fixes its provider; otherwise keep the
+                    // operator's choice (effectiveProvider snaps it
+                    // back into the allow-list on the next render).
+                    modelProviderId: nextFixed ?? prev.modelProviderId,
+                    modelId: "",
                   }));
                 }}
                 aria-label="Agent Runtime"
+                data-testid="unit-create-runtime-select"
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {EXECUTION_TOOLS.map((t) => (
-                  <option key={t.id} value={t.id}>{t.label}</option>
+                {RUNTIME_LIST.map((r) => (
+                  <option key={r.id} value={r.id}>{r.displayName}</option>
                 ))}
               </select>
             </label>
-            {form.tool === "spring-voyage" && (
+            {!runtimeDescriptor.isProviderFixed && (
               <label className="block space-y-1">
-                <span className="text-sm text-muted-foreground">LLM Provider</span>
+                <span className="text-sm text-muted-foreground">Model Provider</span>
                 <select
-                  value={form.provider}
+                  value={form.modelProviderId}
                   onChange={(e) => {
                     const nextProvider = e.target.value;
-                    const runtimeImage = deriveRuntimeDefaultImage(
-                      "spring-voyage",
-                      nextProvider,
-                      agentRuntimes.length > 0 ? agentRuntimes : null,
-                    );
-                    setImageSource(runtimeImage ? "applied" : "base");
                     setForm((prev) => ({
                       ...prev,
-                      provider: nextProvider,
-                      model: "",
-                      image: runtimeImage ?? BASE_IMAGE,
+                      modelProviderId: nextProvider,
+                      modelId: "",
                     }));
                   }}
-                  aria-label="LLM provider"
-                  disabled={springVoyageRuntimes.length === 0}
+                  aria-label="Model provider"
+                  data-testid="unit-create-model-provider-select"
+                  disabled={pickerProviders.length === 0}
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {springVoyageRuntimes.map((r) => (
-                    <option key={r.id} value={r.id}>{r.displayName}</option>
+                  {pickerProviders.map((p) => (
+                    <option key={p.id} value={p.id}>{p.displayName}</option>
                   ))}
                 </select>
               </label>
@@ -2586,18 +2427,17 @@ export default function CreateUnitPage() {
                 }}
               />
             )}
-            {form.tool === "spring-voyage" &&
-              form.provider === "ollama" &&
-              credentialStatus && (
-                <OllamaReachabilityBanner data={credentialStatus} />
-              )}
+            {form.modelProviderId === "ollama" && credentialStatus && (
+              <OllamaReachabilityBanner data={credentialStatus} />
+            )}
             {showModelDropdown && (
               <label className="block space-y-1">
                 <span className="text-sm text-muted-foreground">Model</span>
                 <select
-                  value={form.model}
-                  onChange={(e) => update("model", e.target.value)}
+                  value={form.modelId}
+                  onChange={(e) => update("modelId", e.target.value)}
                   aria-label="Model"
+                  data-testid="unit-create-model-select"
                   disabled={isOllamaDapr && ollamaModelsLoading}
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -2869,7 +2709,7 @@ export default function CreateUnitPage() {
               <SummaryRow label="Name" value={renderNameSummary(form)} />
               <SummaryRow label="Display name" value={form.displayName || "—"} />
               <SummaryRow label="Description" value={form.description || "—"} />
-              <SummaryRow label="Model" value={form.model || "(not selected)"} />
+              <SummaryRow label="Model" value={form.modelId || "(not selected)"} />
               <SummaryRow label="Image" value={form.image || "(leave to default)"} />
               <SummaryRow
                 label="Connector"
@@ -3561,8 +3401,16 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
  * key-free by design (PR #627), so we can re-render confidently from
  * its response without ever seeing plaintext.
  */
+type KeyedProviderId = "anthropic" | "openai" | "google";
+
 interface CredentialSectionProps {
-  requiredProvider: "anthropic" | "openai" | "google" | null;
+  /**
+   * ADR-0038: provider id of the installed model-provider entry the
+   * wizard needs a credential for. Restricted to the closed set of
+   * key-bearing providers — Ollama (no credential) flows through the
+   * dedicated reachability banner outside this component.
+   */
+  requiredProvider: KeyedProviderId | null;
   status:
     | import("@/lib/api/types").ProviderCredentialStatusResponse
     | null;

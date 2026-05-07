@@ -288,14 +288,15 @@ describe("CreateAgentPage", () => {
       role: "reviewer",
       description: "Test agent",
       image: "ghcr.io/example/agent:latest",
-      runtime: "docker",
-      agent: "claude-code",
-      model: "claude-3-5-sonnet",
+      // ADR-0038: ai.runtime + ai.model.{provider,id} replace the
+      // legacy flat ai.tool / ai.agent shape.
+      runtime: "claude-code",
+      modelProvider: "anthropic",
+      modelId: "claude-3-5-sonnet",
       unitIds: ["alpha"],
     });
 
-    // #1718 items 1+2: no `kind:`; agent body lives under content[].agent.
-    // #1738: `ai.tool` renamed to `ai.agent` (runtime registry id).
+    // No `kind:` field; the agent body lives under content[].agent.
     expect(yaml).not.toContain("kind:");
     expect(yaml).toContain("content:");
     expect(yaml).toContain("- agent:");
@@ -305,9 +306,10 @@ describe("CreateAgentPage", () => {
     expect(yaml).toContain("role: reviewer");
     expect(yaml).toContain("description: Test agent");
     expect(yaml).toContain("image: ghcr.io/example/agent:latest");
-    expect(yaml).toContain("runtime: docker");
-    expect(yaml).toContain("agent: claude-code");
-    expect(yaml).toContain("model: claude-3-5-sonnet");
+    // ADR-0038 ai block.
+    expect(yaml).toContain("runtime: claude-code");
+    expect(yaml).toContain("provider: anthropic");
+    expect(yaml).toContain("id: claude-3-5-sonnet");
   });
 
   it("omits optional fields from the YAML when they are empty", () => {
