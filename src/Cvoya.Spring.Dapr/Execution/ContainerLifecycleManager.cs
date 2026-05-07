@@ -266,7 +266,7 @@ public class ContainerLifecycleManager(
         // #1714 step 3: copy the agent's provider credential env vars into
         // the sidecar's process env so daprd's `secretstores.local.env`
         // component can satisfy `secretKeyRef` lookups in the per-provider
-        // Conversation YAMLs (conversation-anthropic.yaml, etc.). The
+        // Conversation YAMLs (llm-anthropic.yaml, etc., per ADR-0038). The
         // secret store reads from the sidecar process env, NOT the app
         // container's env, so without this propagation the conversation
         // call would resolve the credential to an empty string.
