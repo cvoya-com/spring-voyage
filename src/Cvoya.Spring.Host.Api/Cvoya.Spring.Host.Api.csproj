@@ -16,10 +16,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Cvoya.Spring.AgentRuntimes.Claude\Cvoya.Spring.AgentRuntimes.Claude.csproj" />
-    <ProjectReference Include="..\Cvoya.Spring.AgentRuntimes.Google\Cvoya.Spring.AgentRuntimes.Google.csproj" />
-    <ProjectReference Include="..\Cvoya.Spring.AgentRuntimes.Ollama\Cvoya.Spring.AgentRuntimes.Ollama.csproj" />
-    <ProjectReference Include="..\Cvoya.Spring.AgentRuntimes.OpenAI\Cvoya.Spring.AgentRuntimes.OpenAI.csproj" />
+    <ProjectReference Include="..\Cvoya.Spring.AgentRuntimes\Cvoya.Spring.AgentRuntimes.csproj" />
+    <ProjectReference Include="..\Cvoya.Spring.ModelProviders\Cvoya.Spring.ModelProviders.csproj" />
+    <ProjectReference Include="..\Cvoya.Spring.RuntimeCatalog\Cvoya.Spring.RuntimeCatalog.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Connectors.Abstractions\Cvoya.Spring.Connectors.Abstractions.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />

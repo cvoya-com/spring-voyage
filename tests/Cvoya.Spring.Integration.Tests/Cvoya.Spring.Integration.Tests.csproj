@@ -12,10 +12,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Cvoya.Spring.AgentRuntimes.Claude\Cvoya.Spring.AgentRuntimes.Claude.csproj" />
-    <ProjectReference Include="..\..\src\Cvoya.Spring.AgentRuntimes.Google\Cvoya.Spring.AgentRuntimes.Google.csproj" />
-    <ProjectReference Include="..\..\src\Cvoya.Spring.AgentRuntimes.Ollama\Cvoya.Spring.AgentRuntimes.Ollama.csproj" />
-    <ProjectReference Include="..\..\src\Cvoya.Spring.AgentRuntimes.OpenAI\Cvoya.Spring.AgentRuntimes.OpenAI.csproj" />
+    <!-- ADR-0038 (#1761): collapsed per-provider projects → runtime catalogue. -->
+    <ProjectReference Include="..\..\src\Cvoya.Spring.AgentRuntimes\Cvoya.Spring.AgentRuntimes.csproj" />
+    <ProjectReference Include="..\..\src\Cvoya.Spring.ModelProviders\Cvoya.Spring.ModelProviders.csproj" />
+    <ProjectReference Include="..\..\src\Cvoya.Spring.RuntimeCatalog\Cvoya.Spring.RuntimeCatalog.csproj" />
     <ProjectReference Include="..\..\src\Cvoya.Spring.Connector.GitHub\Cvoya.Spring.Connector.GitHub.csproj" />
     <ProjectReference Include="..\..\src\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
     <ProjectReference Include="..\..\src\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />

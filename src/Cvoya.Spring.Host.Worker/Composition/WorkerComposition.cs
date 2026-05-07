@@ -3,10 +3,6 @@
 
 namespace Cvoya.Spring.Host.Worker.Composition;
 
-using Cvoya.Spring.AgentRuntimes.Claude.DependencyInjection;
-using Cvoya.Spring.AgentRuntimes.Google.DependencyInjection;
-using Cvoya.Spring.AgentRuntimes.Ollama.DependencyInjection;
-using Cvoya.Spring.AgentRuntimes.OpenAI.DependencyInjection;
 using Cvoya.Spring.Connector.Arxiv.DependencyInjection;
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
 using Cvoya.Spring.Connector.WebSearch.DependencyInjection;
@@ -106,25 +102,13 @@ public static class WorkerComposition
         services
             .AddCvoyaSpringCore()
             .AddCvoyaSpringDapr(configuration)
-            // Agent-runtime registrations mirror the API host (#682). They
-            // need to land here too because the Worker owns the
-            // default-tenant bootstrap (see comment further down): the
-            // bootstrap's AgentRuntimeInstallSeedProvider walks
-            // IAgentRuntimeRegistry.All to install one row per registered
-            // runtime onto the default tenant. Without these calls the
-            // worker registry is empty and the seed pass logs "no runtimes
-            // registered with the host", leaving a fresh OSS deployment
-            // with an empty agent-runtime catalog.
-            //
-            // The runtime DI extensions are idempotent (TryAddSingleton +
-            // TryAddEnumerable) and only register a named HttpClient plus
-            // a singleton runtime instance, so co-existing with the API
-            // host's registrations is safe — each process has its own DI
-            // container.
-            .AddCvoyaSpringAgentRuntimeClaude()
-            .AddCvoyaSpringAgentRuntimeGoogle()
-            .AddCvoyaSpringAgentRuntimeOllama(configuration)
-            .AddCvoyaSpringAgentRuntimeOpenAI()
+            // ADR-0038 (#1761): the four per-provider AddCvoyaSpringAgentRuntime*
+            // extensions collapsed into runtime-catalog.yaml. Chunk 2 of PR-1a
+            // re-wires AddCvoyaSpringRuntimeCatalog + AddCvoyaSpringModelProviders +
+            // AddCvoyaSpringAgentRuntimes here and replaces the legacy default-tenant
+            // AgentRuntimeInstallSeedProvider with the new provider-keyed seeder.
+            // Chunk 1 leaves the registry empty; the build is clean while the
+            // dispatch path is reshaped.
             .AddCvoyaSpringOllamaLlm(configuration)
             .AddCvoyaSpringConnectorGitHub(configuration)
             .AddCvoyaSpringConnectorArxiv(configuration)

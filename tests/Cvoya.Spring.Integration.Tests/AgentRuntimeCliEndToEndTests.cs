@@ -9,7 +9,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using Cvoya.Spring.AgentRuntimes.OpenAI;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.AgentRuntimes;
@@ -647,7 +646,12 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
                 // Scenario 3/4 — swap the OpenAI named client's primary
                 // handler. AddHttpMessageHandler stacks handlers ABOVE the
                 // primary, so the watchdog still observes traffic.
-                services.AddHttpClient(OpenAiAgentRuntime.HttpClientName)
+                // Chunk 2 of PR-1a (#1761) reshapes this test's wiring once
+                // the credential resolver re-keys to (tenant, provider,
+                // authMethod). Until then the named-client name is
+                // hard-coded — the legacy OpenAiAgentRuntime.HttpClientName
+                // constant went away with the per-provider project.
+                services.AddHttpClient("Cvoya.Spring.AgentRuntimes.OpenAI")
                     .ConfigurePrimaryHttpMessageHandler(() => _openAiHandler);
 
                 // Scenario 5 — a named client wired exactly like a real
