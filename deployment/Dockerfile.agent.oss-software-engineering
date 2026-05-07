@@ -5,19 +5,20 @@
 # Role: Software Engineering
 # Unit: Spring Voyage OSS dogfooding unit
 #
-# Bundles on top of the spring-voyage-agents omnibus base:
+# Bundles on top of spring-voyage-agent-base:
+#   - Claude Code CLI   — Anthropic's claude-code launcher
 #   - .NET 10 SDK       — dotnet build / test / format at the solution root
 #   - gh CLI            — issue/PR work via the unit's GitHub App connector
 #   - ruff              — Python linter for agents/
 #   - Playwright + Chromium/Firefox/WebKit + required apt deps
 #                       — browser-based end-to-end tests under the SE team's remit
 #
-# Node 22 + npm are inherited from the omnibus base (spring-voyage-agent-base)
-# and are not re-installed here; they are available for `npm run lint`,
+# Node 22 + npm are inherited from spring-voyage-agent-base and are not
+# re-installed here; they are available for `npm run lint`,
 # `npm --workspace=spring-voyage-dashboard run knip`, tsc, etc.
 #
-# Conforms to ADR-0027 BYOI path 1: ENTRYPOINT is inherited unchanged from the
-# omnibus base (tini → node sidecar); do NOT override it here.
+# Conforms to ADR-0027 BYOI path 1: ENTRYPOINT is inherited unchanged from
+# spring-voyage-agent-base (tini → node sidecar); do NOT override it here.
 #
 # Build (from repo root):
 #   docker build \
@@ -25,7 +26,8 @@
 #     -t ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:dev \
 #     .
 
-ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agents:latest
+ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:latest
+ARG CLAUDE_CODE_VERSION=2.1.98
 # .NET 10 SDK — installed via the official `dotnet-install.sh` script rather
 # than the apt feed. Microsoft has not published a Debian trixie (13) feed,
 # and the bookworm (12) feed's GPG signature uses SHA1, which trixie's `sqv`
@@ -45,12 +47,19 @@ ARG PLAYWRIGHT_VERSION=1.55.0
 FROM ${AGENT_BASE_IMAGE}
 
 # Re-declare ARGs after FROM so they are in scope for RUN steps below.
+ARG CLAUDE_CODE_VERSION
 ARG DOTNET_SDK_CHANNEL
 ARG GH_CLI_VERSION
 ARG RUFF_VERSION
 ARG PLAYWRIGHT_VERSION
 
 USER root
+
+# ---- Claude Code CLI -------------------------------------------------------
+RUN export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+ && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+ && command -v claude >/dev/null \
+ && claude --version
 
 # ---- .NET 10 SDK ---------------------------------------------------------------
 # Install via the official dot.net script. Installs the latest patch on the
@@ -141,12 +150,13 @@ USER agent
 
 # ---- labels --------------------------------------------------------------------
 LABEL org.opencontainers.image.title="spring-voyage-agent-oss-software-engineering" \
-      org.opencontainers.image.description="Software engineering role image for the Spring Voyage OSS dogfooding unit. Bundles .NET 10 SDK, gh CLI, ruff, and Playwright + Chromium/Firefox/WebKit on top of the spring-voyage-agents omnibus base." \
+      org.opencontainers.image.description="Software engineering role image for the Spring Voyage OSS dogfooding unit. Bundles Claude Code CLI, .NET 10 SDK, gh CLI, ruff, and Playwright + Chromium/Firefox/WebKit on top of spring-voyage-agent-base." \
       org.opencontainers.image.source="https://github.com/cvoya-com/spring-voyage" \
+      com.cvoya.spring-voyage.claude-code-version="${CLAUDE_CODE_VERSION}" \
       com.cvoya.spring-voyage.dotnet-sdk-channel="${DOTNET_SDK_CHANNEL}" \
       com.cvoya.spring-voyage.gh-cli-version="${GH_CLI_VERSION}" \
       com.cvoya.spring-voyage.ruff-version="${RUFF_VERSION}" \
       com.cvoya.spring-voyage.playwright-version="${PLAYWRIGHT_VERSION}"
 
-# Entrypoint inherited from spring-voyage-agents (tini → node sidecar).
+# Entrypoint inherited from spring-voyage-agent-base (tini → node sidecar).
 # ADR-0027 BYOI path 1: do NOT override ENTRYPOINT here.

@@ -57,6 +57,14 @@ export interface RuntimeDescriptor {
   isProviderFixed: boolean;
   fixedProvider: ProviderId | null;
   allowedProviders: readonly ProviderId[];
+  /**
+   * Default container image for this runtime, mirrored from
+   * `platform/runtime-catalog.yaml` (ADR-0038). The wizard pre-fills
+   * the image field with this value when the operator selects this
+   * runtime and has not yet edited the field. Empty string means
+   * "no default" (e.g. the deferred `custom` runtime).
+   */
+  defaultImage: string;
 }
 
 export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
@@ -68,6 +76,7 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
     isProviderFixed: true,
     fixedProvider: "anthropic",
     allowedProviders: ["anthropic"],
+    defaultImage: "ghcr.io/cvoya-com/claude-code-base:latest",
   },
   codex: {
     id: "codex",
@@ -77,6 +86,7 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
     isProviderFixed: true,
     fixedProvider: "openai",
     allowedProviders: ["openai"],
+    defaultImage: "ghcr.io/cvoya-com/codex-base:latest",
   },
   gemini: {
     id: "gemini",
@@ -86,6 +96,7 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
     isProviderFixed: true,
     fixedProvider: "google",
     allowedProviders: ["google"],
+    defaultImage: "ghcr.io/cvoya-com/gemini-base:latest",
   },
   "spring-voyage": {
     id: "spring-voyage",
@@ -95,6 +106,7 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
     isProviderFixed: false,
     fixedProvider: null,
     allowedProviders: ["anthropic", "openai", "google", "ollama"],
+    defaultImage: "ghcr.io/cvoya-com/spring-voyage-agent:latest",
   },
   custom: {
     id: "custom",
@@ -104,6 +116,7 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
     isProviderFixed: false,
     fixedProvider: null,
     allowedProviders: [],
+    defaultImage: "",
   },
 };
 

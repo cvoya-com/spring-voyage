@@ -34,7 +34,7 @@ agent:
   id: ollama-researcher
   execution:
     tool: spring-voyage
-    image: spring-agent-ollama:latest
+    image: ghcr.io/cvoya-com/spring-voyage-agent:latest
     hosting: persistent   # default: ephemeral
     runtime: podman
 ```

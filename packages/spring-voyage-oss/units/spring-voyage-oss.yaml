@@ -22,10 +22,9 @@ members:
   - unit: sv-oss-product-management
   - unit: sv-oss-program-management
 # #1679: execution.image inherited from the package-level `execution:`
-# block in spring-voyage-oss/package.yaml. The umbrella runs the
-# platform-default omnibus image (which bundles every supported CLI
-# runtime) — the right baseline for an orchestration role that doesn't
-# need team-specific tooling.
+# block in spring-voyage-oss/package.yaml. The umbrella uses the
+# claude-code-base image — the right baseline for an orchestration role
+# that doesn't need team-specific tooling beyond the Claude Code CLI.
 requires:
   - connector: github
 policies:

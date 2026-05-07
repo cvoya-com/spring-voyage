@@ -28,7 +28,7 @@
       "groupSlug": "markdownlint-cli2"
     },
     {
-      "description": "Anthropic Claude Code CLI — pin bumps across claude-code and spring-voyage-agents images must stay in sync.",
+      "description": "Anthropic Claude Code CLI — pin appears in Dockerfile.agent.claude-code and all four OSS role Dockerfiles; bump together.",
       "matchPackageNames": ["@anthropic-ai/claude-code"],
       "groupName": "Claude Code CLI",
       "groupSlug": "claude-code-cli"

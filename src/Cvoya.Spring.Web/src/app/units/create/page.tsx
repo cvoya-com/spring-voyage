@@ -95,13 +95,6 @@ import {
 
 const DEFAULT_COLOR = "#6366f1";
 
-// #1508: the base/omnibus image that is pre-filled into the image field
-// when the wizard first renders. Switching to a runtime replaces it with
-// the runtime's own defaultImage (while the field still holds this value).
-// Once the operator edits the field or a runtime image has been applied,
-// further runtime changes never overwrite the value again.
-const BASE_IMAGE = "ghcr.io/cvoya-com/spring-voyage-agents:latest";
-
 // #1132: how long to wait between the last form-state change and the
 // sessionStorage write. 300ms is short enough that a refresh-after-fill
 // almost always picks up the latest values, while still coalescing the
@@ -408,8 +401,8 @@ const INITIAL_FORM: FormState = {
   modelId: "",
   color: DEFAULT_COLOR,
   hosting: DEFAULT_HOSTING_MODE,
-  // #1508: pre-fill the base image so the field is never blank.
-  image: BASE_IMAGE,
+  // #1508: pre-fill the default runtime's image so the field is never blank.
+  image: RUNTIMES[DEFAULT_RUNTIME_ID].defaultImage,
   connectorSlug: null,
   connectorTypeId: null,
   connectorConfig: null,
@@ -546,15 +539,20 @@ export default function CreateUnitPage() {
     }
     return base;
   });
-  // #1508: track whether the image field is still at the base-image
-  // placeholder ("base") or has been overwritten by a runtime pick or
-  // a manual edit ("applied"). Once "applied", runtime changes never
-  // touch the field again.
+  // #1508: track whether the image field is still at the runtime-default
+  // placeholder ("base") or has been overwritten by a manual edit
+  // ("applied"). Once "applied", runtime changes never touch the field
+  // again. Per ADR-0038, "base" means the image matches some runtime's
+  // declared `defaultImage` from the catalog.
   const [imageSource, setImageSource] = useState<"base" | "applied">(() => {
-    // Rehydrate: if the snapshot's image differs from BASE_IMAGE the
-    // operator had already applied a value in a previous session.
+    // Rehydrate: if the snapshot's image is not a known runtime
+    // defaultImage, the operator had already applied a value in a
+    // previous session.
     const snap = initialSnapshot?.form;
-    if (snap && snap.image && snap.image !== BASE_IMAGE) return "applied";
+    const knownDefaults = new Set(
+      Object.values(RUNTIMES).map((r) => r.defaultImage).filter(Boolean),
+    );
+    if (snap && snap.image && !knownDefaults.has(snap.image)) return "applied";
     return "base";
   });
   const [stepError, setStepError] = useState<string | null>(null);
@@ -2384,6 +2382,13 @@ export default function CreateUnitPage() {
                     // back into the allow-list on the next render).
                     modelProviderId: nextFixed ?? prev.modelProviderId,
                     modelId: "",
+                    // ADR-0038: while the image field is still at a
+                    // runtime default ("base"), follow the new runtime's
+                    // declared defaultImage. Once the operator has
+                    // applied a custom value, leave it alone.
+                    ...(imageSource === "base"
+                      ? { image: RUNTIMES[nextRuntime]?.defaultImage ?? "" }
+                      : {}),
                   }));
                 }}
                 aria-label="Agent Runtime"
@@ -2494,7 +2499,7 @@ export default function CreateUnitPage() {
                       if (imageSource === "base") setImageSource("applied");
                       update("image", e.target.value);
                     }}
-                    placeholder="ghcr.io/cvoya-com/spring-voyage-agents:latest"
+                    placeholder={RUNTIMES[DEFAULT_RUNTIME_ID].defaultImage}
                     aria-label="Execution image"
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   />

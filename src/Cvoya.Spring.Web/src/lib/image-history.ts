@@ -23,22 +23,15 @@ export const MAX_IMAGE_HISTORY = 20;
 /**
  * Built-in agent-image references that ship with the platform.
  *
- * These are the images `deployment/build-agent-images.sh` builds locally
- * (and that the release workflow publishes to ghcr.io). The wizard surfaces
- * them as suggestions even on first use — before the user has ever submitted
- * an image — so the picker is never empty out of the box.
- *
- * Keep this list in sync with `deployment/build-agent-images.sh`. If a new
- * agent runtime image is added there, add it here too. The proper long-term
- * solution is a Web API endpoint + CLI command for listing available agent
- * runtime images (#1433); this hardcoded seed is the v0.1 expedient.
+ * The wizard surfaces these as suggestions even on first use — before the
+ * user has ever submitted an image — so the picker is never empty out of
+ * the box. The proper long-term solution is a Web API endpoint + CLI
+ * command for listing available agent runtime images (#1433); this
+ * hardcoded seed is the v0.1 expedient.
  */
 export const BUILTIN_AGENT_IMAGES: readonly string[] = [
-  "localhost/spring-voyage-agent-claude-code:latest",
   "localhost/spring-voyage-agent:latest",
   "ghcr.io/cvoya-com/spring-voyage-agent-base:latest",
-  "ghcr.io/cvoya-com/spring-voyage-agents:latest",
-  "ghcr.io/cvoya-com/spring-voyage-agent-ollama:latest",
   "ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest",
   "ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest",
   "ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:latest",

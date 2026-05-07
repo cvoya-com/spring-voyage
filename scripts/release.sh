@@ -26,7 +26,6 @@
 #
 # Tag chain pushed (in order, each waited on before the next):
 #   agent-base-v<version>   →  release-agent-base.yml
-#   agents-v<version>       →  release-spring-voyage-agents.yml
 #   oss-agents-v<version>   →  release-oss-agent-images.yml
 #   v<version>              →  release.yml  (platform + GitHub Release)
 #
@@ -133,9 +132,8 @@ fi
 
 RELEASE_VERSION="v${FULL_SEMVER}"
 
-# Compute the four component tags.
+# Compute the three component tags.
 TAG_AGENT_BASE="agent-base-${RELEASE_VERSION}"
-TAG_AGENTS="agents-${RELEASE_VERSION}"
 TAG_OSS_AGENTS="oss-agents-${RELEASE_VERSION}"
 TAG_PLATFORM="${RELEASE_VERSION}"
 
@@ -149,16 +147,13 @@ if [[ "$DRY_RUN" == "true" ]]; then
   echo "  Step 1  push tag  ${TAG_AGENT_BASE}"
   echo "          wait for  release-agent-base.yml"
   echo ""
-  echo "  Step 2  push tag  ${TAG_AGENTS}"
-  echo "          wait for  release-spring-voyage-agents.yml"
-  echo ""
-  echo "  Step 3  push tag  ${TAG_OSS_AGENTS}"
+  echo "  Step 2  push tag  ${TAG_OSS_AGENTS}"
   echo "          wait for  release-oss-agent-images.yml"
   echo ""
-  echo "  Step 4  push tag  ${TAG_PLATFORM}"
+  echo "  Step 3  push tag  ${TAG_PLATFORM}"
   echo "          wait for  release.yml"
   echo ""
-  echo "  Step 5  verify anonymous pull for all ghcr.io/cvoya-com/* images"
+  echo "  Step 4  verify anonymous pull for all ghcr.io/cvoya-com/* images"
   echo "          referenced in packages/**/*.yaml"
   exit 0
 fi
@@ -166,7 +161,7 @@ fi
 # ── Idempotency guard (stable releases only — pre-release handled above) ──────
 
 if [[ -z "$PRE_RELEASE" && "$FORCE_RETAG" != "true" ]]; then
-  for tag in "$TAG_AGENT_BASE" "$TAG_AGENTS" "$TAG_OSS_AGENTS" "$TAG_PLATFORM"; do
+  for tag in "$TAG_AGENT_BASE" "$TAG_OSS_AGENTS" "$TAG_PLATFORM"; do
     if GH_TOKEN="$(${GH_APP} token)" gh api "repos/${REPO}/git/refs/tags/${tag}" \
        --silent 2>/dev/null; then
       echo "::error::Tag '${tag}' already exists in ${REPO}."
@@ -211,7 +206,6 @@ echo "║  Spring Voyage release: ${RELEASE_VERSION}"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 
 push_and_wait "${TAG_AGENT_BASE}"   "release-agent-base.yml"
-push_and_wait "${TAG_AGENTS}"       "release-spring-voyage-agents.yml"
 push_and_wait "${TAG_OSS_AGENTS}"   "release-oss-agent-images.yml"
 push_and_wait "${TAG_PLATFORM}"     "release.yml"
 
