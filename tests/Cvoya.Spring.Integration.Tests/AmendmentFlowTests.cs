@@ -62,7 +62,7 @@ public class AmendmentFlowTests
         harness.MembershipRepository.GetAsync(UnitEngineeringUuid, AgentNudgeUuid, Arg.Any<CancellationToken>())
             .Returns(new UnitMembership(UnitEngineeringUuid, AgentNudgeUuid));
 
-        // Simulate an active turn by priming the active-thread state
+        // Simulate an active turn by priming the active-conversation state
         // (the real actor sets this on first domain message; we inline it so
         // the test exercises the "turn in progress" branch of the amendment
         // handler without waiting for an external dispatcher).
@@ -75,7 +75,7 @@ public class AmendmentFlowTests
             },
         };
         harness.StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         // The supervisor pushes an amendment mid-turn.

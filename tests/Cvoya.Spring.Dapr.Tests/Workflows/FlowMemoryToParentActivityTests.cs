@@ -38,7 +38,7 @@ public class FlowMemoryToParentActivityTests
     }
 
     [Fact]
-    public async Task RunAsync_CopiesActiveThreadToParent()
+    public async Task RunAsync_CopiesActiveConversationToParent()
     {
         var input = new CloningInput(
             "parent-agent", "clone-1",
@@ -46,13 +46,13 @@ public class FlowMemoryToParentActivityTests
 
         var conversationData = new object();
         _stateStore.GetAsync<object>(
-            $"clone-1:{StateKeys.ActiveThread}", Arg.Any<CancellationToken>())
+            $"clone-1:{StateKeys.ActiveConversation}", Arg.Any<CancellationToken>())
             .Returns(conversationData);
 
         await _activity.RunAsync(_context, input);
 
         await _stateStore.Received(1).SetAsync(
-            $"parent-agent:{StateKeys.ActiveThread}",
+            $"parent-agent:{StateKeys.ActiveConversation}",
             conversationData,
             Arg.Any<CancellationToken>());
     }

@@ -57,7 +57,7 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
     /// <see cref="UnitValidationStep.PullingImage"/> is the workflow's own
     /// first step and is not included here.
     /// </summary>
-    internal static readonly UnitValidationStep[] PostPullSteps =
+    private static readonly UnitValidationStep[] PostPullSteps =
     {
         UnitValidationStep.VerifyingTool,
         UnitValidationStep.ValidatingCredential,
@@ -95,22 +95,11 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
         await EmitProgressAsync(
             context, input, UnitValidationStep.PullingImage, StatusSucceeded, code: null);
 
-        // Steps 2..N: walk each post-pull probe step in order,
-        // skipping any step the runtime did not declare (no events emitted
-        // → UI shows those steps as "skipped").
-        var skipSet = input.SkipSteps is { Length: > 0 }
-            ? new HashSet<string>(input.SkipSteps, StringComparer.OrdinalIgnoreCase)
-            : null;
-
+        // Steps 2..N: walk each post-pull probe step in order.
         IReadOnlyList<string>? liveModels = null;
 
         foreach (var step in PostPullSteps)
         {
-            if (skipSet is not null && skipSet.Contains(step.ToString()))
-            {
-                continue;
-            }
-
             await EmitProgressAsync(context, input, step, StatusRunning, code: null);
 
             var probeOutput = await context.CallActivityAsync<RunContainerProbeActivityOutput>(

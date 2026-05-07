@@ -45,20 +45,10 @@ namespace Cvoya.Spring.Dapr.Workflows;
 /// probe so the runtime's interpreter can classify 404s as
 /// <see cref="Cvoya.Spring.Core.Units.UnitValidationCodes.ModelNotFound"/>.
 /// </param>
-/// <param name="SkipSteps">
-/// Probe steps the runtime does not declare and the workflow should skip
-/// entirely (emitting no events for them so the UI shows them as
-/// "skipped"). Computed by <see cref="UnitValidationWorkflowScheduler"/>
-/// from the runtime's <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.GetProbeSteps"/>
-/// result and stored as string names (e.g. <c>"ValidatingCredential"</c>)
-/// so the record stays JSON-serializable across the Dapr Workflow boundary.
-/// <c>null</c> or empty means all post-pull steps are attempted.
-/// </param>
 public record UnitValidationWorkflowInput(
     string UnitId,
     string UnitName,
     string Image,
     string RuntimeId,
     string Credential,
-    string RequestedModel,
-    string[]? SkipSteps = null);
+    string RequestedModel);

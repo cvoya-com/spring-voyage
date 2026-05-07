@@ -8,7 +8,7 @@
 // (`membership-dialog.tsx`, `execution-panel.tsx`, `execution-tab.tsx`)
 // migrated onto the runtimes endpoint.
 
-/** Agent runtime identifiers — determines which agent runtime processes work. */
+/** Execution tool identifiers — determines which agent runtime processes work. */
 export type ExecutionTool =
   | "claude-code"
   | "codex"

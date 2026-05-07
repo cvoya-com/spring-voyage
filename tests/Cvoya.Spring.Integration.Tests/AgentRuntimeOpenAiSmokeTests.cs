@@ -44,7 +44,7 @@ public class AgentRuntimeOpenAiSmokeTests
         runtime.ShouldNotBeNull();
         runtime!.Id.ShouldBe("openai");
         runtime.DisplayName.ShouldBe("Spring Voyage Agent (OpenAI)");
-        runtime.Kind.ShouldBe("spring-voyage");
+        runtime.ToolKind.ShouldBe("spring-voyage");
         runtime.CredentialSchema.Kind.ShouldBe(AgentRuntimeCredentialKind.ApiKey);
     }
 

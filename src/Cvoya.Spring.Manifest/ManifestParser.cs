@@ -84,7 +84,7 @@ public static class ManifestParser
             throw new ManifestParseException(
                 "LegacyExecutionToolField: 'execution.tool:' is removed in #1732. " +
                 "The execution tool is now derived from the runtime registry via 'ai.agent:' " +
-                "(each IAgentRuntime declares its own Kind 1:1). " +
+                "(each IAgentRuntime declares its own ToolKind 1:1). " +
                 "Drop 'execution.tool:' and ensure 'ai.agent:' names a registered runtime " +
                 "(e.g. 'claude', 'openai', 'google', 'ollama').");
         }

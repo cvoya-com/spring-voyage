@@ -149,7 +149,7 @@ function makeRuntime(
   return {
     id,
     displayName: "Claude",
-    kind: "claude-code-cli",
+    toolKind: "claude-code-cli",
     installedAt: now,
     updatedAt: now,
     models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"],
@@ -168,7 +168,7 @@ function defaultRuntimes(): InstalledAgentRuntimeResponse[] {
     makeRuntime({
       id: "claude",
       displayName: "Claude (Claude Code CLI + Anthropic API)",
-      kind: "claude-code-cli",
+      toolKind: "claude-code-cli",
       models: [
         "claude-opus-4-7",
         "claude-sonnet-4-6",
@@ -180,7 +180,7 @@ function defaultRuntimes(): InstalledAgentRuntimeResponse[] {
     makeRuntime({
       id: "openai",
       displayName: "OpenAI (spring-voyage + OpenAI API)",
-      kind: "spring-voyage",
+      toolKind: "spring-voyage",
       models: ["gpt-4o", "gpt-4o-mini", "o3-mini"],
       defaultModel: "gpt-4o",
       credentialKind: "ApiKey",
@@ -188,7 +188,7 @@ function defaultRuntimes(): InstalledAgentRuntimeResponse[] {
     makeRuntime({
       id: "google",
       displayName: "Google AI (spring-voyage + Google AI API)",
-      kind: "spring-voyage",
+      toolKind: "spring-voyage",
       models: ["gemini-2.5-pro", "gemini-2.5-flash"],
       defaultModel: "gemini-2.5-pro",
       credentialKind: "ApiKey",
@@ -196,7 +196,7 @@ function defaultRuntimes(): InstalledAgentRuntimeResponse[] {
     makeRuntime({
       id: "ollama",
       displayName: "Ollama (spring-voyage + local Ollama)",
-      kind: "spring-voyage",
+      toolKind: "spring-voyage",
       models: ["qwen2.5:14b", "llama3.2:3b"],
       defaultModel: "qwen2.5:14b",
       credentialKind: "None",
@@ -721,7 +721,7 @@ describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)
     const options = Array.from(providerSelect.options).map((o) => o.value);
 
     // Only spring-voyage runtimes are listed — the claude runtime's
-    // kind is claude-code-cli and is filtered out.
+    // toolKind is claude-code-cli and is filtered out.
     expect(options).toContain("openai");
     expect(options).toContain("google");
     expect(options).toContain("ollama");
@@ -885,7 +885,7 @@ describe("CreateUnitPage — Step 3 scratch explains a disabled Next", () => {
       makeRuntime({
         id: "openai",
         displayName: "OpenAI",
-        kind: "spring-voyage",
+        toolKind: "spring-voyage",
         models: ["gpt-4o"],
         defaultModel: "gpt-4o",
         credentialKind: "ApiKey",

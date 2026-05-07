@@ -86,13 +86,13 @@ public interface IAgentMailboxCoordinator
     /// (Guard 1). Passed as a delegate so the coordinator remains a singleton and
     /// does not hold actor-scoped or Dapr-specific references (#1349).
     /// </param>
-    /// <param name="getActiveThread">
+    /// <param name="getActiveConversation">
     /// Delegate that reads the current active <see cref="ThreadChannel"/> from
     /// actor state. Returns <c>null</c> when no thread is active.
     /// </param>
-    /// <param name="setActiveThread">
+    /// <param name="setActiveConversation">
     /// Delegate that writes a new or updated <see cref="ThreadChannel"/> as the
-    /// active thread in actor state.
+    /// active conversation in actor state.
     /// </param>
     /// <param name="getPendingList">
     /// Delegate that reads the pending <see cref="ThreadChannel"/> list from
@@ -120,8 +120,8 @@ public interface IAgentMailboxCoordinator
         Message message,
         AgentMetadata effective,
         Func<AgentMetadata, CancellationToken, Task<(AgentMetadata Effective, PolicyVerdict? Verdict)>> applyUnitPolicies,
-        Func<CancellationToken, Task<ThreadChannel?>> getActiveThread,
-        Func<ThreadChannel, CancellationToken, Task> setActiveThread,
+        Func<CancellationToken, Task<ThreadChannel?>> getActiveConversation,
+        Func<ThreadChannel, CancellationToken, Task> setActiveConversation,
         Func<CancellationToken, Task<List<ThreadChannel>?>> getPendingList,
         Func<List<ThreadChannel>, CancellationToken, Task> setPendingList,
         Func<ThreadChannel, AgentMetadata, CancellationToken, Task> activateAndDispatch,
@@ -169,8 +169,8 @@ public interface IAgentMailboxCoordinator
     /// Delegate that removes the pending-list key from actor state entirely when
     /// the list becomes empty after promotion.
     /// </param>
-    /// <param name="setActiveThread">
-    /// Delegate that writes the newly promoted channel as the active thread
+    /// <param name="setActiveConversation">
+    /// Delegate that writes the newly promoted channel as the active conversation
     /// in actor state.
     /// </param>
     /// <param name="activateAndDispatch">
@@ -194,7 +194,7 @@ public interface IAgentMailboxCoordinator
         Func<CancellationToken, Task<List<ThreadChannel>?>> getPendingList,
         Func<List<ThreadChannel>, CancellationToken, Task> setPendingList,
         Func<CancellationToken, Task> removePendingList,
-        Func<ThreadChannel, CancellationToken, Task> setActiveThread,
+        Func<ThreadChannel, CancellationToken, Task> setActiveConversation,
         Func<ThreadChannel, AgentMetadata, CancellationToken, Task> activateAndDispatch,
         Func<Message, CancellationToken, Task<AgentMetadata>> resolveEffectiveMetadata,
         CancellationToken cancellationToken = default);
@@ -202,16 +202,16 @@ public interface IAgentMailboxCoordinator
     /// <summary>
     /// Suspends the currently active <see cref="ThreadChannel"/> by cancelling
     /// any in-flight work, moving the active channel to the head of the pending
-    /// list, and clearing the active-thread state slot.
+    /// list, and clearing the active-conversation state slot.
     /// Does nothing when no conversation is active.
     /// </summary>
     /// <param name="agentId">The Dapr actor id of the suspending agent.</param>
-    /// <param name="getActiveThread">
+    /// <param name="getActiveConversation">
     /// Delegate that reads the current active <see cref="ThreadChannel"/> from
     /// actor state.
     /// </param>
-    /// <param name="removeActiveThread">
-    /// Delegate that removes the active-thread state key.
+    /// <param name="removeActiveConversation">
+    /// Delegate that removes the active-conversation state key.
     /// </param>
     /// <param name="getPendingList">
     /// Delegate that reads the pending list from actor state.
@@ -232,10 +232,10 @@ public interface IAgentMailboxCoordinator
     /// is moved to pending.
     /// </param>
     /// <param name="cancellationToken">Cancels the suspension operation.</param>
-    Task SuspendActiveThreadAsync(
+    Task SuspendActiveConversationAsync(
         string agentId,
-        Func<CancellationToken, Task<ThreadChannel?>> getActiveThread,
-        Func<CancellationToken, Task> removeActiveThread,
+        Func<CancellationToken, Task<ThreadChannel?>> getActiveConversation,
+        Func<CancellationToken, Task> removeActiveConversation,
         Func<CancellationToken, Task<List<ThreadChannel>?>> getPendingList,
         Func<List<ThreadChannel>, CancellationToken, Task> setPendingList,
         Func<Task> cancelActiveWork,

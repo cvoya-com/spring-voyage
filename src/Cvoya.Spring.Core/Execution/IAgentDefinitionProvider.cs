@@ -67,12 +67,12 @@ public enum AgentHostingMode
 /// (or the legacy <c>ai.environment</c> block). The launcher fundamentally
 /// needs the runtime registry id (<paramref name="AgentRuntimeId"/>) — which
 /// determines the execution tool 1:1 via the registry's
-/// <c>IAgentRuntime.Kind</c> — and the container <paramref name="Image"/>.
+/// <c>IAgentRuntime.ToolKind</c> — and the container <paramref name="Image"/>.
 /// </summary>
 /// <remarks>
 /// #1732: dropped the standalone <c>Tool</c> slot; an
 /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime"/> declares both
-/// <c>Id</c> (e.g. <c>claude</c>) and <c>Kind</c> (e.g.
+/// <c>Id</c> (e.g. <c>claude</c>) and <c>ToolKind</c> (e.g.
 /// <c>claude-code-cli</c>), and the registry resolves one to the other 1:1.
 /// </remarks>
 /// <param name="AgentRuntimeId">
@@ -80,7 +80,7 @@ public enum AgentHostingMode
 /// persisted <c>execution.agent</c> slot (e.g. <c>claude</c>, <c>openai</c>).
 /// The dispatcher resolves this through
 /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntimeRegistry"/> to pick
-/// the matching launcher and to surface the derived <c>Kind</c> on
+/// the matching launcher and to surface the derived <c>ToolKind</c> on
 /// read-only response surfaces.
 /// </param>
 /// <param name="Image">

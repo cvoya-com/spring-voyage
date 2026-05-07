@@ -244,7 +244,7 @@ public class MemberManifest
 /// <remarks>
 /// #1732: <c>tool:</c> was dropped — the execution tool is now derived
 /// from the runtime registry via <c>ai.agent</c>'s
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Kind"/>.
+/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.ToolKind"/>.
 /// The <see cref="LegacyTool"/> slot is captured only so the parser can
 /// surface a precise migration error per ADR-0037 decision 6 when an
 /// old-shape file still carries it.

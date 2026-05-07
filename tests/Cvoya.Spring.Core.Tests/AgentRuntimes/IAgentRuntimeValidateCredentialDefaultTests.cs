@@ -138,7 +138,7 @@ public class IAgentRuntimeValidateCredentialDefaultTests
 
         public string Id => "fake";
         public string DisplayName => "Fake";
-        public string Kind => "fake-tool";
+        public string ToolKind => "fake-tool";
         public AgentRuntimeCredentialSchema CredentialSchema => new(AgentRuntimeCredentialKind.ApiKey);
         public string CredentialSecretName => "fake-key";
         public string CredentialEnvVar => "FAKE_API_KEY";

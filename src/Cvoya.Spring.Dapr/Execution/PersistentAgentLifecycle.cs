@@ -33,7 +33,7 @@ public class PersistentAgentLifecycle(
     IContainerRuntime containerRuntime,
     IAgentDefinitionProvider agentDefinitionProvider,
     IMcpServer mcpServer,
-    IEnumerable<IAgentRuntimeLauncher> launchers,
+    IEnumerable<IAgentToolLauncher> launchers,
     IAgentRuntimeRegistry agentRuntimeRegistry,
     PersistentAgentRegistry persistentAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
@@ -43,12 +43,12 @@ public class PersistentAgentLifecycle(
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<PersistentAgentLifecycle>();
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
-    // #1732: launchers are keyed on their Kind (matching
-    // IAgentRuntime.Kind). The lifecycle service derives the tool kind
+    // #1732: launchers are keyed on their ToolKind (matching
+    // IAgentRuntime.ToolKind). The lifecycle service derives the tool kind
     // from the agent's persisted execution.agent slot via the runtime
     // registry.
-    private readonly Dictionary<string, IAgentRuntimeLauncher> _launchersByKind =
-        launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IAgentToolLauncher> _launchersByToolKind =
+        launchers.ToDictionary(l => l.ToolKind, StringComparer.OrdinalIgnoreCase);
     private readonly IAgentRuntimeRegistry _agentRuntimeRegistry = agentRuntimeRegistry
         ?? throw new ArgumentNullException(nameof(agentRuntimeRegistry));
 
@@ -118,13 +118,13 @@ public class PersistentAgentLifecycle(
                 $"No agent runtime is registered with id '{definition.Execution.AgentRuntimeId}' " +
                 $"(agent '{agentId}'). Install the runtime plugin or set ai.agent " +
                 "to a registered runtime id before deploying.");
-        if (!_launchersByKind.TryGetValue(runtime.Kind, out var launcher))
+        if (!_launchersByToolKind.TryGetValue(runtime.ToolKind, out var launcher))
         {
             throw new SpringException(
-                $"No IAgentRuntimeLauncher registered for tool kind '{runtime.Kind}' " +
+                $"No IAgentToolLauncher registered for tool kind '{runtime.ToolKind}' " +
                 $"(agent runtime '{definition.Execution.AgentRuntimeId}', agent '{agentId}').");
         }
-        var kind = runtime.Kind;
+        var toolKind = runtime.ToolKind;
 
         if (mcpServer.Endpoint is null)
         {
@@ -170,7 +170,7 @@ public class PersistentAgentLifecycle(
         // launch spec into a container config across all dispatch paths.
         var baseConfig = ContainerConfigBuilder.Build(image, prepWithVolume);
         var useDaprSidecar = string.Equals(
-            kind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
+            toolKind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
 
         string containerId;
         string? sidecarId = null;

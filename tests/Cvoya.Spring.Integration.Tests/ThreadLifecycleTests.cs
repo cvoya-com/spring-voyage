@@ -36,7 +36,7 @@ public class ThreadLifecycleTests
         result1.ShouldNotBeNull();
 
         await stateManager.Received(1).SetStateAsync(
-            StateKeys.ActiveThread,
+            StateKeys.ActiveConversation,
             Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Messages.Count == 1),
             Arg.Any<CancellationToken>());
 
@@ -46,7 +46,7 @@ public class ThreadLifecycleTests
             ThreadId = threadId,
             Messages = [firstMessage]
         };
-        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         // Step 2: Send follow-up on active conversation — appended.
@@ -55,7 +55,7 @@ public class ThreadLifecycleTests
         result2.ShouldNotBeNull();
 
         await stateManager.Received().SetStateAsync(
-            StateKeys.ActiveThread,
+            StateKeys.ActiveConversation,
             Arg.Is<ThreadChannel>(c =>
                 c.ThreadId == threadId &&
                 c.Messages.Count == 2),
@@ -75,7 +75,7 @@ public class ThreadLifecycleTests
             ThreadId = activeConvId,
             Messages = [MessageFactory.CreateDomainMessage(threadId: activeConvId)]
         };
-        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         // Send message for second conversation.
@@ -92,13 +92,13 @@ public class ThreadLifecycleTests
     }
 
     [Fact]
-    public async Task Lifecycle_CancelActive_ClearsActiveThread()
+    public async Task Lifecycle_CancelActive_ClearsActiveConversation()
     {
         var (actor, stateManager) = ActorTestHost.CreateAgentActor("cancel-agent");
         var activeConvId = "cancel-conv";
 
         // First activate a conversation to set up the CancellationTokenSource.
-        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(
                 new ConditionalValue<ThreadChannel>(false, default!));
         var initialMessage = MessageFactory.CreateDomainMessage(threadId: activeConvId, toId: "cancel-agent");
@@ -110,7 +110,7 @@ public class ThreadLifecycleTests
             ThreadId = activeConvId,
             Messages = [initialMessage]
         };
-        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         // Cancel the active conversation.
@@ -118,7 +118,7 @@ public class ThreadLifecycleTests
         var result = await actor.ReceiveAsync(cancelMessage, TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
-        await stateManager.Received().TryRemoveStateAsync(StateKeys.ActiveThread, Arg.Any<CancellationToken>());
+        await stateManager.Received().TryRemoveStateAsync(StateKeys.ActiveConversation, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public class ThreadLifecycleTests
         var pendingConvId = "conv-to-promote";
 
         // First activate a conversation to set up the CancellationTokenSource.
-        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(false, default!));
         var initialMessage = MessageFactory.CreateDomainMessage(threadId: activeConvId, toId: "promote-agent");
         await actor.ReceiveAsync(initialMessage, TestContext.Current.CancellationToken);
@@ -146,7 +146,7 @@ public class ThreadLifecycleTests
             Messages = [MessageFactory.CreateDomainMessage(threadId: pendingConvId)]
         };
 
-        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
         stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<ThreadChannel>>(true, [pendingChannel]));
@@ -156,9 +156,9 @@ public class ThreadLifecycleTests
         await actor.ReceiveAsync(cancelMessage, TestContext.Current.CancellationToken);
 
         // Verify active was removed and pending was promoted.
-        await stateManager.Received().TryRemoveStateAsync(StateKeys.ActiveThread, Arg.Any<CancellationToken>());
+        await stateManager.Received().TryRemoveStateAsync(StateKeys.ActiveConversation, Arg.Any<CancellationToken>());
         await stateManager.Received().SetStateAsync(
-            StateKeys.ActiveThread,
+            StateKeys.ActiveConversation,
             Arg.Is<ThreadChannel>(c => c.ThreadId == pendingConvId),
             Arg.Any<CancellationToken>());
     }
@@ -186,7 +186,7 @@ public class ThreadLifecycleTests
 
         // First pending promoted to active.
         await stateManager.Received().SetStateAsync(
-            StateKeys.ActiveThread,
+            StateKeys.ActiveConversation,
             Arg.Is<ThreadChannel>(c => c.ThreadId == "pending-1"),
             Arg.Any<CancellationToken>());
 

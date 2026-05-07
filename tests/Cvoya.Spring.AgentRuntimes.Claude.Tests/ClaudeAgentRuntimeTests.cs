@@ -31,7 +31,7 @@ public class ClaudeAgentRuntimeTests
         var runtime = CreateRuntime(out _);
 
         runtime.Id.ShouldBe("claude");
-        runtime.Kind.ShouldBe("claude-code-cli");
+        runtime.ToolKind.ShouldBe("claude-code-cli");
         runtime.DisplayName.ShouldBe("Claude (Claude Code CLI + Anthropic API)");
         runtime.CredentialSchema.Kind.ShouldBe(AgentRuntimeCredentialKind.ApiKey);
         runtime.CredentialSchema.DisplayHint.ShouldNotBeNullOrWhiteSpace();

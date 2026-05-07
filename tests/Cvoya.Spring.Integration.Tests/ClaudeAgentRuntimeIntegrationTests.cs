@@ -36,7 +36,7 @@ public class ClaudeAgentRuntimeIntegrationTests
         var runtime = registry.Get("claude");
         runtime.ShouldNotBeNull();
         runtime!.Id.ShouldBe("claude");
-        runtime.Kind.ShouldBe("claude-code-cli");
+        runtime.ToolKind.ShouldBe("claude-code-cli");
         runtime.DisplayName.ShouldBe("Claude (Claude Code CLI + Anthropic API)");
 
         // Case-insensitive lookup is part of the registry contract.

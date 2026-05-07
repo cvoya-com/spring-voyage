@@ -159,17 +159,17 @@ public class AgentActor(
             _activeWorkCancellation = null;
         }
 
-        var activeThread = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken)
+        var activeConversation = await StateManager
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
             ;
 
-        if (activeThread.HasValue &&
-            activeThread.Value.ThreadId == message.ThreadId)
+        if (activeConversation.HasValue &&
+            activeConversation.Value.ThreadId == message.ThreadId)
         {
-            await StateManager.TryRemoveStateAsync(StateKeys.ActiveThread, cancellationToken);
+            await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
 
             await EmitActivityEventAsync(ActivityEventType.ThreadCompleted,
-                $"Thread {message.ThreadId} cancelled",
+                $"Conversation {message.ThreadId} cancelled",
                 cancellationToken,
                 correlationId: message.ThreadId);
 
@@ -177,7 +177,7 @@ public class AgentActor(
 
             // If no pending thread was promoted, agent returns to Idle.
             var newActive = await StateManager
-                .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken);
+                .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
             if (!newActive.HasValue)
             {
                 await EmitActivityEventAsync(ActivityEventType.StateChanged,
@@ -196,8 +196,8 @@ public class AgentActor(
     private async Task<Message?> HandleStatusQueryAsync(Message message, CancellationToken cancellationToken)
     {
         var status = await GetCurrentStatusAsync(cancellationToken);
-        var activeThread = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken)
+        var activeConversation = await StateManager
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
             ;
         var pending = await StateManager
             .TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, cancellationToken)
@@ -206,7 +206,7 @@ public class AgentActor(
         var statusPayload = JsonSerializer.SerializeToElement(new
         {
             Status = status.ToString(),
-            ActiveThreadId = activeThread.HasValue ? activeThread.Value.ThreadId : null,
+            ActiveThreadId = activeConversation.HasValue ? activeConversation.Value.ThreadId : null,
             PendingConversationCount = pending.HasValue ? pending.Value.Count : 0
         });
 
@@ -345,8 +345,8 @@ public class AgentActor(
             message: message,
             effective: effective,
             applyUnitPolicies: (eff, ct) => ApplyUnitPoliciesAsync(eff, ct),
-            getActiveThread: ct => GetActiveThreadAsync(ct),
-            setActiveThread: (ch, ct) => StateManager.SetStateAsync(StateKeys.ActiveThread, ch, ct),
+            getActiveConversation: ct => GetActiveConversationAsync(ct),
+            setActiveConversation: (ch, ct) => StateManager.SetStateAsync(StateKeys.ActiveConversation, ch, ct),
             getPendingList: ct => GetPendingListAsync(ct),
             setPendingList: (list, ct) => StateManager.SetStateAsync(StateKeys.PendingConversations, list, ct),
             activateAndDispatch: async (ch, eff, ct) =>
@@ -355,7 +355,7 @@ public class AgentActor(
                 var context = await BuildPromptAssemblyContextAsync(ch, eff, ct);
                 PendingDispatchTask = dispatchCoordinator.RunDispatchAsync(
                     Id.GetId(), message, context, EmitActivityEventAsync,
-                    ClearActiveThreadViaSelfAsync, _activeWorkCancellation.Token);
+                    ClearActiveConversationViaSelfAsync, _activeWorkCancellation.Token);
             },
             emitActivity: EmitActivityEventAsync,
             cancellationToken: cancellationToken);
@@ -522,7 +522,7 @@ public class AgentActor(
             cancellationToken: cancellationToken);
     }
 
-    private async Task ClearActiveThreadViaSelfAsync(string reason)
+    private async Task ClearActiveConversationViaSelfAsync(string reason)
     {
         // AgentDispatchCoordinator.RunDispatchAsync runs outside the actor
         // turn, so we can't touch StateManager directly. When an actor proxy
@@ -537,11 +537,11 @@ public class AgentActor(
             if (actorProxyFactory is not null)
             {
                 var self = actorProxyFactory.CreateActorProxy<IAgentActor>(Id, nameof(AgentActor));
-                await self.ClearActiveThreadAsync(reason, CancellationToken.None);
+                await self.ClearActiveConversationAsync(reason, CancellationToken.None);
             }
             else
             {
-                await ClearActiveThreadAsync(reason, CancellationToken.None);
+                await ClearActiveConversationAsync(reason, CancellationToken.None);
             }
         }
         catch (Exception ex)
@@ -553,17 +553,17 @@ public class AgentActor(
     }
 
     /// <inheritdoc />
-    public async Task ClearActiveThreadAsync(
+    public async Task ClearActiveConversationAsync(
         string? reason,
         CancellationToken cancellationToken = default)
     {
-        var activeThread = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken);
+        var activeConversation = await StateManager
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
 
-        if (!activeThread.HasValue)
+        if (!activeConversation.HasValue)
         {
             _logger.LogDebug(
-                "Actor {ActorId} ClearActiveThreadAsync called with no active thread (reason: {Reason}).",
+                "Actor {ActorId} ClearActiveConversationAsync called with no active thread (reason: {Reason}).",
                 Id.GetId(), reason);
             return;
         }
@@ -575,8 +575,8 @@ public class AgentActor(
             _activeWorkCancellation = null;
         }
 
-        var threadId = activeThread.Value.ThreadId;
-        await StateManager.TryRemoveStateAsync(StateKeys.ActiveThread, cancellationToken);
+        var threadId = activeConversation.Value.ThreadId;
+        await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
 
         _logger.LogInformation(
             "Actor {ActorId} cleared active thread {ThreadId} (reason: {Reason}).",
@@ -599,7 +599,7 @@ public class AgentActor(
     }
 
     /// <inheritdoc />
-    public async Task CloseThreadAsync(
+    public async Task CloseConversationAsync(
         string threadId,
         string? reason,
         CancellationToken cancellationToken = default)
@@ -610,7 +610,7 @@ public class AgentActor(
         }
 
         var active = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken);
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
 
         if (active.HasValue && active.Value.ThreadId == threadId)
         {
@@ -621,7 +621,7 @@ public class AgentActor(
                 _activeWorkCancellation = null;
             }
 
-            await StateManager.TryRemoveStateAsync(StateKeys.ActiveThread, cancellationToken);
+            await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
 
             _logger.LogInformation(
                 "Actor {ActorId} closed active thread {ThreadId} (reason: {Reason}).",
@@ -682,7 +682,7 @@ public class AgentActor(
         }
 
         _logger.LogDebug(
-            "Actor {ActorId} CloseThreadAsync no-op for unknown thread {ThreadId} (reason: {Reason}).",
+            "Actor {ActorId} CloseConversationAsync no-op for unknown thread {ThreadId} (reason: {Reason}).",
             Id.GetId(), threadId, reason);
     }
 
@@ -691,11 +691,11 @@ public class AgentActor(
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
-    internal Task SuspendActiveThreadAsync(CancellationToken cancellationToken = default)
-        => mailboxCoordinator.SuspendActiveThreadAsync(
+    internal Task SuspendActiveConversationAsync(CancellationToken cancellationToken = default)
+        => mailboxCoordinator.SuspendActiveConversationAsync(
             agentId: Id.GetId(),
-            getActiveThread: ct => GetActiveThreadAsync(ct),
-            removeActiveThread: ct => StateManager.TryRemoveStateAsync(StateKeys.ActiveThread, ct),
+            getActiveConversation: ct => GetActiveConversationAsync(ct),
+            removeActiveConversation: ct => StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, ct),
             getPendingList: ct => GetPendingListAsync(ct),
             setPendingList: (list, ct) => StateManager.SetStateAsync(StateKeys.PendingConversations, list, ct),
             cancelActiveWork: async () =>
@@ -721,7 +721,7 @@ public class AgentActor(
             getPendingList: ct => GetPendingListAsync(ct),
             setPendingList: (list, ct) => StateManager.SetStateAsync(StateKeys.PendingConversations, list, ct),
             removePendingList: ct => StateManager.TryRemoveStateAsync(StateKeys.PendingConversations, ct),
-            setActiveThread: (ch, ct) => StateManager.SetStateAsync(StateKeys.ActiveThread, ch, ct),
+            setActiveConversation: (ch, ct) => StateManager.SetStateAsync(StateKeys.ActiveConversation, ch, ct),
             activateAndDispatch: async (ch, eff, ct) =>
             {
                 _activeWorkCancellation = new CancellationTokenSource();
@@ -729,7 +729,7 @@ public class AgentActor(
                 var head = ch.Messages[0];
                 PendingDispatchTask = dispatchCoordinator.RunDispatchAsync(
                     Id.GetId(), head, context, EmitActivityEventAsync,
-                    ClearActiveThreadViaSelfAsync, _activeWorkCancellation.Token);
+                    ClearActiveConversationViaSelfAsync, _activeWorkCancellation.Token);
             },
             resolveEffectiveMetadata: (msg, ct) => ResolveEffectiveMetadataAsync(msg, ct),
             cancellationToken: cancellationToken);
@@ -751,11 +751,11 @@ public class AgentActor(
     /// </summary>
     private async Task<AgentStatus> GetCurrentStatusAsync(CancellationToken cancellationToken)
     {
-        var activeThread = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken)
+        var activeConversation = await StateManager
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
             ;
 
-        if (!activeThread.HasValue)
+        if (!activeConversation.HasValue)
         {
             return AgentStatus.Idle;
         }
@@ -768,10 +768,10 @@ public class AgentActor(
     /// Returns <c>null</c> when no thread is active. Used as a delegate by
     /// <see cref="IAgentMailboxCoordinator"/> calls.
     /// </summary>
-    private async Task<ThreadChannel?> GetActiveThreadAsync(CancellationToken cancellationToken)
+    private async Task<ThreadChannel?> GetActiveConversationAsync(CancellationToken cancellationToken)
     {
         var result = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken);
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
         return result.HasValue ? result.Value : null;
     }
 

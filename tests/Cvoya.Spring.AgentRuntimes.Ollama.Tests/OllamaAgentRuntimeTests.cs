@@ -31,7 +31,7 @@ public class OllamaAgentRuntimeTests
 
         runtime.Id.ShouldBe("ollama");
         runtime.DisplayName.ShouldBe("Spring Voyage Agent (Ollama)");
-        runtime.Kind.ShouldBe("spring-voyage");
+        runtime.ToolKind.ShouldBe("spring-voyage");
         runtime.CredentialSchema.Kind.ShouldBe(AgentRuntimeCredentialKind.None);
     }
 

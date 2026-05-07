@@ -9129,7 +9129,7 @@
               "string"
             ]
           },
-          "kind": {
+          "toolKind": {
             "type": [
               "null",
               "string"
@@ -10956,7 +10956,7 @@
         "required": [
           "id",
           "displayName",
-          "kind",
+          "toolKind",
           "installedAt",
           "updatedAt",
           "models",
@@ -10975,7 +10975,7 @@
           "displayName": {
             "type": "string"
           },
-          "kind": {
+          "toolKind": {
             "type": "string"
           },
           "installedAt": {
@@ -13075,7 +13075,7 @@
               "string"
             ]
           },
-          "kind": {
+          "toolKind": {
             "type": [
               "null",
               "string"

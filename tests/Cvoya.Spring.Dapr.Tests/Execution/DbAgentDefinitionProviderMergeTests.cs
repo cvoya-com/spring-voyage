@@ -19,7 +19,7 @@ using Xunit;
 /// #1732: <c>Tool</c> was dropped from <see cref="AgentExecutionConfig"/>
 /// and <see cref="UnitExecutionDefaults"/>. The execution tool is derived
 /// from <see cref="AgentExecutionConfig.AgentRuntimeId"/> via the runtime
-/// registry's <c>IAgentRuntime.Kind</c>; the merge now resolves the
+/// registry's <c>IAgentRuntime.ToolKind</c>; the merge now resolves the
 /// runtime id (<c>agent.AgentRuntimeId → unit.Agent → null</c>).
 /// </remarks>
 public class DbAgentDefinitionProviderMergeTests

@@ -53,7 +53,7 @@ public class OllamaAgentRuntime : IAgentRuntime
     /// other Spring Voyage–backed runtimes so the host can reason about
     /// container-baseline requirements without enumerating every runtime.
     /// </summary>
-    public const string SpringVoyageKind = "spring-voyage";
+    public const string SpringVoyageToolKind = "spring-voyage";
 
     /// <summary>
     /// The named <see cref="HttpClient"/> the runtime uses for outbound
@@ -107,7 +107,7 @@ public class OllamaAgentRuntime : IAgentRuntime
     public string DisplayName => "Spring Voyage Agent (Ollama)";
 
     /// <inheritdoc />
-    public string Kind => SpringVoyageKind;
+    public string ToolKind => SpringVoyageToolKind;
 
     /// <inheritdoc />
     public AgentRuntimeCredentialSchema CredentialSchema { get; } = new(
@@ -155,14 +155,6 @@ public class OllamaAgentRuntime : IAgentRuntime
         var tagsCmd = $"curl -sS -o /dev/null -w '%{{http_code}}' '{baseUrl}/api/tags'";
         var resolveModelCmd = $"curl -sS -w '\\n%{{http_code}}' '{baseUrl}/api/tags'";
 
-        // Attach the probe container to the platform bridge so it can
-        // resolve the Ollama hostname (e.g. spring-ollama on spring-net).
-        // An empty ProbeNetworkName means the probe inherits the default
-        // network, which is appropriate when BaseUrl uses host.containers.internal.
-        var probeNetwork = string.IsNullOrWhiteSpace(_options.Value.ProbeNetworkName)
-            ? null
-            : _options.Value.ProbeNetworkName;
-
         return new[]
         {
             new ProbeStep(
@@ -170,16 +162,14 @@ public class OllamaAgentRuntime : IAgentRuntime
                 Args: new[] { "sh", "-c", tagsCmd },
                 Env: new Dictionary<string, string>(StringComparer.Ordinal),
                 Timeout: VerifyToolTimeout,
-                InterpretOutput: InterpretVerifyTool,
-                NetworkName: probeNetwork),
+                InterpretOutput: InterpretVerifyTool),
 
             new ProbeStep(
                 Step: UnitValidationStep.ResolvingModel,
                 Args: new[] { "sh", "-c", resolveModelCmd },
                 Env: new Dictionary<string, string>(StringComparer.Ordinal),
                 Timeout: ResolveModelTimeout,
-                InterpretOutput: (exit, stdout, stderr) => InterpretResolveModel(exit, stdout, stderr, model),
-                NetworkName: probeNetwork),
+                InterpretOutput: (exit, stdout, stderr) => InterpretResolveModel(exit, stdout, stderr, model)),
         };
     }
 

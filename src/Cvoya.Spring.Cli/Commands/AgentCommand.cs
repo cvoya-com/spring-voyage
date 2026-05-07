@@ -246,7 +246,7 @@ public static class AgentCommand
 
         // #1732: --tool was dropped — the execution tool is derived 1:1 from
         // the runtime registry via --agent. Operators name the runtime here;
-        // the dispatcher picks the launcher whose Kind matches.
+        // the dispatcher picks the launcher whose ToolKind matches.
         var agentRuntimeOption = new Option<string?>("--agent")
         {
             Description = "Agent runtime registry id (shorthand for execution.agent; e.g. claude, openai, google, ollama).",

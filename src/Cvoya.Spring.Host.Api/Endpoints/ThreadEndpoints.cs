@@ -254,12 +254,12 @@ public static class ThreadEndpoints
             {
                 var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
                     new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(AgentActor));
-                await proxy.CloseThreadAsync(id, reason, cancellationToken);
+                await proxy.CloseConversationAsync(id, reason, cancellationToken);
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex,
-                    "CloseThreadAsync failed on participant {Participant} for thread {ThreadId}.",
+                    "CloseConversationAsync failed on participant {Participant} for thread {ThreadId}.",
                     participant, id);
             }
         }

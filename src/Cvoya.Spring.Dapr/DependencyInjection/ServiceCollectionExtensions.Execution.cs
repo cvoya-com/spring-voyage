@@ -118,7 +118,7 @@ internal static class ServiceCollectionExtensionsExecution
         // Agent execution-dispatch coordinator (#1336 / #1276 concern 3).
         // Singleton: stateless across agents; IExecutionDispatcher and
         // MessageRouter are injected as singleton constructor parameters;
-        // activity-emission and active-thread-clearing flow through
+        // activity-emission and active-conversation-clearing flow through
         // per-call delegates so no Dapr actor types are captured. TryAdd so
         // the private cloud repo can substitute a tenant-aware coordinator
         // (e.g. one that layers cost attribution or custom retry logic).
@@ -192,10 +192,10 @@ internal static class ServiceCollectionExtensionsExecution
 
         // Agent definition + tool launchers used by A2AExecutionDispatcher.
         services.TryAddSingleton<IAgentDefinitionProvider, DbAgentDefinitionProvider>();
-        services.AddSingleton<IAgentRuntimeLauncher, ClaudeCodeLauncher>();
-        services.AddSingleton<IAgentRuntimeLauncher, CodexLauncher>();
-        services.AddSingleton<IAgentRuntimeLauncher, GeminiLauncher>();
-        services.AddSingleton<IAgentRuntimeLauncher, SpringVoyageAgentLauncher>();
+        services.AddSingleton<IAgentToolLauncher, ClaudeCodeLauncher>();
+        services.AddSingleton<IAgentToolLauncher, CodexLauncher>();
+        services.AddSingleton<IAgentToolLauncher, GeminiLauncher>();
+        services.AddSingleton<IAgentToolLauncher, SpringVoyageAgentLauncher>();
         // D3c: per-agent workspace volume manager. Provisions volumes before
         // agent containers start, reclaims them on agent delete / ephemeral
         // completion, and emits volume-level telemetry (size, growth rate).

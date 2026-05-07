@@ -4,7 +4,6 @@
 namespace Cvoya.Spring.Dapr.Workflows;
 
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
@@ -40,7 +39,6 @@ using Microsoft.Extensions.Logging;
 public class UnitValidationWorkflowScheduler(
     DaprWorkflowClient workflowClient,
     IServiceScopeFactory scopeFactory,
-    IAgentRuntimeRegistry runtimeRegistry,
     ILoggerFactory loggerFactory) : IUnitValidationWorkflowScheduler
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<UnitValidationWorkflowScheduler>();
@@ -153,21 +151,13 @@ public class UnitValidationWorkflowScheduler(
         var credential = credentialResolution.Value ?? string.Empty;
         var requestedModel = defaults.Model ?? string.Empty;
 
-        // Determine which post-pull steps the runtime does not declare so
-        // the workflow can skip them (emitting no events → UI shows "skipped").
-        // GetProbeSteps is a synchronous, non-allocating call; a minimal
-        // config is sufficient — BaseUrl and models don't affect which steps
-        // are declared, only the command strings within them.
-        var skipSteps = ComputeSkipSteps(runtimeId, requestedModel);
-
         var input = new UnitValidationWorkflowInput(
             UnitId: unitActorId,
             UnitName: entity.DisplayName,
             Image: defaults.Image,
             RuntimeId: runtimeId,
             Credential: credential,
-            RequestedModel: requestedModel,
-            SkipSteps: skipSteps);
+            RequestedModel: requestedModel);
 
         var instanceId = await workflowClient.ScheduleNewWorkflowAsync(
             nameof(UnitValidationWorkflow),
@@ -217,41 +207,4 @@ public class UnitValidationWorkflowScheduler(
     private static bool IsContainerRuntimeSelector(string value) =>
         string.Equals(value, "podman", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(value, "docker", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Returns the post-pull probe steps the runtime does NOT declare, so
-    /// the workflow can skip them. An empty array means all steps are run.
-    /// </summary>
-    private string[]? ComputeSkipSteps(string runtimeId, string requestedModel)
-    {
-        var runtime = runtimeRegistry.Get(runtimeId);
-        if (runtime is null)
-        {
-            return null;
-        }
-
-        var config = new AgentRuntimeInstallConfig(
-            Models: Array.Empty<string>(),
-            DefaultModel: requestedModel,
-            BaseUrl: null);
-
-        HashSet<UnitValidationStep> declared;
-        try
-        {
-            declared = runtime.GetProbeSteps(config, string.Empty)
-                .Select(s => s.Step)
-                .ToHashSet();
-        }
-        catch
-        {
-            return null;
-        }
-
-        var skipped = UnitValidationWorkflow.PostPullSteps
-            .Where(s => !declared.Contains(s))
-            .Select(s => s.ToString())
-            .ToArray();
-
-        return skipped.Length > 0 ? skipped : null;
-    }
 }

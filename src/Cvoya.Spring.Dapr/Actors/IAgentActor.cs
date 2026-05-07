@@ -101,7 +101,7 @@ public interface IAgentActor : IAgent
     /// the id matches a pending channel that channel is dropped and the
     /// active slot is left untouched.
     /// </summary>
-    /// <param name="threadId">The thread identifier to close.</param>
+    /// <param name="conversationId">The thread identifier to close.</param>
     /// <param name="reason">
     /// Optional human-readable reason — surfaced on the
     /// <c>ThreadClosed</c> activity event's <c>details</c> payload so
@@ -109,8 +109,8 @@ public interface IAgentActor : IAgent
     /// non-zero dispatch exit, etc.).
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    Task CloseThreadAsync(
-        string threadId,
+    Task CloseConversationAsync(
+        string conversationId,
         string? reason,
         CancellationToken cancellationToken = default);
 
@@ -119,7 +119,7 @@ public interface IAgentActor : IAgent
     /// (via Dapr remoting) when a dispatch terminates abnormally — either a
     /// non-zero container exit (#1036) or an exception in the dispatcher
     /// itself. Mutates persistent actor state — removes
-    /// <c>StateKeys.ActiveThread</c>, emits a <c>StateChanged</c>
+    /// <c>StateKeys.ActiveConversation</c>, emits a <c>StateChanged</c>
     /// (Active → Idle) event, and promotes the next pending thread —
     /// so it must run on an actor turn. Surfaced on <see cref="IAgentActor"/>
     /// (rather than left as an internal helper) precisely so the off-turn
@@ -127,7 +127,7 @@ public interface IAgentActor : IAgent
     /// </summary>
     /// <param name="reason">Human-readable reason for clearing the active slot.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    Task ClearActiveThreadAsync(
+    Task ClearActiveConversationAsync(
         string? reason,
         CancellationToken cancellationToken = default);
 }

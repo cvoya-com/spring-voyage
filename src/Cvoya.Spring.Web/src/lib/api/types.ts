@@ -495,7 +495,7 @@ export type InstalledConnectorResponse = Schemas["InstalledConnectorResponse"];
 /**
  * GET /api/v1/agent-runtimes item — an agent runtime installed on the
  * current tenant (#690). Combines runtime-descriptor fields
- * (`id`, `displayName`, `kind`, `credentialKind`,
+ * (`id`, `displayName`, `toolKind`, `credentialKind`,
  * `credentialDisplayHint`) with the tenant install config (`models`,
  * `defaultModel`, `baseUrl`). Feeds the unit-creation wizard's provider
  * + model dropdowns.

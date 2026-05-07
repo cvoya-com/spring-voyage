@@ -46,7 +46,7 @@ public class A2AExecutionDispatcherTests
     private readonly IPromptAssembler _promptAssembler = Substitute.For<IPromptAssembler>();
     private readonly IAgentDefinitionProvider _agentProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
-    private readonly IAgentRuntimeLauncher _launcher = Substitute.For<IAgentRuntimeLauncher>();
+    private readonly IAgentToolLauncher _launcher = Substitute.For<IAgentToolLauncher>();
     private readonly IAgentRuntimeRegistry _agentRuntimeRegistry = Substitute.For<IAgentRuntimeRegistry>();
     private readonly IAgentRuntime _claudeRuntime = Substitute.For<IAgentRuntime>();
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
@@ -94,25 +94,25 @@ public class A2AExecutionDispatcherTests
         persistentServices.AddSingleton(Substitute.For<IAgentDefinitionProvider>());
         persistentServices.AddSingleton(Substitute.For<IMcpServer>());
         persistentServices.AddSingleton(_launcher);
-        persistentServices.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(
-            p => [p.GetRequiredService<IAgentRuntimeLauncher>()]);
+        persistentServices.AddSingleton<IEnumerable<IAgentToolLauncher>>(
+            p => [p.GetRequiredService<IAgentToolLauncher>()]);
         persistentServices.AddSingleton<PersistentAgentRegistry>();
         persistentServices.AddSingleton<PersistentAgentLifecycle>();
         _persistentRegistry = persistentServices
             .BuildServiceProvider()
             .GetRequiredService<PersistentAgentRegistry>();
 
-        // #1732: launcher.Kind matches IAgentRuntime.Kind
+        // #1732: launcher.ToolKind matches IAgentRuntime.ToolKind
         // (claude-code-cli for the claude runtime).
-        _launcher.Kind.Returns("claude-code-cli");
+        _launcher.ToolKind.Returns("claude-code-cli");
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(DefaultSpec);
 
         // #1732: registry maps the runtime id ("claude") to the launcher's
-        // Kind ("claude-code-cli") so the dispatcher can derive the
+        // ToolKind ("claude-code-cli") so the dispatcher can derive the
         // launcher without the agent definition carrying a Tool field.
         _claudeRuntime.Id.Returns("claude");
-        _claudeRuntime.Kind.Returns("claude-code-cli");
+        _claudeRuntime.ToolKind.Returns("claude-code-cli");
         // NSubstitute auto-mocks unknown-id calls; pin the default to null
         // so the unknown-runtime branch in the dispatcher fires.
         _agentRuntimeRegistry.Get(Arg.Any<string>()).Returns((IAgentRuntime?)null);
@@ -454,7 +454,7 @@ public class A2AExecutionDispatcherTests
     {
         // #1732 regression: setting ai.agent: claude on a unit / agent
         // resolves end-to-end through the runtime registry to the launcher
-        // whose Kind is claude-code-cli. The agent definition does not
+        // whose ToolKind is claude-code-cli. The agent definition does not
         // carry a Tool field; the dispatcher derives it.
         var message = CreateMessage();
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
@@ -470,7 +470,7 @@ public class A2AExecutionDispatcherTests
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
         // The Claude runtime resolved through the registry, and the
-        // launcher whose Kind matches (claude-code-cli) was used to
+        // launcher whose ToolKind matches (claude-code-cli) was used to
         // prepare the launch context.
         _agentRuntimeRegistry.Received().Get("claude");
         await _launcher.Received().PrepareAsync(
@@ -814,11 +814,10 @@ public class A2AExecutionDispatcherTests
         capturedCtx.ShouldNotBeNull();
         capturedCtx!.AgentDefinitionYaml.ShouldNotBeNullOrEmpty();
         capturedCtx.AgentDefinitionYaml.ShouldContain(AgentId);  // agent_id field
-        // #1732: execution.agent (the runtime registry id) — the YAML
-        // includes the derived kind so in-container probes that read it
-        // can see which engine was selected for this turn.
+        // #1732: execution.agent (the runtime registry id) — the YAML still
+        // includes the derived tool_kind for in-container probes that read it.
         capturedCtx.AgentDefinitionYaml.ShouldContain("agent: claude");
-        capturedCtx.AgentDefinitionYaml.ShouldContain("kind: claude-code-cli");
+        capturedCtx.AgentDefinitionYaml.ShouldContain("tool_kind: claude-code-cli");
         capturedCtx.TenantConfigJson.ShouldNotBeNullOrEmpty();
     }
 

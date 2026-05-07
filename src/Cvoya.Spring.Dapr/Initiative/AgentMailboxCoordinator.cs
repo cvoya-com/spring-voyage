@@ -31,8 +31,8 @@ public class AgentMailboxCoordinator(
         Message message,
         AgentMetadata effective,
         Func<AgentMetadata, CancellationToken, Task<(AgentMetadata Effective, PolicyVerdict? Verdict)>> applyUnitPolicies,
-        Func<CancellationToken, Task<ThreadChannel?>> getActiveThread,
-        Func<ThreadChannel, CancellationToken, Task> setActiveThread,
+        Func<CancellationToken, Task<ThreadChannel?>> getActiveConversation,
+        Func<ThreadChannel, CancellationToken, Task> setActiveConversation,
         Func<CancellationToken, Task<List<ThreadChannel>?>> getPendingList,
         Func<List<ThreadChannel>, CancellationToken, Task> setPendingList,
         Func<ThreadChannel, AgentMetadata, CancellationToken, Task> activateAndDispatch,
@@ -97,10 +97,10 @@ public class AgentMailboxCoordinator(
             return;
         }
 
-        var activeThread = await getActiveThread(cancellationToken);
+        var activeConversation = await getActiveConversation(cancellationToken);
 
         // Case 1: No active thread — make this the active one and dispatch.
-        if (activeThread is null)
+        if (activeConversation is null)
         {
             var channel = new ThreadChannel
             {
@@ -109,7 +109,7 @@ public class AgentMailboxCoordinator(
                 CreatedAt = DateTimeOffset.UtcNow,
             };
 
-            await setActiveThread(channel, cancellationToken);
+            await setActiveConversation(channel, cancellationToken);
 
             logger.LogInformation("Actor {ActorId} activated thread {ThreadId}",
                 agentId, threadId);
@@ -137,10 +137,10 @@ public class AgentMailboxCoordinator(
         }
 
         // Case 2: Message belongs to the active thread — append to it.
-        if (activeThread.ThreadId == threadId)
+        if (activeConversation.ThreadId == threadId)
         {
-            activeThread.Messages.Add(message);
-            await setActiveThread(activeThread, cancellationToken);
+            activeConversation.Messages.Add(message);
+            await setActiveConversation(activeConversation, cancellationToken);
 
             logger.LogInformation("Actor {ActorId} appended message to active thread {ThreadId}",
                 agentId, threadId);
@@ -165,11 +165,11 @@ public class AgentMailboxCoordinator(
                 agentId,
                 ActivityEventType.DecisionMade,
                 ActivitySeverity.Info,
-                $"Queued thread {threadId} as pending (active: {activeThread.ThreadId})",
+                $"Queued thread {threadId} as pending (active: {activeConversation.ThreadId})",
                 details: System.Text.Json.JsonSerializer.SerializeToElement(new
                 {
                     decision = "QueueAsPending",
-                    activeThreadId = activeThread.ThreadId,
+                    activeThreadId = activeConversation.ThreadId,
                     pendingThreadId = threadId,
                 }),
                 correlationId: threadId),
@@ -212,7 +212,7 @@ public class AgentMailboxCoordinator(
         Func<CancellationToken, Task<List<ThreadChannel>?>> getPendingList,
         Func<List<ThreadChannel>, CancellationToken, Task> setPendingList,
         Func<CancellationToken, Task> removePendingList,
-        Func<ThreadChannel, CancellationToken, Task> setActiveThread,
+        Func<ThreadChannel, CancellationToken, Task> setActiveConversation,
         Func<ThreadChannel, AgentMetadata, CancellationToken, Task> activateAndDispatch,
         Func<Message, CancellationToken, Task<AgentMetadata>> resolveEffectiveMetadata,
         CancellationToken cancellationToken = default)
@@ -227,7 +227,7 @@ public class AgentMailboxCoordinator(
         var next = pending[0];
         pending.RemoveAt(0);
 
-        await setActiveThread(next, cancellationToken);
+        await setActiveConversation(next, cancellationToken);
 
         if (pending.Count > 0)
         {
@@ -281,19 +281,19 @@ public class AgentMailboxCoordinator(
     }
 
     /// <inheritdoc />
-    public async Task SuspendActiveThreadAsync(
+    public async Task SuspendActiveConversationAsync(
         string agentId,
-        Func<CancellationToken, Task<ThreadChannel?>> getActiveThread,
-        Func<CancellationToken, Task> removeActiveThread,
+        Func<CancellationToken, Task<ThreadChannel?>> getActiveConversation,
+        Func<CancellationToken, Task> removeActiveConversation,
         Func<CancellationToken, Task<List<ThreadChannel>?>> getPendingList,
         Func<List<ThreadChannel>, CancellationToken, Task> setPendingList,
         Func<Task> cancelActiveWork,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         CancellationToken cancellationToken = default)
     {
-        var activeThread = await getActiveThread(cancellationToken);
+        var activeConversation = await getActiveConversation(cancellationToken);
 
-        if (activeThread is null)
+        if (activeConversation is null)
         {
             return;
         }
@@ -302,13 +302,13 @@ public class AgentMailboxCoordinator(
 
         var pending = await getPendingList(cancellationToken);
         var pendingList = pending ?? [];
-        pendingList.Add(activeThread);
+        pendingList.Add(activeConversation);
 
         await setPendingList(pendingList, cancellationToken);
-        await removeActiveThread(cancellationToken);
+        await removeActiveConversation(cancellationToken);
 
         logger.LogInformation("Actor {ActorId} suspended thread {ThreadId}",
-            agentId, activeThread.ThreadId);
+            agentId, activeConversation.ThreadId);
 
         await emitActivity(
             BuildEvent(

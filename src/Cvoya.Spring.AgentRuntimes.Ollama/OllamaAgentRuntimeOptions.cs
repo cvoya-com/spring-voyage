@@ -48,18 +48,4 @@ public class OllamaAgentRuntimeOptions
     /// not reachable.
     /// </summary>
     public int HealthCheckTimeoutSeconds { get; set; } = 5;
-
-    /// <summary>
-    /// Container network the validation probe is attached to so it can
-    /// resolve the <see cref="BaseUrl"/> hostname. Defaults to
-    /// <c>spring-net</c>, which is the OSS deployment bridge that hosts the
-    /// <c>spring-ollama</c> container.
-    /// <para>
-    /// Set to an empty string when Ollama runs on the host (macOS Metal /
-    /// Linux GPU passthrough) and <see cref="BaseUrl"/> uses
-    /// <c>host.containers.internal</c> — in that case the probe container
-    /// can reach the host without a named network.
-    /// </para>
-    /// </summary>
-    public string ProbeNetworkName { get; set; } = "spring-net";
 }

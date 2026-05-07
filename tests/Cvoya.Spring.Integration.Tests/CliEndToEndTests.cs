@@ -73,7 +73,7 @@ public class CliEndToEndTests
     }
 
     [Fact]
-    public async Task FullLifecycle_AgentReceivesMessage_StatusReflectsActiveThread()
+    public async Task FullLifecycle_AgentReceivesMessage_StatusReflectsActiveConversation()
     {
         // Step 1: Create an agent actor.
         var (agentActor, agentStateManager) = ActorTestHost.CreateAgentActor("cli-agent");
@@ -89,7 +89,7 @@ public class CliEndToEndTests
             ThreadId = threadId,
             Messages = [message]
         };
-        agentStateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        agentStateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         // Step 3: Query status.

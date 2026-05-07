@@ -147,7 +147,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         show!.Id.ShouldBe("openai");
         show.DefaultModel.ShouldBe("gpt-4o");
         show.Models.ShouldBe(new[] { "gpt-4o", "gpt-4o-mini" });
-        show.Kind.ShouldBe("spring-voyage");
+        show.ToolKind.ShouldBe("spring-voyage");
     }
 
     // ─── Scenario 2: models set / add / remove → wizard endpoint ───
@@ -436,7 +436,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         public const string RuntimeId = "mock-baseline-runtime";
         public string Id => RuntimeId;
         public string DisplayName => "Mock Baseline Runtime (test-only)";
-        public string Kind => "mock-tool";
+        public string ToolKind => "mock-tool";
         public AgentRuntimeCredentialSchema CredentialSchema { get; } =
             new(AgentRuntimeCredentialKind.None, DisplayHint: null);
         public string CredentialSecretName => "";

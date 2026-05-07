@@ -14,8 +14,8 @@ namespace Cvoya.Spring.Core.Observability;
 /// </param>
 /// <param name="MessagesReceived">Count of <c>MessageReceived</c> events.</param>
 /// <param name="MessagesSent">Count of <c>MessageSent</c> events.</param>
-/// <param name="Turns">Count of <c>ThreadStarted</c> events (one per turn-initiating interaction).</param>
-/// <param name="ToolCalls">Count of <c>DecisionMade</c> events (a proxy for MCP tool-call decisions until a dedicated event type lands).</param>
+/// <param name="Turns">Count of <c>ConversationStarted</c> events (one per turn-initiating interaction).</param>
+/// <param name="ToolCalls">Count of <c>DecisionMade</c> events (a proxy for tool-call decisions until a dedicated event type lands).</param>
 public record ThroughputEntry(
     string Source,
     long MessagesReceived,

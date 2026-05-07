@@ -479,7 +479,7 @@ public static class AgentRuntimeEndpoints
         return new InstalledAgentRuntimeResponse(
             Id: install.RuntimeId,
             DisplayName: runtime.DisplayName,
-            Kind: runtime.Kind,
+            ToolKind: runtime.ToolKind,
             InstalledAt: install.InstalledAt,
             UpdatedAt: install.UpdatedAt,
             Models: install.Config.Models,

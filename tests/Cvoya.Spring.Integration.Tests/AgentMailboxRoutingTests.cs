@@ -24,7 +24,7 @@ using Xunit;
 public class AgentMailboxRoutingTests
 {
     [Fact]
-    public async Task ReceiveAsync_FirstDomainMessage_BecomesActiveThread()
+    public async Task ReceiveAsync_FirstDomainMessage_BecomesActiveConversation()
     {
         var (actor, stateManager) = ActorTestHost.CreateAgentActor("mailbox-agent");
         var threadId = "conv-first";
@@ -34,7 +34,7 @@ public class AgentMailboxRoutingTests
 
         result.ShouldNotBeNull();
         await stateManager.Received(1).SetStateAsync(
-            StateKeys.ActiveThread,
+            StateKeys.ActiveConversation,
             Arg.Is<ThreadChannel>(c => c.ThreadId == threadId),
             Arg.Any<CancellationToken>());
     }
@@ -54,7 +54,7 @@ public class AgentMailboxRoutingTests
         };
 
         // After first message, reconfigure state to have the active conversation.
-        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         var secondMessage = MessageFactory.CreateDomainMessage(threadId: threadId, toId: "mailbox-agent");
@@ -62,7 +62,7 @@ public class AgentMailboxRoutingTests
 
         result.ShouldNotBeNull();
         await stateManager.Received().SetStateAsync(
-            StateKeys.ActiveThread,
+            StateKeys.ActiveConversation,
             Arg.Is<ThreadChannel>(c =>
                 c.ThreadId == threadId &&
                 c.Messages.Count == 2),
@@ -82,7 +82,7 @@ public class AgentMailboxRoutingTests
             Messages = [MessageFactory.CreateDomainMessage(threadId: activeThreadId)]
         };
 
-        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         var pendingMessage = MessageFactory.CreateDomainMessage(threadId: pendingThreadId, toId: "mailbox-agent");
@@ -108,7 +108,7 @@ public class AgentMailboxRoutingTests
             ThreadId = "conv-active",
             Messages = []
         };
-        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         // Set up two pending conversations.

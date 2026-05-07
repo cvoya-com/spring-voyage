@@ -9,17 +9,17 @@ namespace Cvoya.Spring.Dapr.Actors;
 public enum AgentStatus
 {
     /// <summary>
-    /// The agent has no active threads and is waiting for work.
+    /// The agent has no active conversations and is waiting for work.
     /// </summary>
     Idle,
 
     /// <summary>
-    /// The agent has an active thread being processed.
+    /// The agent has an active conversation being processed.
     /// </summary>
     Active,
 
     /// <summary>
-    /// The agent's active thread has been suspended (e.g., due to a higher-priority thread).
+    /// The agent's active conversation has been suspended (e.g., due to a higher-priority conversation).
     /// </summary>
     Suspended
 }

@@ -540,7 +540,7 @@ describe("AgentsTab", () => {
         within(dialog).getByTestId("membership-dialog-new-agent"),
       );
 
-      // Sub-mode swap: title flips to "Create new agent".
+      // Sub-mode swap: title flips, the create-id input appears.
       await waitFor(() => {
         expect(
           within(screen.getByRole("dialog")).getByText(/Create new agent/i),
@@ -548,6 +548,12 @@ describe("AgentsTab", () => {
       });
 
       const createDialog = screen.getByRole("dialog");
+      fireEvent.change(
+        within(createDialog).getByTestId(
+          "membership-dialog-inline-create-id",
+        ),
+        { target: { value: "ada" } },
+      );
       fireEvent.change(
         within(createDialog).getByTestId(
           "membership-dialog-inline-create-display-name",
@@ -566,9 +572,9 @@ describe("AgentsTab", () => {
       await waitFor(() => {
         expect(createAgent).toHaveBeenCalledTimes(1);
       });
-      // Server auto-generates the agent GUID — name is not part of the wire body.
       expect(createAgent).toHaveBeenCalledWith(
         expect.objectContaining({
+          name: "ada",
           displayName: "Ada Lovelace",
           unitIds: ["engineering"],
         }),
@@ -583,7 +589,7 @@ describe("AgentsTab", () => {
       );
     });
 
-    it("rejects an empty display name inline without calling the API", async () => {
+    it("rejects invalid ids inline without calling the API", async () => {
       listUnitMemberships.mockResolvedValue([]);
       listAgents.mockResolvedValue([]);
 
@@ -601,8 +607,19 @@ describe("AgentsTab", () => {
         within(dialog).getByTestId("membership-dialog-new-agent"),
       );
 
-      // Leave display name empty and submit — should surface a validation error.
       const createDialog = screen.getByRole("dialog");
+      fireEvent.change(
+        within(createDialog).getByTestId(
+          "membership-dialog-inline-create-id",
+        ),
+        { target: { value: "Has Spaces" } },
+      );
+      fireEvent.change(
+        within(createDialog).getByTestId(
+          "membership-dialog-inline-create-display-name",
+        ),
+        { target: { value: "Bad" } },
+      );
       fireEvent.click(
         within(createDialog).getByTestId(
           "membership-dialog-inline-create-submit",
@@ -614,7 +631,7 @@ describe("AgentsTab", () => {
           within(screen.getByRole("dialog")).getByTestId(
             "membership-dialog-inline-create-error",
           ),
-        ).toHaveTextContent(/display name/i);
+        ).toHaveTextContent(/url-safe/i);
       });
       expect(createAgent).not.toHaveBeenCalled();
     });

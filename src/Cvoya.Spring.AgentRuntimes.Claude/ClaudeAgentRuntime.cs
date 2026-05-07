@@ -54,7 +54,7 @@ public class ClaudeAgentRuntime : IAgentRuntime
     public const string RuntimeId = "claude";
 
     /// <summary>Execution-tool identifier shared with any future Claude-backed runtime variant.</summary>
-    public const string KindId = "claude-code-cli";
+    public const string ToolKindId = "claude-code-cli";
 
     /// <summary>
     /// Default container image the portal wizard pre-fills when the operator
@@ -114,7 +114,7 @@ public class ClaudeAgentRuntime : IAgentRuntime
     public string DisplayName => DisplayLabel;
 
     /// <inheritdoc />
-    public string Kind => KindId;
+    public string ToolKind => ToolKindId;
 
     /// <inheritdoc />
     public AgentRuntimeCredentialSchema CredentialSchema { get; } = new(

@@ -263,7 +263,7 @@ describe("AgentExecutionPanel", () => {
     );
 
     const toolSelect = (await screen.findByTestId(
-      "agent-execution-runtime-select",
+      "agent-execution-tool-select",
     )) as HTMLSelectElement;
     fireEvent.change(toolSelect, { target: { value: "claude-code" } });
 

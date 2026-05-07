@@ -13,7 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// <see cref="IAgentRuntimeLauncher"/> for Claude Code containers. Describes a
+/// <see cref="IAgentToolLauncher"/> for Claude Code containers. Describes a
 /// per-invocation workspace containing:
 /// <list type="bullet">
 ///   <item><c>CLAUDE.md</c> — the assembled system prompt (all four layers).</item>
@@ -32,7 +32,7 @@ using Microsoft.Extensions.Logging;
 public class ClaudeCodeLauncher(
     IAgentRuntimeRegistry runtimeRegistry,
     IServiceScopeFactory scopeFactory,
-    ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
+    ILoggerFactory loggerFactory) : IAgentToolLauncher
 {
     /// <summary>Runtime id whose credential this launcher injects.</summary>
     internal const string ClaudeRuntimeId = "claude";
@@ -76,10 +76,10 @@ public class ClaudeCodeLauncher(
 
     /// <inheritdoc />
     /// <remarks>
-    /// #1732: matches <c>ClaudeAgentRuntime.Kind</c> (<c>claude-code-cli</c>),
+    /// #1732: matches <c>ClaudeAgentRuntime.ToolKind</c> (<c>claude-code-cli</c>),
     /// the registry's 1:1 tool kind for the <c>claude</c> runtime.
     /// </remarks>
-    public string Kind => "claude-code-cli";
+    public string ToolKind => "claude-code-cli";
 
     /// <inheritdoc />
     public async Task<AgentLaunchSpec> PrepareAsync(

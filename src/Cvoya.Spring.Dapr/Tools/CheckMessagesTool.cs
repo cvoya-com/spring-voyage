@@ -50,7 +50,7 @@ public class CheckMessagesTool(
             executionContext.AgentAddress.Path, executionContext.ThreadId);
 
         var activeThread = await executionContext.StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken);
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
 
         if (!activeThread.HasValue || activeThread.Value.Messages.Count == 0)
         {

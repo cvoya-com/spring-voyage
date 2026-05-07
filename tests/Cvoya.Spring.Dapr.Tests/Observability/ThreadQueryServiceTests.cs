@@ -269,7 +269,7 @@ public class ThreadQueryServiceTests : IDisposable
         // platform on a normal "human asks agent / agent answers" turn is:
         //
         //   1. agent:<id> MessageReceived       (AgentActor saw the human's message)
-        //   2. agent:<id> ThreadStarted         (HandleDomainMessageAsync, Case 1)
+        //   2. agent:<id> ConversationStarted   (HandleDomainMessageAsync, Case 1)
         //   3. agent:<id> StateChanged          (Idle → Active, Debug severity)
         //   4. human:<id> MessageReceived       (HumanActor saw the agent's reply)
         //
@@ -332,7 +332,7 @@ public class ThreadQueryServiceTests : IDisposable
     {
         // #1210 root cause: when the dispatch path emits a trailing event on
         // the same correlation id (e.g. StateChanged from
-        // ClearActiveThreadAsync after a non-zero exit, future
+        // ClearActiveConversationAsync after a non-zero exit, future
         // observability events from extension plugins, etc.), the inbox
         // predicate must NOT drop the row. The human still hasn't replied,
         // and the row has to stay visible until they do.

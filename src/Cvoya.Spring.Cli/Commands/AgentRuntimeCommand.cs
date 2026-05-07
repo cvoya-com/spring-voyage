@@ -42,7 +42,7 @@ public static class AgentRuntimeCommand
     {
         new("id", r => r.Id),
         new("displayName", r => r.DisplayName),
-        new("kind", r => r.Kind),
+        new("toolKind", r => r.ToolKind),
         new("defaultModel", r => r.DefaultModel),
         new("models", r => r.Models is null ? "" : string.Join(",", r.Models)),
     };

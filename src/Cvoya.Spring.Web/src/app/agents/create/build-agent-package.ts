@@ -122,7 +122,7 @@ export function buildAgentPackageYaml(state: AgentPackageFormState): string {
 
   // AI block — #1738 renames `ai.tool` → `ai.agent` to match the
   // post-#1732 wire shape (`agent` = runtime registry id; the server
-  // derives `kind`).
+  // derives `toolKind`).
   const hasAi = agent || model;
   if (hasAi) {
     lines.push("      ai:");

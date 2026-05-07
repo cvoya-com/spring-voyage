@@ -25,7 +25,7 @@ using Cvoya.Spring.Core.Messaging;
 /// <para>
 /// The coordinator holds zero Dapr-actor references. <see cref="RunDispatchAsync"/>
 /// receives delegate parameters so the actor can inject its own
-/// activity-emission and active-thread-clearing implementations without
+/// activity-emission and active-conversation-clearing implementations without
 /// the coordinator depending on Dapr actor types or scoped DI services.
 /// </para>
 /// <para>
@@ -48,7 +48,7 @@ public interface IAgentDispatchCoordinator
     /// This method runs outside the Dapr actor turn (fire-and-forget), so
     /// implementations MUST NOT touch actor state directly via
     /// <c>StateManager</c>. State mutations on failure are routed through
-    /// <paramref name="clearActiveThread"/> so the actor can schedule
+    /// <paramref name="clearActiveConversation"/> so the actor can schedule
     /// them as a self-call, which queues the mutation on the actor's own
     /// turn queue.
     /// </para>
@@ -80,8 +80,8 @@ public interface IAgentDispatchCoordinator
     /// though the actor's own <c>EmitActivityEventAsync</c> captures
     /// per-instance fields.
     /// </param>
-    /// <param name="clearActiveThread">
-    /// Delegate that clears the active-thread slot for the agent.
+    /// <param name="clearActiveConversation">
+    /// Delegate that clears the active-conversation slot for the agent.
     /// Called with a reason string whenever the dispatch terminates abnormally
     /// (cancelled, exception, or non-zero exit). The actor owns the
     /// self-call / direct-call decision (production vs. test harness); the
@@ -90,13 +90,13 @@ public interface IAgentDispatchCoordinator
     /// <param name="cancellationToken">
     /// The cancellation token tied to the actor's active-work CTS. When this
     /// token is cancelled the coordinator logs the cancellation and calls
-    /// <paramref name="clearActiveThread"/> before returning.
+    /// <paramref name="clearActiveConversation"/> before returning.
     /// </param>
     Task RunDispatchAsync(
         string agentId,
         Message message,
         PromptAssemblyContext context,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
-        Func<string, Task> clearActiveThread,
+        Func<string, Task> clearActiveConversation,
         CancellationToken cancellationToken = default);
 }

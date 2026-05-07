@@ -51,7 +51,7 @@ public class A2AExecutionDispatcher(
     IPromptAssembler promptAssembler,
     IAgentDefinitionProvider agentDefinitionProvider,
     IMcpServer mcpServer,
-    IEnumerable<IAgentRuntimeLauncher> launchers,
+    IEnumerable<IAgentToolLauncher> launchers,
     IAgentRuntimeRegistry agentRuntimeRegistry,
     IAgentContextBuilder agentContextBuilder,
     ITenantContext tenantContext,
@@ -76,12 +76,12 @@ public class A2AExecutionDispatcher(
         ?? throw new ArgumentNullException(nameof(agentContextBuilder));
     private readonly ITenantContext _tenantContext = tenantContext
         ?? throw new ArgumentNullException(nameof(tenantContext));
-    // #1732: launchers are keyed on their Kind (matching the runtime
-    // registry's IAgentRuntime.Kind). The dispatcher resolves a runtime
+    // #1732: launchers are keyed on their ToolKind (matching the runtime
+    // registry's IAgentRuntime.ToolKind). The dispatcher resolves a runtime
     // from the agent's persisted execution.agent slot, then picks the
-    // launcher whose Kind equals the runtime's Kind.
-    private readonly Dictionary<string, IAgentRuntimeLauncher> _launchersByKind =
-        launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
+    // launcher whose ToolKind equals the runtime's ToolKind.
+    private readonly Dictionary<string, IAgentToolLauncher> _launchersByToolKind =
+        launchers.ToDictionary(l => l.ToolKind, StringComparer.OrdinalIgnoreCase);
     private readonly IAgentRuntimeRegistry _agentRuntimeRegistry = agentRuntimeRegistry
         ?? throw new ArgumentNullException(nameof(agentRuntimeRegistry));
 
@@ -168,7 +168,7 @@ public class A2AExecutionDispatcher(
                 "or switch the agent to hosting: persistent.");
         }
 
-        var (kind, launcher) = ResolveLauncher(definition.Execution.AgentRuntimeId, agentId);
+        var (toolKind, launcher) = ResolveLauncher(definition.Execution.AgentRuntimeId, agentId);
 
         if (mcpServer.Endpoint is null)
         {
@@ -231,7 +231,7 @@ public class A2AExecutionDispatcher(
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
         var useDaprSidecar = string.Equals(
-            kind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
+            toolKind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
 
         string? containerId = null;
         string? sidecarId = null;
@@ -492,7 +492,7 @@ public class A2AExecutionDispatcher(
                 "or on the parent unit as a default (spring unit execution set --image).");
         }
 
-        var (kind, launcher) = ResolveLauncher(definition.Execution.AgentRuntimeId, agentId);
+        var (toolKind, launcher) = ResolveLauncher(definition.Execution.AgentRuntimeId, agentId);
 
         if (mcpServer.Endpoint is null)
         {
@@ -548,7 +548,7 @@ public class A2AExecutionDispatcher(
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
         var useDaprSidecar = string.Equals(
-            kind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
+            toolKind, SpringVoyageAgentLauncher.ToolId, StringComparison.OrdinalIgnoreCase);
 
         string containerId;
         string? sidecarId = null;
@@ -877,12 +877,12 @@ public class A2AExecutionDispatcher(
     /// <remarks>
     /// #1732: this is the single derivation point for the launcher. The agent
     /// definition stores the runtime id (<c>agent</c>), the registry maps it
-    /// to a <see cref="IAgentRuntime.Kind"/>, and the launcher dictionary
+    /// to a <see cref="IAgentRuntime.ToolKind"/>, and the launcher dictionary
     /// is keyed on the same value. Two distinct runtimes that share a
-    /// <c>Kind</c> (e.g. <c>openai</c> and <c>google</c> both =
+    /// <c>ToolKind</c> (e.g. <c>openai</c> and <c>google</c> both =
     /// <c>spring-voyage</c>) resolve to the same launcher.
     /// </remarks>
-    internal (string Kind, IAgentRuntimeLauncher Launcher) ResolveLauncher(
+    internal (string ToolKind, IAgentToolLauncher Launcher) ResolveLauncher(
         string agentRuntimeId,
         string agentId)
     {
@@ -892,14 +892,14 @@ public class A2AExecutionDispatcher(
                 $"(agent '{agentId}'). Install the runtime plugin or set " +
                 "ai.agent to a registered runtime id.");
 
-        if (!_launchersByKind.TryGetValue(runtime.Kind, out var launcher))
+        if (!_launchersByToolKind.TryGetValue(runtime.ToolKind, out var launcher))
         {
             throw new SpringException(
-                $"No IAgentRuntimeLauncher registered for tool kind '{runtime.Kind}' " +
+                $"No IAgentToolLauncher registered for tool kind '{runtime.ToolKind}' " +
                 $"(agent runtime '{agentRuntimeId}', agent '{agentId}').");
         }
 
-        return (runtime.Kind, launcher);
+        return (runtime.ToolKind, launcher);
     }
 
     /// <summary>
@@ -910,14 +910,14 @@ public class A2AExecutionDispatcher(
     /// </summary>
     private string SerialiseAgentDefinitionYaml(AgentDefinition definition)
     {
-        // #1732: emit the derived kind so containers can see which
-        // in-container engine was selected for this turn. The kind is
-        // sourced from the runtime registry (IAgentRuntime.Kind).
-        string? kind = null;
+        // #1732: emit the derived tool_kind so containers continue to see
+        // the same field they did pre-#1732 (one of the in-container probes
+        // reads it). The kind is sourced from the runtime registry.
+        string? toolKind = null;
         if (definition.Execution is not null)
         {
             var runtime = _agentRuntimeRegistry.Get(definition.Execution.AgentRuntimeId);
-            kind = runtime?.Kind;
+            toolKind = runtime?.ToolKind;
         }
 
         var doc = new
@@ -928,7 +928,7 @@ public class A2AExecutionDispatcher(
             execution = definition.Execution is null ? null : new
             {
                 agent = definition.Execution.AgentRuntimeId,
-                kind = kind,
+                tool_kind = toolKind,
                 image = definition.Execution.Image,
                 hosting = definition.Execution.Hosting.ToString().ToLowerInvariant(),
                 provider = definition.Execution.Provider,

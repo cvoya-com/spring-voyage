@@ -35,7 +35,7 @@ spring unit create my-team
 spring agent create my-agent \
     --role engineer \
     --unit my-team \
-    --agent claude \
+    --tool claude-code \
     --image ghcr.io/cvoya-com/spring-agent:latest
 
 # Look up the agent's id (display-name search), then send a message
@@ -46,7 +46,7 @@ spring message send agent:<id> "Hello, what can you do?"
 spring activity list --source unit:my-team --limit 20
 ```
 
-> `spring agent create` requires at least one `--unit`. Pick the agent's runtime via `--agent` (`claude`, `openai`, `google`, `ollama`, …) and supply richer execution config through `--definition-file` when needed; see [Managing Units and Agents](../user/units-and-agents.md) for the full set.
+> `spring agent create` requires at least one `--unit`. Pick the agent's runtime via `--tool` (`claude-code`, `codex`, `gemini`, `spring-voyage-agent`, `custom`) and supply richer execution config through `--definition-file` when needed; see [Managing Units and Agents](../user/units-and-agents.md) for the full set.
 
 ## See it in action
 

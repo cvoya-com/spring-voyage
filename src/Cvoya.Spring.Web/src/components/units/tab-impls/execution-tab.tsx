@@ -115,7 +115,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
   // differ from the persisted block. #1702: the legacy `runtime` field
   // is no longer surfaced from this panel, so it doesn't take part in
   // the dirty calculation. #1738: the operator-chosen runtime now lives
-  // in `agent` (a runtime-registry id); `kind` is server-derived
+  // in `agent` (a runtime-registry id); `toolKind` is server-derived
   // and read-only.
   const dirty = useMemo(() => {
     const current = persisted ?? {};
@@ -209,7 +209,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
   const handleSave = () => {
     // #1738: the wire shape now carries `agent` (operator-chosen runtime
     // id) only; the legacy `tool` field was retired in #1732. The
-    // server derives `kind` from the registry — read-only.
+    // server derives `toolKind` from the registry — read-only.
     // Provider stays gated on `spring-voyage`.
     const next: UnitExecutionResponse = {
       image: form.image ?? null,
@@ -298,7 +298,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
 
           {/* Agent Runtime — launcher key (#1702 renamed from "Tool";
               #1738 wire field renamed `tool` → `agent`). The server-
-              derived `kind` is shown as a read-only badge so
+              derived `toolKind` is shown as a read-only badge so
               operators can see which CLI shape the chosen runtime
               maps to without choosing it directly. */}
           <FieldRow
@@ -314,15 +314,15 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
                 options={EXECUTION_TOOL_KEYS}
                 unsetLabel="(leave to default)"
                 ariaLabel="Agent runtime"
-                testid="execution-agent-runtime-select"
+                testid="execution-tool-select"
               />
-              {persisted?.kind ? (
+              {persisted?.toolKind ? (
                 <Badge
                   variant="outline"
                   className="shrink-0 text-xs font-normal"
-                  data-testid="execution-agent-runtime-kind"
+                  data-testid="execution-tool-kind"
                 >
-                  {persisted.kind}
+                  {persisted.toolKind}
                 </Badge>
               ) : null}
             </div>

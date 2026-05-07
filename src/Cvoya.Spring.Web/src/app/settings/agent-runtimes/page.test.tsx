@@ -58,7 +58,7 @@ function makeRuntime(
   return {
     id: "claude",
     displayName: "Claude",
-    kind: "claude-code-cli",
+    toolKind: "claude-code-cli",
     installedAt: "2026-04-01T00:00:00Z",
     updatedAt: "2026-04-10T00:00:00Z",
     models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"],
@@ -94,7 +94,7 @@ describe("SettingsAgentRuntimesPage", () => {
       makeRuntime({
         id: "openai",
         displayName: "OpenAI",
-        kind: "spring-voyage",
+        toolKind: "spring-voyage",
         models: ["gpt-4o", "gpt-4o-mini"],
         defaultModel: "gpt-4o",
       }),

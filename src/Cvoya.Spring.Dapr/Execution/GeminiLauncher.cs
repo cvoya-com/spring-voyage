@@ -13,7 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// <see cref="IAgentRuntimeLauncher"/> for Gemini CLI containers. Describes a
+/// <see cref="IAgentToolLauncher"/> for Gemini CLI containers. Describes a
 /// per-invocation workspace containing:
 /// <list type="bullet">
 ///   <item><c>GEMINI.md</c> — the assembled system prompt (all four layers).
@@ -34,7 +34,7 @@ using Microsoft.Extensions.Logging;
 public class GeminiLauncher(
     IAgentRuntimeRegistry runtimeRegistry,
     IServiceScopeFactory scopeFactory,
-    ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
+    ILoggerFactory loggerFactory) : IAgentToolLauncher
 {
     /// <summary>
     /// Runtime id whose credential the Gemini launcher injects. Gemini
@@ -53,7 +53,7 @@ public class GeminiLauncher(
     /// Gemini agent runtime would declare. No <c>IAgentRuntime</c> currently
     /// resolves to this launcher; it ships ahead of the runtime.
     /// </remarks>
-    public string Kind => "gemini-cli";
+    public string ToolKind => "gemini-cli";
 
     /// <inheritdoc />
     public async Task<AgentLaunchSpec> PrepareAsync(

@@ -12,7 +12,7 @@ namespace Cvoya.Spring.Core.Messaging;
 /// <param name="From">The supervisor that authored the amendment.</param>
 /// <param name="Text">The free-form instruction body.</param>
 /// <param name="Priority">How urgently the amendment must be honoured.</param>
-/// <param name="CorrelationId">Optional correlation id — typically the active thread id.</param>
+/// <param name="CorrelationId">Optional correlation id — typically the active conversation id.</param>
 /// <param name="ReceivedAt">UTC timestamp when the amendment was accepted by the recipient.</param>
 public record PendingAmendment(
     Guid Id,

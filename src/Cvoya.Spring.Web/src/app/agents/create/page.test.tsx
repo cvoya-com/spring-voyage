@@ -105,7 +105,7 @@ function makeRuntime(
   return {
     id: overrides.id ?? "claude",
     displayName: overrides.displayName ?? "Claude",
-    kind: overrides.kind ?? "claude-code",
+    toolKind: overrides.toolKind ?? "claude-code",
     installedAt: overrides.installedAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
     models: overrides.models ?? ["claude-3-5-sonnet"],
@@ -199,7 +199,7 @@ describe("CreateAgentPage", () => {
     expect(screen.getByLabelText(/agent id/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^role$/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/agent runtime/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/execution tool/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/container image/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/container runtime/i)).toBeInTheDocument();
 

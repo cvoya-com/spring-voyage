@@ -12,7 +12,7 @@ public static class StateKeys
     /// <summary>
     /// State key for the currently active thread channel.
     /// </summary>
-    public const string ActiveThread = "Agent:ActiveThread";
+    public const string ActiveConversation = "Agent:ActiveConversation";
 
     /// <summary>
     /// State key for the list of pending thread channels.

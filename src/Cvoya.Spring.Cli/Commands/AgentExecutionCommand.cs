@@ -61,7 +61,7 @@ public static class AgentExecutionCommand
                     image = shape.Image,
                     runtime = shape.Runtime,
                     agent_runtime = shape.Agent,
-                    kind = shape.Kind,
+                    tool_kind = shape.ToolKind,
                     provider = shape.Provider,
                     model = shape.Model,
                     hosting = shape.Hosting,
@@ -73,9 +73,9 @@ public static class AgentExecutionCommand
             Console.WriteLine($"  image:         {shape.Image ?? "(inherited / unset)"}");
             Console.WriteLine($"  runtime:       {shape.Runtime ?? "(inherited / unset)"}");
             Console.WriteLine($"  agent_runtime: {shape.Agent ?? "(inherited / unset)"}");
-            // #1732: kind is read-only — derived from agent_runtime via
+            // #1732: tool_kind is read-only — derived from agent_runtime via
             // the runtime registry.
-            Console.WriteLine($"  kind:     {shape.Kind ?? "(derived from agent_runtime)"}");
+            Console.WriteLine($"  tool_kind:     {shape.ToolKind ?? "(derived from agent_runtime)"}");
             Console.WriteLine($"  provider:      {shape.Provider ?? "(inherited / unset)"}");
             Console.WriteLine($"  model:         {shape.Model ?? "(inherited / unset)"}");
             Console.WriteLine($"  hosting:       {shape.Hosting ?? "(default: ephemeral)"}");
@@ -100,7 +100,7 @@ public static class AgentExecutionCommand
         var agentRuntimeOption = new Option<string?>("--agent")
         {
             Description = "Agent runtime registry id (e.g. claude, openai, google, ollama). " +
-                "Drives launcher selection at dispatch via IAgentRuntime.Kind.",
+                "Drives launcher selection at dispatch via IAgentRuntime.ToolKind.",
         };
 
         var providerOption = new Option<string?>("--provider")
@@ -170,7 +170,7 @@ public static class AgentExecutionCommand
                     image = stored.Image,
                     runtime = stored.Runtime,
                     agent_runtime = stored.Agent,
-                    kind = stored.Kind,
+                    tool_kind = stored.ToolKind,
                     provider = stored.Provider,
                     model = stored.Model,
                     hosting = stored.Hosting,
@@ -182,7 +182,7 @@ public static class AgentExecutionCommand
                 Console.WriteLine($"  image:         {stored.Image ?? "(inherited / unset)"}");
                 Console.WriteLine($"  runtime:       {stored.Runtime ?? "(inherited / unset)"}");
                 Console.WriteLine($"  agent_runtime: {stored.Agent ?? "(inherited / unset)"}");
-                Console.WriteLine($"  kind:     {stored.Kind ?? "(derived from agent_runtime)"}");
+                Console.WriteLine($"  tool_kind:     {stored.ToolKind ?? "(derived from agent_runtime)"}");
                 Console.WriteLine($"  provider:      {stored.Provider ?? "(inherited / unset)"}");
                 Console.WriteLine($"  model:         {stored.Model ?? "(inherited / unset)"}");
                 Console.WriteLine($"  hosting:       {stored.Hosting ?? "(default: ephemeral)"}");
@@ -196,7 +196,7 @@ public static class AgentExecutionCommand
     {
         var agentArg = new Argument<string>("agent") { Description = "The agent identifier" };
         // #1732: tool was dropped — agent (the runtime registry id) is the
-        // input; kind is derived from it server-side.
+        // input; tool_kind is derived from it server-side.
         var fieldKeys = new[] { "image", "runtime", "agent", "provider", "model", "hosting" };
         var fieldOption = new Option<string?>("--field")
         {

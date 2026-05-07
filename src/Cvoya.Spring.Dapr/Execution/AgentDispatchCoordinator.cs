@@ -37,7 +37,7 @@ public class AgentDispatchCoordinator(
         Message message,
         PromptAssemblyContext context,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
-        Func<string, Task> clearActiveThread,
+        Func<string, Task> clearActiveConversation,
         CancellationToken cancellationToken = default)
     {
         try
@@ -53,7 +53,7 @@ public class AgentDispatchCoordinator(
                 // must be released so the next message can be dispatched
                 // instead of being queued forever as pending. See the success
                 // branch below for the same rationale.
-                await clearActiveThread("dispatch returned no response");
+                await clearActiveConversation("dispatch returned no response");
                 return;
             }
 
@@ -88,7 +88,7 @@ public class AgentDispatchCoordinator(
                 // ordered correctly in the thread event log.
                 await TryRouteResponseAsync(agentId, response, message.ThreadId, cancellationToken);
 
-                await clearActiveThread($"dispatch exit code {failure.ExitCode}");
+                await clearActiveConversation($"dispatch exit code {failure.ExitCode}");
                 return;
             }
 
@@ -96,10 +96,10 @@ public class AgentDispatchCoordinator(
 
             // The successful turn is complete: the dispatcher returned a
             // response and we routed it back to the original sender. The
-            // actor's ActiveThread slot must be released so the next
+            // actor's ActiveConversation slot must be released so the next
             // message dispatched to this agent can run, instead of being
             // queued behind a thread the actor has actually finished with.
-            // The error/cancel branches above call clearActiveThread
+            // The error/cancel branches above call clearActiveConversation
             // for the same reason — without an explicit clear here, an
             // agent that ever completes a turn successfully looks bricked
             // to every later sender, including the very human it just
@@ -109,7 +109,7 @@ public class AgentDispatchCoordinator(
             // appended to the dead active channel (Case 2 in
             // HandleDomainMessageAsync) or queued as pending (Case 3) and
             // never dispatched.
-            await clearActiveThread("dispatch completed");
+            await clearActiveConversation("dispatch completed");
         }
         catch (OperationCanceledException)
         {
@@ -119,7 +119,7 @@ public class AgentDispatchCoordinator(
             // (Case 3 in HandleDomainMessageAsync queues them as pending
             // forever) and the agent looks bricked from the user's
             // perspective. The non-zero exit and generic-exception
-            // branches above already call clearActiveThread for
+            // branches above already call clearActiveConversation for
             // exactly this reason; the cancel branch must too.
             // Discovered post-Stage-2 cutover (#1063 / #522 follow-up):
             // a worker-side HttpClient timeout surfaced as
@@ -130,7 +130,7 @@ public class AgentDispatchCoordinator(
                 "Dispatch cancelled for actor {ActorId} thread {ThreadId}.",
                 agentId, message.ThreadId);
 
-            await clearActiveThread("dispatch cancelled");
+            await clearActiveConversation("dispatch cancelled");
         }
         catch (Exception ex)
         {
@@ -153,7 +153,7 @@ public class AgentDispatchCoordinator(
                     })),
                 CancellationToken.None);
 
-            await clearActiveThread($"dispatch exception: {ex.GetType().Name}");
+            await clearActiveConversation($"dispatch exception: {ex.GetType().Name}");
         }
     }
 

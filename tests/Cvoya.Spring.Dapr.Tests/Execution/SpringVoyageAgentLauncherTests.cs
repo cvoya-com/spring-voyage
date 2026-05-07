@@ -93,11 +93,11 @@ public class SpringVoyageAgentLauncherTests
     }
 
     [Fact]
-    public void Kind_IsSpringVoyage()
+    public void ToolKind_IsSpringVoyage()
     {
-        // #1732: launcher key matches IAgentRuntime.Kind. Multiple
+        // #1732: launcher key matches IAgentRuntime.ToolKind. Multiple
         // runtimes (openai/google/ollama) share spring-voyage.
-        _launcher.Kind.ShouldBe("spring-voyage");
+        _launcher.ToolKind.ShouldBe("spring-voyage");
     }
 
     // Issue #1042: launchers must not materialise workspace dirs on the

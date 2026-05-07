@@ -123,7 +123,8 @@ public class SpringApiClientTests
             responseBody: $"{{\"id\":\"{agentGuid}\",\"name\":\"ada\",\"displayName\":\"Ada\",\"role\":\"coder\"}}",
             validateRequestBody: body =>
             {
-                // Server now auto-generates the agent GUID — name is not sent on the wire.
+                // Server now auto-generates the agent GUID, so the create
+                // request body no longer carries a user-supplied name.
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
                 json.TryGetProperty("name", out _).ShouldBeFalse();
                 json.GetProperty("displayName").GetString().ShouldBe("Ada");

@@ -4,10 +4,10 @@
 namespace Cvoya.Spring.Core.AgentRuntimes;
 
 /// <summary>
-/// Describes an agent runtime — a plugin bundling an in-container execution
-/// engine (e.g. <c>claude-code-cli</c>, <c>codex-cli</c>, <c>spring-voyage</c>)
-/// with a compatible LLM backend, its credential schema, and its supported
-/// model catalog. The API layer, wizard, and CLI consume this abstraction via
+/// Describes an agent runtime — a plugin bundling an execution tool
+/// (e.g. <c>claude-code-cli</c>, <c>codex-cli</c>, <c>spring-voyage</c>) with a
+/// compatible LLM backend, its credential schema, and its supported model
+/// catalog. The API layer, wizard, and CLI consume this abstraction via
 /// dependency injection and never import any concrete runtime package, so a
 /// new runtime lands by registering one more <see cref="IAgentRuntime"/>
 /// implementation in DI and shipping its library alongside.
@@ -21,7 +21,7 @@ namespace Cvoya.Spring.Core.AgentRuntimes;
 /// <see cref="Id"/>.
 /// </para>
 /// <para>
-/// The <see cref="Kind"/> groups runtimes by the in-container engine they use
+/// The <see cref="ToolKind"/> groups runtimes by the execution tool they use
 /// (e.g. multiple runtimes may share <c>spring-voyage</c>). This lets the host
 /// reason about container baseline requirements without knowing the full
 /// runtime list.
@@ -59,12 +59,12 @@ public interface IAgentRuntime
     string DisplayName { get; }
 
     /// <summary>
-    /// Identifier for the in-container engine this runtime uses — for example
+    /// Identifier for the execution tool this runtime uses — for example
     /// <c>claude-code-cli</c>, <c>codex-cli</c>, or <c>spring-voyage</c>. Two
-    /// distinct runtimes may share the same kind if they differ only in
+    /// distinct runtimes may share the same tool kind if they differ only in
     /// the LLM backend they target.
     /// </summary>
-    string Kind { get; }
+    string ToolKind { get; }
 
     /// <summary>
     /// Describes the credential shape the runtime expects (API key, OAuth

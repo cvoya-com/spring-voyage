@@ -180,11 +180,11 @@ Each unit owns an optional `execution:` block that acts as the **default contain
 | ---------- | -------------------------------------------------------------------------------------------------- |
 | `image`    | Container image reference (e.g. `ghcr.io/...:tag`, `spring-agent:latest`).                         |
 | `runtime`  | Container runtime (`docker` or `podman`).                                                          |
-| `agent`    | Agent runtime registry id (e.g. `claude`, `openai`, `google`, `ollama`). The dispatcher derives the launcher from this via `IAgentRuntime.Kind` (#1732). |
-| `provider` | LLM provider. Meaningful only when the resolved runtime kind is `spring-voyage` (#598 gating).        |
-| `model`    | Model identifier. Meaningful only when the resolved runtime kind is `spring-voyage` (#598 gating).    |
+| `agent`    | Agent runtime registry id (e.g. `claude`, `openai`, `google`, `ollama`). The dispatcher derives the launcher from this via `IAgentRuntime.ToolKind` (#1732). |
+| `provider` | LLM provider. Meaningful only when the resolved tool kind is `spring-voyage` (#598 gating).        |
+| `model`    | Model identifier. Meaningful only when the resolved tool kind is `spring-voyage` (#598 gating).    |
 
-> **#1732:** `tool:` was dropped from the manifest, persistence, REST DTOs, and CLI. The execution tool is now derived 1:1 from `agent` via the runtime registry's `IAgentRuntime.Kind` (e.g. `agent: claude` → `kind: claude-code-cli`). REST responses include a read-only `kind` derived field; the CLI prints it next to `agent` on `execution get` / `set`. Legacy YAML carrying `execution.tool:` is rejected with `LegacyExecutionToolField` and a migration hint.
+> **#1732:** `tool:` was dropped from the manifest, persistence, REST DTOs, and CLI. The execution tool is now derived 1:1 from `agent` via the runtime registry's `IAgentRuntime.ToolKind` (e.g. `agent: claude` → `tool_kind: claude-code-cli`). REST responses include a read-only `toolKind` derived field; the CLI prints it next to `agent` on `execution get` / `set`. Legacy YAML carrying `execution.tool:` is rejected with `LegacyExecutionToolField` and a migration hint.
 
 Every field is **independently optional and independently clearable** — a unit can declare only `runtime: podman` and leave `image`, `agent`, etc. for each member agent to provide.
 
@@ -196,13 +196,13 @@ Every field is **independently optional and independently clearable** — a unit
 
 `hosting` (ephemeral vs persistent) is **agent-exclusive** — a unit cannot change whether an agent is ephemeral or persistent.
 
-**Runtime-kind gating.** `provider` and `model` are only meaningful when the resolved runtime kind (derived from `agent` via the registry) is `spring-voyage`. The portal's Execution tab hides those fields when another runtime kind resolves; the CLI accepts them unconditionally but they are ignored at dispatch for non-`spring-voyage` launchers. This matches the symmetric gating on unit creation from #598.
+**Tool-kind gating.** `provider` and `model` are only meaningful when the resolved tool kind (derived from `agent` via the registry) is `spring-voyage`. The portal's Execution tab hides those fields when another tool kind resolves; the CLI accepts them unconditionally but they are ignored at dispatch for non-`spring-voyage` launchers. This matches the symmetric gating on unit creation from #598.
 
 **Save-time validation.** The portal and CLI reject a save whenever ephemeral hosting is declared on an agent and no resolvable image exists on either the agent or the unit. This surfaces the error when the operator is still editing rather than deferring to dispatch.
 
 **Persistence and surfaces.**
 
-- **Wire shape.** Both HTTP (`GET / PUT / DELETE /api/v1/units/{id}/execution`, `/api/v1/agents/{id}/execution`) and manifest apply write through `IUnitExecutionStore` / `IAgentExecutionStore` so the on-disk JSON cannot drift between the two entry points. Responses additionally include a server-derived `kind` field; clients cannot set this field on requests.
+- **Wire shape.** Both HTTP (`GET / PUT / DELETE /api/v1/units/{id}/execution`, `/api/v1/agents/{id}/execution`) and manifest apply write through `IUnitExecutionStore` / `IAgentExecutionStore` so the on-disk JSON cannot drift between the two entry points. Responses additionally include a server-derived `toolKind` field; clients cannot set this field on requests.
 - **Manifest.** A unit YAML's `execution:` block is persisted on `UnitDefinitions.Definition` under `execution`; the manifest applier no longer warns "unsupported section" for it. `execution.tool:` is rejected with `LegacyExecutionToolField`.
 - **CLI.** `spring unit execution get|set|clear` and `spring agent execution get|set|clear` with `--image / --runtime / --agent / --provider / --model` (plus `--hosting` on the agent verb). `clear` without arguments strips the whole block; `clear --field X` clears one field.
 - **Portal.** A dedicated Execution tab on the unit detail page and an Execution panel on the agent detail page (delivered in the companion portal PR).

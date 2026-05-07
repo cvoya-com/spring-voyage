@@ -86,7 +86,7 @@ public class CreateCloneActorActivityTests
 
         // Should not read active conversation or initiative state for copy.
         await _stateStore.DidNotReceive().GetAsync<object>(
-            $"parent-agent:{StateKeys.ActiveThread}", Arg.Any<CancellationToken>());
+            $"parent-agent:{StateKeys.ActiveConversation}", Arg.Any<CancellationToken>());
         await _stateStore.DidNotReceive().GetAsync<object>(
             $"parent-agent:{StateKeys.InitiativeState}", Arg.Any<CancellationToken>());
     }
@@ -98,12 +98,12 @@ public class CreateCloneActorActivityTests
             "parent-agent", "clone-1",
             CloningPolicy.EphemeralWithMemory, AttachmentMode.Attached);
 
-        var activeThread = new object();
+        var activeConversation = new object();
         var initiativeState = new object();
 
         _stateStore.GetAsync<object>(
-            $"parent-agent:{StateKeys.ActiveThread}", Arg.Any<CancellationToken>())
-            .Returns(activeThread);
+            $"parent-agent:{StateKeys.ActiveConversation}", Arg.Any<CancellationToken>())
+            .Returns(activeConversation);
         _stateStore.GetAsync<object>(
             $"parent-agent:{StateKeys.InitiativeState}", Arg.Any<CancellationToken>())
             .Returns(initiativeState);
@@ -111,8 +111,8 @@ public class CreateCloneActorActivityTests
         await _activity.RunAsync(_context, input);
 
         await _stateStore.Received(1).SetAsync(
-            $"clone-1:{StateKeys.ActiveThread}",
-            activeThread,
+            $"clone-1:{StateKeys.ActiveConversation}",
+            activeConversation,
             Arg.Any<CancellationToken>());
         await _stateStore.Received(1).SetAsync(
             $"clone-1:{StateKeys.InitiativeState}",
