@@ -204,6 +204,10 @@ modelProviders:
     llmApiContract:
       name: anthropic
       version: v1
+    defaultModels:
+      - claude-opus-4-7
+      - claude-sonnet-4-6
+      - claude-haiku-4-5-20251001
   - id: openai
     displayName: OpenAI
     apiBaseUrl: https://api.openai.com
@@ -213,6 +217,10 @@ modelProviders:
     llmApiContract:
       name: openai
       version: v1
+    defaultModels:
+      - gpt-4o
+      - gpt-4o-mini
+      - gpt-4-turbo
   - id: google
     displayName: Google
     apiBaseUrl: https://generativelanguage.googleapis.com
@@ -222,6 +230,10 @@ modelProviders:
     llmApiContract:
       name: google
       version: v1
+    defaultModels:
+      - gemini-2.0-flash
+      - gemini-1.5-pro
+      - gemini-1.5-flash
   - id: ollama
     displayName: Ollama
     apiBaseUrl: http://localhost:11434
@@ -231,6 +243,10 @@ modelProviders:
     llmApiContract:                      # Ollama exposes an OpenAI-compatible chat-completions surface
       name: openai
       version: v1
+    defaultModels:
+      - llama3.2:3b
+      - llama3.2:1b
+      - qwen2.5:7b
 
 agentRuntimes:
   # See decision 2 for the agent-runtime entries; they reference modelProviders by id.
@@ -245,6 +261,8 @@ New providers can be added config-only when they are OpenAI-compatible. Otherwis
 **`authMethods`** lists the auth mechanisms the provider's API will accept. Closed enum: `oauth | api-key`. An empty list (`[]`) denotes a provider that requires no credential — Ollama's local endpoint, in v0.1. Per-runtime per-provider entries (decision 2) name a single `authMethod` from this list when one is required; for providers with an empty `authMethods` list the per-edge `authMethod` field is omitted entirely. There is no `none` token in the schema — absence is the representation.
 
 **`llmApiContract`** names the LLM API surface the provider implements, as a structured `{name, version}` value. Closed enum on `name`: `anthropic | openai | google` for v0.1. The version is currently `v1` for every contract; including it explicitly leaves room for a future Anthropic Messages API v2, OpenAI v2, etc., without rewriting the schema.
+
+**`defaultModels`** is the seed list of model ids the platform ships for the provider until live-fetch (`modelsEndpoint` consumed by the adapter's `FetchLiveModelsAsync`) is wired up. Plain string ids — no display names, no context windows, no other metadata. Once live fetch is implemented, the live response replaces this list and the YAML's `defaultModels` becomes the cold-start seed used the first time the platform talks to the provider (and the fallback when live fetch is unavailable, e.g. an offline Ollama host or a provider rate-limit). Tenants can add or override models via per-install configuration (`AgentRuntimeInstallConfig`), unchanged by this ADR. Schema validation does **not** pin the model ids — the list is allowed to grow without a schema bump.
 
 The platform maps `llmApiContract` → Dapr Conversation component by convention: the in-tree Dapr component file lives at `dapr/components/llm-{provider.id}.yaml` with `metadata.name: llm-{provider.id}`. Two providers that share a contract still ship distinct component files because Dapr requires the connection metadata (base URL, credentials) on each component's YAML; the *contract* tells the platform which adapter strategy to dispatch through, the *component file* tells Dapr how to reach the actual endpoint. The Dapr `type:` field stays `conversation.<provider>` — that is Dapr's contract, not ours.
 
