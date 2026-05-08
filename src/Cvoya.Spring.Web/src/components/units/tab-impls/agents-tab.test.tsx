@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  act,
   fireEvent,
   render,
   screen,
@@ -17,6 +16,15 @@ import type {
   UnitMembershipResponse,
 } from "@/lib/api/types";
 
+interface AgentCreateDialogMockProps {
+  unitId: string;
+  unitDisplayName: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+const agentCreateDialogMock = vi.hoisted(() => vi.fn());
+
 // Mock the API module: only the calls the tab actually makes need to be
 // defined. Anything else left undefined would throw if accidentally called.
 const listUnitMemberships =
@@ -26,10 +34,9 @@ const upsertUnitMembership = vi.fn();
 const deleteUnitMembership = vi.fn();
 // ADR-0038: MembershipDialog sources its Model dropdown from the
 // model-providers endpoint via `useModelProviders`, so this stub is
-// required whenever the dialog opens.
+// required whenever the edit dialog opens.
 const listModelProviders =
   vi.fn<() => Promise<InstalledModelProviderResponse[]>>();
-const createAgent = vi.fn();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -40,13 +47,35 @@ vi.mock("@/lib/api/client", () => ({
     deleteUnitMembership: (...args: unknown[]) =>
       deleteUnitMembership(...args),
     listModelProviders: () => listModelProviders(),
-    createAgent: (body: unknown) => createAgent(body),
   },
 }));
 
 const toastMock = vi.fn();
 vi.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: toastMock }),
+}));
+
+vi.mock("@/components/agents/create-dialog", () => ({
+  AgentCreateDialog: (props: AgentCreateDialogMockProps) => {
+    agentCreateDialogMock(props);
+    if (!props.open) return null;
+    return (
+      <div
+        role="dialog"
+        aria-label="Create agent"
+        data-testid="agent-create-dialog"
+        data-unit-id={props.unitId}
+        data-unit-display-name={props.unitDisplayName}
+      >
+        <button
+          type="button"
+          onClick={() => props.onOpenChange(false)}
+        >
+          Close create dialog
+        </button>
+      </div>
+    );
+  },
 }));
 
 import { AgentsTab } from "./agents-tab";
@@ -60,10 +89,13 @@ function Wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
-function renderAgentsTab(unitId: string) {
+function renderAgentsTab(
+  unitId: string,
+  unitDisplayName = "Engineering",
+) {
   return render(
     <Wrapper>
-      <AgentsTab unitId={unitId} />
+      <AgentsTab unitId={unitId} unitDisplayName={unitDisplayName} />
     </Wrapper>,
   );
 }
@@ -140,9 +172,9 @@ describe("AgentsTab", () => {
     upsertUnitMembership.mockReset();
     deleteUnitMembership.mockReset();
     listModelProviders.mockReset();
-    createAgent.mockReset();
     toastMock.mockReset();
-    // Every dialog-opening test needs the runtimes list available; the
+    agentCreateDialogMock.mockReset();
+    // Every edit-dialog test needs the runtimes list available; the
     // couple of tests that never open the dialog also benefit from a
     // stable default so no path triggers an unmocked call.
     listModelProviders.mockResolvedValue(DEFAULT_PROVIDERS);
@@ -168,6 +200,50 @@ describe("AgentsTab", () => {
     ).toBeEnabled();
   });
 
+  it("opens AgentCreateDialog with the current unit and refreshes memberships on close", async () => {
+    listUnitMemberships.mockResolvedValue([]);
+    listAgents.mockResolvedValue([]);
+
+    renderAgentsTab("engineering", "Engineering Team");
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /add agent/i }),
+      ).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
+
+    const dialog = await screen.findByTestId("agent-create-dialog");
+    expect(dialog).toHaveAttribute("data-unit-id", "engineering");
+    expect(dialog).toHaveAttribute(
+      "data-unit-display-name",
+      "Engineering Team",
+    );
+    expect(agentCreateDialogMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        unitId: "engineering",
+        unitDisplayName: "Engineering Team",
+        open: true,
+        onOpenChange: expect.any(Function),
+      }),
+    );
+
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name: /close create dialog/i,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("agent-create-dialog")).toBeNull();
+    });
+    await waitFor(() => {
+      expect(listUnitMemberships).toHaveBeenCalledTimes(2);
+      expect(listAgents).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("lists memberships with display names and per-membership config", async () => {
     const ada = makeAgent({ name: "ada", displayName: "Ada" });
     listAgents.mockResolvedValue([ada]);
@@ -189,70 +265,7 @@ describe("AgentsTab", () => {
     expect(screen.getByText(/claude-sonnet-4-6/)).toBeInTheDocument();
   });
 
-  it("opens the Add dialog, submits the correct PUT payload, and refreshes the row", async () => {
-    const hopper = makeAgent({ name: "hopper", displayName: "Hopper" });
-    listAgents.mockResolvedValue([hopper]);
-    listUnitMemberships.mockResolvedValue([]);
-
-    const saved = makeMembership({
-      agentAddress: "hopper",
-      model: "claude-opus-4-7",
-      specialty: "architect",
-      enabled: true,
-      executionMode: "OnDemand",
-    });
-    upsertUnitMembership.mockResolvedValue(saved);
-
-    renderAgentsTab("engineering");
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /add agent/i }),
-      ).toBeEnabled();
-    });
-    fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
-
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/Add agent to unit/i)).toBeInTheDocument();
-
-    fireEvent.change(within(dialog).getByLabelText(/^Agent$/i), {
-      target: { value: "hopper" },
-    });
-    fireEvent.change(within(dialog).getByLabelText(/^Model$/i), {
-      target: { value: "claude-opus-4-7" },
-    });
-    fireEvent.change(within(dialog).getByLabelText(/^Specialty$/i), {
-      target: { value: "architect" },
-    });
-    fireEvent.change(within(dialog).getByLabelText(/Execution mode/i), {
-      target: { value: "OnDemand" },
-    });
-
-    fireEvent.click(within(dialog).getByRole("button", { name: /add agent/i }));
-
-    await waitFor(() => {
-      expect(upsertUnitMembership).toHaveBeenCalledWith(
-        "engineering",
-        "hopper",
-        {
-          model: "claude-opus-4-7",
-          specialty: "architect",
-          enabled: true,
-          executionMode: "OnDemand",
-        },
-      );
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
-    });
-    expect(screen.getByText("Hopper")).toBeInTheDocument();
-    expect(toastMock).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Agent added" }),
-    );
-  });
-
-  it("pre-populates the Edit dialog from the existing membership", async () => {
+  it("pre-populates the edit MembershipDialog from the existing membership", async () => {
     const ada = makeAgent({ name: "ada", displayName: "Ada" });
     listAgents.mockResolvedValue([ada]);
     listUnitMemberships.mockResolvedValue([
@@ -283,8 +296,10 @@ describe("AgentsTab", () => {
     fireEvent.click(screen.getByRole("button", { name: /Edit Ada/i }));
 
     const dialog = await screen.findByRole("dialog");
-    // The agent field is read-only in edit mode; the header calls it out.
     expect(within(dialog).getByText(/Edit membership/i)).toBeInTheDocument();
+    expect(
+      within(dialog).getByTestId("membership-dialog-agent-header"),
+    ).toHaveTextContent("Ada");
     expect(
       (within(dialog).getByLabelText(/^Model$/i) as HTMLSelectElement).value,
     ).toBe("claude-opus-4-7");
@@ -312,6 +327,9 @@ describe("AgentsTab", () => {
         expect.objectContaining({ model: "claude-sonnet-4-6" }),
       );
     });
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Membership updated" }),
+    );
   });
 
   it("does not call DELETE when the user cancels the confirm dialog", async () => {
@@ -374,249 +392,5 @@ describe("AgentsTab", () => {
     expect(toastMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Agent removed" }),
     );
-  });
-
-  it("keeps the Add dialog open and surfaces the error on 400", async () => {
-    const hopper = makeAgent({ name: "hopper", displayName: "Hopper" });
-    listAgents.mockResolvedValue([hopper]);
-    listUnitMemberships.mockResolvedValue([]);
-
-    upsertUnitMembership.mockRejectedValue(
-      new Error("API error 400: Bad Request — model is required"),
-    );
-
-    renderAgentsTab("engineering");
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /add agent/i }),
-      ).toBeEnabled();
-    });
-    fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
-
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText(/^Agent$/i), {
-      target: { value: "hopper" },
-    });
-
-    await act(async () => {
-      fireEvent.click(
-        within(dialog).getByRole("button", { name: /add agent/i }),
-      );
-    });
-
-    // Dialog must remain open so the user can fix the input.
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent(/model is required/);
-  });
-
-  it("only lists agents not already members of THIS unit in the picker", async () => {
-    const ada = makeAgent({
-      name: "ada",
-      displayName: "Ada",
-      parentUnit: "engineering",
-    });
-    const hopper = makeAgent({
-      name: "hopper",
-      displayName: "Hopper",
-      parentUnit: "marketing",
-    });
-    listAgents.mockResolvedValue([ada, hopper]);
-    listUnitMemberships.mockResolvedValue([
-      makeMembership({ agentAddress: "ada" }),
-    ]);
-
-    renderAgentsTab("engineering");
-    await waitFor(() => {
-      expect(screen.getByText("Ada")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
-    const dialog = await screen.findByRole("dialog");
-
-    // ada is already a member → excluded; hopper belongs to a different unit
-    // but is eligible under M:N.
-    const agentSelect = within(dialog).getByLabelText(
-      /^Agent$/i,
-    ) as HTMLSelectElement;
-    const options = Array.from(agentSelect.options).map((o) => o.value);
-    expect(options).toContain("hopper");
-    expect(options).not.toContain("ada");
-  });
-
-  it("sources the Model dropdown from the tenant-installed model providers (ADR-0038)", async () => {
-    const hopper = makeAgent({ name: "hopper", displayName: "Hopper" });
-    listAgents.mockResolvedValue([hopper]);
-    listUnitMemberships.mockResolvedValue([]);
-    // Override the default to prove the dropdown reflects the mocked
-    // model-providers payload rather than any hardcoded provider list.
-    listModelProviders.mockResolvedValue([
-      {
-        id: "openai",
-        displayName: "OpenAI",
-        models: ["gpt-4o", "o3-mini"],
-        defaultModel: "gpt-4o",
-      } as unknown as InstalledModelProviderResponse,
-    ]);
-
-    renderAgentsTab("engineering");
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /add agent/i }),
-      ).toBeEnabled();
-    });
-    fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
-
-    const dialog = await screen.findByRole("dialog");
-    await waitFor(() => {
-      expect(listModelProviders).toHaveBeenCalled();
-    });
-
-    const modelSelect = await waitFor(() => {
-      const select = within(dialog).getByLabelText(
-        /^Model$/i,
-      ) as HTMLSelectElement;
-      expect(
-        Array.from(select.options).map((o) => o.value),
-      ).toContain("gpt-4o");
-      return select;
-    });
-
-    const options = Array.from(modelSelect.options).map((o) => o.value);
-    expect(options).toContain("gpt-4o");
-    expect(options).toContain("o3-mini");
-    // The retired hardcoded catalog would have included Claude models;
-    // the single-runtime mock above proves the dropdown no longer
-    // inlines that static list.
-    expect(options).not.toContain("claude-sonnet-4-6");
-  });
-
-  describe("inline-create (#1040)", () => {
-    it("renders the +New agent toggle inside the Add dialog", async () => {
-      listUnitMemberships.mockResolvedValue([]);
-      listAgents.mockResolvedValue([]);
-
-      renderAgentsTab("engineering");
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole("button", { name: /add agent/i }),
-        ).toBeEnabled();
-      });
-      fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
-
-      const dialog = await screen.findByRole("dialog");
-      expect(
-        within(dialog).getByTestId("membership-dialog-new-agent"),
-      ).toBeInTheDocument();
-    });
-
-    it("creates an agent against the current unit and refreshes the row", async () => {
-      listUnitMemberships
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([
-          makeMembership({ agentAddress: "ada", model: null }),
-        ]);
-      listAgents
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([
-          makeAgent({ name: "ada", displayName: "Ada Lovelace" }),
-        ]);
-      createAgent.mockResolvedValue(
-        makeAgent({ name: "ada", displayName: "Ada Lovelace" }),
-      );
-
-      renderAgentsTab("engineering");
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole("button", { name: /add agent/i }),
-        ).toBeEnabled();
-      });
-      fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
-
-      const dialog = await screen.findByRole("dialog");
-      fireEvent.click(
-        within(dialog).getByTestId("membership-dialog-new-agent"),
-      );
-
-      // Sub-mode swap: title flips to "Create new agent".
-      await waitFor(() => {
-        expect(
-          within(screen.getByRole("dialog")).getByText(/Create new agent/i),
-        ).toBeInTheDocument();
-      });
-
-      const createDialog = screen.getByRole("dialog");
-      fireEvent.change(
-        within(createDialog).getByTestId(
-          "membership-dialog-inline-create-display-name",
-        ),
-        { target: { value: "Ada Lovelace" } },
-      );
-
-      await act(async () => {
-        fireEvent.click(
-          within(createDialog).getByTestId(
-            "membership-dialog-inline-create-submit",
-          ),
-        );
-      });
-
-      await waitFor(() => {
-        expect(createAgent).toHaveBeenCalledTimes(1);
-      });
-      // Server auto-generates the agent GUID — name is not part of the wire body.
-      expect(createAgent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          displayName: "Ada Lovelace",
-          unitIds: ["engineering"],
-        }),
-      );
-      await waitFor(() => {
-        expect(screen.queryByRole("dialog")).toBeNull();
-      });
-      // Memberships re-fetched: the new row appears.
-      expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
-      expect(toastMock).toHaveBeenCalledWith(
-        expect.objectContaining({ title: "Agent created" }),
-      );
-    });
-
-    it("rejects an empty display name inline without calling the API", async () => {
-      listUnitMemberships.mockResolvedValue([]);
-      listAgents.mockResolvedValue([]);
-
-      renderAgentsTab("engineering");
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole("button", { name: /add agent/i }),
-        ).toBeEnabled();
-      });
-      fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
-
-      const dialog = await screen.findByRole("dialog");
-      fireEvent.click(
-        within(dialog).getByTestId("membership-dialog-new-agent"),
-      );
-
-      // Leave display name empty and submit — should surface a validation error.
-      const createDialog = screen.getByRole("dialog");
-      fireEvent.click(
-        within(createDialog).getByTestId(
-          "membership-dialog-inline-create-submit",
-        ),
-      );
-
-      await waitFor(() => {
-        expect(
-          within(screen.getByRole("dialog")).getByTestId(
-            "membership-dialog-inline-create-error",
-          ),
-        ).toHaveTextContent(/display name/i);
-      });
-      expect(createAgent).not.toHaveBeenCalled();
-    });
   });
 });

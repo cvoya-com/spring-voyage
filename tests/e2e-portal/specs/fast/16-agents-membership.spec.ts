@@ -4,12 +4,12 @@ import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js"
 import { expect, test } from "../../fixtures/test.js";
 
 /**
- * Unit's Agents tab → membership dialog (assign / remove).
+ * Unit's Agents tab → create-agent dialog (create / remove).
  *
  * Mirrors `tests/e2e/scenarios/fast/06-unit-membership-roundtrip.sh`. The
- * shell scenario asserts the CLI, /memberships, and /agents read paths
- * agree; this spec exercises the dialog and confirms the row appears
- * + the API reflects it.
+ * shell scenario asserts the CLI, /memberships, and /agents read paths agree;
+ * this spec exercises the portal's unit-tab create flow and confirms the row
+ * appears + the API reflects it.
  */
 
 interface MembershipResponse {
@@ -17,64 +17,56 @@ interface MembershipResponse {
 }
 
 test.describe("units — agents tab membership", () => {
-  test("add an existing agent to a unit, see row, remove it", async ({
+  test("create an agent in a unit, see row, remove it", async ({
     page,
     tracker,
   }) => {
-    const unitA = tracker.unit(unitName("memb-a"));
-    const unitB = tracker.unit(unitName("memb-b"));
+    const unitB = tracker.unit(unitName("memb"));
     const aId = tracker.agent(agentName("memb-ada"));
 
-    // Seed two units and an agent assigned only to unitA. We'll add it to unitB via the UI.
-    await apiPost("/api/v1/tenant/units", {
-      name: unitA,
-      displayName: unitA,
-      description: "Membership spec — unit A (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
-    });
+    // Seed the unit. The Agents tab Add action now opens AgentCreateDialog,
+    // so the agent itself is created through the portal rather than picked
+    // from an existing-agent dropdown.
     await apiPost("/api/v1/tenant/units", {
       name: unitB,
       displayName: unitB,
-      description: "Membership spec — unit B (e2e-portal)",
+      description: "Membership spec unit (e2e-portal)",
       agent: AGENT_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
       hosting: "ephemeral",
       isTopLevel: true,
     });
-    await apiPost("/api/v1/tenant/agents", {
-      name: aId,
-      displayName: aId,
-      description: "Membership spec (e2e-portal)",
-      unitIds: [unitA],
-    });
 
-    // Open unit B → Agents tab → "Add agent". Two buttons share the
-    // "Add agent" label — the trigger on the panel header (with
-    // aria-label) and the submit inside the dialog. Open by clicking
-    // the labelled trigger; submit through the dialog scope.
+    // Open unit → Agents tab → "Add agent". The trigger opens the shared
+    // create-agent dialog preselected to this unit.
     await page.goto(
       `/units?node=${encodeURIComponent(unitB)}&tab=Agents`,
     );
     await page.getByLabel("Add agent", { exact: true }).click();
 
-    // Membership dialog → pick the existing agent. The dialog uses a
-    // `<select>` (`aria-label="Agent"`) populated with assignable
-    // agents — a true searchable combobox is tracked separately.
-    const dialog = page.getByRole("dialog");
-    await dialog
-      .getByRole("combobox", { name: /^Agent$/i })
-      .selectOption(aId);
-    await dialog.getByRole("button", { name: /^Add agent$/i }).click();
+    const dialog = page.getByRole("dialog", {
+      name: new RegExp(`Create agent in ${unitB}`, "i"),
+    });
+    await expect(
+      dialog.getByTestId("agent-create-dialog-unit-strip"),
+    ).toContainText(unitB);
+    await dialog.getByRole("textbox", { name: /^Agent id$/i }).fill(aId);
+    await dialog.getByRole("textbox", { name: /^Display name$/i }).fill(aId);
+    await expect(
+      dialog.getByRole("checkbox", {
+        name: new RegExp(`Assign to ${unitB}`, "i"),
+      }),
+    ).toBeChecked();
+    await dialog.getByTestId("agent-create-submit").click();
 
     // Membership row testid.
-    await expect(page.getByTestId(new RegExp(`^unit-membership-`)).first()).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(
+      page
+        .locator('[data-testid^="unit-membership-"]')
+        .filter({ hasText: aId })
+        .first(),
+    ).toBeVisible({ timeout: 60_000 });
 
     // Cross-check API.
     const memberships = await apiGet<MembershipResponse[]>(
