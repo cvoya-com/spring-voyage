@@ -4,6 +4,9 @@
 namespace Cvoya.Spring.Cli.Tests;
 
 using System.CommandLine;
+using System.Net;
+using System.Net.Http;
+using System.Text.Json;
 
 using Cvoya.Spring.Cli.Commands;
 
@@ -34,7 +37,7 @@ public class CommandParsingTests
         rootCommand.Subcommands.Add(agentCommand);
 
         // ADR-0039 §8: identity is server-allocated; --name is the only
-        // display surface. #744: --unit is required on `agent create`.
+        // display surface. --unit is repeatable for multi-parent agents.
         var parseResult = rootCommand.Parse("agent create --name \"My Agent\" --unit engineering");
 
         parseResult.Errors.ShouldBeEmpty();
@@ -43,20 +46,58 @@ public class CommandParsingTests
     }
 
     [Fact]
-    public void AgentCreate_MissingUnit_ProducesError()
+    public void AgentCreate_WithoutUnit_ParsesAsTopLevelAgent()
     {
-        // #744: omitting --unit must produce a parse-time error. The CLI
-        // command wires --unit as a required option so callers never hit
-        // the server's 400 path for this invariant.
+        // ADR-0039 §6: omitting --unit creates a top-level tenant-parented
+        // agent that inherits from tenant defaults.
         var outputOption = CreateOutputOption();
         var agentCommand = AgentCommand.Create(outputOption);
         var rootCommand = new RootCommand { Options = { outputOption } };
         rootCommand.Subcommands.Add(agentCommand);
 
-        var parseResult = rootCommand.Parse("agent create --name orphan");
+        var parseResult = rootCommand.Parse("agent create --name Foo");
 
-        parseResult.Errors.ShouldNotBeEmpty();
-        parseResult.Errors.ShouldContain(e => e.Message.Contains("--unit"));
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--name").ShouldBe("Foo");
+        (parseResult.GetValue<string[]>("--unit") ?? Array.Empty<string>()).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task AgentCreate_FromPackage_RoutesToPackageInstall()
+    {
+        var installId = Guid.NewGuid();
+        string? capturedBody = null;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/packages/install",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                $$"""{"installId":"{{installId}}","status":"active","packages":[],"startedAt":null,"completedAt":null,"error":null}""",
+            returnStatusCode: HttpStatusCode.Created,
+            validateRequestBody: body => capturedBody = body);
+        var client = new SpringApiClient(new HttpClient(handler), "http://localhost:5000");
+
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption, () => client);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse("agent create --name Foo --from-package my-package");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--from-package").ShouldBe("my-package");
+
+        var exitCode = await parseResult.InvokeAsync(
+            configuration: null,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(0);
+        handler.WasCalled.ShouldBeTrue();
+        capturedBody.ShouldNotBeNull();
+
+        var json = JsonSerializer.Deserialize<JsonElement>(capturedBody!);
+        var targets = json.GetProperty("targets");
+        targets.GetArrayLength().ShouldBe(1);
+        targets[0].GetProperty("packageName").GetString().ShouldBe("my-package");
     }
 
     [Fact]

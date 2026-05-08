@@ -117,8 +117,8 @@ public class SpringApiClient
     /// Creates a new agent. <paramref name="displayName"/> maps to the server's
     /// <c>DisplayName</c> field; agent identity is assigned by the platform
     /// (a server-allocated Guid) per ADR-0039 §8.
-    /// <paramref name="unitIds"/> carries the mandatory unit memberships (#744) —
-    /// the server rejects the request with 400 when the list is empty.
+    /// <paramref name="unitIds"/> carries optional unit memberships. An empty list
+    /// creates a top-level tenant-parented agent per ADR-0039.
     /// <paramref name="definitionJson"/> is the optional agent-definition JSON document
     /// (e.g. the execution block that selects <c>tool</c> / <c>image</c> / <c>provider</c>
     /// / <c>model</c>). When non-null the server persists it to
