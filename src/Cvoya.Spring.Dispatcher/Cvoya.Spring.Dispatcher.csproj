@@ -13,4 +13,12 @@
     <ProjectReference Include="..\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- JWT issuance / validation for per-invocation callback tokens
+         (ADR-0039 D12). The package is already centrally pinned in
+         Directory.Packages.props for the GitHub connector; the dispatcher
+         consumes the same handler for its symmetric-key tokens. -->
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+  </ItemGroup>
+
 </Project>
