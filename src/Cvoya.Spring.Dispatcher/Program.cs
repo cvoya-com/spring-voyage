@@ -5,10 +5,17 @@ using System.Reflection;
 
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Runtime;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.Dapr.Orchestration;
+using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dispatcher;
+using Cvoya.Spring.Dispatcher.Auth;
+
+using Dapr.Actors.Client;
 
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
@@ -33,6 +40,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Dispatcher options — per-worker bearer tokens + tenant scoping.
 builder.Services.AddOptions<DispatcherOptions>()
     .BindConfiguration(DispatcherOptions.SectionName);
+builder.Services.AddOptions<CallbackTokenOptions>()
+    .BindConfiguration(CallbackTokenOptions.SectionName);
 
 // Runtime options — the dispatcher owns the container binary locally. OSS
 // ships podman only; downstream deployment repos can register alternative
@@ -80,6 +89,18 @@ builder.Services.TryAddEnumerable(
 builder.Services.TryAddEnumerable(
     ServiceDescriptor.Singleton<IConfigurationRequirement, DispatcherCwdConfigurationRequirement>());
 
+builder.Services.TryAddSingleton<ITenantSigningKeyProvider, DispatcherTenantSigningKeyProvider>();
+builder.Services.TryAddSingleton<CallbackTokenValidator>();
+builder.Services.TryAddSingleton<IActorProxyFactory>(_ => new ActorProxyFactory(
+    new ActorProxyOptions
+    {
+        UseJsonSerialization = true,
+        JsonSerializerOptions = ActorRemotingJsonOptions.Instance,
+    }));
+builder.Services.TryAddSingleton<IAgentProxyResolver, AgentProxyResolver>();
+builder.Services.TryAddSingleton<OrchestrationDepthCounter>();
+builder.Services.TryAddSingleton<OrchestrationToolHandlers>();
+
 // Named HttpClient used by /v1/llm/forward and /v1/llm/forward/stream
 // to dispatch the upstream LLM call from the dispatcher process. We set
 // Timeout to InfiniteTimeSpan because long completions and streaming
@@ -117,6 +138,7 @@ app.MapNetworkEndpoints();
 app.MapVolumeEndpoints();
 app.MapImageEndpoints();
 app.MapLlmEndpoints();
+app.MapOrchestrationCallbackEndpoints();
 app.MapProbeEndpoints();
 
 await app.RunAsync();

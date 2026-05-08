@@ -19,7 +19,9 @@ using DaprCallbackTokenIssuer = Cvoya.Spring.Dapr.Auth.CallbackTokenIssuer;
 
 internal sealed class LauncherCallbackTestSupport
 {
-    private const string CallbackUrl = "http://dispatcher.example/root/v1/runtime/orchestration/";
+    private const string CallbackUrl = "http://dispatcher.example/root/";
+
+    public const string OrchestrationMcpUrl = "http://dispatcher.example/root/v1/runtime/orchestration";
 
     private static readonly byte[] SigningKey =
     [

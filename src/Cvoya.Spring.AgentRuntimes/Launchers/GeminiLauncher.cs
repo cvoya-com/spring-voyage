@@ -160,7 +160,7 @@ public class GeminiLauncher(
         {
             mcpServers[SpringOrchestrationMcpServerName] = new
             {
-                httpUrl = envVars[AgentCallbackEnvironmentContract.CallbackUrlEnvVar],
+                httpUrl = LauncherCallbackEnvironment.BuildOrchestrationMcpUrl(envVars),
                 headers = new Dictionary<string, string>
                 {
                     ["Authorization"] =

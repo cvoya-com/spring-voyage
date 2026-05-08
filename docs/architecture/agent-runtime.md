@@ -227,7 +227,7 @@ into the runtime container:
 
 | Env var | Source | Purpose |
 | --- | --- | --- |
-| `SPRING_CALLBACK_URL` | Worker `Dispatcher:BaseUrl` plus `/v1/runtime/orchestration/` | Base URL the Agent SDK uses for the dispatcher callback API. |
+| `SPRING_CALLBACK_URL` | Worker `Dispatcher:BaseUrl` | Dispatcher base URL the Agent SDK uses to reach callback APIs. |
 | `SPRING_CALLBACK_TOKEN` | Per-invocation callback JWT | Authenticates callbacks and scopes them to `(tenantId, agentAddress, threadId, messageId)`. |
 
 The launcher path uses the same callback-token contract the dispatcher
@@ -235,6 +235,9 @@ validates for ADR-0039 D12/D13. Ephemeral launches receive a token for the
 inbound message being served. Persistent containers receive launch-time
 bootstrap credentials; per-message refresh for already-running persistent
 containers is tracked separately in [#1943](https://github.com/cvoya-com/spring-voyage/issues/1943).
+CLI-sidecar launchers append `/v1/runtime/orchestration` when configuring the
+orchestration MCP server; the raw env var remains the dispatcher base URL for
+SDK clients.
 
 ---
 

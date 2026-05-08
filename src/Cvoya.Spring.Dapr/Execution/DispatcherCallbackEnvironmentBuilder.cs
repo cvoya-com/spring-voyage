@@ -19,8 +19,6 @@ public class DispatcherCallbackEnvironmentBuilder(
     IOptions<DispatcherClientOptions> dispatcherOptions,
     ICallbackTokenIssuer callbackTokenIssuer) : IAgentCallbackEnvironmentBuilder
 {
-    internal const string CallbackPath = "v1/runtime/orchestration/";
-
     private readonly DispatcherClientOptions _dispatcherOptions = dispatcherOptions.Value;
     private readonly ICallbackTokenIssuer _callbackTokenIssuer = callbackTokenIssuer;
 
@@ -32,7 +30,7 @@ public class DispatcherCallbackEnvironmentBuilder(
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(environmentVariables);
 
-        var callbackUrl = ResolveCallbackUrl();
+        var callbackBaseUrl = ResolveCallbackBaseUrl();
         var address = ResolveAgentAddress(context);
         var threadId = ResolveThreadId(context);
         var messageId = ResolveMessageId(context);
@@ -44,11 +42,11 @@ public class DispatcherCallbackEnvironmentBuilder(
             messageId,
             ExpiresAt: default));
 
-        environmentVariables[AgentCallbackEnvironmentContract.CallbackUrlEnvVar] = callbackUrl;
+        environmentVariables[AgentCallbackEnvironmentContract.CallbackUrlEnvVar] = callbackBaseUrl;
         environmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar] = token;
     }
 
-    private string ResolveCallbackUrl()
+    private string ResolveCallbackBaseUrl()
     {
         if (string.IsNullOrWhiteSpace(_dispatcherOptions.BaseUrl))
         {
@@ -68,7 +66,7 @@ public class DispatcherCallbackEnvironmentBuilder(
             ? baseUri
             : new Uri(baseUri.AbsoluteUri + "/");
 
-        return new Uri(normalizedBase, CallbackPath).ToString();
+        return normalizedBase.ToString();
     }
 
     private static Address ResolveAgentAddress(AgentLaunchContext context)
