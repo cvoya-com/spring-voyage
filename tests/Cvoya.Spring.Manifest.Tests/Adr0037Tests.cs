@@ -343,6 +343,54 @@ public class Adr0037Tests
     }
 
     [Fact]
+    public void ManifestParser_LegacyUnitOrchestrationField_Rejected()
+    {
+        // ADR-0039: unit-level orchestration is runtime behaviour, not a
+        // platform manifest block. Old-shape unit YAMLs trip the legacy
+        // detector before typed deserialisation.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: my-unit
+            description: x
+            orchestration:
+              strategy: label-routed
+            """;
+
+        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
+        ex.Message.ShouldContain("LegacyUnitOrchestrationField");
+        ex.Message.ShouldContain("orchestration");
+        ex.Message.ShouldContain("removed in ADR-0039");
+        ex.Message.ShouldContain("execution:");
+    }
+
+    [Fact]
+    public void ManifestParser_NoUnitOrchestrationBlock_Succeeds()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: my-unit
+            description: x
+            ai:
+              runtime: spring-voyage
+              model:
+                provider: ollama
+                id: llama3.2:3b
+            execution:
+              image: ghcr.io/example/agent:latest
+            """;
+
+        var manifest = ManifestParser.Parse(yaml);
+
+        manifest.Name.ShouldBe("my-unit");
+        manifest.Ai.ShouldNotBeNull();
+        manifest.Ai!.Runtime.ShouldBe("spring-voyage");
+        manifest.Execution.ShouldNotBeNull();
+        manifest.Execution!.Image.ShouldBe("ghcr.io/example/agent:latest");
+    }
+
+    [Fact]
     public void ManifestParser_NoContainerRuntime_Succeeds()
     {
         // ADR-0039 § 9: a clean unit YAML with no `containerRuntime:`

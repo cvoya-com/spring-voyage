@@ -117,10 +117,9 @@ public class CachingOrchestrationStrategyProviderTests
     [Fact]
     public async Task Invalidate_ExistingEntry_NextReadGoesBackToInner()
     {
-        // Simulates UnitCreationService.PersistUnitDefinitionOrchestrationAsync
-        // writing the row and then firing the invalidator. The next message
-        // dispatched to the unit must see the new value without waiting out
-        // the TTL.
+        // Simulates a write path mutating the row and then firing the
+        // invalidator. The next message dispatched to the unit must see the
+        // new value without waiting out the TTL.
         var inner = Substitute.For<IOrchestrationStrategyProvider>();
         inner.GetStrategyKeyAsync("written", Arg.Any<CancellationToken>())
             .Returns(

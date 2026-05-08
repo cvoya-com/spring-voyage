@@ -8,4 +8,8 @@ The platform surfaces five orchestration tools to agent runtimes:
 `query_child_status`. The runtime (e.g. Claude, Codex) decides when and how to
 use them.
 
+Legacy unit manifests that still declare a root `orchestration:` block are
+rejected at parse time with `LegacyUnitOrchestrationField`; configure the
+unit's runtime through `ai:` / `execution:` instead.
+
 See [docs/concepts/agents.md](../concepts/agents.md) for the current model.

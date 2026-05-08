@@ -13,8 +13,8 @@ using Microsoft.AspNetCore.Mvc;
 /// <summary>
 /// Unit-orchestration endpoints (#606). Exposes
 /// <c>GET / PUT / DELETE /api/v1/units/{id}/orchestration</c> — the direct
-/// read/write surface for the manifest-persisted
-/// <c>orchestration.strategy</c> slot that ADR-0010 deferred.
+/// read/write surface for the persisted <c>orchestration.strategy</c> slot
+/// that ADR-0010 deferred.
 /// </summary>
 /// <remarks>
 /// <para>

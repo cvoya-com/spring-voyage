@@ -4,12 +4,11 @@
 namespace Cvoya.Spring.Core.Orchestration;
 
 /// <summary>
-/// Read/write seam for the manifest-persisted <c>orchestration.strategy</c>
-/// key that drives <see cref="IOrchestrationStrategyResolver"/> (#606). Both
-/// the manifest-apply path (<c>UnitCreationService</c>) and the dedicated
-/// HTTP surface (<c>PUT /api/v1/units/{id}/orchestration</c>) write through
-/// this interface so the two entry points cannot drift on persistence
-/// shape, cache invalidation, or validation semantics.
+/// Read/write seam for the persisted <c>orchestration.strategy</c> key that
+/// drives <see cref="IOrchestrationStrategyResolver"/> (#606). The dedicated
+/// HTTP surface (<c>PUT /api/v1/units/{id}/orchestration</c>) writes through
+/// this interface so persistence shape, cache invalidation, and validation
+/// semantics stay centralised.
 /// </summary>
 /// <remarks>
 /// <para>

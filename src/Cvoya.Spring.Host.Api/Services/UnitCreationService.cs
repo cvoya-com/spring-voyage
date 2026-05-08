@@ -15,7 +15,6 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
@@ -63,8 +62,6 @@ public class UnitCreationService : IUnitCreationService
     private readonly IUnitMembershipRepository _membershipRepository;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IUnitBoundaryStore? _boundaryStore;
-    private readonly IOrchestrationStrategyCacheInvalidator _orchestrationCacheInvalidator;
-    private readonly IUnitOrchestrationStore? _orchestrationStore;
     private readonly IUnitExecutionStore? _executionStore;
     private readonly IUnitMembershipTenantGuard? _tenantGuard;
     private readonly ILlmCredentialResolver? _credentialResolver;
@@ -76,15 +73,6 @@ public class UnitCreationService : IUnitCreationService
     /// fixtures constructed before #494 landed keep compiling; when it is
     /// <c>null</c> manifest-declared boundaries are ignored with a warning.
     /// Production DI always supplies it via <see cref="IUnitBoundaryStore"/>.
-    /// The <paramref name="orchestrationCacheInvalidator"/> parameter is
-    /// optional so pre-#518 test fixtures keep compiling; production DI
-    /// always supplies either the caching decorator or the no-op
-    /// <see cref="NullOrchestrationStrategyCacheInvalidator"/>. When it is
-    /// <c>null</c> the service falls back to the no-op behaviour.
-    /// The <paramref name="orchestrationStore"/> parameter is optional for
-    /// the same reason (#606 landed after #518) — when <c>null</c> the
-    /// service falls back to the inline DB write that predated the store
-    /// extraction so older test harnesses keep persisting strategy keys.
     /// </summary>
     public UnitCreationService(
         IDirectoryService directoryService,
@@ -99,8 +87,6 @@ public class UnitCreationService : IUnitCreationService
         IServiceScopeFactory scopeFactory,
         ILoggerFactory loggerFactory,
         IUnitBoundaryStore? boundaryStore = null,
-        IOrchestrationStrategyCacheInvalidator? orchestrationCacheInvalidator = null,
-        IUnitOrchestrationStore? orchestrationStore = null,
         IUnitExecutionStore? executionStore = null,
         IUnitMembershipTenantGuard? tenantGuard = null,
         ILlmCredentialResolver? credentialResolver = null)
@@ -116,9 +102,6 @@ public class UnitCreationService : IUnitCreationService
         _membershipRepository = membershipRepository;
         _scopeFactory = scopeFactory;
         _boundaryStore = boundaryStore;
-        _orchestrationCacheInvalidator = orchestrationCacheInvalidator
-            ?? NullOrchestrationStrategyCacheInvalidator.Instance;
-        _orchestrationStore = orchestrationStore;
         _executionStore = executionStore;
         _tenantGuard = tenantGuard;
         _credentialResolver = credentialResolver;
@@ -229,24 +212,6 @@ public class UnitCreationService : IUnitCreationService
         if (manifest.Expertise is { Count: > 0 })
         {
             await PersistUnitDefinitionExpertiseAsync(name, manifest.Expertise, cancellationToken);
-        }
-
-        // #491: persist the manifest's `orchestration.strategy` key onto the
-        // unit definition row so the unit actor resolves the right keyed
-        // IOrchestrationStrategy per message. Follows the same pattern as
-        // the expertise seed above — both surfaces write to
-        // `UnitDefinitions.Definition` because that is the single source of
-        // declarative truth the actor reads. A missing / blank strategy
-        // falls through to the policy-based inference and then the unkeyed
-        // default, so we only bother writing when the caller actually
-        // declared one.
-        if (!string.IsNullOrWhiteSpace(manifest.Orchestration?.Strategy))
-        {
-            await PersistUnitDefinitionOrchestrationAsync(
-                name,
-                result.Unit.Id,
-                manifest.Orchestration!.Strategy!,
-                cancellationToken);
         }
 
         // #494: persist the manifest's `boundary:` block through
@@ -421,101 +386,6 @@ public class UnitCreationService : IUnitCreationService
             _logger.LogWarning(ex,
                 "Unit '{UnitName}': failed to persist seed expertise on UnitDefinition; actor will activate without seed.",
                 unitId);
-        }
-    }
-
-    /// <summary>
-    /// Writes the manifest <c>orchestration.strategy</c> key onto the
-    /// corresponding <see cref="Data.Entities.UnitDefinitionEntity.Definition"/>
-    /// JSON so the unit actor's <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationStrategyResolver"/>
-    /// picks it up at dispatch time (#491). Idempotent: a subsequent
-    /// manifest re-apply overwrites only the <c>orchestration</c> slot
-    /// without touching other fields (including the <c>expertise</c> slot
-    /// written by <see cref="PersistUnitDefinitionExpertiseAsync"/>).
-    /// </summary>
-    /// <remarks>
-    /// #1748: <see cref="IUnitOrchestrationStore"/> is keyed by the unit's
-    /// actor Guid (<c>DbUnitOrchestrationStore</c> parses the id with
-    /// <c>GuidFormatter.TryParse</c> and throws on a non-Guid id). The store
-    /// path therefore receives <paramref name="unitActorId"/>; the EF
-    /// fallback path keeps the display-name predicate for older test
-    /// fixtures and is tracked separately under #1749.
-    /// </remarks>
-    private async Task PersistUnitDefinitionOrchestrationAsync(
-        string unitName,
-        Guid unitActorId,
-        string strategyKey,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            // #606: prefer the shared IUnitOrchestrationStore when
-            // registered so manifest-apply and the dedicated HTTP surface
-            // stay wire-identical on persistence + cache-invalidation.
-            // Older test fixtures that don't register the store fall
-            // through to the inline DB path so they keep working.
-            if (_orchestrationStore is not null)
-            {
-                var unitId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorId);
-                await _orchestrationStore.SetStrategyKeyAsync(
-                    unitId, strategyKey, cancellationToken);
-                return;
-            }
-
-            await using var scope = _scopeFactory.CreateAsyncScope();
-            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-
-            var entity = await db.UnitDefinitions
-                .FirstOrDefaultAsync(u => u.DisplayName == unitName && u.DeletedAt == null, cancellationToken);
-
-            if (entity is null)
-            {
-                _logger.LogWarning(
-                    "Unit '{UnitName}': could not locate UnitDefinition row to persist orchestration strategy; actor will resolve the default strategy.",
-                    unitName);
-                return;
-            }
-
-            var payload = new Dictionary<string, object?>
-            {
-                ["orchestration"] = new { strategy = strategyKey },
-            };
-
-            // Preserve any other properties already on the Definition document
-            // so we don't clobber a pre-existing instructions / expertise /
-            // execution block.
-            if (entity.Definition is { ValueKind: System.Text.Json.JsonValueKind.Object } existing)
-            {
-                foreach (var prop in existing.EnumerateObject())
-                {
-                    if (!string.Equals(prop.Name, "orchestration", StringComparison.OrdinalIgnoreCase))
-                    {
-                        payload[prop.Name] = prop.Value;
-                    }
-                }
-            }
-
-            entity.Definition = System.Text.Json.JsonSerializer.SerializeToElement(payload);
-            await db.SaveChangesAsync(cancellationToken);
-
-            // #518: the provider's cache is authoritative within this
-            // process for up to its TTL. Invalidate on successful write so
-            // the next message dispatched to the unit sees the new strategy
-            // immediately instead of waiting for the TTL to expire. Safe to
-            // call unconditionally — the no-op implementation is registered
-            // when no caching decorator is in play.
-            _orchestrationCacheInvalidator.Invalidate(
-                Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorId));
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Unit '{UnitName}': failed to persist orchestration.strategy on UnitDefinition; actor will resolve the default strategy.",
-                unitName);
         }
     }
 

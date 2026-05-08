@@ -41,17 +41,11 @@ public class UnitManifest
     public string? Readme { get; set; }
 
     /// <summary>
-    /// Optional AI/orchestration configuration. Parsed but not yet applied
+    /// Optional AI runtime configuration. Parsed but not yet applied
     /// by the platform API.
     /// </summary>
     [YamlMember(Alias = "ai")]
     public AiManifest? Ai { get; set; }
-
-    /// <summary>
-    /// Optional orchestration configuration for the unit (#491).
-    /// </summary>
-    [YamlMember(Alias = "orchestration")]
-    public OrchestrationManifest? Orchestration { get; set; }
 
     /// <summary>Members of the unit (agents or other units).</summary>
     [YamlMember(Alias = "members")]
@@ -151,22 +145,6 @@ public class ExpertiseManifestEntry
     /// </summary>
     [YamlMember(Alias = "level")]
     public string? Level { get; set; }
-}
-
-/// <summary>
-/// Orchestration configuration for a unit (#491). Today only carries the
-/// <c>strategy</c> key that names the <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationStrategy"/>
-/// DI registration the unit should resolve at dispatch time.
-/// </summary>
-public class OrchestrationManifest
-{
-    /// <summary>
-    /// The DI key naming the <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationStrategy"/>
-    /// implementation this unit should use. Expected values today:
-    /// <c>ai</c> (default), <c>workflow</c>, <c>label-routed</c>.
-    /// </summary>
-    [YamlMember(Alias = "strategy")]
-    public string? Strategy { get; set; }
 }
 
 /// <summary>

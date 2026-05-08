@@ -4,14 +4,12 @@
 namespace Cvoya.Spring.Core.Orchestration;
 
 /// <summary>
-/// Optional invalidation hook consumed by known-write paths (notably
-/// <c>UnitCreationService.PersistUnitDefinitionOrchestrationAsync</c>) that
-/// mutate the <c>orchestration.strategy</c> slot on a unit's persisted
-/// definition. When a caching <see cref="IOrchestrationStrategyProvider"/>
-/// decorator is registered it implements this interface and drops the
-/// cached entry the moment the write commits, so the next message dispatched
-/// to the unit sees the new strategy without waiting for the cache TTL to
-/// expire (see #518).
+/// Optional invalidation hook consumed by known-write paths that mutate the
+/// <c>orchestration.strategy</c> slot on a unit's persisted definition. When
+/// a caching <see cref="IOrchestrationStrategyProvider"/> decorator is
+/// registered it implements this interface and drops the cached entry the
+/// moment the write commits, so the next message dispatched to the unit sees
+/// the new strategy without waiting for the cache TTL to expire (see #518).
 /// </summary>
 /// <remarks>
 /// <para>
