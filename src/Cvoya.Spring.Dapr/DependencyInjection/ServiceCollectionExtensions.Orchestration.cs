@@ -75,11 +75,9 @@ internal static class ServiceCollectionExtensionsOrchestration
         services.TryAddSingleton<IOrchestrationStrategyResolver, DefaultOrchestrationStrategyResolver>();
 
         // #606: read/write seam for the persisted orchestration.strategy
-        // slot. Shared between UnitCreationService (manifest apply) and the
-        // dedicated `/api/v1/units/{id}/orchestration` HTTP surface so the
-        // two write paths cannot drift. TryAdd so the private cloud repo
-        // can swap in a tenant-scoped reader before calling the OSS
-        // extension.
+        // slot used by the dedicated `/api/v1/units/{id}/orchestration`
+        // HTTP surface. TryAdd so the private cloud repo can swap in a
+        // tenant-scoped reader before calling the OSS extension.
         services.TryAddSingleton<IUnitOrchestrationStore, DbUnitOrchestrationStore>();
 
         // #601 / #603 / #409 B-wide: read/write seam for the persisted unit

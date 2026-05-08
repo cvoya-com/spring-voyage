@@ -54,6 +54,12 @@ public static class ManifestParser
         // see the same message regardless of entry point).
         DetectLegacyContainerRuntime(yamlText);
 
+        // ADR-0039: unit-level `orchestration:` is no longer a manifest
+        // configuration surface. Reject the legacy root block before typed
+        // deserialisation, because UnitManifest no longer carries a capture
+        // property for it.
+        DetectLegacyUnitOrchestrationField(yamlText);
+
         UnitManifest? manifest;
         try
         {
@@ -353,6 +359,53 @@ public static class ManifestParser
     internal const string LegacyContainerRuntimeMessage =
         "LegacyContainerRuntimeField: containerRuntime is removed in ADR-0039; " +
         "the container runtime is platform configuration.";
+
+    /// <summary>
+    /// Walks the raw YAML and rejects the removed root <c>orchestration:</c>
+    /// block with an ADR-0039 migration hint.
+    /// </summary>
+    internal static void DetectLegacyUnitOrchestrationField(string yamlText)
+    {
+        if (string.IsNullOrWhiteSpace(yamlText))
+        {
+            return;
+        }
+
+        YamlStream stream;
+        try
+        {
+            stream = new YamlStream();
+            stream.Load(new StringReader(yamlText));
+        }
+        catch (YamlException)
+        {
+            // Typed deserialisation will surface the same parse error
+            // with a richer message; bail out and let it run.
+            return;
+        }
+
+        foreach (var doc in stream.Documents)
+        {
+            if (doc.RootNode is not YamlMappingNode root)
+            {
+                continue;
+            }
+
+            if (root.Children.ContainsKey(new YamlScalarNode("orchestration")))
+            {
+                throw new ManifestParseException(LegacyUnitOrchestrationMessage);
+            }
+        }
+    }
+
+    /// <summary>
+    /// ADR-0039 migration hint for unit YAMLs that still declare the removed
+    /// root <c>orchestration:</c> block.
+    /// </summary>
+    internal const string LegacyUnitOrchestrationMessage =
+        "LegacyUnitOrchestrationField: The 'orchestration' field is no longer supported (removed in ADR-0039).\n" +
+        "Remove the 'orchestration:' block from your unit manifest.\n" +
+        "Configure the agent's runtime via the 'execution:' block instead.";
 
     private static bool TryGetMapping(YamlMappingNode parent, string key, out YamlMappingNode? value)
     {

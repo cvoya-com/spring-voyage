@@ -22,13 +22,11 @@ using Microsoft.Extensions.Logging;
 /// <remarks>
 /// <para>
 /// Lookup is by <c>UnitDefinitionEntity.UnitId</c> because the HTTP and CLI
-/// surfaces address units by their user-facing name. Write semantics match
-/// <c>UnitCreationService.PersistUnitDefinitionOrchestrationAsync</c>: the
-/// <c>orchestration</c> slot is rewritten in place and every other property
-/// on the Definition document (instructions / expertise / execution) is
-/// preserved verbatim. Passing a <c>null</c> or whitespace key strips the
-/// slot entirely so the resolver falls through to policy inference / the
-/// unkeyed default.
+/// surfaces address units by their user-facing name. The <c>orchestration</c>
+/// slot is rewritten in place and every other property on the Definition
+/// document (instructions / expertise / execution) is preserved verbatim.
+/// Passing a <c>null</c> or whitespace key strips the slot entirely so the
+/// resolver falls through to policy inference / the unkeyed default.
 /// </para>
 /// <para>
 /// Successful writes fire <see cref="IOrchestrationStrategyCacheInvalidator.Invalidate(string)"/>
@@ -103,10 +101,8 @@ public class DbUnitOrchestrationStore(
         var payload = new Dictionary<string, object?>();
 
         // Preserve every other property already on the Definition document.
-        // This mirrors UnitCreationService.PersistUnitDefinitionOrchestrationAsync
-        // so manifest-applied and API-applied strategy keys produce the same
-        // on-disk shape for everything else the document carries (expertise,
-        // instructions, execution, ...).
+        // Preserve unrelated manifest-applied slots that share the same
+        // Definition document (expertise, instructions, execution, ...).
         if (entity.Definition is { ValueKind: JsonValueKind.Object } existing)
         {
             foreach (var prop in existing.EnumerateObject())
@@ -122,10 +118,9 @@ public class DbUnitOrchestrationStore(
         if (!string.IsNullOrEmpty(trimmed))
         {
             // Persist alongside every preserved property. The orchestration
-            // slot is a single-key object today — OrchestrationManifest on
-            // the YAML side ships as a class precisely so follow-up work
-            // can layer per-strategy options here without reshaping the
-            // write path (see ADR-0010 revisit criteria).
+            // slot is a single-key object today so follow-up work can layer
+            // per-strategy options here without reshaping the write path
+            // (see ADR-0010 revisit criteria).
             payload["orchestration"] = new { strategy = trimmed };
         }
         // else: null / blank strategy → slot is stripped (fall-through to

@@ -4,14 +4,12 @@
 namespace Cvoya.Spring.Host.Api.Models;
 
 /// <summary>
-/// Wire-level representation of a unit's manifest-persisted
-/// <c>orchestration.strategy</c> key (#606). Mirrors the manifest's
-/// <see cref="Cvoya.Spring.Manifest.OrchestrationManifest"/> shape so the
-/// same YAML fragment authored in a unit manifest round-trips through the
-/// dedicated <c>GET/PUT /api/v1/units/{id}/orchestration</c> endpoint
-/// without renaming. Shipped as a dedicated model rather than a bare string
-/// so follow-up work (per-strategy options; see ADR-0010 revisit criteria)
-/// can grow optional fields without reshaping the wire contract.
+/// Wire-level representation of a unit's persisted <c>orchestration.strategy</c>
+/// key (#606) for the dedicated
+/// <c>GET/PUT /api/v1/units/{id}/orchestration</c> endpoint. Shipped as a
+/// dedicated model rather than a bare string so follow-up work (per-strategy
+/// options; see ADR-0010 revisit criteria) can grow optional fields without
+/// reshaping the wire contract.
 /// </summary>
 /// <param name="Strategy">
 /// The DI key naming the

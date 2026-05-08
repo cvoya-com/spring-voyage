@@ -20,14 +20,13 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// <b>Cache shape: hybrid short-TTL + explicit invalidation.</b> The cache
 /// keeps each unit's resolved key for a bounded <c>Ttl</c> (30s by default)
-/// and exposes <see cref="Invalidate"/> so known-write paths
-/// (<c>UnitCreationService.PersistUnitDefinitionOrchestrationAsync</c>) can
-/// drop the entry the instant they mutate the row. Within-process consumers
-/// get immediate consistency after a write; cross-process writes (another
-/// host replica mutating the same row) heal within the TTL window without
-/// any cross-host coordination. The short TTL also protects against
-/// invalidation paths we haven't identified yet — the cache is never
-/// authoritative for longer than <c>Ttl</c>.
+/// and exposes <see cref="Invalidate"/> so known-write paths can drop the
+/// entry the instant they mutate the row. Within-process consumers get
+/// immediate consistency after a write; cross-process writes (another host
+/// replica mutating the same row) heal within the TTL window without any
+/// cross-host coordination. The short TTL also protects against invalidation
+/// paths we haven't identified yet — the cache is never authoritative for
+/// longer than <c>Ttl</c>.
 /// </para>
 /// <para>
 /// <b>Stampede protection.</b> Misses are coalesced through a
