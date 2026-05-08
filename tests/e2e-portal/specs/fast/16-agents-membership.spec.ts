@@ -16,6 +16,10 @@ interface MembershipResponse {
   agentAddress: string;
 }
 
+interface AgentListResponse {
+  name: string;
+}
+
 test.describe("units — agents tab membership", () => {
   test("create an agent in a unit, see row, remove it", async ({
     page,
@@ -91,5 +95,61 @@ test.describe("units — agents tab membership", () => {
         .click();
     }
     await expect(row).toHaveCount(0, { timeout: 10_000 });
+  });
+
+  test("creates an agent with inherited execution config (no overrides)", async ({
+    page,
+    tracker,
+  }) => {
+    const unitB = tracker.unit(unitName("memb-inherit"));
+    const aId = tracker.agent(agentName("memb-inherit-ada"));
+
+    await apiPost("/api/v1/tenant/units", {
+      name: unitB,
+      displayName: unitB,
+      description: "Membership inherit-only spec unit (e2e-portal)",
+      agent: AGENT_ID,
+      provider: PROVIDER_ID,
+      model: DEFAULT_MODEL,
+      hosting: "ephemeral",
+      isTopLevel: true,
+    });
+
+    await page.goto(
+      `/units?node=${encodeURIComponent(unitB)}&tab=Agents`,
+    );
+    await page.getByLabel("Add agent", { exact: true }).click();
+
+    const dialog = page.getByRole("dialog", {
+      name: new RegExp(`Create agent in ${unitB}`, "i"),
+    });
+    await expect(
+      dialog.getByTestId("agent-create-dialog-unit-strip"),
+    ).toContainText(unitB);
+
+    await dialog.getByRole("textbox", { name: /^Agent id$/i }).fill(aId);
+    await dialog.getByRole("textbox", { name: /^Display name$/i }).fill(aId);
+    await expect(
+      dialog.getByRole("checkbox", {
+        name: new RegExp(`Assign to ${unitB}`, "i"),
+      }),
+    ).toBeChecked();
+
+    // Leave every execution field unset; the card should remain in inherit mode.
+    await expect(dialog.getByTestId("execution-card-badge")).toContainText(
+      /Inherits/i,
+    );
+
+    await dialog.getByTestId("agent-create-submit").click();
+
+    await expect(
+      page
+        .locator('[data-testid^="unit-membership-"]')
+        .filter({ hasText: aId })
+        .first(),
+    ).toBeVisible({ timeout: 60_000 });
+
+    const agents = await apiGet<AgentListResponse[]>("/api/v1/tenant/agents");
+    expect(agents.find((agent) => agent.name === aId)).toBeDefined();
   });
 });
