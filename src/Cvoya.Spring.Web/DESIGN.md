@@ -562,6 +562,16 @@ Shape: left-aligned row with `data-role="error"` on the outer container. Meta ro
 
 Error events are never collapsed by default. The operator must be able to see the failure summary without an extra click.
 
+#### 12.7.1 Multi-parent inheritance conflict block (ADR-0039 §6 / I6)
+
+Inline error block rendered by `<AgentCreateForm>` (`src/components/agents/create-form.tsx`) when a membership-add returns the structured 422 `MultiParentInheritanceConflict` body. Same pattern reused later (J-wave) by the unit-tab dialog and any future surface that submits inheritance-resolved writes.
+
+Shape: outer block `role="alert"` with `data-testid="multi-parent-inheritance-conflict"`, classes `mt-4 space-y-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-3 text-sm text-foreground` (mirrors the `Error` state of the validation panel in §12.8 — same destructive palette, same axe contract). An `AlertTriangle` icon at `h-4 w-4 text-destructive mt-0.5` precedes a heading line in `font-medium text-destructive` ("Parent units disagree on inherited execution config") and a one-line operator-action hint in `text-xs`. The body lists one card per diverging field — `data-testid="multi-parent-inheritance-conflict-field-<name>"`, `rounded-md border border-destructive/30 bg-background/50 px-3 py-2`, with the field name rendered in `font-mono text-xs font-medium text-destructive` and a per-parent value list underneath. Each row shows the parent's display name (resolved from the unit list), the canonical 32-character no-dash hex unit id in `font-mono text-muted-foreground` (so log correlation works even when the parent is no longer in the operator's unit list), an arrow glyph, and the conflicting value in `font-mono`.
+
+Block-while-showing contract: the form's submit button is **disabled** while the block is rendered, and the block clears on any form-state change (parent-set trim, runtime/model edit, etc.) so the operator can re-submit without an explicit "dismiss" affordance. Two operator-resolution paths land via the same path: trim the parent set so the conflict disappears, or set the conflicting field explicitly on the agent so it shadows the inherited values.
+
+Wire shape (`error: "MultiParentInheritanceConflict"`, `conflictingFields: { <field>: [{source|unitId, value}, ...] }`) is parsed by `parseMultiParentInheritanceConflict()` in `src/lib/agents/multi-parent-conflict.ts`. The parser accepts both `source` and `unitId` parent-key shapes because the v0.1 backend ships both under a single discriminator.
+
 ### 12.8 Validation panel — `src/components/units/detail/validation-panel.tsx`
 
 Embedded on the Create-unit wizard's Finalize step after the unit is created (mirrors the CLI's `spring unit create --wait` default — the wizard POST /start's the freshly-created unit and waits for a terminal status before redirecting to `/units?node=<name>&tab=Overview`). It only renders when validation is the operator's current concern; the panel mirrors the backend's three observable outcomes (driven by `UnitValidationWorkflow` via `POST /api/v1/units/{name}/revalidate`); it is hidden for `Running` / `Starting` / `Stopping` / `Draft`.

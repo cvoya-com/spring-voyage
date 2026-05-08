@@ -36,19 +36,28 @@ const assignUnitAgent = vi.fn();
 const retryInstall = vi.fn();
 const abortInstall = vi.fn();
 
-vi.mock("@/lib/api/client", () => ({
-  api: {
-    listUnits: () => listUnits(),
-    listModelProviders: () => listModelProviders(),
-    getModelProviderModels: (id: string) => getModelProviderModels(id),
-    installPackageFile: (yaml: string) => installPackageFile(yaml),
-    getInstallStatus: (id: string) => getInstallStatus(id),
-    assignUnitAgent: (unitId: string, agentId: string) =>
-      assignUnitAgent(unitId, agentId),
-    retryInstall: (id: string) => retryInstall(id),
-    abortInstall: (id: string) => abortInstall(id),
-  },
-}));
+// Re-export the real ApiError so the production code's `instanceof
+// ApiError` check (used by the multi-parent inheritance conflict path
+// — ADR-0039 §6 / I6) finds the constructor on the mocked module.
+vi.mock("@/lib/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/client")>(
+    "@/lib/api/client",
+  );
+  return {
+    ...actual,
+    api: {
+      listUnits: () => listUnits(),
+      listModelProviders: () => listModelProviders(),
+      getModelProviderModels: (id: string) => getModelProviderModels(id),
+      installPackageFile: (yaml: string) => installPackageFile(yaml),
+      getInstallStatus: (id: string) => getInstallStatus(id),
+      assignUnitAgent: (unitId: string, agentId: string) =>
+        assignUnitAgent(unitId, agentId),
+      retryInstall: (id: string) => retryInstall(id),
+      abortInstall: (id: string) => abortInstall(id),
+    },
+  };
+});
 
 const toastMock = vi.fn();
 vi.mock("@/components/ui/toast", () => ({

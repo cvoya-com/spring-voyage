@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import type {
+  InstallStatusResponse,
   InstalledModelProviderResponse,
   UnitExecutionResponse,
   UnitResponse,
@@ -24,20 +25,33 @@ const assignUnitAgent = vi.fn();
 const retryInstall = vi.fn();
 const abortInstall = vi.fn();
 
-vi.mock("@/lib/api/client", () => ({
-  api: {
-    listUnits: () => listUnits(),
-    listModelProviders: () => listModelProviders(),
-    getModelProviderModels: (id: string) => getModelProviderModels(id),
-    getUnitExecution: (id: string) => getUnitExecution(id),
-    installPackageFile: (yaml: string) => installPackageFile(yaml),
-    getInstallStatus: (id: string) => getInstallStatus(id),
-    assignUnitAgent: (unitId: string, agentId: string) =>
-      assignUnitAgent(unitId, agentId),
-    retryInstall: (id: string) => retryInstall(id),
-    abortInstall: (id: string) => abortInstall(id),
-  },
-}));
+// Re-export the real ApiError so the production code's `instanceof
+// ApiError` check (used by the multi-parent inheritance conflict path —
+// ADR-0039 §6 / I6) matches the instances we throw from the test
+// mocks. Mocking ApiError out would silently break the structured-422
+// detection.
+vi.mock("@/lib/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/client")>(
+    "@/lib/api/client",
+  );
+  return {
+    ...actual,
+    api: {
+      listUnits: () => listUnits(),
+      listModelProviders: () => listModelProviders(),
+      getModelProviderModels: (id: string) => getModelProviderModels(id),
+      getUnitExecution: (id: string) => getUnitExecution(id),
+      installPackageFile: (yaml: string) => installPackageFile(yaml),
+      getInstallStatus: (id: string) => getInstallStatus(id),
+      assignUnitAgent: (unitId: string, agentId: string) =>
+        assignUnitAgent(unitId, agentId),
+      retryInstall: (id: string) => retryInstall(id),
+      abortInstall: (id: string) => abortInstall(id),
+    },
+  };
+});
+
+import { ApiError } from "@/lib/api/client";
 
 const toastMock = vi.fn();
 vi.mock("@/components/ui/toast", () => ({
@@ -317,5 +331,235 @@ describe("AgentCreateForm — inherit affordance (I4)", () => {
         texts.every((t) => !t.includes("ghcr.io/team/custom-agent:v9")),
       ).toBe(true);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-parent inheritance conflict — ADR-0039 §6 / I6
+//
+// When a membership-add returns the structured 422
+// `MultiParentInheritanceConflict` body, the form parses it and renders
+// an inline error block listing each diverging field and the
+// parent-attributed values, with the submit button disabled until the
+// operator either trims the parent set or sets the conflicting field
+// explicitly.
+// ---------------------------------------------------------------------------
+
+function makeInstallStatus(
+  overrides: Partial<InstallStatusResponse> = {},
+): InstallStatusResponse {
+  return {
+    installId: overrides.installId ?? "install-id-1",
+    status: overrides.status ?? "active",
+    packages: overrides.packages ?? [
+      { packageName: "ada", state: "active", errorMessage: null },
+    ],
+    startedAt: overrides.startedAt ?? new Date().toISOString(),
+    completedAt: overrides.completedAt ?? new Date().toISOString(),
+    error: overrides.error ?? null,
+  };
+}
+
+/**
+ * Drive the form to the membership-add phase. The agent install
+ * succeeds immediately (status === "active"), so when
+ * `assignUnitAgent` rejects with a 422 the form lands directly in the
+ * conflict-render branch.
+ */
+async function submitForm() {
+  fireEvent.click(await screen.findByLabelText(/assign to alpha/i));
+  fireEvent.change(screen.getByLabelText(/agent id/i), {
+    target: { value: "ada" },
+  });
+  fireEvent.change(screen.getByLabelText(/display name/i), {
+    target: { value: "Ada" },
+  });
+  fireEvent.click(screen.getByTestId("agent-create-submit"));
+}
+
+describe("AgentCreateForm — multi-parent inheritance conflict (ADR-0039 I6)", () => {
+  beforeEach(() => {
+    installPackageFile.mockResolvedValue(
+      makeInstallStatus({ status: "active", installId: "install-id-1" }),
+    );
+    getInstallStatus.mockResolvedValue(
+      makeInstallStatus({ status: "active", installId: "install-id-1" }),
+    );
+    retryInstall.mockResolvedValue(
+      makeInstallStatus({ status: "active", installId: "install-id-1" }),
+    );
+    abortInstall.mockResolvedValue(undefined);
+  });
+
+  it("renders the inline conflict block when assignUnitAgent returns 422", async () => {
+    assignUnitAgent.mockRejectedValueOnce(
+      new ApiError(422, "Unprocessable Content", {
+        error: "MultiParentInheritanceConflict",
+        conflictingFields: {
+          runtime: [
+            { source: "00000000000000000000000000000001", value: "claude-code" },
+            { source: "00000000000000000000000000000002", value: "spring-voyage" },
+          ],
+        },
+      }),
+    );
+
+    renderForm();
+    await submitForm();
+
+    const block = await screen.findByTestId(
+      "multi-parent-inheritance-conflict",
+    );
+    expect(block).toBeInTheDocument();
+    // Field name surfaces verbatim from the wire body.
+    expect(block).toHaveTextContent(/runtime/);
+    // Each parent-attributed value appears.
+    expect(block).toHaveTextContent(/claude-code/);
+    expect(block).toHaveTextContent(/spring-voyage/);
+  });
+
+  it("renders one row per diverging field, ordered as the wire body lists them", async () => {
+    assignUnitAgent.mockRejectedValueOnce(
+      new ApiError(422, "Unprocessable Content", {
+        error: "MultiParentInheritanceConflict",
+        conflictingFields: {
+          runtime: [
+            { source: "u1", value: "a" },
+            { source: "u2", value: "b" },
+          ],
+          "model.provider": [
+            { source: "u1", value: "anthropic" },
+            { source: "u2", value: "openai" },
+          ],
+        },
+      }),
+    );
+
+    renderForm();
+    await submitForm();
+
+    await screen.findByTestId("multi-parent-inheritance-conflict");
+    expect(
+      screen.getByTestId("multi-parent-inheritance-conflict-field-runtime"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId(
+        "multi-parent-inheritance-conflict-field-model.provider",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("attributes per-parent values using the unit display name when the parent is in the unit list", async () => {
+    listUnits.mockResolvedValue([
+      makeUnit({
+        id: "00000000-0000-0000-0000-000000000001",
+        name: "alpha",
+        displayName: "Alpha",
+      }),
+      makeUnit({
+        id: "00000000-0000-0000-0000-000000000002",
+        name: "beta",
+        displayName: "Beta",
+      }),
+    ]);
+    assignUnitAgent.mockRejectedValueOnce(
+      new ApiError(422, "Unprocessable Content", {
+        error: "MultiParentInheritanceConflict",
+        conflictingFields: {
+          runtime: [
+            // Canonical 32-hex form returned by the API; the form must
+            // map it back to the hyphenated id in the unit list.
+            { source: "00000000000000000000000000000001", value: "claude-code" },
+            { source: "00000000000000000000000000000002", value: "spring-voyage" },
+          ],
+        },
+      }),
+    );
+
+    renderForm({ initialUnitIds: ["alpha", "beta"] });
+    await submitForm();
+
+    const block = await screen.findByTestId(
+      "multi-parent-inheritance-conflict",
+    );
+    expect(block).toHaveTextContent("Alpha");
+    expect(block).toHaveTextContent("Beta");
+  });
+
+  it("disables the submit button while the conflict block is showing", async () => {
+    assignUnitAgent.mockRejectedValueOnce(
+      new ApiError(422, "Unprocessable Content", {
+        error: "MultiParentInheritanceConflict",
+        conflictingFields: {
+          runtime: [
+            { source: "u1", value: "a" },
+            { source: "u2", value: "b" },
+          ],
+        },
+      }),
+    );
+
+    renderForm();
+    await submitForm();
+
+    await screen.findByTestId("multi-parent-inheritance-conflict");
+    expect(screen.getByTestId("agent-create-submit")).toBeDisabled();
+  });
+
+  it("re-enables the submit button once the operator changes a form field", async () => {
+    assignUnitAgent.mockRejectedValueOnce(
+      new ApiError(422, "Unprocessable Content", {
+        error: "MultiParentInheritanceConflict",
+        conflictingFields: {
+          runtime: [
+            { source: "u1", value: "a" },
+            { source: "u2", value: "b" },
+          ],
+        },
+      }),
+    );
+
+    renderForm();
+    await submitForm();
+
+    await screen.findByTestId("multi-parent-inheritance-conflict");
+    expect(screen.getByTestId("agent-create-submit")).toBeDisabled();
+
+    // Operator resolution: change the form (e.g. trim the parent set
+    // by unchecking the unit, or set the conflicting field
+    // explicitly). Either path clears the inline block.
+    fireEvent.click(screen.getByLabelText(/assign to alpha/i));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("multi-parent-inheritance-conflict"),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("agent-create-submit")).not.toBeDisabled();
+  });
+
+  it("falls back to the generic membership-error path when the 422 body is unparseable", async () => {
+    // A 422 that is *not* the multi-parent conflict (e.g. a
+    // generic problem-details with no `error` key) should not engage
+    // the inline conflict block — it falls through to the existing
+    // partial-success copy.
+    assignUnitAgent.mockRejectedValueOnce(
+      new ApiError(422, "Unprocessable Content", {
+        type: "https://example.com/problems/other",
+        title: "Something else",
+      }),
+    );
+
+    renderForm();
+    await submitForm();
+
+    // Wait for the failure state to land. The conflict block must
+    // not appear because the body did not match the discriminator.
+    await waitFor(() => {
+      expect(screen.getByText(/Membership in alpha/i)).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("multi-parent-inheritance-conflict"),
+    ).not.toBeInTheDocument();
   });
 });
