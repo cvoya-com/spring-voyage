@@ -3,10 +3,13 @@
 
 namespace Cvoya.Spring.AgentRuntimes.Tests.Launchers;
 
+using System.Text.Json;
+
 using Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Orchestration;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -103,6 +106,42 @@ public class SpringVoyageAgentLauncherTests
         prep.EnvironmentVariables.ShouldNotContainKey("OLLAMA_ENDPOINT",
             "OLLAMA_ENDPOINT must not be emitted by the launcher after #1328; " +
             "the Dapr Conversation YAML now reads SPRING_LLM_PROVIDER_URL.");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_NullOrEmptyOrchestrationTools_DoesNotSetEnvironmentVariable()
+    {
+        var nullContext = CreateContext();
+        var emptyContext = CreateContext() with { OrchestrationTools = [] };
+
+        var nullPrep = await _launcher.PrepareAsync(nullContext, TestContext.Current.CancellationToken);
+        var emptyPrep = await _launcher.PrepareAsync(emptyContext, TestContext.Current.CancellationToken);
+
+        nullPrep.EnvironmentVariables.ShouldNotContainKey(OrchestrationToolsContract.EnvVar);
+        emptyPrep.EnvironmentVariables.ShouldNotContainKey(OrchestrationToolsContract.EnvVar);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OrchestrationTools_SetsSerializedEnvironmentVariable()
+    {
+        var expectedTools = CreateOrchestrationTools();
+        var context = CreateContext() with { OrchestrationTools = expectedTools };
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldContainKey(OrchestrationToolsContract.EnvVar);
+        var raw = prep.EnvironmentVariables[OrchestrationToolsContract.EnvVar];
+        var actualTools = JsonSerializer.Deserialize<OrchestrationToolDescriptor[]>(raw);
+
+        actualTools.ShouldNotBeNull();
+        actualTools.Length.ShouldBe(expectedTools.Length);
+
+        for (var i = 0; i < expectedTools.Length; i++)
+        {
+            actualTools[i].Name.ShouldBe(expectedTools[i].Name);
+            actualTools[i].InputSchema.GetRawText().ShouldBe(expectedTools[i].InputSchema.GetRawText());
+            actualTools[i].OutputSchema.GetRawText().ShouldBe(expectedTools[i].OutputSchema.GetRawText());
+        }
     }
 
     [Fact]
@@ -375,4 +414,32 @@ public class SpringVoyageAgentLauncherTests
         LauncherCallbackTestSupport.CreateContext(
             prompt: "## System\nYou are a helpful assistant.",
             mcpToken: "test-token-xyz");
+
+    private static OrchestrationToolDescriptor[] CreateOrchestrationTools() =>
+    [
+        new(
+            OrchestrationToolName.ListChildren,
+            JsonSerializer.SerializeToElement(new
+            {
+                type = "object",
+                additionalProperties = false,
+            }),
+            JsonSerializer.SerializeToElement(new
+            {
+                type = "array",
+                items = new { type = "object" },
+            })),
+        new(
+            OrchestrationToolName.DelegateToChild,
+            JsonSerializer.SerializeToElement(new
+            {
+                type = "object",
+                required = new[] { "address", "message" },
+            }),
+            JsonSerializer.SerializeToElement(new
+            {
+                type = "object",
+                required = new[] { "message" },
+            })),
+    ];
 }
