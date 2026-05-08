@@ -201,7 +201,7 @@ public class OrchestrationToolHandlers(
         string? reason,
         CancellationToken ct)
     {
-        // TODO #1827: replace Guid.Empty with the callback token tenant id once
+        // TODO #1994: replace Guid.Empty with the callback token tenant id once
         // the orchestration handler receives the invocation scope.
         var decision = new OrchestrationDecision(
             Guid.NewGuid(),
