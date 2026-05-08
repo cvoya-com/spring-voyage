@@ -101,6 +101,165 @@ public class CommandParsingTests
     }
 
     [Fact]
+    public async Task AgentCreate_FromPackageConnector_RoutesToPackageInstallWithConnectorBindings()
+    {
+        var installId = Guid.NewGuid();
+        string? capturedBody = null;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/packages/install",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                $$"""{"installId":"{{installId}}","status":"active","packages":[],"startedAt":null,"completedAt":null,"error":null}""",
+            returnStatusCode: HttpStatusCode.Created,
+            validateRequestBody: body => capturedBody = body);
+        var client = new SpringApiClient(new HttpClient(handler), "http://localhost:5000");
+
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption, () => client);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name Foo --from-package my-package " +
+            "--connector github=binding-123 --connector arxiv");
+
+        parseResult.Errors.ShouldBeEmpty();
+
+        var exitCode = await parseResult.InvokeAsync(
+            configuration: null,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(0);
+        handler.WasCalled.ShouldBeTrue();
+        capturedBody.ShouldNotBeNull();
+
+        var json = JsonSerializer.Deserialize<JsonElement>(capturedBody!);
+        var target = json.GetProperty("targets")[0];
+        var packageBindings = target
+            .GetProperty("connectorBindings")
+            .GetProperty("package");
+
+        packageBindings
+            .GetProperty("github")
+            .GetProperty("config")
+            .GetProperty("bindingId")
+            .GetString()
+            .ShouldBe("binding-123");
+        packageBindings
+            .GetProperty("arxiv")
+            .GetProperty("config")
+            .EnumerateObject()
+            .Any()
+            .ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task AgentCreate_FromPackageInput_RoutesToPackageInstallWithInputs()
+    {
+        var installId = Guid.NewGuid();
+        string? capturedBody = null;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/packages/install",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                $$"""{"installId":"{{installId}}","status":"active","packages":[],"startedAt":null,"completedAt":null,"error":null}""",
+            returnStatusCode: HttpStatusCode.Created,
+            validateRequestBody: body => capturedBody = body);
+        var client = new SpringApiClient(new HttpClient(handler), "http://localhost:5000");
+
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption, () => client);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name Foo --from-package my-package " +
+            "--input github_owner=acme --input github_repo=platform");
+
+        parseResult.Errors.ShouldBeEmpty();
+
+        var exitCode = await parseResult.InvokeAsync(
+            configuration: null,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(0);
+        handler.WasCalled.ShouldBeTrue();
+        capturedBody.ShouldNotBeNull();
+
+        var json = JsonSerializer.Deserialize<JsonElement>(capturedBody!);
+        var inputs = json
+            .GetProperty("targets")[0]
+            .GetProperty("inputs");
+
+        inputs.GetProperty("github_owner").GetString().ShouldBe("acme");
+        inputs.GetProperty("github_repo").GetString().ShouldBe("platform");
+    }
+
+    [Fact]
+    public void AgentCreate_ConnectorWithoutFromPackage_RejectedAtParseTime()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name Foo --connector github=binding-123");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e =>
+            e.Message == AgentCommand.ConnectorRequiresFromPackageFlagMutexMessage);
+    }
+
+    [Fact]
+    public void AgentCreate_InputWithoutFromPackage_RejectedAtParseTime()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name Foo --input github_owner=acme");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e =>
+            e.Message == AgentCommand.InputRequiresFromPackageFlagMutexMessage);
+    }
+
+    [Fact]
+    public void AgentCreate_FromPackageWithDefinition_RejectedAtParseTime()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name Foo --from-package my-package --definition {}");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e =>
+            e.Message == AgentCommand.FromPackageDefinitionFlagMutexMessage);
+    }
+
+    [Fact]
+    public void AgentCreate_FromPackageWithRuntime_RejectedAtParseTime()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name Foo --from-package my-package --runtime codex");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e =>
+            e.Message == AgentCommand.FromPackageExecutionShorthandFlagMutexMessage);
+    }
+
+    [Fact]
     public void AgentCreate_MissingName_ProducesError()
     {
         // ADR-0039 §8: --name is the only display surface, and it is
@@ -161,11 +320,10 @@ public class CommandParsingTests
     }
 
     [Fact]
-    public void AgentCreate_InheritFlag_ParsesAlongsideExecutionShorthands()
+    public void AgentCreate_InheritWithModel_RejectedAtParseTime()
     {
-        // #1901 / ADR-0039 L5: --inherit is accepted even when execution
-        // shorthands are also supplied. L6 owns the mutual-exclusion
-        // diagnostic, so the parser must stay permissive here.
+        // #1902 / ADR-0039 L6: inherited execution and create-time execution
+        // shorthands are mutually exclusive.
         var outputOption = CreateOutputOption();
         var agentCommand = AgentCommand.Create(outputOption);
         var rootCommand = new RootCommand { Options = { outputOption } };
@@ -173,15 +331,11 @@ public class CommandParsingTests
 
         var parseResult = rootCommand.Parse(
             "agent create --name ada --unit aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa " +
-            "--inherit --runtime codex --model-provider openai --model gpt-4o " +
-            "--image ghcr.io/example/agent:latest");
+            "--inherit --model gpt-4o");
 
-        parseResult.Errors.ShouldBeEmpty();
-        parseResult.GetValue<bool>("--inherit").ShouldBeTrue();
-        parseResult.GetValue<string>("--runtime").ShouldBe("codex");
-        parseResult.GetValue<string>("--model-provider").ShouldBe("openai");
-        parseResult.GetValue<string>("--model").ShouldBe("gpt-4o");
-        parseResult.GetValue<string>("--image").ShouldBe("ghcr.io/example/agent:latest");
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e =>
+            e.Message == AgentCommand.InheritExecutionShorthandFlagMutexMessage);
     }
 
     [Fact]
