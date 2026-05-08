@@ -68,12 +68,6 @@ This repository is the **public, open-source core** of Spring Voyage. A private 
    - Can it extend behaviour? → decorator/wrapper or virtual methods.
    - Does it assume a single deployment context? → parameterise via DI.
 
-### What not to do
-
-- **Don't bypass `ITenantContext`.** Resolve the tenant through `ITenantContext.CurrentTenantId`. New persisted entities that should be tenant-scoped implement `ITenantScopedEntity`.
-- **Don't make services static or use singletons outside DI.** Everything goes through the container.
-- **Don't create internal types that the cloud overlay would need access to.** If a type is part of the extension contract, it is `public`.
-
 ### Plugins (agent runtimes and connectors)
 
 Agent runtimes and connectors are first-class plugins. Each ships as its own `Cvoya.Spring.AgentRuntimes.<Name>` or `Cvoya.Spring.Connector.<Name>` project, references only what its contract demands, and registers via a single `AddCvoyaSpring<Kind><Name>()` DI extension. Host-side code references the abstraction only — the registry, install surface, and bootstrap pick up new plugins automatically. Per-project READMEs document each runtime/connector's contract; see also `CONVENTIONS.md` § "Agent Runtimes and Connectors Are Plugins".
