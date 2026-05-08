@@ -373,7 +373,7 @@ try
     app.MapDirectoryEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapExpertiseEndpoints();
     app.MapBoundaryEndpoints();
-    app.MapOrchestrationEndpoints();
+    app.MapLegacyOrchestrationEndpoints();
     app.MapUnitExecutionEndpoints();
     app.MapCloneEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapCloningPolicyEndpoints();

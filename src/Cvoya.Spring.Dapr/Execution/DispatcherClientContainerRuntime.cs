@@ -23,7 +23,7 @@ using Microsoft.Extensions.Options;
 /// This replaces the in-process <c>PodmanRuntime</c>/<c>DockerRuntime</c>
 /// bindings that used to run inside the worker. Workers now depend only on
 /// <see cref="IContainerRuntime"/>; the HTTP hop is invisible to callers such
-/// as <c>A2AExecutionDispatcher</c> and <c>WorkflowOrchestrationStrategy</c>.
+/// as <c>A2AExecutionDispatcher</c>.
 /// </para>
 /// <para>
 /// Auth is a single bearer token issued per-worker at deploy time; it is

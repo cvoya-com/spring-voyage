@@ -30,11 +30,9 @@ using Microsoft.Extensions.Logging;
 /// Callers that hold only a name should resolve to the actor Guid through
 /// the directory before calling in (the HTTP surface does this in its
 /// route handlers; see #1666 for the regression that motivated the
-/// clarification). Write semantics match
-/// <c>DbUnitOrchestrationStore.SetStrategyKeyAsync</c>: the
-/// <c>execution</c> slot is rewritten in place and every other property
-/// on the Definition document (instructions / expertise / orchestration)
-/// is preserved verbatim.
+/// clarification). The <c>execution</c> slot is rewritten in place and
+/// every other property on the Definition document (instructions /
+/// expertise / orchestration) is preserved verbatim.
 /// </para>
 /// <para>
 /// Partial updates are supported: a non-null field on

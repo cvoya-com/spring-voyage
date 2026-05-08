@@ -16,8 +16,7 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// Every call opens its own <see cref="IServiceScope"/> (matching the
-/// pattern used by <c>DbUnitOrchestrationStore</c> and
-/// <c>DbUnitExecutionStore</c>) because <c>UnitActor</c> is instantiated
+/// pattern used by <c>DbUnitExecutionStore</c>) because <c>UnitActor</c> is instantiated
 /// through the Dapr actor runtime, which does not own a request scope.
 /// </remarks>
 public class DbUnitValidationTracker(
