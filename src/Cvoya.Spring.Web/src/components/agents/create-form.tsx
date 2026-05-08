@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { AlertTriangle, Package, Search, Sparkles } from "lucide-react";
@@ -145,6 +145,22 @@ export interface AgentCreateSuccess {
   unitIds: string[];
 }
 
+export interface AgentCreateFormSnapshot {
+  source: AgentSource;
+  name: string;
+  displayName: string;
+  description: string;
+  role: string;
+  runtime: string;
+  modelProviderId: string;
+  modelId: string;
+  hosting: string;
+  image: string;
+}
+
+export type AgentCreateFormInitialSnapshot =
+  Partial<AgentCreateFormSnapshot>;
+
 export interface AgentCreateFormProps {
   /**
    * Page mode starts with the ADR-0039 K1 Source step. Dialog mode skips
@@ -158,6 +174,17 @@ export interface AgentCreateFormProps {
    * standalone page does not pre-select anything.
    */
   initialUnitIds?: string[];
+  /**
+   * Optional initial values for the standalone page wizard persistence
+   * path. Unit-tab dialogs intentionally omit this so dialog state stays
+   * ephemeral.
+   */
+  initialSnapshot?: AgentCreateFormInitialSnapshot;
+  /**
+   * Emits the page wizard's secrets-free form snapshot on state changes.
+   * The standalone page persists it; dialog callers leave it unwired.
+   */
+  onSnapshotChange?: (snapshot: AgentCreateFormSnapshot) => void;
   /**
    * Called after the install reaches active AND every requested
    * membership succeeds. The standalone page navigates to
@@ -177,6 +204,29 @@ export interface AgentCreateFormProps {
 // Component
 // ---------------------------------------------------------------------------
 
+function normalizeSource(source: string | undefined): AgentSource | null {
+  if (
+    source === "scratch" ||
+    source === "from-package" ||
+    source === "browse"
+  ) {
+    return source;
+  }
+  return null;
+}
+
+function normalizeRuntime(runtime: string | undefined): RuntimeId | "" {
+  if (!runtime) return "";
+  return runtime in RUNTIMES ? (runtime as RuntimeId) : "";
+}
+
+function normalizeHosting(hosting: string | undefined): HostingMode | "" {
+  if (!hosting) return "";
+  return HOSTING_MODES.some((mode) => mode.id === hosting)
+    ? (hosting as HostingMode)
+    : "";
+}
+
 /**
  * Reusable agent-create form. Owns identity, execution, and unit-assignment
  * fields plus the two-phase install flow (POST /api/v1/packages/install/file,
@@ -191,6 +241,8 @@ export interface AgentCreateFormProps {
 export function AgentCreateForm({
   context,
   initialUnitIds = [],
+  initialSnapshot,
+  onSnapshotChange,
   onSuccess,
   onCancel,
 }: AgentCreateFormProps) {
@@ -199,26 +251,30 @@ export function AgentCreateForm({
 
   const initialForm = useMemo<FormState>(
     () => ({
-      id: "",
-      displayName: "",
-      role: "",
-      description: "",
+      id: initialSnapshot?.name ?? "",
+      displayName: initialSnapshot?.displayName ?? "",
+      role: initialSnapshot?.role ?? "",
+      description: initialSnapshot?.description ?? "",
       // ADR-0039 I4 / DESIGN.md §12.6: default every execution field to
       // inherit-mode (empty). The placeholder + help-copy below the
       // field shows the resolved parent value so the operator sees what
       // they will inherit; an explicit pick overrides it.
-      runtime: "",
-      modelProviderId: "",
-      modelId: "",
-      image: "",
-      hosting: "",
+      runtime: normalizeRuntime(initialSnapshot?.runtime),
+      modelProviderId: initialSnapshot?.modelProviderId ?? "",
+      modelId: initialSnapshot?.modelId ?? "",
+      image: initialSnapshot?.image ?? "",
+      hosting: normalizeHosting(initialSnapshot?.hosting),
       unitIds: [...initialUnitIds],
     }),
-    [initialUnitIds],
+    [initialSnapshot, initialUnitIds],
   );
 
+  const initialSource = useMemo<AgentSource>(
+    () => normalizeSource(initialSnapshot?.source) ?? "scratch",
+    [initialSnapshot?.source],
+  );
   const [form, setForm] = useState<FormState>(initialForm);
-  const [source, setSource] = useState<AgentSource>("scratch");
+  const [source, setSource] = useState<AgentSource>(initialSource);
   const [pageBranch, setPageBranch] = useState<PageBranch>(
     context === "page" ? "source" : "scratch",
   );
@@ -227,6 +283,22 @@ export function AgentCreateForm({
 
   // Abort controller for the polling loop so Back/Cancel stops it.
   const pollAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!onSnapshotChange || context !== "page") return;
+    onSnapshotChange({
+      source,
+      name: form.id,
+      displayName: form.displayName,
+      description: form.description,
+      role: form.role,
+      runtime: form.runtime,
+      modelProviderId: form.modelProviderId,
+      modelId: form.modelId,
+      hosting: form.hosting,
+      image: form.image,
+    });
+  }, [context, form, onSnapshotChange, source]);
 
   // ── Form helpers ───────────────────────────────────────────────────────
 

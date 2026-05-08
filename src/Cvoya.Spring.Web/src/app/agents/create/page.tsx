@@ -1,11 +1,22 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { AgentCreateForm } from "@/components/agents/create-form";
+import {
+  AgentCreateForm,
+  type AgentCreateFormSnapshot,
+} from "@/components/agents/create-form";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Button } from "@/components/ui/button";
+import {
+  AGENT_WIZARD_STATE_SCHEMA_VERSION,
+  clearAgentWizardSnapshot,
+  loadAgentWizardSnapshot,
+  saveAgentWizardSnapshot,
+  type AgentWizardSnapshot,
+} from "./wizard-persistence";
 
 /**
  * New-agent wizard — scratch path (ADR-0035 decision 6).
@@ -33,7 +44,23 @@ import { Button } from "@/components/ui/button";
 export default function CreateAgentPage() {
   const router = useRouter();
 
+  const [initialSnapshot] = useState<AgentWizardSnapshot | null>(() => {
+    if (typeof window === "undefined") return null;
+    return loadAgentWizardSnapshot();
+  });
+
+  const handleSnapshotChange = useCallback(
+    (snapshot: AgentCreateFormSnapshot) => {
+      saveAgentWizardSnapshot({
+        schemaVersion: AGENT_WIZARD_STATE_SCHEMA_VERSION,
+        ...snapshot,
+      });
+    },
+    [],
+  );
+
   const handleSuccess = ({ unitIds }: { unitIds: string[] }) => {
+    clearAgentWizardSnapshot();
     const target = unitIds[0]?.trim();
     if (target) {
       router.push(`/units?node=${encodeURIComponent(target)}&tab=Agents`);
@@ -43,6 +70,7 @@ export default function CreateAgentPage() {
   };
 
   const handleCancel = () => {
+    clearAgentWizardSnapshot();
     router.back();
   };
 
@@ -85,6 +113,8 @@ export default function CreateAgentPage() {
 
       <AgentCreateForm
         context="page"
+        initialSnapshot={initialSnapshot ?? undefined}
+        onSnapshotChange={handleSnapshotChange}
         onSuccess={handleSuccess}
         onCancel={handleCancel}
       />

@@ -87,6 +87,10 @@ vi.mock("next/link", () => ({
 
 import CreateAgentPage from "./page";
 import { buildAgentPackageYaml } from "./build-agent-package";
+import {
+  AGENT_WIZARD_SESSION_KEY,
+  AGENT_WIZARD_STATE_SCHEMA_VERSION,
+} from "./wizard-persistence";
 
 // ---------------------------------------------------------------------------
 // Factory helpers
@@ -177,6 +181,7 @@ function renderPage({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sessionStorage.clear();
   listUnits.mockResolvedValue([makeUnit()]);
   listModelProviders.mockResolvedValue([makeRuntime()]);
   getModelProviderModels.mockResolvedValue([
@@ -199,6 +204,7 @@ beforeEach(() => {
 afterEach(() => {
   // Restore real timers if any test enabled fake timers.
   vi.useRealTimers();
+  sessionStorage.clear();
 });
 
 // ---------------------------------------------------------------------------
@@ -227,6 +233,50 @@ describe("CreateAgentPage", () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
     });
+  });
+
+  it("rehydrates persisted page wizard fields and clears them on success", async () => {
+    sessionStorage.setItem(
+      AGENT_WIZARD_SESSION_KEY,
+      JSON.stringify({
+        schemaVersion: AGENT_WIZARD_STATE_SCHEMA_VERSION,
+        source: "scratch",
+        name: "ada",
+        displayName: "Ada Lovelace",
+        description: "Reviews backend changes",
+        role: "reviewer",
+        runtime: "claude-code",
+        modelProviderId: "anthropic",
+        modelId: "claude-3-5-sonnet",
+        hosting: "ephemeral",
+        image: "ghcr.io/example/agent:latest",
+      }),
+    );
+
+    renderPage();
+
+    expect(screen.getByLabelText(/agent id/i)).toHaveValue("ada");
+    expect(screen.getByLabelText(/display name/i)).toHaveValue("Ada Lovelace");
+    expect(screen.getByLabelText(/^role$/i)).toHaveValue("reviewer");
+    expect(screen.getByLabelText(/description/i)).toHaveValue(
+      "Reviews backend changes",
+    );
+    expect(
+      screen.getByRole("textbox", { name: /container image/i }),
+    ).toHaveValue(
+      "ghcr.io/example/agent:latest",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByLabelText(/assign to alpha/i));
+    fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith("/units?node=alpha&tab=Agents");
+    });
+    expect(sessionStorage.getItem(AGENT_WIZARD_SESSION_KEY)).toBeNull();
   });
 
   // ── Validation ────────────────────────────────────────────────────────
