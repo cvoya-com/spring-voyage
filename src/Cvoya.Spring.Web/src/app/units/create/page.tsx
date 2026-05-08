@@ -1269,7 +1269,6 @@ export default function CreateUnitPage() {
           const wireModelId = req.model ?? null;
           await api.setUnitExecution(created.name, {
             image: image || null,
-            containerRuntime: null,
             runtime: form.runtime !== "custom" ? form.runtime : null,
             model:
               wireProvider && wireModelId
