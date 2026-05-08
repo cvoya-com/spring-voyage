@@ -43,6 +43,7 @@ import {
   type RuntimeId,
 } from "@/lib/ai-models";
 import type { UnitResponse } from "@/lib/api/types";
+import { SourcePackagePicker } from "./source-package-picker";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -261,6 +262,9 @@ export function AgentCreateForm({
   );
   const [form, setForm] = useState<FormState>(initialForm);
   const [source, setSource] = useState<AgentSource>(initialSource);
+  const [sourcePackageName, setSourcePackageName] = useState<string | null>(
+    null,
+  );
   const [pageBranch, setPageBranch] = useState<PageBranch>(
     context === "page" ? "source" : "scratch",
   );
@@ -704,7 +708,10 @@ export function AgentCreateForm({
               title="Scratch"
               description="Start from scratch. Define the agent's identity, execution config, and units."
               selected={source === "scratch"}
-              onSelect={() => setSource("scratch")}
+              onSelect={() => {
+                setSource("scratch");
+                setSourcePackageName(null);
+              }}
               testId="agent-source-card-scratch"
             />
 
@@ -722,7 +729,10 @@ export function AgentCreateForm({
               title="Browse"
               description="Browse the registry. (Coming soon)"
               selected={source === "browse"}
-              onSelect={() => setSource("browse")}
+              onSelect={() => {
+                setSource("browse");
+                setSourcePackageName(null);
+              }}
               testId="agent-source-card-browse"
             />
           </CardContent>
@@ -745,37 +755,14 @@ export function AgentCreateForm({
 
   if (context === "page" && pageBranch === "from-package") {
     return (
-      <div className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Package className="h-5 w-5" aria-hidden />
-              Package picker
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div
-              data-testid="from-package-placeholder"
-              className="rounded-md border border-border bg-muted/30 px-4 py-6 text-center"
-            >
-              <p className="text-sm font-medium">Package picker coming in K2</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                The from-package branch is visible now; package selection is
-                wired in the next slice.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="flex items-center justify-between gap-2">
-          <Button type="button" variant="outline" onClick={handleSourceBack}>
-            Back
-          </Button>
-          <Button type="button" variant="outline" onClick={handleCancel}>
-            Cancel
-          </Button>
-        </div>
-      </div>
+      <SourcePackagePicker
+        onSelect={(packageName) => {
+          setSourcePackageName(packageName);
+          setPageBranch("scratch");
+        }}
+        onBack={handleSourceBack}
+        onCancel={handleCancel}
+      />
     );
   }
 
@@ -827,6 +814,24 @@ export function AgentCreateForm({
 
   return (
     <form onSubmit={handleSubmit} noValidate>
+      {sourcePackageName && (
+        <div
+          role="status"
+          className="mb-4 flex items-start gap-2 rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm"
+        >
+          <Package
+            className="mt-0.5 h-4 w-4 shrink-0 text-primary"
+            aria-hidden
+          />
+          <div className="min-w-0">
+            <p className="font-medium">Package selected</p>
+            <p className="truncate font-mono text-xs text-muted-foreground">
+              {sourcePackageName}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Identity ──────────────────────────────────────────────── */}
       <Card>
         <CardHeader>
