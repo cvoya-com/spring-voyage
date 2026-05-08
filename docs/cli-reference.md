@@ -146,6 +146,7 @@ Inline credentials are still supplied via `--api-key` / `--api-key-from-file`, p
 # Author a new agent on a fixed-provider runtime
 # (ADR-0039 §8: --name is the only display surface; identity is platform-allocated.)
 $ spring agent create --name ada --unit eng --runtime claude-code --model claude-opus-4-7
+$ spring agent create --name ada --unit eng --description "Reviews backend PRs"
 
 # Spring Voyage Agent agent → must name the provider explicitly
 $ spring agent create --name ada --unit eng \

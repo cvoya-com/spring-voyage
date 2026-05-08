@@ -150,6 +150,36 @@ public class SpringApiClientTests
     }
 
     [Fact]
+    public async Task CreateAgentAsync_WithDescription_SendsDescriptionInBody()
+    {
+        var agentGuid = Guid.NewGuid();
+        var unitGuid = Guid.NewGuid();
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents",
+            expectedMethod: HttpMethod.Post,
+            responseBody: $"{{\"id\":\"{agentGuid}\",\"name\":\"ada\",\"displayName\":\"Ada\",\"role\":\"coder\"}}",
+            returnStatusCode: HttpStatusCode.Created,
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("description").GetString().ShouldBe("my-desc");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.CreateAgentAsync(
+            "Ada",
+            "coder",
+            new[] { unitGuid },
+            description: "my-desc",
+            ct: TestContext.Current.CancellationToken);
+
+        result.Id.ShouldBe(agentGuid);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task CreateAgentAsync_422Conflict_PreservesStructuredBody()
     {
         var unitA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
