@@ -6,7 +6,6 @@ namespace Cvoya.Spring.Integration.Tests;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Integration.Tests.TestHelpers;
 
@@ -28,7 +27,7 @@ public class CliEndToEndTests
     public async Task FullLifecycle_CreateUnit_AddAgents_SendMessage_CheckStatus()
     {
         // Step 1: Create a unit actor.
-        var (unitActor, unitStateManager, strategy) = ActorTestHost.CreateUnitActor(actorId: "cli-unit");
+        var (unitActor, unitStateManager, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "cli-unit");
 
         // Step 2: Add agent members to the unit.
         var agent1 = Address.For("agent", TestSlugIds.HexFor("cli-agent-1"));
@@ -52,14 +51,12 @@ public class CliEndToEndTests
 
         // Step 3: Send a domain message to the unit.
         var message = MessageFactory.CreateDomainMessage(toId: "cli-unit", toType: "unit");
-        strategy.OrchestrateAsync(Arg.Any<Message>(), Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<Message?>(null));
 
         await unitActor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        await strategy.Received(1).OrchestrateAsync(
+        await runtimeInvocationPath.Received(1).InvokeAsync(
+            Address.For("unit", TestSlugIds.HexFor("cli-unit")),
             message,
-            Arg.Any<IUnitContext>(),
             Arg.Any<CancellationToken>());
 
         // Step 4: Check unit status.

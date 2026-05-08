@@ -8,7 +8,6 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -26,7 +25,7 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for <see cref="UnitActor"/> covering strategy dispatch,
+/// Unit tests for <see cref="UnitActor"/> covering runtime dispatch,
 /// control message handling, and member management.
 /// </summary>
 public class UnitActorTests
@@ -41,7 +40,7 @@ public class UnitActorTests
 
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
-    private readonly IOrchestrationStrategy _strategy = Substitute.For<IOrchestrationStrategy>();
+    private readonly IRuntimeInvocationPath _runtimeInvocationPath = Substitute.For<IRuntimeInvocationPath>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
@@ -58,7 +57,7 @@ public class UnitActorTests
         _actor = new UnitActor(
             host,
             _loggerFactory,
-            _strategy,
+            _runtimeInvocationPath,
             _activityEventBus,
             _directoryService,
             _actorProxyFactory);
@@ -71,6 +70,14 @@ public class UnitActorTests
         // Default: no persisted status -> Draft.
         _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<UnitStatus>(false, default));
+
+        _runtimeInvocationPath
+            .InvokeAsync(Arg.Any<Address>(), Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        _stateManager.ClearReceivedCalls();
+        _runtimeInvocationPath.ClearReceivedCalls();
+        _activityEventBus.ClearReceivedCalls();
     }
 
     private static Message CreateMessage(
@@ -104,66 +111,45 @@ public class UnitActorTests
         }
     }
 
-    // --- Strategy Dispatch Tests ---
+    // --- Runtime Dispatch Tests ---
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessage_DelegatesToOrchestrationStrategy()
+    public async Task ReceiveAsync_DomainMessage_InvokesRuntimePath()
     {
         var message = CreateMessage();
-        var expectedResponse = CreateMessage(threadId: message.ThreadId);
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(expectedResponse);
 
         var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        result.ShouldBe(expectedResponse);
-        await _strategy.Received(1).OrchestrateAsync(
+        result.ShouldBeNull();
+        await _runtimeInvocationPath.Received(1).InvokeAsync(
+            Address.For("unit", TestUnitActorId),
             message,
-            Arg.Any<IUnitContext>(),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessage_PassesUnitContextWithCorrectAddress()
+    public async Task ReceiveAsync_DomainMessage_DoesNotReadMembersBeforeRuntimeInvocation()
     {
         var message = CreateMessage();
-        IUnitContext? capturedContext = null;
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                capturedContext = callInfo.ArgAt<IUnitContext>(1);
-                return Task.FromResult<Message?>(null);
-            });
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        capturedContext.ShouldNotBeNull();
-        capturedContext!.UnitAddress.ShouldBe(Address.For("unit", TestUnitActorId));
+        await _stateManager.DidNotReceive().TryGetStateAsync<List<Address>>(
+            StateKeys.Members,
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessage_PassesCurrentMembersToStrategy()
+    public async Task ReceiveAsync_DomainMessage_DoesNotConsultOrchestrationStrategy()
     {
-        var member1 = Address.For("agent", TestSlugIds.HexFor("agent-1"));
-        var member2 = Address.For("agent", TestSlugIds.HexFor("agent-2"));
-        _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [member1, member2]));
-
         var message = CreateMessage();
-        IUnitContext? capturedContext = null;
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                capturedContext = callInfo.ArgAt<IUnitContext>(1);
-                return Task.FromResult<Message?>(null);
-            });
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        capturedContext.ShouldNotBeNull();
-        capturedContext!.Members.Count().ShouldBe(2);
-        capturedContext.Members.ShouldContain(member1);
-        capturedContext.Members.ShouldContain(member2);
+        await _runtimeInvocationPath.Received(1).InvokeAsync(
+            Arg.Any<Address>(),
+            message,
+            Arg.Any<CancellationToken>());
     }
 
     // --- Control Message Tests ---
@@ -309,64 +295,21 @@ public class UnitActorTests
         result.ShouldContain(member2);
     }
 
-    // --- UnitContext Tests ---
-
-    [Fact]
-    public async Task UnitContext_ExposesCorrectAddressAndMembers()
-    {
-        var member1 = Address.For("agent", TestSlugIds.HexFor("agent-1"));
-        _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [member1]));
-
-        var message = CreateMessage();
-        IUnitContext? capturedContext = null;
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                capturedContext = callInfo.ArgAt<IUnitContext>(1);
-                return Task.FromResult<Message?>(null);
-            });
-
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-
-        capturedContext.ShouldNotBeNull();
-        capturedContext!.UnitAddress.ShouldBe(Address.For("unit", TestUnitActorId));
-        capturedContext.Members.ShouldHaveSingleItem().ShouldBe(member1);
-    }
-
-    [Fact]
-    public async Task UnitContext_SendAsync_ReturnsNull_WhenMessageRouterNotAvailable()
-    {
-        var message = CreateMessage();
-        IUnitContext? capturedContext = null;
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                capturedContext = callInfo.ArgAt<IUnitContext>(1);
-                return Task.FromResult<Message?>(null);
-            });
-
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-
-        capturedContext.ShouldNotBeNull();
-        var sendResult = await capturedContext!.SendAsync(message, TestContext.Current.CancellationToken);
-        sendResult.ShouldBeNull();
-    }
-
     // --- Error Handling Tests ---
 
     [Fact]
-    public async Task ReceiveAsync_StrategyThrowsException_ReturnsErrorResponse()
+    public async Task ReceiveAsync_RuntimePathThrowsException_ReturnsErrorResponse()
     {
         var message = CreateMessage();
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns<Message?>(_ => throw new InvalidOperationException("Strategy failed"));
+        _runtimeInvocationPath
+            .InvokeAsync(Arg.Any<Address>(), message, Arg.Any<CancellationToken>())
+            .Returns(_ => throw new InvalidOperationException("Runtime path failed"));
 
         var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         var payload = result!.Payload.Deserialize<JsonElement>();
-        payload.GetProperty("Error").GetString()!.ShouldContain("Strategy failed");
+        payload.GetProperty("Error").GetString()!.ShouldContain("Runtime path failed");
     }
 
     // --- Human Permission Tests ---
@@ -483,8 +426,6 @@ public class UnitActorTests
     public async Task ReceiveAsync_DomainMessage_EmitsMessageReceivedEvent()
     {
         var message = CreateMessage();
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<Message?>(null));
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
@@ -502,8 +443,6 @@ public class UnitActorTests
         // envelope template.
         var payload = JsonSerializer.SerializeToElement("Plan the next sprint.");
         var message = CreateMessage(threadId: "conv-1636-unit-string", payload: payload);
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<Message?>(null));
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
@@ -521,8 +460,6 @@ public class UnitActorTests
         // never carry the message GUID or sender address.
         var payload = JsonSerializer.SerializeToElement(new { Acknowledged = true });
         var message = CreateMessage(threadId: "conv-1636-unit-no-envelope", payload: payload);
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<Message?>(null));
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
@@ -536,18 +473,15 @@ public class UnitActorTests
     }
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessage_EmitsDecisionMadeEvent()
+    public async Task ReceiveAsync_DomainMessage_DoesNotEmitStrategyDecisionEvent()
     {
         var message = CreateMessage();
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<Message?>(null));
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        await _activityEventBus.Received().PublishAsync(
+        await _activityEventBus.DidNotReceive().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.DecisionMade &&
-                e.Summary.Contains("orchestration strategy")),
+                e.EventType == ActivityEventType.DecisionMade),
             Arg.Any<CancellationToken>());
     }
 
@@ -582,11 +516,12 @@ public class UnitActorTests
     }
 
     [Fact]
-    public async Task ReceiveAsync_StrategyThrows_EmitsErrorOccurredEvent()
+    public async Task ReceiveAsync_RuntimePathThrows_EmitsErrorOccurredEvent()
     {
         var message = CreateMessage();
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns<Message?>(_ => throw new InvalidOperationException("Strategy failed"));
+        _runtimeInvocationPath
+            .InvokeAsync(Arg.Any<Address>(), message, Arg.Any<CancellationToken>())
+            .Returns(_ => throw new InvalidOperationException("Runtime path failed"));
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
@@ -602,8 +537,6 @@ public class UnitActorTests
             .Returns(Task.FromException(new InvalidOperationException("Bus down")));
 
         var message = CreateMessage();
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<Message?>(null));
 
         // Should not throw even though the bus fails.
         var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
@@ -1269,28 +1202,24 @@ public class UnitActorTests
     }
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessage_WithMixedAgentAndUnitMembers_PassesBothToStrategy()
+    public async Task ReceiveAsync_DomainMessage_WithMixedAgentAndUnitMembers_InvokesRuntimePath()
     {
-        // Mixed members: one agent, one unit. Routing fans out to both.
+        // Mixed members remain unit state. Domain dispatch now enters the
+        // unit runtime; child routing is exposed later through orchestration
+        // tools rather than an IUnitContext handed to UnitActor.
         var agent = Address.For("agent", TestSlugIds.HexFor("agent-1"));
         var unit = Address.For("unit", TestSlugIds.HexFor("team-b"));
         _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [agent, unit]));
 
         var message = CreateMessage();
-        IUnitContext? captured = null;
-        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                captured = callInfo.ArgAt<IUnitContext>(1);
-                return Task.FromResult<Message?>(null);
-            });
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        captured.ShouldNotBeNull();
-        captured!.Members.ShouldContain(agent);
-        captured.Members.ShouldContain(unit);
+        await _runtimeInvocationPath.Received(1).InvokeAsync(
+            Address.For("unit", TestUnitActorId),
+            message,
+            Arg.Any<CancellationToken>());
     }
 
     // #939 — Draft → Starting is rejected; units must pass through Validating first

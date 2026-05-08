@@ -24,120 +24,73 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for <see cref="UnitActor"/>'s interaction with the
-/// <see cref="IOrchestrationStrategyResolver"/> added in #491. Verifies the
-/// actor consults the resolver per message when one is wired (production
-/// path) and keeps dispatching through the unkeyed strategy when no
-/// resolver is supplied (the pre-#491 default, preserved for test
-/// harnesses that construct the actor directly).
+/// Regression tests for ADR-0039 C2: UnitActor domain dispatch no longer
+/// resolves or invokes orchestration strategies. The strategy taxonomy still
+/// exists; this actor just does not depend on it.
 /// </summary>
 public class UnitActorStrategyResolverTests
 {
     [Fact]
-    public async Task HandleDomainMessage_WithResolver_ResolvesPerMessage()
+    public void Constructor_DoesNotAcceptStrategyResolverOrStrategy()
     {
-        var resolverStrategy = Substitute.For<IOrchestrationStrategy>();
-        var defaultStrategy = Substitute.For<IOrchestrationStrategy>();
-        var resolver = Substitute.For<IOrchestrationStrategyResolver>();
-        resolver.ResolveAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new OrchestrationStrategyLease(resolverStrategy, "label-routed"));
+        var parameterTypes = typeof(UnitActor)
+            .GetConstructors()
+            .SelectMany(c => c.GetParameters())
+            .Select(p => p.ParameterType)
+            .ToArray();
 
-        var actor = BuildActor(defaultStrategy, resolver);
-
-        var incoming = new Message(
-            Id: Guid.NewGuid(),
-            From: Address.For("agent", TestSlugIds.HexFor("sender")),
-            To: Address.For("unit", TestSlugIds.HexFor("resolver-unit")),
-            Type: MessageType.Domain,
-            ThreadId: Guid.NewGuid().ToString(),
-            Payload: System.Text.Json.JsonSerializer.SerializeToElement(new { }),
-            Timestamp: DateTimeOffset.UtcNow);
-
-        await actor.ReceiveAsync(incoming, TestContext.Current.CancellationToken);
-
-        await resolver.Received(1).ResolveAsync(
-            Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await resolverStrategy.Received(1).OrchestrateAsync(
-            incoming, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>());
-        await defaultStrategy.DidNotReceive().OrchestrateAsync(
-            Arg.Any<Message>(), Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>());
+        parameterTypes.ShouldNotContain(typeof(IOrchestrationStrategyResolver));
+        parameterTypes.ShouldNotContain(typeof(IOrchestrationStrategy));
     }
 
     [Fact]
-    public async Task HandleDomainMessage_NoResolver_FallsBackToInjectedStrategy()
+    public async Task ReceiveAsync_DomainMessage_InvokesRuntimePath()
     {
-        var defaultStrategy = Substitute.For<IOrchestrationStrategy>();
+        var actorId = TestSlugIds.HexFor("runtime-unit");
+        var runtimeInvocationPath = Substitute.For<IRuntimeInvocationPath>();
+        runtimeInvocationPath
+            .InvokeAsync(Arg.Any<Address>(), Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
 
-        var actor = BuildActor(defaultStrategy, resolver: null);
+        var actor = BuildActor(actorId, runtimeInvocationPath);
 
         var incoming = new Message(
             Id: Guid.NewGuid(),
             From: Address.For("agent", TestSlugIds.HexFor("sender")),
-            To: Address.For("unit", TestSlugIds.HexFor("bare-unit")),
+            To: Address.For("unit", actorId),
             Type: MessageType.Domain,
             ThreadId: Guid.NewGuid().ToString(),
             Payload: System.Text.Json.JsonSerializer.SerializeToElement(new { }),
             Timestamp: DateTimeOffset.UtcNow);
 
-        await actor.ReceiveAsync(incoming, TestContext.Current.CancellationToken);
+        var result = await actor.ReceiveAsync(incoming, TestContext.Current.CancellationToken);
 
-        await defaultStrategy.Received(1).OrchestrateAsync(
-            incoming, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>());
+        result.ShouldBeNull();
+        await runtimeInvocationPath.Received(1).InvokeAsync(
+            Address.For("unit", actorId),
+            incoming,
+            Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task HandleDomainMessage_WithResolver_DisposesLease()
-    {
-        var resolverStrategy = Substitute.For<IOrchestrationStrategy>();
-        var scope = Substitute.For<IAsyncDisposable>();
-        scope.DisposeAsync().Returns(ValueTask.CompletedTask);
-
-        var resolver = Substitute.For<IOrchestrationStrategyResolver>();
-        resolver.ResolveAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new OrchestrationStrategyLease(resolverStrategy, "ai", scope));
-
-        var actor = BuildActor(Substitute.For<IOrchestrationStrategy>(), resolver);
-
-        var incoming = new Message(
-            Id: Guid.NewGuid(),
-            From: Address.For("agent", TestSlugIds.HexFor("sender")),
-            To: Address.For("unit", TestSlugIds.HexFor("scope-unit")),
-            Type: MessageType.Domain,
-            ThreadId: Guid.NewGuid().ToString(),
-            Payload: System.Text.Json.JsonSerializer.SerializeToElement(new { }),
-            Timestamp: DateTimeOffset.UtcNow);
-
-        await actor.ReceiveAsync(incoming, TestContext.Current.CancellationToken);
-
-        await scope.Received(1).DisposeAsync();
-    }
-
-    private static UnitActor BuildActor(
-        IOrchestrationStrategy defaultStrategy,
-        IOrchestrationStrategyResolver? resolver)
+    private static UnitActor BuildActor(string actorId, IRuntimeInvocationPath runtimeInvocationPath)
     {
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
 
         var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
         {
+            ActorId = new ActorId(actorId),
         });
 
         var actor = new UnitActor(
             host,
             loggerFactory,
-            defaultStrategy,
+            runtimeInvocationPath,
             Substitute.For<IActivityEventBus>(),
             Substitute.For<IDirectoryService>(),
-            Substitute.For<IActorProxyFactory>(),
-            expertiseSeedProvider: null,
-            strategyResolver: resolver);
+            Substitute.For<IActorProxyFactory>());
 
         var stateManager = Substitute.For<IActorStateManager>();
-        stateManager
-            .TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(false, default!));
-
         typeof(Actor)
             .GetField("<StateManager>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)!
             .SetValue(actor, stateManager);
