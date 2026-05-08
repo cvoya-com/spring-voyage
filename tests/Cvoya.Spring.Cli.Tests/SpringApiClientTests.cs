@@ -763,11 +763,14 @@ public class SpringApiClientTests
     [Fact]
     public async Task GetUnitPolicyAsync_PopulatesSlotFieldsFromWireResponse()
     {
-        // Regression for #999: Kiota's oneOf [null, T] generator produced a
-        // composed-type wrapper whose CreateFromDiscriminatorValue read an
-        // empty-string discriminator and never populated the inner sub-record
-        // — so a populated `skill` slot came back with Allowed/Blocked both
-        // null. The raw HTTP path must surface the fields verbatim.
+        // Regression for #999: Kiota's oneOf [null, T] generator originally
+        // produced a composed-type wrapper whose CreateFromDiscriminatorValue
+        // read an empty-string discriminator and never populated the inner
+        // sub-record — a populated `skill` slot came back with Allowed/Blocked
+        // both null. The fix was to rewrite the OpenAPI schema for these
+        // policy slots so Kiota emits plain nullable references; this test
+        // pins that the Kiota-generated client now surfaces the fields
+        // verbatim.
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/units/eng-team/policy",
             expectedMethod: HttpMethod.Get,
@@ -803,9 +806,9 @@ public class SpringApiClientTests
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var policy = new UnitPolicyWire
+        var policy = new Cvoya.Spring.Cli.Generated.Models.UnitPolicyResponse
         {
-            Skill = new SkillPolicyWire
+            Skill = new Cvoya.Spring.Cli.Generated.Models.SkillPolicy
             {
                 Allowed = new List<string> { "github" },
                 Blocked = new List<string> { "shell" },
@@ -814,11 +817,12 @@ public class SpringApiClientTests
 
         var result = await client.SetUnitPolicyAsync("eng-team", policy, TestContext.Current.CancellationToken);
 
-        // The response round-trips cleanly — both the request body carries
-        // the skill rules verbatim (validated in the request-body hook) and
-        // the 200 body deserialises into a fully-populated UnitPolicyWire
-        // with the skill sub-record readable (regression for #999 where the
-        // Kiota composed-type wrapper dropped the inner fields).
+        // The response round-trips cleanly through the Kiota-generated client
+        // — both the request body carries the skill rules verbatim (validated
+        // in the request-body hook) and the 200 body deserialises into a
+        // fully-populated UnitPolicyResponse with the skill sub-record
+        // readable (regression for #999 where the Kiota composed-type
+        // wrapper used to drop the inner fields).
         result.ShouldNotBeNull();
         result.Skill.ShouldNotBeNull();
         result.Skill!.Allowed.ShouldBe(new[] { "github" });
@@ -831,10 +835,11 @@ public class SpringApiClientTests
     {
         // Regression for #999: after the first set, a second set on another
         // dimension does a GET first, then a PUT with the merged result.
-        // With the Kiota wrappers, the second PUT crashed with
+        // With the original Kiota wrappers, the second PUT crashed with
         // `'}' is invalid following a property name` because the composed
-        // wrapper serialized as an empty object stuck in property-name mode.
-        // The plain-DTO path must round-trip cleanly end-to-end.
+        // wrapper serialised as an empty object stuck in property-name mode.
+        // After the schema fix, the Kiota-generated client round-trips
+        // cleanly end-to-end.
         var getHandler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/units/eng-team/policy",
             expectedMethod: HttpMethod.Get,
@@ -843,7 +848,10 @@ public class SpringApiClientTests
         var getClient = new SpringApiClient(new HttpClient(getHandler), BaseUrl);
         var current = await getClient.GetUnitPolicyAsync("eng-team", TestContext.Current.CancellationToken);
 
-        current.Model = new ModelPolicyWire { Allowed = new List<string> { "gpt-4o-mini" } };
+        current.Model = new Cvoya.Spring.Cli.Generated.Models.ModelPolicy
+        {
+            Allowed = new List<string> { "gpt-4o-mini" },
+        };
 
         var putHandler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/units/eng-team/policy",

@@ -146,7 +146,7 @@ describe("PoliciesTab", () => {
       cost: { maxCostPerDay: 25 },
     });
     setUnitPolicy.mockResolvedValue({
-      skill: null,
+      skill: undefined,
       cost: { maxCostPerDay: 25 },
     });
 
@@ -161,7 +161,7 @@ describe("PoliciesTab", () => {
       expect(setUnitPolicy).toHaveBeenCalledWith(
         "engineering",
         expect.objectContaining({
-          skill: null,
+          skill: undefined,
           cost: { maxCostPerDay: 25 },
         }),
       );

@@ -314,6 +314,96 @@ try
             JsonElementOneOfNullCleanup.Apply(document);
             return Task.CompletedTask;
         });
+
+        // Rewrite the `oneOf: [{ "type": "null" }, { "$ref": ... }]` shape on
+        // the unit-policy slots so Kiota's CSharp generator produces plain
+        // nullable references rather than `IComposedTypeWrapper` wrappers
+        // whose `CreateFromDiscriminatorValue` reads an empty-string
+        // discriminator and never populates the inner sub-record (#999 root
+        // cause; original symptom prompted the bypass at ApiClient.cs).
+        //
+        // This transform is intentionally surgical — it only rewrites the
+        // eight property slots actually consumed by the unit-policy CLI
+        // surface. Other `oneOf [null, $ref]` patterns (e.g. on the
+        // TypeScript-facing connector / agent / boundary surfaces) stay
+        // untouched so we do not destabilise downstream clients that do
+        // not exhibit the Kiota CSharp regression.
+        options.AddDocumentTransformer((document, _, _) =>
+        {
+            if (document.Components?.Schemas is not { } schemas)
+            {
+                return Task.CompletedTask;
+            }
+
+            static Microsoft.OpenApi.OpenApiSchemaReference? RewriteNullableRef(
+                Microsoft.OpenApi.IOpenApiSchema? slot,
+                Microsoft.OpenApi.OpenApiDocument doc)
+            {
+                if (slot is not Microsoft.OpenApi.OpenApiSchema concrete) return null;
+                if (concrete.OneOf is not { Count: 2 } oneOf) return null;
+
+                Microsoft.OpenApi.OpenApiSchemaReference? refBranch = null;
+                var hasNullBranch = false;
+                foreach (var branch in oneOf)
+                {
+                    if (branch is Microsoft.OpenApi.OpenApiSchema c
+                        && c.Type == Microsoft.OpenApi.JsonSchemaType.Null)
+                    {
+                        hasNullBranch = true;
+                    }
+                    else if (branch is Microsoft.OpenApi.OpenApiSchemaReference r)
+                    {
+                        refBranch = r;
+                    }
+                }
+
+                if (!hasNullBranch || refBranch is null) return null;
+                // Preserve the original target id; rebind to the document so
+                // the reference resolves cleanly in the rewritten document.
+                return new Microsoft.OpenApi.OpenApiSchemaReference(
+                    refBranch.Reference?.Id ?? string.Empty,
+                    doc);
+            }
+
+            static void Patch(
+                Microsoft.OpenApi.OpenApiDocument doc,
+                System.Collections.Generic.IDictionary<string, Microsoft.OpenApi.IOpenApiSchema> schemaMap,
+                string schemaName,
+                System.Collections.Generic.IReadOnlyList<string> propertyNames)
+            {
+                if (!schemaMap.TryGetValue(schemaName, out var rawSchema)) return;
+                if (rawSchema is not Microsoft.OpenApi.OpenApiSchema concrete) return;
+                if (concrete.Properties is not { } properties) return;
+
+                foreach (var propertyName in propertyNames)
+                {
+                    if (!properties.TryGetValue(propertyName, out var slot)) continue;
+                    var rewritten = RewriteNullableRef(slot, doc);
+                    if (rewritten is not null)
+                    {
+                        properties[propertyName] = rewritten;
+                    }
+                }
+            }
+
+            Patch(
+                document,
+                schemas,
+                "UnitPolicyResponse",
+                new[] { "skill", "model", "cost", "executionMode", "initiative" });
+            Patch(
+                document,
+                schemas,
+                "ExecutionModePolicy",
+                new[] { "forced" });
+            Patch(
+                document,
+                schemas,
+                "InitiativePolicy",
+                new[] { "tier1", "tier2" });
+
+            return Task.CompletedTask;
+        });
     });
 
     var app = builder.Build();

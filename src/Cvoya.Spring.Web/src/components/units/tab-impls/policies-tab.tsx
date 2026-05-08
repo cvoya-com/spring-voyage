@@ -108,7 +108,7 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
     ) => {
       // The dimension we're clearing; every other dimension is
       // carried through verbatim so the clear is truly scoped.
-      const next: UnitPolicyResponse = { ...policy, [dim]: null };
+      const next: UnitPolicyResponse = { ...policy, [dim]: undefined };
       return await api.setUnitPolicy(unitId, next);
     },
     onSuccess: (updated) => {
@@ -124,19 +124,19 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
     },
   });
 
-  const handleSaveSkill = (slot: SkillPolicy | null) => {
+  const handleSaveSkill = (slot: SkillPolicy | undefined) => {
     saveMutation.mutate({ ...policy, skill: slot });
   };
-  const handleSaveModel = (slot: ModelPolicy | null) => {
+  const handleSaveModel = (slot: ModelPolicy | undefined) => {
     saveMutation.mutate({ ...policy, model: slot });
   };
-  const handleSaveCost = (slot: CostPolicy | null) => {
+  const handleSaveCost = (slot: CostPolicy | undefined) => {
     saveMutation.mutate({ ...policy, cost: slot });
   };
-  const handleSaveExecutionMode = (slot: ExecutionModePolicy | null) => {
+  const handleSaveExecutionMode = (slot: ExecutionModePolicy | undefined) => {
     saveMutation.mutate({ ...policy, executionMode: slot });
   };
-  const handleSaveInitiative = (slot: InitiativePolicy | null) => {
+  const handleSaveInitiative = (slot: InitiativePolicy | undefined) => {
     saveMutation.mutate({ ...policy, initiative: slot });
   };
 
@@ -153,31 +153,31 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
   return (
     <div className="space-y-4">
       <SkillPolicyCard
-        value={policy.skill ?? null}
+        value={policy.skill}
         onEdit={() => setEditing("skill")}
         onClear={() => clearMutation.mutate("skill")}
         busy={saveMutation.isPending || clearMutation.isPending}
       />
       <ModelPolicyCard
-        value={policy.model ?? null}
+        value={policy.model}
         onEdit={() => setEditing("model")}
         onClear={() => clearMutation.mutate("model")}
         busy={saveMutation.isPending || clearMutation.isPending}
       />
       <CostPolicyCard
-        value={policy.cost ?? null}
+        value={policy.cost}
         onEdit={() => setEditing("cost")}
         onClear={() => clearMutation.mutate("cost")}
         busy={saveMutation.isPending || clearMutation.isPending}
       />
       <ExecutionModePolicyCard
-        value={policy.executionMode ?? null}
+        value={policy.executionMode}
         onEdit={() => setEditing("execution-mode")}
         onClear={() => clearMutation.mutate("executionMode")}
         busy={saveMutation.isPending || clearMutation.isPending}
       />
       <InitiativePolicyCard
-        value={policy.initiative ?? null}
+        value={policy.initiative}
         onEdit={() => setEditing("initiative")}
         onClear={() => clearMutation.mutate("initiative")}
         busy={saveMutation.isPending || clearMutation.isPending}
@@ -187,7 +187,7 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
       {editing === "skill" && (
         <SkillPolicyDialog
           open
-          initial={policy.skill ?? null}
+          initial={policy.skill}
           onCancel={closeEditor}
           onSave={handleSaveSkill}
           saving={saveMutation.isPending}
@@ -196,7 +196,7 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
       {editing === "model" && (
         <ModelPolicyDialog
           open
-          initial={policy.model ?? null}
+          initial={policy.model}
           onCancel={closeEditor}
           onSave={handleSaveModel}
           saving={saveMutation.isPending}
@@ -205,7 +205,7 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
       {editing === "cost" && (
         <CostPolicyDialog
           open
-          initial={policy.cost ?? null}
+          initial={policy.cost}
           onCancel={closeEditor}
           onSave={handleSaveCost}
           saving={saveMutation.isPending}
@@ -214,7 +214,7 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
       {editing === "execution-mode" && (
         <ExecutionModePolicyDialog
           open
-          initial={policy.executionMode ?? null}
+          initial={policy.executionMode}
           onCancel={closeEditor}
           onSave={handleSaveExecutionMode}
           saving={saveMutation.isPending}
@@ -223,7 +223,7 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
       {editing === "initiative" && (
         <InitiativePolicyDialog
           open
-          initial={policy.initiative ?? null}
+          initial={policy.initiative}
           onCancel={closeEditor}
           onSave={handleSaveInitiative}
           saving={saveMutation.isPending}
@@ -303,7 +303,7 @@ function SkillPolicyCard({
   onClear,
   busy,
 }: {
-  value: SkillPolicy | null;
+  value: SkillPolicy | undefined;
   onEdit: () => void;
   onClear: () => void;
   busy: boolean;
@@ -313,7 +313,7 @@ function SkillPolicyCard({
       title="Skill"
       icon={<ListChecks className="h-4 w-4" />}
       description="Tool allow/block list. Empty allow list means allow every skill; blocked entries always deny."
-      hasValue={value !== null}
+      hasValue={value !== undefined}
       onEdit={onEdit}
       onClear={onClear}
       busy={busy}
@@ -331,7 +331,7 @@ function ModelPolicyCard({
   onClear,
   busy,
 }: {
-  value: ModelPolicy | null;
+  value: ModelPolicy | undefined;
   onEdit: () => void;
   onClear: () => void;
   busy: boolean;
@@ -341,7 +341,7 @@ function ModelPolicyCard({
       title="Model"
       icon={<Gauge className="h-4 w-4" />}
       description="LLM model allow/block list. Same shape as Skill."
-      hasValue={value !== null}
+      hasValue={value !== undefined}
       onEdit={onEdit}
       onClear={onClear}
       busy={busy}
@@ -359,7 +359,7 @@ function CostPolicyCard({
   onClear,
   busy,
 }: {
-  value: CostPolicy | null;
+  value: CostPolicy | undefined;
   onEdit: () => void;
   onClear: () => void;
   busy: boolean;
@@ -369,7 +369,7 @@ function CostPolicyCard({
       title="Cost"
       icon={<DollarSign className="h-4 w-4" />}
       description="Per-invocation / per-hour / per-day USD caps applied to every member of this unit."
-      hasValue={value !== null}
+      hasValue={value !== undefined}
       onEdit={onEdit}
       onClear={onClear}
       busy={busy}
@@ -414,7 +414,7 @@ function ExecutionModePolicyCard({
   onClear,
   busy,
 }: {
-  value: ExecutionModePolicy | null;
+  value: ExecutionModePolicy | undefined;
   onEdit: () => void;
   onClear: () => void;
   busy: boolean;
@@ -424,7 +424,7 @@ function ExecutionModePolicyCard({
       title="Execution mode"
       icon={<Shield className="h-4 w-4" />}
       description="Pin every member to a specific mode (forced) or limit to a whitelist (allowed)."
-      hasValue={value !== null}
+      hasValue={value !== undefined}
       onEdit={onEdit}
       onClear={onClear}
       busy={busy}
@@ -442,7 +442,7 @@ function InitiativePolicyCard({
   onClear,
   busy,
 }: {
-  value: InitiativePolicy | null;
+  value: InitiativePolicy | undefined;
   onEdit: () => void;
   onClear: () => void;
   busy: boolean;
@@ -452,7 +452,7 @@ function InitiativePolicyCard({
       title="Initiative"
       icon={<Zap className="h-4 w-4" />}
       description="Max autonomy level and allow/block list for reflection actions. Applies as a unit-level overlay on per-agent policies."
-      hasValue={value !== null}
+      hasValue={value !== undefined}
       onEdit={onEdit}
       onClear={onClear}
       busy={busy}
@@ -595,9 +595,9 @@ interface AllowBlockDialogProps<T extends { allowed?: string[] | null; blocked?:
   open: boolean;
   title: string;
   description: string;
-  initial: T | null;
+  initial: T | undefined;
   onCancel: () => void;
-  onSave: (slot: T | null) => void;
+  onSave: (slot: T | undefined) => void;
   saving: boolean;
   buildSlot: (allowed: string[] | null, blocked: string[] | null) => T;
   testId: string;
@@ -625,9 +625,9 @@ function AllowBlockDialog<T extends { allowed?: string[] | null; blocked?: strin
     const a = parseCsv(allowed);
     const b = parseCsv(blocked);
     if (a === null && b === null) {
-      // Empty save is a clear — route through null so the server
-      // removes the dimension slot entirely.
-      onSave(null);
+      // Empty save is a clear — route through undefined so the slot
+      // is omitted from the request body entirely.
+      onSave(undefined);
       return;
     }
     onSave(buildSlot(a, b));
@@ -678,9 +678,9 @@ function AllowBlockDialog<T extends { allowed?: string[] | null; blocked?: strin
 
 function SkillPolicyDialog(props: {
   open: boolean;
-  initial: SkillPolicy | null;
+  initial: SkillPolicy | undefined;
   onCancel: () => void;
-  onSave: (slot: SkillPolicy | null) => void;
+  onSave: (slot: SkillPolicy | undefined) => void;
   saving: boolean;
 }) {
   return (
@@ -696,9 +696,9 @@ function SkillPolicyDialog(props: {
 
 function ModelPolicyDialog(props: {
   open: boolean;
-  initial: ModelPolicy | null;
+  initial: ModelPolicy | undefined;
   onCancel: () => void;
-  onSave: (slot: ModelPolicy | null) => void;
+  onSave: (slot: ModelPolicy | undefined) => void;
   saving: boolean;
 }) {
   return (
@@ -720,9 +720,9 @@ function CostPolicyDialog({
   saving,
 }: {
   open: boolean;
-  initial: CostPolicy | null;
+  initial: CostPolicy | undefined;
   onCancel: () => void;
-  onSave: (slot: CostPolicy | null) => void;
+  onSave: (slot: CostPolicy | undefined) => void;
   saving: boolean;
 }) {
   const [maxPerInvocation, setMaxPerInvocation] = useState(
@@ -748,7 +748,7 @@ function CostPolicyDialog({
     const hour = toNumber(maxPerHour);
     const day = toNumber(maxPerDay);
     if (inv === null && hour === null && day === null) {
-      onSave(null);
+      onSave(undefined);
       return;
     }
     onSave({
@@ -824,13 +824,13 @@ function ExecutionModePolicyDialog({
   saving,
 }: {
   open: boolean;
-  initial: ExecutionModePolicy | null;
+  initial: ExecutionModePolicy | undefined;
   onCancel: () => void;
-  onSave: (slot: ExecutionModePolicy | null) => void;
+  onSave: (slot: ExecutionModePolicy | undefined) => void;
   saving: boolean;
 }) {
   const [forced, setForced] = useState<AgentExecutionMode | "">(
-    (initial?.forced as AgentExecutionMode | null) ?? "",
+    initial?.forced ?? "",
   );
   const [allowedSet, setAllowedSet] = useState<Set<AgentExecutionMode>>(
     new Set(initial?.allowed ?? []),
@@ -853,9 +853,9 @@ function ExecutionModePolicyDialog({
       allowedSet.size === 0
         ? null
         : (Array.from(allowedSet) as AgentExecutionMode[]);
-    const forcedValue = forced === "" ? null : forced;
-    if (allowed === null && forcedValue === null) {
-      onSave(null);
+    const forcedValue = forced === "" ? undefined : forced;
+    if (allowed === null && forcedValue === undefined) {
+      onSave(undefined);
       return;
     }
     onSave({
@@ -927,9 +927,9 @@ function InitiativePolicyDialog({
   saving,
 }: {
   open: boolean;
-  initial: InitiativePolicy | null;
+  initial: InitiativePolicy | undefined;
   onCancel: () => void;
-  onSave: (slot: InitiativePolicy | null) => void;
+  onSave: (slot: InitiativePolicy | undefined) => void;
   saving: boolean;
 }) {
   const [maxLevel, setMaxLevel] = useState<InitiativeLevel | "">(
@@ -954,7 +954,7 @@ function InitiativePolicyDialog({
       blocked === null &&
       requireUnitApproval === false
     ) {
-      onSave(null);
+      onSave(undefined);
       return;
     }
     const slot: InitiativePolicy = {
