@@ -68,7 +68,6 @@ function isEmpty(block: AgentExecutionResponse): boolean {
   return (
     !block.image &&
     !block.runtime &&
-    !block.containerRuntime &&
     !block.model &&
     !block.hosting
   );
@@ -79,7 +78,6 @@ function persistedToForm(
 ): AgentExecutionResponse {
   return {
     image: persisted?.image ?? null,
-    containerRuntime: persisted?.containerRuntime ?? null,
     runtime: persisted?.runtime ?? null,
     model: persisted?.model ?? null,
     hosting: persisted?.hosting ?? null,
@@ -125,7 +123,6 @@ export function AgentExecutionPanel({
     return (
       form.image !== current.image ||
       form.runtime !== current.runtime ||
-      form.containerRuntime !== current.containerRuntime ||
       (form.model?.provider ?? null) !== (current.model?.provider ?? null) ||
       (form.model?.id ?? null) !== (current.model?.id ?? null) ||
       form.hosting !== current.hosting
