@@ -39,6 +39,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
 {
     private static readonly Guid ParentAUuid = new("aaaaaaaa-0000-0000-0000-000000000001");
     private static readonly Guid ParentBUuid = new("bbbbbbbb-0000-0000-0000-000000000002");
+    private static readonly Guid ParentCUuid = new("dddddddd-0000-0000-0000-000000000004");
     private static readonly Guid ChildUuid = new("cccccccc-0000-0000-0000-000000000003");
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -136,6 +137,106 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         await parentBProxy.Received(1).AddMemberAsync(
             Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RemoveMember_SubunitNoRemainingParents_Returns204()
+    {
+        // ADR-0039 §6 / B6: removing the child's only parent leaves it
+        // top-level. The remaining parent set is empty, so no
+        // multi-parent conflict is possible and the endpoint accepts.
+        var ct = TestContext.Current.CancellationToken;
+        ResetState();
+
+        var parentAProxy = ArrangeUnit(ParentAUuid, "parent-a");
+        ArrangeUnit(ChildUuid, "child");
+
+        await UpsertSubunitEdgeAsync(ParentAUuid, ChildUuid, ct);
+
+        var response = await _client.DeleteAsync(
+            $"/api/v1/tenant/units/{ParentAUuid:N}/members/{ChildUuid:N}",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        await parentAProxy.Received(1).RemoveMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RemoveMember_SubunitRemainingParentsConsistent_Returns204()
+    {
+        // Removing parent A leaves parent B + parent C. Both remaining
+        // parents resolve the same inherited runtime, so the unassign
+        // proceeds.
+        var ct = TestContext.Current.CancellationToken;
+        ResetState();
+
+        var parentAProxy = ArrangeUnit(ParentAUuid, "parent-a");
+        ArrangeUnit(ParentBUuid, "parent-b");
+        ArrangeUnit(ParentCUuid, "parent-c");
+        ArrangeUnit(ChildUuid, "child");
+
+        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Agent: "claude-code"));
+        StubUnitDefaults(ParentCUuid, new UnitExecutionDefaults(Agent: "claude-code"));
+        StubUnitDefaults(ChildUuid, defaults: null);
+
+        await UpsertSubunitEdgeAsync(ParentAUuid, ChildUuid, ct);
+        await UpsertSubunitEdgeAsync(ParentBUuid, ChildUuid, ct);
+        await UpsertSubunitEdgeAsync(ParentCUuid, ChildUuid, ct);
+
+        var response = await _client.DeleteAsync(
+            $"/api/v1/tenant/units/{ParentAUuid:N}/members/{ChildUuid:N}",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        await parentAProxy.Received(1).RemoveMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RemoveMember_SubunitRemainingParentsDiverging_ChildInherits_Returns422()
+    {
+        // Removing parent A leaves parent B + parent C. Those remaining
+        // parents disagree on the inherited runtime and the child has no
+        // own execution block, so B6 rejects before actor state changes.
+        var ct = TestContext.Current.CancellationToken;
+        ResetState();
+
+        var parentAProxy = ArrangeUnit(ParentAUuid, "parent-a");
+        ArrangeUnit(ParentBUuid, "parent-b");
+        ArrangeUnit(ParentCUuid, "parent-c");
+        ArrangeUnit(ChildUuid, "child");
+
+        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Agent: "claude-code"));
+        StubUnitDefaults(ParentCUuid, new UnitExecutionDefaults(Agent: "spring-voyage"));
+        StubUnitDefaults(ChildUuid, defaults: null);
+
+        await UpsertSubunitEdgeAsync(ParentAUuid, ChildUuid, ct);
+        await UpsertSubunitEdgeAsync(ParentBUuid, ChildUuid, ct);
+        await UpsertSubunitEdgeAsync(ParentCUuid, ChildUuid, ct);
+
+        var response = await _client.DeleteAsync(
+            $"/api/v1/tenant/units/{ParentAUuid:N}/members/{ChildUuid:N}",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
+        problem.GetProperty("error").GetString().ShouldBe("MultiParentInheritanceConflict");
+        var conflictingFields = problem.GetProperty("conflictingFields");
+        conflictingFields.TryGetProperty("agent", out var runtimeEntry).ShouldBeTrue();
+        runtimeEntry.GetArrayLength().ShouldBe(2);
+        var values = runtimeEntry.EnumerateArray()
+            .Select(e => e.GetProperty("value").GetString())
+            .OrderBy(v => v, StringComparer.Ordinal)
+            .ToList();
+        values.ShouldBe(new[] { "claude-code", "spring-voyage" });
+
+        await parentAProxy.DidNotReceive().RemoveMemberAsync(
+            Arg.Any<Address>(),
             Arg.Any<CancellationToken>());
     }
 

@@ -122,7 +122,8 @@ public static class UnitEndpoints
             .WithSummary("Remove a member from a unit")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
 
         // Generic (non-polymorphic) pointer endpoints — the typed per-unit
         // config lives on the connector package's own surface under
@@ -1058,10 +1059,14 @@ public static class UnitEndpoints
     private static async Task<IResult> RemoveMemberAsync(
         string id,
         string memberId,
-        IDirectoryService directoryService,
-        IActorProxyFactory actorProxyFactory,
-        IExpertiseAggregator expertiseAggregator,
-        IUnitParentInvariantGuard parentGuard,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] IExpertiseAggregator expertiseAggregator,
+        [FromServices] IUnitParentInvariantGuard parentGuard,
+        [FromServices] IExecutionConfigInheritanceResolver inheritanceResolver,
+        [FromServices] IUnitSubunitMembershipRepository subunitRepository,
+        [FromServices] IUnitExecutionStore unitExecutionStore,
+        [FromServices] ITenantContext tenantContext,
         CancellationToken cancellationToken)
     {
         var unitAddress = Address.For("unit", id);
@@ -1081,6 +1086,30 @@ public static class UnitEndpoints
         // — no cycle check is required.
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(UnitActor));
+
+        // ADR-0039 §6 / B6: if this member id is a sub-unit, removing the
+        // edge reshapes the child unit's parent set. Resolve against the
+        // remaining parents before the actor-state write so an inherited
+        // field that still diverges returns the same structured 422 used by
+        // sub-unit assignment.
+        var childUnitAddress = Address.For(Address.UnitScheme, memberId);
+        var childUnitEntry = await directoryService.ResolveAsync(childUnitAddress, cancellationToken);
+        if (childUnitEntry is not null)
+        {
+            var conflictResult = await CheckSubunitUnassignmentInheritanceAsync(
+                parentUnitId: entry.ActorId,
+                childUnitId: childUnitEntry.ActorId,
+                inheritanceResolver,
+                subunitRepository,
+                unitExecutionStore,
+                tenantContext,
+                cancellationToken);
+
+            if (conflictResult is not null)
+            {
+                return conflictResult;
+            }
+        }
 
         // Review feedback on #744: the unit variant of memberId must carry
         // the same "no un-parenting" invariant the agent-removal path
@@ -1926,6 +1955,72 @@ public static class UnitEndpoints
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(childEntry.ActorId),
             cancellationToken);
 
+        return CheckSubunitInheritanceParentSet(
+            childOwnDefaults,
+            parentIds,
+            inheritanceResolver,
+            tenantContext,
+            cancellationToken,
+            "Sub-unit assignment would leave the child unit inheriting an inconsistent execution config across its parents.");
+    }
+
+    /// <summary>
+    /// ADR-0039 §6 / B6: enforces multi-parent execution-config consistency
+    /// when unassigning a unit-as-member (sub-unit) from a parent unit.
+    /// Resolves the child unit's effective config against the remaining
+    /// parent set after the target edge is removed.
+    /// </summary>
+    private static async Task<IResult?> CheckSubunitUnassignmentInheritanceAsync(
+        Guid parentUnitId,
+        Guid childUnitId,
+        IExecutionConfigInheritanceResolver inheritanceResolver,
+        IUnitSubunitMembershipRepository subunitRepository,
+        IUnitExecutionStore unitExecutionStore,
+        ITenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        var existingParents = await subunitRepository.ListByChildAsync(childUnitId, cancellationToken);
+        var remainingParentIds = new List<Guid>(existingParents.Count);
+        var seen = new HashSet<Guid>();
+        foreach (var edge in existingParents)
+        {
+            if (edge.ParentId == parentUnitId)
+            {
+                continue;
+            }
+
+            if (seen.Add(edge.ParentId))
+            {
+                remainingParentIds.Add(edge.ParentId);
+            }
+        }
+
+        if (remainingParentIds.Count == 0)
+        {
+            return null;
+        }
+
+        var childOwnDefaults = await unitExecutionStore.GetAsync(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(childUnitId),
+            cancellationToken);
+
+        return CheckSubunitInheritanceParentSet(
+            childOwnDefaults,
+            remainingParentIds,
+            inheritanceResolver,
+            tenantContext,
+            cancellationToken,
+            "Sub-unit unassignment would leave the child unit inheriting an inconsistent execution config across its remaining parents.");
+    }
+
+    private static IResult? CheckSubunitInheritanceParentSet(
+        UnitExecutionDefaults? childOwnDefaults,
+        IReadOnlyList<Guid> parentIds,
+        IExecutionConfigInheritanceResolver inheritanceResolver,
+        ITenantContext tenantContext,
+        CancellationToken cancellationToken,
+        string detail)
+    {
         var childOwnConfig = new AgentExecutionConfig(
             AgentRuntimeId: childOwnDefaults?.Agent ?? string.Empty,
             Image: childOwnDefaults?.Image,
@@ -1954,7 +2049,7 @@ public static class UnitEndpoints
 
         return Results.Problem(
             title: "Multi-parent inheritance conflict",
-            detail: "Sub-unit assignment would leave the child unit inheriting an inconsistent execution config across its parents.",
+            detail: detail,
             statusCode: StatusCodes.Status422UnprocessableEntity,
             extensions: new Dictionary<string, object?>
             {
