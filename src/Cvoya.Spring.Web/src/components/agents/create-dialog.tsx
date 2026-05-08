@@ -9,11 +9,9 @@ import { AgentCreateForm } from "@/components/agents/create-form";
 
 export interface AgentCreateDialogProps {
   /**
-   * URL-safe unit id (the form's `unitIds[]` shape — `unit.name`, not the
-   * Guid `unit.id`). Pre-selected in the wrapped `<AgentCreateForm>` via
-   * `initialUnitIds`. The dialog binds the agent to this unit; operators
-   * cannot remove it from within the dialog (the `/agents/create` page is
-   * the surface for multi-unit assignment).
+   * Unit identifier supplied by the caller. The form accepts either the
+   * stable Guid (`unit.id`) or the navigation-friendly `unit.name` and
+   * resolves it to the direct create API's `unitIds[]` body.
    */
   unitId: string;
   /**

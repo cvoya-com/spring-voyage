@@ -152,12 +152,12 @@ export const api = {
   listAgents: async () => unwrap(await fetchClient.GET("/api/v1/tenant/agents")),
   /**
    * Create a new agent. Mirrors the CLI's `spring agent create` 1:1 —
-   * the server requires at least one unit assignment (#744) and accepts
-   * an optional `definitionJson` blob carrying the execution config
-   * (tool / runtime / image / model). Surfaced through the portal's
-   * `/agents/create` page and the inline-create dialog reachable from
-   * a unit's Agents tab; both flows funnel through the shared helper
-   * in `@/lib/agents/create-agent`.
+   * `unitIds: []` creates a top-level tenant-parented agent, while
+   * non-empty unit ids establish memberships during create. The optional
+   * `definitionJson` blob carries runtime / model / execution overrides.
+   * Surfaced through the portal's `/agents/create` page and the
+   * inline-create dialog reachable from a unit's Agents tab; both flows
+   * funnel through the shared helper in `@/lib/agents/create-agent`.
    */
   createAgent: async (body: CreateAgentRequest): Promise<AgentResponse> =>
     unwrap(
@@ -1551,12 +1551,13 @@ export const api = {
     await fetchClient.DELETE("/api/v1/tenant/cloning-policy", {});
   },
 
-  // Package install (ADR-0035 / #1582). The wizard scratch path builds a
-  // package in memory and submits it through the same install endpoint the
-  // CLI uses (one pipeline for everything). Two entry points:
+  // Package install (ADR-0035 / #1582). Used by real package install flows;
+  // the agent scratch path posts directly to /api/v1/tenant/agents. Two
+  // entry points:
   //
   // 1. installPackageFile — file upload (multipart). Used by the scratch
-  //    wizard to submit a self-contained AgentPackage or UnitPackage YAML.
+  //    unit wizard to submit a self-contained UnitPackage YAML and by
+  //    package upload surfaces.
   // 2. getInstallStatus — polls GET /api/v1/installs/{id} until terminal.
   //
   // Both surfaces honour the two-phase protocol: 201 Created on Phase-1

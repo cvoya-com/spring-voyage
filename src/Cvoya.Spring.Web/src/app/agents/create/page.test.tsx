@@ -10,31 +10,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import type {
+  AgentResponse,
   InstalledModelProviderResponse,
-  InstallStatusResponse,
   UnitResponse,
 } from "@/lib/api/types";
 
 // ---------------------------------------------------------------------------
 // Mocks
 //
-// ADR-0038: the new-agent page reads four endpoints and calls three
-// write endpoints:
+// ADR-0039 K6: the new-agent page reads three endpoints and posts direct
+// create requests:
 //   - api.listUnits                     (initial-assignment picker)
 //   - api.listModelProviders /
 //     api.getModelProviderModels        (model dropdown)
-//   - api.installPackageFile            (submit — replaces createAgent)
-//   - api.getInstallStatus              (polling)
-//   - api.assignUnitAgent               (post-install membership wiring)
+//   - api.createAgent                   (submit)
 // ---------------------------------------------------------------------------
 const listUnits = vi.fn();
 const listModelProviders = vi.fn();
 const getModelProviderModels = vi.fn();
-const installPackageFile = vi.fn();
-const getInstallStatus = vi.fn();
-const assignUnitAgent = vi.fn();
-const retryInstall = vi.fn();
-const abortInstall = vi.fn();
+const createAgent = vi.fn();
 
 // Re-export the real ApiError so the production code's `instanceof
 // ApiError` check (used by the multi-parent inheritance conflict path
@@ -49,12 +43,7 @@ vi.mock("@/lib/api/client", async () => {
       listUnits: () => listUnits(),
       listModelProviders: () => listModelProviders(),
       getModelProviderModels: (id: string) => getModelProviderModels(id),
-      installPackageFile: (yaml: string) => installPackageFile(yaml),
-      getInstallStatus: (id: string) => getInstallStatus(id),
-      assignUnitAgent: (unitId: string, agentId: string) =>
-        assignUnitAgent(unitId, agentId),
-      retryInstall: (id: string) => retryInstall(id),
-      abortInstall: (id: string) => abortInstall(id),
+      createAgent: (body: unknown) => createAgent(body),
     },
   };
 });
@@ -86,7 +75,6 @@ vi.mock("next/link", () => ({
 }));
 
 import CreateAgentPage from "./page";
-import { buildAgentPackageYaml } from "./build-agent-package";
 import {
   AGENT_WIZARD_SESSION_KEY,
   AGENT_WIZARD_STATE_SCHEMA_VERSION,
@@ -136,19 +124,22 @@ function makeRuntime(
   } as InstalledModelProviderResponse;
 }
 
-function makeInstallStatus(
-  overrides: Partial<InstallStatusResponse> = {},
-): InstallStatusResponse {
+function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {
-    installId: overrides.installId ?? "install-id-1",
-    status: overrides.status ?? "active",
-    packages: overrides.packages ?? [
-      { packageName: "ada", state: "active", errorMessage: null },
-    ],
-    startedAt: overrides.startedAt ?? new Date().toISOString(),
-    completedAt: overrides.completedAt ?? new Date().toISOString(),
-    error: overrides.error ?? null,
-  };
+    id: overrides.id ?? "00000000-0000-0000-0000-0000000000ad",
+    name: overrides.name ?? "ada",
+    displayName: overrides.displayName ?? "Ada",
+    description: overrides.description ?? "",
+    role: overrides.role ?? null,
+    registeredAt: overrides.registeredAt ?? new Date().toISOString(),
+    model: overrides.model ?? null,
+    specialty: overrides.specialty ?? null,
+    enabled: overrides.enabled ?? true,
+    executionMode: overrides.executionMode ?? "Respond",
+    parentUnit: overrides.parentUnit ?? null,
+    hostingMode: overrides.hostingMode ?? null,
+    initiativeLevel: overrides.initiativeLevel ?? null,
+  } as AgentResponse;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,18 +178,7 @@ beforeEach(() => {
   getModelProviderModels.mockResolvedValue([
     { id: "claude-3-5-sonnet", displayName: "Claude 3.5 Sonnet" },
   ]);
-  // Default: install returns active immediately (no polling needed).
-  installPackageFile.mockResolvedValue(
-    makeInstallStatus({ status: "active", installId: "install-id-1" }),
-  );
-  getInstallStatus.mockResolvedValue(
-    makeInstallStatus({ status: "active", installId: "install-id-1" }),
-  );
-  assignUnitAgent.mockResolvedValue(undefined);
-  retryInstall.mockResolvedValue(
-    makeInstallStatus({ status: "active", installId: "install-id-1" }),
-  );
-  abortInstall.mockResolvedValue(undefined);
+  createAgent.mockResolvedValue(makeAgent());
 });
 
 afterEach(() => {
@@ -281,7 +261,7 @@ describe("CreateAgentPage", () => {
 
   // ── Validation ────────────────────────────────────────────────────────
 
-  it("blocks submit and surfaces a validation message when no unit is selected", async () => {
+  it("submits a tenant-parented agent when no unit is selected", async () => {
     renderPage();
 
     await waitFor(() => {
@@ -298,11 +278,18 @@ describe("CreateAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("agent-create-error")).toHaveTextContent(
-        /pick at least one unit/i,
-      );
+      expect(createAgent).toHaveBeenCalledTimes(1);
     });
-    expect(installPackageFile).not.toHaveBeenCalled();
+    expect(createAgent).toHaveBeenCalledWith({
+      displayName: "Ada",
+      description: "",
+      role: null,
+      unitIds: [],
+      definitionJson: null,
+    });
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith("/units");
+    });
   });
 
   it("rejects ids that violate the URL-safe pattern before posting", async () => {
@@ -325,7 +312,7 @@ describe("CreateAgentPage", () => {
         /url-safe/i,
       );
     });
-    expect(installPackageFile).not.toHaveBeenCalled();
+    expect(createAgent).not.toHaveBeenCalled();
   });
 
   it("blocks submit when required displayName is missing", async () => {
@@ -347,62 +334,12 @@ describe("CreateAgentPage", () => {
         /display name/i,
       );
     });
-    expect(installPackageFile).not.toHaveBeenCalled();
+    expect(createAgent).not.toHaveBeenCalled();
   });
 
-  // ── AgentPackage payload construction ─────────────────────────────────
+  // ── Submit → direct create endpoint ───────────────────────────────────
 
-  it("builds an AgentPackage YAML from form state", () => {
-    const yaml = buildAgentPackageYaml({
-      id: "ada",
-      displayName: "Ada Lovelace",
-      role: "reviewer",
-      description: "Test agent",
-      image: "ghcr.io/example/agent:latest",
-      // ADR-0038: ai.runtime + ai.model.{provider,id} replace the
-      // legacy flat ai.tool / ai.agent shape.
-      runtime: "claude-code",
-      modelProvider: "anthropic",
-      modelId: "claude-3-5-sonnet",
-      unitIds: ["alpha"],
-    });
-
-    // No `kind:` field; the agent body lives under content[].agent.
-    expect(yaml).not.toContain("kind:");
-    expect(yaml).toContain("content:");
-    expect(yaml).toContain("- agent:");
-    expect(yaml).toContain("name: ada");
-    expect(yaml).toContain("id: ada");
-    expect(yaml).toContain("Ada Lovelace");
-    expect(yaml).toContain("role: reviewer");
-    expect(yaml).toContain("description: Test agent");
-    expect(yaml).toContain("image: ghcr.io/example/agent:latest");
-    // ADR-0038 ai block.
-    expect(yaml).toContain("runtime: claude-code");
-    expect(yaml).toContain("provider: anthropic");
-    expect(yaml).toContain("id: claude-3-5-sonnet");
-  });
-
-  it("omits optional fields from the YAML when they are empty", () => {
-    const yaml = buildAgentPackageYaml({
-      id: "ada",
-      displayName: "Ada",
-      unitIds: [],
-    });
-
-    expect(yaml).not.toContain("kind:");
-    expect(yaml).toContain("content:");
-    expect(yaml).toContain("- agent:");
-    expect(yaml).toContain("name: ada");
-    expect(yaml).not.toContain("role:");
-    expect(yaml).not.toContain("description:");
-    expect(yaml).not.toContain("execution:");
-    expect(yaml).not.toContain("ai:");
-  });
-
-  // ── Submit → install endpoint ──────────────────────────────────────────
-
-  it("submits via installPackageFile and redirects on active status", async () => {
+  it("submits via createAgent and redirects to the selected unit", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
@@ -425,19 +362,16 @@ describe("CreateAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
 
     await waitFor(() => {
-      expect(installPackageFile).toHaveBeenCalledTimes(1);
+      expect(createAgent).toHaveBeenCalledTimes(1);
     });
-
-    const yaml = installPackageFile.mock.calls[0][0] as string;
-    expect(yaml).toContain("content:");
-    expect(yaml).toContain("- agent:");
-    expect(yaml).toContain("name: ada");
-    expect(yaml).toContain("Ada Lovelace");
-    expect(yaml).toContain("role: reviewer");
-    expect(yaml).toContain("image: ghcr.io/example/agent:latest");
-
-    await waitFor(() => {
-      expect(assignUnitAgent).toHaveBeenCalledWith("alpha", "ada");
+    expect(createAgent).toHaveBeenCalledWith({
+      displayName: "Ada Lovelace",
+      description: "",
+      role: "reviewer",
+      unitIds: ["unit-id-alpha"],
+      definitionJson: JSON.stringify({
+        execution: { image: "ghcr.io/example/agent:latest" },
+      }),
     });
 
     await waitFor(() => {
@@ -445,7 +379,7 @@ describe("CreateAgentPage", () => {
     });
   });
 
-  it("calls the install endpoint with an agent content entry in the YAML body", async () => {
+  it("posts the direct create body without legacy name or YAML fields", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
@@ -460,17 +394,19 @@ describe("CreateAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
 
     await waitFor(() => {
-      expect(installPackageFile).toHaveBeenCalledTimes(1);
+      expect(createAgent).toHaveBeenCalledTimes(1);
     });
 
-    const yaml = installPackageFile.mock.calls[0][0] as string;
-    expect(yaml).toMatch(/content:\s*\n\s*- agent:/);
-    expect(yaml).not.toMatch(/^kind:/m);
+    const body = createAgent.mock.calls[0][0] as Record<string, unknown>;
+    expect(body).not.toHaveProperty("name");
+    expect(body).not.toHaveProperty("id");
+    expect(JSON.stringify(body)).not.toContain("content:");
+    expect(JSON.stringify(body)).not.toContain("apiVersion");
   });
 
   // ── Multi-unit assignment ──────────────────────────────────────────────
 
-  it("assigns agent to multiple units sequentially after install", async () => {
+  it("submits multiple selected units in one create request", async () => {
     listUnits.mockResolvedValue([
       makeUnit({ name: "alpha", displayName: "Alpha" }),
       makeUnit({ id: "unit-id-beta", name: "beta", displayName: "Beta" }),
@@ -492,8 +428,10 @@ describe("CreateAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
 
     await waitFor(() => {
-      expect(assignUnitAgent).toHaveBeenCalledWith("alpha", "ada");
-      expect(assignUnitAgent).toHaveBeenCalledWith("beta", "ada");
+      expect(createAgent).toHaveBeenCalledTimes(1);
+    });
+    expect(createAgent.mock.calls[0][0]).toMatchObject({
+      unitIds: ["unit-id-alpha", "unit-id-beta"],
     });
 
     await waitFor(() => {
@@ -503,166 +441,11 @@ describe("CreateAgentPage", () => {
     });
   });
 
-  // ── No unit assignment ─────────────────────────────────────────────────
-
-  it("installs without membership calls when no units are selected … but blocks on validation", async () => {
-    // The form requires at least one unit, so "no units" is blocked at validation.
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
-    });
-
-    fireEvent.change(screen.getByLabelText(/agent id/i), { target: { value: "ada" } });
-    fireEvent.change(screen.getByLabelText(/display name/i), {
-      target: { value: "Ada" },
-    });
-    // Don't check any unit.
-
-    fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("agent-create-error")).toHaveTextContent(
-        /pick at least one unit/i,
-      );
-    });
-    expect(installPackageFile).not.toHaveBeenCalled();
-    expect(assignUnitAgent).not.toHaveBeenCalled();
-  });
-
-  // ── Install failure → retry/abort UI ──────────────────────────────────
-
-  it("renders retry and abort buttons when install returns failed status", async () => {
-    installPackageFile.mockResolvedValue(
-      makeInstallStatus({
-        status: "failed",
-        installId: "install-id-fail",
-        packages: [
-          {
-            packageName: "ada",
-            state: "failed",
-            errorMessage: "Dapr placement timeout",
-          },
-        ],
-      }),
-    );
-
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByLabelText(/assign to alpha/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), { target: { value: "ada" } });
-    fireEvent.change(screen.getByLabelText(/display name/i), {
-      target: { value: "Ada" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("install-failed-panel")).toBeInTheDocument();
-    });
-
-    expect(screen.getByTestId("retry-button")).toBeInTheDocument();
-    expect(screen.getByTestId("abort-button")).toBeInTheDocument();
-    expect(screen.getByTestId("install-failed-panel")).toHaveTextContent(
-      /dapr placement timeout/i,
-    );
-  });
-
-  it("renders retry and abort buttons when polling returns failed", async () => {
-    installPackageFile.mockResolvedValue(
-      makeInstallStatus({
-        status: "staging",
-        installId: "install-id-poll-fail",
-        packages: [{ packageName: "ada", state: "staging", errorMessage: null }],
-      }),
-    );
-    getInstallStatus.mockResolvedValue(
-      makeInstallStatus({
-        status: "failed",
-        installId: "install-id-poll-fail",
-        packages: [
-          { packageName: "ada", state: "failed", errorMessage: "Container pull failed" },
-        ],
-      }),
-    );
-
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByLabelText(/assign to alpha/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), { target: { value: "ada" } });
-    fireEvent.change(screen.getByLabelText(/display name/i), {
-      target: { value: "Ada" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
-
-    // The polling loop waits POLL_INTERVAL_MS (2 s) before the first poll.
-    // waitFor will retry for up to 8 s, which is sufficient.
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("install-failed-panel")).toBeInTheDocument();
-      },
-      { timeout: 8_000 },
-    );
-
-    expect(screen.getByTestId("retry-button")).toBeInTheDocument();
-    expect(screen.getByTestId("abort-button")).toBeInTheDocument();
-  }, 10_000);
-
-  // ── Membership-add partial failure ────────────────────────────────────
-
-  it("surfaces a partial-success message when membership add fails for one unit", async () => {
-    listUnits.mockResolvedValue([
-      makeUnit({ name: "alpha", displayName: "Alpha" }),
-      makeUnit({ id: "unit-id-beta", name: "beta", displayName: "Beta" }),
-    ]);
-    assignUnitAgent
-      .mockResolvedValueOnce(undefined)             // alpha succeeds
-      .mockRejectedValueOnce(new Error("Forbidden")); // beta fails
-
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
-      expect(screen.getByLabelText(/assign to beta/i)).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByLabelText(/assign to alpha/i));
-    fireEvent.click(screen.getByLabelText(/assign to beta/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), { target: { value: "ada" } });
-    fireEvent.change(screen.getByLabelText(/display name/i), {
-      target: { value: "Ada" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
-
-    // Should surface partial error message.
-    await waitFor(() => {
-      expect(screen.getByTestId("agent-create-error")).toHaveTextContent(
-        /membership in beta could not be added/i,
-      );
-    });
-
-    // The failed unit's row should show the error inline.
-    await waitFor(() => {
-      expect(screen.getByText(/failed: forbidden/i)).toBeInTheDocument();
-    });
-
-    // The successful unit's row should show success.
-    await waitFor(() => {
-      expect(screen.getByText(/membership added/i)).toBeInTheDocument();
-    });
-  });
-
   // ── API error message ──────────────────────────────────────────────────
 
-  it("surfaces an API error message inline (4xx from install endpoint)", async () => {
-    installPackageFile.mockRejectedValueOnce(
-      new Error("Package name 'ada' already exists in this tenant."),
+  it("surfaces an API error message inline (4xx from create endpoint)", async () => {
+    createAgent.mockRejectedValueOnce(
+      new Error("Agent display name 'Ada' already exists in this tenant."),
     );
 
     renderPage();
@@ -685,97 +468,6 @@ describe("CreateAgentPage", () => {
       );
     });
     expect(pushMock).not.toHaveBeenCalled();
-  });
-
-  // ── Retry button triggers retryInstall ────────────────────────────────
-
-  it("retry button calls retryInstall and redirects on active", async () => {
-    installPackageFile.mockResolvedValue(
-      makeInstallStatus({
-        status: "failed",
-        installId: "install-id-fail",
-        packages: [
-          { packageName: "ada", state: "failed", errorMessage: "Phase 2 error" },
-        ],
-      }),
-    );
-
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByLabelText(/assign to alpha/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), { target: { value: "ada" } });
-    fireEvent.change(screen.getByLabelText(/display name/i), {
-      target: { value: "Ada" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("retry-button")).toBeInTheDocument();
-    });
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("retry-button"));
-    });
-
-    await waitFor(() => {
-      expect(retryInstall).toHaveBeenCalledWith("install-id-fail");
-    });
-
-    await waitFor(() => {
-      expect(assignUnitAgent).toHaveBeenCalledWith("alpha", "ada");
-    });
-
-    await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/units?node=alpha&tab=Agents");
-    });
-  });
-
-  // ── Abort button ──────────────────────────────────────────────────────
-
-  it("abort button calls abortInstall and resets the form state", async () => {
-    installPackageFile.mockResolvedValue(
-      makeInstallStatus({
-        status: "failed",
-        installId: "install-id-abort",
-        packages: [
-          { packageName: "ada", state: "failed", errorMessage: "error" },
-        ],
-      }),
-    );
-
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByLabelText(/assign to alpha/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), { target: { value: "ada" } });
-    fireEvent.change(screen.getByLabelText(/display name/i), {
-      target: { value: "Ada" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("abort-button")).toBeInTheDocument();
-    });
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("abort-button"));
-    });
-
-    await waitFor(() => {
-      expect(abortInstall).toHaveBeenCalledWith("install-id-abort");
-    });
-
-    // The install-failed panel should be gone after abort.
-    await waitFor(() => {
-      expect(screen.queryByTestId("install-failed-panel")).not.toBeInTheDocument();
-    });
   });
 });
 

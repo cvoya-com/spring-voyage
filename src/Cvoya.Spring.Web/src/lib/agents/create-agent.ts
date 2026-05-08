@@ -4,21 +4,20 @@
 //
 //  - `src/app/agents/create/page.tsx` — the standalone wizard at
 //    `/agents/create`. Mirrors `spring agent create` field-for-field.
-//  - `src/components/units/inline-create-agent-dialog.tsx` — the
-//    inline-create dialog reachable from a unit's Agents tab. Defaults
-//    the unit assignment to the current unit so the new agent appears in
-//    the unit's member list immediately on success.
+//  - `src/components/agents/create-dialog.tsx` — the inline-create dialog
+//    reachable from a unit's Agents tab. Defaults the unit assignment to
+//    the current unit so the new agent appears in the unit's member list
+//    immediately on success.
 //
 // Both paths funnel through `buildCreateAgentRequest` so the wire body
-// (displayName + description + role + unitIds + definitionJson)
-// and the validation rules are owned in exactly one place. Keeping this
-// outside React (`useMutation` lives at the call site) means the helper
-// can be imported by the inline dialog without dragging the standalone
-// page's wizard chrome along.
+// (displayName + description + role + unitIds + definitionJson) is owned
+// in exactly one place. Keeping this outside React (`useMutation` lives
+// at the call site) means the helper can be imported by the inline dialog
+// without dragging the standalone page's wizard chrome along.
 
 import type { CreateAgentRequest } from "@/lib/api/types";
 
-/** URL-safe id pattern. Used by the package wizard for package-name validation. */
+/** URL-safe id pattern. Used by the wizard's legacy local-id field. */
 export const AGENT_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 /**
@@ -34,32 +33,28 @@ export interface AgentCreateFormInput {
   /** Optional free text. `null` is the cleared state. */
   role?: string | null;
   /**
-   * Container image reference (`execution.image`). Defaulted into the
-   * agent definition document when supplied.
+   * Container image reference (`definitionJson.execution.image`). Defaulted
+   * into the agent definition document when supplied.
    */
   image?: string;
   /**
-   * Container runtime key (`execution.runtime`) — `docker` / `podman`.
-   * Defaulted into the agent definition document when supplied.
-   */
-  runtime?: string;
-  /**
-   * ADR-0038 agent runtime id (`ai.runtime`) — `claude-code`, `codex`,
-   * `gemini`, `spring-voyage`, `custom`. Defaulted into the agent
+   * ADR-0038 agent runtime id (`definitionJson.runtime`) — `claude-code`,
+   * `codex`, `gemini`, `spring-voyage`, `custom`. Defaulted into the agent
    * definition document when supplied.
    */
-  tool?: string;
+  runtime?: string;
   /**
    * ADR-0038 structured model selector — `{ provider, id }`. The
    * provider id (e.g. `anthropic`, `ollama`) names the model-provider
    * install; the model id is pulled from that provider's
    * `/api/v1/tenant/model-providers/installs/{id}/models` catalogue
    * by the caller. Both halves are emitted under
-   * `execution.model = { provider, id }`.
+   * `definitionJson.model = { provider, id }`.
    */
   model?: { provider: string; id: string };
   /**
-   * ADR-0039 agent-owned hosting mode (`execution.hosting`). One of:
+   * ADR-0039 agent-owned hosting mode (`definitionJson.execution.hosting`).
+   * One of:
    *
    * - `'ephemeral'` — the agent process exits after each turn.
    * - `'persistent'` — the agent process is long-lived.
@@ -72,9 +67,8 @@ export interface AgentCreateFormInput {
    */
   hosting?: "ephemeral" | "persistent" | null;
   /**
-   * Initial unit assignments. Server requires ≥1 (#744). Both portal
-   * surfaces enforce this client-side so we never POST a request the
-   * server is guaranteed to reject.
+   * Initial unit assignments. An empty list creates a top-level
+   * tenant-parented agent per ADR-0039 §6.
    */
   unitIds: string[];
 }
@@ -85,13 +79,10 @@ export interface AgentCreateFormInput {
  * first failing rule rather than collecting them. `null` means the
  * input is acceptable.
  */
-export type AgentCreateValidationError =
-  | "displayName-required"
-  | "unit-required";
+export type AgentCreateValidationError = "displayName-required";
 
 const VALIDATION_MESSAGES: Record<AgentCreateValidationError, string> = {
   "displayName-required": "Display name is required.",
-  "unit-required": "Pick at least one unit to assign the agent to.",
 };
 
 /**
@@ -103,11 +94,6 @@ export function validateAgentCreateInput(
 ): AgentCreateValidationError | null {
   const displayName = (input.displayName ?? "").trim();
   if (displayName.length === 0) return "displayName-required";
-
-  const units = (input.unitIds ?? [])
-    .map((u) => u.trim())
-    .filter((u) => u.length > 0);
-  if (units.length === 0) return "unit-required";
 
   return null;
 }
@@ -121,59 +107,59 @@ export function describeAgentCreateError(
 
 /**
  * Build the agent-definition JSON document from the supplied execution
- * shorthands. Returns `null` when no shorthand was supplied — letting
- * the caller omit `definitionJson` from the wire body so the request
- * looks identical to a CLI `spring agent create` with no `--image /
- * --runtime / --tool / --model-provider / --model / --hosting` flags.
- * The shape mirrors the CLI's `MergeExecutionShorthand`
- * (`AgentCommand.cs`) so the on-disk `AgentDefinitions.Definition`
- * blob is byte-for-byte the same whether the agent was created from
- * the portal or from the CLI.
+ * shorthands. Returns `null` when no shorthand was supplied, which the
+ * direct create endpoint treats as pure inheritance from tenant defaults
+ * or selected parent units.
  *
- * ADR-0038: `model` is the structured `{ provider, id }` pair and lands
- * under `execution.model` as an object. A model with both halves blank
- * is treated as "not supplied" and is omitted entirely; supplying only
- * one half emits just that field on the nested object so partial input
- * still round-trips through `MergeExecutionShorthand`.
+ * ADR-0038 / ADR-0039 K6: `runtime` and the structured `model` selector
+ * live at the definition root; `image` and `hosting` stay under
+ * `execution`. A model with both halves blank is treated as "not supplied"
+ * and is omitted entirely; supplying only one half emits just that field
+ * on the nested object.
  *
- * ADR-0039 (I2): `hosting` is the agent-owned hosting mode. `null`
- * (or `undefined`) means "inherit from parent" and the field is
- * omitted from the serialised JSON entirely; `'ephemeral'` and
- * `'persistent'` land verbatim under `execution.hosting`.
+ * ADR-0039 (I2): `hosting` is the agent-owned hosting mode. `null` (or
+ * `undefined`) means "inherit from parent" and the field is omitted from
+ * the serialised JSON entirely; `'ephemeral'` and `'persistent'` land
+ * verbatim under `execution.hosting`.
  */
 export function buildAgentDefinitionJson(input: {
   image?: string;
   runtime?: string;
-  tool?: string;
   model?: { provider: string; id: string };
   hosting?: "ephemeral" | "persistent" | null;
 }): string | null {
-  const exec: Record<string, string | { provider?: string; id?: string }> = {};
+  const payload: {
+    runtime?: string;
+    model?: { provider?: string; id?: string };
+    execution?: { image?: string; hosting?: "ephemeral" | "persistent" };
+  } = {};
+  const execution: { image?: string; hosting?: "ephemeral" | "persistent" } = {};
   const image = input.image?.trim();
   const runtime = input.runtime?.trim();
-  const tool = input.tool?.trim();
   const provider = input.model?.provider?.trim();
   const modelId = input.model?.id?.trim();
-  if (image) exec.image = image;
-  if (runtime) exec.runtime = runtime;
-  if (tool) exec.tool = tool;
+  if (runtime) payload.runtime = runtime;
   if (provider || modelId) {
     const model: { provider?: string; id?: string } = {};
     if (provider) model.provider = provider;
     if (modelId) model.id = modelId;
-    exec.model = model;
+    payload.model = model;
   }
+  if (image) execution.image = image;
   if (input.hosting === "ephemeral" || input.hosting === "persistent") {
-    exec.hosting = input.hosting;
+    execution.hosting = input.hosting;
   }
-  if (Object.keys(exec).length === 0) return null;
-  return JSON.stringify({ execution: exec });
+  if (Object.keys(execution).length > 0) {
+    payload.execution = execution;
+  }
+  if (Object.keys(payload).length === 0) return null;
+  return JSON.stringify(payload);
 }
 
 /**
- * Assemble the wire body for `POST /api/v1/agents` from the validated
- * form input. Throws if validation has not been run; callers are
- * expected to gate on `validateAgentCreateInput` first.
+ * Assemble the wire body for `POST /api/v1/tenant/agents` from the
+ * validated form input. Throws if validation has not been run; callers
+ * are expected to gate on `validateAgentCreateInput` first.
  */
 export function buildCreateAgentRequest(
   input: AgentCreateFormInput,
@@ -193,7 +179,6 @@ export function buildCreateAgentRequest(
   const definitionJson = buildAgentDefinitionJson({
     image: input.image,
     runtime: input.runtime,
-    tool: input.tool,
     model: input.model,
     hosting: input.hosting,
   });
@@ -203,7 +188,7 @@ export function buildCreateAgentRequest(
     description,
     role,
     unitIds,
-    ...(definitionJson !== null ? { definitionJson } : {}),
+    definitionJson,
   };
   return body;
 }

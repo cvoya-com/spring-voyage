@@ -19,14 +19,14 @@ import {
 } from "./wizard-persistence";
 
 /**
- * New-agent wizard — scratch path (ADR-0035 decision 6).
+ * New-agent wizard — scratch path (ADR-0039 K6).
  *
  * The page is a thin wrapper around `<AgentCreateForm>` (extracted in
  * ADR-0039 I3 so the unit-tab dialog (J1) can embed the same form). It
  * owns the page chrome (breadcrumbs, heading, copy) and translates the
  * form's success / cancel callbacks into router navigation. All form
- * state, validation, and the two-phase install flow live in the
- * extracted component.
+ * state, validation, and the direct create flow live in the extracted
+ * component.
  *
  * I7 audit (ADR-0039): the I3 extraction already delivered the I7
  * deliverable — this page is the thin wrapper the plan asked for. No
@@ -35,8 +35,7 @@ import {
  * Behaviour preserved from the pre-extraction page:
  *  - `handleCancel` calls `router.back()`.
  *  - `handleSuccess` redirects to `/units?node=<first>&tab=Agents` when
- *    at least one unit was assigned (always true post-validation), and
- *    to `/units` otherwise.
+ *    at least one unit was assigned, and to `/units` otherwise.
  *
  * Visual chrome reuses the existing Card / Input / Button primitives —
  * DESIGN.md does not need an update for this extraction.
@@ -90,13 +89,9 @@ export default function CreateAgentPage() {
             Create a new agent
           </h1>
           <p className="text-sm text-muted-foreground">
-            Builds an{" "}
+            Posts directly to{" "}
             <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
-              AgentPackage
-            </code>{" "}
-            and installs it through the same pipeline as{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
-              spring package install
+              /api/v1/tenant/agents
             </code>
             .
           </p>
