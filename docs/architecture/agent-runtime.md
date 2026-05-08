@@ -238,7 +238,87 @@ containers is tracked separately in [#1943](https://github.com/cvoya-com/spring-
 
 ---
 
-## 4b. Skill registries
+## 4b. Orchestration tool surface
+
+ADR-0039 closes the orchestration surface to five platform-provided tools:
+
+| Tool | Purpose |
+| --- | --- |
+| `list_children` | Enumerate the invoked agent's direct children. |
+| `inspect_child` | Return metadata and status for one direct child. |
+| `delegate_to_child` | Forward the in-flight work to one direct child. |
+| `fanout_to_children` | Forward the work to multiple direct children in parallel. |
+| `query_child_status` | Read one direct child's current execution status. |
+
+The platform supplies these tools only when the invoked agent has children.
+Leaf agents receive no orchestration tools. The runtime decides whether to use
+the tools; there is no platform-side orchestration policy or strategy selection
+on the dispatch path.
+
+Launcher-specific attachment follows each runtime's native mechanism:
+
+- `ClaudeCodeLauncher`, `CodexLauncher`, and `GeminiLauncher` attach a
+  Spring orchestration MCP server alongside the normal platform MCP server.
+- `SpringVoyageAgentLauncher` serialises the descriptors into
+  `SPRING_ORCHESTRATION_TOOLS`.
+- Custom HTTP/A2A runtimes use the same descriptor set and callback-token
+  contract, but choose their own runtime-side presentation.
+
+See [ADR-0039 section 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime).
+
+## 4c. Launcher's tool-attachment responsibility
+
+The runtime path resolves orchestration tools before it calls the launcher. The
+source of truth is `IOrchestrationToolProvider.GetOrchestrationTools(...)`,
+which takes the invoked address and thread id and returns an
+`OrchestrationToolDescriptor[]` with the closed tool name plus input and output
+JSON Schemas.
+
+`AgentLaunchContext.OrchestrationTools` carries that descriptor array into the
+selected `IAgentRuntimeLauncher`. The launcher attaches the descriptors in the
+form its runtime understands: MCP configuration for CLI-sidecar runtimes, an
+environment variable for the Spring Voyage Agent runtime, or another
+runtime-specific mechanism for a custom launcher. This keeps the platform
+contract uniform while allowing each runtime image to expose tools through its
+own native interface.
+
+This responsibility builds on the launcher contract from
+[ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md) and the
+tool surface from [ADR-0039 section 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime).
+
+## 4d. OrchestrationDecision event
+
+When a runtime invokes a delegation tool, the platform's tool-call handler
+records an `OrchestrationDecision` in the activity stream. The runtime supplies
+the intent; the platform records the evidence when it processes the tool call.
+
+The event payload is shaped for subscribers as:
+
+```json
+{
+  "kind": "delegate_to_child | fanout_to_children | ...",
+  "childId": "<agent-id>",
+  "status": "pending | completed | failed",
+  "payload": { },
+  "response": { }
+}
+```
+
+The Core domain record stores the durable audit fields: decision id, tenant id,
+unit address, thread id, input message id, decision kind, target addresses,
+status, result message ids, runtime-supplied reason, optional metadata, and
+creation time. The reason is plain text supplied by the runtime; it is not
+hidden model reasoning.
+
+Subscribers consume this stream instead of platform orchestration policy. For
+example, the GitHub connector's label-routing roundtrip listens for delegation
+decisions and applies connector-side label rules.
+
+See [ADR-0039 section 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence).
+
+---
+
+## 4e. Skill registries
 
 See [ADR 0014](../decisions/0014-skill-invoker-seam.md) for the decision record behind the `ISkillInvoker` seam and the expertise-directory-driven skill surface.
 
@@ -321,7 +401,7 @@ can pre-register its own and keep it.
 
 ---
 
-## 4b. Provider surfaces vs. fixed-provider runtimes
+## 4f. Provider surfaces vs. fixed-provider runtimes
 
 The wizard rule from [ADR-0038 § 1](../decisions/0038-agent-runtime-and-model-provider-split.md#1-three-concepts-one-tuple-at-the-user-facing-surface)
 is keyed off whether a runtime declares one or many `modelProviders` in the
