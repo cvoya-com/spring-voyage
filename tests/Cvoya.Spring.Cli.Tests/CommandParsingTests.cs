@@ -119,6 +119,25 @@ public class CommandParsingTests
 
 
     [Fact]
+    public void UnitCreate_LegacyContainerRuntimeFlag_RejectedAtParseTime()
+    {
+        // ADR-0039 §7 / §9: --container-runtime is removed from operator-
+        // facing surfaces. The flag is rejected at parse time with the
+        // migration hint pinned on UnitCommand.LegacyContainerRuntimeFlagRejectionMessage.
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit create my-unit --top-level --container-runtime podman");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(
+            e => e.Message == UnitCommand.LegacyContainerRuntimeFlagRejectionMessage);
+    }
+
+    [Fact]
     public void OutputOption_AcceptsJson()
     {
         var outputOption = CreateOutputOption();
