@@ -6,6 +6,8 @@ namespace Cvoya.Spring.Cli.Tests;
 using System.Net;
 using System.Text.Json;
 
+using Cvoya.Spring.Cli.Commands;
+
 using Shouldly;
 
 using Xunit;
@@ -173,6 +175,58 @@ public class SpringApiClientTests
             "coder",
             new[] { unitGuid },
             description: "my-desc",
+            ct: TestContext.Current.CancellationToken);
+
+        result.Id.ShouldBe(agentGuid);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task CreateAgentAsync_InheritFlag_OmitsExecutionFields()
+    {
+        var agentGuid = Guid.NewGuid();
+        var unitGuid = Guid.NewGuid();
+
+        // The --inherit flag is CLI-local. Even when create-time execution
+        // shorthands are also present, the command must pass the unmerged
+        // definition JSON to the public API client; with no definition JSON,
+        // that means no execution block is sent.
+        var definitionJson = AgentCommand.ApplyCreateExecutionShorthand(
+            definitionJson: null,
+            inherit: true,
+            image: "ghcr.io/example/agent:latest",
+            runtime: "codex",
+            modelProvider: "openai",
+            model: "gpt-4o");
+        definitionJson.ShouldBeNull();
+
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents",
+            expectedMethod: HttpMethod.Post,
+            responseBody: $"{{\"id\":\"{agentGuid}\",\"name\":\"ada\",\"displayName\":\"Ada\",\"role\":null}}",
+            returnStatusCode: HttpStatusCode.Created,
+            validateRequestBody: body =>
+            {
+                body.ShouldNotContain("\"execution\"");
+
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                if (json.TryGetProperty("definitionJson", out var emittedDefinition)
+                    && emittedDefinition.ValueKind == JsonValueKind.String)
+                {
+                    var emittedDefinitionText = emittedDefinition.GetString();
+                    emittedDefinitionText.ShouldNotBeNull();
+                    emittedDefinitionText.ShouldNotContain("\"execution\"");
+                }
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.CreateAgentAsync(
+            "Ada",
+            role: null,
+            unitIds: new[] { unitGuid },
+            definitionJson: definitionJson,
             ct: TestContext.Current.CancellationToken);
 
         result.Id.ShouldBe(agentGuid);

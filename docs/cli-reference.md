@@ -154,9 +154,14 @@ $ spring agent create --name ada --unit eng \
 
 # Override only the model id later — provider is preserved
 $ spring agent execution set ada --model claude-sonnet-4-6
+
+# Create an agent that inherits all execution config from its parent unit(s)
+$ spring agent create --name ada --unit eng --inherit
 ```
 
 Scripts and scenario tests should pass `--name` explicitly; a bare token after `spring agent create` is rejected with the ADR-0039 migration hint.
+
+Passing `--inherit` makes `spring agent create` omit the create-time execution shorthand overlay (`--runtime`, `--model-provider`, `--model`, `--image`) so the request body carries no execution block unless one was already supplied through `--definition` or `--definition-file`. The platform then resolves runtime, model, image, and hosting from the agent's parent unit set.
 
 Per-field clear targets the new field-key surface: `image`, `container-runtime`, `runtime`, `model-provider`, `model`, `hosting` (agent only). Clearing `model-provider` wipes only the provider half of the structured `execution.model`; clearing `model` wipes the whole `{provider, id}` pair.
 
