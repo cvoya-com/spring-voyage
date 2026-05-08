@@ -20,8 +20,7 @@ using System.Text.Json.Serialization;
 /// sub-record. That dropped every slot's fields on read and crashed on the
 /// subsequent PUT's serialization — see issue #999. Bypassing the generated
 /// client for just this endpoint keeps the rest of the CLI on Kiota while
-/// giving <c>spring unit policy</c> and <c>spring unit orchestration</c> a
-/// wire shape that actually round-trips.
+/// giving <c>spring unit policy</c> a wire shape that actually round-trips.
 /// </para>
 /// </remarks>
 public sealed class UnitPolicyWire

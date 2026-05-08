@@ -143,9 +143,6 @@ public static class UnitCommand
         unitCommand.Subcommands.Add(ExpertiseCommand.CreateUnitSubcommand(outputOption));
         // #413 — boundary get/set/clear (opacity, projection, synthesis).
         unitCommand.Subcommands.Add(UnitBoundaryCommand.Create(outputOption));
-        // #606 — orchestration get/set/clear for the manifest-persisted
-        // strategy slot (direct read/write surface deferred by ADR-0010).
-        unitCommand.Subcommands.Add(UnitOrchestrationCommand.Create(outputOption));
         // #601 / #603 / #409 B-wide — execution get/set/clear for the
         // unit's execution defaults (image / runtime / tool / provider /
         // model) inherited by member agents.
