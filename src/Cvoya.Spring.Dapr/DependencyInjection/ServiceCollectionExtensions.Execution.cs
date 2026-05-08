@@ -14,6 +14,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Units;
+using Cvoya.Spring.Dapr.Agents;
 using Cvoya.Spring.Dapr.Capabilities;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.Execution;
@@ -193,6 +194,14 @@ internal static class ServiceCollectionExtensionsExecution
         // registration is via AddCvoyaSpringAgentRuntimes() in the host
         // composition root.
         services.TryAddSingleton<IAgentDefinitionProvider, DbAgentDefinitionProvider>();
+
+        // ADR-0039 §6 — execution-config inheritance resolver. The
+        // default reads each parent unit's persisted defaults via
+        // IUnitExecutionStore and intersects them per field; the cloud
+        // overlay can substitute a tenant-aware variant via the standard
+        // TryAdd* seam (e.g. one that consults tenant-default fallthrough
+        // for top-level agents, or layers audit logging on conflict).
+        services.TryAddSingleton<IExecutionConfigInheritanceResolver, ExecutionConfigInheritanceResolver>();
         // D3c: per-agent workspace volume manager. Provisions volumes before
         // agent containers start, reclaims them on agent delete / ephemeral
         // completion, and emits volume-level telemetry (size, growth rate).
