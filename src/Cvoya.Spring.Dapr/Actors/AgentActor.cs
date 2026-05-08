@@ -47,7 +47,8 @@ public class AgentActor(
     IAgentUnitPolicyCoordinator unitPolicyCoordinator,
     IExpertiseSeedProvider? expertiseSeedProvider = null,
     IActorProxyFactory? actorProxyFactory = null,
-    IDirectoryService? directoryService = null) : Actor(host), IAgentActor, IRemindable
+    IDirectoryService? directoryService = null,
+    IRuntimeInvocationPath? runtimeInvocationPath = null) : Actor(host), IAgentActor, IRemindable
 {
     /// <summary>
     /// Name of the Dapr reminder that drives periodic initiative checks.
@@ -353,9 +354,7 @@ public class AgentActor(
             {
                 _activeWorkCancellation = new CancellationTokenSource();
                 var context = await BuildPromptAssemblyContextAsync(ch, eff, ct);
-                PendingDispatchTask = dispatchCoordinator.RunDispatchAsync(
-                    Id.GetId(), message, context, EmitActivityEventAsync,
-                    ClearActiveThreadViaSelfAsync, _activeWorkCancellation.Token);
+                PendingDispatchTask = DispatchAsync(message, context, _activeWorkCancellation.Token);
             },
             emitActivity: EmitActivityEventAsync,
             cancellationToken: cancellationToken);
@@ -520,6 +519,41 @@ public class AgentActor(
             resolveExecutionMode: (id, mode, ct) =>
                 unitPolicyEnforcer.ResolveExecutionModeAsync(id, mode, ct),
             cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// Routes the dispatch step through <see cref="IRuntimeInvocationPath"/>
+    /// when one is wired (production), or falls back to a direct
+    /// <see cref="IAgentDispatchCoordinator.RunDispatchAsync"/> call when
+    /// it is absent (legacy test harnesses that construct the actor with
+    /// the original positional arguments only — see ADR-0039 task C1).
+    /// Both paths invoke <see cref="IAgentDispatchCoordinator"/> with
+    /// identical arguments, so behaviour is the same either way; the
+    /// runtime-invocation-path indirection exists so cloud overlays and
+    /// later phases (units calling the same path in C2; directory-driven
+    /// orchestration tools in D2) can substitute the dispatch shape
+    /// without touching the actor.
+    /// </summary>
+    private Task DispatchAsync(Message message, PromptAssemblyContext context, CancellationToken ct)
+    {
+        if (runtimeInvocationPath is not null)
+        {
+            return runtimeInvocationPath.InvokeAsync(
+                Address,
+                message,
+                context,
+                EmitActivityEventAsync,
+                ClearActiveThreadViaSelfAsync,
+                ct);
+        }
+
+        return dispatchCoordinator.RunDispatchAsync(
+            Id.GetId(),
+            message,
+            context,
+            EmitActivityEventAsync,
+            ClearActiveThreadViaSelfAsync,
+            ct);
     }
 
     private async Task ClearActiveThreadViaSelfAsync(string reason)
@@ -727,9 +761,7 @@ public class AgentActor(
                 _activeWorkCancellation = new CancellationTokenSource();
                 var context = await BuildPromptAssemblyContextAsync(ch, eff, ct);
                 var head = ch.Messages[0];
-                PendingDispatchTask = dispatchCoordinator.RunDispatchAsync(
-                    Id.GetId(), head, context, EmitActivityEventAsync,
-                    ClearActiveThreadViaSelfAsync, _activeWorkCancellation.Token);
+                PendingDispatchTask = DispatchAsync(head, context, _activeWorkCancellation.Token);
             },
             resolveEffectiveMetadata: (msg, ct) => ResolveEffectiveMetadataAsync(msg, ct),
             cancellationToken: cancellationToken);
