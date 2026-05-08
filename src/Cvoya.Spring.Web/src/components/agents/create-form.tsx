@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
-import { api } from "@/lib/api/client";
+import { api, ApiError } from "@/lib/api/client";
 import {
   useModelProviderModels,
   useModelProviders,
@@ -23,6 +23,11 @@ import {
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import { AGENT_NAME_PATTERN } from "@/lib/agents/create-agent";
+import {
+  canonicalUnitId,
+  parseMultiParentInheritanceConflict,
+  type MultiParentInheritanceConflict,
+} from "@/lib/agents/multi-parent-conflict";
 import {
   buildAgentPackageYaml,
   type AgentPackageFormState,
@@ -98,6 +103,14 @@ interface InstallState {
   membershipErrors: Record<string, string>;
   /** Which unit memberships succeeded so far */
   membershipDone: string[];
+  /**
+   * ADR-0039 §6 (I6): structured 422 from a membership-add call. When
+   * non-null, the form renders an inline conflict block listing every
+   * diverging field and the parent-attributed values, and blocks the
+   * submit button until the operator either trims the parent set or
+   * sets the field explicitly. Cleared on any form-state change.
+   */
+  multiParentConflict: MultiParentInheritanceConflict | null;
 }
 
 const INITIAL_INSTALL: InstallState = {
@@ -107,6 +120,7 @@ const INITIAL_INSTALL: InstallState = {
   error: null,
   membershipErrors: {},
   membershipDone: [],
+  multiParentConflict: null,
 };
 
 const POLL_INTERVAL_MS = 2_000;
@@ -206,6 +220,13 @@ export function AgentCreateForm({
     setValidationMessage(null);
     if (install.phase === "idle" || install.phase === "failed") {
       setInstall(INITIAL_INSTALL);
+    }
+    // ADR-0039 I6: any form-state change invalidates a stale conflict
+    // block so the submit button re-enables once the operator has
+    // resolved the divergence (trimmed the parent set or set the
+    // conflicting field explicitly).
+    if (install.multiParentConflict !== null) {
+      setInstall((prev) => ({ ...prev, multiParentConflict: null }));
     }
   };
 
@@ -443,16 +464,40 @@ export function AgentCreateForm({
    * Post-install membership wiring. Fires `assignUnitAgent` for each
    * selected unit sequentially. Updates install.membershipErrors /
    * membershipDone in real time.
+   *
+   * ADR-0039 §6 (I6): when a membership-add returns the structured 422
+   * `MultiParentInheritanceConflict`, surface it on `multiParentConflict`
+   * for inline rendering (`<MultiParentConflictBlock>`) instead of
+   * dumping the formatted ApiError message into `membershipErrors`.
+   * The conflict short-circuits the rest of the loop because every
+   * subsequent unit would report the same divergence.
    */
   const addMemberships = useCallback(
     async (agentId: string, unitIds: string[]) => {
       const errors: Record<string, string> = {};
       const done: string[] = [];
+      let conflict: MultiParentInheritanceConflict | null = null;
       for (const unitId of unitIds) {
         try {
           await api.assignUnitAgent(unitId, agentId);
           done.push(unitId);
         } catch (err) {
+          if (err instanceof ApiError && err.status === 422) {
+            const parsed = parseMultiParentInheritanceConflict(err.body);
+            if (parsed !== null) {
+              conflict = parsed;
+              setInstall((prev) => ({
+                ...prev,
+                membershipErrors: { ...errors },
+                membershipDone: [...done],
+                multiParentConflict: parsed,
+              }));
+              // Stop on the first conflict — every remaining unit would
+              // hit the same divergence and we already have the full
+              // per-field, per-parent picture from the resolver.
+              return { errors, done, conflict };
+            }
+          }
           const msg = err instanceof Error ? err.message : String(err);
           errors[unitId] = msg;
         }
@@ -462,7 +507,7 @@ export function AgentCreateForm({
           membershipDone: [...done],
         }));
       }
-      return { errors, done };
+      return { errors, done, conflict };
     },
     [],
   );
@@ -491,6 +536,7 @@ export function AgentCreateForm({
       error: null,
       membershipErrors: {},
       membershipDone: [],
+      multiParentConflict: null,
     });
 
     let installId: string;
@@ -569,7 +615,29 @@ export function AgentCreateForm({
     // Phase: memberships
     if (unitIds.length > 0) {
       setInstall((prev) => ({ ...prev, phase: "memberships" }));
-      const { errors } = await addMemberships(agentId, unitIds);
+      const { errors, conflict } = await addMemberships(agentId, unitIds);
+
+      // ADR-0039 §6 (I6): the structured 422 path. The agent is
+      // installed but the parent set diverges on an inherited field;
+      // the operator must trim the set or set the field explicitly
+      // before any membership row is written.
+      if (conflict !== null) {
+        setInstall((prev) => ({
+          ...prev,
+          phase: "failed",
+          error: null,
+          multiParentConflict: conflict,
+        }));
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
+        queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+        toast({
+          title: "Agent installed (membership blocked)",
+          description:
+            "Parent units disagree on an inherited execution-config field.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       if (Object.keys(errors).length > 0) {
         // Partial success — agent installed but some memberships failed.
@@ -643,7 +711,19 @@ export function AgentCreateForm({
         // Complete immediately
         if (form.unitIds.length > 0) {
           setInstall((prev) => ({ ...prev, phase: "memberships" }));
-          const { errors } = await addMemberships(install.agentId!, form.unitIds);
+          const { errors, conflict } = await addMemberships(
+            install.agentId!,
+            form.unitIds,
+          );
+          if (conflict !== null) {
+            setInstall((prev) => ({
+              ...prev,
+              phase: "failed",
+              error: null,
+              multiParentConflict: conflict,
+            }));
+            return;
+          }
           if (Object.keys(errors).length > 0) {
             const failedUnits = Object.keys(errors).join(", ");
             setInstall((prev) => ({
@@ -1155,6 +1235,16 @@ export function AgentCreateForm({
                           return { ...prev, unitIds: next };
                         });
                         setValidationMessage(null);
+                        // ADR-0039 I6: trimming the parent set is one of
+                        // the two operator-resolutions for a multi-parent
+                        // conflict. Clear the inline error so the submit
+                        // button re-enables.
+                        if (install.multiParentConflict !== null) {
+                          setInstall((prev) => ({
+                            ...prev,
+                            multiParentConflict: null,
+                          }));
+                        }
                       }}
                       disabled={submitting}
                       aria-label={`Assign to ${unit.displayName || unit.name}`}
@@ -1220,6 +1310,14 @@ export function AgentCreateForm({
           </p>
         )}
 
+      {/* ── Multi-parent inheritance conflict (ADR-0039 §6 / I6) ─── */}
+      {install.multiParentConflict !== null && (
+        <MultiParentConflictBlock
+          conflict={install.multiParentConflict}
+          units={unitsQuery.data ?? []}
+        />
+      )}
+
       {/* ── Phase-2 failure panel ─────────────────────────────────── */}
       {install.phase === "install-failed" && (
         <div
@@ -1273,7 +1371,15 @@ export function AgentCreateForm({
         </Button>
         <Button
           type="submit"
-          disabled={submitting || install.phase === "install-failed"}
+          disabled={
+            submitting ||
+            install.phase === "install-failed" ||
+            // ADR-0039 I6: block submit until the operator either trims
+            // the parent set or sets the conflicting field explicitly.
+            // The block clears on any form-state change.
+            install.multiParentConflict !== null
+          }
+          data-testid="agent-create-submit"
         >
           {phaseLabel[install.phase]}
         </Button>
@@ -1282,7 +1388,6 @@ export function AgentCreateForm({
   );
 }
 
-// ---------------------------------------------------------------------------
 // InheritableField — DESIGN.md §12.6 affordance (ADR-0039 I4)
 // ---------------------------------------------------------------------------
 
@@ -1360,6 +1465,107 @@ function InheritableField({
       ) : (
         <p className="text-xs text-muted-foreground">{help}</p>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MultiParentConflictBlock — ADR-0039 §6 / I6
+// ---------------------------------------------------------------------------
+
+/**
+ * Inline error block rendered when a membership-add returns the
+ * structured 422 `MultiParentInheritanceConflict`. Lists each diverging
+ * field and the parent-attributed values so the operator can see at a
+ * glance which parents disagree and pick a resolution path.
+ *
+ * Visual: destructive-palette banner per `DESIGN.md` §12.4 (alert
+ * banners) — same shape as the validation-panel error state in
+ * §12.8 so a single axe pass covers both surfaces.
+ *
+ * Attribution: when a unit listed in the conflict is also in the unit
+ * picker (`unitsQuery.data`) we show its display name in a "verbose"
+ * line; the canonical 32-character hex id is always shown alongside
+ * for log correlation. We tolerate hyphenated GUIDs from the units
+ * endpoint by normalising both sides to the canonical form before
+ * matching (`canonicalUnitId`).
+ */
+function MultiParentConflictBlock({
+  conflict,
+  units,
+}: {
+  conflict: MultiParentInheritanceConflict;
+  units: ReadonlyArray<UnitResponse>;
+}) {
+  // Pre-build a {canonical-id → unit} index so each parent value can
+  // resolve a friendly name in O(1).
+  const unitIndex = new Map<string, UnitResponse>();
+  for (const u of units) {
+    const canonical = canonicalUnitId(String(u.id));
+    if (canonical !== null) unitIndex.set(canonical, u);
+  }
+
+  const describeParent = (rawUnitId: string): string => {
+    const canonical = canonicalUnitId(rawUnitId) ?? rawUnitId;
+    const unit = unitIndex.get(canonical);
+    if (unit) return unit.displayName || unit.name;
+    return rawUnitId;
+  };
+
+  return (
+    <div
+      role="alert"
+      className="mt-4 space-y-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-3 text-sm text-foreground"
+      data-testid="multi-parent-inheritance-conflict"
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle
+          className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+          aria-hidden
+        />
+        <div className="flex-1 space-y-1">
+          <p className="font-medium text-destructive">
+            Parent units disagree on inherited execution config
+          </p>
+          <p className="text-xs text-foreground">
+            The agent is inheriting one or more execution-config fields,
+            but the selected parent units contribute conflicting values.
+            Either remove a conflicting parent or set the field explicitly
+            on the agent before re-submitting.
+          </p>
+        </div>
+      </div>
+
+      <ul className="space-y-2">
+        {conflict.fields.map((row) => (
+          <li
+            key={row.field}
+            className="rounded-md border border-destructive/30 bg-background/50 px-3 py-2"
+            data-testid={`multi-parent-inheritance-conflict-field-${row.field}`}
+          >
+            <p className="font-mono text-xs font-medium text-destructive">
+              {row.field}
+            </p>
+            <ul className="mt-1 space-y-1">
+              {row.values.map((v, idx) => (
+                <li
+                  key={`${v.unitId}-${idx}`}
+                  className="flex flex-wrap items-baseline gap-x-2 text-xs"
+                >
+                  <span className="font-medium">{describeParent(v.unitId)}</span>
+                  <span className="font-mono text-muted-foreground">
+                    {v.unitId}
+                  </span>
+                  <span aria-hidden className="text-muted-foreground">
+                    →
+                  </span>
+                  <span className="font-mono">{v.value}</span>
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
