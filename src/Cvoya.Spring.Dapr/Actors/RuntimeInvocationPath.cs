@@ -159,8 +159,7 @@ public class RuntimeInvocationPath(
             .ToList();
 
         // Resolve the orchestration tools the subject may invoke against
-        // its child composition. Empty for leaf agents and for the A4
-        // default `EmptyOrchestrationToolProvider`; populated by D2's
+        // its child composition. Empty for leaf agents; populated by the
         // directory-driven provider for units with children.
         // The provider takes a Guid threadId — the inbound thread id is
         // a string envelope, but every domain message that reaches here
