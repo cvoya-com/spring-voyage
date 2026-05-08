@@ -65,6 +65,22 @@ public static class PackageManifestParser
         ValidateLegacyFields(yamlText, doc);
         ValidateRequiredFields(doc);
         ValidatePackageGrammar(doc);
+
+        // ADR-0039 § 9: reject `execution.containerRuntime:` (and the
+        // hoisted root-level form) on the package-level `execution:`
+        // block too. Mirrors the unit-side detection in
+        // ManifestParser.DetectLegacyContainerRuntime so unit, agent
+        // (via PackageValidator), and package manifests share one
+        // rejection rule.
+        try
+        {
+            ManifestParser.DetectLegacyContainerRuntime(yamlText);
+        }
+        catch (ManifestParseException ex)
+        {
+            throw new PackageParseException(ex.Message, ex);
+        }
+
         return doc;
     }
 

@@ -302,6 +302,94 @@ public class Adr0037Tests
     }
 
     [Fact]
+    public void ManifestParser_LegacyContainerRuntimeField_UnderExecution_Rejected()
+    {
+        // ADR-0039 § 9: execution.containerRuntime is removed — the
+        // container runtime is platform configuration, not a per-unit
+        // field. Old-shape unit YAMLs trip the legacy detector.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: my-unit
+            description: x
+            execution:
+              image: ghcr.io/example/agent:latest
+              containerRuntime: podman
+            """;
+
+        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
+        ex.Message.ShouldContain("LegacyContainerRuntimeField");
+        ex.Message.ShouldContain("ADR-0039");
+        ex.Message.ShouldContain("platform configuration");
+    }
+
+    [Fact]
+    public void ManifestParser_LegacyContainerRuntimeField_AtRoot_Rejected()
+    {
+        // ADR-0039 § 9: a wire-DTO body (or hand-authored YAML) that
+        // hoists `containerRuntime:` to the document root is rejected
+        // with the same migration hint as the nested form.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: my-unit
+            description: x
+            containerRuntime: docker
+            """;
+
+        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
+        ex.Message.ShouldContain("LegacyContainerRuntimeField");
+        ex.Message.ShouldContain("platform configuration");
+    }
+
+    [Fact]
+    public void ManifestParser_NoContainerRuntime_Succeeds()
+    {
+        // ADR-0039 § 9: a clean unit YAML with no `containerRuntime:`
+        // anywhere parses successfully. Pinned so the legacy detector
+        // does not over-match (e.g. on substring keys) when the field
+        // is absent.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: my-unit
+            description: x
+            execution:
+              image: ghcr.io/example/agent:latest
+            """;
+
+        var manifest = ManifestParser.Parse(yaml);
+
+        manifest.Name.ShouldBe("my-unit");
+        manifest.Execution.ShouldNotBeNull();
+        manifest.Execution!.Image.ShouldBe("ghcr.io/example/agent:latest");
+    }
+
+    [Fact]
+    public void ParseRaw_LegacyContainerRuntimeField_OnPackageExecution_Rejected()
+    {
+        // ADR-0039 § 9: package-level `execution:` blocks reject
+        // `containerRuntime:` for the same reason as unit blocks. The
+        // detector is shared, so the migration hint is identical.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Package
+            name: my-package
+            description: x
+            version: 1.0.0
+            execution:
+              image: ghcr.io/example/agent:latest
+              containerRuntime: podman
+            content:
+              - unit: root
+            """;
+
+        var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
+        ex.Message.ShouldContain("LegacyContainerRuntimeField");
+        ex.Message.ShouldContain("platform configuration");
+    }
+
+    [Fact]
     public void ManifestParser_LegacyExecutionProviderField_Rejected()
     {
         // ADR-0038: execution.provider was removed; the provider is

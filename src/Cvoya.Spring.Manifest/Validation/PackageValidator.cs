@@ -335,6 +335,24 @@ public static class PackageValidator
                 continue;
             }
 
+            // ADR-0039 § 9: reject `containerRuntime:` (root or under
+            // `execution:`) — the container runtime is platform
+            // configuration, not a per-agent field. Same shared
+            // detector the unit-side parser uses.
+            try
+            {
+                ManifestParser.DetectLegacyContainerRuntime(agentYaml);
+            }
+            catch (ManifestParseException ex)
+            {
+                diagnostics.Add(new PackageValidationDiagnostic(
+                    agentFile,
+                    PackageValidationSeverity.Error,
+                    "agent-legacy-container-runtime",
+                    ex.Message));
+                continue;
+            }
+
             if (string.IsNullOrWhiteSpace(doc.ApiVersion))
             {
                 diagnostics.Add(new PackageValidationDiagnostic(
