@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
+using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
 
 using YamlDotNet.Serialization;
@@ -371,10 +372,10 @@ public static class UnitPolicyCommand
 
     /// <summary>
     /// Extracts the wire slot for a given dimension from a
-    /// <see cref="UnitPolicyWire"/>. Returns the typed sub-record (or
+    /// <see cref="UnitPolicyResponse"/>. Returns the typed sub-record (or
     /// <c>null</c> when absent).
     /// </summary>
-    private static object? ExtractSlot(string dimension, UnitPolicyWire policy) => dimension switch
+    private static object? ExtractSlot(string dimension, UnitPolicyResponse policy) => dimension switch
     {
         "skill" => policy.Skill,
         "model" => policy.Model,
@@ -385,17 +386,17 @@ public static class UnitPolicyCommand
     };
 
     /// <summary>
-    /// Produces a new <see cref="UnitPolicyWire"/> where <paramref name="slot"/>
+    /// Produces a new <see cref="UnitPolicyResponse"/> where <paramref name="slot"/>
     /// replaces the target dimension and every other dimension is carried through
     /// from <paramref name="current"/> verbatim. Passing <c>null</c> clears the
     /// dimension.
     /// </summary>
-    private static UnitPolicyWire MergeSlot(
+    private static UnitPolicyResponse MergeSlot(
         string dimension,
-        UnitPolicyWire current,
+        UnitPolicyResponse current,
         object? slot)
     {
-        var merged = new UnitPolicyWire
+        var merged = new UnitPolicyResponse
         {
             Skill = current.Skill,
             Model = current.Model,
@@ -407,19 +408,19 @@ public static class UnitPolicyCommand
         switch (dimension)
         {
             case "skill":
-                merged.Skill = (SkillPolicyWire?)slot;
+                merged.Skill = (SkillPolicy?)slot;
                 break;
             case "model":
-                merged.Model = (ModelPolicyWire?)slot;
+                merged.Model = (ModelPolicy?)slot;
                 break;
             case "cost":
-                merged.Cost = (CostPolicyWire?)slot;
+                merged.Cost = (CostPolicy?)slot;
                 break;
             case "execution-mode":
-                merged.ExecutionMode = (ExecutionModePolicyWire?)slot;
+                merged.ExecutionMode = (ExecutionModePolicy?)slot;
                 break;
             case "initiative":
-                merged.Initiative = (InitiativePolicyWire?)slot;
+                merged.Initiative = (InitiativePolicy?)slot;
                 break;
         }
 
@@ -450,7 +451,7 @@ public static class UnitPolicyCommand
                 {
                     return null;
                 }
-                return new SkillPolicyWire
+                return new SkillPolicy
                 {
                     Allowed = NormaliseList(allowed),
                     Blocked = NormaliseList(blocked),
@@ -460,7 +461,7 @@ public static class UnitPolicyCommand
                 {
                     return null;
                 }
-                return new ModelPolicyWire
+                return new ModelPolicy
                 {
                     Allowed = NormaliseList(allowed),
                     Blocked = NormaliseList(blocked),
@@ -470,7 +471,7 @@ public static class UnitPolicyCommand
                 {
                     return null;
                 }
-                return new CostPolicyWire
+                return new CostPolicy
                 {
                     MaxCostPerInvocation = maxPerInvocation,
                     MaxCostPerHour = maxPerHour,
@@ -482,11 +483,10 @@ public static class UnitPolicyCommand
                     return null;
                 }
                 var allowedModes = NormaliseList(allowed)
-                    ?.Select(value => NormaliseExecutionMode(value))
+                    ?.Select(NormaliseExecutionMode)
                     .Where(m => m is not null)
-                    .Select(m => m!)
                     .ToList();
-                return new ExecutionModePolicyWire
+                return new ExecutionModePolicy
                 {
                     Forced = string.IsNullOrEmpty(forced) ? null : NormaliseExecutionMode(forced!),
                     Allowed = allowedModes is null || allowedModes.Count == 0 ? null : allowedModes,
@@ -497,7 +497,7 @@ public static class UnitPolicyCommand
                 {
                     return null;
                 }
-                return new InitiativePolicyWire
+                return new InitiativePolicy
                 {
                     AllowedActions = NormaliseList(allowed),
                     BlockedActions = NormaliseList(blocked),
@@ -526,19 +526,19 @@ public static class UnitPolicyCommand
         return expanded.Count == 0 ? null : expanded;
     }
 
-    private static string? NormaliseExecutionMode(string value) => value switch
+    private static AgentExecutionMode? NormaliseExecutionMode(string value) => value switch
     {
-        "Auto" => "Auto",
-        "OnDemand" => "OnDemand",
+        "Auto" => AgentExecutionMode.Auto,
+        "OnDemand" => AgentExecutionMode.OnDemand,
         _ => null,
     };
 
-    private static string? NormaliseInitiativeLevel(string value) => value switch
+    private static InitiativeLevel? NormaliseInitiativeLevel(string value) => value switch
     {
-        "Passive" => "Passive",
-        "Attentive" => "Attentive",
-        "Proactive" => "Proactive",
-        "Autonomous" => "Autonomous",
+        "Passive" => InitiativeLevel.Passive,
+        "Attentive" => InitiativeLevel.Attentive,
+        "Proactive" => InitiativeLevel.Proactive,
+        "Autonomous" => InitiativeLevel.Autonomous,
         _ => null,
     };
 
@@ -578,17 +578,17 @@ public static class UnitPolicyCommand
 
         return dimension switch
         {
-            "skill" => new SkillPolicyWire
+            "skill" => new SkillPolicy
             {
                 Allowed = ReadList(root, "allowed"),
                 Blocked = ReadList(root, "blocked"),
             },
-            "model" => new ModelPolicyWire
+            "model" => new ModelPolicy
             {
                 Allowed = ReadList(root, "allowed"),
                 Blocked = ReadList(root, "blocked"),
             },
-            "cost" => new CostPolicyWire
+            "cost" => new CostPolicy
             {
                 MaxCostPerInvocation = ReadDouble(root, "maxCostPerInvocation")
                     ?? ReadDouble(root, "max_cost_per_invocation"),
@@ -597,18 +597,17 @@ public static class UnitPolicyCommand
                 MaxCostPerDay = ReadDouble(root, "maxCostPerDay")
                     ?? ReadDouble(root, "max_cost_per_day"),
             },
-            "execution-mode" => new ExecutionModePolicyWire
+            "execution-mode" => new ExecutionModePolicy
             {
                 Forced = ReadString(root, "forced") is { Length: > 0 } forced
                     ? NormaliseExecutionMode(forced)
                     : null,
                 Allowed = ReadList(root, "allowed")
-                    ?.Select(value => NormaliseExecutionMode(value))
+                    ?.Select(NormaliseExecutionMode)
                     .Where(m => m is not null)
-                    .Select(m => m!)
                     .ToList(),
             },
-            "initiative" => new InitiativePolicyWire
+            "initiative" => new InitiativePolicy
             {
                 AllowedActions = ReadList(root, "allowedActions") ?? ReadList(root, "allowed_actions"),
                 BlockedActions = ReadList(root, "blockedActions") ?? ReadList(root, "blocked_actions"),
@@ -683,28 +682,38 @@ public static class UnitPolicyCommand
         var sb = new StringBuilder();
         switch (slot)
         {
-            case SkillPolicyWire skill:
+            case SkillPolicy skill:
                 sb.AppendLine($"{indent}allowed: {FormatList(skill.Allowed)}");
                 sb.AppendLine($"{indent}blocked: {FormatList(skill.Blocked)}");
                 break;
-            case ModelPolicyWire model:
+            case ModelPolicy model:
                 sb.AppendLine($"{indent}allowed: {FormatList(model.Allowed)}");
                 sb.AppendLine($"{indent}blocked: {FormatList(model.Blocked)}");
                 break;
-            case CostPolicyWire cost:
+            case CostPolicy cost:
                 sb.AppendLine($"{indent}maxCostPerInvocation: {cost.MaxCostPerInvocation?.ToString() ?? "(unset)"}");
                 sb.AppendLine($"{indent}maxCostPerHour:       {cost.MaxCostPerHour?.ToString() ?? "(unset)"}");
                 sb.AppendLine($"{indent}maxCostPerDay:        {cost.MaxCostPerDay?.ToString() ?? "(unset)"}");
                 break;
-            case ExecutionModePolicyWire mode:
-                sb.AppendLine($"{indent}forced:  {mode.Forced ?? "(none)"}");
+            case ExecutionModePolicy mode:
+                sb.AppendLine($"{indent}forced:  {mode.Forced?.ToString() ?? "(none)"}");
                 sb.AppendLine($"{indent}allowed: {FormatList(mode.Allowed)}");
                 break;
-            case InitiativePolicyWire init:
-                sb.AppendLine($"{indent}maxLevel:           {init.MaxLevel ?? "(unset)"}");
+            case InitiativePolicy init:
+                sb.AppendLine($"{indent}maxLevel:           {init.MaxLevel?.ToString() ?? "(unset)"}");
                 sb.AppendLine($"{indent}requireUnitApproval: {init.RequireUnitApproval?.ToString() ?? "(unset)"}");
                 sb.AppendLine($"{indent}allowedActions:     {FormatList(init.AllowedActions)}");
                 sb.AppendLine($"{indent}blockedActions:     {FormatList(init.BlockedActions)}");
+                if (init.Tier1 is not null)
+                {
+                    sb.AppendLine($"{indent}tier1.hosting:      {init.Tier1.Hosting ?? "(unset)"}");
+                    sb.AppendLine($"{indent}tier1.model:        {init.Tier1.Model ?? "(unset)"}");
+                }
+                if (init.Tier2 is not null)
+                {
+                    sb.AppendLine($"{indent}tier2.maxCallsPerHour: {init.Tier2.MaxCallsPerHour?.ToString() ?? "(unset)"}");
+                    sb.AppendLine($"{indent}tier2.maxCostPerDay:   {init.Tier2.MaxCostPerDay?.ToString() ?? "(unset)"}");
+                }
                 break;
         }
         return sb.ToString();
@@ -712,4 +721,9 @@ public static class UnitPolicyCommand
 
     private static string FormatList(IReadOnlyList<string>? values)
         => values is null || values.Count == 0 ? "(none)" : "[" + string.Join(", ", values) + "]";
+
+    private static string FormatList(IReadOnlyList<AgentExecutionMode?>? values)
+        => values is null || values.Count == 0
+            ? "(none)"
+            : "[" + string.Join(", ", values.Select(v => v?.ToString() ?? "null")) + "]";
 }
