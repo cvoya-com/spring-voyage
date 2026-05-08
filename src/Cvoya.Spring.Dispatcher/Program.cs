@@ -3,6 +3,7 @@
 
 using System.Reflection;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Runtime;
@@ -10,6 +11,7 @@ using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.Dapr.Observability;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dispatcher;
@@ -99,6 +101,8 @@ builder.Services.TryAddSingleton<IActorProxyFactory>(_ => new ActorProxyFactory(
     }));
 builder.Services.TryAddSingleton<IAgentProxyResolver, AgentProxyResolver>();
 builder.Services.TryAddSingleton<OrchestrationDepthCounter>();
+builder.Services.TryAddSingleton<ActivityEventBus>();
+builder.Services.TryAddSingleton<IActivityEventBus>(sp => sp.GetRequiredService<ActivityEventBus>());
 builder.Services.TryAddSingleton<OrchestrationToolHandlers>();
 
 // Named HttpClient used by /v1/llm/forward and /v1/llm/forward/stream
