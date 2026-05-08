@@ -139,6 +139,16 @@ internal static class ServiceCollectionExtensionsOrchestration
         // AddCvoyaSpring*; TryAdd keeps the override hook open.
         services.TryAddSingleton<IOrchestrationToolProvider, EmptyOrchestrationToolProvider>();
 
+        // ADR-0039 C1: runtime-invocation pipeline extracted from
+        // AgentActor's activate-and-dispatch closure. Singleton: stateless
+        // across subjects; per-call delegates carry per-actor state. C2
+        // wires UnitActor through the same path, replacing the strategy
+        // resolver. TryAdd so the cloud overlay can substitute a
+        // tenant-aware variant (e.g. one that layers cost attribution or
+        // tenant-scoped tool resolution) without touching this registration.
+        services.TryAddSingleton<Cvoya.Spring.Dapr.Actors.IRuntimeInvocationPath,
+            Cvoya.Spring.Dapr.Actors.RuntimeInvocationPath>();
+
         // Prompt
         services.AddSingleton<UnitContextBuilder>();
         services.AddSingleton<ThreadContextBuilder>();
