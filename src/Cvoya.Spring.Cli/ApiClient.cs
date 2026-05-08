@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Cvoya.Spring.Cli.Generated;
 using Cvoya.Spring.Cli.Generated.Models;
 
+using Microsoft.Kiota.Abstractions;
 using Microsoft.Kiota.Abstractions.Authentication;
 using Microsoft.Kiota.Abstractions.Serialization;
 using Microsoft.Kiota.Http.HttpClientLibrary;
@@ -483,6 +484,29 @@ public class SpringApiClient
     public Task AddUnitMemberAsync(string parentUnitId, string childUnitId, CancellationToken ct = default)
         => AddMemberAsync(parentUnitId, "unit", childUnitId, ct);
 
+    /// <summary>
+    /// Assigns an agent to a unit through the public assignment endpoint.
+    /// This is distinct from the per-membership config upsert below: the
+    /// assignment endpoint owns the membership graph mutation and enforces
+    /// ADR-0039 multi-parent inheritance validation before any state write.
+    /// </summary>
+    public async Task AssignUnitAgentAsync(
+        string unitId,
+        string agentId,
+        CancellationToken ct = default)
+    {
+        var url = $"{_baseUrl}/api/v1/tenant/units/{Uri.EscapeDataString(unitId)}/agents/{Uri.EscapeDataString(agentId)}";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        using var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var body = await ReadBodyAsync(response, ct).ConfigureAwait(false);
+        throw BuildApiException(response, body);
+    }
+
     /// <summary>Adds a member to a unit.</summary>
     public Task AddMemberAsync(
         string unitId,
@@ -511,8 +535,10 @@ public class SpringApiClient
     // /memberships/* surface persists per-membership overrides (model,
     // specialty, enabled, executionMode) in the repository, while /members/*
     // adds/removes the agent from the unit actor's in-memory member list.
-    // The two are complementary — the CLI's "unit members *" commands drive
-    // the memberships endpoint because that is where config overrides live.
+    // The two are complementary: "unit members add --agent" first calls the
+    // assignment endpoint so membership-graph validation runs, then upserts
+    // any requested config overrides here; "unit members config" calls only
+    // the upsert endpoint because it is not a graph mutation.
 
     /// <summary>Lists per-membership config for every agent that belongs to this unit.</summary>
     public async Task<IReadOnlyList<UnitMembershipResponse>> ListUnitMembershipsAsync(
@@ -653,17 +679,111 @@ public class SpringApiClient
         {
             return;
         }
-        string body;
+        var body = await ReadBodyAsync(response, ct).ConfigureAwait(false);
+        throw new HttpRequestException(
+            $"Request failed: {(int)response.StatusCode} {response.ReasonPhrase}. {body}");
+    }
+
+    private static async Task<string> ReadBodyAsync(HttpResponseMessage response, CancellationToken ct)
+    {
         try
         {
-            body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            return await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         }
         catch
         {
-            body = string.Empty;
+            return string.Empty;
         }
-        throw new HttpRequestException(
-            $"Request failed: {(int)response.StatusCode} {response.ReasonPhrase}. {body}");
+    }
+
+    private static ApiException BuildApiException(HttpResponseMessage response, string body)
+    {
+        if (TryBuildProblemDetails(response, body, out var problem))
+        {
+            return problem;
+        }
+
+        return new ApiException(
+            $"Request failed: {(int)response.StatusCode} {response.ReasonPhrase}. {body}")
+        {
+            ResponseStatusCode = (int)response.StatusCode,
+        };
+    }
+
+    private static bool TryBuildProblemDetails(
+        HttpResponseMessage response,
+        string body,
+        out ProblemDetails problem)
+    {
+        problem = new ProblemDetails();
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var additionalData = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (var property in root.EnumerateObject())
+            {
+                if (property.Name is "type" or "title" or "status" or "detail" or "instance")
+                {
+                    continue;
+                }
+                additionalData[property.Name] = property.Value.Clone();
+            }
+
+            var title = TryGetString(root, "title");
+            if (string.IsNullOrWhiteSpace(title)
+                && additionalData.TryGetValue("error", out var error)
+                && error is System.Text.Json.JsonElement errorElement
+                && errorElement.ValueKind == System.Text.Json.JsonValueKind.String
+                && string.Equals(
+                    errorElement.GetString(),
+                    "MultiParentInheritanceConflict",
+                    StringComparison.Ordinal))
+            {
+                title = "Multi-parent inheritance conflict";
+            }
+
+            problem = new ProblemDetails
+            {
+                Title = title,
+                Detail = TryGetString(root, "detail"),
+                Status = TryGetInt(root, "status") ?? (int)response.StatusCode,
+                AdditionalData = additionalData,
+            };
+            problem.ResponseStatusCode = (int)response.StatusCode;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? TryGetString(System.Text.Json.JsonElement root, string propertyName)
+    {
+        return root.TryGetProperty(propertyName, out var property)
+            && property.ValueKind == System.Text.Json.JsonValueKind.String
+            ? property.GetString()
+            : null;
+    }
+
+    private static int? TryGetInt(System.Text.Json.JsonElement root, string propertyName)
+    {
+        return root.TryGetProperty(propertyName, out var property)
+            && property.ValueKind == System.Text.Json.JsonValueKind.Number
+            && property.TryGetInt32(out var value)
+            ? value
+            : null;
     }
 
     // Unit boundary (#413). Single unified endpoint returns the declared

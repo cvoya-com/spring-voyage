@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Cli.Commands;
 
 using System.CommandLine;
 
+using Cvoya.Spring.Cli.ErrorHandling;
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
 
@@ -1319,10 +1320,10 @@ public static class UnitCommand
                 return;
             }
 
-            // Agent path: reuse the existing membership-upsert flow so
-            // per-membership overrides (model/specialty/enabled/executionMode)
-            // remain first-class on this surface.
-            await InvokeUpsertAsync(parseResult, unitArg, bind, outputOption, ct);
+            // Agent path: run the public assignment endpoint first so
+            // server-side membership-graph validation fires, then preserve
+            // the existing override output shape through the upsert flow.
+            await InvokeUpsertAsync(parseResult, unitArg, bind, outputOption, assignAgent: true, ct);
         });
 
         return command;
@@ -1365,7 +1366,7 @@ public static class UnitCommand
         }
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
-            await InvokeUpsertAsync(parseResult, unitArg, bind, outputOption, ct));
+            await InvokeUpsertAsync(parseResult, unitArg, bind, outputOption, assignAgent: false, ct));
 
         return command;
     }
@@ -1542,6 +1543,7 @@ public static class UnitCommand
         Argument<string> unitArg,
         Func<ParseResult, MembershipInputs> bind,
         Option<string> outputOption,
+        bool assignAgent,
         CancellationToken ct)
     {
         var unitId = parseResult.GetValue(unitArg)!;
@@ -1552,6 +1554,11 @@ public static class UnitCommand
         UnitMembershipResponse result;
         try
         {
+            if (assignAgent)
+            {
+                await client.AssignUnitAgentAsync(unitId, inputs.AgentId, ct);
+            }
+
             result = await client.UpsertMembershipAsync(
                 unitId,
                 inputs.AgentId,
@@ -1563,6 +1570,12 @@ public static class UnitCommand
         }
         catch (ApiException ex)
         {
+            if (await TryWriteMultiParentInheritanceConflictAsync(client, ex, Console.Error, ct))
+            {
+                Environment.Exit(1);
+                return;
+            }
+
             // #1026: surface the server's ProblemDetails (title / detail /
             // extensions) instead of letting the raw Kiota exception leak
             // as an unformatted stack trace. Exit 1 so scripts can detect
@@ -1576,6 +1589,61 @@ public static class UnitCommand
         Console.WriteLine(output == "json"
             ? OutputFormatter.FormatJson(result)
             : OutputFormatter.FormatTable(result, MembershipColumns));
+    }
+
+    internal static async Task<bool> TryWriteMultiParentInheritanceConflictAsync(
+        SpringApiClient client,
+        ApiException exception,
+        System.IO.TextWriter writer,
+        CancellationToken ct)
+    {
+        if (!MultiParentInheritanceConflictFormatter.TryParse(exception, out var conflict))
+        {
+            return false;
+        }
+
+        var labels = await ResolveConflictUnitLabelsAsync(client, conflict, ct);
+        foreach (var line in MultiParentInheritanceConflictFormatter.FormatLines(conflict, labels))
+        {
+            await writer.WriteLineAsync(line);
+        }
+
+        return true;
+    }
+
+    private static async Task<IReadOnlyDictionary<string, string>> ResolveConflictUnitLabelsAsync(
+        SpringApiClient client,
+        MultiParentInheritanceConflict conflict,
+        CancellationToken ct)
+    {
+        var labels = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var unitId in conflict.UnitIds)
+        {
+            labels[unitId] = unitId;
+
+            if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitId, out _))
+            {
+                continue;
+            }
+
+            try
+            {
+                var detail = await client.GetUnitAsync(unitId, ct);
+                var label = detail.Unit?.DisplayName ?? detail.Unit?.Name;
+                if (!string.IsNullOrWhiteSpace(label))
+                {
+                    labels[unitId] = label!;
+                }
+            }
+            catch
+            {
+                // The conflict itself is authoritative. If the best-effort
+                // display-name lookup fails, keep the server-supplied id so
+                // the operator still sees every conflicting parent.
+            }
+        }
+
+        return labels;
     }
 
     private sealed record MembershipInputs(
