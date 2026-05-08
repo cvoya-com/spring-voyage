@@ -1,6 +1,5 @@
 "use client";
 
-import { Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -9,14 +8,9 @@ import { Input } from "@/components/ui/input";
 import { useModelProviders } from "@/lib/api/queries";
 import type {
   AgentExecutionMode,
-  AgentResponse,
   InstalledModelProviderResponse,
   UnitMembershipResponse,
 } from "@/lib/api/types";
-import {
-  describeAgentCreateError,
-  validateAgentCreateInput,
-} from "@/lib/agents/create-agent";
 
 const EXECUTION_MODES: AgentExecutionMode[] = ["Auto", "OnDemand"];
 
@@ -28,92 +22,36 @@ export interface MembershipFormValues {
   executionMode: AgentExecutionMode;
 }
 
-/**
- * Form values collected by the inline-create sub-form (#1040). The
- * caller is responsible for the actual create-and-assign mutation; the
- * dialog only collects + validates input. Mirrors the minimum required
- * fields the standalone `/agents/create` page surfaces.
- */
-export interface InlineAgentCreateValues {
-  displayName: string;
-  role: string;
-}
-
-export interface MembershipDialogInlineCreate {
-  /**
-   * Called when the operator clicks the inline-create submit button.
-   * The handler is expected to atomically create the agent + assign it
-   * to this unit (see `agents-tab.tsx`), then close the dialog. Errors
-   * thrown here surface inline and the dialog stays open.
-   */
-  onSubmit: (values: InlineAgentCreateValues) => Promise<void>;
-}
-
 interface MembershipDialogProps {
   open: boolean;
   /**
-   * The unit id. Only used to title the dialog (the actual PUT goes through
-   * the caller's `onSubmit`); keeping it here so we can render meaningful
-   * copy without prop drilling the unit name through.
+   * The existing membership record to pre-populate. Also used for the
+   * "agent display name" header. Must be provided when the dialog is open.
    */
-  unitLabel: string;
-  /**
-   * Mode switches the agent picker on/off. In "add" mode the user chooses an
-   * agent from `assignableAgents`; in "edit" mode the agent is fixed and we
-   * show its display name read-only.
-   */
-  mode: "add" | "edit";
-  /**
-   * Agents that are NOT already members of this unit. Only consulted in
-   * `add` mode; ignored in `edit` mode.
-   */
-  assignableAgents?: AgentResponse[];
-  /**
-   * For edit mode: the existing membership record to pre-populate. Also
-   * used for the "agent display name" header. Must be provided in edit
-   * mode.
-   */
-  initial?: UnitMembershipResponse | null;
+  initial: UnitMembershipResponse | null;
   /**
    * Display-name lookup by agent address. The membership payload only
    * carries the address; the dialog uses this map to show a friendlier
    * header label.
    */
   agentDisplayNames?: Record<string, string>;
-  /**
-   * When supplied, the `add` flow gains a "+ New agent" affordance that
-   * swaps the picker for a small inline-create form. The handler owns
-   * the actual create + assign mutation (see `agents-tab.tsx`); the
-   * dialog only collects + validates input. Omitted in callers that
-   * shouldn't expose inline creation (none today, but the seam keeps
-   * the dialog reusable).
-   */
-  inlineCreate?: MembershipDialogInlineCreate;
   onCancel: () => void;
   onSubmit: (values: MembershipFormValues) => Promise<void>;
 }
 
 /**
- * Add/edit a unit→agent membership. Covers:
- *
- *  - Picking an agent (add mode only) from the list of agents that aren't
- *    already in the unit.
- *  - Per-membership config: model, specialty, enabled, execution mode.
- *  - Calling the submit handler with a clean payload.
+ * Edit a unit->agent membership. Covers per-membership config: model,
+ * specialty, enabled, execution mode, and calling the submit handler
+ * with a clean payload.
  *
  * The dialog is state-owned inside this component; the parent only cares
  * about open/close and the final submitted values. That keeps the Agents tab
- * free of form plumbing and makes this dialog reusable from elsewhere if
- * we ever need to.
+ * free of form plumbing.
  */
 export function MembershipDialog({
   open,
-  unitLabel,
-  mode,
-  assignableAgents = [],
   initial,
   agentDisplayNames = {},
-  inlineCreate,
   onCancel,
   onSubmit,
 }: MembershipDialogProps) {
@@ -143,7 +81,6 @@ export function MembershipDialog({
     return "";
   }, [providers]);
 
-  const [agentAddress, setAgentAddress] = useState("");
   const [model, setModel] = useState<string>("");
   const [specialty, setSpecialty] = useState("");
   const [enabled, setEnabled] = useState(true);
@@ -151,45 +88,20 @@ export function MembershipDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Inline-create sub-mode (#1040). Only meaningful when `inlineCreate`
-  // was passed AND the dialog is in `add` mode. The dialog body swaps
-  // the picker for a small create-form; on success the parent closes
-  // the dialog so we never need to merge the new agent back into
-  // `assignableAgents` ourselves.
-  const [creating, setCreating] = useState(false);
-  const [createForm, setCreateForm] = useState<InlineAgentCreateValues>({
-    displayName: "",
-    role: "",
-  });
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [creatingSubmitting, setCreatingSubmitting] = useState(false);
-
-  // Reset local form state whenever the dialog opens (add mode) or the
-  // `initial` prop changes (edit mode). This matters because the Agents
+  // Reset local form state whenever the dialog opens or the `initial`
+  // prop changes. This matters because the Agents
   // tab re-uses a single <MembershipDialog /> across rows — without this
   // reset, opening edit for row B would show row A's old values.
   useEffect(() => {
     if (!open) return;
     setError(null);
     setSubmitting(false);
-    if (mode === "edit" && initial) {
-      setAgentAddress(initial.agentAddress);
-      setModel(initial.model ?? defaultModel);
-      setSpecialty(initial.specialty ?? "");
-      setEnabled(initial.enabled);
-      setExecutionMode(initial.executionMode ?? "Auto");
-    } else {
-      setAgentAddress("");
-      setModel(defaultModel);
-      setSpecialty("");
-      setEnabled(true);
-      setExecutionMode("Auto");
-      setCreating(false);
-      setCreateForm({ displayName: "", role: "" });
-      setCreateError(null);
-      setCreatingSubmitting(false);
-    }
-  }, [open, mode, initial, defaultModel]);
+    if (!initial) return;
+    setModel(initial.model ?? defaultModel);
+    setSpecialty(initial.specialty ?? "");
+    setEnabled(initial.enabled);
+    setExecutionMode(initial.executionMode ?? "Auto");
+  }, [open, initial, defaultModel]);
 
   // Group the dropdown by provider (display name) so operators can see
   // which provider a model comes from. Each provider carries its own
@@ -217,26 +129,22 @@ export function MembershipDialog({
   }, [model, modelGroups]);
 
   const headerLabel = useMemo(() => {
-    if (mode === "edit" && initial) {
-      return agentDisplayNames[initial.agentAddress] ?? initial.agentAddress;
-    }
-    return null;
-  }, [mode, initial, agentDisplayNames]);
+    if (!initial) return null;
+    return agentDisplayNames[initial.agentAddress] ?? initial.agentAddress;
+  }, [initial, agentDisplayNames]);
 
-  const canSubmit =
-    mode === "edit" ? true : agentAddress.trim().length > 0;
+  const canSubmit = initial !== null;
 
   const handleSubmit = async () => {
     setError(null);
-    if (!canSubmit) {
-      setError("Pick an agent to assign.");
+    if (!initial) {
+      setError("Membership details are unavailable.");
       return;
     }
     setSubmitting(true);
     try {
       await onSubmit({
-        agentAddress:
-          mode === "edit" && initial ? initial.agentAddress : agentAddress,
+        agentAddress: initial.agentAddress,
         model: model || null,
         specialty: specialty.trim() || null,
         enabled,
@@ -249,136 +157,14 @@ export function MembershipDialog({
     }
   };
 
-  const handleInlineCreateSubmit = async () => {
-    if (!inlineCreate) return;
-    setCreateError(null);
-    const validation = validateAgentCreateInput({
-      displayName: createForm.displayName,
-      // The inline form always assigns to the current unit; we feed a
-      // single placeholder unit id into the validator so the
-      // unit-required rule doesn't trip. The actual assignment happens
-      // in the caller's `onSubmit` against `unitLabel`.
-      unitIds: [unitLabel],
-    });
-    if (validation !== null) {
-      setCreateError(describeAgentCreateError(validation));
-      return;
-    }
-    setCreatingSubmitting(true);
-    try {
-      await inlineCreate.onSubmit({
-        displayName: createForm.displayName.trim(),
-        role: createForm.role.trim(),
-      });
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCreatingSubmitting(false);
-    }
-  };
-
-  // Inline-create branch swaps the entire dialog body and footer so the
-  // operator can fill the create form without the assign-fields
-  // distracting them. The shared `Add agent to unit` shell stays the
-  // same — only the title and description shift to communicate the
-  // sub-mode.
-  if (mode === "add" && creating && inlineCreate) {
-    return (
-      <Dialog
-        open={open}
-        onClose={onCancel}
-        title="Create new agent"
-        description={`A new agent will be registered and assigned to ${unitLabel}.`}
-        footer={
-          <>
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (creatingSubmitting) return;
-                setCreating(false);
-                setCreateError(null);
-              }}
-              disabled={creatingSubmitting}
-            >
-              Back
-            </Button>
-            <Button
-              onClick={() => {
-                void handleInlineCreateSubmit();
-              }}
-              disabled={creatingSubmitting}
-              data-testid="membership-dialog-inline-create-submit"
-            >
-              {creatingSubmitting ? "Creating…" : "Create and add"}
-            </Button>
-          </>
-        }
-      >
-        <label className="block space-y-1">
-          <span className="text-sm text-muted-foreground">
-            Display name <span className="text-destructive">*</span>
-          </span>
-          <Input
-            value={createForm.displayName}
-            onChange={(e) =>
-              setCreateForm((f) => ({ ...f, displayName: e.target.value }))
-            }
-            placeholder="Ada Lovelace"
-            aria-label="Display name"
-            aria-required="true"
-            disabled={creatingSubmitting}
-            data-testid="membership-dialog-inline-create-display-name"
-            required
-          />
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-muted-foreground">
-            Role (optional)
-          </span>
-          <Input
-            value={createForm.role}
-            onChange={(e) =>
-              setCreateForm((f) => ({ ...f, role: e.target.value }))
-            }
-            placeholder="reviewer"
-            aria-label="Role"
-            disabled={creatingSubmitting}
-          />
-        </label>
-
-        <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-          Defaults the execution image / runtime / model to whatever the
-          unit inherits. For finer control use the full{" "}
-          <a className="underline" href="/agents/create">
-            /agents/create
-          </a>{" "}
-          page.
-        </p>
-
-        {createError && (
-          <p
-            role="alert"
-            className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            data-testid="membership-dialog-inline-create-error"
-          >
-            {createError}
-          </p>
-        )}
-      </Dialog>
-    );
-  }
-
   return (
     <Dialog
       open={open}
       onClose={onCancel}
-      title={mode === "edit" ? "Edit membership" : "Add agent to unit"}
-      description={
-        mode === "edit"
-          ? `Update per-membership config for ${headerLabel ?? "this agent"}.`
-          : `Choose an agent and configure how it behaves inside ${unitLabel}.`
-      }
+      title="Edit membership"
+      description={`Update per-membership config for ${
+        headerLabel ?? "this agent"
+      }.`}
       footer={
         <>
           <Button variant="outline" onClick={onCancel} disabled={submitting}>
@@ -390,70 +176,27 @@ export function MembershipDialog({
             }}
             disabled={submitting || !canSubmit}
           >
-            {submitting ? "Saving…" : mode === "edit" ? "Save" : "Add agent"}
+            {submitting ? "Saving…" : "Save"}
           </Button>
         </>
       }
     >
-      {mode === "add" ? (
-        <div className="space-y-2">
-          <label className="block space-y-1">
-            <span className="text-sm text-muted-foreground">Agent</span>
-            <select
-              value={agentAddress}
-              onChange={(e) => setAgentAddress(e.target.value)}
-              aria-label="Agent"
-              disabled={submitting || assignableAgents.length === 0}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">
-                {assignableAgents.length === 0
-                  ? "No agents available to add"
-                  : "Pick an agent…"}
-              </option>
-              {assignableAgents.map((a) => (
-                <option key={a.name} value={a.name}>
-                  {a.displayName || a.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {inlineCreate && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setError(null);
-                setCreating(true);
-              }}
-              disabled={submitting}
-              data-testid="membership-dialog-new-agent"
-            >
-              <Plus className="mr-1 h-4 w-4" />
-              New agent
-            </Button>
+      <div
+        className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
+        data-testid="membership-dialog-agent-header"
+      >
+        <span className="text-xs uppercase tracking-wide text-muted-foreground">
+          Agent
+        </span>
+        <div className="mt-0.5 flex items-center gap-2">
+          <span className="font-medium">{headerLabel}</span>
+          {initial && (
+            <span className="truncate font-mono text-xs text-muted-foreground">
+              agent://{initial.agentAddress}
+            </span>
           )}
         </div>
-      ) : (
-        <div
-          className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
-          data-testid="membership-dialog-agent-header"
-        >
-          <span className="text-xs uppercase tracking-wide text-muted-foreground">
-            Agent
-          </span>
-          <div className="mt-0.5 flex items-center gap-2">
-            <span className="font-medium">{headerLabel}</span>
-            {initial && (
-              <span className="truncate font-mono text-xs text-muted-foreground">
-                agent://{initial.agentAddress}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
+      </div>
 
       <label className="block space-y-1">
         <span className="text-sm text-muted-foreground">Model</span>
