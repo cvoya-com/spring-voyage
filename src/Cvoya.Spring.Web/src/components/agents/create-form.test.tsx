@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import type {
-  InstallStatusResponse,
+  AgentResponse,
   InstalledModelProviderResponse,
   UnitExecutionResponse,
   UnitResponse,
@@ -19,11 +19,7 @@ const listUnits = vi.fn();
 const listModelProviders = vi.fn();
 const getModelProviderModels = vi.fn();
 const getUnitExecution = vi.fn();
-const installPackageFile = vi.fn();
-const getInstallStatus = vi.fn();
-const assignUnitAgent = vi.fn();
-const retryInstall = vi.fn();
-const abortInstall = vi.fn();
+const createAgent = vi.fn();
 
 // Re-export the real ApiError so the production code's `instanceof
 // ApiError` check (used by the multi-parent inheritance conflict path —
@@ -41,12 +37,7 @@ vi.mock("@/lib/api/client", async () => {
       listModelProviders: () => listModelProviders(),
       getModelProviderModels: (id: string) => getModelProviderModels(id),
       getUnitExecution: (id: string) => getUnitExecution(id),
-      installPackageFile: (yaml: string) => installPackageFile(yaml),
-      getInstallStatus: (id: string) => getInstallStatus(id),
-      assignUnitAgent: (unitId: string, agentId: string) =>
-        assignUnitAgent(unitId, agentId),
-      retryInstall: (id: string) => retryInstall(id),
-      abortInstall: (id: string) => abortInstall(id),
+      createAgent: (body: unknown) => createAgent(body),
     },
   };
 });
@@ -112,6 +103,24 @@ function makeProvider(
   } as InstalledModelProviderResponse;
 }
 
+function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
+  return {
+    id: overrides.id ?? "00000000-0000-0000-0000-0000000000ad",
+    name: overrides.name ?? "ada",
+    displayName: overrides.displayName ?? "Ada",
+    description: overrides.description ?? "",
+    role: overrides.role ?? null,
+    registeredAt: overrides.registeredAt ?? new Date().toISOString(),
+    model: overrides.model ?? null,
+    specialty: overrides.specialty ?? null,
+    enabled: overrides.enabled ?? true,
+    executionMode: overrides.executionMode ?? "Respond",
+    parentUnit: overrides.parentUnit ?? null,
+    hostingMode: overrides.hostingMode ?? null,
+    initiativeLevel: overrides.initiativeLevel ?? null,
+  } as AgentResponse;
+}
+
 function renderForm(
   props: Partial<Parameters<typeof AgentCreateForm>[0]> = {},
 ) {
@@ -148,6 +157,7 @@ beforeEach(() => {
     runtime: null,
     model: null,
   } as UnitExecutionResponse);
+  createAgent.mockResolvedValue(makeAgent());
 });
 
 // ---------------------------------------------------------------------------
@@ -264,6 +274,87 @@ describe("AgentCreateForm — smoke", () => {
     // The form must tolerate a caller that wires neither callback —
     // the dialog (J1) might handle close-on-success out-of-band.
     expect(() => renderForm()).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0039 K6 — scratch path posts directly to POST /api/v1/tenant/agents.
+// ---------------------------------------------------------------------------
+
+describe("AgentCreateForm — direct create submit (K6)", () => {
+  it("posts a tenant-parented agent with unitIds [] and definitionJson null", async () => {
+    const onSuccess = vi.fn();
+    renderForm({ onSuccess });
+
+    fireEvent.change(screen.getByLabelText(/agent id/i), {
+      target: { value: "ada" },
+    });
+    fireEvent.change(screen.getByLabelText(/display name/i), {
+      target: { value: "Ada" },
+    });
+    fireEvent.click(screen.getByTestId("agent-create-submit"));
+
+    await waitFor(() => {
+      expect(createAgent).toHaveBeenCalledTimes(1);
+    });
+    expect(createAgent).toHaveBeenCalledWith({
+      displayName: "Ada",
+      description: "",
+      role: null,
+      unitIds: [],
+      definitionJson: null,
+    });
+    expect(onSuccess).toHaveBeenCalledWith({
+      agentId: "00000000-0000-0000-0000-0000000000ad",
+      unitIds: [],
+    });
+  });
+
+  it("posts selected unit ids and the direct definitionJson shape", async () => {
+    renderForm();
+
+    fireEvent.click(await screen.findByLabelText(/assign to alpha/i));
+    fireEvent.change(screen.getByLabelText(/agent id/i), {
+      target: { value: "ada" },
+    });
+    fireEvent.change(screen.getByLabelText(/display name/i), {
+      target: { value: "Ada Lovelace" },
+    });
+    fireEvent.change(screen.getByLabelText(/^role$/i), {
+      target: { value: "reviewer" },
+    });
+    fireEvent.change(screen.getByLabelText(/description/i), {
+      target: { value: "Reviews changes" },
+    });
+    fireEvent.change(screen.getByLabelText(/agent runtime/i), {
+      target: { value: "claude-code" },
+    });
+    fireEvent.change(screen.getByLabelText(/container image/i), {
+      target: { value: "ghcr.io/example/agent:latest" },
+    });
+    fireEvent.change(screen.getByLabelText(/hosting mode/i), {
+      target: { value: "persistent" },
+    });
+
+    fireEvent.click(screen.getByTestId("agent-create-submit"));
+
+    await waitFor(() => {
+      expect(createAgent).toHaveBeenCalledTimes(1);
+    });
+    expect(createAgent).toHaveBeenCalledWith({
+      displayName: "Ada Lovelace",
+      description: "Reviews changes",
+      role: "reviewer",
+      unitIds: ["unit-id-alpha"],
+      definitionJson: JSON.stringify({
+        runtime: "claude-code",
+        model: { provider: "anthropic" },
+        execution: {
+          image: "ghcr.io/example/agent:latest",
+          hosting: "persistent",
+        },
+      }),
+    });
   });
 });
 
@@ -419,7 +510,7 @@ describe("AgentCreateForm — inherit affordance (I4)", () => {
 // ---------------------------------------------------------------------------
 // Multi-parent inheritance conflict — ADR-0039 §6 / I6
 //
-// When a membership-add returns the structured 422
+// When direct create returns the structured 422
 // `MultiParentInheritanceConflict` body, the form parses it and renders
 // an inline error block listing each diverging field and the
 // parent-attributed values, with the submit button disabled until the
@@ -427,29 +518,14 @@ describe("AgentCreateForm — inherit affordance (I4)", () => {
 // explicitly.
 // ---------------------------------------------------------------------------
 
-function makeInstallStatus(
-  overrides: Partial<InstallStatusResponse> = {},
-): InstallStatusResponse {
-  return {
-    installId: overrides.installId ?? "install-id-1",
-    status: overrides.status ?? "active",
-    packages: overrides.packages ?? [
-      { packageName: "ada", state: "active", errorMessage: null },
-    ],
-    startedAt: overrides.startedAt ?? new Date().toISOString(),
-    completedAt: overrides.completedAt ?? new Date().toISOString(),
-    error: overrides.error ?? null,
-  };
-}
-
 /**
- * Drive the form to the membership-add phase. The agent install
- * succeeds immediately (status === "active"), so when
- * `assignUnitAgent` rejects with a 422 the form lands directly in the
- * conflict-render branch.
+ * Drive the form to the direct create call. When `createAgent` rejects
+ * with a structured 422, the form lands in the conflict-render branch.
  */
-async function submitForm() {
-  fireEvent.click(await screen.findByLabelText(/assign to alpha/i));
+async function submitForm({ selectAlpha = true }: { selectAlpha?: boolean } = {}) {
+  if (selectAlpha) {
+    fireEvent.click(await screen.findByLabelText(/assign to alpha/i));
+  }
   fireEvent.change(screen.getByLabelText(/agent id/i), {
     target: { value: "ada" },
   });
@@ -460,21 +536,8 @@ async function submitForm() {
 }
 
 describe("AgentCreateForm — multi-parent inheritance conflict (ADR-0039 I6)", () => {
-  beforeEach(() => {
-    installPackageFile.mockResolvedValue(
-      makeInstallStatus({ status: "active", installId: "install-id-1" }),
-    );
-    getInstallStatus.mockResolvedValue(
-      makeInstallStatus({ status: "active", installId: "install-id-1" }),
-    );
-    retryInstall.mockResolvedValue(
-      makeInstallStatus({ status: "active", installId: "install-id-1" }),
-    );
-    abortInstall.mockResolvedValue(undefined);
-  });
-
-  it("renders the inline conflict block when assignUnitAgent returns 422", async () => {
-    assignUnitAgent.mockRejectedValueOnce(
+  it("renders the inline conflict block when createAgent returns 422", async () => {
+    createAgent.mockRejectedValueOnce(
       new ApiError(422, "Unprocessable Content", {
         error: "MultiParentInheritanceConflict",
         conflictingFields: {
@@ -501,7 +564,7 @@ describe("AgentCreateForm — multi-parent inheritance conflict (ADR-0039 I6)", 
   });
 
   it("renders one row per diverging field, ordered as the wire body lists them", async () => {
-    assignUnitAgent.mockRejectedValueOnce(
+    createAgent.mockRejectedValueOnce(
       new ApiError(422, "Unprocessable Content", {
         error: "MultiParentInheritanceConflict",
         conflictingFields: {
@@ -544,7 +607,7 @@ describe("AgentCreateForm — multi-parent inheritance conflict (ADR-0039 I6)", 
         displayName: "Beta",
       }),
     ]);
-    assignUnitAgent.mockRejectedValueOnce(
+    createAgent.mockRejectedValueOnce(
       new ApiError(422, "Unprocessable Content", {
         error: "MultiParentInheritanceConflict",
         conflictingFields: {
@@ -559,7 +622,7 @@ describe("AgentCreateForm — multi-parent inheritance conflict (ADR-0039 I6)", 
     );
 
     renderForm({ initialUnitIds: ["alpha", "beta"] });
-    await submitForm();
+    await submitForm({ selectAlpha: false });
 
     const block = await screen.findByTestId(
       "multi-parent-inheritance-conflict",
@@ -569,7 +632,7 @@ describe("AgentCreateForm — multi-parent inheritance conflict (ADR-0039 I6)", 
   });
 
   it("disables the submit button while the conflict block is showing", async () => {
-    assignUnitAgent.mockRejectedValueOnce(
+    createAgent.mockRejectedValueOnce(
       new ApiError(422, "Unprocessable Content", {
         error: "MultiParentInheritanceConflict",
         conflictingFields: {
@@ -589,7 +652,7 @@ describe("AgentCreateForm — multi-parent inheritance conflict (ADR-0039 I6)", 
   });
 
   it("re-enables the submit button once the operator changes a form field", async () => {
-    assignUnitAgent.mockRejectedValueOnce(
+    createAgent.mockRejectedValueOnce(
       new ApiError(422, "Unprocessable Content", {
         error: "MultiParentInheritanceConflict",
         conflictingFields: {
@@ -620,12 +683,12 @@ describe("AgentCreateForm — multi-parent inheritance conflict (ADR-0039 I6)", 
     expect(screen.getByTestId("agent-create-submit")).not.toBeDisabled();
   });
 
-  it("falls back to the generic membership-error path when the 422 body is unparseable", async () => {
+  it("falls back to the generic API-error path when the 422 body is unparseable", async () => {
     // A 422 that is *not* the multi-parent conflict (e.g. a
     // generic problem-details with no `error` key) should not engage
-    // the inline conflict block — it falls through to the existing
-    // partial-success copy.
-    assignUnitAgent.mockRejectedValueOnce(
+    // the inline conflict block — it falls through to the generic API
+    // error copy.
+    createAgent.mockRejectedValueOnce(
       new ApiError(422, "Unprocessable Content", {
         type: "https://example.com/problems/other",
         title: "Something else",
@@ -638,7 +701,9 @@ describe("AgentCreateForm — multi-parent inheritance conflict (ADR-0039 I6)", 
     // Wait for the failure state to land. The conflict block must
     // not appear because the body did not match the discriminator.
     await waitFor(() => {
-      expect(screen.getByText(/Membership in alpha/i)).toBeInTheDocument();
+      expect(screen.getByTestId("agent-create-error")).toHaveTextContent(
+        /something else/i,
+      );
     });
     expect(
       screen.queryByTestId("multi-parent-inheritance-conflict"),

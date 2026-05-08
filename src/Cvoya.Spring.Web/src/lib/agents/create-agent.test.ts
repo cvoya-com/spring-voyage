@@ -16,13 +16,13 @@ describe("create-agent helper (#1040)", () => {
       ).toBe("displayName-required");
     });
 
-    it("requires at least one non-empty unit", () => {
+    it("allows an empty unit list for a top-level tenant-parented agent", () => {
       expect(
         validateAgentCreateInput({
           displayName: "Ada",
           unitIds: ["", "  "],
         }),
-      ).toBe("unit-required");
+      ).toBeNull();
     });
 
     it("returns null for a well-formed input", () => {
@@ -54,7 +54,6 @@ describe("create-agent helper (#1040)", () => {
         buildAgentDefinitionJson({
           image: "  ",
           runtime: "",
-          tool: undefined,
           model: undefined,
         }),
       ).toBeNull();
@@ -68,29 +67,27 @@ describe("create-agent helper (#1040)", () => {
       ).toBeNull();
     });
 
-    it("packs supplied fields under an `execution` block with structured model (ADR-0038 / ADR-0039 I1)", () => {
+    it("packs supplied fields into the direct create definition shape (ADR-0039 K6)", () => {
       const json = buildAgentDefinitionJson({
         image: "ghcr.io/example:latest",
-        runtime: "docker",
-        tool: "claude-code",
+        runtime: "claude-code",
         model: { provider: "anthropic", id: "claude-sonnet-4-6" },
       });
       expect(json).not.toBeNull();
       const parsed = JSON.parse(json as string);
       expect(parsed).toEqual({
+        runtime: "claude-code",
+        model: { provider: "anthropic", id: "claude-sonnet-4-6" },
         execution: {
           image: "ghcr.io/example:latest",
-          runtime: "docker",
-          tool: "claude-code",
-          model: { provider: "anthropic", id: "claude-sonnet-4-6" },
         },
       });
     });
 
     it("only includes fields that were actually supplied", () => {
-      const json = buildAgentDefinitionJson({ tool: "codex" });
+      const json = buildAgentDefinitionJson({ runtime: "codex" });
       expect(JSON.parse(json as string)).toEqual({
-        execution: { tool: "codex" },
+        runtime: "codex",
       });
     });
 
@@ -101,7 +98,7 @@ describe("create-agent helper (#1040)", () => {
             model: { provider: "ollama", id: "" },
           }) as string,
         ),
-      ).toEqual({ execution: { model: { provider: "ollama" } } });
+      ).toEqual({ model: { provider: "ollama" } });
 
       expect(
         JSON.parse(
@@ -109,7 +106,7 @@ describe("create-agent helper (#1040)", () => {
             model: { provider: "", id: "llama3.2:3b" },
           }) as string,
         ),
-      ).toEqual({ execution: { model: { id: "llama3.2:3b" } } });
+      ).toEqual({ model: { id: "llama3.2:3b" } });
     });
 
     it("trims whitespace on provider and id", () => {
@@ -117,9 +114,7 @@ describe("create-agent helper (#1040)", () => {
         model: { provider: "  anthropic  ", id: "  claude-opus-4-7  " },
       });
       expect(JSON.parse(json as string)).toEqual({
-        execution: {
-          model: { provider: "anthropic", id: "claude-opus-4-7" },
-        },
+        model: { provider: "anthropic", id: "claude-opus-4-7" },
       });
     });
 
@@ -140,17 +135,17 @@ describe("create-agent helper (#1040)", () => {
       // document; we want to verify the *absence* of the hosting key on
       // an otherwise-populated execution block.
       const json = buildAgentDefinitionJson({
-        tool: "claude-code",
+        runtime: "claude-code",
         hosting: null,
       });
       const parsed = JSON.parse(json as string);
-      expect("hosting" in parsed.execution).toBe(false);
+      expect("execution" in parsed).toBe(false);
     });
 
     it("omits hosting from the serialised JSON when hosting is undefined", () => {
-      const json = buildAgentDefinitionJson({ tool: "claude-code" });
+      const json = buildAgentDefinitionJson({ runtime: "claude-code" });
       const parsed = JSON.parse(json as string);
-      expect("hosting" in parsed.execution).toBe(false);
+      expect("execution" in parsed).toBe(false);
     });
 
     it("returns null when only hosting is null and no other field was supplied", () => {
@@ -160,17 +155,15 @@ describe("create-agent helper (#1040)", () => {
     it("packs hosting alongside other execution fields", () => {
       const json = buildAgentDefinitionJson({
         image: "ghcr.io/example:latest",
-        runtime: "docker",
-        tool: "claude-code",
+        runtime: "claude-code",
         model: { provider: "anthropic", id: "claude-sonnet-4-6" },
         hosting: "persistent",
       });
       expect(JSON.parse(json as string)).toEqual({
+        runtime: "claude-code",
+        model: { provider: "anthropic", id: "claude-sonnet-4-6" },
         execution: {
           image: "ghcr.io/example:latest",
-          runtime: "docker",
-          tool: "claude-code",
-          model: { provider: "anthropic", id: "claude-sonnet-4-6" },
           hosting: "persistent",
         },
       });
@@ -189,8 +182,8 @@ describe("create-agent helper (#1040)", () => {
         description: "",
         role: "reviewer",
         unitIds: ["engineering", "marketing"],
+        definitionJson: null,
       });
-      expect("definitionJson" in body).toBe(false);
       expect("name" in body).toBe(false);
     });
 
@@ -207,15 +200,13 @@ describe("create-agent helper (#1040)", () => {
       const body = buildCreateAgentRequest({
         displayName: "Ada",
         unitIds: ["engineering"],
-        tool: "claude-code",
+        runtime: "claude-code",
         model: { provider: "anthropic", id: "claude-sonnet-4-6" },
       });
       expect(body.definitionJson).toBe(
         JSON.stringify({
-          execution: {
-            tool: "claude-code",
-            model: { provider: "anthropic", id: "claude-sonnet-4-6" },
-          },
+          runtime: "claude-code",
+          model: { provider: "anthropic", id: "claude-sonnet-4-6" },
         }),
       );
     });
@@ -224,13 +215,13 @@ describe("create-agent helper (#1040)", () => {
       const body = buildCreateAgentRequest({
         displayName: "Ada",
         unitIds: ["engineering"],
-        tool: "claude-code",
+        runtime: "claude-code",
         hosting: "ephemeral",
       });
       expect(body.definitionJson).toBe(
         JSON.stringify({
+          runtime: "claude-code",
           execution: {
-            tool: "claude-code",
             hosting: "ephemeral",
           },
         }),
@@ -241,11 +232,11 @@ describe("create-agent helper (#1040)", () => {
       const body = buildCreateAgentRequest({
         displayName: "Ada",
         unitIds: ["engineering"],
-        tool: "claude-code",
+        runtime: "claude-code",
         hosting: null,
       });
       expect(body.definitionJson).toBe(
-        JSON.stringify({ execution: { tool: "claude-code" } }),
+        JSON.stringify({ runtime: "claude-code" }),
       );
     });
 
@@ -258,20 +249,25 @@ describe("create-agent helper (#1040)", () => {
       ).toThrow("Display name is required.");
     });
 
-    it("throws when no unit is supplied", () => {
-      expect(() =>
+    it("includes an empty unitIds array and null definitionJson for top-level inheritance", () => {
+      expect(
         buildCreateAgentRequest({
           displayName: "Ada",
           unitIds: [],
         }),
-      ).toThrow("Pick at least one unit to assign the agent to.");
+      ).toEqual({
+        displayName: "Ada",
+        description: "",
+        role: null,
+        unitIds: [],
+        definitionJson: null,
+      });
     });
   });
 
   describe("describeAgentCreateError", () => {
     it("returns copy for all defined error codes", () => {
       expect(describeAgentCreateError("displayName-required")).toBeTruthy();
-      expect(describeAgentCreateError("unit-required")).toBeTruthy();
     });
   });
 });

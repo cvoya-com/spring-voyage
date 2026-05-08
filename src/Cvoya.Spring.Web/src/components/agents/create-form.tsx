@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { AlertTriangle, Package, Search, Sparkles } from "lucide-react";
@@ -22,16 +22,15 @@ import {
   useUnitExecution,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
-import { AGENT_NAME_PATTERN } from "@/lib/agents/create-agent";
+import {
+  AGENT_NAME_PATTERN,
+  buildCreateAgentRequest,
+} from "@/lib/agents/create-agent";
 import {
   canonicalUnitId,
   parseMultiParentInheritanceConflict,
   type MultiParentInheritanceConflict,
 } from "@/lib/agents/multi-parent-conflict";
-import {
-  buildAgentPackageYaml,
-  type AgentPackageFormState,
-} from "@/app/agents/create/build-agent-package";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_RUNTIME_ID,
@@ -51,9 +50,9 @@ import type { UnitResponse } from "@/lib/api/types";
 
 /**
  * Internal form state owned by `<AgentCreateForm>`. Mirrors the wire-level
- * AgentPackage shape (`build-agent-package.ts`) so the runtime / model /
- * image fields land on disk byte-for-byte the same as a CLI
- * `spring agent create`.
+ * create-agent request shape so the runtime / model / image fields land
+ * in `definitionJson` alongside `displayName`, `description`, `role`, and
+ * `unitIds`.
  *
  * Per ADR-0039 I4 / DESIGN.md §12.6, every execution-block field is
  * **inheritable**: an empty string means "inherit from parent unit (or
@@ -92,24 +91,16 @@ type PageBranch = "source" | "scratch" | "from-package" | "browse";
 
 type SubmitPhase =
   | "idle"
-  | "installing"       // POST /api/v1/packages/install/file in flight
-  | "polling"          // polling GET /api/v1/installs/{id}
-  | "memberships"      // post-install membership-add loop
+  | "creating"
   | "done"
-  | "failed"
-  | "install-failed";  // Phase-2 failure; retry/abort available
+  | "failed";
 
-interface InstallState {
-  installId: string | null;
+interface CreateState {
   agentId: string | null;
   phase: SubmitPhase;
   error: string | null;
-  /** Membership-add failures: unitId → error message */
-  membershipErrors: Record<string, string>;
-  /** Which unit memberships succeeded so far */
-  membershipDone: string[];
   /**
-   * ADR-0039 §6 (I6): structured 422 from a membership-add call. When
+   * ADR-0039 §6 (I6): structured 422 from the create call. When
    * non-null, the form renders an inline conflict block listing every
    * diverging field and the parent-attributed values, and blocks the
    * submit button until the operator either trims the parent set or
@@ -118,18 +109,12 @@ interface InstallState {
   multiParentConflict: MultiParentInheritanceConflict | null;
 }
 
-const INITIAL_INSTALL: InstallState = {
-  installId: null,
+const INITIAL_CREATE: CreateState = {
   agentId: null,
   phase: "idle",
   error: null,
-  membershipErrors: {},
-  membershipDone: [],
   multiParentConflict: null,
 };
-
-const POLL_INTERVAL_MS = 2_000;
-const POLL_TIMEOUT_MS = 120_000;
 
 // ---------------------------------------------------------------------------
 // Props
@@ -137,8 +122,9 @@ const POLL_TIMEOUT_MS = 120_000;
 
 /**
  * Successful-create payload surfaced to the caller. `agentId` is the
- * URL-safe id the operator chose; `unitIds` is the (possibly empty)
- * post-install membership set the form actually wired.
+ * server-allocated id when the API returns one; `unitIds` is the
+ * (possibly empty) selected parent set in the form's navigation-friendly
+ * unit-name shape.
  */
 export interface AgentCreateSuccess {
   agentId: string;
@@ -186,10 +172,11 @@ export interface AgentCreateFormProps {
    */
   onSnapshotChange?: (snapshot: AgentCreateFormSnapshot) => void;
   /**
-   * Called after the install reaches active AND every requested
-   * membership succeeds. The standalone page navigates to
-   * `/units?node=<first>&tab=Agents`; a dialog caller might close
-   * itself instead. Receives the successful-create summary.
+   * Called after the direct create endpoint returns 201. The standalone
+   * page navigates to `/units?node=<first>&tab=Agents` when a parent unit
+   * was selected, or `/units` for a top-level tenant-parented agent. A
+   * dialog caller might close itself instead. Receives the successful-create
+   * summary.
    */
   onSuccess?: (result: AgentCreateSuccess) => void;
   /**
@@ -229,10 +216,9 @@ function normalizeHosting(hosting: string | undefined): HostingMode | "" {
 
 /**
  * Reusable agent-create form. Owns identity, execution, and unit-assignment
- * fields plus the two-phase install flow (POST /api/v1/packages/install/file,
- * poll /api/v1/installs/{id}, sequential membership wiring). Extracted from
- * `app/agents/create/page.tsx` (ADR-0039 I3) so the unit-tab dialog (J1) can
- * embed the same form without forking the install flow or the wire-format
+ * fields plus the direct scratch-create flow (`POST /api/v1/tenant/agents`).
+ * Extracted from `app/agents/create/page.tsx` (ADR-0039 I3) so the unit-tab
+ * dialog (J1) can embed the same form without forking the wire-format
  * helpers.
  *
  * Visual chrome reuses the existing `<Card>` / `<Input>` / `<Button>`
@@ -279,10 +265,7 @@ export function AgentCreateForm({
     context === "page" ? "source" : "scratch",
   );
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
-  const [install, setInstall] = useState<InstallState>(INITIAL_INSTALL);
-
-  // Abort controller for the polling loop so Back/Cancel stops it.
-  const pollAbortRef = useRef<AbortController | null>(null);
+  const [create, setCreate] = useState<CreateState>(INITIAL_CREATE);
 
   useEffect(() => {
     if (!onSnapshotChange || context !== "page") return;
@@ -305,15 +288,15 @@ export function AgentCreateForm({
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setValidationMessage(null);
-    if (install.phase === "idle" || install.phase === "failed") {
-      setInstall(INITIAL_INSTALL);
+    if (create.phase === "idle" || create.phase === "failed") {
+      setCreate(INITIAL_CREATE);
     }
     // ADR-0039 I6: any form-state change invalidates a stale conflict
     // block so the submit button re-enables once the operator has
     // resolved the divergence (trimmed the parent set or set the
     // conflicting field explicitly).
-    if (install.multiParentConflict !== null) {
-      setInstall((prev) => ({ ...prev, multiParentConflict: null }));
+    if (create.multiParentConflict !== null) {
+      setCreate((prev) => ({ ...prev, multiParentConflict: null }));
     }
   };
 
@@ -431,16 +414,19 @@ export function AgentCreateForm({
   //   * >1 units → DESIGN.md §12.6 validation work (multi-parent conflict)
   //     is a separate task; for I4 we surface the first selected unit
   //     and rely on backend validation to reject conflicting parents at
-  //     install time.
+  //     create time.
   //
   // We load `useUnitExecution` for the first selected unit so the values
   // surface as soon as the operator ticks a unit checkbox.
-  const selectedUnitName = form.unitIds[0] ?? null;
+  const selectedUnitKey = form.unitIds[0] ?? null;
   const selectedUnit = useMemo(
     () =>
-      (unitsQuery.data ?? []).find((u) => u.name === selectedUnitName) ?? null,
-    [unitsQuery.data, selectedUnitName],
+      (unitsQuery.data ?? []).find(
+        (u) => u.name === selectedUnitKey || u.id === selectedUnitKey,
+      ) ?? null,
+    [unitsQuery.data, selectedUnitKey],
   );
+  const selectedUnitName = selectedUnit?.name ?? selectedUnitKey;
   const selectedUnitExecutionQuery = useUnitExecution(
     selectedUnitName ?? "",
     { enabled: Boolean(selectedUnitName) },
@@ -516,88 +502,7 @@ export function AgentCreateForm({
     );
   }, [activeProviderId, modelsQuery.data, providers]);
 
-  // ── Install flow ───────────────────────────────────────────────────────
-
-  /**
-   * Polls GET /api/v1/installs/{id} every POLL_INTERVAL_MS until the
-   * status reaches a terminal state (`active` or `failed`), or until the
-   * abort signal fires, or until POLL_TIMEOUT_MS elapses.
-   */
-  const pollUntilTerminal = useCallback(
-    async (installId: string, signal: AbortSignal): Promise<"active" | "failed" | "aborted"> => {
-      const deadline = Date.now() + POLL_TIMEOUT_MS;
-      while (Date.now() < deadline) {
-        if (signal.aborted) return "aborted";
-
-        await new Promise<void>((resolve) => {
-          const t = setTimeout(resolve, POLL_INTERVAL_MS);
-          signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
-        });
-
-        if (signal.aborted) return "aborted";
-
-        const status = await api.getInstallStatus(installId);
-        if (status === null) return "failed"; // install no longer exists
-        if (status.status === "active") return "active";
-        if (status.status === "failed") return "failed";
-        // still "staging" — keep polling
-      }
-      return "failed"; // timed out
-    },
-    [],
-  );
-
-  /**
-   * Post-install membership wiring. Fires `assignUnitAgent` for each
-   * selected unit sequentially. Updates install.membershipErrors /
-   * membershipDone in real time.
-   *
-   * ADR-0039 §6 (I6): when a membership-add returns the structured 422
-   * `MultiParentInheritanceConflict`, surface it on `multiParentConflict`
-   * for inline rendering (`<MultiParentConflictBlock>`) instead of
-   * dumping the formatted ApiError message into `membershipErrors`.
-   * The conflict short-circuits the rest of the loop because every
-   * subsequent unit would report the same divergence.
-   */
-  const addMemberships = useCallback(
-    async (agentId: string, unitIds: string[]) => {
-      const errors: Record<string, string> = {};
-      const done: string[] = [];
-      let conflict: MultiParentInheritanceConflict | null = null;
-      for (const unitId of unitIds) {
-        try {
-          await api.assignUnitAgent(unitId, agentId);
-          done.push(unitId);
-        } catch (err) {
-          if (err instanceof ApiError && err.status === 422) {
-            const parsed = parseMultiParentInheritanceConflict(err.body);
-            if (parsed !== null) {
-              conflict = parsed;
-              setInstall((prev) => ({
-                ...prev,
-                membershipErrors: { ...errors },
-                membershipDone: [...done],
-                multiParentConflict: parsed,
-              }));
-              // Stop on the first conflict — every remaining unit would
-              // hit the same divergence and we already have the full
-              // per-field, per-parent picture from the resolver.
-              return { errors, done, conflict };
-            }
-          }
-          const msg = err instanceof Error ? err.message : String(err);
-          errors[unitId] = msg;
-        }
-        setInstall((prev) => ({
-          ...prev,
-          membershipErrors: { ...errors },
-          membershipDone: [...done],
-        }));
-      }
-      return { errors, done, conflict };
-    },
-    [],
-  );
+  // ── Create flow ────────────────────────────────────────────────────────
 
   const invalidateAgentCaches = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
@@ -606,28 +511,46 @@ export function AgentCreateForm({
     queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
   }, [queryClient]);
 
-  const runInstall = useCallback(async () => {
-    // Abort any in-flight poll from a previous attempt.
-    pollAbortRef.current?.abort();
-    const ac = new AbortController();
-    pollAbortRef.current = ac;
+  const resolveSelectedUnits = useCallback(() => {
+    const units = unitsQuery.data ?? [];
+    const selectedKeys = form.unitIds
+      .map((u) => u.trim())
+      .filter((u) => u.length > 0);
+    const apiUnitIds: string[] = [];
+    const navigationUnitIds: string[] = [];
+    const seenApiIds = new Set<string>();
+    const seenNavigationIds = new Set<string>();
 
-    const agentId = form.id.trim();
-    const unitIds = form.unitIds.filter((u) => u.trim().length > 0);
+    for (const key of selectedKeys) {
+      const unit =
+        units.find((u) => u.id === key || u.name === key) ?? null;
+      const apiId = unit?.id ?? key;
+      const navigationId = unit?.name ?? key;
 
-    // Phase: installing (POST /api/v1/packages/install/file)
-    setInstall({
-      installId: null,
-      agentId,
-      phase: "installing",
+      if (!seenApiIds.has(apiId)) {
+        apiUnitIds.push(apiId);
+        seenApiIds.add(apiId);
+      }
+      if (!seenNavigationIds.has(navigationId)) {
+        navigationUnitIds.push(navigationId);
+        seenNavigationIds.add(navigationId);
+      }
+    }
+
+    return { apiUnitIds, navigationUnitIds };
+  }, [form.unitIds, unitsQuery.data]);
+
+  const runCreate = useCallback(async () => {
+    const localAgentId = form.id.trim();
+    const { apiUnitIds, navigationUnitIds } = resolveSelectedUnits();
+
+    setCreate({
+      agentId: localAgentId,
+      phase: "creating",
       error: null,
-      membershipErrors: {},
-      membershipDone: [],
       multiParentConflict: null,
     });
 
-    let installId: string;
-    let alreadyActive = false;
     try {
       // ADR-0039 I4: blank fields submit as undefined so the backend
       // resolves the parent unit's value (or tenant default) at dispatch.
@@ -637,127 +560,67 @@ export function AgentCreateForm({
         form.runtime !== "" && fixedProviderId !== null
           ? fixedProviderId
           : form.modelProviderId;
-      const yamlInput: AgentPackageFormState = {
-        id: agentId,
+      const body = buildCreateAgentRequest({
         displayName: form.displayName.trim(),
-        role: form.role.trim() || undefined,
-        description: form.description.trim() || undefined,
-        image: form.image.trim() || undefined,
-        hosting: form.hosting || undefined,
-        // ADR-0038: emit `ai.runtime` + structured
-        // `ai.model: {provider, id}`. The legacy `ai.agent` /
-        // `ai.tool` shape is rejected by the manifest parser.
+        description: form.description,
+        role: form.role,
+        image: form.image,
+        hosting: form.hosting || null,
         runtime: form.runtime || undefined,
-        modelProvider: submittedProvider.trim() || undefined,
-        modelId: form.modelId.trim() || undefined,
-        unitIds,
-      };
-      const yaml = buildAgentPackageYaml(yamlInput);
-      const resp = await api.installPackageFile(yaml);
-      installId = resp.installId;
+        model: {
+          provider: submittedProvider,
+          id: form.modelId,
+        },
+        unitIds: apiUnitIds,
+      });
 
-      if (resp.status === "failed") {
-        const pkgErr = resp.packages.find((p) => p.state === "failed")?.errorMessage;
-        setInstall((prev) => ({
-          ...prev,
-          installId,
-          phase: "install-failed",
-          error: pkgErr ?? "Install failed.",
-        }));
-        return;
+      const response = await api.createAgent(body);
+      const createdAgentId =
+        response.id !== undefined && response.id !== null
+          ? String(response.id)
+          : localAgentId;
+
+      setCreate((prev) => ({
+        ...prev,
+        agentId: createdAgentId,
+        phase: "done",
+      }));
+      invalidateAgentCaches();
+
+      toast({ title: "Agent created", description: createdAgentId });
+      onSuccess?.({ agentId: createdAgentId, unitIds: navigationUnitIds });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 422) {
+        const conflict = parseMultiParentInheritanceConflict(err.body);
+        if (conflict !== null) {
+          setCreate((prev) => ({
+            ...prev,
+            phase: "failed",
+            error: null,
+            multiParentConflict: conflict,
+          }));
+          toast({
+            title: "Agent create blocked",
+            description:
+              "Parent units disagree on an inherited execution-config field.",
+            variant: "destructive",
+          });
+          return;
+        }
       }
 
-      alreadyActive = resp.status === "active";
-    } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setInstall((prev) => ({ ...prev, phase: "failed", error: msg }));
+      setCreate((prev) => ({ ...prev, phase: "failed", error: msg }));
       toast({
-        title: "Install failed",
+        title: "Create failed",
         description: msg,
         variant: "destructive",
       });
-      return;
     }
-
-    // Phase: polling (only if not already active from the initial response)
-    if (!alreadyActive) {
-      setInstall((prev) => ({ ...prev, installId, phase: "polling" }));
-
-      const terminal = await pollUntilTerminal(installId, ac.signal);
-      if (ac.signal.aborted) {
-        setInstall(INITIAL_INSTALL);
-        return;
-      }
-
-      if (terminal === "failed") {
-        setInstall((prev) => ({
-          ...prev,
-          phase: "install-failed",
-          error: "Install did not reach active state. Check the install log.",
-        }));
-        return;
-      }
-    }
-
-    // Phase: memberships
-    if (unitIds.length > 0) {
-      setInstall((prev) => ({ ...prev, phase: "memberships" }));
-      const { errors, conflict } = await addMemberships(agentId, unitIds);
-
-      // ADR-0039 §6 (I6): the structured 422 path. The agent is
-      // installed but the parent set diverges on an inherited field;
-      // the operator must trim the set or set the field explicitly
-      // before any membership row is written.
-      if (conflict !== null) {
-        setInstall((prev) => ({
-          ...prev,
-          phase: "failed",
-          error: null,
-          multiParentConflict: conflict,
-        }));
-        queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
-        queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
-        toast({
-          title: "Agent installed (membership blocked)",
-          description:
-            "Parent units disagree on an inherited execution-config field.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (Object.keys(errors).length > 0) {
-        // Partial success — agent installed but some memberships failed.
-        const failedUnits = Object.keys(errors).join(", ");
-        setInstall((prev) => ({
-          ...prev,
-          phase: "failed",
-          error: `Agent installed. Membership in ${failedUnits} could not be added — see details above.`,
-        }));
-        // Still invalidate caches for the agent.
-        queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
-        queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
-        toast({
-          title: "Agent installed (partial)",
-          description: `Membership add failed for: ${failedUnits}`,
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
-    // Phase: done
-    setInstall((prev) => ({ ...prev, phase: "done" }));
-    invalidateAgentCaches();
-
-    toast({ title: "Agent created", description: agentId });
-    onSuccess?.({ agentId, unitIds });
   }, [
     form,
     fixedProviderId,
-    addMemberships,
-    pollUntilTerminal,
-    queryClient,
+    resolveSelectedUnits,
     invalidateAgentCaches,
     onSuccess,
     toast,
@@ -780,96 +643,11 @@ export function AgentCreateForm({
       setValidationMessage("Display name is required.");
       return;
     }
-    const unitIds = form.unitIds.filter((u) => u.trim().length > 0);
-    if (unitIds.length === 0) {
-      setValidationMessage("Pick at least one unit to assign the agent to.");
-      return;
-    }
     setValidationMessage(null);
-    void runInstall();
-  };
-
-  const handleRetry = async () => {
-    if (!install.installId) return;
-    try {
-      setInstall((prev) => ({ ...prev, phase: "installing", error: null }));
-      const resp = await api.retryInstall(install.installId);
-      if (resp.status === "active") {
-        // Complete immediately
-        if (form.unitIds.length > 0) {
-          setInstall((prev) => ({ ...prev, phase: "memberships" }));
-          const { errors, conflict } = await addMemberships(
-            install.agentId!,
-            form.unitIds,
-          );
-          if (conflict !== null) {
-            setInstall((prev) => ({
-              ...prev,
-              phase: "failed",
-              error: null,
-              multiParentConflict: conflict,
-            }));
-            return;
-          }
-          if (Object.keys(errors).length > 0) {
-            const failedUnits = Object.keys(errors).join(", ");
-            setInstall((prev) => ({
-              ...prev,
-              phase: "failed",
-              error: `Agent installed. Membership in ${failedUnits} could not be added.`,
-            }));
-            return;
-          }
-        }
-        setInstall((prev) => ({ ...prev, phase: "done" }));
-        invalidateAgentCaches();
-        const agentId = install.agentId ?? "";
-        toast({ title: "Agent created", description: agentId });
-        onSuccess?.({ agentId, unitIds: form.unitIds });
-      } else if (resp.status === "failed") {
-        const pkgErr = resp.packages.find((p) => p.state === "failed")?.errorMessage;
-        setInstall((prev) => ({
-          ...prev,
-          phase: "install-failed",
-          error: pkgErr ?? "Retry failed.",
-        }));
-      } else {
-        // Back to polling
-        const ac = new AbortController();
-        pollAbortRef.current = ac;
-        setInstall((prev) => ({ ...prev, phase: "polling" }));
-        const terminal = await pollUntilTerminal(install.installId!, ac.signal);
-        if (terminal !== "active") {
-          setInstall((prev) => ({
-            ...prev,
-            phase: "install-failed",
-            error: "Retry did not reach active state.",
-          }));
-        }
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setInstall((prev) => ({ ...prev, phase: "install-failed", error: msg }));
-    }
-  };
-
-  const handleAbort = async () => {
-    pollAbortRef.current?.abort();
-    if (!install.installId) {
-      setInstall(INITIAL_INSTALL);
-      return;
-    }
-    try {
-      await api.abortInstall(install.installId);
-    } catch {
-      // Ignore abort errors — we're discarding the install either way.
-    }
-    setInstall(INITIAL_INSTALL);
-    toast({ title: "Install aborted", description: form.id });
+    void runCreate();
   };
 
   const handleCancel = () => {
-    pollAbortRef.current?.abort();
     onCancel?.();
   };
 
@@ -895,10 +673,7 @@ export function AgentCreateForm({
 
   // ── Derived UI state ───────────────────────────────────────────────────
 
-  const submitting =
-    install.phase === "installing" ||
-    install.phase === "polling" ||
-    install.phase === "memberships";
+  const submitting = create.phase === "creating";
 
   // ADR-0039 I4 — flips the Execution card header badge between
   // `Inherits` (everything blank) and `Configured` (any explicit pick).
@@ -911,12 +686,9 @@ export function AgentCreateForm({
 
   const phaseLabel: Record<SubmitPhase, string> = {
     idle: "Create agent",
-    installing: "Installing…",
-    polling: "Activating…",
-    memberships: "Wiring memberships…",
+    creating: "Creating…",
     done: "Create agent",
     failed: "Create agent",
-    "install-failed": "Create agent",
   };
 
   if (context === "page" && pageBranch === "source") {
@@ -1424,9 +1196,8 @@ export function AgentCreateForm({
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-xs text-muted-foreground">
-            Assign the agent to one or more units after it is installed.
-            At least one unit is required. Memberships are wired as
-            post-install side-effects. Mirrors{" "}
+            Assign the agent to one or more units, or leave this empty to
+            create a top-level tenant-parented agent. Mirrors{" "}
             <code className="font-mono">--unit</code>.
           </p>
 
@@ -1444,11 +1215,12 @@ export function AgentCreateForm({
             </p>
           ) : (unitsQuery.data ?? []).length === 0 ? (
             <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-              No units exist yet. Create one from{" "}
+              No units exist yet. The agent will be created at tenant level.
+              Create a unit from{" "}
               <Link className="underline" href="/units/create">
                 /units/create
               </Link>{" "}
-              first — agents must belong to a unit.
+              when you want a parent unit.
             </p>
           ) : (
             <fieldset
@@ -1456,9 +1228,9 @@ export function AgentCreateForm({
               aria-label="Initial unit assignment"
             >
               {(unitsQuery.data ?? []).map((unit) => {
-                const checked = form.unitIds.includes(unit.name);
-                const membershipOk = install.membershipDone.includes(unit.name);
-                const membershipErr = install.membershipErrors[unit.name];
+                const checked =
+                  form.unitIds.includes(unit.name) ||
+                  form.unitIds.includes(unit.id);
                 return (
                   <label
                     key={unit.name}
@@ -1471,8 +1243,15 @@ export function AgentCreateForm({
                       onChange={(e) => {
                         setForm((prev) => {
                           const next = e.target.checked
-                            ? [...prev.unitIds, unit.name]
-                            : prev.unitIds.filter((n) => n !== unit.name);
+                            ? [
+                                ...prev.unitIds.filter(
+                                  (n) => n !== unit.name && n !== unit.id,
+                                ),
+                                unit.name,
+                              ]
+                            : prev.unitIds.filter(
+                                (n) => n !== unit.name && n !== unit.id,
+                              );
                           return { ...prev, unitIds: next };
                         });
                         setValidationMessage(null);
@@ -1480,8 +1259,8 @@ export function AgentCreateForm({
                         // the two operator-resolutions for a multi-parent
                         // conflict. Clear the inline error so the submit
                         // button re-enables.
-                        if (install.multiParentConflict !== null) {
-                          setInstall((prev) => ({
+                        if (create.multiParentConflict !== null) {
+                          setCreate((prev) => ({
                             ...prev,
                             multiParentConflict: null,
                           }));
@@ -1497,16 +1276,6 @@ export function AgentCreateForm({
                       <span className="font-mono text-xs text-muted-foreground">
                         unit://{unit.name}
                       </span>
-                      {membershipOk && (
-                        <span className="text-xs text-success">
-                          Membership added
-                        </span>
-                      )}
-                      {membershipErr && (
-                        <span className="text-xs text-destructive" role="alert">
-                          Failed: {membershipErr}
-                        </span>
-                      )}
                     </span>
                   </label>
                 );
@@ -1516,88 +1285,34 @@ export function AgentCreateForm({
         </CardContent>
       </Card>
 
-      {/* ── Install progress ──────────────────────────────────────── */}
-      {install.phase !== "idle" &&
-        install.phase !== "failed" &&
-        install.phase !== "install-failed" && (
-          <div
-            aria-live="polite"
-            className="mt-4 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
-            data-testid="install-progress"
-          >
-            {install.phase === "installing" && "Submitting package…"}
-            {install.phase === "polling" && "Waiting for install to become active…"}
-            {install.phase === "memberships" && (
-              <>
-                Wiring unit memberships
-                {install.membershipDone.length > 0 && (
-                  <> ({install.membershipDone.length} / {form.unitIds.length} done)</>
-                )}
-                …
-              </>
-            )}
-          </div>
-        )}
-
-      {/* ── Validation / submit errors ────────────────────────────── */}
-      {(validationMessage || install.error) &&
-        install.phase !== "install-failed" && (
-          <p
-            role="alert"
-            className="mt-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            data-testid="agent-create-error"
-          >
-            {validationMessage ?? install.error}
-          </p>
-        )}
-
-      {/* ── Multi-parent inheritance conflict (ADR-0039 §6 / I6) ─── */}
-      {install.multiParentConflict !== null && (
-        <MultiParentConflictBlock
-          conflict={install.multiParentConflict}
-          units={unitsQuery.data ?? []}
-        />
+      {/* ── Create progress ───────────────────────────────────────── */}
+      {create.phase === "creating" && (
+        <div
+          aria-live="polite"
+          className="mt-4 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+          data-testid="agent-create-progress"
+        >
+          Creating agent…
+        </div>
       )}
 
-      {/* ── Phase-2 failure panel ─────────────────────────────────── */}
-      {install.phase === "install-failed" && (
-        <div
+      {/* ── Validation / submit errors ────────────────────────────── */}
+      {(validationMessage || create.error) && (
+        <p
           role="alert"
-          className="mt-4 space-y-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-3 text-sm text-destructive"
-          data-testid="install-failed-panel"
+          className="mt-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          data-testid="agent-create-error"
         >
-          <p className="font-medium">Install failed</p>
-          {install.error && (
-            <p className="text-xs">{install.error}</p>
-          )}
-          {install.installId && (
-            <p className="font-mono text-xs text-muted-foreground">
-              Install id: {install.installId}
-            </p>
-          )}
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => void handleRetry()}
-              disabled={submitting}
-              data-testid="retry-button"
-            >
-              Retry
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => void handleAbort()}
-              disabled={submitting}
-              data-testid="abort-button"
-            >
-              Abort install
-            </Button>
-          </div>
-        </div>
+          {validationMessage ?? create.error}
+        </p>
+      )}
+
+      {/* ── Multi-parent inheritance conflict (ADR-0039 §6 / I6) ─── */}
+      {create.multiParentConflict !== null && (
+        <MultiParentConflictBlock
+          conflict={create.multiParentConflict}
+          units={unitsQuery.data ?? []}
+        />
       )}
 
       {/* ── Actions ───────────────────────────────────────────────── */}
@@ -1614,15 +1329,14 @@ export function AgentCreateForm({
           type="submit"
           disabled={
             submitting ||
-            install.phase === "install-failed" ||
             // ADR-0039 I6: block submit until the operator either trims
             // the parent set or sets the conflicting field explicitly.
             // The block clears on any form-state change.
-            install.multiParentConflict !== null
+            create.multiParentConflict !== null
           }
           data-testid="agent-create-submit"
         >
-          {phaseLabel[install.phase]}
+          {phaseLabel[create.phase]}
         </Button>
       </div>
     </form>
@@ -1759,8 +1473,8 @@ function InheritableField({
 // ---------------------------------------------------------------------------
 
 /**
- * Inline error block rendered when a membership-add returns the
- * structured 422 `MultiParentInheritanceConflict`. Lists each diverging
+ * Inline error block rendered when create returns the structured 422
+ * `MultiParentInheritanceConflict`. Lists each diverging
  * field and the parent-attributed values so the operator can see at a
  * glance which parents disagree and pick a resolution path.
  *

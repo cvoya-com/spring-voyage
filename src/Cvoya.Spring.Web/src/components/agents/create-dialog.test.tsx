@@ -17,23 +17,16 @@ import type {
 const listUnits = vi.fn();
 const listModelProviders = vi.fn();
 const getModelProviderModels = vi.fn();
-const installPackageFile = vi.fn();
-const getInstallStatus = vi.fn();
-const assignUnitAgent = vi.fn();
-const retryInstall = vi.fn();
-const abortInstall = vi.fn();
+const getUnitExecution = vi.fn();
+const createAgent = vi.fn();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
     listUnits: () => listUnits(),
     listModelProviders: () => listModelProviders(),
     getModelProviderModels: (id: string) => getModelProviderModels(id),
-    installPackageFile: (yaml: string) => installPackageFile(yaml),
-    getInstallStatus: (id: string) => getInstallStatus(id),
-    assignUnitAgent: (unitId: string, agentId: string) =>
-      assignUnitAgent(unitId, agentId),
-    retryInstall: (id: string) => retryInstall(id),
-    abortInstall: (id: string) => abortInstall(id),
+    getUnitExecution: (id: string) => getUnitExecution(id),
+    createAgent: (body: unknown) => createAgent(body),
   },
 }));
 
@@ -130,6 +123,12 @@ beforeEach(() => {
   getModelProviderModels.mockResolvedValue([
     { id: "claude-3-5-sonnet", displayName: "Claude 3.5 Sonnet" },
   ]);
+  getUnitExecution.mockResolvedValue({
+    image: null,
+    runtime: null,
+    model: null,
+  });
+  createAgent.mockResolvedValue({});
   // Reset body scroll-lock between tests (the underlying <Dialog> sets
   // `overflow: hidden` while open — see `dialog.test.tsx`).
   document.body.style.overflow = "";

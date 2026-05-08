@@ -66,12 +66,12 @@ export type PersistentAgentLogsResponse =
 export type UpdateAgentMetadataRequest = Schemas["UpdateAgentMetadataRequest"];
 
 /**
- * POST /api/v1/agents request body. Mirrors the `spring agent create`
- * CLI surface 1:1: the wire shape requires `name`, `displayName`,
- * `description`, `unitIds` (≥1), and an optional `role` /
- * `definitionJson`. The portal `/agents/create` page and the unit
- * Agents-tab inline-create dialog both POST through this shape via the
- * shared `createAgentFromForm` helper in `@/lib/agents/create-agent`.
+ * POST /api/v1/tenant/agents request body. Mirrors the `spring agent create`
+ * CLI surface 1:1: the wire shape requires `displayName`, `description`,
+ * `role`, `unitIds`, and a nullable `definitionJson`. `unitIds: []`
+ * creates a top-level tenant-parented agent. The portal `/agents/create`
+ * page and the unit Agents-tab inline-create dialog both POST through
+ * this shape via the shared helper in `@/lib/agents/create-agent`.
  */
 export type CreateAgentRequest = Schemas["CreateAgentRequest"];
 
