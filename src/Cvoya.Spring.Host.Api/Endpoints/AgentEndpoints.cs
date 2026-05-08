@@ -13,6 +13,7 @@ using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
@@ -56,7 +57,11 @@ public static class AgentEndpoints
         group.MapPost("/", CreateAgentAsync)
             .WithName("CreateAgent")
             .WithSummary("Create a new agent")
-            .Produces<AgentResponse>(StatusCodes.Status201Created);
+            .Produces<AgentResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            // ADR-0039 §6 / plan task B1: multi-parent inheritance conflict.
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
         group.MapPatch("/{id}", UpdateAgentMetadataAsync)
             .WithName("UpdateAgentMetadata")
@@ -778,6 +783,8 @@ public static class AgentEndpoints
         IActorProxyFactory actorProxyFactory,
         IUnitMembershipRepository membershipRepository,
         IUnitMembershipTenantGuard tenantGuard,
+        IExecutionConfigInheritanceResolver inheritanceResolver,
+        ITenantContext tenantContext,
         SpringDbContext db,
         CancellationToken cancellationToken)
     {
@@ -874,6 +881,32 @@ public static class AgentEndpoints
                     detail: $"DefinitionJson is not valid JSON: {ex.Message}",
                     statusCode: StatusCodes.Status400BadRequest);
             }
+        }
+
+        // ADR-0039 §6 / plan task B1: enforce the multi-parent inheritance
+        // rule before we write any state. Project the agent's declared
+        // execution block (or an empty one) onto the resolver's input
+        // shape, then ask the resolver to intersect against each parent
+        // unit's persisted defaults. If the resolution surfaces any
+        // diverging field, the create is rejected with the structured 422
+        // documented in the ADR — operators get to know about the conflict
+        // at write time, when they have context to fix it. Wired before
+        // the directory register so the resolver short-circuits without a
+        // partial-create rollback dance (mirrors the unit-resolution loop
+        // above).
+        var agentOwnExecution = ProjectAgentOwnExecutionConfig(definition);
+        var parentUnitIds = resolvedUnits
+            .Select(u => u.Entry.ActorId)
+            .ToList();
+        var resolution = inheritanceResolver.ResolveAgentConfig(
+            agentOwnExecution,
+            parentUnitIds,
+            tenantContext.CurrentTenantId,
+            cancellationToken);
+        if (resolution.ConflictingFields.Count > 0)
+        {
+            return MultiParentInheritanceProblems
+                .MultiParentInheritanceConflict(resolution.ConflictingFields);
         }
 
         var actorGuid = Guid.NewGuid();
@@ -1156,5 +1189,86 @@ public static class AgentEndpoints
         }
 
         return metadata with { ParentUnit = derivedParent };
+    }
+
+    /// <summary>
+    /// Projects the agent's optional definition JSON onto the
+    /// <see cref="AgentExecutionConfig"/> shape consumed by
+    /// <see cref="IExecutionConfigInheritanceResolver"/>. Each field on the
+    /// returned config is independently optional — a field absent from the
+    /// document is left blank so the resolver treats it as a candidate for
+    /// inheritance from the parent unit set (ADR-0039 §6).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Mirrors the <c>execution:</c> object shape that
+    /// <c>DbAgentDefinitionProvider.ExtractExecution</c> reads at dispatch
+    /// time. The legacy <c>ai.environment</c> back-compat path is
+    /// intentionally not honoured here — the create endpoint accepts the
+    /// post-ADR-0038 wire shape only, and the resolver is consulted only
+    /// for that path.
+    /// </para>
+    /// <para>
+    /// <see cref="AgentExecutionConfig.AgentRuntimeId"/> is non-nullable on
+    /// the record but is treated as nullable for inheritance — the resolver
+    /// applies <c>NullIfBlank</c> to every input field, so an empty string
+    /// surfaces as "inherit this slot from the parent set" the same way a
+    /// null does for the optional slots.
+    /// </para>
+    /// </remarks>
+    internal static AgentExecutionConfig ProjectAgentOwnExecutionConfig(JsonElement? definition)
+    {
+        // No definition supplied at all — every inheritable field is left
+        // blank, agent-owned hosting falls back to the record default
+        // (Ephemeral). The resolver returns this verbatim when the parent
+        // set is empty (top-level agent) and otherwise treats every blank
+        // slot as a candidate for inheritance.
+        if (definition is not { } root || root.ValueKind != JsonValueKind.Object)
+        {
+            return new AgentExecutionConfig(string.Empty, Image: null);
+        }
+
+        if (!root.TryGetProperty("execution", out var exec) ||
+            exec.ValueKind != JsonValueKind.Object)
+        {
+            return new AgentExecutionConfig(string.Empty, Image: null);
+        }
+
+        var agentRuntimeId = ReadStringOrNull(exec, "agent");
+        var image = ReadStringOrNull(exec, "image");
+        var runtime = ReadStringOrNull(exec, "runtime");
+        var provider = ReadStringOrNull(exec, "provider");
+        var model = ReadStringOrNull(exec, "model");
+        var hosting = ParseHostingMode(ReadStringOrNull(exec, "hosting"));
+
+        return new AgentExecutionConfig(
+            AgentRuntimeId: agentRuntimeId ?? string.Empty,
+            Image: image,
+            Runtime: runtime,
+            Hosting: hosting,
+            Provider: provider,
+            Model: model);
+    }
+
+    private static string? ReadStringOrNull(JsonElement obj, string name)
+        => obj.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String
+            ? prop.GetString()
+            : null;
+
+    private static AgentHostingMode ParseHostingMode(string? value)
+    {
+        if (value is null)
+        {
+            return AgentHostingMode.Ephemeral;
+        }
+        if (value.Equals("persistent", StringComparison.OrdinalIgnoreCase))
+        {
+            return AgentHostingMode.Persistent;
+        }
+        if (value.Equals("pooled", StringComparison.OrdinalIgnoreCase))
+        {
+            return AgentHostingMode.Pooled;
+        }
+        return AgentHostingMode.Ephemeral;
     }
 }
