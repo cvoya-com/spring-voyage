@@ -60,12 +60,20 @@ describe("create-agent helper (#1040)", () => {
       ).toBeNull();
     });
 
-    it("packs supplied fields under an `execution` block", () => {
+    it("returns null when the structured model is supplied with both halves blank", () => {
+      expect(
+        buildAgentDefinitionJson({
+          model: { provider: "  ", id: "" },
+        }),
+      ).toBeNull();
+    });
+
+    it("packs supplied fields under an `execution` block with structured model (ADR-0038 / ADR-0039 I1)", () => {
       const json = buildAgentDefinitionJson({
         image: "ghcr.io/example:latest",
         runtime: "docker",
         tool: "claude-code",
-        model: "claude-sonnet-4-6",
+        model: { provider: "anthropic", id: "claude-sonnet-4-6" },
       });
       expect(json).not.toBeNull();
       const parsed = JSON.parse(json as string);
@@ -74,7 +82,7 @@ describe("create-agent helper (#1040)", () => {
           image: "ghcr.io/example:latest",
           runtime: "docker",
           tool: "claude-code",
-          model: "claude-sonnet-4-6",
+          model: { provider: "anthropic", id: "claude-sonnet-4-6" },
         },
       });
     });
@@ -83,6 +91,35 @@ describe("create-agent helper (#1040)", () => {
       const json = buildAgentDefinitionJson({ tool: "codex" });
       expect(JSON.parse(json as string)).toEqual({
         execution: { tool: "codex" },
+      });
+    });
+
+    it("emits only the supplied half of the structured model", () => {
+      expect(
+        JSON.parse(
+          buildAgentDefinitionJson({
+            model: { provider: "ollama", id: "" },
+          }) as string,
+        ),
+      ).toEqual({ execution: { model: { provider: "ollama" } } });
+
+      expect(
+        JSON.parse(
+          buildAgentDefinitionJson({
+            model: { provider: "", id: "llama3.2:3b" },
+          }) as string,
+        ),
+      ).toEqual({ execution: { model: { id: "llama3.2:3b" } } });
+    });
+
+    it("trims whitespace on provider and id", () => {
+      const json = buildAgentDefinitionJson({
+        model: { provider: "  anthropic  ", id: "  claude-opus-4-7  " },
+      });
+      expect(JSON.parse(json as string)).toEqual({
+        execution: {
+          model: { provider: "anthropic", id: "claude-opus-4-7" },
+        },
       });
     });
   });
@@ -118,11 +155,14 @@ describe("create-agent helper (#1040)", () => {
         displayName: "Ada",
         unitIds: ["engineering"],
         tool: "claude-code",
-        model: "claude-sonnet-4-6",
+        model: { provider: "anthropic", id: "claude-sonnet-4-6" },
       });
       expect(body.definitionJson).toBe(
         JSON.stringify({
-          execution: { tool: "claude-code", model: "claude-sonnet-4-6" },
+          execution: {
+            tool: "claude-code",
+            model: { provider: "anthropic", id: "claude-sonnet-4-6" },
+          },
         }),
       );
     });

@@ -50,11 +50,14 @@ export interface AgentCreateFormInput {
    */
   tool?: string;
   /**
-   * Model id (`ai.model.id`) — pulled from the chosen provider's
+   * ADR-0038 structured model selector — `{ provider, id }`. The
+   * provider id (e.g. `anthropic`, `ollama`) names the model-provider
+   * install; the model id is pulled from that provider's
    * `/api/v1/tenant/model-providers/installs/{id}/models` catalogue
-   * by the caller.
+   * by the caller. Both halves are emitted under
+   * `execution.model = { provider, id }`.
    */
-  model?: string;
+  model?: { provider: string; id: string };
   /**
    * Initial unit assignments. Server requires ≥1 (#744). Both portal
    * surfaces enforce this client-side so we never POST a request the
@@ -108,26 +111,38 @@ export function describeAgentCreateError(
  * shorthands. Returns `null` when no shorthand was supplied — letting
  * the caller omit `definitionJson` from the wire body so the request
  * looks identical to a CLI `spring agent create` with no `--image /
- * --runtime / --tool / --model` flags. The shape mirrors the CLI's
- * `MergeExecutionShorthand` (`AgentCommand.cs`) so the on-disk
- * `AgentDefinitions.Definition` blob is byte-for-byte the same whether
- * the agent was created from the portal or from the CLI.
+ * --runtime / --tool / --model-provider / --model` flags. The shape
+ * mirrors the CLI's `MergeExecutionShorthand` (`AgentCommand.cs`) so
+ * the on-disk `AgentDefinitions.Definition` blob is byte-for-byte the
+ * same whether the agent was created from the portal or from the CLI.
+ *
+ * ADR-0038: `model` is the structured `{ provider, id }` pair and lands
+ * under `execution.model` as an object. A model with both halves blank
+ * is treated as "not supplied" and is omitted entirely; supplying only
+ * one half emits just that field on the nested object so partial input
+ * still round-trips through `MergeExecutionShorthand`.
  */
 export function buildAgentDefinitionJson(input: {
   image?: string;
   runtime?: string;
   tool?: string;
-  model?: string;
+  model?: { provider: string; id: string };
 }): string | null {
-  const exec: Record<string, string> = {};
+  const exec: Record<string, string | { provider?: string; id?: string }> = {};
   const image = input.image?.trim();
   const runtime = input.runtime?.trim();
   const tool = input.tool?.trim();
-  const model = input.model?.trim();
+  const provider = input.model?.provider?.trim();
+  const modelId = input.model?.id?.trim();
   if (image) exec.image = image;
   if (runtime) exec.runtime = runtime;
   if (tool) exec.tool = tool;
-  if (model) exec.model = model;
+  if (provider || modelId) {
+    const model: { provider?: string; id?: string } = {};
+    if (provider) model.provider = provider;
+    if (modelId) model.id = modelId;
+    exec.model = model;
+  }
   if (Object.keys(exec).length === 0) return null;
   return JSON.stringify({ execution: exec });
 }
