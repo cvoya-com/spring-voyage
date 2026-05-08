@@ -112,7 +112,9 @@ function makeProvider(
   } as InstalledModelProviderResponse;
 }
 
-function renderForm(props: Parameters<typeof AgentCreateForm>[0] = {}) {
+function renderForm(
+  props: Partial<Parameters<typeof AgentCreateForm>[0]> = {},
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -121,7 +123,11 @@ function renderForm(props: Parameters<typeof AgentCreateForm>[0] = {}) {
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
   }
-  return render(<AgentCreateForm {...props} />, { wrapper: Wrapper });
+  const finalProps: Parameters<typeof AgentCreateForm>[0] = {
+    context: "dialog",
+    ...props,
+  };
+  return render(<AgentCreateForm {...finalProps} />, { wrapper: Wrapper });
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +148,52 @@ beforeEach(() => {
     runtime: null,
     model: null,
   } as UnitExecutionResponse);
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0039 K1 — page-only Source step.
+// ---------------------------------------------------------------------------
+
+describe("AgentCreateForm — source step (K1)", () => {
+  it("renders a Source step first in page context with three source cards", () => {
+    renderForm({ context: "page" });
+
+    expect(
+      screen.getByRole("heading", { name: /choose a source/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("agent-source-card-scratch")).toHaveTextContent(
+      /scratch/i,
+    );
+    expect(
+      screen.getByTestId("agent-source-card-from-package"),
+    ).toHaveTextContent(/from package/i);
+    expect(screen.getByTestId("agent-source-card-browse")).toHaveTextContent(
+      /browse/i,
+    );
+  });
+
+  it("advances from Scratch to the Identity step when Next is clicked", () => {
+    renderForm({ context: "page" });
+
+    fireEvent.click(screen.getByTestId("agent-source-card-scratch"));
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    expect(
+      screen.queryByRole("heading", { name: /choose a source/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/agent id/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
+  });
+
+  it("skips Source in dialog context and starts on Identity", () => {
+    renderForm({ context: "dialog" });
+
+    expect(
+      screen.queryByRole("heading", { name: /choose a source/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("agent-source-card-scratch")).toBeNull();
+    expect(screen.getByLabelText(/agent id/i)).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

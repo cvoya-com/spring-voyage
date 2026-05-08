@@ -151,7 +151,11 @@ function makeInstallStatus(
 // Render helper
 // ---------------------------------------------------------------------------
 
-function renderPage(): { client: QueryClient } {
+function renderPage({
+  advancePastSource = true,
+}: {
+  advancePastSource?: boolean;
+} = {}): { client: QueryClient } {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -161,6 +165,9 @@ function renderPage(): { client: QueryClient } {
     );
   }
   render(<CreateAgentPage />, { wrapper: Wrapper });
+  if (advancePastSource) {
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+  }
   return { client };
 }
 

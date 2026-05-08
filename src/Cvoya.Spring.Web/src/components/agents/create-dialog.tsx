@@ -96,6 +96,7 @@ export function AgentCreateDialog({
       </div>
 
       <AgentCreateForm
+        context="dialog"
         initialUnitIds={[unitId]}
         onSuccess={close}
         onCancel={close}

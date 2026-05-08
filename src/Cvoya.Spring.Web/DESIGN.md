@@ -629,6 +629,18 @@ Tenant-wide agent list at `/agents`. Lists all registered agents via `GET /api/v
 
 **Grid.** `data-testid="agents-grid"`. Each `<AgentCard>` receives a shape adapter (`agentToCardShape`) that maps `AgentResponse → AgentCardAgent`. Cross-links to `/units` for full per-agent detail.
 
+### 12.12.1 Agent-create Source step (ADR-0039 K1)
+
+`<AgentCreateForm>` has a `context` prop. `context="page"` starts `/agents/create` on a Source step before the scratch form; `context="dialog"` skips Source and renders the Identity card first so the unit-tab dialog stays scratch-only.
+
+The page Source step reuses the unit-create SourceCard chrome: full-width button cards with `rounded-md` borders, `aria-pressed`, a `h-10 w-10` muted icon well, primary tint when selected, and `hover:border-primary/40 hover:bg-accent/50` when idle. The cards are:
+
+- **Scratch** — advances to the existing scratch form (`Identity`, `Execution`, `Unit assignment`, submit).
+- **From package** — visible placeholder only in K1; the package picker is wired in K2.
+- **Browse** — portal registry browser stub. Selecting it shows CLI fallback copy and disables Next.
+
+No new tokens or component variants are introduced; this is a page-level composition of `Card`, `Button`, and lucide icons.
+
 ### 12.12 Create-unit wizard — Identity step: parent-unit picker (#814)
 
 Step 1 ("Identity") of `/units/create` requires the operator to declare placement before advancing. Two radio buttons with `data-testid="parent-choice-top-level"` and `data-testid="parent-choice-has-parents"` present the choice; Next is gated until one is selected.

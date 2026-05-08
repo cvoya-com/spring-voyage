@@ -83,7 +83,11 @@ export default function CreateAgentPage() {
         </Button>
       </div>
 
-      <AgentCreateForm onSuccess={handleSuccess} onCancel={handleCancel} />
+      <AgentCreateForm
+        context="page"
+        onSuccess={handleSuccess}
+        onCancel={handleCancel}
+      />
     </div>
   );
 }
