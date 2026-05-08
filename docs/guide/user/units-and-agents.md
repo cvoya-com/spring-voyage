@@ -28,7 +28,7 @@ spring unit list
 
 ### Configuring a Unit
 
-Set execution defaults (image, runtime, tool, provider, model) and orchestration strategy independently:
+Set execution defaults (image, runtime, tool, provider, model) independently:
 
 ```bash
 # Set one or more execution defaults (partial update — pass only flags you want to change)
@@ -37,12 +37,9 @@ spring unit execution set <name> \
   --image localhost/spring-voyage-agent-claude-code:latest \
   --runtime podman \
   --model claude-sonnet-4-6
-
-# Set orchestration strategy
-spring unit orchestration set <name> --strategy ai
 ```
 
-There is no `spring unit set` verb. Execution defaults and orchestration are separate verb groups (`execution` and `orchestration`). Use `spring unit execution get <name>` to inspect current defaults and `spring unit execution clear <name>` to strip the block.
+There is no `spring unit set` verb. Use `spring unit execution get <name>` to inspect current defaults and `spring unit execution clear <name>` to strip the block.
 
 ### Setting Policies
 
@@ -67,20 +64,6 @@ spring unit policy initiative set eng-team --max-level Proactive --blocked agent
 Pass a YAML fragment instead of flags: `spring unit policy skill set eng-team -f skill-policy.yaml`
 
 `get` prints the current slot plus the inheritance chain; `clear` removes one dimension without touching the others.
-
-### Orchestration Strategy
-
-```bash
-spring unit orchestration get   <unit>
-spring unit orchestration set   <unit> --strategy {ai|workflow|label-routed} [--label-routing <file>]
-spring unit orchestration clear <unit>
-```
-
-- `set` writes the `orchestration.strategy` slot — same as `spring apply -f unit.yaml`, without a full re-apply.
-- `set --label-routing <file>` also applies a `UnitPolicy.LabelRouting` YAML fragment.
-- `clear` removes the slot; the resolver falls back to `UnitPolicy.LabelRouting`-inferred `label-routed` when set, otherwise the platform default ([ADR-0010](../../decisions/0010-manifest-orchestration-strategy-selector.md)).
-
-Writes invalidate the in-process resolver cache immediately.
 
 ### Execution defaults
 

@@ -32,6 +32,12 @@
     <KiotaLockFile>$(KiotaOutputDir)\kiota-lock.json</KiotaLockFile>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- The target below regenerates Generated/ and clears old output, so
+         compile generated files only after Kiota has refreshed the tree. -->
+    <Compile Remove="Generated/**/*.cs" />
+  </ItemGroup>
+
   <Target Name="GenerateKiotaClient"
           BeforeTargets="BeforeCompile;CoreCompile"
           Inputs="$(OpenApiContract)"

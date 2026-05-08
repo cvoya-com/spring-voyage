@@ -194,7 +194,7 @@ exercises the agent turn end-to-end against a real LLM.
 | fast   | `08-units-lifecycle`                     | Start / stop / delete                              |
 | fast   | `09-units-policy`                        | Five policy dimensions                             |
 | fast   | `10-units-boundary`                      | Boundary YAML upload + diff                        |
-| fast   | `11-units-orchestration`                 | Strategy roundtrip                                 |
+| fast   | `11-units-orchestration`                 | Label routing roundtrip                           |
 | fast   | `12-units-execution-defaults`            | Image/runtime/model defaults                       |
 | fast   | `13-units-secrets`                       | Unit-scoped secret CRUD                            |
 | fast   | `14-agents-create`                       | Agent create form                                  |
