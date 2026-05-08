@@ -10,7 +10,6 @@ using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Units;
@@ -24,18 +23,17 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// Dapr virtual actor representing a unit in the Spring Voyage platform.
 /// A unit groups agents and sub-units, dispatching domain messages through
-/// a configurable <see cref="IOrchestrationStrategy"/> while handling
+/// the same runtime invocation path used by agents while handling
 /// control messages (cancel, status, health, policy) directly.
 /// </summary>
 public class UnitActor : Actor, IUnitActor
 {
     private readonly ILogger _logger;
-    private readonly IOrchestrationStrategy _orchestrationStrategy;
+    private readonly IRuntimeInvocationPath _runtimeInvocationPath;
     private readonly IActivityEventBus _activityEventBus;
     private readonly IDirectoryService _directoryService;
     private readonly IActorProxyFactory _actorProxyFactory;
     private readonly IExpertiseSeedProvider? _expertiseSeedProvider;
-    private readonly IOrchestrationStrategyResolver? _strategyResolver;
     private readonly IUnitValidationCoordinator? _validationCoordinator;
     private readonly IUnitMembershipCoordinator _membershipCoordinator;
     private readonly IUnitPermissionCoordinator _permissionCoordinator;
@@ -45,13 +43,7 @@ public class UnitActor : Actor, IUnitActor
     /// </summary>
     /// <param name="host">The actor host providing runtime services.</param>
     /// <param name="loggerFactory">The logger factory for creating loggers.</param>
-    /// <param name="orchestrationStrategy">
-    /// Default (unkeyed) strategy used to orchestrate domain messages when
-    /// no manifest-declared strategy key is available. Kept on the
-    /// constructor surface for backward compatibility with test harnesses
-    /// that construct the actor directly; in production the resolver below
-    /// is authoritative and this parameter acts as the last-resort fallback.
-    /// </param>
+    /// <param name="runtimeInvocationPath">Shared runtime invocation pipeline for unit domain turns.</param>
     /// <param name="activityEventBus">The activity event bus for emitting observable events.</param>
     /// <param name="directoryService">Directory used to resolve <c>unit://</c> member paths to actor ids during cycle detection.</param>
     /// <param name="actorProxyFactory">Factory used to build <see cref="IUnitActor"/> proxies for sub-units during cycle detection.</param>
@@ -60,16 +52,6 @@ public class UnitActor : Actor, IUnitActor
     /// persisted <c>UnitDefinition</c> YAML on first activation (#488).
     /// Null in legacy test harnesses — seeding is skipped and the unit
     /// activates with whatever the state store holds.
-    /// </param>
-    /// <param name="strategyResolver">
-    /// Optional manifest-driven strategy resolver (#491). When present,
-    /// <see cref="HandleDomainMessageAsync"/> asks the resolver for the
-    /// right <see cref="IOrchestrationStrategy"/> per message so the unit
-    /// honours its declared <c>orchestration.strategy</c> key (and the
-    /// inferred <c>label-routed</c> fallback when <c>UnitPolicy.LabelRouting</c>
-    /// is present). Null in legacy test harnesses that construct the actor
-    /// directly — the injected <paramref name="orchestrationStrategy"/>
-    /// handles every message in that path, matching pre-#491 behaviour.
     /// </param>
     /// <param name="validationCoordinator">
     /// Optional coordinator for the validation-scheduling concern (#1280).
@@ -112,12 +94,11 @@ public class UnitActor : Actor, IUnitActor
     public UnitActor(
         ActorHost host,
         ILoggerFactory loggerFactory,
-        IOrchestrationStrategy orchestrationStrategy,
+        IRuntimeInvocationPath runtimeInvocationPath,
         IActivityEventBus activityEventBus,
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         IExpertiseSeedProvider? expertiseSeedProvider = null,
-        IOrchestrationStrategyResolver? strategyResolver = null,
         IUnitValidationWorkflowScheduler? validationWorkflowScheduler = null,
         IUnitValidationTracker? validationTracker = null,
         IUnitSubunitMembershipProjector? subunitProjector = null,
@@ -127,12 +108,11 @@ public class UnitActor : Actor, IUnitActor
         : base(host)
     {
         _logger = loggerFactory.CreateLogger<UnitActor>();
-        _orchestrationStrategy = orchestrationStrategy;
+        _runtimeInvocationPath = runtimeInvocationPath;
         _activityEventBus = activityEventBus;
         _directoryService = directoryService;
         _actorProxyFactory = actorProxyFactory;
         _expertiseSeedProvider = expertiseSeedProvider;
-        _strategyResolver = strategyResolver;
         _validationCoordinator = validationCoordinator
             ?? (validationWorkflowScheduler is not null || validationTracker is not null
                 ? BuildDefaultValidationCoordinator(validationWorkflowScheduler, validationTracker, loggerFactory)
@@ -930,73 +910,17 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <summary>
-    /// Handles a domain message by delegating to the configured orchestration strategy.
+    /// Handles a domain message by invoking the unit's runtime through the
+    /// shared runtime path.
     /// </summary>
-    /// <remarks>
-    /// When an <see cref="IOrchestrationStrategyResolver"/> is wired (the
-    /// production path, #491), each message picks its strategy by reading
-    /// the unit's declared <c>orchestration.strategy</c> key and, when
-    /// absent, inferring <c>label-routed</c> from <c>UnitPolicy.LabelRouting</c>.
-    /// The resolver owns a per-message DI scope so scoped strategies see
-    /// fresh policy reads. The injected unkeyed
-    /// <see cref="IOrchestrationStrategy"/> remains the final fallback for
-    /// both test harnesses that construct the actor directly and units
-    /// whose resolver resolved nothing.
-    /// </remarks>
     private async Task<Message?> HandleDomainMessageAsync(Message message, CancellationToken ct)
     {
-        var members = await GetMembersListAsync(ct);
-
-        // #1696: surface the unit's persisted execution.provider id to
-        // orchestration strategies via IUnitContext so AiOrchestrationStrategy
-        // can resolve the right IAiProvider through IAiProviderRegistry.
-        // Absent state falls back to null, which leaves the strategy on
-        // whatever IAiProvider DI's GetService returns (the OSS default
-        // is Anthropic, registered last in ServiceCollectionExtensions.Execution).
-        var providerStateResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitProvider, ct);
-        var providerId = providerStateResult.HasValue ? providerStateResult.Value : null;
-
-        var context = new UnitContext(Address, members.AsReadOnly(), providerId, _logger);
-
-        if (_strategyResolver is null)
-        {
-            _logger.LogInformation(
-                "Unit {ActorId} delegating domain message {MessageId} to default orchestration strategy with {MemberCount} members",
-                Id.GetId(), message.Id, members.Count);
-
-            await EmitActivityEventAsync(ActivityEventType.DecisionMade,
-                $"Delegating message {message.Id} to orchestration strategy with {members.Count} members",
-                ct,
-                details: JsonSerializer.SerializeToElement(new
-                {
-                    decision = "DelegateToStrategy",
-                    messageId = message.Id,
-                    memberCount = members.Count,
-                }),
-                correlationId: message.ThreadId);
-
-            return await _orchestrationStrategy.OrchestrateAsync(message, context, ct);
-        }
-
-        await using var lease = await _strategyResolver.ResolveAsync(Id.GetId(), ct);
-
         _logger.LogInformation(
-            "Unit {ActorId} delegating domain message {MessageId} to orchestration strategy '{StrategyKey}' with {MemberCount} members",
-            Id.GetId(), message.Id, lease.ResolvedKey ?? "<default>", members.Count);
+            "Unit {ActorId} invoking runtime path for domain message {MessageId}",
+            Id.GetId(), message.Id);
 
-        await EmitActivityEventAsync(ActivityEventType.DecisionMade,
-            $"Delegating message {message.Id} to orchestration strategy '{lease.ResolvedKey ?? "<default>"}' with {members.Count} members",
-            ct,
-            details: JsonSerializer.SerializeToElement(new
-            {
-                decision = "DelegateToStrategy",
-                messageId = message.Id,
-                memberCount = members.Count,
-                strategyKey = lease.ResolvedKey,
-            }),
-            correlationId: message.ThreadId);
-
-        return await lease.Strategy.OrchestrateAsync(message, context, ct);
+        await _runtimeInvocationPath.InvokeAsync(Address, message, ct);
+        return null;
     }
 
     /// <summary>

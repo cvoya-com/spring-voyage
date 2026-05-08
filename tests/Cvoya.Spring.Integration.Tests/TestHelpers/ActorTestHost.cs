@@ -10,7 +10,6 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
@@ -173,15 +172,15 @@ public static class ActorTestHost
         IUnitPolicyEnforcer UnitPolicyEnforcer);
 
     /// <summary>
-    /// Creates a <see cref="UnitActor"/> with a mocked state manager and orchestration strategy.
+    /// Creates a <see cref="UnitActor"/> with a mocked state manager and runtime invocation path.
     /// </summary>
-    /// <param name="strategy">The orchestration strategy to use. If null, a substitute is created.</param>
+    /// <param name="runtimeInvocationPath">The runtime invocation path to use. If null, a substitute is created.</param>
     /// <param name="actorId">The actor identifier. Defaults to a new GUID.</param>
     /// <param name="directoryService">The directory service used for nested-unit cycle detection. Defaults to a substitute that resolves nothing.</param>
     /// <param name="actorProxyFactory">The actor proxy factory used for nested-unit cycle detection. Defaults to a substitute.</param>
-    /// <returns>A tuple of the actor instance, its mocked state manager, and the orchestration strategy.</returns>
-    public static (UnitActor Actor, IActorStateManager StateManager, IOrchestrationStrategy Strategy) CreateUnitActor(
-        IOrchestrationStrategy? strategy = null,
+    /// <returns>A tuple of the actor instance, its mocked state manager, and the runtime invocation path.</returns>
+    public static (UnitActor Actor, IActorStateManager StateManager, IRuntimeInvocationPath RuntimeInvocationPath) CreateUnitActor(
+        IRuntimeInvocationPath? runtimeInvocationPath = null,
         string? actorId = null,
         IDirectoryService? directoryService = null,
         IActorProxyFactory? actorProxyFactory = null)
@@ -189,7 +188,10 @@ public static class ActorTestHost
         var stateManager = Substitute.For<IActorStateManager>();
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        strategy ??= Substitute.For<IOrchestrationStrategy>();
+        runtimeInvocationPath ??= Substitute.For<IRuntimeInvocationPath>();
+        runtimeInvocationPath
+            .InvokeAsync(Arg.Any<CoreMessaging.Address>(), Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
         directoryService ??= Substitute.For<IDirectoryService>();
         actorProxyFactory ??= Substitute.For<IActorProxyFactory>();
 
@@ -202,7 +204,7 @@ public static class ActorTestHost
         var actor = new UnitActor(
             host,
             loggerFactory,
-            strategy,
+            runtimeInvocationPath,
             activityEventBus,
             directoryService,
             actorProxyFactory);
@@ -212,51 +214,8 @@ public static class ActorTestHost
         stateManager.TryGetStateAsync<List<CoreMessaging.Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<CoreMessaging.Address>>(false, default!));
 
-        return (actor, stateManager, strategy);
-    }
-
-    /// <summary>
-    /// Creates a <see cref="UnitActor"/> with an <see cref="IOrchestrationStrategyResolver"/>
-    /// wired (the production path added by #491) so tests can assert the
-    /// actor consults the resolver per message. The constructor-injected
-    /// unkeyed strategy is still supplied because the actor signature keeps
-    /// it as the legacy fallback — test assertions can verify it is NOT
-    /// called when the resolver is present.
-    /// </summary>
-    public static (UnitActor Actor, IActorStateManager StateManager, IOrchestrationStrategyResolver Resolver, IOrchestrationStrategy FallbackStrategy) CreateUnitActorWithResolver(
-        IOrchestrationStrategyResolver resolver,
-        string? actorId = null,
-        IDirectoryService? directoryService = null,
-        IActorProxyFactory? actorProxyFactory = null)
-    {
-        var stateManager = Substitute.For<IActorStateManager>();
-        var loggerFactory = Substitute.For<ILoggerFactory>();
-        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        var fallbackStrategy = Substitute.For<IOrchestrationStrategy>();
-        directoryService ??= Substitute.For<IDirectoryService>();
-        actorProxyFactory ??= Substitute.For<IActorProxyFactory>();
-
-        var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
-        {
-            ActorId = new ActorId(NormaliseActorId(actorId)),
-        });
-
-        var activityEventBus = Substitute.For<Core.Capabilities.IActivityEventBus>();
-        var actor = new UnitActor(
-            host,
-            loggerFactory,
-            fallbackStrategy,
-            activityEventBus,
-            directoryService,
-            actorProxyFactory,
-            expertiseSeedProvider: null,
-            strategyResolver: resolver);
-        SetStateManager(actor, stateManager);
-
-        stateManager.TryGetStateAsync<List<CoreMessaging.Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<CoreMessaging.Address>>(false, default!));
-
-        return (actor, stateManager, resolver, fallbackStrategy);
+        runtimeInvocationPath.ClearReceivedCalls();
+        return (actor, stateManager, runtimeInvocationPath);
     }
 
     /// <summary>

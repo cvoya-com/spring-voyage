@@ -8,7 +8,6 @@ using System.Reflection;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 
@@ -45,7 +44,7 @@ public class UnitActorExpertiseTests
         _actor = new UnitActor(
             host,
             loggerFactory,
-            Substitute.For<IOrchestrationStrategy>(),
+            Substitute.For<IRuntimeInvocationPath>(),
             Substitute.For<IActivityEventBus>(),
             Substitute.For<IDirectoryService>(),
             Substitute.For<IActorProxyFactory>());
@@ -225,7 +224,7 @@ public class UnitActorExpertiseTests
         var actor = new UnitActor(
             host,
             loggerFactory,
-            Substitute.For<IOrchestrationStrategy>(),
+            Substitute.For<IRuntimeInvocationPath>(),
             Substitute.For<IActivityEventBus>(),
             Substitute.For<IDirectoryService>(),
             Substitute.For<IActorProxyFactory>(),

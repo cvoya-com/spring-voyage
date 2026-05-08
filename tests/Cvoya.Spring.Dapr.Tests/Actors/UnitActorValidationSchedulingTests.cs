@@ -5,7 +5,6 @@ namespace Cvoya.Spring.Dapr.Tests.Actors;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 
@@ -40,7 +39,7 @@ public class UnitActorValidationSchedulingTests
 
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
-    private readonly IOrchestrationStrategy _strategy = Substitute.For<IOrchestrationStrategy>();
+    private readonly IRuntimeInvocationPath _runtimeInvocationPath = Substitute.For<IRuntimeInvocationPath>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
@@ -59,7 +58,7 @@ public class UnitActorValidationSchedulingTests
         _actor = new UnitActor(
             host,
             _loggerFactory,
-            _strategy,
+            _runtimeInvocationPath,
             _activityEventBus,
             _directoryService,
             _actorProxyFactory,

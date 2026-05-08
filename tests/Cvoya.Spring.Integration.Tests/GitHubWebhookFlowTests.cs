@@ -6,7 +6,6 @@ namespace Cvoya.Spring.Integration.Tests;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Integration.Tests.TestHelpers;
 
@@ -20,36 +19,35 @@ using Xunit;
 
 /// <summary>
 /// Integration tests simulating a GitHub webhook payload flowing through
-/// a UnitActor to an AgentActor via an orchestration strategy.
+/// a UnitActor runtime invocation path.
 /// </summary>
 public class GitHubWebhookFlowTests
 {
     [Fact]
-    public async Task WebhookMessage_RoutedThroughUnit_StrategyReceivesWebhookPayload()
+    public async Task WebhookMessage_RoutedThroughUnit_RuntimePathReceivesWebhookPayload()
     {
-        var (unitActor, unitStateManager, strategy) = ActorTestHost.CreateUnitActor(actorId: "webhook-unit");
+        var (unitActor, unitStateManager, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "webhook-unit");
 
         // Register an agent member on the unit.
         var agentAddress = Address.For("agent", TestSlugIds.HexFor("webhook-agent"));
         unitStateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [agentAddress]));
 
-        // Capture what the strategy receives.
+        // Capture what the runtime path receives.
         Message? capturedMessage = null;
-        IUnitContext? capturedContext = null;
-        strategy.OrchestrateAsync(Arg.Any<Message>(), Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
+        runtimeInvocationPath
+            .InvokeAsync(Arg.Any<Address>(), Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(callInfo =>
             {
-                capturedMessage = callInfo.ArgAt<Message>(0);
-                capturedContext = callInfo.ArgAt<IUnitContext>(1);
-                return Task.FromResult<Message?>(null);
+                capturedMessage = callInfo.ArgAt<Message>(1);
+                return Task.CompletedTask;
             });
 
         var webhookMessage = MessageFactory.CreateWebhookMessage(toId: "webhook-unit");
 
         await unitActor.ReceiveAsync(webhookMessage, TestContext.Current.CancellationToken);
 
-        // Verify the strategy received the webhook message with its payload intact.
+        // Verify the runtime path received the webhook message with its payload intact.
         capturedMessage.ShouldNotBeNull();
         capturedMessage!.From.Scheme.ShouldBe("connector");
         // MessageFactory.CreateWebhookMessage stamps the synthetic
@@ -61,57 +59,26 @@ public class GitHubWebhookFlowTests
         payload.GetProperty("EventType").GetString().ShouldBe("issues");
         payload.GetProperty("Action").GetString().ShouldBe("opened");
         payload.GetProperty("Repository").GetString().ShouldBe("test-org/test-repo");
-
-        // Verify the context contains the agent member.
-        capturedContext.ShouldNotBeNull();
-        capturedContext!.Members.ShouldHaveSingleItem().ShouldBe(agentAddress);
     }
 
     [Fact]
-    public async Task WebhookMessage_StrategyForwardsToAgent_AgentReceivesMessage()
+    public async Task WebhookMessage_RoutedThroughUnit_InvokesUnitRuntime()
     {
-        // Set up the unit actor with a strategy that forwards to the agent.
-        var (unitActor, unitStateManager, strategy) = ActorTestHost.CreateUnitActor(actorId: "flow-unit");
-        var (agentActor, agentStateManager) = ActorTestHost.CreateAgentActor("flow-agent");
+        var (unitActor, unitStateManager, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "flow-unit");
 
         var agentAddress = Address.For("agent", TestSlugIds.HexFor("flow-agent"));
         unitStateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [agentAddress]));
 
-        // Strategy creates a forwarded message and we simulate it being delivered to the agent.
         var webhookMessage = MessageFactory.CreateWebhookMessage(toId: "flow-unit");
-        Message? forwardedMessage = null;
-
-        strategy.OrchestrateAsync(Arg.Any<Message>(), Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                var originalMessage = callInfo.ArgAt<Message>(0);
-                // Create a forwarded message addressed to the agent.
-                forwardedMessage = new Message(
-                    Guid.NewGuid(),
-                    Address.For("unit", TestSlugIds.HexFor("flow-unit")),
-                    agentAddress,
-                    MessageType.Domain,
-                    originalMessage.ThreadId,
-                    originalMessage.Payload,
-                    DateTimeOffset.UtcNow);
-                return Task.FromResult<Message?>(forwardedMessage);
-            });
 
         // Unit processes the webhook.
         var unitResult = await unitActor.ReceiveAsync(webhookMessage, TestContext.Current.CancellationToken);
-        unitResult.ShouldNotBeNull();
+        unitResult.ShouldBeNull();
 
-        // Now deliver the forwarded message to the agent.
-        var agentResult = await agentActor.ReceiveAsync(forwardedMessage!, TestContext.Current.CancellationToken);
-
-        // Verify the agent received and stored the message as its active conversation.
-        agentResult.ShouldNotBeNull();
-        await agentStateManager.Received().SetStateAsync(
-            StateKeys.ActiveThread,
-            Arg.Is<ThreadChannel>(c =>
-                c.ThreadId == webhookMessage.ThreadId &&
-                c.Messages.Count == 1),
+        await runtimeInvocationPath.Received(1).InvokeAsync(
+            Address.For("unit", TestSlugIds.HexFor("flow-unit")),
+            webhookMessage,
             Arg.Any<CancellationToken>());
     }
 

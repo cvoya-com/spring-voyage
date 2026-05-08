@@ -5,7 +5,6 @@ namespace Cvoya.Spring.Integration.Tests;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Integration.Tests.TestHelpers;
@@ -21,53 +20,43 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Integration tests for UnitActor orchestration: strategy dispatch,
-/// member management, and context passing.
+/// Integration tests for UnitActor runtime dispatch and member management.
 /// </summary>
 public class UnitOrchestrationTests
 {
     [Fact]
-    public async Task ReceiveAsync_DomainMessage_CallsOrchestrationStrategyWithMessage()
+    public async Task ReceiveAsync_DomainMessage_CallsRuntimeInvocationPathWithMessage()
     {
-        var (actor, _, strategy) = ActorTestHost.CreateUnitActor(actorId: "orch-unit");
+        var (actor, _, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "orch-unit");
 
         var message = MessageFactory.CreateDomainMessage(toId: "orch-unit", toType: "unit");
-        strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<Message?>(null));
 
         await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        await strategy.Received(1).OrchestrateAsync(
+        await runtimeInvocationPath.Received(1).InvokeAsync(
+            Address.For("unit", TestSlugIds.HexFor("orch-unit")),
             message,
-            Arg.Any<IUnitContext>(),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessage_PassesMembersInContext()
+    public async Task ReceiveAsync_DomainMessage_WithMembers_StillInvokesRuntimeInvocationPath()
     {
-        var (actor, stateManager, strategy) = ActorTestHost.CreateUnitActor(actorId: "orch-unit");
+        var (actor, stateManager, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "orch-unit");
         var member1 = Address.For("agent", TestSlugIds.HexFor("agent-1"));
         var member2 = Address.For("agent", TestSlugIds.HexFor("agent-2"));
 
         stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [member1, member2]));
 
-        IUnitContext? capturedContext = null;
         var message = MessageFactory.CreateDomainMessage(toId: "orch-unit", toType: "unit");
-        strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                capturedContext = callInfo.ArgAt<IUnitContext>(1);
-                return Task.FromResult<Message?>(null);
-            });
 
         await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        capturedContext.ShouldNotBeNull();
-        capturedContext!.Members.Count().ShouldBe(2);
-        capturedContext.Members.ShouldContain(member1);
-        capturedContext.Members.ShouldContain(member2);
+        await runtimeInvocationPath.Received(1).InvokeAsync(
+            Address.For("unit", TestSlugIds.HexFor("orch-unit")),
+            message,
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -99,79 +88,54 @@ public class UnitOrchestrationTests
     }
 
     [Fact]
-    public async Task ReceiveAsync_StrategyReturnsResponse_ActorReturnsIt()
+    public async Task ReceiveAsync_RuntimePathCompletes_ActorReturnsNull()
     {
-        var (actor, _, strategy) = ActorTestHost.CreateUnitActor(actorId: "resp-unit");
+        var (actor, _, _) = ActorTestHost.CreateUnitActor(actorId: "resp-unit");
         var message = MessageFactory.CreateDomainMessage(toId: "resp-unit", toType: "unit");
-        var expectedResponse = MessageFactory.CreateDomainMessage(threadId: message.ThreadId);
-
-        strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(expectedResponse);
 
         var result = await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        result.ShouldBe(expectedResponse);
+        result.ShouldBeNull();
     }
 
     [Fact]
-    public async Task ReceiveAsync_UnitContextHasCorrectUnitAddress()
+    public async Task ReceiveAsync_RuntimePathGetsCorrectUnitAddress()
     {
-        var (actor, _, strategy) = ActorTestHost.CreateUnitActor(actorId: "addr-unit");
+        var (actor, _, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "addr-unit");
 
-        IUnitContext? capturedContext = null;
         var message = MessageFactory.CreateDomainMessage(toId: "addr-unit", toType: "unit");
-        strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                capturedContext = callInfo.ArgAt<IUnitContext>(1);
-                return Task.FromResult<Message?>(null);
-            });
 
         await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        capturedContext.ShouldNotBeNull();
-        capturedContext!.UnitAddress.ShouldBe(Address.For("unit", TestSlugIds.HexFor("addr-unit")));
+        await runtimeInvocationPath.Received(1).InvokeAsync(
+            Address.For("unit", TestSlugIds.HexFor("addr-unit")),
+            message,
+            Arg.Any<CancellationToken>());
     }
 
     // --- Nested Unit Membership (#98) ---
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessage_UnitMemberReceivesContextContainingUnitAddress()
+    public async Task ReceiveAsync_DomainMessage_UnitMemberStillInvokesParentRuntime()
     {
-        // Smoke test for nested dispatch: a unit with a unit-typed member
-        // hands the message to its orchestration strategy, which sees the
-        // unit member in its context. The strategy that the platform ships
-        // with (AiOrchestrationStrategy) emits the dispatch via
-        // IUnitContext.SendAsync; here we stub the strategy to capture the
-        // selected target so the test stays tied to the seam rather than
-        // the AI round-trip.
-        var (parent, parentState, parentStrategy) = ActorTestHost.CreateUnitActor(actorId: "parent-unit");
+        // A unit with a unit-typed child still receives the domain turn as
+        // the parent unit. Child delegation is now a runtime/tool decision,
+        // not a UnitActor strategy-context decision.
+        var (parent, parentState, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "parent-unit");
         var agentMember = Address.For("agent", TestSlugIds.HexFor("ada"));
         var subUnitMember = Address.For("unit", TestSlugIds.HexFor("sub-unit"));
 
         parentState.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [agentMember, subUnitMember]));
 
-        Address? chosenTarget = null;
-        parentStrategy.OrchestrateAsync(
-                Arg.Any<Message>(),
-                Arg.Any<IUnitContext>(),
-                Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                var ctx = callInfo.ArgAt<IUnitContext>(1);
-                // Pick the unit-typed member to verify nested dispatch
-                // addressability works end-to-end through the unit context.
-                chosenTarget = ctx.Members.FirstOrDefault(m =>
-                    string.Equals(m.Scheme, "unit", System.StringComparison.OrdinalIgnoreCase));
-                return Task.FromResult<Message?>(null);
-            });
-
         var incoming = MessageFactory.CreateDomainMessage(toId: "parent-unit", toType: "unit");
 
         await parent.ReceiveAsync(incoming, TestContext.Current.CancellationToken);
 
-        chosenTarget.ShouldBe(subUnitMember);
+        await runtimeInvocationPath.Received(1).InvokeAsync(
+            Address.For("unit", TestSlugIds.HexFor("parent-unit")),
+            incoming,
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
