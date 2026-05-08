@@ -140,6 +140,32 @@ public class ServiceCollectionExtensionsTests
     }
 
     /// <summary>
+    /// ADR-0039 A4: <c>AddCvoyaSpringDapr</c> must register a default
+    /// <see cref="IOrchestrationToolProvider"/> so callers can resolve it
+    /// unconditionally. The OSS platform default is the empty provider —
+    /// it returns an empty tool array for every (agent, thread) pair. The
+    /// directory-driven provider from task D2 replaces this default by
+    /// pre-registering before <c>AddCvoyaSpring*</c>.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_RegistersEmptyOrchestrationToolProviderAsDefault()
+    {
+        using var provider = BuildProvider();
+
+        var toolProvider = provider.GetService<IOrchestrationToolProvider>();
+
+        toolProvider.ShouldNotBeNull();
+        toolProvider.ShouldBeOfType<EmptyOrchestrationToolProvider>();
+
+        var tools = toolProvider.GetOrchestrationTools(
+            new Cvoya.Spring.Core.Messaging.Address(
+                Cvoya.Spring.Core.Messaging.Address.AgentScheme,
+                Guid.NewGuid()),
+            Guid.NewGuid());
+        tools.ShouldBeEmpty();
+    }
+
+    /// <summary>
     /// Regression test for #261 — updated for the #616 startup configuration
     /// validator. Configuration without <c>ConnectionStrings:SpringDb</c> and
     /// without a pre-registered <see cref="DbContextOptions{SpringDbContext}"/>
