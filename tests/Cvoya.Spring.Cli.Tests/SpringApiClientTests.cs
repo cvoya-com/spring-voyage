@@ -186,11 +186,22 @@ public class SpringApiClientTests
         Cvoya.Spring.Cli.ErrorHandling.MultiParentInheritanceConflictFormatter
             .TryParse(ex, out var conflict)
             .ShouldBeTrue();
+        conflict.UnitIds.ShouldBe(new[]
+        {
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        });
         Cvoya.Spring.Cli.ErrorHandling.MultiParentInheritanceConflictFormatter
-            .FormatLines(conflict)
+            .FormatLines(
+                conflict,
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] = "unit-engineering",
+                    ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] = "unit-support",
+                })
             .ShouldBe(new[]
             {
-                "runtime: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=claude-code, bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb=spring-voyage",
+                "runtime: unit-engineering=claude-code, unit-support=spring-voyage",
             });
         handler.WasCalled.ShouldBeTrue();
     }
