@@ -150,6 +150,63 @@ public class SpringApiClientTests
     }
 
     [Fact]
+    public async Task CreateAgentAsync_422Conflict_PreservesStructuredBody()
+    {
+        var unitA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var unitB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                """
+                {
+                  "error": "MultiParentInheritanceConflict",
+                  "conflictingFields": {
+                    "runtime": [
+                      { "source": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "value": "claude-code" },
+                      { "source": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "value": "spring-voyage" }
+                    ]
+                  }
+                }
+                """,
+            returnStatusCode: HttpStatusCode.UnprocessableEntity);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var ex = await Should.ThrowAsync<Cvoya.Spring.Cli.Generated.Models.ProblemDetails>(
+            () => client.CreateAgentAsync(
+                "Ada",
+                role: null,
+                unitIds: new[] { unitA, unitB },
+                definitionJson: null,
+                ct: TestContext.Current.CancellationToken));
+
+        ex.ResponseStatusCode.ShouldBe(422);
+        Cvoya.Spring.Cli.ErrorHandling.MultiParentInheritanceConflictFormatter
+            .TryParse(ex, out var conflict)
+            .ShouldBeTrue();
+        conflict.UnitIds.ShouldBe(new[]
+        {
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        });
+        Cvoya.Spring.Cli.ErrorHandling.MultiParentInheritanceConflictFormatter
+            .FormatLines(
+                conflict,
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] = "unit-engineering",
+                    ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] = "unit-support",
+                })
+            .ShouldBe(new[]
+            {
+                "runtime: unit-engineering=claude-code, unit-support=spring-voyage",
+            });
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task SendMessageAsync_WrapsTextAsDomainPayload()
     {
         var handler = new MockHttpMessageHandler(

@@ -400,7 +400,21 @@ public static class AgentCommand
                 unitIds.Add(unitGuid);
             }
 
-            var result = await client.CreateAgentAsync(displayName, role, unitIds, definitionJson, ct);
+            AgentResponse result;
+            try
+            {
+                result = await client.CreateAgentAsync(displayName, role, unitIds, definitionJson, ct);
+            }
+            catch (ApiException ex) when (ex.ResponseStatusCode == 422)
+            {
+                if (await UnitCommand.TryWriteMultiParentInheritanceConflictAsync(client, ex, Console.Error, ct))
+                {
+                    Environment.Exit(1);
+                    return;
+                }
+
+                throw;
+            }
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
