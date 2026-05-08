@@ -164,6 +164,60 @@ describe("AgentCreateDialog — J1 shell", () => {
     );
   });
 
+  it("renders the unit display name, not the unit id, in the header copy", () => {
+    renderDialog({
+      unitId: "unit-guid-123",
+      unitDisplayName: "Engineering Team",
+    });
+
+    const dialog = screen.getByRole("dialog");
+    const titleId = dialog.getAttribute("aria-labelledby");
+    const descriptionId = dialog.getAttribute("aria-describedby");
+    const title = titleId ? document.getElementById(titleId) : null;
+    const description = descriptionId
+      ? document.getElementById(descriptionId)
+      : null;
+
+    expect(title).toHaveTextContent("Create agent in Engineering Team");
+    expect(description).toHaveTextContent(
+      "This agent will be registered in Engineering Team",
+    );
+    expect(title).not.toHaveTextContent("unit-guid-123");
+    expect(description).not.toHaveTextContent("unit-guid-123");
+    expect(`${title?.textContent ?? ""} ${description?.textContent ?? ""}`)
+      .not.toMatch(
+        /(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+      );
+  });
+
+  it("updates the header copy when unitDisplayName changes", () => {
+    const onOpenChange = vi.fn();
+    const { rerender } = renderDialog({
+      unitId: "engineering",
+      unitDisplayName: "Engineering Team",
+      onOpenChange,
+    });
+
+    expect(screen.getByRole("dialog")).toHaveAccessibleName(
+      "Create agent in Engineering Team",
+    );
+
+    rerender(
+      <AgentCreateDialog
+        unitId="engineering"
+        unitDisplayName="Platform Operations"
+        open
+        onOpenChange={onOpenChange}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAccessibleName("Create agent in Platform Operations");
+    expect(dialog).toHaveAccessibleDescription(
+      /registered in Platform Operations and inherits its execution defaults/i,
+    );
+  });
+
   it("renders the unit confirmation strip with the display name and address", () => {
     renderDialog({
       unitId: "engineering",
