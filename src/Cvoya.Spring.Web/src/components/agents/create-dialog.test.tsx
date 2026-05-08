@@ -1,10 +1,12 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import type {
   InstalledModelProviderResponse,
+  PackageDetail,
+  PackageSummary,
   UnitResponse,
 } from "@/lib/api/types";
 
@@ -19,6 +21,8 @@ const listModelProviders = vi.fn();
 const getModelProviderModels = vi.fn();
 const getUnitExecution = vi.fn();
 const createAgent = vi.fn();
+const listPackages = vi.fn();
+const getPackage = vi.fn();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -27,6 +31,8 @@ vi.mock("@/lib/api/client", () => ({
     getModelProviderModels: (id: string) => getModelProviderModels(id),
     getUnitExecution: (id: string) => getUnitExecution(id),
     createAgent: (body: unknown) => createAgent(body),
+    listPackages: () => listPackages(),
+    getPackage: (name: string) => getPackage(name),
   },
 }));
 
@@ -89,6 +95,40 @@ function makeProvider(
   } as InstalledModelProviderResponse;
 }
 
+function makePackageSummary(
+  overrides: Partial<PackageSummary> = {},
+): PackageSummary {
+  return {
+    name: overrides.name ?? "agent-pack",
+    description: overrides.description ?? "Agent package",
+    unitTemplateCount: overrides.unitTemplateCount ?? 0,
+    agentTemplateCount: overrides.agentTemplateCount ?? 1,
+    skillCount: overrides.skillCount ?? 0,
+    connectorCount: overrides.connectorCount ?? 0,
+    workflowCount: overrides.workflowCount ?? 0,
+    version: overrides.version ?? null,
+  } as PackageSummary;
+}
+
+function makePackageDetail(
+  overrides: Partial<PackageDetail> = {},
+): PackageDetail {
+  return {
+    name: overrides.name ?? "agent-pack",
+    description: overrides.description ?? "Agent package",
+    readme: overrides.readme ?? null,
+    version: overrides.version ?? null,
+    unitTemplates: overrides.unitTemplates ?? [],
+    agentTemplates: overrides.agentTemplates ?? [],
+    skills: overrides.skills ?? [],
+    connectors: overrides.connectors ?? [],
+    workflows: overrides.workflows ?? [],
+    connectorDeclarations: overrides.connectorDeclarations ?? [],
+    content: overrides.content ?? [],
+    execution: overrides.execution ?? null,
+  } as PackageDetail;
+}
+
 function renderDialog(
   props: Partial<Parameters<typeof AgentCreateDialog>[0]> = {},
 ) {
@@ -129,6 +169,8 @@ beforeEach(() => {
     model: null,
   });
   createAgent.mockResolvedValue({});
+  listPackages.mockResolvedValue([makePackageSummary()]);
+  getPackage.mockResolvedValue(makePackageDetail());
   // Reset body scroll-lock between tests (the underlying <Dialog> sets
   // `overflow: hidden` while open — see `dialog.test.tsx`).
   document.body.style.overflow = "";
@@ -247,6 +289,35 @@ describe("AgentCreateDialog — J1 shell", () => {
       /assign to engineering team/i,
     ) as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
+  });
+
+  it("shows the From package link in scratch mode", () => {
+    renderDialog({
+      unitId: "engineering",
+      unitDisplayName: "Engineering Team",
+    });
+
+    expect(
+      screen.getByTestId("agent-create-dialog-from-package-link"),
+    ).toHaveTextContent("From package");
+  });
+
+  it("opens the from-package branch when the footer link is clicked", async () => {
+    renderDialog({
+      unitId: "engineering",
+      unitDisplayName: "Engineering Team",
+    });
+
+    fireEvent.click(
+      screen.getByTestId("agent-create-dialog-from-package-link"),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("package-picker-list")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("agent-create-dialog-from-package-link"),
+    ).not.toBeInTheDocument();
   });
 
   it("calls onOpenChange(false) when the form is cancelled", async () => {

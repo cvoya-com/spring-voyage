@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { Dialog } from "@/components/ui/dialog";
 import { AgentCreateForm } from "@/components/agents/create-form";
 
@@ -44,12 +46,13 @@ export interface AgentCreateDialogProps {
  * audit), a confirmation strip telling the operator which unit they are
  * creating into, and close-on-success / close-on-cancel wiring.
  *
- * The form itself stays unchanged — the dialog supplies `initialUnitIds`
- * so the unit checkbox is pre-checked, and the strip above the form
- * confirms the assignment so operators do not have to scroll the form to
- * verify it. The form's cancel and success callbacks both close the
- * dialog via `onOpenChange(false)`; the `<AgentCreateForm>` already
- * handles toast / cache invalidation.
+ * The dialog defaults to the scratch flow, with a footer text link that
+ * can pivot into the from-package picker. The dialog supplies
+ * `initialUnitIds` so the unit checkbox is pre-checked, and the strip
+ * above the form confirms the assignment so operators do not have to
+ * scroll the form to verify it. The form's cancel and success callbacks
+ * both close the dialog via `onOpenChange(false)`; the
+ * `<AgentCreateForm>` already handles toast / cache invalidation.
  *
  * Visual contract: see `docs/design/v0.1/agent-create-redesign.md` §2.5
  * (header copy + confirmation strip) and DESIGN.md §12.6 (the inherit-
@@ -63,7 +66,13 @@ export function AgentCreateDialog({
   open,
   onOpenChange,
 }: AgentCreateDialogProps) {
-  const close = () => onOpenChange(false);
+  const [dialogBranch, setDialogBranch] = useState<"scratch" | "from-package">(
+    "scratch",
+  );
+  const close = () => {
+    setDialogBranch("scratch");
+    onOpenChange(false);
+  };
 
   return (
     <Dialog
@@ -93,11 +102,29 @@ export function AgentCreateDialog({
         </div>
       </div>
 
+      {dialogBranch === "scratch" && (
+        <div className="flex justify-start">
+          <button
+            type="button"
+            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            onClick={() => setDialogBranch("from-package")}
+            data-testid="agent-create-dialog-from-package-link"
+          >
+            From package…
+          </button>
+        </div>
+      )}
+
       <AgentCreateForm
+        key={dialogBranch}
         context="dialog"
+        initialSource={
+          dialogBranch === "from-package" ? "from-package" : undefined
+        }
         initialUnitIds={[unitId]}
         onSuccess={close}
         onCancel={close}
+        onSourceBack={() => setDialogBranch("scratch")}
       />
     </Dialog>
   );
