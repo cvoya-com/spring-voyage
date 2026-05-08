@@ -726,6 +726,16 @@ describe("CreateAgentPage — runtime-aware provider banner + picker", () => {
       expect(screen.getByLabelText(/agent runtime/i)).toBeInTheDocument();
     });
 
+    // ADR-0039 I4: runtime now defaults to inherit (empty). The banner
+    // only fires for an *explicitly picked* runtime, so the operator
+    // must select Claude Code first.
+    const runtimeSelect = screen.getByLabelText(
+      /agent runtime/i,
+    ) as HTMLSelectElement;
+    await act(async () => {
+      fireEvent.change(runtimeSelect, { target: { value: "claude-code" } });
+    });
+
     const banner = await screen.findByTestId("model-provider-catalog-issue");
     expect(banner.textContent).toMatch(
       /Claude Code requires the anthropic model provider/i,
@@ -738,6 +748,16 @@ describe("CreateAgentPage — runtime-aware provider banner + picker", () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/agent runtime/i)).toBeInTheDocument();
     });
+
+    // ADR-0039 I4: runtime defaults to inherit; explicitly pick
+    // Claude Code so the runtime-vs-installed-provider check runs.
+    const runtimeSelect = screen.getByLabelText(
+      /agent runtime/i,
+    ) as HTMLSelectElement;
+    await act(async () => {
+      fireEvent.change(runtimeSelect, { target: { value: "claude-code" } });
+    });
+
     expect(
       screen.queryByTestId("model-provider-catalog-issue"),
     ).not.toBeInTheDocument();
@@ -776,7 +796,11 @@ describe("CreateAgentPage — runtime-aware provider banner + picker", () => {
     );
   });
 
-  it("preselects the first allowed provider on Spring Voyage Agent (Bug 2)", async () => {
+  it("leaves the provider in inherit mode for multi-provider runtimes (ADR-0039 I4)", async () => {
+    // ADR-0039 I4 / DESIGN.md §12.6: per-field inherit affordance —
+    // the model-provider field has its own inherit indicator. Picking
+    // a multi-provider runtime no longer silently snaps the provider;
+    // the operator picks (or leaves blank to inherit) explicitly.
     listModelProviders.mockResolvedValue([
       makeRuntime({
         id: "anthropic",
@@ -808,10 +832,8 @@ describe("CreateAgentPage — runtime-aware provider banner + picker", () => {
       /^model provider$/i,
     )) as HTMLSelectElement;
     expect(providerSelect).not.toBeDisabled();
-    // First provider in the install list is anthropic; the picker
-    // should auto-snap to it without operator interaction.
-    await waitFor(() => {
-      expect(providerSelect.value).toBe("anthropic");
-    });
+    // The provider stays empty (inherit mode) by default; the inherit
+    // indicator carries the resolved value the operator would inherit.
+    expect(providerSelect.value).toBe("");
   });
 });
