@@ -20,11 +20,12 @@ agent:
   capabilities: [csharp, python, fastapi, postgresql, testing]
   
   ai:
-    agent: claude                       # runtime registry id (drives runtime kind via IAgentRuntime.Kind)
-    model: claude-sonnet-4-6
-    environment:                        # container definition
-      image: spring-agent:latest
-      runtime: podman                   # podman | docker | kubernetes
+    runtime: claude-code                # AgentRuntime id from platform/runtime-catalog.yaml
+    model:
+      provider: anthropic
+      id: claude-sonnet-4-6
+  execution:
+    image: spring-agent:latest          # container image; host config selects docker/podman
     
   cloning:
     policy: ephemeral-with-memory
@@ -55,17 +56,15 @@ agent:
 
 ### Execution Pattern
 
-The agent actor dispatches work to an execution environment (container) that launches a registered agent tool (e.g., `claude-code`). The tool drives the agentic loop — reading files, writing code, running tests, invoking MCP servers the platform exposes. The actor monitors via streaming events and collects results. Requires `tool` and `environment` in the `ai` block — `tool` names the registered agent tool, `environment` specifies the container image and runtime. Essential for: software engineering, document editing, any multi-step tool use.
+The agent actor dispatches work to an execution environment (container) that launches a registered agent runtime (e.g., `claude-code`). The runtime drives the agentic loop — reading files, writing code, running tests, invoking MCP servers the platform exposes. The actor monitors via streaming events and collects results. Requires `ai.runtime` and an execution image; the host process chooses the container runtime. Essential for: software engineering, document editing, any multi-step tool use.
 
 Spring Voyage does **not** implement its own in-platform tool-use loop. The `Hosted` execution mode that previously sat alongside delegation was removed — see [ADR 0021 — Spring Voyage is not an agent runtime](../decisions/0021-spring-voyage-is-not-an-agent-runtime.md).
 
-**Execution environment definition** is the same for agents and units. The `ai.environment` block specifies the container:
+**Execution image definition** is the same for agents and units. The `execution.image` field specifies the container image:
 
 ```yaml
-ai:
-  environment:
-    image: spring-agent:latest         # container image
-    runtime: podman                    # podman | docker | kubernetes
+execution:
+  image: spring-agent:latest          # container image
 ```
 
 Agents that don't specify `execution.<field>` inherit the default from their parent unit's `execution` block (see [Unit execution defaults](orchestration.md#unit-execution-defaults-and-the-agent--unit--fail-resolution-chain-601-b-wide) in the Orchestration doc). This is implemented end-to-end per the resolution chain described there — the `IAgentDefinitionProvider` merges the unit-level block onto the agent-declared block at dispatch time, and both HTTP / CLI surfaces edit the same persisted JSON document the resolver reads.

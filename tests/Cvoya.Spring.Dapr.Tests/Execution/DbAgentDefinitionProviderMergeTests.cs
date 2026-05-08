@@ -30,13 +30,11 @@ public class DbAgentDefinitionProviderMergeTests
         var agent = new AgentExecutionConfig(
             AgentRuntimeId: "claude",
             Image: "agent-img",
-            Runtime: "docker",
             Hosting: AgentHostingMode.Persistent,
             Provider: "anthropic",
             Model: "claude-sonnet");
         var unit = new UnitExecutionDefaults(
             Image: "unit-img",
-            Runtime: "podman",
             Provider: "openai",
             Model: "gpt-4o",
             Agent: "openai");
@@ -46,7 +44,6 @@ public class DbAgentDefinitionProviderMergeTests
         merged.ShouldNotBeNull();
         merged!.AgentRuntimeId.ShouldBe("claude");
         merged.Image.ShouldBe("agent-img");
-        merged.Runtime.ShouldBe("docker");
         merged.Provider.ShouldBe("anthropic");
         merged.Model.ShouldBe("claude-sonnet");
         merged.Hosting.ShouldBe(AgentHostingMode.Persistent);
@@ -58,13 +55,11 @@ public class DbAgentDefinitionProviderMergeTests
         var agent = new AgentExecutionConfig(
             AgentRuntimeId: "claude",
             Image: null,      // missing
-            Runtime: null,    // missing
             Hosting: AgentHostingMode.Ephemeral,
             Provider: null,
             Model: null);
         var unit = new UnitExecutionDefaults(
             Image: "unit-img",
-            Runtime: "podman",
             Provider: "openai",
             Model: "gpt-4o",
             Agent: "openai");    // ignored — agent wins on AgentRuntimeId
@@ -74,7 +69,6 @@ public class DbAgentDefinitionProviderMergeTests
         merged.ShouldNotBeNull();
         merged!.AgentRuntimeId.ShouldBe("claude");
         merged.Image.ShouldBe("unit-img");
-        merged.Runtime.ShouldBe("podman");
         merged.Provider.ShouldBe("openai");
         merged.Model.ShouldBe("gpt-4o");
     }

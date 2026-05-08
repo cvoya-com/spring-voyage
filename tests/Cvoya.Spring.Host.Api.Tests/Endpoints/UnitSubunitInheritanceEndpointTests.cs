@@ -53,10 +53,10 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
     }
 
     [Fact]
-    public async Task AddMember_SubunitTwoParentsDivergingRuntime_ChildInherits_Returns422()
+    public async Task AddMember_SubunitTwoParentsDivergingAgentRuntime_ChildInherits_Returns422()
     {
-        // Setup: child unit C is already a sub-unit of parent A (runtime
-        // claude-code). A second assignment to parent B (runtime
+        // Setup: child unit C is already a sub-unit of parent A (agent runtime
+        // claude-code). A second assignment to parent B (agent runtime
         // spring-voyage) would leave C inheriting a runtime that diverges
         // across its post-assignment parent set, so the endpoint must
         // reject with 422 and the MultiParentInheritanceConflict body
@@ -68,13 +68,9 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         var parentBProxy = ArrangeUnit(ParentBUuid, "parent-b");
         ArrangeUnit(ChildUuid, "child");
 
-        // Parent A and parent B carry diverging runtime defaults; both
-        // pin the same agent runtime id so only `runtime` is reported as
-        // a conflict.
-        StubUnitDefaults(ParentAUuid, new UnitExecutionDefaults(
-            Runtime: "docker", Agent: "claude-code"));
-        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(
-            Runtime: "podman", Agent: "claude-code"));
+        // Parent A and parent B carry diverging agent-runtime defaults.
+        StubUnitDefaults(ParentAUuid, new UnitExecutionDefaults(Agent: "claude-code"));
+        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Agent: "spring-voyage"));
         // Child has no own execution block — fully-inheriting.
         StubUnitDefaults(ChildUuid, defaults: null);
 
@@ -97,7 +93,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
         problem.GetProperty("error").GetString().ShouldBe("MultiParentInheritanceConflict");
         var conflictingFields = problem.GetProperty("conflictingFields");
-        conflictingFields.TryGetProperty("runtime", out var runtimeEntry).ShouldBeTrue();
+        conflictingFields.TryGetProperty("agent", out var runtimeEntry).ShouldBeTrue();
         runtimeEntry.GetArrayLength().ShouldBe(2);
 
         // The actor's AddMemberAsync must not run when the inheritance
@@ -109,10 +105,10 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
     }
 
     [Fact]
-    public async Task AddMember_SubunitTwoParentsDivergingRuntime_ChildPinsRuntime_Returns204()
+    public async Task AddMember_SubunitTwoParentsDivergingAgentRuntime_ChildPinsRuntime_Returns204()
     {
         // Same parent topology as the conflict test, but the child unit
-        // has its own runtime pinned. Per ADR-0039 §6, an explicit value
+        // has its own agent runtime pinned. Per ADR-0039 §6, an explicit value
         // on the child suppresses inheritance for that field — the
         // assignment must succeed.
         var ct = TestContext.Current.CancellationToken;
@@ -122,13 +118,10 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         var parentBProxy = ArrangeUnit(ParentBUuid, "parent-b");
         ArrangeUnit(ChildUuid, "child");
 
-        StubUnitDefaults(ParentAUuid, new UnitExecutionDefaults(
-            Runtime: "docker", Agent: "claude-code"));
-        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(
-            Runtime: "podman", Agent: "claude-code"));
-        // Child pins runtime — the parent-disagreement is moot for that field.
-        StubUnitDefaults(ChildUuid, new UnitExecutionDefaults(
-            Runtime: "docker"));
+        StubUnitDefaults(ParentAUuid, new UnitExecutionDefaults(Agent: "claude-code"));
+        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Agent: "spring-voyage"));
+        // Child pins agent runtime — the parent-disagreement is moot for that field.
+        StubUnitDefaults(ChildUuid, new UnitExecutionDefaults(Agent: "claude-code"));
 
         await UpsertSubunitEdgeAsync(ParentAUuid, ChildUuid, ct);
 

@@ -81,7 +81,7 @@ public static class ExecutionDefaultsResolver
             var memberExec = ParseMemberExecution(unit.Content);
             var inherits = packageExec is not null && packageExec.AppliesTo(unit.Name);
 
-            string? image, runtime, provider, model;
+            string? image, provider, model;
             if (inherits && packageExec is not null)
             {
                 // Field-wise merge: member non-null beats package; null
@@ -89,9 +89,8 @@ public static class ExecutionDefaultsResolver
                 // ADR-0038: ExecutionManifest no longer carries `provider` —
                 // it's intrinsic to ai.model.provider. The package-level
                 // declaration still surfaces it during the inheritance
-                // transition; the unit-level write reads only image/runtime/model.
+                // transition; the unit-level write reads only image/model.
                 image = FirstNonBlank(memberExec?.Image, packageExec.Image);
-                runtime = FirstNonBlank(memberExec?.Runtime, packageExec.Runtime);
                 provider = packageExec.Provider;
                 model = FirstNonBlank(memberExec?.Model, packageExec.Model);
             }
@@ -101,7 +100,6 @@ public static class ExecutionDefaultsResolver
                 // `inherit: [list]`) or no package-level block was
                 // declared. The member's own block is the only source.
                 image = NullIfBlank(memberExec?.Image);
-                runtime = NullIfBlank(memberExec?.Runtime);
                 provider = null;
                 model = NullIfBlank(memberExec?.Model);
             }
@@ -115,7 +113,7 @@ public static class ExecutionDefaultsResolver
                 missing.Add(new ExecutionConfigurationMissing(unit.Name, "image"));
             }
 
-            perUnit[unit.Name] = new ResolvedExecutionDefaults(image, runtime, provider, model);
+            perUnit[unit.Name] = new ResolvedExecutionDefaults(image, provider, model);
         }
 
         return new ExecutionDefaultsResolution(perUnit, missing);
@@ -180,19 +178,16 @@ public sealed record ExecutionDefaultsResolution(
 /// unit is eligible to inherit.
 /// </summary>
 /// <param name="Image">Resolved container image, or null when neither side declared one.</param>
-/// <param name="Runtime">Resolved container runtime selector, or null.</param>
 /// <param name="Provider">Resolved LLM provider, or null.</param>
 /// <param name="Model">Resolved model identifier, or null.</param>
 public sealed record ResolvedExecutionDefaults(
     string? Image,
-    string? Runtime,
     string? Provider,
     string? Model)
 {
     /// <summary>True when every field is null.</summary>
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Runtime)
         && string.IsNullOrWhiteSpace(Provider)
         && string.IsNullOrWhiteSpace(Model);
 }

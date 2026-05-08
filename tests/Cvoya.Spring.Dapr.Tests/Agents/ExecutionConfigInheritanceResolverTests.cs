@@ -57,7 +57,6 @@ public class ExecutionConfigInheritanceResolverTests
         var agentOwn = new AgentExecutionConfig(
             AgentRuntimeId: "claude",
             Image: "spring-agent:latest",
-            Runtime: "docker",
             Hosting: AgentHostingMode.Persistent,
             Provider: "anthropic",
             Model: "claude-sonnet");
@@ -80,7 +79,6 @@ public class ExecutionConfigInheritanceResolverTests
         var parentId = Guid.NewGuid();
         StubParent(parentId, new UnitExecutionDefaults(
             Image: "unit-img:1",
-            Runtime: "docker",
             Provider: "openai",
             Model: "gpt-4o",
             Agent: "openai"));
@@ -90,7 +88,6 @@ public class ExecutionConfigInheritanceResolverTests
         var agentOwn = new AgentExecutionConfig(
             AgentRuntimeId: "claude",
             Image: null,
-            Runtime: null,
             Hosting: AgentHostingMode.Persistent,
             Provider: null,
             Model: null);
@@ -104,7 +101,6 @@ public class ExecutionConfigInheritanceResolverTests
         result.ConflictingFields.ShouldBeEmpty();
         result.Effective.AgentRuntimeId.ShouldBe("claude"); // agent wins
         result.Effective.Image.ShouldBe("unit-img:1");      // inherited
-        result.Effective.Runtime.ShouldBe("docker");        // inherited
         result.Effective.Provider.ShouldBe("openai");       // inherited
         result.Effective.Model.ShouldBe("gpt-4o");          // inherited
         result.Effective.Hosting.ShouldBe(AgentHostingMode.Persistent); // agent-owned
@@ -116,7 +112,6 @@ public class ExecutionConfigInheritanceResolverTests
         var parentId = Guid.NewGuid();
         StubParent(parentId, new UnitExecutionDefaults(
             Image: "unit-img",
-            Runtime: "podman",
             Provider: "openai",
             Model: "gpt-4o",
             Agent: "openai"));
@@ -124,7 +119,6 @@ public class ExecutionConfigInheritanceResolverTests
         var agentOwn = new AgentExecutionConfig(
             AgentRuntimeId: "claude",
             Image: "agent-img",
-            Runtime: "docker",
             Hosting: AgentHostingMode.Ephemeral,
             Provider: "anthropic",
             Model: "claude-sonnet");
@@ -138,7 +132,6 @@ public class ExecutionConfigInheritanceResolverTests
         result.ConflictingFields.ShouldBeEmpty();
         result.Effective.AgentRuntimeId.ShouldBe("claude");
         result.Effective.Image.ShouldBe("agent-img");
-        result.Effective.Runtime.ShouldBe("docker");
         result.Effective.Provider.ShouldBe("anthropic");
         result.Effective.Model.ShouldBe("claude-sonnet");
     }
@@ -152,7 +145,6 @@ public class ExecutionConfigInheritanceResolverTests
         var parentB = Guid.NewGuid();
         var common = new UnitExecutionDefaults(
             Image: "shared-img",
-            Runtime: "docker",
             Provider: "anthropic",
             Model: "claude-sonnet",
             Agent: "claude");
@@ -163,7 +155,6 @@ public class ExecutionConfigInheritanceResolverTests
         var agentOwn = new AgentExecutionConfig(
             AgentRuntimeId: "",
             Image: null,
-            Runtime: null,
             Hosting: AgentHostingMode.Ephemeral,
             Provider: null,
             Model: null);
@@ -177,7 +168,6 @@ public class ExecutionConfigInheritanceResolverTests
         result.ConflictingFields.ShouldBeEmpty();
         result.Effective.AgentRuntimeId.ShouldBe("claude");
         result.Effective.Image.ShouldBe("shared-img");
-        result.Effective.Runtime.ShouldBe("docker");
         result.Effective.Provider.ShouldBe("anthropic");
         result.Effective.Model.ShouldBe("claude-sonnet");
     }
@@ -191,17 +181,14 @@ public class ExecutionConfigInheritanceResolverTests
         var parentB = Guid.NewGuid();
         StubParent(parentA, new UnitExecutionDefaults(
             Image: "img-a",
-            Runtime: "docker",
             Agent: "claude"));
         StubParent(parentB, new UnitExecutionDefaults(
             Image: "img-b",     // diverges
-            Runtime: "docker",  // agrees
             Agent: "claude"));  // agrees
 
         var agentOwn = new AgentExecutionConfig(
             AgentRuntimeId: "",
             Image: null,
-            Runtime: null,
             Hosting: AgentHostingMode.Ephemeral);
 
         var result = _resolver.ResolveAgentConfig(
@@ -220,7 +207,6 @@ public class ExecutionConfigInheritanceResolverTests
 
         // Fields that agreed are still merged; only the diverging slot is null.
         result.Effective.AgentRuntimeId.ShouldBe("claude");
-        result.Effective.Runtime.ShouldBe("docker");
         result.Effective.Image.ShouldBeNull();
     }
 

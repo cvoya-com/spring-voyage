@@ -191,7 +191,6 @@ public class FileSystemPackageCatalogService(
             }
             return new PackageExecutionSummary(
                 Image: exec.Image,
-                Runtime: exec.Runtime,
                 Provider: exec.Provider,
                 Model: exec.Model,
                 InheritUnits: exec.InheritUnits);

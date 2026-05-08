@@ -11628,7 +11628,6 @@
       "PackageExecutionSummary": {
         "required": [
           "image",
-          "runtime",
           "provider",
           "model",
           "inheritUnits"
@@ -11636,12 +11635,6 @@
         "type": "object",
         "properties": {
           "image": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "runtime": {
             "type": [
               "null",
               "string"

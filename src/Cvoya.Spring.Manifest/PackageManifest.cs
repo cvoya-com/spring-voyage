@@ -141,9 +141,9 @@ public class PackageManifest
 }
 
 /// <summary>
-/// Package-level <c>execution:</c> block (#1679). Carries the same five
+/// Package-level <c>execution:</c> block (#1679). Carries the same
 /// inheritable fields as <see cref="ExecutionManifest"/> (<c>image</c>,
-/// <c>runtime</c>, <c>provider</c>, <c>model</c>) plus an optional
+/// <c>provider</c>, <c>model</c>) plus an optional
 /// <see cref="Inherit"/> selector that constrains which member units
 /// pick up the defaults.
 /// </summary>
@@ -176,10 +176,6 @@ public class PackageExecutionManifest
     [YamlMember(Alias = "image")]
     public string? Image { get; set; }
 
-    /// <summary>Container runtime identifier (<c>docker</c> or <c>podman</c>) inherited by member units.</summary>
-    [YamlMember(Alias = "runtime")]
-    public string? Runtime { get; set; }
-
     /// <summary>Default LLM provider inherited by member units.</summary>
     [YamlMember(Alias = "provider")]
     public string? Provider { get; set; }
@@ -201,7 +197,6 @@ public class PackageExecutionManifest
     [YamlIgnore]
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Runtime)
         && string.IsNullOrWhiteSpace(Provider)
         && string.IsNullOrWhiteSpace(Model);
 }

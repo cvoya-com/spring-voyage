@@ -64,11 +64,13 @@ diverge at the container-runtime call. The persistent path is backed by
 `PersistentAgentRegistry`, which tracks the container's health and re-launches
 it on failure.
 
-The dispatcher does **not** know the runtime. It reads the agent's
-`AgentExecutionConfig.Runtime` (the `ai.runtime` manifest field), looks up the
-matching `AgentRuntime` entry in the runtime catalogue, and dispatches the
-turn through the `IAgentRuntimeLauncher` registered under the runtime entry's
-`launcher` id (#1732). The launcher then handles prep.
+The dispatcher does **not** accept a per-agent container runtime. It reads the
+agent's `AgentExecutionConfig.AgentRuntimeId` (sourced from the `ai.runtime`
+manifest field, or the wire `runtime` / persisted `agent` execution slot),
+looks up the matching `AgentRuntime` entry in the runtime catalogue, and
+dispatches the turn through the `IAgentRuntimeLauncher` registered under the
+runtime entry's `launcher` id (#1732). The launcher then handles prep. The
+docker/podman binary is host-level platform configuration per ADR-0039 §7.
 
 **Unit-inheritance merge (#601 B-wide).** The
 `AgentExecutionConfig` the dispatcher receives is already merged with the
@@ -77,8 +79,8 @@ reads the agent's own declared block, looks up the agent's parent unit (first
 membership by `CreatedAt`), pulls the unit's persisted execution defaults
 through `IUnitExecutionStore`, and runs a field-level precedence merge:
 
-- Per field (`runtime`, `image`, `containerRuntime`, `model.provider`,
-  `model.id`) — **agent wins** when the agent set the value; otherwise the
+- Per field (`agent`, `image`, `model.provider`, `model.id`) — **agent wins**
+  when the agent set the value; otherwise the
   unit default fills in; otherwise the field is null and the dispatcher fails
   cleanly with a merge-aware error message pointing operators at both
   surfaces.
@@ -402,7 +404,6 @@ ai:
     id: llama3.2:3b
 execution:
   image: localhost/spring-voyage-agent:latest # required for container-backed runtimes
-  containerRuntime: podman                    # optional container-runtime hint (docker / podman)
   hosting: ephemeral                          # or "persistent"
 ```
 

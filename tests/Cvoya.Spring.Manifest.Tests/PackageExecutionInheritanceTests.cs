@@ -32,7 +32,6 @@ public class PackageExecutionInheritanceTests
               - unit: my-unit
             execution:
               image: ghcr.io/example/agent:latest
-              runtime: docker
               provider: anthropic
               model: claude-opus-4-7
             """;
@@ -41,7 +40,6 @@ public class PackageExecutionInheritanceTests
 
         manifest.Execution.ShouldNotBeNull();
         manifest.Execution!.Image.ShouldBe("ghcr.io/example/agent:latest");
-        manifest.Execution.Runtime.ShouldBe("docker");
         manifest.Execution.Provider.ShouldBe("anthropic");
         manifest.Execution.Model.ShouldBe("claude-opus-4-7");
     }
@@ -85,7 +83,6 @@ public class PackageExecutionInheritanceTests
                   - unit: alpha
                 execution:
                   image: ghcr.io/example/agent:latest
-                  runtime: docker
                 """,
             unitFiles: new[]
             {
@@ -103,7 +100,6 @@ public class PackageExecutionInheritanceTests
 
         resolved.Execution.ShouldNotBeNull();
         resolved.Execution!.Image.ShouldBe("ghcr.io/example/agent:latest");
-        resolved.Execution.Runtime.ShouldBe("docker");
         resolved.Execution.InheritUnits.ShouldBeNull();  // every member inherits
     }
 
@@ -323,14 +319,14 @@ public class PackageExecutionInheritanceTests
     [Fact]
     public void PackageExecutionDeclaration_AppliesTo_NullInheritUnits_True()
     {
-        var decl = new PackageExecutionDeclaration("img", null, null, null, InheritUnits: null);
+        var decl = new PackageExecutionDeclaration("img", null, null, InheritUnits: null);
         decl.AppliesTo("any-unit").ShouldBeTrue();
     }
 
     [Fact]
     public void PackageExecutionDeclaration_AppliesTo_ListMember_True()
     {
-        var decl = new PackageExecutionDeclaration("img", null, null, null,
+        var decl = new PackageExecutionDeclaration("img", null, null,
             InheritUnits: new[] { "alpha", "beta" });
         decl.AppliesTo("alpha").ShouldBeTrue();
         decl.AppliesTo("BETA").ShouldBeTrue(); // case-insensitive
@@ -339,7 +335,7 @@ public class PackageExecutionInheritanceTests
     [Fact]
     public void PackageExecutionDeclaration_AppliesTo_NotMember_False()
     {
-        var decl = new PackageExecutionDeclaration("img", null, null, null,
+        var decl = new PackageExecutionDeclaration("img", null, null,
             InheritUnits: new[] { "alpha" });
         decl.AppliesTo("beta").ShouldBeFalse();
     }
@@ -362,7 +358,6 @@ public class PackageExecutionInheritanceTests
               - unit: umbrella
             execution:
               image: ghcr.io/example/agent:latest
-              runtime: docker
             """;
         var unitYaml = """
             apiVersion: spring.voyage/v1

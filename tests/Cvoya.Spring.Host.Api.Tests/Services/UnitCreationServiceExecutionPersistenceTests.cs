@@ -70,7 +70,6 @@ public class UnitCreationServiceExecutionPersistenceTests
             Execution = new ExecutionManifest
             {
                 Image = "ghcr.io/cvoya/sv-oss-software-engineering:latest",
-                Runtime = "podman",
                 Model = "claude-sonnet-4",
             },
         };
@@ -98,7 +97,6 @@ public class UnitCreationServiceExecutionPersistenceTests
         execution.ValueKind.ShouldBe(JsonValueKind.Object);
         execution.GetProperty("image").GetString()
             .ShouldBe("ghcr.io/cvoya/sv-oss-software-engineering:latest");
-        execution.GetProperty("runtime").GetString().ShouldBe("podman");
         // ADR-0038: tool/provider no longer persisted. The internal
         // `agent` slot (renamed to `runtime` on the wire) carries the
         // catalogue runtime id.
@@ -115,8 +113,7 @@ public class UnitCreationServiceExecutionPersistenceTests
         // registry id. UnitCreationService must forward it into the
         // execution block's `agent` slot so the validation scheduler
         // (which now reads `defaults.Agent` first) can compose a
-        // workflow input keyed to a real registered runtime instead of
-        // the container-runtime selector value (`docker` / `podman`).
+        // workflow input keyed to a real registered runtime.
         var actorGuid = Guid.NewGuid();
         var (service, scopeFactory) = BuildService("sv-oss-issue-1683", actorGuid);
 
@@ -132,7 +129,6 @@ public class UnitCreationServiceExecutionPersistenceTests
             Execution = new ExecutionManifest
             {
                 Image = "ghcr.io/cvoya/sv-oss-issue-1683:latest",
-                Runtime = "podman",
             },
         };
 
@@ -151,9 +147,7 @@ public class UnitCreationServiceExecutionPersistenceTests
         var json = persisted.Definition!.Value;
         json.TryGetProperty("execution", out var execution).ShouldBeTrue();
         execution.GetProperty("agent").GetString().ShouldBe("claude-code");
-        // The runtime slot remains the container-runtime selector — not
-        // overwritten with the agent-runtime id.
-        execution.GetProperty("runtime").GetString().ShouldBe("podman");
+        execution.TryGetProperty("runtime", out _).ShouldBeFalse();
     }
 
     [Fact]

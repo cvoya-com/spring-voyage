@@ -73,7 +73,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/agent:latest",
-                Runtime: "docker",
                 Provider: null,
                 Model: null,
                 InheritUnits: null),
@@ -91,7 +90,6 @@ public class ExecutionDefaultsResolverTests
 
         result.Missing.ShouldBeEmpty();
         result.ByUnit["alpha"].Image.ShouldBe("ghcr.io/example/agent:latest");
-        result.ByUnit["alpha"].Runtime.ShouldBe("docker");
     }
 
     [Fact]
@@ -100,7 +98,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/pkg:latest",
-                Runtime: "docker",
                 Provider: null,
                 Model: null,
                 InheritUnits: null),
@@ -121,8 +118,6 @@ public class ExecutionDefaultsResolverTests
         result.Missing.ShouldBeEmpty();
         // member's own image wins
         result.ByUnit["alpha"].Image.ShouldBe("ghcr.io/example/alpha:latest");
-        // package's runtime fills the gap (member declared no runtime)
-        result.ByUnit["alpha"].Runtime.ShouldBe("docker");
     }
 
     [Fact]
@@ -131,7 +126,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/pkg:latest",
-                Runtime: "docker",
                 Provider: "anthropic",
                 Model: "claude-opus-4-7",
                 InheritUnits: null),
@@ -151,7 +145,6 @@ public class ExecutionDefaultsResolverTests
 
         var alpha = result.ByUnit["alpha"];
         alpha.Image.ShouldBe("ghcr.io/example/pkg:latest");      // inherited
-        alpha.Runtime.ShouldBe("docker");                          // inherited
         alpha.Provider.ShouldBe("anthropic");                      // inherited
         alpha.Model.ShouldBe("claude-sonnet-4");                   // overridden
     }
@@ -162,7 +155,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/pkg:latest",
-                Runtime: null,
                 Provider: null,
                 Model: null,
                 InheritUnits: new[] { "alpha" }),
@@ -198,7 +190,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/pkg:latest",
-                Runtime: null,
                 Provider: null,
                 Model: null,
                 InheritUnits: new[] { "alpha" }),
@@ -227,12 +218,11 @@ public class ExecutionDefaultsResolverTests
     [Fact]
     public void Resolve_PackageExecutionWithoutImage_MemberHasImage_NoMissing()
     {
-        // The package supplies a runtime / provider / model default but not
+        // The package supplies provider / model defaults but not
         // an image. Members that supply their own image still resolve cleanly.
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: null,
-                Runtime: "docker",
                 Provider: "anthropic",
                 Model: "claude-opus-4-7",
                 InheritUnits: null),
@@ -252,7 +242,6 @@ public class ExecutionDefaultsResolverTests
 
         result.Missing.ShouldBeEmpty();
         result.ByUnit["alpha"].Image.ShouldBe("ghcr.io/example/alpha:latest");
-        result.ByUnit["alpha"].Runtime.ShouldBe("docker");
     }
 
     [Fact]
@@ -261,7 +250,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/agents:latest",
-                Runtime: "docker",
                 Provider: "anthropic",
                 Model: "claude-opus-4-7",
                 InheritUnits: null),

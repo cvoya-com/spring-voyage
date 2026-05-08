@@ -15,8 +15,8 @@ using System.Collections.Generic;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The four field slots (<see cref="Image"/>, <see cref="Runtime"/>,
-/// <see cref="Provider"/>, <see cref="Model"/>) carry whatever the
+/// The three field slots (<see cref="Image"/>, <see cref="Provider"/>,
+/// <see cref="Model"/>) carry whatever the
 /// package author declared at the container level. Member units pick
 /// these up field-wise unless they override; the merge happens in
 /// <c>ExecutionDefaultsResolver.Resolve</c> at install time.
@@ -29,7 +29,6 @@ using System.Collections.Generic;
 /// </para>
 /// </remarks>
 /// <param name="Image">Default container image.</param>
-/// <param name="Runtime">Default container runtime selector.</param>
 /// <param name="Provider">Default LLM provider.</param>
 /// <param name="Model">Default model identifier.</param>
 /// <param name="InheritUnits">
@@ -38,7 +37,6 @@ using System.Collections.Generic;
 /// </param>
 public sealed record PackageExecutionDeclaration(
     string? Image,
-    string? Runtime,
     string? Provider,
     string? Model,
     IReadOnlyList<string>? InheritUnits)
@@ -46,7 +44,6 @@ public sealed record PackageExecutionDeclaration(
     /// <summary>True when every inheritable field is null / whitespace.</summary>
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Runtime)
         && string.IsNullOrWhiteSpace(Provider)
         && string.IsNullOrWhiteSpace(Model);
 

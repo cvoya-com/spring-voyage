@@ -156,16 +156,14 @@ public static class UnitExecutionEndpoints
 
         request ??= new UnitExecutionResponse();
 
-        // ADR-0038: the wire shape carries `runtime` (catalogue id) and
-        // structured `model: {provider, id}`. Internal store retains the
-        // legacy field names — the wire-domain mapping happens here.
-        // ADR-0039 §7 removes the wire-side `containerRuntime` slot; the
-        // internal `Runtime` field on UnitExecutionDefaults now mirrors
-        // only manifest-persisted state from older deployments and is
-        // dropped end-to-end in G8.
+        // ADR-0038: the wire shape carries `runtime` (agent-runtime
+        // catalogue id) and structured `model: {provider, id}`. The
+        // store still names that catalogue slot `Agent`, so the
+        // wire-domain mapping happens here. ADR-0039 §7 removed the
+        // per-config container-runtime selector; host configuration owns
+        // docker/podman selection.
         var defaults = new UnitExecutionDefaults(
             Image: request.Image,
-            Runtime: null,
             Provider: request.Model?.Provider,
             Model: request.Model?.Id,
             Agent: request.Runtime);

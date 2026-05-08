@@ -125,15 +125,12 @@ unit:
       provider: ollama
       id: llama3.2:3b
   execution:
-    image: spring-workflows/software-dev-cycle:latest
-    containerRuntime: podman
+    image: spring-agent:latest
+    model: llama3.2:3b
   members:
     - agent: agents/ada.yaml           # references agent definition file
     - agent: agents/kay.yaml
     - agent: agents/hopper.yaml
-  execution:                           # default for member agents
-    image: spring-agent:latest
-    runtime: podman
   connectors:
     - type: github
       config:

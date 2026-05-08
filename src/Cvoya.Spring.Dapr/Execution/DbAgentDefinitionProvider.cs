@@ -173,7 +173,6 @@ public class DbAgentDefinitionProvider(
         return new AgentExecutionConfig(
             AgentRuntimeId: agentRuntimeId,
             Image: FirstNonBlank(agent?.Image, unit.Image),
-            Runtime: FirstNonBlank(agent?.Runtime, unit.Runtime),
             // Hosting mode is agent-owned. Default (Ephemeral) when the
             // agent has no execution block at all.
             Hosting: agent?.Hosting ?? AgentHostingMode.Ephemeral,
@@ -190,7 +189,7 @@ public class DbAgentDefinitionProvider(
 
     private static AgentExecutionConfig? ExtractExecution(JsonElement definition)
     {
-        // Preferred: top-level `execution: { agent, image, runtime, hosting, provider, model }`.
+        // Preferred: top-level `execution: { agent, image, hosting, provider, model }`.
         // #1732: 'execution.tool' on persisted JSON is silently ignored — the
         // tool kind is derived from 'agent' (the runtime registry id) at
         // dispatch time. Pre-#1732 'execution.tool' values are not back-mapped
@@ -200,14 +199,13 @@ public class DbAgentDefinitionProvider(
         {
             var agentRuntimeId = GetStringOrNull(exec, "agent");
             var image = GetStringOrNull(exec, "image");
-            var runtime = GetStringOrNull(exec, "runtime");
             var hosting = ParseHosting(GetStringOrNull(exec, "hosting"));
             var provider = GetStringOrNull(exec, "provider");
             var model = GetStringOrNull(exec, "model");
 
             if (agentRuntimeId is not null)
             {
-                return new AgentExecutionConfig(agentRuntimeId, image, runtime, hosting, provider, model);
+                return new AgentExecutionConfig(agentRuntimeId, image, hosting, provider, model);
             }
         }
 
@@ -219,10 +217,9 @@ public class DbAgentDefinitionProvider(
             if (ai.TryGetProperty("environment", out var env) && env.ValueKind == JsonValueKind.Object)
             {
                 var image = GetStringOrNull(env, "image");
-                var runtime = GetStringOrNull(env, "runtime");
                 if (agentRuntimeId is not null && image is not null)
                 {
-                    return new AgentExecutionConfig(agentRuntimeId, image, runtime);
+                    return new AgentExecutionConfig(agentRuntimeId, image);
                 }
             }
         }

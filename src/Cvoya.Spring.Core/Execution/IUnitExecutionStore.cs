@@ -15,9 +15,9 @@ namespace Cvoya.Spring.Core.Execution;
 /// <para>
 /// Implementations persist into the same
 /// <c>UnitDefinitions.Definition</c> JSON document the agent-definition
-/// provider reads at dispatch time. The block holds five fields —
-/// <c>image</c>, <c>runtime</c>, <c>tool</c>, <c>provider</c>,
-/// <c>model</c> — and serves as the fallback defaults for member
+/// provider reads at dispatch time. The block holds four fields —
+/// <c>image</c>, <c>agent</c>, <c>provider</c>, <c>model</c> — and
+/// serves as the fallback defaults for member
 /// agents per the <i>agent → unit → fail-clean</i> resolution chain
 /// documented in <c>docs/architecture/units.md</c>.
 /// </para>
@@ -77,7 +77,6 @@ public interface IUnitExecutionStore
 /// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/> field.
 /// </remarks>
 /// <param name="Image">Default container image reference.</param>
-/// <param name="Runtime">Default container runtime identifier (<c>docker</c> / <c>podman</c>).</param>
 /// <param name="Provider">Default LLM provider (Dapr-Agent-tool-specific).</param>
 /// <param name="Model">Default model identifier (Dapr-Agent-tool-specific).</param>
 /// <param name="Agent">
@@ -85,14 +84,11 @@ public interface IUnitExecutionStore
 /// manifest's <c>ai.agent</c> field. Matches an
 /// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Id"/> entry in the
 /// runtime catalogue (e.g. <c>claude</c>, <c>codex</c>,
-/// <c>spring-voyage</c>). The validation scheduler reads this slot first
-/// when composing the workflow input; <see cref="Runtime"/> is the
-/// container runtime selector and is preserved as a back-compat fallback
-/// for units persisted before the slot existed.
+/// <c>spring-voyage</c>). The validation scheduler reads this slot when
+/// composing the workflow input.
 /// </param>
 public record UnitExecutionDefaults(
     string? Image = null,
-    string? Runtime = null,
     string? Provider = null,
     string? Model = null,
     string? Agent = null)
@@ -100,7 +96,6 @@ public record UnitExecutionDefaults(
     /// <summary>True when every field is null / whitespace.</summary>
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Runtime)
         && string.IsNullOrWhiteSpace(Provider)
         && string.IsNullOrWhiteSpace(Model)
         && string.IsNullOrWhiteSpace(Agent);
