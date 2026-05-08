@@ -6,7 +6,9 @@ namespace Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Orchestration;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -36,6 +38,7 @@ public class PersistentAgentLifecycle(
     IMcpServer mcpServer,
     IEnumerable<IAgentRuntimeLauncher> launchers,
     IRuntimeCatalog runtimeCatalog,
+    IOrchestrationToolProvider orchestrationToolProvider,
     PersistentAgentRegistry persistentAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
     AgentVolumeManager volumeManager,
@@ -52,6 +55,10 @@ public class PersistentAgentLifecycle(
         launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
     private readonly IRuntimeCatalog _runtimeCatalog = runtimeCatalog
         ?? throw new ArgumentNullException(nameof(runtimeCatalog));
+    // ADR-0039 D3: orchestration tools resolved per-deploy and threaded
+    // into the launch context. Leaf agents see an empty array.
+    private readonly IOrchestrationToolProvider _orchestrationToolProvider = orchestrationToolProvider
+        ?? throw new ArgumentNullException(nameof(orchestrationToolProvider));
 
     /// <summary>
     /// Stands up a persistent agent. Idempotent: when the agent is already
@@ -137,6 +144,12 @@ public class PersistentAgentLifecycle(
         var prompt = definition.Instructions ?? string.Empty;
         var session = mcpServer.IssueSession(agentId, sessionId);
 
+        // ADR-0039 D3: resolve orchestration tools for this address. The
+        // explicit-deploy path always targets an agent address; pass
+        // Guid.Empty for the thread-id slot since deploy is agent-level.
+        var deployTarget = Address.For(Address.AgentScheme, agentId);
+        var orchestrationTools = _orchestrationToolProvider.GetOrchestrationTools(deployTarget, Guid.Empty);
+
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
             ThreadId: sessionId,
@@ -145,7 +158,8 @@ public class PersistentAgentLifecycle(
             McpToken: session.Token,
             TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
             Provider: definition.Execution.Provider,
-            Model: definition.Execution.Model);
+            Model: definition.Execution.Model,
+            OrchestrationTools: orchestrationTools);
 
         var prep = await launcher.PrepareAsync(launchContext, cancellationToken);
 
