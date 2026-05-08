@@ -11,9 +11,18 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// are gone.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Every field is independently nullable: a unit can declare any
 /// subset. Resolution chain (see <c>docs/architecture/units.md</c>):
 /// agent.X → unit.X → fail-clean at dispatch / save time.
+/// </para>
+/// <para>
+/// Per ADR-0039 §7 the <c>containerRuntime</c> slot is gone — the
+/// container runtime (<c>docker</c> / <c>podman</c>) is platform
+/// configuration, picked once by the host process at deploy time.
+/// Requests carrying the legacy <c>containerRuntime</c> key are rejected
+/// with 400 <c>LegacyContainerRuntimeField</c> by the PUT endpoint.
+/// </para>
 /// <para>
 /// Example (multi-provider runtime):
 /// <code>
@@ -36,7 +45,6 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// </para>
 /// </remarks>
 /// <param name="Image">Default container image reference.</param>
-/// <param name="ContainerRuntime">Default container runtime (<c>docker</c> / <c>podman</c>).</param>
 /// <param name="Runtime">
 /// Agent-runtime catalogue id (ADR-0038): <c>claude-code</c>, <c>codex</c>,
 /// <c>gemini</c>, <c>spring-voyage</c>, or a future custom runtime declared
@@ -51,7 +59,6 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// </param>
 public record UnitExecutionResponse(
     string? Image = null,
-    string? ContainerRuntime = null,
     string? Runtime = null,
     AiModelDto? Model = null);
 
@@ -62,20 +69,27 @@ public record UnitExecutionResponse(
 /// <c>hosting</c> field (<c>ephemeral</c> or <c>persistent</c>).
 /// </summary>
 /// <remarks>
+/// <para>
 /// The response shape represents the agent's <b>own declared</b>
 /// execution block on disk. It does NOT include inherited values from
 /// the parent unit — consult the portal / CLI "effective" surface for
 /// that post-merge view. When a field is <c>null</c> here it is either
 /// unset on the agent or will inherit from the unit at dispatch time.
+/// </para>
+/// <para>
+/// Per ADR-0039 §7 the <c>containerRuntime</c> slot is gone — the
+/// container runtime (<c>docker</c> / <c>podman</c>) is platform
+/// configuration. Requests carrying the legacy <c>containerRuntime</c>
+/// key are rejected with 400 <c>LegacyContainerRuntimeField</c> by the
+/// PUT endpoint.
+/// </para>
 /// </remarks>
 /// <param name="Image">Default container image reference.</param>
-/// <param name="ContainerRuntime">Default container runtime (<c>docker</c> / <c>podman</c>).</param>
 /// <param name="Runtime">Agent-runtime catalogue id (ADR-0038).</param>
 /// <param name="Model">Structured <c>{provider, id}</c> model selector.</param>
 /// <param name="Hosting">Hosting mode (<c>ephemeral</c> or <c>persistent</c>).</param>
 public record AgentExecutionResponse(
     string? Image = null,
-    string? ContainerRuntime = null,
     string? Runtime = null,
     AiModelDto? Model = null,
     string? Hosting = null);

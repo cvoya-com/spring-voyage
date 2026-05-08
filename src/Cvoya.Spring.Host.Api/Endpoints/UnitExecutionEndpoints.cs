@@ -3,11 +3,14 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Host.Api.Models;
 
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 /// <summary>
@@ -51,9 +54,16 @@ public static class UnitExecutionEndpoints
             .Produces<UnitExecutionResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // ADR-0039 §9: the PUT handler hand-reads the body as
+        // JsonDocument so it can reject the legacy `containerRuntime`
+        // key with a structured 400 before model-binding silently drops
+        // it. The DTO surface stays advertised via Accepts<T>() so the
+        // OpenAPI schema (and downstream Kiota client) keeps a typed
+        // body.
         group.MapPut("/", SetExecutionAsync)
             .WithName("SetUnitExecution")
             .WithSummary("Upsert one or more fields on the unit's execution defaults (partial update)")
+            .Accepts<UnitExecutionResponse>("application/json")
             .Produces<UnitExecutionResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
@@ -88,7 +98,7 @@ public static class UnitExecutionEndpoints
 
     private static async Task<IResult> SetExecutionAsync(
         string id,
-        UnitExecutionResponse request,
+        HttpContext httpContext,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitExecutionStore store,
         CancellationToken cancellationToken)
@@ -101,12 +111,61 @@ public static class UnitExecutionEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
+        // ADR-0039 §7 / §9: read the body as a JsonDocument first so we can
+        // reject the removed `containerRuntime` key with a structured 400
+        // before model-binding silently drops it. Legacy clients still in
+        // the field need an actionable error, not a no-op success.
+        var jsonOptions = httpContext.RequestServices
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
+            .Value
+            .SerializerOptions;
+
+        UnitExecutionResponse? request;
+        JsonDocument document;
+        try
+        {
+            document = await JsonDocument.ParseAsync(httpContext.Request.Body, cancellationToken: cancellationToken);
+        }
+        catch (JsonException ex)
+        {
+            return Results.Problem(
+                detail: $"Request body is not valid JSON: {ex.Message}",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        using (document)
+        {
+            var legacy = LegacyExecutionFieldProblems
+                .LegacyContainerRuntimeFieldOrNull(document.RootElement);
+            if (legacy is not null)
+            {
+                return legacy;
+            }
+
+            try
+            {
+                request = document.Deserialize<UnitExecutionResponse>(jsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                return Results.Problem(
+                    detail: $"Request body could not be deserialized: {ex.Message}",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+        }
+
+        request ??= new UnitExecutionResponse();
+
         // ADR-0038: the wire shape carries `runtime` (catalogue id) and
         // structured `model: {provider, id}`. Internal store retains the
         // legacy field names — the wire-domain mapping happens here.
+        // ADR-0039 §7 removes the wire-side `containerRuntime` slot; the
+        // internal `Runtime` field on UnitExecutionDefaults now mirrors
+        // only manifest-persisted state from older deployments and is
+        // dropped end-to-end in G8.
         var defaults = new UnitExecutionDefaults(
             Image: request.Image,
-            Runtime: request.ContainerRuntime,
+            Runtime: null,
             Provider: request.Model?.Provider,
             Model: request.Model?.Id,
             Agent: request.Runtime);
@@ -151,8 +210,10 @@ public static class UnitExecutionEndpoints
         }
 
         // ADR-0038: project the internal store fields onto the new wire
-        // shape — `runtime` (catalogue id), `containerRuntime`
-        // (docker/podman), and structured `model: {provider, id}`.
+        // shape — `runtime` (catalogue id) and structured
+        // `model: {provider, id}`. ADR-0039 §7 drops the `containerRuntime`
+        // slot from the wire surface; the internal store still carries it
+        // for back-compat (until G8) but it is never emitted on the wire.
         AiModelDto? model = null;
         if (!string.IsNullOrWhiteSpace(defaults.Model) && !string.IsNullOrWhiteSpace(defaults.Provider))
         {
@@ -161,7 +222,6 @@ public static class UnitExecutionEndpoints
 
         return new UnitExecutionResponse(
             Image: defaults.Image,
-            ContainerRuntime: defaults.Runtime,
             Runtime: defaults.Agent,
             Model: model);
     }

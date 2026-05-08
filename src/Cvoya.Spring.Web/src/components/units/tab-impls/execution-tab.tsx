@@ -61,12 +61,7 @@ interface ExecutionTabProps {
 const FIELD_UNSET = "__unset__";
 
 function isEmpty(block: UnitExecutionResponse): boolean {
-  return (
-    !block.image &&
-    !block.runtime &&
-    !block.containerRuntime &&
-    !block.model
-  );
+  return !block.image && !block.runtime && !block.model;
 }
 
 function persistedToForm(
@@ -74,7 +69,6 @@ function persistedToForm(
 ): UnitExecutionResponse {
   return {
     image: persisted?.image ?? null,
-    containerRuntime: persisted?.containerRuntime ?? null,
     runtime: persisted?.runtime ?? null,
     model: persisted?.model ?? null,
   };
@@ -114,7 +108,6 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     return (
       form.image !== current.image ||
       form.runtime !== current.runtime ||
-      form.containerRuntime !== current.containerRuntime ||
       (form.model?.provider ?? null) !== (current.model?.provider ?? null) ||
       (form.model?.id ?? null) !== (current.model?.id ?? null)
     );

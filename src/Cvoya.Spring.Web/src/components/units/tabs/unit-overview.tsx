@@ -163,7 +163,6 @@ function UnitOverviewTab({ node }: TabContentProps) {
         <ValidationPanel
           unit={liveUnit}
           image={executionQuery.data?.image ?? null}
-          containerRuntime={executionQuery.data?.containerRuntime ?? null}
           runtime={executionQuery.data?.runtime ?? null}
           modelProvider={executionQuery.data?.model?.provider ?? null}
         />

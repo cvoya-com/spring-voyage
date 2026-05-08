@@ -11,9 +11,9 @@ using Cvoya.Spring.Cli.Output;
 /// <summary>
 /// Builds the <c>spring unit execution get|set|clear</c> verb subtree
 /// (#601 / #603 / #409 B-wide; ADR-0038). Direct read/write access to
-/// the manifest-persisted unit <c>execution:</c> block (image /
-/// container-runtime / runtime / model-provider / model) without
-/// needing a full <c>spring apply -f unit.yaml</c> re-apply.
+/// the manifest-persisted unit <c>execution:</c> block (image / runtime
+/// / model-provider / model) without needing a full
+/// <c>spring apply -f unit.yaml</c> re-apply.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -31,21 +31,33 @@ using Cvoya.Spring.Cli.Output;
 /// <c>codex</c> → openai, <c>gemini</c> → google) the flag is optional
 /// and the dispatcher rejects mismatches.
 /// </para>
+/// <para>
+/// ADR-0039 §7 removes the <c>--container-runtime</c> flag and the
+/// matching <c>container-runtime</c> field key — the container runtime
+/// is platform configuration, picked once by the host process at deploy
+/// time. The flag is rejected at parse time with a hint per ADR-0039 §9.
+/// </para>
 /// </remarks>
 public static class UnitExecutionCommand
 {
-    /// <summary>Container runtime keys offered on <c>--container-runtime</c>.</summary>
-    internal static readonly string[] ContainerRuntimeKeys = { "docker", "podman" };
-
     /// <summary>Field keys accepted on <c>clear --field</c>.</summary>
     /// <remarks>
-    /// ADR-0038: the field-key surface is
-    /// (image, container-runtime, runtime, model-provider, model).
+    /// ADR-0038: the field-key surface is (image, runtime, model-provider, model).
+    /// ADR-0039 §7: <c>container-runtime</c> is removed.
     /// </remarks>
     internal static readonly string[] FieldKeys =
     {
-        "image", "container-runtime", "runtime", "model-provider", "model",
+        "image", "runtime", "model-provider", "model",
     };
+
+    /// <summary>
+    /// Stderr message used by the legacy <c>--container-runtime</c>
+    /// flag's parser-level rejection. Pinned by tests so a future flag
+    /// rename doesn't slip past CI. Verbatim from ADR-0039 §9.
+    /// </summary>
+    public const string LegacyContainerRuntimeFlagRejectionMessage =
+        "--container-runtime was removed in ADR-0039. " +
+        "containerRuntime is removed in ADR-0039; the container runtime is platform configuration.";
 
     /// <summary>
     /// Entry point. Returns the <c>execution</c> subcommand tree for
@@ -84,14 +96,14 @@ public static class UnitExecutionCommand
 
             var defaults = await client.GetUnitExecutionAsync(unitId, ct);
 
-            // ADR-0038: { image, containerRuntime, runtime, model: {provider, id} }.
+            // ADR-0038: { image, runtime, model: {provider, id} }.
+            // ADR-0039 §7: containerRuntime slot removed.
             if (output == "json")
             {
                 Console.WriteLine(OutputFormatter.FormatJsonPlain(new
                 {
                     unit = unitId,
                     image = defaults.Image,
-                    container_runtime = defaults.ContainerRuntime,
                     runtime = defaults.Runtime,
                     model_provider = defaults.Model?.AiModelDto?.Provider,
                     model = defaults.Model?.AiModelDto?.Id,
@@ -101,7 +113,6 @@ public static class UnitExecutionCommand
 
             Console.WriteLine($"Unit:     {unitId}");
             Console.WriteLine($"  image:             {defaults.Image ?? "(unset)"}");
-            Console.WriteLine($"  container_runtime: {defaults.ContainerRuntime ?? "(unset)"}");
             Console.WriteLine($"  runtime:           {defaults.Runtime ?? "(unset)"}");
             Console.WriteLine($"  model_provider:    {defaults.Model?.AiModelDto?.Provider ?? "(unset)"}");
             Console.WriteLine($"  model:             {defaults.Model?.AiModelDto?.Id ?? "(unset)"}");
@@ -119,11 +130,20 @@ public static class UnitExecutionCommand
         {
             Description = "Default container image reference (e.g. ghcr.io/... or localhost/spring-voyage-agent-claude-code:latest).",
         };
-        var containerRuntimeOption = new Option<string?>("--container-runtime")
+
+        // ADR-0039 §7: legacy `--container-runtime` rejected at parse time.
+        var legacyContainerRuntimeOption = new Option<string?>("--container-runtime")
         {
-            Description = "Default container runtime. Allowed values: " + string.Join(", ", ContainerRuntimeKeys) + ".",
+            Description = "REJECTED — the container runtime is platform configuration (ADR-0039 §7).",
+            Hidden = true,
         };
-        containerRuntimeOption.AcceptOnlyFromAmong(ContainerRuntimeKeys);
+        legacyContainerRuntimeOption.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(LegacyContainerRuntimeFlagRejectionMessage);
+            }
+        });
 
         var runtimeOption = new Option<string?>("--runtime")
         {
@@ -176,7 +196,7 @@ public static class UnitExecutionCommand
             "pass only the flags you want to change; unlisted fields keep their current value.");
         command.Arguments.Add(unitArg);
         command.Options.Add(imageOption);
-        command.Options.Add(containerRuntimeOption);
+        command.Options.Add(legacyContainerRuntimeOption);
         command.Options.Add(runtimeOption);
         command.Options.Add(modelProviderOption);
         command.Options.Add(modelOption);
@@ -187,18 +207,17 @@ public static class UnitExecutionCommand
         {
             var unitId = parseResult.GetValue(unitArg)!;
             var image = parseResult.GetValue(imageOption);
-            var containerRuntime = parseResult.GetValue(containerRuntimeOption);
             var runtime = parseResult.GetValue(runtimeOption);
             var modelProvider = parseResult.GetValue(modelProviderOption);
             var model = parseResult.GetValue(modelOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (string.IsNullOrWhiteSpace(image) && string.IsNullOrWhiteSpace(containerRuntime)
+            if (string.IsNullOrWhiteSpace(image)
                 && string.IsNullOrWhiteSpace(runtime) && string.IsNullOrWhiteSpace(modelProvider)
                 && string.IsNullOrWhiteSpace(model))
             {
                 await Console.Error.WriteLineAsync(
-                    "Nothing to set. Pass at least one of --image, --container-runtime, --runtime, --model-provider, --model. " +
+                    "Nothing to set. Pass at least one of --image, --runtime, --model-provider, --model. " +
                     "Use 'clear' to wipe the block or 'clear --field X' to clear one field.");
                 Environment.Exit(1);
                 return;
@@ -217,7 +236,6 @@ public static class UnitExecutionCommand
             var stored = await client.SetUnitExecutionAsync(unitId, new UnitExecutionResponse
             {
                 Image = image,
-                ContainerRuntime = containerRuntime,
                 Runtime = runtime,
                 Model = modelDto,
             }, ct);
@@ -228,7 +246,6 @@ public static class UnitExecutionCommand
                 {
                     unit = unitId,
                     image = stored.Image,
-                    container_runtime = stored.ContainerRuntime,
                     runtime = stored.Runtime,
                     model_provider = stored.Model?.AiModelDto?.Provider,
                     model = stored.Model?.AiModelDto?.Id,
@@ -238,7 +255,6 @@ public static class UnitExecutionCommand
             {
                 Console.WriteLine($"Unit '{unitId}' execution updated.");
                 Console.WriteLine($"  image:             {stored.Image ?? "(unset)"}");
-                Console.WriteLine($"  container_runtime: {stored.ContainerRuntime ?? "(unset)"}");
                 Console.WriteLine($"  runtime:           {stored.Runtime ?? "(unset)"}");
                 Console.WriteLine($"  model_provider:    {stored.Model?.AiModelDto?.Provider ?? "(unset)"}");
                 Console.WriteLine($"  model:             {stored.Model?.AiModelDto?.Id ?? "(unset)"}");
@@ -316,11 +332,11 @@ public static class UnitExecutionCommand
             // full block-clear.
             var current = await client.GetUnitExecutionAsync(unitId, ct);
             // ADR-0038: per-field clear targets one of
-            // { image | container-runtime | runtime | model-provider | model }.
+            // { image | runtime | model-provider | model }. ADR-0039 §7
+            // removed the `container-runtime` key.
             // model-provider clears just the provider half of the structured
             // model; clearing model wipes the whole {provider, id} pair.
             var keepImage = !string.Equals(field, "image", StringComparison.OrdinalIgnoreCase);
-            var keepContainerRuntime = !string.Equals(field, "container-runtime", StringComparison.OrdinalIgnoreCase);
             var keepRuntime = !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase);
             var keepModel = !string.Equals(field, "model", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(field, "model-provider", StringComparison.OrdinalIgnoreCase);
@@ -328,12 +344,11 @@ public static class UnitExecutionCommand
             var updated = new UnitExecutionResponse
             {
                 Image = keepImage ? current.Image : null,
-                ContainerRuntime = keepContainerRuntime ? current.ContainerRuntime : null,
                 Runtime = keepRuntime ? current.Runtime : null,
                 Model = keepModel ? current.Model : null,
             };
 
-            if (string.IsNullOrWhiteSpace(updated.Image) && string.IsNullOrWhiteSpace(updated.ContainerRuntime)
+            if (string.IsNullOrWhiteSpace(updated.Image)
                 && string.IsNullOrWhiteSpace(updated.Runtime) && updated.Model is null)
             {
                 // Remaining state after per-field clear is empty → strip
@@ -355,7 +370,6 @@ public static class UnitExecutionCommand
                 {
                     unit = unitId,
                     image = updated.Image,
-                    container_runtime = updated.ContainerRuntime,
                     runtime = updated.Runtime,
                     model_provider = updated.Model?.AiModelDto?.Provider,
                     model = updated.Model?.AiModelDto?.Id,

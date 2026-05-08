@@ -131,9 +131,16 @@ public static class AgentEndpoints
             .Produces<AgentExecutionResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // ADR-0039 §9: the PUT handler hand-reads the body as
+        // JsonDocument so it can reject the legacy `containerRuntime`
+        // key with a structured 400 before model-binding silently drops
+        // it. The DTO surface stays advertised via Accepts<T>() so the
+        // OpenAPI schema (and downstream Kiota client) keeps a typed
+        // body.
         group.MapPut("/{id}/execution", SetAgentExecutionAsync)
             .WithName("SetAgentExecution")
             .WithSummary("Upsert one or more fields on the agent's execution block (partial update)")
+            .Accepts<AgentExecutionResponse>("application/json")
             .Produces<AgentExecutionResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
@@ -166,7 +173,7 @@ public static class AgentEndpoints
 
     private static async Task<IResult> SetAgentExecutionAsync(
         string id,
-        AgentExecutionResponse request,
+        HttpContext httpContext,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IAgentExecutionStore store,
         CancellationToken cancellationToken)
@@ -177,10 +184,59 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
+        // ADR-0039 §7 / §9: read the body as a JsonDocument first so we
+        // can reject the removed `containerRuntime` key with a structured
+        // 400 before model-binding silently drops it. Legacy clients
+        // still in the field need an actionable error, not a no-op
+        // success.
+        var jsonOptions = httpContext.RequestServices
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
+            .Value
+            .SerializerOptions;
+
+        AgentExecutionResponse? request;
+        JsonDocument document;
+        try
+        {
+            document = await JsonDocument.ParseAsync(httpContext.Request.Body, cancellationToken: cancellationToken);
+        }
+        catch (JsonException ex)
+        {
+            return Results.Problem(
+                detail: $"Request body is not valid JSON: {ex.Message}",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        using (document)
+        {
+            var legacy = LegacyExecutionFieldProblems
+                .LegacyContainerRuntimeFieldOrNull(document.RootElement);
+            if (legacy is not null)
+            {
+                return legacy;
+            }
+
+            try
+            {
+                request = document.Deserialize<AgentExecutionResponse>(jsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                return Results.Problem(
+                    detail: $"Request body could not be deserialized: {ex.Message}",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+        }
+
+        request ??= new AgentExecutionResponse();
+
         // ADR-0038: map the new wire shape onto the internal store shape.
+        // ADR-0039 §7 drops the wire-side `containerRuntime` slot; the
+        // internal store still carries `Runtime` until G8 but never
+        // accepts it from the wire.
         var shape = new AgentExecutionShape(
             Image: request.Image,
-            Runtime: request.ContainerRuntime,
+            Runtime: null,
             Provider: request.Model?.Provider,
             Model: request.Model?.Id,
             Hosting: request.Hosting,
@@ -242,8 +298,10 @@ public static class AgentEndpoints
         }
 
         // ADR-0038: project the internal store shape onto the new wire
-        // form — `runtime` (catalogue id), `containerRuntime`, structured
-        // `model: {provider, id}`, and `hosting`.
+        // form — `runtime` (catalogue id), structured `model: {provider, id}`,
+        // and `hosting`. ADR-0039 §7 drops the wire-side `containerRuntime`
+        // slot; the internal store still carries it for back-compat (until
+        // G8) but it is never emitted on the wire.
         AiModelDto? model = null;
         if (!string.IsNullOrWhiteSpace(shape.Model) && !string.IsNullOrWhiteSpace(shape.Provider))
         {
@@ -252,7 +310,6 @@ public static class AgentEndpoints
 
         return new AgentExecutionResponse(
             Image: shape.Image,
-            ContainerRuntime: shape.Runtime,
             Runtime: shape.Agent,
             Model: model,
             Hosting: shape.Hosting);
@@ -798,6 +855,17 @@ public static class AgentEndpoints
             try
             {
                 using var doc = JsonDocument.Parse(request.DefinitionJson);
+                // ADR-0039 §7 / §9: reject the legacy
+                // `execution.containerRuntime` key on the agent-definition
+                // document. The container runtime is platform configuration
+                // — operators surface this on the host config, never on a
+                // per-agent definition.
+                var legacy = LegacyExecutionFieldProblems
+                    .LegacyContainerRuntimeFieldInDefinition(doc.RootElement);
+                if (legacy is not null)
+                {
+                    return legacy;
+                }
                 definition = doc.RootElement.Clone();
             }
             catch (JsonException ex)

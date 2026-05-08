@@ -59,10 +59,10 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   unit: UnitResponse;
-  // Image / containerRuntime / runtime / model.provider context needed
-  // for a few error-copy strings (e.g. "The <runtime> command isn't
-  // available in <image>") and for credential-secret-name resolution.
-  // None sit on `UnitResponse` — the detail page pulls them from
+  // Image / runtime / model.provider context needed for a few
+  // error-copy strings (e.g. "The <runtime> command isn't available in
+  // <image>") and for credential-secret-name resolution. None sit on
+  // `UnitResponse` — the detail page pulls them from
   // `useUnitExecution`. Passed as optional props so the panel renders
   // cleanly even when the execution slice hasn't loaded yet.
   //
@@ -71,8 +71,9 @@ interface Props {
   // panel resolves the secret name via the installed-providers list
   // surfaced through `useModelProviders` — see `useSecretNameForProvider`
   // below.
+  // ADR-0039 §7: the legacy `containerRuntime` slot is gone — the
+  // container runtime is platform configuration, never per-unit.
   image?: string | null;
-  containerRuntime?: string | null;
   runtime?: string | null;
   modelProvider?: string | null;
 }
@@ -214,7 +215,6 @@ function extractProgressStep(event: ActivityEvent): UnitValidationStep | null {
 export default function ValidationPanel({
   unit,
   image,
-  containerRuntime,
   runtime,
   modelProvider,
 }: Props) {
@@ -338,7 +338,10 @@ export default function ValidationPanel({
   const err = unit.lastValidationError ?? null;
   const ctx: CopyContext = {
     image: image ?? null,
-    runtime: containerRuntime ?? null,
+    // ADR-0039 §7 dropped the per-unit container-runtime slot; the
+    // host's deploy-time choice is the only signal and is not
+    // surfaced to operators in error copy.
+    runtime: null,
     // ADR-0038: the legacy `kind` field was removed. The `runtime`
     // field is now the operator-chosen runtime id (claude-code,
     // codex, gemini, spring-voyage) and the in-container CLI binary
