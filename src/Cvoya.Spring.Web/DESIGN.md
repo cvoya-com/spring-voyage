@@ -552,7 +552,20 @@ Editors that resolve a blank value to a parent default at save time carry a reus
 
 The card header carries an `Inherits` outline badge when no own declarations exist, flipping to a solid `Configured` badge once any override is persisted.
 
-**Surfaces using this pattern.** The unit-side `<AgentExecutionPanel>` (`src/components/agents/tab-impls/execution-panel.tsx`); the create-agent form's Execution card (`src/components/agents/create-form.tsx`, ADR-0039 I4) which applies it to all five execution-block fields — `runtime`, `model.provider`, `model.id`, `image`, `hosting`.
+**Surfaces using this pattern.** The unit-side `<AgentExecutionPanel>` (`src/components/agents/tab-impls/execution-panel.tsx`) and the create-agent form's Execution card (`src/components/agents/create-form.tsx`, ADR-0039 I4/I5). The create form applies the per-field indicator to the five execution-block values — `runtime`, `model.provider`, `model.id`, `image`, `hosting` — whenever the value is inherited from the selected unit or tenant defaults. Once the operator sets an explicit value, that field drops the inherited placeholder/help copy and shows the normal override help copy instead. The Execution card header carries `data-testid="execution-card-badge"` and renders `Inherits` while all five values are inherited, flipping to `Configured` as soon as any execution value is explicit.
+
+**Agent-create page vs dialog.** `<AgentCreateForm context="page">` on `/agents/create` starts with a Source step before the scratch form. The page Source step renders three `<SourceCard>`s: Scratch, From package (K2 package picker pending), and Browse (K7 browse stub). `<AgentCreateDialog>` (`src/components/agents/create-dialog.tsx`) is the unit-tab shell; it skips Source, preselects the current unit, and always enters the scratch flow. The dialog shows a fixed unit confirmation strip above the shared form.
+
+| `data-testid` | Surface | Purpose |
+|---|---|---|
+| `inherit-indicator` | Execution card fields (form) | Per-field inherit help copy |
+| `execution-card-badge` | Execution card header (form) | Inherits/Configured flip badge |
+| `agent-source-card-scratch` | Source step (page only) | Scratch path card |
+| `agent-source-card-from-package` | Source step (page only) | From-package path card |
+| `agent-source-card-browse` | Source step (page only) | Browse stub card |
+| `browse-coming-soon` | Browse step (page only) | Coming-soon stub container |
+| `agent-create-submit` | Dialog/page | Submit button |
+| `agent-create-dialog-unit-strip` | Dialog | Preselected-unit confirmation strip |
 
 ### 12.7 Thread error events — inline dispatch-failure rendering (#1161)
 
