@@ -35,7 +35,8 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public class GeminiLauncher(
     IServiceScopeFactory scopeFactory,
-    ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
+    ILoggerFactory loggerFactory,
+    IAgentCallbackEnvironmentBuilder? callbackEnvironmentBuilder = null) : IAgentRuntimeLauncher
 {
     /// <summary>
     /// Runtime id whose credential the Gemini launcher injects. Gemini
@@ -132,6 +133,8 @@ public class GeminiLauncher(
             // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
         };
+
+        LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
         // #1714 step 2: inject the Google AI Studio API key into
         // GOOGLE_API_KEY. Gemini's credential schema is a single accepted

@@ -218,7 +218,25 @@ See [Workflows](workflows.md) for the sidecar-protocol layer diagram.
 
 ---
 
-## 4a. Skill registries
+## 4a. Orchestration callback bootstrap
+
+Every built-in launcher stamps the dispatcher orchestration callback bootstrap
+into the runtime container:
+
+| Env var | Source | Purpose |
+| --- | --- | --- |
+| `SPRING_CALLBACK_URL` | Worker `Dispatcher:BaseUrl` plus `/v1/runtime/orchestration/` | Base URL the Agent SDK uses for the dispatcher callback API. |
+| `SPRING_CALLBACK_TOKEN` | Per-invocation callback JWT | Authenticates callbacks and scopes them to `(tenantId, agentAddress, threadId, messageId)`. |
+
+The launcher path uses the same callback-token contract the dispatcher
+validates for ADR-0039 D12/D13. Ephemeral launches receive a token for the
+inbound message being served. Persistent containers receive launch-time
+bootstrap credentials; per-message refresh for already-running persistent
+containers is tracked separately in [#1943](https://github.com/cvoya-com/spring-voyage/issues/1943).
+
+---
+
+## 4b. Skill registries
 
 See [ADR 0014](../decisions/0014-skill-invoker-seam.md) for the decision record behind the `ISkillInvoker` seam and the expertise-directory-driven skill surface.
 

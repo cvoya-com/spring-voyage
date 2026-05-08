@@ -35,7 +35,8 @@ using Microsoft.Extensions.Options;
 public class SpringVoyageAgentLauncher(
     IOptions<OllamaOptions> ollamaOptions,
     IServiceScopeFactory scopeFactory,
-    ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
+    ILoggerFactory loggerFactory,
+    IAgentCallbackEnvironmentBuilder? callbackEnvironmentBuilder = null) : IAgentRuntimeLauncher
 {
     internal const string WorkspaceMountPath = "/workspace";
 
@@ -167,6 +168,8 @@ public class SpringVoyageAgentLauncher(
             // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
         };
+
+        LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
         // #1328: OLLAMA_ENDPOINT removed. The Dapr Conversation component YAML
         // (llm-ollama.yaml) now reads SPRING_LLM_PROVIDER_URL, which is

@@ -1,0 +1,116 @@
+// Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
+// See LICENSE.md in the project root for full license terms.
+
+namespace Cvoya.Spring.Dapr.Execution;
+
+using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Runtime;
+
+using Microsoft.Extensions.Options;
+
+/// <summary>
+/// Builds the uniform callback environment every launcher stamps onto an
+/// agent runtime container.
+/// </summary>
+public class DispatcherCallbackEnvironmentBuilder(
+    IOptions<DispatcherClientOptions> dispatcherOptions,
+    ICallbackTokenIssuer callbackTokenIssuer) : IAgentCallbackEnvironmentBuilder
+{
+    internal const string CallbackPath = "v1/runtime/orchestration/";
+
+    private readonly DispatcherClientOptions _dispatcherOptions = dispatcherOptions.Value;
+    private readonly ICallbackTokenIssuer _callbackTokenIssuer = callbackTokenIssuer;
+
+    /// <inheritdoc />
+    public void AddCallbackEnvironment(
+        AgentLaunchContext context,
+        IDictionary<string, string> environmentVariables)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(environmentVariables);
+
+        var callbackUrl = ResolveCallbackUrl();
+        var address = ResolveAgentAddress(context);
+        var threadId = ResolveThreadId(context);
+        var messageId = ResolveMessageId(context);
+
+        var token = _callbackTokenIssuer.Issue(new CallbackToken(
+            context.TenantId,
+            address,
+            threadId,
+            messageId,
+            ExpiresAt: default));
+
+        environmentVariables[AgentCallbackEnvironmentContract.CallbackUrlEnvVar] = callbackUrl;
+        environmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar] = token;
+    }
+
+    private string ResolveCallbackUrl()
+    {
+        if (string.IsNullOrWhiteSpace(_dispatcherOptions.BaseUrl))
+        {
+            throw new SpringException(
+                "Dispatcher:BaseUrl is required to inject SPRING_CALLBACK_URL for agent runtimes.");
+        }
+
+        if (!Uri.TryCreate(_dispatcherOptions.BaseUrl, UriKind.Absolute, out var baseUri) ||
+            (!string.Equals(baseUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+             !string.Equals(baseUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new SpringException(
+                $"Dispatcher:BaseUrl '{_dispatcherOptions.BaseUrl}' is not a valid absolute http(s) URI.");
+        }
+
+        var normalizedBase = baseUri.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
+            ? baseUri
+            : new Uri(baseUri.AbsoluteUri + "/");
+
+        return new Uri(normalizedBase, CallbackPath).ToString();
+    }
+
+    private static Address ResolveAgentAddress(AgentLaunchContext context)
+    {
+        if (context.AgentAddress is not null)
+        {
+            return context.AgentAddress;
+        }
+
+        if (!GuidFormatter.TryParse(context.AgentId, out var agentId))
+        {
+            throw new SpringException(
+                $"AgentLaunchContext.AgentId '{context.AgentId}' is not a Guid and no AgentAddress was supplied.");
+        }
+
+        return new Address(Address.AgentScheme, agentId);
+    }
+
+    private static Guid ResolveThreadId(AgentLaunchContext context)
+    {
+        if (context.CallbackThreadId is { } callbackThreadId)
+        {
+            return callbackThreadId;
+        }
+
+        if (!GuidFormatter.TryParse(context.ThreadId, out var threadId))
+        {
+            throw new SpringException(
+                $"AgentLaunchContext.ThreadId '{context.ThreadId}' is not a Guid and no CallbackThreadId was supplied.");
+        }
+
+        return threadId;
+    }
+
+    private static Guid ResolveMessageId(AgentLaunchContext context)
+    {
+        if (context.MessageId is { } messageId)
+        {
+            return messageId;
+        }
+
+        throw new SpringException(
+            "AgentLaunchContext.MessageId is required to inject SPRING_CALLBACK_TOKEN.");
+    }
+}

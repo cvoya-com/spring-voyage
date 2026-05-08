@@ -30,6 +30,7 @@
     <PackageReference Include="Dapr.Workflow" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
     <PackageReference Include="System.Reactive" />
     <PackageReference Include="YamlDotNet" />
   </ItemGroup>

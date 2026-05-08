@@ -35,7 +35,8 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public class CodexLauncher(
     IServiceScopeFactory scopeFactory,
-    ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
+    ILoggerFactory loggerFactory,
+    IAgentCallbackEnvironmentBuilder? callbackEnvironmentBuilder = null) : IAgentRuntimeLauncher
 {
     /// <summary>
     /// Runtime id whose credential the Codex launcher injects. Codex uses
@@ -132,6 +133,8 @@ public class CodexLauncher(
             // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
         };
+
+        LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
         // #1714 step 2: inject the OpenAI API key into OPENAI_API_KEY.
         // Codex uses the OpenAI Platform API; its credential schema is
