@@ -189,7 +189,12 @@ public static class UnitEndpoints
             .WithSummary("Unassign an agent from this unit. Deletes the membership row and removes the agent from the unit's members list; other memberships the agent holds are unaffected.")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            // ADR-0039 §6 / B4: unassigning can leave the agent inheriting
+            // from a different parent set. If the remaining parents disagree
+            // on an inherited execution-config field, reject with the same
+            // structured conflict body as assignment.
+            .Produces(StatusCodes.Status422UnprocessableEntity);
 
         return group;
     }
@@ -1537,11 +1542,16 @@ public static class UnitEndpoints
         // the operator either trims the parent set or sets the field
         // explicitly on the agent. We run the resolver before any state
         // write so a rejection leaves no half-applied membership row.
-        var conflictResult = await CheckMultiParentInheritanceConflictAsync(
+        var parentSet = await BuildPostAssignmentParentSetAsync(
             unitAssignUuid,
             agentAssignUuid,
-            agentExecutionStore,
             membershipRepository,
+            cancellationToken);
+
+        var conflictResult = await CheckMultiParentInheritanceConflictAsync(
+            parentSet,
+            agentAssignUuid,
+            agentExecutionStore,
             inheritanceResolver,
             tenantContext,
             cancellationToken);
@@ -1587,35 +1597,15 @@ public static class UnitEndpoints
     }
 
     /// <summary>
-    /// Runs the ADR-0039 §6 multi-parent inheritance resolver against the
-    /// post-assignment parent set (the agent's existing memberships plus
-    /// <paramref name="newUnitId"/>). Returns a 422
-    /// <c>MultiParentInheritanceConflict</c> response when an inherited
-    /// field diverges across parents; returns <c>null</c> when the
-    /// resolution succeeds (caller proceeds with the assignment).
+    /// Builds the ADR-0039 §6 parent set for a prospective assignment: the
+    /// agent's existing memberships plus <paramref name="newUnitId"/>.
     /// </summary>
-    /// <remarks>
-    /// The agent's "own" config is read from
-    /// <see cref="IAgentExecutionStore"/>; an agent with no persisted
-    /// execution block is fully inheriting (every field is null), which
-    /// is the common case operators hit when wiring an existing agent
-    /// into a second unit. Hosting is agent-owned and never participates
-    /// in the conflict map (the resolver excludes it by contract).
-    /// </remarks>
-    private static async Task<IResult?> CheckMultiParentInheritanceConflictAsync(
+    private static async Task<List<Guid>> BuildPostAssignmentParentSetAsync(
         Guid newUnitId,
         Guid agentId,
-        IAgentExecutionStore agentExecutionStore,
         IUnitMembershipRepository membershipRepository,
-        IExecutionConfigInheritanceResolver inheritanceResolver,
-        ITenantContext tenantContext,
         CancellationToken cancellationToken)
     {
-        // Build the post-assignment parent set: every existing membership
-        // plus the new unit. Deduplicate so the idempotent re-assign case
-        // doesn't double-count and so an agent already in newUnitId
-        // (re-POST) sees the same parent set the resolver would compute
-        // post-write.
         var memberships = await membershipRepository.ListByAgentAsync(agentId, cancellationToken);
         var parentSet = new List<Guid>(memberships.Count + 1);
         var seen = new HashSet<Guid>();
@@ -1630,6 +1620,34 @@ public static class UnitEndpoints
         {
             parentSet.Add(newUnitId);
         }
+
+        return parentSet;
+    }
+
+    /// <summary>
+    /// Runs the ADR-0039 §6 multi-parent inheritance resolver against an
+    /// already-computed parent set. Returns a 422
+    /// <c>MultiParentInheritanceConflict</c> response when an inherited
+    /// field diverges across parents; returns <c>null</c> when resolution
+    /// succeeds.
+    /// </summary>
+    /// <remarks>
+    /// The agent's "own" config is read from
+    /// <see cref="IAgentExecutionStore"/>; an agent with no persisted
+    /// execution block is fully inheriting (every field is null), which
+    /// is the common case operators hit when wiring an existing agent
+    /// into a second unit. Hosting is agent-owned and never participates
+    /// in the conflict map (the resolver excludes it by contract).
+    /// </remarks>
+    private static async Task<IResult?> CheckMultiParentInheritanceConflictAsync(
+        IReadOnlyList<Guid> parentSet,
+        Guid agentId,
+        IAgentExecutionStore agentExecutionStore,
+        IExecutionConfigInheritanceResolver inheritanceResolver,
+        ITenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(parentSet);
 
         var ownShape = await agentExecutionStore.GetAsync(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(agentId),
@@ -1714,6 +1732,9 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitMembershipRepository membershipRepository,
+        [FromServices] IAgentExecutionStore agentExecutionStore,
+        [FromServices] IExecutionConfigInheritanceResolver inheritanceResolver,
+        [FromServices] ITenantContext tenantContext,
         [FromServices] IExpertiseAggregator expertiseAggregator,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -1739,14 +1760,57 @@ public static class UnitEndpoints
 
         var agentUnassignUuid = agentEntry.ActorId;
 
+        // ADR-0039 §6 / B4: removing this unit reshapes the agent's parent
+        // set. Resolve against the *remaining* parents before any write; if
+        // the agent still inherits a diverging field from those parents,
+        // reject with the same structured 422 body assignment uses.
+        var existingMemberships = await membershipRepository.ListByAgentAsync(
+            agentUnassignUuid,
+            cancellationToken);
+        var targetMembershipExists = false;
+        var remainingParentSet = new List<Guid>(existingMemberships.Count);
+        var seenRemainingParents = new HashSet<Guid>();
+        foreach (var membership in existingMemberships)
+        {
+            if (membership.UnitId == unitUnassignUuid)
+            {
+                targetMembershipExists = true;
+                continue;
+            }
+
+            if (seenRemainingParents.Add(membership.UnitId))
+            {
+                remainingParentSet.Add(membership.UnitId);
+            }
+        }
+
+        var conflictResult = await CheckMultiParentInheritanceConflictAsync(
+            remainingParentSet,
+            agentUnassignUuid,
+            agentExecutionStore,
+            inheritanceResolver,
+            tenantContext,
+            cancellationToken);
+        if (conflictResult is not null)
+        {
+            return conflictResult;
+        }
+
         // Delete the membership row. Other units the agent still belongs to
-        // are unaffected — this is the point of M:N. Per #744 the repo
-        // rejects removal when this is the agent's last membership; we
-        // surface that as 409 so the caller either assigns the agent to
-        // another unit first or deletes the agent via DELETE /agents/{id}.
+        // are unaffected — this is the point of M:N. ADR-0039 §6 / B4 lets
+        // the DELETE endpoint remove the final row and make the agent top-
+        // level, so the final-row branch uses the repository's cascade
+        // primitive to bypass DeleteAsync's legacy last-membership guard.
         try
         {
-            await membershipRepository.DeleteAsync(unitUnassignUuid, agentUnassignUuid, cancellationToken);
+            if (targetMembershipExists && remainingParentSet.Count == 0)
+            {
+                await membershipRepository.DeleteAllForAgentAsync(agentUnassignUuid, cancellationToken);
+            }
+            else
+            {
+                await membershipRepository.DeleteAsync(unitUnassignUuid, agentUnassignUuid, cancellationToken);
+            }
         }
         catch (AgentMembershipRequiredException ex)
         {

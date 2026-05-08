@@ -46,6 +46,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
     // Centralised here so test bodies stay readable.
     private static readonly string UnitName = UnitEngineeringUuid.ToString("N");
     private static readonly Guid UnitMarketingUuid = new("ee1ee111-0000-0000-0000-000000000002");
+    private static readonly Guid UnitProductUuid = new("ee1ee111-0000-0000-0000-000000000003");
     private static readonly Guid AgentAdaUuid = new("aadaadaa-0000-0000-0000-000000000001");
     private static readonly Guid AgentBabbageUuid = new("aadaadaa-0000-0000-0000-000000000002");
     private static readonly Guid AgentTuringUuid = new("aadaadaa-0000-0000-0000-000000000003");
@@ -413,10 +414,6 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ClearAllMocks();
 
-        // #744: removing the last membership is no longer allowed — the
-        // "other membership" case is the only one that still returns 204.
-        // The solo-membership case is covered by
-        // UnassignUnitAgent_LastMembership_Returns409 below.
         var unitProxy = ArrangeUnit();
         ArrangeUnit("marketing", UnitMarketingUuid);
         var agentProxy = ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
@@ -439,35 +436,84 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
-    public async Task UnassignUnitAgent_LastMembership_Returns409()
+    public async Task UnassignUnitAgent_RemainingParentsDivergeForInheritedAgent_Returns422()
     {
+        // ADR-0039 §6 / B4: unassigning engineering would leave ada with
+        // marketing + product as remaining parents. Those two units disagree
+        // on the inherited `agent` runtime id, and ada has no own execution
+        // block, so the endpoint rejects before deleting anything.
         var ct = TestContext.Current.CancellationToken;
         ClearAllMocks();
 
-        ArrangeUnit();
-        ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
-        await UpsertMembershipAsync(UnitName, "ada");
-
-        var response = await _client.DeleteAsync(
-            $"/api/v1/tenant/units/{UnitName}/agents/{AgentAdaUuid:N}", ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
-        // Row must still exist — the invariant is enforced transactionally.
-        (await GetMembershipAsync(UnitName, "ada")).ShouldNotBeNull();
-    }
-
-    [Fact]
-    public async Task UnassignUnitAgent_OtherMembershipSurvives()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        ClearAllMocks();
-
-        ArrangeUnit();
+        var unitProxy = ArrangeUnit();
         ArrangeUnit("marketing", UnitMarketingUuid);
+        ArrangeUnit("product", UnitProductUuid);
         ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
 
         await UpsertMembershipAsync(UnitName, "ada");
         await UpsertMembershipAsync("marketing", "ada");
+        await UpsertMembershipAsync("product", "ada");
+
+        _factory.UnitExecutionStore
+            .GetAsync(UnitMarketingUuid.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Agent: "claude")));
+        _factory.UnitExecutionStore
+            .GetAsync(UnitProductUuid.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Agent: "codex")));
+
+        var response = await _client.DeleteAsync(
+            $"/api/v1/tenant/units/{UnitName}/agents/{AgentAdaUuid:N}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
+        body.GetProperty("error").GetString().ShouldBe("MultiParentInheritanceConflict");
+        var conflictingFields = body.GetProperty("conflictingFields");
+        conflictingFields.TryGetProperty("agent", out var agentField).ShouldBeTrue();
+        agentField.GetArrayLength().ShouldBe(2);
+        var values = agentField.EnumerateArray()
+            .Select(e => e.GetProperty("value").GetString())
+            .OrderBy(v => v, StringComparer.Ordinal)
+            .ToList();
+        values.ShouldBe(new[] { "claude", "codex" });
+
+        // Rejection happens before the write, so all rows and actor state
+        // remain untouched.
+        (await GetMembershipAsync(UnitName, "ada")).ShouldNotBeNull();
+        (await GetMembershipAsync("marketing", "ada")).ShouldNotBeNull();
+        (await GetMembershipAsync("product", "ada")).ShouldNotBeNull();
+        await unitProxy.DidNotReceive().RemoveMemberAsync(
+            Arg.Any<Address>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UnassignUnitAgent_RemainingParentsConsistent_Returns204()
+    {
+        // Same remaining-parent shape as the conflict test, but the two
+        // surviving units agree on the inherited runtime id. The endpoint
+        // accepts the unassign and deletes only the requested membership.
+        var ct = TestContext.Current.CancellationToken;
+        ClearAllMocks();
+
+        var unitProxy = ArrangeUnit();
+        ArrangeUnit("marketing", UnitMarketingUuid);
+        ArrangeUnit("product", UnitProductUuid);
+        ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
+
+        await UpsertMembershipAsync(UnitName, "ada");
+        await UpsertMembershipAsync("marketing", "ada");
+        await UpsertMembershipAsync("product", "ada");
+
+        _factory.UnitExecutionStore
+            .GetAsync(UnitMarketingUuid.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Agent: "claude")));
+        _factory.UnitExecutionStore
+            .GetAsync(UnitProductUuid.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Agent: "claude")));
 
         var response = await _client.DeleteAsync(
             $"/api/v1/tenant/units/{UnitName}/agents/{AgentAdaUuid:N}", ct);
@@ -475,6 +521,34 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await GetMembershipAsync(UnitName, "ada")).ShouldBeNull();
         (await GetMembershipAsync("marketing", "ada")).ShouldNotBeNull();
+        (await GetMembershipAsync("product", "ada")).ShouldNotBeNull();
+        await unitProxy.Received(1).RemoveMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UnassignUnitAgent_NoRemainingParents_MakesAgentTopLevel()
+    {
+        // ADR-0039 §6 / B4: an empty remaining parent set is valid — the
+        // agent becomes top-level and later resolves against tenant defaults.
+        var ct = TestContext.Current.CancellationToken;
+        ClearAllMocks();
+
+        var unitProxy = ArrangeUnit();
+        var agentProxy = ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
+
+        await UpsertMembershipAsync(UnitName, "ada");
+
+        var response = await _client.DeleteAsync(
+            $"/api/v1/tenant/units/{UnitName}/agents/{AgentAdaUuid:N}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await GetMembershipAsync(UnitName, "ada")).ShouldBeNull();
+        await unitProxy.Received(1).RemoveMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid),
+            Arg.Any<CancellationToken>());
+        await agentProxy.Received(1).ClearParentUnitAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
