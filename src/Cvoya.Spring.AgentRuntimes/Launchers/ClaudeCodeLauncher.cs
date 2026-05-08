@@ -53,6 +53,10 @@ public class ClaudeCodeLauncher(
 
     internal const string WorkspaceMountPath = "/workspace";
 
+    internal const string SpringVoyageMcpServerName = "spring-voyage";
+
+    internal const string SpringOrchestrationMcpServerName = "spring-orchestration";
+
     /// <summary>
     /// Argv vector the A2A bridge (agent-base ENTRYPOINT) spawns inside the
     /// container on every <c>message/send</c>. Encoded as a JSON array string
@@ -125,26 +129,28 @@ public class ClaudeCodeLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        var mcpConfig = new
+        var mcpServers = new Dictionary<string, object>
         {
-            mcpServers = new Dictionary<string, object>
+            [SpringVoyageMcpServerName] = new
             {
-                ["spring-voyage"] = new
+                type = "http",
+                url = context.McpEndpoint,
+                headers = new Dictionary<string, string>
                 {
-                    type = "http",
-                    url = context.McpEndpoint,
-                    headers = new Dictionary<string, string>
-                    {
-                        ["Authorization"] = $"Bearer {context.McpToken}"
-                    }
+                    ["Authorization"] = $"Bearer {context.McpToken}"
                 }
             }
+        };
+
+        var mcpConfig = new
+        {
+            mcpServers
         };
 
         var workspaceFiles = new Dictionary<string, string>
         {
             ["CLAUDE.md"] = context.Prompt,
-            [".mcp.json"] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true })
+            [".mcp.json"] = SerializeMcpConfig(mcpConfig)
         };
 
         _logger.LogInformation(
@@ -174,6 +180,20 @@ public class ClaudeCodeLauncher(
 
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
+        if (context.OrchestrationTools is { Length: > 0 })
+        {
+            mcpServers[SpringOrchestrationMcpServerName] = new
+            {
+                type = "http",
+                url = envVars[AgentCallbackEnvironmentContract.CallbackUrlEnvVar],
+                headers = new Dictionary<string, string>
+                {
+                    ["Authorization"] = $"Bearer {envVars[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}"
+                }
+            };
+            workspaceFiles[".mcp.json"] = SerializeMcpConfig(mcpConfig);
+        }
+
         // #1714 step 2: inject the Claude OAuth token into
         // CLAUDE_CODE_OAUTH_TOKEN. The Claude agent runtime is OAuth-only
         // (the project does not run `claude --bare`) — API keys are
@@ -197,6 +217,9 @@ public class ClaudeCodeLauncher(
             // without touching the launcher contract again.
             StdinPayload: context.Prompt);
     }
+
+    private static string SerializeMcpConfig(object mcpConfig) =>
+        JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true });
 
     private async Task ResolveRuntimeCredentialAsync(
         AgentLaunchContext context,

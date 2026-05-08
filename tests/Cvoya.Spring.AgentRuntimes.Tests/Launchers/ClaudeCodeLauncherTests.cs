@@ -9,6 +9,7 @@ using Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Orchestration;
 
 using Microsoft.Extensions.Logging;
 
@@ -97,6 +98,42 @@ public class ClaudeCodeLauncherTests
         prep.ExtraVolumeMounts.ShouldBeNull();
         prep.WorkingDirectory.ShouldBeNull(
             "leaving WorkingDirectory unset lets the dispatcher default to WorkspaceMountPath");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PrepareAsync_OrchestrationToolsNullOrEmpty_WritesOnlySpringVoyageMcpServer(
+        bool useEmptyTools)
+    {
+        var context = CreateContext(
+            useEmptyTools ? Array.Empty<OrchestrationToolDescriptor>() : null);
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        var servers = GetMcpServers(prep);
+        servers.EnumerateObject().Select(property => property.Name)
+            .ShouldBe(new[] { "spring-voyage" });
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OrchestrationToolsPresent_WritesSpringOrchestrationMcpServer()
+    {
+        var context = CreateContext(CreateOrchestrationTools());
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        var servers = GetMcpServers(prep);
+        servers.EnumerateObject().Select(property => property.Name)
+            .ShouldBe(new[] { "spring-voyage", "spring-orchestration" });
+
+        var orchestration = servers.GetProperty("spring-orchestration");
+        orchestration.GetProperty("type").GetString().ShouldBe("http");
+        orchestration.GetProperty("url").GetString()
+            .ShouldBe(prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackUrlEnvVar]);
+        orchestration.GetProperty("headers").GetProperty("Authorization").GetString()
+            .ShouldBe(
+                $"Bearer {prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}");
     }
 
     [Fact]
@@ -255,6 +292,22 @@ public class ClaudeCodeLauncherTests
             () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
     }
 
-    private static AgentLaunchContext CreateContext() =>
-        LauncherCallbackTestSupport.CreateContext();
+    private static AgentLaunchContext CreateContext(
+        OrchestrationToolDescriptor[]? orchestrationTools = null) =>
+        LauncherCallbackTestSupport.CreateContext() with { OrchestrationTools = orchestrationTools };
+
+    private static JsonElement GetMcpServers(AgentLaunchSpec prep)
+    {
+        using var parsed = JsonDocument.Parse(prep.WorkspaceFiles[".mcp.json"]);
+        return parsed.RootElement.GetProperty("mcpServers").Clone();
+    }
+
+    private static OrchestrationToolDescriptor[] CreateOrchestrationTools() =>
+    [
+        new(OrchestrationToolName.ListChildren, default, default),
+        new(OrchestrationToolName.InspectChild, default, default),
+        new(OrchestrationToolName.DelegateToChild, default, default),
+        new(OrchestrationToolName.FanoutToChildren, default, default),
+        new(OrchestrationToolName.QueryChildStatus, default, default),
+    ];
 }
