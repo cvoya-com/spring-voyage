@@ -9,6 +9,7 @@ using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -20,7 +21,7 @@ using Microsoft.Extensions.Logging;
 /// <list type="bullet">
 ///   <item><c>GEMINI.md</c> — the assembled system prompt (all four layers).
 ///         Gemini CLI reads this file as its instructions file.</item>
-///   <item><c>.mcp.json</c> — MCP server endpoint + bearer token the Gemini agent will dial.</item>
+///   <item><c>.gemini/settings.json</c> — MCP server endpoint + bearer token the Gemini agent will dial.</item>
 /// </list>
 /// The dispatcher materialises this workspace on its own host filesystem and
 /// bind-mounts it at <c>/workspace</c> inside the container — see issue #1042.
@@ -28,9 +29,10 @@ using Microsoft.Extensions.Logging;
 /// <b>Expected container image shape:</b> The image must bundle the Gemini CLI
 /// and the A2A sidecar from <c>agents/a2a-sidecar/</c>. The sidecar wraps the
 /// <c>gemini</c> CLI binary, exposing it behind an A2A endpoint. The container
-/// must read <c>GEMINI.md</c> and <c>.mcp.json</c> from the <c>/workspace</c>
-/// mount and honour the <c>GOOGLE_API_KEY</c> environment variable for
-/// authentication with the Google AI API.
+/// must run Gemini from the <c>/workspace</c> mount so it reads
+/// <c>GEMINI.md</c> and project-scoped <c>.gemini/settings.json</c>, and honour
+/// the <c>GOOGLE_API_KEY</c> environment variable for authentication with the
+/// Google AI API.
 /// </para>
 /// </summary>
 public class GeminiLauncher(
@@ -55,6 +57,13 @@ public class GeminiLauncher(
     internal const string CredentialEnvVar = "GOOGLE_API_KEY";
 
     internal const string WorkspaceMountPath = "/workspace";
+    internal const string GeminiSettingsPath = ".gemini/settings.json";
+
+    private const string SpringVoyageMcpServerName = "spring-voyage";
+    private const string SpringOrchestrationMcpServerName = "spring-orchestration";
+
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
     private readonly ILogger _logger = loggerFactory.CreateLogger<GeminiLauncher>();
 
     /// <inheritdoc />
@@ -94,32 +103,6 @@ public class GeminiLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        var mcpConfig = new
-        {
-            mcpServers = new Dictionary<string, object>
-            {
-                ["spring-voyage"] = new
-                {
-                    type = "http",
-                    url = context.McpEndpoint,
-                    headers = new Dictionary<string, string>
-                    {
-                        ["Authorization"] = $"Bearer {context.McpToken}"
-                    }
-                }
-            }
-        };
-
-        var workspaceFiles = new Dictionary<string, string>
-        {
-            ["GEMINI.md"] = context.Prompt,
-            [".mcp.json"] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true })
-        };
-
-        _logger.LogInformation(
-            "Prepared Gemini workspace request ({FileCount} files) for agent {AgentId} thread {ThreadId}",
-            workspaceFiles.Count, context.AgentId, context.ThreadId);
-
         // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN are
         // removed — AgentContextBuilder now emits the D1-canonical equivalents
         // (SPRING_AGENT_ID, SPRING_MCP_URL, SPRING_MCP_TOKEN) for every launcher.
@@ -136,6 +119,16 @@ public class GeminiLauncher(
 
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
+        var workspaceFiles = new Dictionary<string, string>
+        {
+            ["GEMINI.md"] = context.Prompt,
+            [GeminiSettingsPath] = JsonSerializer.Serialize(BuildGeminiSettings(context, envVars), JsonOptions)
+        };
+
+        _logger.LogInformation(
+            "Prepared Gemini workspace request ({FileCount} files) for agent {AgentId} thread {ThreadId}",
+            workspaceFiles.Count, context.AgentId, context.ThreadId);
+
         // #1714 step 2: inject the Google AI Studio API key into
         // GOOGLE_API_KEY. Gemini's credential schema is a single accepted
         // shape, so there is no shape-branching at the launcher.
@@ -146,6 +139,53 @@ public class GeminiLauncher(
             EnvironmentVariables: envVars,
             WorkspaceMountPath: WorkspaceMountPath);
     }
+
+    private static object BuildGeminiSettings(
+        AgentLaunchContext context,
+        IReadOnlyDictionary<string, string> envVars)
+    {
+        var mcpServers = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            [SpringVoyageMcpServerName] = new
+            {
+                httpUrl = context.McpEndpoint,
+                headers = new Dictionary<string, string>
+                {
+                    ["Authorization"] = $"Bearer {context.McpToken}"
+                }
+            }
+        };
+
+        if (context.OrchestrationTools is { Length: > 0 } orchestrationTools)
+        {
+            mcpServers[SpringOrchestrationMcpServerName] = new
+            {
+                httpUrl = envVars[AgentCallbackEnvironmentContract.CallbackUrlEnvVar],
+                headers = new Dictionary<string, string>
+                {
+                    ["Authorization"] =
+                        $"Bearer {envVars[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}"
+                },
+                includeTools = orchestrationTools.Select(tool => ToWireName(tool.Name)).ToArray()
+            };
+        }
+
+        return new
+        {
+            mcpServers
+        };
+    }
+
+    private static string ToWireName(OrchestrationToolName name) =>
+        name switch
+        {
+            OrchestrationToolName.ListChildren => "list_children",
+            OrchestrationToolName.InspectChild => "inspect_child",
+            OrchestrationToolName.DelegateToChild => "delegate_to_child",
+            OrchestrationToolName.FanoutToChildren => "fanout_to_children",
+            OrchestrationToolName.QueryChildStatus => "query_child_status",
+            _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unknown orchestration tool name.")
+        };
 
     private async Task ResolveRuntimeCredentialAsync(
         AgentLaunchContext context,

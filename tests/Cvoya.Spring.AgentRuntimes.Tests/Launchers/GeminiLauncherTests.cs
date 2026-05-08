@@ -9,6 +9,7 @@ using Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Orchestration;
 
 using Microsoft.Extensions.Logging;
 
@@ -74,12 +75,12 @@ public class GeminiLauncherTests
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         prep.WorkspaceMountPath.ShouldBe("/workspace");
-        prep.WorkspaceFiles.Keys.ShouldBe(new[] { "GEMINI.md", ".mcp.json" }, ignoreOrder: true);
+        prep.WorkspaceFiles.Keys.ShouldBe(new[] { "GEMINI.md", ".gemini/settings.json" }, ignoreOrder: true);
         prep.WorkspaceFiles["GEMINI.md"].ShouldBe(context.Prompt);
 
-        var parsed = JsonDocument.Parse(prep.WorkspaceFiles[".mcp.json"]).RootElement;
-        var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
-        server.GetProperty("url").GetString().ShouldBe(context.McpEndpoint);
+        using var settings = ParseGeminiSettings(prep);
+        var server = settings.RootElement.GetProperty("mcpServers").GetProperty("spring-voyage");
+        server.GetProperty("httpUrl").GetString().ShouldBe(context.McpEndpoint);
         server.GetProperty("headers").GetProperty("Authorization").GetString()
             .ShouldBe("Bearer gemini-secret-token");
 
@@ -97,6 +98,60 @@ public class GeminiLauncherTests
 
         prep.ExtraVolumeMounts.ShouldBeNull();
         prep.WorkingDirectory.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PrepareAsync_OrchestrationToolsNullOrEmpty_DoesNotWriteOrchestrationMcpServer(
+        bool useEmptyArray)
+    {
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "## Platform Instructions\nAnalyze thoroughly.",
+            mcpToken: "gemini-secret-token")
+            with
+        {
+            OrchestrationTools = useEmptyArray ? Array.Empty<OrchestrationToolDescriptor>() : null
+        };
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        using var settings = ParseGeminiSettings(prep);
+        var servers = settings.RootElement.GetProperty("mcpServers");
+        servers.TryGetProperty("spring-orchestration", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OrchestrationToolsPresent_WritesOrchestrationMcpServer()
+    {
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "## Platform Instructions\nAnalyze thoroughly.",
+            mcpToken: "gemini-secret-token")
+            with
+        {
+            OrchestrationTools = CreateOrchestrationTools()
+        };
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        using var settings = ParseGeminiSettings(prep);
+        var server = settings.RootElement
+            .GetProperty("mcpServers")
+            .GetProperty("spring-orchestration");
+
+        server.GetProperty("httpUrl").GetString()
+            .ShouldBe(prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackUrlEnvVar]);
+        server.GetProperty("headers").GetProperty("Authorization").GetString()
+            .ShouldBe($"Bearer {prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}");
+
+        server.GetProperty("includeTools").EnumerateArray().Select(tool => tool.GetString()).ShouldBe(new[]
+        {
+            "list_children",
+            "inspect_child",
+            "delegate_to_child",
+            "fanout_to_children",
+            "query_child_status",
+        });
     }
 
     [Fact]
@@ -144,5 +199,28 @@ public class GeminiLauncherTests
 
         ex.Message.ShouldContain("google-api-key");
         ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
+    }
+
+    private static JsonDocument ParseGeminiSettings(AgentLaunchSpec prep) =>
+        JsonDocument.Parse(prep.WorkspaceFiles[".gemini/settings.json"]);
+
+    private static OrchestrationToolDescriptor[] CreateOrchestrationTools()
+    {
+        var inputSchema = CreateSchema();
+        var outputSchema = CreateSchema();
+        return new[]
+        {
+            new OrchestrationToolDescriptor(OrchestrationToolName.ListChildren, inputSchema, outputSchema),
+            new OrchestrationToolDescriptor(OrchestrationToolName.InspectChild, inputSchema, outputSchema),
+            new OrchestrationToolDescriptor(OrchestrationToolName.DelegateToChild, inputSchema, outputSchema),
+            new OrchestrationToolDescriptor(OrchestrationToolName.FanoutToChildren, inputSchema, outputSchema),
+            new OrchestrationToolDescriptor(OrchestrationToolName.QueryChildStatus, inputSchema, outputSchema),
+        };
+    }
+
+    private static JsonElement CreateSchema()
+    {
+        using var document = JsonDocument.Parse("""{"type":"object"}""");
+        return document.RootElement.Clone();
     }
 }
