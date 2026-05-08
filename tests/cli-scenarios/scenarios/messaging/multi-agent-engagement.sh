@@ -62,10 +62,12 @@ fi
 # retired with #1653.
 declare -A agent_addresses
 for agent in "${agent_a}" "${agent_b}"; do
-    e2e::log "spring agent create ${agent} --unit ${unit}"
-    response="$(e2e::cli_agent_create --output json "${agent}" \
+    # ADR-0039 §8: agent identity is platform-allocated; --name is the only display surface.
+    # Each loop iteration uses a unique --name so the agent's display_name stays distinct.
+    e2e::log "spring agent create --name ${agent} --unit ${unit}"
+    response="$(e2e::cli_agent_create --output json \
         --unit "${unit}" \
-        --name "Multi-agent test agent" \
+        --name "${agent}" \
         --definition "${definition}")"
     code="${response##*$'\n'}"
     body="${response%$'\n'*}"

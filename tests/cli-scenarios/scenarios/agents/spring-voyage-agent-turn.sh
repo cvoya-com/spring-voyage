@@ -65,8 +65,9 @@ fi
 
 
 # #744: agent create requires --unit; the membership is registered atomically.
-e2e::log "spring agent create ${agent} --unit ${unit} (agent=openai, provider=${provider}, model=${model})"
-response="$(e2e::cli_agent_create --output json "${agent}" \
+# ADR-0039 §8: agent identity is platform-allocated; --name is the only display surface.
+e2e::log "spring agent create --name 'Dapr Agent' --unit ${unit} (agent=openai, provider=${provider}, model=${model})"
+response="$(e2e::cli_agent_create --output json \
     --unit "${unit}" \
     --name "Dapr Agent" \
     --definition "${definition}")"

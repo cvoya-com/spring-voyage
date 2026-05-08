@@ -159,7 +159,7 @@ Editable display name, description, model, and color. **CLI note:** no `spring u
 | Action | Portal | CLI |
 |--------|--------|-----|
 | Add agent | **Add agent** → picker + overrides | `spring unit members add <unit> --agent <agent> [--model …] [--specialty …]` |
-| Create + add new agent | **Add agent** → **+ New agent** sub-mode | `spring agent create <id> --name "<name>" --unit <unit>` |
+| Create + add new agent | **Add agent** → **+ New agent** sub-mode | `spring agent create --name "<name>" --unit <unit>` |
 | Edit membership | pencil icon | `spring unit members config <unit> --agent <agent> [--model …]` |
 | Remove membership | trash icon + confirm | `spring unit members remove <unit> --agent <agent>` |
 
@@ -299,7 +299,7 @@ Mirrors `spring agent create` field-for-field. For lightweight "create-and-add t
 | Initial unit assignment | yes | `--unit` (repeatable) |
 
 ```bash
-spring agent create ada \
+spring agent create \
   --name "Ada Lovelace" \
   --role reviewer \
   --unit engineering \

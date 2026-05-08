@@ -56,8 +56,9 @@ else
     definition="{\"execution\":{\"tool\":\"dapr-agent\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
 fi
 
-e2e::log "spring agent create ${agent} --unit ${unit} (tool=dapr-agent)"
-response="$(e2e::cli_agent_create --output json "${agent}" \
+# ADR-0039 §8: agent identity is platform-allocated; --name is the only display surface.
+e2e::log "spring agent create --name 'Multi-turn Agent' --unit ${unit} (tool=dapr-agent)"
+response="$(e2e::cli_agent_create --output json \
     --unit "${unit}" \
     --name "Multi-turn Agent" \
     --definition "${definition}")"

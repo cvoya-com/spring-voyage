@@ -204,8 +204,31 @@ public static class AgentCommand
 
     private static Command CreateCreateCommand(Option<string> outputOption)
     {
-        var idArg = new Argument<string>("id") { Description = "The agent identifier (sent as the server's Name field)" };
-        var nameOption = new Option<string?>("--name") { Description = "Human-readable display name (defaults to id)" };
+        // ADR-0039 §8 / §9: the positional <id> argument is removed from
+        // `spring agent create`. Agent identity is assigned by the platform
+        // (a server-allocated Guid); `--name` is the only display surface.
+        // We keep a hidden zero-or-one positional with a validator so old
+        // scripts that still pass a positional see the migration hint at
+        // parse time rather than a generic "unrecognized argument" error.
+        var legacyPositionalIdArg = new Argument<string?>("id")
+        {
+            Description = "REJECTED — positional <id> is removed (ADR-0039 §8). Use --name.",
+            Arity = ArgumentArity.ZeroOrOne,
+            Hidden = true,
+        };
+        legacyPositionalIdArg.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(LegacyPositionalIdRejectionMessage);
+            }
+        });
+
+        var nameOption = new Option<string?>("--name")
+        {
+            Description = "Human-readable display name. Required — agent identity is assigned by the platform (ADR-0039 §8).",
+            Required = true,
+        };
         var roleOption = new Option<string?>("--role") { Description = "The agent role" };
         // #744: agents must carry ≥1 unit at creation time. --unit is repeatable
         // so operators can assign an agent to multiple units in one call; the
@@ -295,7 +318,7 @@ public static class AgentCommand
         });
 
         var command = new Command("create", "Create a new agent");
-        command.Arguments.Add(idArg);
+        command.Arguments.Add(legacyPositionalIdArg);
         command.Options.Add(nameOption);
         command.Options.Add(roleOption);
         command.Options.Add(unitOption);
@@ -310,8 +333,10 @@ public static class AgentCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
-            var displayName = parseResult.GetValue(nameOption);
+            // ADR-0039 §8: identity is server-allocated. --name is the only
+            // display surface and Required=true above guarantees the parser
+            // already rejected an empty invocation with a clear hint.
+            var displayName = parseResult.GetValue(nameOption)!;
             var role = parseResult.GetValue(roleOption);
             var units = parseResult.GetValue(unitOption) ?? Array.Empty<string>();
             var definitionFile = parseResult.GetValue(definitionFileOption);
@@ -375,7 +400,7 @@ public static class AgentCommand
                 unitIds.Add(unitGuid);
             }
 
-            var result = await client.CreateAgentAsync(id, displayName, role, unitIds, definitionJson, ct);
+            var result = await client.CreateAgentAsync(displayName, role, unitIds, definitionJson, ct);
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
@@ -416,6 +441,24 @@ public static class AgentCommand
         "--container-runtime was removed in ADR-0039. The container runtime is " +
         "platform configuration — the host process picks one runtime at deploy " +
         "time and every agent on that host uses it. See ADR-0039 §7.";
+
+    /// <summary>
+    /// Stderr message used by the parse-time rejection of a positional argument
+    /// passed to <c>spring agent create</c>. Pinned by tests so a future
+    /// rename doesn't slip past CI.
+    /// </summary>
+    /// <remarks>
+    /// ADR-0039 §8 / §9: agent identity is assigned by the platform (a
+    /// server-allocated Guid). The previous positional <c>&lt;id&gt;</c> —
+    /// which was sent as the legacy <c>Name</c> field — is removed.
+    /// <c>--name</c> is the only display surface. The rejection lives on a
+    /// hidden <see cref="ArgumentArity.ZeroOrOne"/> positional so old scripts
+    /// see the migration path before any action runs.
+    /// </remarks>
+    public const string LegacyPositionalIdRejectionMessage =
+        "the agent id positional argument is removed in ADR-0039; agent " +
+        "identity is assigned by the platform. Use --name <display-name> " +
+        "instead. See ADR-0039 §8.";
 
     /// <summary>
     /// Merges the ADR-0038 execution-shorthand flags

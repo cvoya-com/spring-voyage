@@ -113,10 +113,9 @@ public class SpringApiClient
     }
 
     /// <summary>
-    /// Creates a new agent. The CLI's positional <paramref name="id"/> maps to the
-    /// server's <c>Name</c> field (the unique identifier on the wire), while
-    /// <paramref name="displayName"/> maps to <c>DisplayName</c>. Server requires both,
-    /// so when no display name is supplied we fall back to <paramref name="id"/>.
+    /// Creates a new agent. <paramref name="displayName"/> maps to the server's
+    /// <c>DisplayName</c> field; agent identity is assigned by the platform
+    /// (a server-allocated Guid) per ADR-0039 §8.
     /// <paramref name="unitIds"/> carries the mandatory unit memberships (#744) —
     /// the server rejects the request with 400 when the list is empty.
     /// <paramref name="definitionJson"/> is the optional agent-definition JSON document
@@ -125,8 +124,7 @@ public class SpringApiClient
     /// <c>AgentDefinitions.Definition</c> so the dispatcher can honour it.
     /// </summary>
     public async Task<AgentResponse> CreateAgentAsync(
-        string id,
-        string? displayName,
+        string displayName,
         string? role,
         IReadOnlyList<Guid> unitIds,
         string? definitionJson = null,
@@ -134,7 +132,7 @@ public class SpringApiClient
     {
         var request = new CreateAgentRequest
         {
-            DisplayName = string.IsNullOrWhiteSpace(displayName) ? id : displayName,
+            DisplayName = displayName,
             Description = string.Empty,
             Role = role,
             // Kiota models the array element as nullable Guid (the OpenAPI
