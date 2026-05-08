@@ -123,18 +123,21 @@ public class SpringApiClient
     /// (e.g. the execution block that selects <c>tool</c> / <c>image</c> / <c>provider</c>
     /// / <c>model</c>). When non-null the server persists it to
     /// <c>AgentDefinitions.Definition</c> so the dispatcher can honour it.
+    /// <paramref name="description"/> is the optional human-readable description
+    /// persisted on the agent row.
     /// </summary>
     public async Task<AgentResponse> CreateAgentAsync(
         string displayName,
         string? role,
         IReadOnlyList<Guid> unitIds,
         string? definitionJson = null,
+        string? description = null,
         CancellationToken ct = default)
     {
         var request = new CreateAgentRequest
         {
             DisplayName = displayName,
-            Description = string.Empty,
+            Description = description ?? string.Empty,
             Role = role,
             // Kiota models the array element as nullable Guid (the OpenAPI
             // items schema can't express "non-null entries inside a

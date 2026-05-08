@@ -229,6 +229,10 @@ public static class AgentCommand
             Description = "Human-readable display name. Required — agent identity is assigned by the platform (ADR-0039 §8).",
             Required = true,
         };
+        var descriptionOption = new Option<string?>("--description")
+        {
+            Description = "Optional human-readable description for the agent.",
+        };
         var roleOption = new Option<string?>("--role") { Description = "The agent role" };
         // #744: agents must carry ≥1 unit at creation time. --unit is repeatable
         // so operators can assign an agent to multiple units in one call; the
@@ -320,6 +324,7 @@ public static class AgentCommand
         var command = new Command("create", "Create a new agent");
         command.Arguments.Add(legacyPositionalIdArg);
         command.Options.Add(nameOption);
+        command.Options.Add(descriptionOption);
         command.Options.Add(roleOption);
         command.Options.Add(unitOption);
         command.Options.Add(definitionFileOption);
@@ -337,6 +342,7 @@ public static class AgentCommand
             // display surface and Required=true above guarantees the parser
             // already rejected an empty invocation with a clear hint.
             var displayName = parseResult.GetValue(nameOption)!;
+            var description = parseResult.GetValue(descriptionOption);
             var role = parseResult.GetValue(roleOption);
             var units = parseResult.GetValue(unitOption) ?? Array.Empty<string>();
             var definitionFile = parseResult.GetValue(definitionFileOption);
@@ -403,7 +409,7 @@ public static class AgentCommand
             AgentResponse result;
             try
             {
-                result = await client.CreateAgentAsync(displayName, role, unitIds, definitionJson, ct);
+                result = await client.CreateAgentAsync(displayName, role, unitIds, definitionJson, description, ct);
             }
             catch (ApiException ex) when (ex.ResponseStatusCode == 422)
             {
