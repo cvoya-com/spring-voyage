@@ -2148,6 +2148,9 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Unprocessable Entity"
           }
         }
       }
