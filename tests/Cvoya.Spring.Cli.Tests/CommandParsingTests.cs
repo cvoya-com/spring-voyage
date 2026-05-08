@@ -120,6 +120,30 @@ public class CommandParsingTests
     }
 
     [Fact]
+    public void AgentCreate_InheritFlag_ParsesAlongsideExecutionShorthands()
+    {
+        // #1901 / ADR-0039 L5: --inherit is accepted even when execution
+        // shorthands are also supplied. L6 owns the mutual-exclusion
+        // diagnostic, so the parser must stay permissive here.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name ada --unit aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa " +
+            "--inherit --runtime codex --model-provider openai --model gpt-4o " +
+            "--image ghcr.io/example/agent:latest");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<bool>("--inherit").ShouldBeTrue();
+        parseResult.GetValue<string>("--runtime").ShouldBe("codex");
+        parseResult.GetValue<string>("--model-provider").ShouldBe("openai");
+        parseResult.GetValue<string>("--model").ShouldBe("gpt-4o");
+        parseResult.GetValue<string>("--image").ShouldBe("ghcr.io/example/agent:latest");
+    }
+
+    [Fact]
     public void MessageSend_ParsesAddressAndTextArguments()
     {
         var outputOption = CreateOutputOption();

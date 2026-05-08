@@ -303,6 +303,10 @@ public static class AgentCommand
         {
             Description = "Model id (shorthand for execution.model.id; e.g. claude-opus-4-7).",
         };
+        var inheritOption = new Option<bool>("--inherit")
+        {
+            Description = "Omit all execution fields; the agent inherits its runtime, model, image, and hosting from its parent unit(s).",
+        };
 
         // ADR-0038 §7: legacy `--agent` flag is rejected at parse time
         // with a clear hint — the rejection lives in the option's
@@ -334,6 +338,7 @@ public static class AgentCommand
         command.Options.Add(runtimeOption);
         command.Options.Add(modelProviderOption);
         command.Options.Add(modelOption);
+        command.Options.Add(inheritOption);
         command.Options.Add(legacyAgentOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
@@ -351,6 +356,7 @@ public static class AgentCommand
             var runtime = parseResult.GetValue(runtimeOption);
             var modelProvider = parseResult.GetValue(modelProviderOption);
             var model = parseResult.GetValue(modelOption);
+            var inherit = parseResult.GetValue(inheritOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             string? definitionJson = definitionInline;
@@ -369,20 +375,8 @@ public static class AgentCommand
                 definitionJson = await System.IO.File.ReadAllTextAsync(definitionFile, ct);
             }
 
-            // #409 execution-shorthand flags. Merge into the definition
-            // JSON so the single server write covers everything. When the
-            // caller also passed a --definition / --definition-file, the
-            // shorthand flags overlay on top.
-            // ADR-0038 + ADR-0039 §7: the shorthand surface is
-            // (image, runtime, model-provider, model). `containerRuntime`
-            // was removed in ADR-0039 — see LegacyContainerRuntimeFlagRejectionMessage.
-            if (!string.IsNullOrWhiteSpace(image)
-                || !string.IsNullOrWhiteSpace(runtime) || !string.IsNullOrWhiteSpace(modelProvider)
-                || !string.IsNullOrWhiteSpace(model))
-            {
-                definitionJson = MergeExecutionShorthand(
-                    definitionJson, image, runtime, modelProvider, model);
-            }
+            definitionJson = ApplyCreateExecutionShorthand(
+                definitionJson, inherit, image, runtime, modelProvider, model);
 
             var client = ClientFactory.Create();
 
@@ -559,6 +553,45 @@ public static class AgentCommand
         payload["execution"] = exec;
 
         return System.Text.Json.JsonSerializer.Serialize(payload);
+    }
+
+    /// <summary>
+    /// Applies the create-time execution shorthand flags unless <c>--inherit</c>
+    /// requested a pure parent-inheritance create request.
+    /// </summary>
+    internal static string? ApplyCreateExecutionShorthand(
+        string? definitionJson,
+        bool inherit,
+        string? image,
+        string? runtime,
+        string? modelProvider,
+        string? model)
+    {
+        // #1901 / ADR-0039 L5: --inherit is intentionally permissive in this
+        // PR. If callers also pass shorthand flags, skip the merge and let the
+        // request carry the original definition JSON (or null). Mutual-
+        // exclusion diagnostics land in L6.
+        if (inherit)
+        {
+            return definitionJson;
+        }
+
+        // #409 execution-shorthand flags. Merge into the definition JSON so
+        // the single server write covers everything. When the caller also
+        // passed a --definition / --definition-file, the shorthand flags
+        // overlay on top.
+        // ADR-0038 + ADR-0039 §7: the shorthand surface is (image, runtime,
+        // model-provider, model). `containerRuntime` was removed in ADR-0039
+        // — see LegacyContainerRuntimeFlagRejectionMessage.
+        if (!string.IsNullOrWhiteSpace(image)
+            || !string.IsNullOrWhiteSpace(runtime) || !string.IsNullOrWhiteSpace(modelProvider)
+            || !string.IsNullOrWhiteSpace(model))
+        {
+            return MergeExecutionShorthand(
+                definitionJson, image, runtime, modelProvider, model);
+        }
+
+        return definitionJson;
     }
 
     // #1629 PR6 — show columns. `show` is the read-on-name verb: it
