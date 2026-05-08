@@ -391,6 +391,45 @@ public class SpringApiClientTests
         handler.WasCalled.ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task AssignUnitAgentAsync_422Conflict_PreservesStructuredBody()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/units/eng-team/agents/ada",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                """
+                {
+                  "error": "MultiParentInheritanceConflict",
+                  "conflictingFields": {
+                    "runtime": [
+                      { "source": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "value": "claude-code" },
+                      { "source": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "value": "spring-voyage" }
+                    ]
+                  }
+                }
+                """,
+            returnStatusCode: HttpStatusCode.UnprocessableEntity);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var ex = await Should.ThrowAsync<Cvoya.Spring.Cli.Generated.Models.ProblemDetails>(
+            () => client.AssignUnitAgentAsync("eng-team", "ada", TestContext.Current.CancellationToken));
+
+        ex.ResponseStatusCode.ShouldBe(422);
+        Cvoya.Spring.Cli.ErrorHandling.MultiParentInheritanceConflictFormatter
+            .TryParse(ex, out var conflict)
+            .ShouldBeTrue();
+        Cvoya.Spring.Cli.ErrorHandling.MultiParentInheritanceConflictFormatter
+            .FormatLines(conflict)
+            .ShouldBe(new[]
+            {
+                "runtime: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=claude-code, bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb=spring-voyage",
+            });
+        handler.WasCalled.ShouldBeTrue();
+    }
+
     // --- #376: QueryActivityAsync -------------------------------------------
 
     [Fact]
