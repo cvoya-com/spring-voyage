@@ -75,6 +75,8 @@ internal static class ServiceCollectionExtensionsOrchestration
         // TryAdd keeps the override hook open for hosts that need a decorated
         // or tenant-scoped provider.
         services.TryAddSingleton<IOrchestrationToolProvider, DirectoryOrchestrationToolProvider>();
+        services.TryAddSingleton<OrchestrationDepthCounter>();
+        services.TryAddSingleton<OrchestrationToolHandlers>();
 
         // ADR-0039 C1: runtime-invocation pipeline extracted from
         // AgentActor's activate-and-dispatch closure. Singleton: stateless
