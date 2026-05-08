@@ -10,6 +10,8 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // Orchestration strategy was stored in unit_definitions.definition
+            // JSON, not in a dedicated EF-managed table.
             migrationBuilder.Sql(
                 """
                 ALTER TABLE IF EXISTS spring.unit_policies
@@ -20,8 +22,7 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            // The orchestration strategy setting was stored in
-            // unit_definitions.definition JSON, not in a dedicated EF table.
+            // No orchestration-strategy DDL to reverse; see Up comment.
             migrationBuilder.Sql(
                 """
                 ALTER TABLE IF EXISTS spring.unit_policies
