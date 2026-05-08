@@ -59,6 +59,19 @@ export interface AgentCreateFormInput {
    */
   model?: { provider: string; id: string };
   /**
+   * ADR-0039 agent-owned hosting mode (`execution.hosting`). One of:
+   *
+   * - `'ephemeral'` — the agent process exits after each turn.
+   * - `'persistent'` — the agent process is long-lived.
+   * - `null` — inherit from the parent unit at dispatch time. The field
+   *   is omitted entirely from the serialised JSON in this case (no
+   *   `"hosting": null` lands on disk).
+   *
+   * Distinct from `undefined` only at the type level; both are treated
+   * as "not supplied" and produce no `execution.hosting` key.
+   */
+  hosting?: "ephemeral" | "persistent" | null;
+  /**
    * Initial unit assignments. Server requires ≥1 (#744). Both portal
    * surfaces enforce this client-side so we never POST a request the
    * server is guaranteed to reject.
@@ -111,22 +124,29 @@ export function describeAgentCreateError(
  * shorthands. Returns `null` when no shorthand was supplied — letting
  * the caller omit `definitionJson` from the wire body so the request
  * looks identical to a CLI `spring agent create` with no `--image /
- * --runtime / --tool / --model-provider / --model` flags. The shape
- * mirrors the CLI's `MergeExecutionShorthand` (`AgentCommand.cs`) so
- * the on-disk `AgentDefinitions.Definition` blob is byte-for-byte the
- * same whether the agent was created from the portal or from the CLI.
+ * --runtime / --tool / --model-provider / --model / --hosting` flags.
+ * The shape mirrors the CLI's `MergeExecutionShorthand`
+ * (`AgentCommand.cs`) so the on-disk `AgentDefinitions.Definition`
+ * blob is byte-for-byte the same whether the agent was created from
+ * the portal or from the CLI.
  *
  * ADR-0038: `model` is the structured `{ provider, id }` pair and lands
  * under `execution.model` as an object. A model with both halves blank
  * is treated as "not supplied" and is omitted entirely; supplying only
  * one half emits just that field on the nested object so partial input
  * still round-trips through `MergeExecutionShorthand`.
+ *
+ * ADR-0039 (I2): `hosting` is the agent-owned hosting mode. `null`
+ * (or `undefined`) means "inherit from parent" and the field is
+ * omitted from the serialised JSON entirely; `'ephemeral'` and
+ * `'persistent'` land verbatim under `execution.hosting`.
  */
 export function buildAgentDefinitionJson(input: {
   image?: string;
   runtime?: string;
   tool?: string;
   model?: { provider: string; id: string };
+  hosting?: "ephemeral" | "persistent" | null;
 }): string | null {
   const exec: Record<string, string | { provider?: string; id?: string }> = {};
   const image = input.image?.trim();
@@ -142,6 +162,9 @@ export function buildAgentDefinitionJson(input: {
     if (provider) model.provider = provider;
     if (modelId) model.id = modelId;
     exec.model = model;
+  }
+  if (input.hosting === "ephemeral" || input.hosting === "persistent") {
+    exec.hosting = input.hosting;
   }
   if (Object.keys(exec).length === 0) return null;
   return JSON.stringify({ execution: exec });
@@ -172,6 +195,7 @@ export function buildCreateAgentRequest(
     runtime: input.runtime,
     tool: input.tool,
     model: input.model,
+    hosting: input.hosting,
   });
 
   const body: CreateAgentRequest = {

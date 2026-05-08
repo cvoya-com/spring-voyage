@@ -122,6 +122,59 @@ describe("create-agent helper (#1040)", () => {
         },
       });
     });
+
+    it("emits execution.hosting === 'ephemeral' when hosting is 'ephemeral' (ADR-0039 I2)", () => {
+      const json = buildAgentDefinitionJson({ hosting: "ephemeral" });
+      const parsed = JSON.parse(json as string);
+      expect(parsed.execution.hosting).toBe("ephemeral");
+    });
+
+    it("emits execution.hosting === 'persistent' when hosting is 'persistent' (ADR-0039 I2)", () => {
+      const json = buildAgentDefinitionJson({ hosting: "persistent" });
+      const parsed = JSON.parse(json as string);
+      expect(parsed.execution.hosting).toBe("persistent");
+    });
+
+    it("omits hosting from the serialised JSON when hosting is null — inherit from parent (ADR-0039 I2)", () => {
+      // Combine with another field so the function returns a non-null
+      // document; we want to verify the *absence* of the hosting key on
+      // an otherwise-populated execution block.
+      const json = buildAgentDefinitionJson({
+        tool: "claude-code",
+        hosting: null,
+      });
+      const parsed = JSON.parse(json as string);
+      expect("hosting" in parsed.execution).toBe(false);
+    });
+
+    it("omits hosting from the serialised JSON when hosting is undefined", () => {
+      const json = buildAgentDefinitionJson({ tool: "claude-code" });
+      const parsed = JSON.parse(json as string);
+      expect("hosting" in parsed.execution).toBe(false);
+    });
+
+    it("returns null when only hosting is null and no other field was supplied", () => {
+      expect(buildAgentDefinitionJson({ hosting: null })).toBeNull();
+    });
+
+    it("packs hosting alongside other execution fields", () => {
+      const json = buildAgentDefinitionJson({
+        image: "ghcr.io/example:latest",
+        runtime: "docker",
+        tool: "claude-code",
+        model: { provider: "anthropic", id: "claude-sonnet-4-6" },
+        hosting: "persistent",
+      });
+      expect(JSON.parse(json as string)).toEqual({
+        execution: {
+          image: "ghcr.io/example:latest",
+          runtime: "docker",
+          tool: "claude-code",
+          model: { provider: "anthropic", id: "claude-sonnet-4-6" },
+          hosting: "persistent",
+        },
+      });
+    });
   });
 
   describe("buildCreateAgentRequest", () => {
@@ -164,6 +217,35 @@ describe("create-agent helper (#1040)", () => {
             model: { provider: "anthropic", id: "claude-sonnet-4-6" },
           },
         }),
+      );
+    });
+
+    it("forwards hosting into definitionJson when supplied (ADR-0039 I2)", () => {
+      const body = buildCreateAgentRequest({
+        displayName: "Ada",
+        unitIds: ["engineering"],
+        tool: "claude-code",
+        hosting: "ephemeral",
+      });
+      expect(body.definitionJson).toBe(
+        JSON.stringify({
+          execution: {
+            tool: "claude-code",
+            hosting: "ephemeral",
+          },
+        }),
+      );
+    });
+
+    it("omits hosting from definitionJson when hosting is null (inherit) but other fields are set", () => {
+      const body = buildCreateAgentRequest({
+        displayName: "Ada",
+        unitIds: ["engineering"],
+        tool: "claude-code",
+        hosting: null,
+      });
+      expect(body.definitionJson).toBe(
+        JSON.stringify({ execution: { tool: "claude-code" } }),
       );
     });
 
