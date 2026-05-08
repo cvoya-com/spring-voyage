@@ -1,7 +1,5 @@
 import type { Page } from "@playwright/test";
 
-import { AGENT_ID } from "../fixtures/runtime.js";
-
 /**
  * Drive `/agents/create` — see `src/Cvoya.Spring.Web/src/app/agents/create/page.tsx`.
  *
@@ -15,8 +13,8 @@ export interface AgentCreateOptions {
   role?: string;
   /** Names of units to assign at creation. The first becomes the derived primary. */
   unitNames: string[];
-  /** Override the pinned execution tool (rare). */
-  tool?: string;
+  /** Override the inherited agent runtime (rare). */
+  runtime?: string;
   /** Optional model id. Inherits from unit when omitted. */
   model?: string;
 }
@@ -31,7 +29,9 @@ export async function createAgent(page: Page, opts: AgentCreateOptions): Promise
     await page.getByLabel("Role").fill(opts.role);
   }
 
-  await page.getByLabel("Execution tool").selectOption(opts.tool ?? AGENT_ID);
+  if (opts.runtime) {
+    await page.getByLabel("Agent runtime").selectOption(opts.runtime);
+  }
 
   if (opts.model) {
     // Optional — the dropdown can be empty depending on the runtime catalog.
