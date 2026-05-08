@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -409,5 +410,150 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.DirectoryService
             .ListAllAsync(Arg.Any<CancellationToken>())
             .Returns(entries);
+    }
+
+    // -------------------------------------------------------------------
+    // ADR-0039 §6 / plan task B1: multi-parent inheritance conflict on
+    // POST /api/v1/tenant/agents. The endpoint resolves the agent's own
+    // execution config against each parent unit's persisted defaults
+    // (via IUnitExecutionStore + IExecutionConfigInheritanceResolver).
+    // When any inherited field diverges across parents, the create is
+    // rejected with the structured 422 documented in the ADR — the body
+    // names the diverging field and lists each parent's contributed
+    // value so the operator can either trim the parent set or set the
+    // field explicitly on the agent.
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task CreateAgent_MultiParentDivergingRuntime_Returns422WithStructuredBody()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+
+        // Two parent units that disagree on the inherited `runtime` slot.
+        // The resolver short-circuits before any directory write, so we
+        // never reach the agent register / membership upsert path.
+        var unitDocker = new Guid("ee1ee111-0000-0000-0000-000000000010");
+        var unitPodman = new Guid("ee1ee111-0000-0000-0000-000000000011");
+
+        ArrangeUnitEntry("docker-fleet", unitDocker);
+        ArrangeUnitEntry("podman-fleet", unitPodman);
+        ArrangeAgentActorProxy();
+        _factory.DirectoryService.ClearReceivedCalls();
+
+        // Stub the per-unit execution defaults the resolver consults. The
+        // CONVENTIONS.md identifier rule requires the canonical no-dash
+        // hex form on the wire-side, which is the form the resolver passes
+        // to IUnitExecutionStore.GetAsync.
+        _factory.UnitExecutionStore
+            .GetAsync(unitDocker.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Runtime: "docker")));
+        _factory.UnitExecutionStore
+            .GetAsync(unitPodman.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Runtime: "podman")));
+
+        var request = new CreateAgentRequest(
+            "Conflicted Agent",
+            "Inherits a diverging runtime",
+            "frontend",
+            UnitIds: new[] { unitDocker, unitPodman });
+
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
+
+        // 422 Unprocessable Entity per ADR-0039 §6 / plan B1 acceptance.
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+
+        // The 422 body extends the problem-details shape with the
+        // platform-specific `error` discriminator and `conflictingFields`
+        // map. Parse as JsonDocument so the test asserts the wire shape
+        // verbatim (no DTO indirection).
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var root = document.RootElement;
+
+        root.GetProperty("error").GetString().ShouldBe("MultiParentInheritanceConflict");
+        root.TryGetProperty("conflictingFields", out var fields).ShouldBeTrue();
+        fields.TryGetProperty("runtime", out var runtimeArray).ShouldBeTrue();
+        runtimeArray.ValueKind.ShouldBe(JsonValueKind.Array);
+
+        var runtimeValues = runtimeArray
+            .EnumerateArray()
+            .Select(e => (
+                UnitId: e.GetProperty("unitId").GetString(),
+                Value: e.GetProperty("value").GetString()))
+            .ToList();
+        runtimeValues.Count.ShouldBe(2);
+        runtimeValues.ShouldContain(p =>
+            p.UnitId == unitDocker.ToString("N") && p.Value == "docker");
+        runtimeValues.ShouldContain(p =>
+            p.UnitId == unitPodman.ToString("N") && p.Value == "podman");
+
+        // Conflict short-circuits before any side effect: nothing was
+        // registered in the directory and no membership rows were written.
+        await _factory.DirectoryService.DidNotReceive().RegisterAsync(
+            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "agent"),
+            Arg.Any<CancellationToken>());
+        using var scope = _factory.Services.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
+        var dockerMembers = await repo.ListByUnitAsync(unitDocker, ct);
+        dockerMembers.ShouldBeEmpty();
+        var podmanMembers = await repo.ListByUnitAsync(unitPodman, ct);
+        podmanMembers.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CreateAgent_MultiParentDivergingRuntime_AgentSetsItExplicitly_Returns201()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+
+        var unitDocker = new Guid("ee1ee111-0000-0000-0000-000000000020");
+        var unitPodman = new Guid("ee1ee111-0000-0000-0000-000000000021");
+
+        ArrangeUnitEntry("docker-fleet", unitDocker);
+        ArrangeUnitEntry("podman-fleet", unitPodman);
+        ArrangeAgentActorProxy();
+        _factory.DirectoryService.ClearReceivedCalls();
+
+        _factory.UnitExecutionStore
+            .GetAsync(unitDocker.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Runtime: "docker")));
+        _factory.UnitExecutionStore
+            .GetAsync(unitPodman.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Runtime: "podman")));
+
+        // Per ADR-0039 §6 rule 1 ("an explicit value on the agent always
+        // wins"), declaring `execution.runtime` on the agent's own block
+        // turns the slot into "agent-decided". The resolver no longer
+        // reports a conflict on that field — the create succeeds.
+        var definitionJson = """
+            {
+              "execution": {
+                "runtime": "docker"
+              }
+            }
+            """;
+
+        var request = new CreateAgentRequest(
+            "Resolved Agent",
+            "Pins runtime explicitly",
+            "frontend",
+            UnitIds: new[] { unitDocker, unitPodman },
+            DefinitionJson: definitionJson);
+
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.Headers.Location!.ToString().ShouldContain("/api/v1/tenant/agents/");
+
+        await _factory.DirectoryService.Received(1).RegisterAsync(
+            Arg.Is<DirectoryEntry>(e =>
+                e.Address.Scheme == "agent" &&
+                e.DisplayName == "Resolved Agent"),
+            Arg.Any<CancellationToken>());
     }
 }
