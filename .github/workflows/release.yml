@@ -97,10 +97,12 @@ jobs:
             is_prerelease="true"
           fi
 
-          echo "tag=$release_tag"             >> "$GITHUB_OUTPUT"
-          echo "version=$release_version"     >> "$GITHUB_OUTPUT"
-          echo "major_minor=$major_minor"     >> "$GITHUB_OUTPUT"
-          echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$release_tag"
+            echo "version=$release_version"
+            echo "major_minor=$major_minor"
+            echo "is_prerelease=$is_prerelease"
+          } >> "$GITHUB_OUTPUT"
 
           echo "Resolved: tag=$release_tag version=$release_version major_minor=$major_minor is_prerelease=$is_prerelease"
 
