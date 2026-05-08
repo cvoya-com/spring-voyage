@@ -545,12 +545,14 @@ The canonical "N rules across M dimensions" chrome used inside `Config` tab sect
 
 Editors that resolve a blank value to a parent default at save time carry a reusable indicator shape:
 
-- **Italic grey placeholder** on the field — `placeholder="inherited from unit: …"` plus `italic text-muted-foreground placeholder:italic`.
-- **Help copy below** duplicates the value with `inherited from unit:` prefix and carries `data-testid="inherit-indicator"` for tests.
-- **No visual lock** — the control stays editable. Leaving blank on save persists `null`; the backend resolves the parent default at runtime.
+- **Italic grey placeholder** on the field — `placeholder="inherited from <source>: …"` plus `italic text-muted-foreground placeholder:italic`. The `<source>` is the unit display name when one parent is selected, or `tenant defaults` when the agent is top-level.
+- **Help copy below** duplicates the value with `inherited from <source>:` prefix and carries `data-testid="inherit-indicator"` for tests.
+- **No visual lock** — the control stays editable. Leaving blank on save persists `null`; the backend resolves the parent default at runtime. A small `Use inherited value` ghost button appears next to the field label when the operator has typed an explicit value, so reverting to inherit-mode is a one-click undo rather than a manual erase.
 - **A11y** — placeholder is decorative (intentionally low-contrast); the help copy carries the real text so assistive tech never depends on the placeholder.
 
 The card header carries an `Inherits` outline badge when no own declarations exist, flipping to a solid `Configured` badge once any override is persisted.
+
+**Surfaces using this pattern.** The unit-side `<AgentExecutionPanel>` (`src/components/agents/tab-impls/execution-panel.tsx`); the create-agent form's Execution card (`src/components/agents/create-form.tsx`, ADR-0039 I4) which applies it to all five execution-block fields — `runtime`, `model.provider`, `model.id`, `image`, `hosting`.
 
 ### 12.7 Thread error events — inline dispatch-failure rendering (#1161)
 

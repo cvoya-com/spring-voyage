@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,6 +19,7 @@ import { api } from "@/lib/api/client";
 import {
   useModelProviderModels,
   useModelProviders,
+  useUnitExecution,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import { AGENT_NAME_PATTERN } from "@/lib/agents/create-agent";
@@ -27,10 +29,12 @@ import {
 } from "@/app/agents/create/build-agent-package";
 import {
   DEFAULT_RUNTIME_ID,
+  HOSTING_MODES,
   RUNTIMES,
   RUNTIME_LIST,
   getAllowedProviders,
   getFixedProvider,
+  type HostingMode,
   type RuntimeId,
 } from "@/lib/ai-models";
 import type { UnitResponse } from "@/lib/api/types";
@@ -44,19 +48,35 @@ import type { UnitResponse } from "@/lib/api/types";
  * AgentPackage shape (`build-agent-package.ts`) so the runtime / model /
  * image fields land on disk byte-for-byte the same as a CLI
  * `spring agent create`.
+ *
+ * Per ADR-0039 I4 / DESIGN.md §12.6, every execution-block field is
+ * **inheritable**: an empty string means "inherit from parent unit (or
+ * tenant defaults)" — the backend resolves the actual value at dispatch
+ * time. The form surfaces the inherited value via an italic placeholder
+ * + help-copy with `data-testid="inherit-indicator"`.
  */
 interface FormState {
   id: string;
   displayName: string;
   role: string;
   description: string;
-  /** ADR-0038 agent runtime id (`ai.runtime`). */
-  runtime: RuntimeId;
-  /** ADR-0038 model provider id (`ai.model.provider`). */
+  /**
+   * ADR-0038 agent runtime id (`ai.runtime`). Empty string means inherit
+   * from the selected unit (or tenant default — `claude-code`).
+   */
+  runtime: RuntimeId | "";
+  /**
+   * ADR-0038 model provider id (`ai.model.provider`). Empty string means
+   * inherit. Fixed-provider runtimes snap this to the runtime's fixed
+   * provider when the operator picks an explicit runtime.
+   */
   modelProviderId: string;
   /** ADR-0038 model id within the provider's catalogue (`ai.model.id`). */
   modelId: string;
+  /** Container image (`execution.image`). Empty string means inherit. */
   image: string;
+  /** Hosting mode (`execution.hosting`). Empty string means inherit. */
+  hosting: HostingMode | "";
   unitIds: string[];
 }
 
@@ -158,13 +178,15 @@ export function AgentCreateForm({
       displayName: "",
       role: "",
       description: "",
-      // ADR-0038: default to claude-code (the runtime catalogue's reference
-      // entry). Fixed-provider runtimes seed `modelProviderId` from the
-      // catalogue; multi-provider ones leave it for the operator to pick.
-      runtime: DEFAULT_RUNTIME_ID,
-      modelProviderId: getFixedProvider(DEFAULT_RUNTIME_ID) ?? "",
+      // ADR-0039 I4 / DESIGN.md §12.6: default every execution field to
+      // inherit-mode (empty). The placeholder + help-copy below the
+      // field shows the resolved parent value so the operator sees what
+      // they will inherit; an explicit pick overrides it.
+      runtime: "",
+      modelProviderId: "",
       modelId: "",
       image: "",
+      hosting: "",
       unitIds: [...initialUnitIds],
     }),
     [initialUnitIds],
@@ -201,42 +223,51 @@ export function AgentCreateForm({
     [providersQuery.data],
   );
 
+  // ADR-0039 I4: when `form.runtime === ""` the operator wants to inherit;
+  // gating logic for the provider/model dropdowns still needs to resolve
+  // against *some* runtime. Use the inherited (or platform default)
+  // runtime as the effective key for those decisions.
+  const inheritedRuntimeFallback: RuntimeId = DEFAULT_RUNTIME_ID;
+  const effectiveRuntime: RuntimeId =
+    (form.runtime || inheritedRuntimeFallback) as RuntimeId;
+
   // ADR-0038 §1: the runtime descriptor decides whether the provider
   // is fixed or operator-picked.
-  const runtimeDescriptor = RUNTIMES[form.runtime];
-  const fixedProviderId = getFixedProvider(form.runtime);
+  const runtimeDescriptor = RUNTIMES[effectiveRuntime];
+  const fixedProviderId = getFixedProvider(effectiveRuntime);
   const pickerProviders = useMemo(() => {
     if (runtimeDescriptor.isProviderFixed) return [];
-    const allowed = getAllowedProviders(form.runtime) ?? [];
+    const allowed = getAllowedProviders(effectiveRuntime) ?? [];
     return providers.filter((p) =>
       (allowed as readonly string[]).includes(p.id),
     );
-  }, [providers, form.runtime, runtimeDescriptor.isProviderFixed]);
+  }, [providers, effectiveRuntime, runtimeDescriptor.isProviderFixed]);
 
-  // ADR-0038: snap modelProviderId to the runtime's fixed provider when
-  // the runtime fixes one; for multi-provider runtimes default to the
-  // first installed entry that matches the allow-list. Mirrors the
-  // unit-create wizard so both flows preselect the picker on the first
-  // render where at least one allowed provider is present.
-  const effectiveProviderId = useMemo(() => {
-    if (fixedProviderId !== null) return fixedProviderId;
-    if (form.modelProviderId !== "") return form.modelProviderId;
-    return pickerProviders.length > 0 ? pickerProviders[0].id : "";
-  }, [fixedProviderId, form.modelProviderId, pickerProviders]);
-  if (effectiveProviderId !== form.modelProviderId) {
+  // ADR-0038: when the operator has *explicitly* picked a runtime that
+  // fixes its provider, snap `modelProviderId` to the runtime's fixed
+  // provider so the wire shape matches. When the runtime is in inherit
+  // mode (`form.runtime === ""`) we leave modelProviderId untouched so
+  // its own inherit affordance renders.
+  if (
+    form.runtime !== "" &&
+    fixedProviderId !== null &&
+    form.modelProviderId !== fixedProviderId
+  ) {
     setForm((prev) =>
-      prev.modelProviderId === effectiveProviderId
+      prev.modelProviderId === fixedProviderId
         ? prev
-        : { ...prev, modelProviderId: effectiveProviderId },
+        : { ...prev, modelProviderId: fixedProviderId },
     );
   }
 
   // ADR-0038: runtime-aware banner — replaces the generic "no providers
   // installed" fallback with a message that names the provider(s) the
   // *currently selected* runtime actually needs. Skip when the catalog
-  // is still loading or when the runtime is the deferred `custom` slot.
+  // is still loading, when the runtime is the deferred `custom` slot,
+  // or when the operator left runtime in inherit mode (no explicit
+  // pick — the unit's resolved value is what matters at dispatch).
   const runtimeProviderIssue = useMemo<string | null>(() => {
-    if (form.runtime === "custom") return null;
+    if (form.runtime === "" || form.runtime === "custom") return null;
     if (providersQuery.isPending) return null;
     if (providersQuery.isError) {
       return "Could not load the model-provider catalogue.";
@@ -266,10 +297,103 @@ export function AgentCreateForm({
     providersQuery.isError,
   ]);
 
+  // Effective provider for the model catalogue lookup. When the runtime
+  // is in inherit mode we still want the model dropdown to populate so
+  // the operator can override the model alone; pick the inherited (or
+  // first installed) provider as the lookup target.
+  const effectiveProviderId = useMemo<string>(() => {
+    if (form.modelProviderId !== "") return form.modelProviderId;
+    if (fixedProviderId !== null) return fixedProviderId;
+    return pickerProviders.length > 0 ? pickerProviders[0].id : "";
+  }, [form.modelProviderId, fixedProviderId, pickerProviders]);
+
   const activeProviderId = effectiveProviderId.trim().toLowerCase();
   const modelsQuery = useModelProviderModels(activeProviderId, {
     enabled: Boolean(activeProviderId),
   });
+
+  // ── Inherit-from-parent context (ADR-0039 I4) ──────────────────────────
+  //
+  // The "inherited value" we surface in the per-field placeholder + help
+  // copy depends on the selected unit set:
+  //   * 0 units → tenant defaults; we don't have a tenant-defaults endpoint
+  //     yet so fall back to platform defaults (claude-code, etc.) and
+  //     name the parent "tenant defaults".
+  //   * 1 unit → that unit's own resolved execution block.
+  //   * >1 units → DESIGN.md §12.6 validation work (multi-parent conflict)
+  //     is a separate task; for I4 we surface the first selected unit
+  //     and rely on backend validation to reject conflicting parents at
+  //     install time.
+  //
+  // We load `useUnitExecution` for the first selected unit so the values
+  // surface as soon as the operator ticks a unit checkbox.
+  const selectedUnitName = form.unitIds[0] ?? null;
+  const selectedUnit = useMemo(
+    () =>
+      (unitsQuery.data ?? []).find((u) => u.name === selectedUnitName) ?? null,
+    [unitsQuery.data, selectedUnitName],
+  );
+  const selectedUnitExecutionQuery = useUnitExecution(
+    selectedUnitName ?? "",
+    { enabled: Boolean(selectedUnitName) },
+  );
+
+  /** Display name for the inherit-source — unit name, or "tenant defaults". */
+  const inheritSourceLabel: string =
+    selectedUnit?.displayName?.trim() ||
+    selectedUnit?.name ||
+    "tenant defaults";
+
+  /**
+   * Resolve the inherited value for one execution slot. Returns `null`
+   * when there is nothing to surface (the platform-side default is not
+   * known on the client) so the caller can fall back to a generic copy.
+   */
+  const inheritedValue = useCallback(
+    (slot: "runtime" | "modelProvider" | "modelId" | "image" | "hosting"): string | null => {
+      const unitDefaults = selectedUnitExecutionQuery.data ?? null;
+      // 1-unit case: use the unit's own /execution row.
+      if (selectedUnitName) {
+        switch (slot) {
+          case "runtime":
+            return unitDefaults?.runtime ?? DEFAULT_RUNTIME_ID;
+          case "modelProvider":
+            return (
+              unitDefaults?.model?.provider ??
+              getFixedProvider(DEFAULT_RUNTIME_ID)
+            );
+          case "modelId":
+            return unitDefaults?.model?.id ?? null;
+          case "image":
+            return unitDefaults?.image ?? null;
+          case "hosting":
+            // UnitExecutionResponse does not carry a hosting slot —
+            // hosting is agent-exclusive. Inherit from the platform
+            // default at dispatch time.
+            return null;
+          default:
+            return null;
+        }
+      }
+      // 0-unit case: tenant defaults. No tenant-defaults endpoint yet
+      // (#TBD); fall back to the platform defaults the dispatcher uses.
+      switch (slot) {
+        case "runtime":
+          return DEFAULT_RUNTIME_ID;
+        case "modelProvider":
+          return getFixedProvider(DEFAULT_RUNTIME_ID);
+        case "modelId":
+          return null;
+        case "image":
+          return null;
+        case "hosting":
+          return null;
+        default:
+          return null;
+      }
+    },
+    [selectedUnitName, selectedUnitExecutionQuery.data],
+  );
 
   const modelOptions = useMemo(() => {
     if (activeProviderId) {
@@ -372,18 +496,26 @@ export function AgentCreateForm({
     let installId: string;
     let alreadyActive = false;
     try {
+      // ADR-0039 I4: blank fields submit as undefined so the backend
+      // resolves the parent unit's value (or tenant default) at dispatch.
+      // When the operator picked a fixed-provider runtime explicitly,
+      // snap modelProvider to the runtime's fixed value.
+      const submittedProvider =
+        form.runtime !== "" && fixedProviderId !== null
+          ? fixedProviderId
+          : form.modelProviderId;
       const yamlInput: AgentPackageFormState = {
         id: agentId,
         displayName: form.displayName.trim(),
         role: form.role.trim() || undefined,
         description: form.description.trim() || undefined,
         image: form.image.trim() || undefined,
+        hosting: form.hosting || undefined,
         // ADR-0038: emit `ai.runtime` + structured
         // `ai.model: {provider, id}`. The legacy `ai.agent` /
         // `ai.tool` shape is rejected by the manifest parser.
         runtime: form.runtime || undefined,
-        modelProvider:
-          (fixedProviderId ?? form.modelProviderId).trim() || undefined,
+        modelProvider: submittedProvider.trim() || undefined,
         modelId: form.modelId.trim() || undefined,
         unitIds,
       };
@@ -581,6 +713,15 @@ export function AgentCreateForm({
     install.phase === "polling" ||
     install.phase === "memberships";
 
+  // ADR-0039 I4 — flips the Execution card header badge between
+  // `Inherits` (everything blank) and `Configured` (any explicit pick).
+  const executionHasOverride =
+    form.runtime !== "" ||
+    form.modelProviderId !== "" ||
+    form.modelId !== "" ||
+    form.image !== "" ||
+    form.hosting !== "";
+
   const phaseLabel: Record<SubmitPhase, string> = {
     idle: "Create agent",
     installing: "Installing…",
@@ -660,9 +801,34 @@ export function AgentCreateForm({
       </Card>
 
       {/* ── Execution ─────────────────────────────────────────────── */}
+      {/*
+        ADR-0039 I4 / DESIGN.md §12.6 — every Execution-block field is
+        independently inheritable. When the operator leaves a field blank
+        we surface the inherited value as an italic placeholder + help
+        copy below the field with `data-testid="inherit-indicator"`. An
+        explicit pick toggles the field to "configured"; the per-field
+        Use-inherited-value button reverts.
+      */}
       <Card className="mt-4">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle>Execution</CardTitle>
+          {executionHasOverride ? (
+            <Badge
+              variant="default"
+              className="text-xs font-normal"
+              data-testid="execution-card-badge"
+            >
+              Configured
+            </Badge>
+          ) : (
+            <Badge
+              variant="outline"
+              className="text-xs font-normal"
+              data-testid="execution-card-badge"
+            >
+              Inherits
+            </Badge>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           {runtimeProviderIssue && (
@@ -675,19 +841,43 @@ export function AgentCreateForm({
               <p className="flex-1">{runtimeProviderIssue}</p>
             </div>
           )}
-          <label className="block space-y-1">
-            <span className="text-sm text-muted-foreground">Agent runtime</span>
+
+          {/* Agent runtime — `runtime` field. */}
+          <InheritableField
+            label="Agent runtime"
+            help={
+              <>
+                ADR-0038 launcher key. Mirrors{" "}
+                <code className="font-mono">--runtime</code>.
+              </>
+            }
+            isInherited={form.runtime === ""}
+            inheritSourceLabel={inheritSourceLabel}
+            inheritedValue={inheritedValue("runtime")}
+            onClear={
+              form.runtime !== ""
+                ? () =>
+                    setForm((prev) => ({
+                      ...prev,
+                      runtime: "",
+                      modelId: "",
+                    }))
+                : undefined
+            }
+            disabled={submitting}
+          >
             <select
               value={form.runtime}
               onChange={(e) => {
-                const nextRuntime = e.target.value as RuntimeId;
-                const nextFixed = getFixedProvider(nextRuntime);
+                const nextRuntime = e.target.value as RuntimeId | "";
+                const nextFixed =
+                  nextRuntime === "" ? null : getFixedProvider(nextRuntime);
                 setForm((prev) => ({
                   ...prev,
                   runtime: nextRuntime,
-                  // ADR-0038: snap the provider id when the new runtime
-                  // fixes its provider; keep the operator's choice
-                  // otherwise (the picker re-renders if multi-provider).
+                  // ADR-0038: when the operator picks a fixed-provider
+                  // runtime, snap the provider id; otherwise leave the
+                  // operator's prior choice intact.
                   modelProviderId: nextFixed ?? prev.modelProviderId,
                   modelId: "",
                 }));
@@ -696,23 +886,53 @@ export function AgentCreateForm({
               aria-label="Agent runtime"
               data-testid="agent-create-runtime-select"
               disabled={submitting}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              className={`flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50${
+                form.runtime === ""
+                  ? " italic text-muted-foreground"
+                  : ""
+              }`}
             >
+              <option value="">
+                {inheritedValue("runtime") !== null
+                  ? `inherited from ${inheritSourceLabel}: ${inheritedValue("runtime")}`
+                  : `inherited from ${inheritSourceLabel}`}
+              </option>
               {RUNTIME_LIST.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.displayName}
                 </option>
               ))}
             </select>
-            <span className="block text-xs text-muted-foreground">
-              ADR-0038 launcher key. Mirrors{" "}
-              <code className="font-mono">--runtime</code>.
-            </span>
-          </label>
+          </InheritableField>
 
+          {/* Model provider — only rendered when the *currently selected*
+              runtime is multi-provider. When the runtime itself is
+              inherited, fall back to the platform default's posture so
+              the picker only shows for genuinely multi-provider setups. */}
           {!runtimeDescriptor.isProviderFixed && (
-            <label className="block space-y-1">
-              <span className="text-sm text-muted-foreground">Model provider</span>
+            <InheritableField
+              label="Model provider"
+              help={
+                <>
+                  Mirrors{" "}
+                  <code className="font-mono">--model-provider</code>.
+                </>
+              }
+              isInherited={form.modelProviderId === ""}
+              inheritSourceLabel={inheritSourceLabel}
+              inheritedValue={inheritedValue("modelProvider")}
+              onClear={
+                form.modelProviderId !== ""
+                  ? () =>
+                      setForm((prev) => ({
+                        ...prev,
+                        modelProviderId: "",
+                        modelId: "",
+                      }))
+                  : undefined
+              }
+              disabled={submitting}
+            >
               <select
                 value={form.modelProviderId}
                 onChange={(e) =>
@@ -725,68 +945,154 @@ export function AgentCreateForm({
                 aria-label="Model provider"
                 data-testid="agent-create-model-provider-select"
                 disabled={submitting || pickerProviders.length === 0}
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                className={`flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50${
+                  form.modelProviderId === ""
+                    ? " italic text-muted-foreground"
+                    : ""
+                }`}
               >
-                {pickerProviders.length === 0 ? (
-                  <option value="">(no providers installed)</option>
-                ) : (
-                  pickerProviders.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.displayName}
-                    </option>
-                  ))
-                )}
+                <option value="">
+                  {pickerProviders.length === 0
+                    ? "(no providers installed)"
+                    : inheritedValue("modelProvider") !== null
+                      ? `inherited from ${inheritSourceLabel}: ${inheritedValue("modelProvider")}`
+                      : `inherited from ${inheritSourceLabel}`}
+                </option>
+                {pickerProviders.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.displayName}
+                  </option>
+                ))}
               </select>
-              <span className="block text-xs text-muted-foreground">
-                Mirrors <code className="font-mono">--model-provider</code>.
-              </span>
-            </label>
+            </InheritableField>
           )}
 
-          <label className="block space-y-1">
-            <span className="text-sm text-muted-foreground">
-              Container image (optional)
-            </span>
+          {/* Container image — `image` field. */}
+          <InheritableField
+            label="Container image"
+            help={
+              <>
+                Persisted under{" "}
+                <code className="font-mono">execution.image</code>. Mirrors{" "}
+                <code className="font-mono">--image</code>.
+              </>
+            }
+            isInherited={form.image === ""}
+            inheritSourceLabel={inheritSourceLabel}
+            inheritedValue={inheritedValue("image")}
+            onClear={
+              form.image !== ""
+                ? () => setForm((prev) => ({ ...prev, image: "" }))
+                : undefined
+            }
+            disabled={submitting}
+          >
             <Input
               value={form.image}
               onChange={(e) => update("image", e.target.value)}
-              placeholder="ghcr.io/example/agent:latest"
+              placeholder={
+                inheritedValue("image") !== null
+                  ? `inherited from ${inheritSourceLabel}: ${inheritedValue("image")}`
+                  : `inherited from ${inheritSourceLabel}`
+              }
               aria-label="Container image"
               disabled={submitting}
+              className={
+                form.image === ""
+                  ? "italic text-muted-foreground placeholder:italic placeholder:text-muted-foreground"
+                  : undefined
+              }
             />
-            <span className="block text-xs text-muted-foreground">
-              Persisted under{" "}
-              <code className="font-mono">execution.image</code>. Mirrors{" "}
-              <code className="font-mono">--image</code>.
-            </span>
-          </label>
+          </InheritableField>
 
-          <label className="block space-y-1">
-            <span className="text-sm text-muted-foreground">
-              Model (optional)
-            </span>
+          {/* Model — `model.id` field. */}
+          <InheritableField
+            label="Model"
+            help={
+              modelOptions.length === 0 && !providersQuery.isPending
+                ? "No models available for this provider. The agent will inherit the parent's default model at dispatch."
+                : "Model identifier within the selected provider's catalogue."
+            }
+            isInherited={form.modelId === ""}
+            inheritSourceLabel={inheritSourceLabel}
+            inheritedValue={inheritedValue("modelId")}
+            onClear={
+              form.modelId !== ""
+                ? () => setForm((prev) => ({ ...prev, modelId: "" }))
+                : undefined
+            }
+            disabled={submitting}
+          >
             <select
               value={form.modelId}
               onChange={(e) => update("modelId", e.target.value)}
               aria-label="Model"
               data-testid="agent-create-model-select"
               disabled={submitting || modelOptions.length === 0}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              className={`flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50${
+                form.modelId === ""
+                  ? " italic text-muted-foreground"
+                  : ""
+              }`}
             >
-              <option value="">Inherit from unit / runtime default</option>
+              <option value="">
+                {inheritedValue("modelId") !== null
+                  ? `inherited from ${inheritSourceLabel}: ${inheritedValue("modelId")}`
+                  : `inherited from ${inheritSourceLabel}`}
+              </option>
               {modelOptions.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
                 </option>
               ))}
             </select>
-            {modelOptions.length === 0 && !providersQuery.isPending && (
-              <span className="block text-xs text-muted-foreground">
-                No models available for this provider. The agent will inherit
-                the unit&apos;s default model at dispatch.
-              </span>
-            )}
-          </label>
+          </InheritableField>
+
+          {/* Hosting — `hosting` field. Agent-exclusive (no unit-side
+              counterpart) so the inherited value falls back to platform
+              defaults at dispatch. */}
+          <InheritableField
+            label="Hosting"
+            help="Agent lifecycle — ephemeral launches per-message; persistent runs continuously."
+            isInherited={form.hosting === ""}
+            inheritSourceLabel={inheritSourceLabel}
+            inheritedValue={inheritedValue("hosting")}
+            onClear={
+              form.hosting !== ""
+                ? () => setForm((prev) => ({ ...prev, hosting: "" }))
+                : undefined
+            }
+            disabled={submitting}
+          >
+            <select
+              value={form.hosting}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  hosting: e.target.value as HostingMode | "",
+                }))
+              }
+              aria-label="Hosting mode"
+              data-testid="agent-create-hosting-select"
+              disabled={submitting}
+              className={`flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50${
+                form.hosting === ""
+                  ? " italic text-muted-foreground"
+                  : ""
+              }`}
+            >
+              <option value="">
+                {inheritedValue("hosting") !== null
+                  ? `inherited from ${inheritSourceLabel}: ${inheritedValue("hosting")}`
+                  : `inherited from ${inheritSourceLabel}`}
+              </option>
+              {HOSTING_MODES.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </InheritableField>
         </CardContent>
       </Card>
 
@@ -973,5 +1279,87 @@ export function AgentCreateForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// InheritableField — DESIGN.md §12.6 affordance (ADR-0039 I4)
+// ---------------------------------------------------------------------------
+
+interface InheritableFieldProps {
+  /** Field label rendered above the control. */
+  label: string;
+  /** Default help copy shown when the operator has set an explicit value. */
+  help: React.ReactNode;
+  /** True when the field is currently empty (inheriting from parent). */
+  isInherited: boolean;
+  /** Display name of the inherit source (unit display name, or "tenant defaults"). */
+  inheritSourceLabel: string;
+  /** Resolved parent value, when known, for the `: <value>` suffix. */
+  inheritedValue: string | null;
+  /**
+   * Optional clear handler. When supplied (and the field has an explicit
+   * value) a small "Use inherited value" button appears next to the label
+   * so the operator can revert without erasing into a long string.
+   */
+  onClear?: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}
+
+/**
+ * Per-field inherit affordance per DESIGN.md §12.6 — italic placeholder
+ * inside the control plus a help-copy line below carrying
+ * `data-testid="inherit-indicator"` when the field is in inherit mode.
+ * When the operator has set an explicit value the indicator is hidden
+ * and the regular `help` copy renders instead.
+ */
+function InheritableField({
+  label,
+  help,
+  isInherited,
+  inheritSourceLabel,
+  inheritedValue,
+  onClear,
+  disabled,
+  children,
+}: InheritableFieldProps) {
+  const indicatorText = inheritedValue
+    ? `inherited from ${inheritSourceLabel}: ${inheritedValue}`
+    : `inherited from ${inheritSourceLabel}`;
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        {!isInherited && onClear && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={onClear}
+            disabled={disabled}
+            className="h-7 px-2 text-xs"
+            aria-label={`Use inherited ${label.toLowerCase()}`}
+            data-testid={`agent-create-inherit-${label
+              .toLowerCase()
+              .replace(/\s+/g, "-")}`}
+          >
+            Use inherited value
+          </Button>
+        )}
+      </div>
+      {children}
+      {isInherited ? (
+        <p
+          className="text-xs italic text-muted-foreground"
+          data-testid="inherit-indicator"
+        >
+          {indicatorText}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">{help}</p>
+      )}
+    </div>
   );
 }
