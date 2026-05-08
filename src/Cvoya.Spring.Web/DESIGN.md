@@ -339,13 +339,12 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Budgets    | Tenant-wide cost summary card (today / 7d / 30d + sparkline). Deep-link to `/analytics/costs`.                                  |
 | Memory     | Cross-cutting tenant memory (empty in v2.0 — see § 10).                                                                          |
 
-**Unit** — 7 visible + 1 overflow (`Config`).
+**Unit** — 6 visible + 1 overflow (`Config`).
 
 | Tab           | Content                                                                                                                          |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Overview      | Stat tiles (cost 24h, msgs 24h, sub-units, agents, worst status) + "Cost over time" sparkline card (7d / 30d toggle, `GET /api/v1/tenant/analytics/units/{id}/cost-timeseries`, inline SVG polyline, no charting library) + read-only Expertise card (own + deduped subtree chips, "Manage" deep-links to Config → Expertise). |
 | Agents        | Child agents + child units in one grid; units carry an outlined card variant and a "unit" pill so they read distinct from agents. |
-| Orchestration | Strategy selector (read-only today) + effective-strategy card + label-routing rule editor.                                        |
 | Activity      | Unit-scoped event feed.                                                                                                          |
 | Messages      | Inline master/detail: conversation list on the left; selecting a row mounts the thread + composer inline on the right. Selection is URL-owned via `?conversation=<id>`. A prominent **+ New conversation** button sits above the list and opens a modal composer; on submit the portal POSTs `/api/v1/messages` and routes to the new thread (see § 9.3). |
 | Memory        | Unit-scoped read-only memory inspector (see § 10).                                                                               |
@@ -496,7 +495,7 @@ Primitive library: `src/components/ui/`. Composites: `src/components/`. Entity c
 
 Every card in this directory composes the base `<Card>` chrome. Whole-card click targets stretch across the card via an `::after` overlay on a `relative` card; descendant interactive controls promote to `relative z-[1]` to stay reachable.
 
-- **`<UnitCard>`** — Name + display name, registered-at, status dot, optional cost badge + sparkline. Tab-chip footer via `<CardTabRow>` with `UNIT_CARD_TABS = [Agents, Messages, Activity, Memory, Orchestration, Policies]` when `onOpenTab` is provided; the legacy cross-link strip renders as a fallback when the prop is omitted so non-dashboard callers keep working.
+- **`<UnitCard>`** — Name + display name, registered-at, status dot, optional cost badge + sparkline. Tab-chip footer via `<CardTabRow>` with `UNIT_CARD_TABS = [Agents, Messages, Activity, Memory, Policies]` when `onOpenTab` is provided; the legacy cross-link strip renders as a fallback when the prop is omitted so non-dashboard callers keep working.
 - **`<AgentCard>`** — Same chrome; tab set is `AGENT_CARD_TABS = [Messages, Activity, Memory, Skills, Traces, Clones, Config]`. `actions` prop appends caller-supplied controls (edit, remove, mute) alongside the primary "Open" link.
 - **`<CostSummaryCard>`** — Three `<StatCard>` tiles (Today / 7 d / 30 d) with a sparkline on the 30 d tile by default. Read-only; "Open analytics" cross-links to `/analytics/costs`. Used on the dashboard, the Tenant Budgets tab, and `/budgets`.
 - **`<InboxCard>`** — Inbox icon + summary + `Awaiting you` warning badge on the top row; **monospace `from://` address** on the meta row (cross-linked to `/units?node=<id>` when the scheme is `agent://` or `unit://`; `human://` stays plain mono). Still exported as a primitive but no longer used by the `/inbox` page (see § 12.14 below).
@@ -539,7 +538,7 @@ Unknown warnings always render in the amber bucket labeled "Other notices".
 
 ### 12.5 Multi-rule config editor
 
-The canonical "N rules across M dimensions" chrome used inside `Config` tab sections (Unit Boundary, Unit Orchestration label-routing): a summary card on top with a `Transparent` / `Configured` badge and the primary Save / Clear buttons; one sub-card per dimension with a lucide icon + dimension name + effect pill; a `divide-y` `ul` of monospace rule rows with per-row `outline` trash buttons; a nested `rounded-md border border-border p-3` add-rule form below the list. Local edits are staged in `useState` and committed via one PUT; Clear rides the shared `<ConfirmDialog>` and DELETEs.
+The canonical "N rules across M dimensions" chrome used inside `Config` tab sections (for example, Unit Boundary): a summary card on top with a `Transparent` / `Configured` badge and the primary Save / Clear buttons; one sub-card per dimension with a lucide icon + dimension name + effect pill; a `divide-y` `ul` of monospace rule rows with per-row `outline` trash buttons; a nested `rounded-md border border-border p-3` add-rule form below the list. Local edits are staged in `useState` and committed via one PUT; Clear rides the shared `<ConfirmDialog>` and DELETEs.
 
 ### 12.6 Inherit-from-parent indicator
 

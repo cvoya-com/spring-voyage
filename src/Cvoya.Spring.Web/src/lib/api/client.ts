@@ -32,7 +32,6 @@ import type {
   UnitConnectorBindingRequest,
   UnitExecutionResponse,
   UnitGitHubConfigRequest,
-  UnitOrchestrationResponse,
   UnitPolicyResponse,
   UnitResponse,
   UpdateAgentMetadataRequest,
@@ -1179,37 +1178,6 @@ export const api = {
   clearUnitBoundary: async (unitId: string): Promise<void> => {
     assertOk(
       await fetchClient.DELETE("/api/v1/tenant/units/{id}/boundary", {
-        params: { path: { id: unitId } },
-      }),
-    );
-  },
-
-  // Unit orchestration (#606). Dedicated surface for the manifest-
-  // persisted `orchestration.strategy` key — the Orchestration tab's
-  // strategy selector writes through here so the dropdown becomes
-  // directly editable. The GET endpoint always returns the empty shape
-  // when the slot has never been set, so there is no 404 to normalise.
-  getUnitOrchestration: async (
-    unitId: string,
-  ): Promise<UnitOrchestrationResponse> =>
-    unwrap(
-      await fetchClient.GET("/api/v1/tenant/units/{id}/orchestration", {
-        params: { path: { id: unitId } },
-      }),
-    ),
-  setUnitOrchestration: async (
-    unitId: string,
-    body: UnitOrchestrationResponse,
-  ): Promise<UnitOrchestrationResponse> =>
-    unwrap(
-      await fetchClient.PUT("/api/v1/tenant/units/{id}/orchestration", {
-        params: { path: { id: unitId } },
-        body,
-      }),
-    ),
-  clearUnitOrchestration: async (unitId: string): Promise<void> => {
-    assertOk(
-      await fetchClient.DELETE("/api/v1/tenant/units/{id}/orchestration", {
         params: { path: { id: unitId } },
       }),
     );

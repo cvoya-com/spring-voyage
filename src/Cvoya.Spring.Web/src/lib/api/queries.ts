@@ -67,7 +67,6 @@ import type {
   UnitDashboardSummary,
   UnitDetailResponse,
   UnitExecutionResponse,
-  UnitOrchestrationResponse,
   UnitPolicyResponse,
   UnitReadinessResponse,
   UnitResponse,
@@ -228,25 +227,6 @@ export function useUnitBoundary(
   return useQuery({
     queryKey: queryKeys.units.boundary(id),
     queryFn: () => api.getUnitBoundary(id),
-    enabled: opts?.enabled ?? Boolean(id),
-    refetchInterval: opts?.refetchInterval,
-    staleTime: opts?.staleTime,
-  });
-}
-
-/**
- * Read a unit's orchestration strategy slot (#606). Always returns the
- * empty shape on unset (the server never 404s for a live unit), so the
- * Orchestration tab renders the "(unset — inferred)" state without a
- * branch.
- */
-export function useUnitOrchestration(
-  id: string,
-  opts?: SliceOptions<UnitOrchestrationResponse>,
-): UseQueryResult<UnitOrchestrationResponse, Error> {
-  return useQuery({
-    queryKey: queryKeys.units.orchestration(id),
-    queryFn: () => api.getUnitOrchestration(id),
     enabled: opts?.enabled ?? Boolean(id),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,

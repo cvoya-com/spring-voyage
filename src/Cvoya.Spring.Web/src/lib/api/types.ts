@@ -352,35 +352,6 @@ export type ExecutionModePolicy = Schemas["ExecutionModePolicy"];
 export type UnitPolicyResponse = Schemas["UnitPolicyResponse"];
 
 /**
- * Sixth `UnitPolicy` dimension — label-routing rules consumed by the
- * `label-routed` `IOrchestrationStrategy` (#389). Edited alongside the
- * other five dimensions through `PUT /api/v1/units/{id}/policy`.
- */
-export type LabelRoutingPolicy = Schemas["LabelRoutingPolicy"];
-
-/**
- * Platform-offered orchestration strategy keys (#491). The resolver
- * looks up the manifest's declared key against this set (with hosts
- * free to register additional keys); the portal surfaces exactly these
- * three in its Orchestration tab dropdown because they are the only
- * ones guaranteed to be registered by the OSS platform.
- */
-export const ORCHESTRATION_STRATEGIES = [
-  "ai",
-  "workflow",
-  "label-routed",
-] as const;
-export type OrchestrationStrategyKey = (typeof ORCHESTRATION_STRATEGIES)[number];
-
-/**
- * Wire shape for `GET/PUT /api/v1/units/{id}/orchestration` (#606). The
- * dedicated surface ADR-0010 deferred — consumed by the Orchestration
- * tab's strategy selector so the dropdown becomes directly editable
- * instead of linking out to `spring apply`.
- */
-export type UnitOrchestrationResponse = Schemas["UnitOrchestrationResponse"];
-
-/**
  * Wire shape for `GET/PUT /api/v1/units/{id}/execution` (#601 / #603 /
  * #409 B-wide — backend in PR #628). Holds the unit-level defaults
  * (image / runtime / tool / provider / model) that member agents inherit

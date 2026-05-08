@@ -7,7 +7,6 @@ import {
   Copy,
   Container,
   LayoutDashboard,
-  Layers,
   MessagesSquare,
   PiggyBank,
   Settings,
@@ -35,7 +34,6 @@ export type CardTabName = TabName;
 const TAB_ICON: Record<CardTabName, LucideIcon> = {
   Overview: LayoutDashboard,
   Agents: Bot,
-  Orchestration: Layers,
   Activity: Activity,
   Messages: MessagesSquare,
   Memory: Brain,

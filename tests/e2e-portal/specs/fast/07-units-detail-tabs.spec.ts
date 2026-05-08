@@ -8,15 +8,14 @@ import { expect, test } from "../../fixtures/test.js";
  *
  * The detail page lazy-loads each tab's data; this spec proves none of
  * them blow up against a freshly-created unit (no agents, no secrets,
- * no orchestration overrides). Boundary / Execution / Secrets are now
- * sub-tabs of Config (QUALITY-unit-config-subtabs) — exercise them
- * via deep-links so the spec is robust to layout shuffles.
+ * no execution overrides). Boundary / Execution / Secrets are now sub-tabs
+ * of Config (QUALITY-unit-config-subtabs) — exercise them via deep-links
+ * so the spec is robust to layout shuffles.
  */
 
 const TOP_LEVEL_TABS = [
   "Overview",
   "Agents",
-  "Orchestration",
   "Policies",
   "Config",
 ] as const;
@@ -24,7 +23,6 @@ const TOP_LEVEL_TABS = [
 const PANEL_TEST_IDS: Record<(typeof TOP_LEVEL_TABS)[number], string | null> = {
   Overview: null,
   Agents: null,
-  Orchestration: "orchestration-tab",
   Policies: "policies-tab-effective",
   Config: "tab-unit-config",
 };

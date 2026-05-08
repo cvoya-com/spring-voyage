@@ -193,8 +193,8 @@ describe("UnitsPage — Explorer route (EXP-route)", () => {
 
     render(wrap(<UnitsPage />));
     await screen.findByTestId("unit-explorer");
-    // Engineering is a `Unit` → 8 tabs; first is Overview and it's active.
-    expect(screen.getAllByRole("tab")).toHaveLength(8);
+    // Engineering is a `Unit` → 7 tabs; first is Overview and it's active.
+    expect(screen.getAllByRole("tab")).toHaveLength(7);
     expect(screen.getByTestId("detail-crumb-engineering")).toHaveAttribute(
       "aria-current",
       "page",

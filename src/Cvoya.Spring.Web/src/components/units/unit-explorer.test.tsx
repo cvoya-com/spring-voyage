@@ -79,8 +79,8 @@ describe("UnitExplorer (foundation scaffold)", () => {
   it("changes selection when a tree row is clicked, swapping the tab catalog to match", () => {
     render(<UnitExplorer tree={tree} />);
     fireEvent.click(screen.getByTestId("tree-row-unit-eng"));
-    // Engineering is a Unit → 8 tabs (incl. Agents, Orchestration).
-    expect(screen.getAllByRole("tab")).toHaveLength(8);
+    // Engineering is a Unit → 7 tabs (6 visible + Config overflow).
+    expect(screen.getAllByRole("tab")).toHaveLength(7);
     expect(screen.getByTestId("detail-tab-agents")).toBeInTheDocument();
   });
 
@@ -125,7 +125,7 @@ describe("UnitExplorer (foundation scaffold)", () => {
       "aria-current",
       "page",
     );
-    // Tenant catalog is 5 tabs; Unit would be 8. Confirms the kind-specific
+    // Tenant catalog is 5 tabs; Unit would be 7. Confirms the kind-specific
     // catalog is driven by the fallback node, not the stale id.
     expect(screen.getAllByRole("tab")).toHaveLength(5);
   });
@@ -164,11 +164,11 @@ describe("UnitExplorer (foundation scaffold)", () => {
       "true",
     );
 
-    // Navigate to Engineering (a Unit → 8-tab catalog). First tab
+    // Navigate to Engineering (a Unit → 7-tab catalog). First tab
     // (Overview) should be active because Engineering has no remembered
     // choice.
     fireEvent.click(screen.getByTestId("tree-row-unit-eng"));
-    expect(screen.getAllByRole("tab")).toHaveLength(8);
+    expect(screen.getAllByRole("tab")).toHaveLength(7);
     expect(screen.getByTestId("detail-tab-overview")).toHaveAttribute(
       "aria-selected",
       "true",
