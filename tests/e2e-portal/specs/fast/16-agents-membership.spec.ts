@@ -21,6 +21,7 @@ test.describe("units — agents tab membership", () => {
     page,
     tracker,
   }) => {
+    // J5: verified no old picker specs remain.
     const unitB = tracker.unit(unitName("memb"));
     const aId = tracker.agent(agentName("memb-ada"));
 
