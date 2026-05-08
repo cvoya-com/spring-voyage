@@ -26,9 +26,9 @@ public static class AgentExecutionCommand
     {
         var command = new Command(
             "execution",
-            "Read / write the agent's on-disk execution block. Fields: image, " +
-            "container-runtime, runtime, model-provider, model, hosting. Missing fields fall back to " +
-            "the parent unit's execution defaults at dispatch time.");
+            "Read / write the agent's on-disk execution block. Fields: image, runtime, " +
+            "model-provider, model, hosting. Missing fields fall back to the parent unit's " +
+            "execution defaults at dispatch time.");
 
         command.Subcommands.Add(CreateGetCommand(outputOption));
         command.Subcommands.Add(CreateSetCommand(outputOption));
@@ -54,15 +54,14 @@ public static class AgentExecutionCommand
 
             var shape = await client.GetAgentExecutionAsync(agentId, ct);
 
-            // ADR-0038: the wire shape is { image, containerRuntime,
-            // runtime, model: {provider, id}, hosting }.
+            // ADR-0038: the wire shape is { image, runtime, model: {provider, id}, hosting }.
+            // ADR-0039 §7: containerRuntime slot removed.
             if (output == "json")
             {
                 Console.WriteLine(OutputFormatter.FormatJsonPlain(new
                 {
                     agent = agentId,
                     image = shape.Image,
-                    container_runtime = shape.ContainerRuntime,
                     runtime = shape.Runtime,
                     model_provider = shape.Model?.AiModelDto?.Provider,
                     model = shape.Model?.AiModelDto?.Id,
@@ -73,7 +72,6 @@ public static class AgentExecutionCommand
 
             Console.WriteLine($"Agent:    {agentId}");
             Console.WriteLine($"  image:             {shape.Image ?? "(inherited / unset)"}");
-            Console.WriteLine($"  container_runtime: {shape.ContainerRuntime ?? "(inherited / unset)"}");
             Console.WriteLine($"  runtime:           {shape.Runtime ?? "(inherited / unset)"}");
             Console.WriteLine($"  model_provider:    {shape.Model?.AiModelDto?.Provider ?? "(inherited / unset)"}");
             Console.WriteLine($"  model:             {shape.Model?.AiModelDto?.Id ?? "(inherited / unset)"}");
@@ -90,11 +88,20 @@ public static class AgentExecutionCommand
         {
             Description = "Container image reference.",
         };
-        var containerRuntimeOption = new Option<string?>("--container-runtime")
+
+        // ADR-0039 §7: legacy `--container-runtime` rejected at parse time.
+        var legacyContainerRuntimeOption = new Option<string?>("--container-runtime")
         {
-            Description = "Container runtime. Allowed values: " + string.Join(", ", UnitExecutionCommand.ContainerRuntimeKeys) + ".",
+            Description = "REJECTED — the container runtime is platform configuration (ADR-0039 §7).",
+            Hidden = true,
         };
-        containerRuntimeOption.AcceptOnlyFromAmong(UnitExecutionCommand.ContainerRuntimeKeys);
+        legacyContainerRuntimeOption.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(UnitExecutionCommand.LegacyContainerRuntimeFlagRejectionMessage);
+            }
+        });
 
         var runtimeOption = new Option<string?>("--runtime")
         {
@@ -150,7 +157,7 @@ public static class AgentExecutionCommand
             "pass only the flags you want to change.");
         command.Arguments.Add(agentArg);
         command.Options.Add(imageOption);
-        command.Options.Add(containerRuntimeOption);
+        command.Options.Add(legacyContainerRuntimeOption);
         command.Options.Add(runtimeOption);
         command.Options.Add(modelProviderOption);
         command.Options.Add(modelOption);
@@ -162,19 +169,18 @@ public static class AgentExecutionCommand
         {
             var agentId = parseResult.GetValue(agentArg)!;
             var image = parseResult.GetValue(imageOption);
-            var containerRuntime = parseResult.GetValue(containerRuntimeOption);
             var runtime = parseResult.GetValue(runtimeOption);
             var modelProvider = parseResult.GetValue(modelProviderOption);
             var model = parseResult.GetValue(modelOption);
             var hosting = parseResult.GetValue(hostingOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (string.IsNullOrWhiteSpace(image) && string.IsNullOrWhiteSpace(containerRuntime)
+            if (string.IsNullOrWhiteSpace(image)
                 && string.IsNullOrWhiteSpace(runtime) && string.IsNullOrWhiteSpace(modelProvider)
                 && string.IsNullOrWhiteSpace(model) && string.IsNullOrWhiteSpace(hosting))
             {
                 await Console.Error.WriteLineAsync(
-                    "Nothing to set. Pass at least one of --image, --container-runtime, --runtime, --model-provider, --model, --hosting.");
+                    "Nothing to set. Pass at least one of --image, --runtime, --model-provider, --model, --hosting.");
                 Environment.Exit(1);
                 return;
             }
@@ -192,7 +198,6 @@ public static class AgentExecutionCommand
             var stored = await client.SetAgentExecutionAsync(agentId, new AgentExecutionResponse
             {
                 Image = image,
-                ContainerRuntime = containerRuntime,
                 Runtime = runtime,
                 Model = modelDto,
                 Hosting = hosting,
@@ -204,7 +209,6 @@ public static class AgentExecutionCommand
                 {
                     agent = agentId,
                     image = stored.Image,
-                    container_runtime = stored.ContainerRuntime,
                     runtime = stored.Runtime,
                     model_provider = stored.Model?.AiModelDto?.Provider,
                     model = stored.Model?.AiModelDto?.Id,
@@ -215,7 +219,6 @@ public static class AgentExecutionCommand
             {
                 Console.WriteLine($"Agent '{agentId}' execution updated.");
                 Console.WriteLine($"  image:             {stored.Image ?? "(inherited / unset)"}");
-                Console.WriteLine($"  container_runtime: {stored.ContainerRuntime ?? "(inherited / unset)"}");
                 Console.WriteLine($"  runtime:           {stored.Runtime ?? "(inherited / unset)"}");
                 Console.WriteLine($"  model_provider:    {stored.Model?.AiModelDto?.Provider ?? "(inherited / unset)"}");
                 Console.WriteLine($"  model:             {stored.Model?.AiModelDto?.Id ?? "(inherited / unset)"}");
@@ -230,10 +233,11 @@ public static class AgentExecutionCommand
     {
         var agentArg = new Argument<string>("agent") { Description = "The agent identifier" };
         // ADR-0038: the field-key surface is
-        // (image, container-runtime, runtime, model-provider, model, hosting).
+        // (image, runtime, model-provider, model, hosting).
+        // ADR-0039 §7: container-runtime removed from the surface.
         var fieldKeys = new[]
         {
-            "image", "container-runtime", "runtime", "model-provider", "model", "hosting",
+            "image", "runtime", "model-provider", "model", "hosting",
         };
         var fieldOption = new Option<string?>("--field")
         {
@@ -274,11 +278,11 @@ public static class AgentExecutionCommand
             // the remaining state is empty.
             var current = await client.GetAgentExecutionAsync(agentId, ct);
             // ADR-0038: per-field clear targets one of
-            // { image | container-runtime | runtime | model-provider | model | hosting }.
+            // { image | runtime | model-provider | model | hosting }.
+            // ADR-0039 §7: container-runtime removed.
             // model-provider clears just the provider half of the structured
             // execution.model; clearing model wipes the whole {provider, id} pair.
             var keepImage = !string.Equals(field, "image", StringComparison.OrdinalIgnoreCase);
-            var keepContainerRuntime = !string.Equals(field, "container-runtime", StringComparison.OrdinalIgnoreCase);
             var keepRuntime = !string.Equals(field, "runtime", StringComparison.OrdinalIgnoreCase);
             var keepModel = !string.Equals(field, "model", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(field, "model-provider", StringComparison.OrdinalIgnoreCase);
@@ -287,13 +291,12 @@ public static class AgentExecutionCommand
             var updated = new AgentExecutionResponse
             {
                 Image = keepImage ? current.Image : null,
-                ContainerRuntime = keepContainerRuntime ? current.ContainerRuntime : null,
                 Runtime = keepRuntime ? current.Runtime : null,
                 Model = keepModel ? current.Model : null,
                 Hosting = keepHosting ? current.Hosting : null,
             };
 
-            if (string.IsNullOrWhiteSpace(updated.Image) && string.IsNullOrWhiteSpace(updated.ContainerRuntime)
+            if (string.IsNullOrWhiteSpace(updated.Image)
                 && string.IsNullOrWhiteSpace(updated.Runtime) && updated.Model is null
                 && string.IsNullOrWhiteSpace(updated.Hosting))
             {

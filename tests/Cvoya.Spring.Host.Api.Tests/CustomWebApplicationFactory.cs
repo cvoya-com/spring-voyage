@@ -182,6 +182,15 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     public IAgentExecutionStore AgentExecutionStore { get; } = CreateDefaultAgentExecutionStore();
 
     /// <summary>
+    /// Gets the substitute <see cref="IUnitExecutionStore"/> wired into
+    /// the test DI container. ADR-0039 G6: tests that exercise the
+    /// <c>PUT /api/v1/tenant/units/{id}/execution</c> legacy-rejection
+    /// path arrange return values on this mock so the store call short-
+    /// circuits without a real Dapr backing.
+    /// </summary>
+    public IUnitExecutionStore UnitExecutionStore { get; } = CreateDefaultUnitExecutionStore();
+
+    /// <summary>
     /// Gets the substitute <see cref="IInitiativeEngine"/> wired into
     /// the test DI container (#1402). Tests that exercise initiative-level
     /// filtering arrange return values on this mock.
@@ -194,6 +203,15 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         var stub = Substitute.For<IAgentExecutionStore>();
         stub.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<AgentExecutionShape?>(null));
+        return stub;
+    }
+
+    private static IUnitExecutionStore CreateDefaultUnitExecutionStore()
+    {
+        // Default: every unit has no persisted execution defaults.
+        var stub = Substitute.For<IUnitExecutionStore>();
+        stub.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(null));
         return stub;
     }
 
@@ -365,6 +383,10 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 // which agents carry which execution shapes / initiative levels.
                 typeof(IAgentExecutionStore),
                 typeof(IInitiativeEngine),
+                // ADR-0039 G6: replace the unit-execution store too so the
+                // legacy-rejection tests can exercise the PUT path without a
+                // real Dapr backing.
+                typeof(IUnitExecutionStore),
             };
 
             var descriptors = services
@@ -397,6 +419,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(TenantGuard);
             services.AddSingleton(ParentInvariantGuard);
             services.AddSingleton(AgentExecutionStore);
+            services.AddSingleton(UnitExecutionStore);
             services.AddSingleton(InitiativeEngine);
             services.AddSingleton(new DirectoryCache());
 

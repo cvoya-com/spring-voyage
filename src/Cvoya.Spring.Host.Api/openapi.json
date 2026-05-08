@@ -9099,12 +9099,6 @@
               "string"
             ]
           },
-          "containerRuntime": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "runtime": {
             "type": [
               "null",
@@ -13039,12 +13033,6 @@
         "type": "object",
         "properties": {
           "image": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "containerRuntime": {
             "type": [
               "null",
               "string"
