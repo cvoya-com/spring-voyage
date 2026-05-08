@@ -6,7 +6,9 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -65,6 +67,13 @@ public class PersistentAgentLifecycleTests
         var catalog = Substitute.For<IRuntimeCatalog>();
         catalog.GetAgentRuntime("claude").Returns(claudeRuntime);
 
+        // ADR-0039 D3: lifecycle now resolves orchestration tools per-deploy.
+        // Default to "no orchestration tools" so the validation-path tests
+        // here remain agnostic to the orchestration surface.
+        var orchestrationToolProvider = Substitute.For<IOrchestrationToolProvider>();
+        orchestrationToolProvider.GetOrchestrationTools(Arg.Any<Address>(), Arg.Any<Guid>())
+            .Returns(Array.Empty<OrchestrationToolDescriptor>());
+
         var daprOptions = new DaprSidecarOptions();
         var services = new ServiceCollection();
         services.AddSingleton(_containerRuntime);
@@ -79,6 +88,7 @@ public class PersistentAgentLifecycleTests
         services.AddSingleton(_launcher);
         services.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(_ => new[] { _launcher });
         services.AddSingleton(catalog);
+        services.AddSingleton(orchestrationToolProvider);
         services.AddSingleton<PersistentAgentRegistry>();
         services.AddSingleton<PersistentAgentLifecycle>();
         var sp = services.BuildServiceProvider();

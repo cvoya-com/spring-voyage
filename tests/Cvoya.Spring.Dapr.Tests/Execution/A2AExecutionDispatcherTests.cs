@@ -16,6 +16,7 @@ using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -65,6 +66,7 @@ public class A2AExecutionDispatcherTests
         });
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
+    private readonly IOrchestrationToolProvider _orchestrationToolProvider = Substitute.For<IOrchestrationToolProvider>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
     private readonly IContainerRuntime _persistentContainerRuntime = Substitute.For<IContainerRuntime>();
@@ -151,6 +153,11 @@ public class A2AExecutionDispatcherTests
             .Returns(ci => new McpSession("test-token", ci.ArgAt<string>(0), ci.ArgAt<string>(1)));
         _tenantContext.CurrentTenantId.Returns(TenantGuid);
 
+        // ADR-0039 D3: default to "no orchestration tools" — leaf-agent shape.
+        // Tests that exercise unit-shaped dispatch can override via Returns.
+        _orchestrationToolProvider.GetOrchestrationTools(Arg.Any<Address>(), Arg.Any<Guid>())
+            .Returns(Array.Empty<OrchestrationToolDescriptor>());
+
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId: AgentId,
@@ -186,6 +193,7 @@ public class A2AExecutionDispatcherTests
             _runtimeCatalog,
             _agentContextBuilder,
             _tenantContext,
+            _orchestrationToolProvider,
             _persistentRegistry,
             _ephemeralRegistry,
             clmD,

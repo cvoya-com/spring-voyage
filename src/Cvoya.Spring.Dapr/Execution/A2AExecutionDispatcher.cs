@@ -12,6 +12,7 @@ using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Tenancy;
 
 using Microsoft.Extensions.Logging;
@@ -56,6 +57,7 @@ public class A2AExecutionDispatcher(
     IRuntimeCatalog runtimeCatalog,
     IAgentContextBuilder agentContextBuilder,
     ITenantContext tenantContext,
+    IOrchestrationToolProvider orchestrationToolProvider,
     PersistentAgentRegistry persistentAgentRegistry,
     EphemeralAgentRegistry ephemeralAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
@@ -77,6 +79,12 @@ public class A2AExecutionDispatcher(
         ?? throw new ArgumentNullException(nameof(agentContextBuilder));
     private readonly ITenantContext _tenantContext = tenantContext
         ?? throw new ArgumentNullException(nameof(tenantContext));
+    // ADR-0039 D3: orchestration tool descriptors are resolved per-invocation
+    // and threaded through AgentLaunchContext so launchers can attach them
+    // to the runtime container. The provider returns an empty array for
+    // leaf agents.
+    private readonly IOrchestrationToolProvider _orchestrationToolProvider = orchestrationToolProvider
+        ?? throw new ArgumentNullException(nameof(orchestrationToolProvider));
     // ADR-0038: launchers are keyed on the catalogue runtime entry's
     // launcher strategy id. The dispatcher resolves an AgentRuntime from
     // IRuntimeCatalog using the agent's persisted execution.agent slot,
@@ -191,6 +199,19 @@ public class A2AExecutionDispatcher(
         var tenantId = _tenantContext.CurrentTenantId;
         var tenantConfigJson = SerialiseTenantConfigJson(tenantId);
 
+        // ADR-0039 D3: resolve the orchestration tools available to this agent
+        // address on this thread. Threads them into the launch context so
+        // launchers (D4–D7) can attach them to the runtime's tool surface.
+        // For leaf agents the provider returns an empty array. The provider's
+        // contract takes a Guid thread id; today's wire form is a free-form
+        // string — when it is not Guid-shaped (e.g. legacy callers, synthetic
+        // test threads) we pass Guid.Empty so the provider's per-thread hook
+        // sees a deterministic value rather than a parse failure.
+        var threadGuid = Guid.TryParse(threadId, out var parsedThreadGuid)
+            ? parsedThreadGuid
+            : Guid.Empty;
+        var orchestrationTools = _orchestrationToolProvider.GetOrchestrationTools(message.To, threadGuid);
+
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
             ThreadId: threadId,
@@ -204,7 +225,8 @@ public class A2AExecutionDispatcher(
             Model: definition.Execution.Model,
             // D3a: populate D1-spec metadata so the context builder can mint the
             // full bootstrap bundle (env vars + /spring/context/ files) per § 2.
-            ConcurrentThreads: definition.Execution.ConcurrentThreads);
+            ConcurrentThreads: definition.Execution.ConcurrentThreads,
+            OrchestrationTools: orchestrationTools);
 
         // D3a: assemble the IAgentContext bootstrap bundle (env vars + mounted
         // context files) defined by the D1 spec § 2. The bundle is merged into
@@ -435,7 +457,7 @@ public class A2AExecutionDispatcher(
         else
         {
             // Not running (or unhealthy) — auto-start the agent container.
-            (endpoint, containerId) = await StartPersistentAgentAsync(definition, cancellationToken);
+            (endpoint, containerId) = await StartPersistentAgentAsync(definition, message.To, cancellationToken);
         }
 
         if (string.IsNullOrEmpty(containerId))
@@ -481,6 +503,7 @@ public class A2AExecutionDispatcher(
     /// </summary>
     private async Task<(Uri Endpoint, string ContainerId)> StartPersistentAgentAsync(
         AgentDefinition definition,
+        Address dispatchTarget,
         CancellationToken cancellationToken)
     {
         var agentId = definition.AgentId;
@@ -512,6 +535,13 @@ public class A2AExecutionDispatcher(
         var tenantId = _tenantContext.CurrentTenantId;
         var tenantConfigJson = SerialiseTenantConfigJson(tenantId);
 
+        // ADR-0039 D3: resolve orchestration tools for the dispatch target's
+        // address. Persistent dispatch uses a synthetic per-agent session id
+        // rather than a real thread Guid, so we pass Guid.Empty — the
+        // provider's per-thread hook is reserved for future use and currently
+        // only scopes on the address.
+        var orchestrationTools = _orchestrationToolProvider.GetOrchestrationTools(dispatchTarget, Guid.Empty);
+
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
             ThreadId: sessionId,
@@ -524,7 +554,8 @@ public class A2AExecutionDispatcher(
             Provider: definition.Execution.Provider,
             Model: definition.Execution.Model,
             // D3a: populate D1-spec metadata for context builder.
-            ConcurrentThreads: definition.Execution.ConcurrentThreads);
+            ConcurrentThreads: definition.Execution.ConcurrentThreads,
+            OrchestrationTools: orchestrationTools);
 
         // D3a: assemble the IAgentContext bootstrap bundle (env vars + /spring/context/ files).
         var bootstrapContext = await _agentContextBuilder.BuildAsync(launchContext, cancellationToken);

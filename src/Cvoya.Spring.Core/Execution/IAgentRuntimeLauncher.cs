@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Core.Execution;
 
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Orchestration;
 
 /// <summary>
 /// Describes the container-launch contract for one specific agent runtime.
@@ -124,6 +125,16 @@ public interface IAgentRuntimeLauncher
 /// Optional model identifier from the agent's <see cref="AgentExecutionConfig.Model"/>.
 /// <c>null</c> means "use launcher default".
 /// </param>
+/// <param name="OrchestrationTools">
+/// Per-invocation orchestration tool descriptors the launcher should attach
+/// to the runtime container, sourced from
+/// <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationToolProvider.GetOrchestrationTools"/>
+/// at the platform-side call site (ADR-0039). Defaults to an empty array
+/// so leaf agents — and existing call sites that haven't yet been routed
+/// through the provider — retain their current behaviour. The launcher
+/// contract does not require launchers to act on this field; per-runtime
+/// attachment lands in tasks D4–D7 of ADR-0039's plan.
+/// </param>
 public record AgentLaunchContext(
     string AgentId,
     string ThreadId,
@@ -136,7 +147,8 @@ public record AgentLaunchContext(
     string? TenantConfigJson = null,
     bool ConcurrentThreads = true,
     string? Provider = null,
-    string? Model = null);
+    string? Model = null,
+    OrchestrationToolDescriptor[]? OrchestrationTools = null);
 
 /// <summary>
 /// Output of <see cref="IAgentRuntimeLauncher.PrepareAsync"/>. Pure data — no
