@@ -15,9 +15,13 @@ using Cvoya.Spring.Dapr.Auth;
 /// Dapr actor interface for unit actors. A unit is an agent — it shares the
 /// mailbox / message-dispatch contract defined by <see cref="IAgent"/> —
 /// with additional structure: members, human permissions, lifecycle status,
-/// and a connector binding. Domain messages are delegated to the unit's
-/// configured <see cref="Core.Orchestration.IOrchestrationStrategy"/>, which
-/// the platform treats as one flavour of agent cognition; control messages
+/// and a connector binding. Domain messages are dispatched through the unit's
+/// runtime launcher via the same path used by <see cref="IAgentActor"/>. When
+/// the unit has children, the launcher attaches orchestration tools
+/// (<c>list_children</c> / <c>inspect_child</c> / <c>delegate_to_child</c> /
+/// <c>fanout_to_children</c> / <c>query_child_status</c>) so the runtime can
+/// choose to delegate; the platform records each delegation as an
+/// <c>OrchestrationDecision</c> event (ADR-0039 §3, §4). Control messages
 /// (cancel, status, health, policy) are handled directly and follow the same
 /// shape as on <see cref="IAgentActor"/>.
 /// </summary>
