@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Package, Search, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import {
   buildAgentPackageYaml,
   type AgentPackageFormState,
 } from "@/app/agents/create/build-agent-package";
+import { cn } from "@/lib/utils";
 import {
   DEFAULT_RUNTIME_ID,
   HOSTING_MODES,
@@ -84,6 +85,10 @@ interface FormState {
   hosting: HostingMode | "";
   unitIds: string[];
 }
+
+type AgentSource = "scratch" | "from-package" | "browse";
+type AgentCreateContext = "page" | "dialog";
+type PageBranch = "source" | "scratch" | "from-package";
 
 type SubmitPhase =
   | "idle"
@@ -142,6 +147,11 @@ export interface AgentCreateSuccess {
 
 export interface AgentCreateFormProps {
   /**
+   * Page mode starts with the ADR-0039 K1 Source step. Dialog mode skips
+   * Source entirely and always uses the scratch branch.
+   */
+  context: AgentCreateContext;
+  /**
    * Optional initial unit ids (URL-safe names). Useful for the
    * unit-tab dialog (J1) where the dialog opens "from" a specific unit
    * and the assignment should default to it. Empty by default — the
@@ -179,6 +189,7 @@ export interface AgentCreateFormProps {
  * primitives — DESIGN.md does not need an update for this extraction.
  */
 export function AgentCreateForm({
+  context,
   initialUnitIds = [],
   onSuccess,
   onCancel,
@@ -207,6 +218,10 @@ export function AgentCreateForm({
   );
 
   const [form, setForm] = useState<FormState>(initialForm);
+  const [source, setSource] = useState<AgentSource>("scratch");
+  const [pageBranch, setPageBranch] = useState<PageBranch>(
+    context === "page" ? "source" : "scratch",
+  );
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [install, setInstall] = useState<InstallState>(INITIAL_INSTALL);
 
@@ -786,6 +801,21 @@ export function AgentCreateForm({
     onCancel?.();
   };
 
+  const handleSourceNext = () => {
+    if (source === "scratch") {
+      setPageBranch("scratch");
+      return;
+    }
+
+    if (source === "from-package") {
+      setPageBranch("from-package");
+    }
+  };
+
+  const handleSourceBack = () => {
+    setPageBranch("source");
+  };
+
   // ── Derived UI state ───────────────────────────────────────────────────
 
   const submitting =
@@ -811,6 +841,110 @@ export function AgentCreateForm({
     failed: "Create agent",
     "install-failed": "Create agent",
   };
+
+  if (context === "page" && pageBranch === "source") {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Choose a source</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <SourceCard
+              icon={<Sparkles className="h-5 w-5" aria-hidden />}
+              title="Scratch"
+              description="Start from scratch. Define the agent's identity, execution config, and units."
+              selected={source === "scratch"}
+              onSelect={() => setSource("scratch")}
+              testId="agent-source-card-scratch"
+            />
+
+            <SourceCard
+              icon={<Package className="h-5 w-5" aria-hidden />}
+              title="From package"
+              description="Install from a package. Choose a package that contains an agent template."
+              selected={source === "from-package"}
+              onSelect={() => setSource("from-package")}
+              testId="agent-source-card-from-package"
+            />
+
+            <SourceCard
+              icon={<Search className="h-5 w-5" aria-hidden />}
+              title="Browse"
+              description="Browse the registry. (Coming soon)"
+              selected={source === "browse"}
+              onSelect={() => setSource("browse")}
+              testId="agent-source-card-browse"
+            />
+
+            {source === "browse" && (
+              <div
+                role="status"
+                data-testid="browse-coming-soon"
+                className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+              >
+                The Spring Voyage package registry browser is not yet
+                available in the portal. Use{" "}
+                <code className="font-mono">
+                  spring package install &lt;package-name&gt;
+                </code>{" "}
+                from the CLI.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="flex items-center justify-end gap-2">
+          <Button type="button" variant="outline" onClick={handleCancel}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={handleSourceNext}
+            disabled={source === "browse"}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (context === "page" && pageBranch === "from-package") {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5" aria-hidden />
+              Package picker
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div
+              data-testid="from-package-placeholder"
+              className="rounded-md border border-border bg-muted/30 px-4 py-6 text-center"
+            >
+              <p className="text-sm font-medium">Package picker coming in K2</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                The from-package branch is visible now; package selection is
+                wired in the next slice.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex items-center justify-between gap-2">
+          <Button type="button" variant="outline" onClick={handleSourceBack}>
+            Back
+          </Button>
+          <Button type="button" variant="outline" onClick={handleCancel}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <form onSubmit={handleSubmit} noValidate>
@@ -1385,6 +1519,50 @@ export function AgentCreateForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+function SourceCard({
+  icon,
+  title,
+  description,
+  selected,
+  onSelect,
+  testId,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  selected: boolean;
+  onSelect: () => void;
+  testId: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      data-testid={testId}
+      className={cn(
+        "flex w-full items-start gap-3 rounded-md border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        selected
+          ? "border-primary bg-primary/5 shadow-sm"
+          : "border-border hover:border-primary/40 hover:bg-accent/50",
+      )}
+    >
+      <div
+        className={cn(
+          "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition-colors",
+          selected && "border-primary/40 bg-primary/15 text-primary",
+        )}
+      >
+        {icon}
+      </div>
+      <div className="flex-1">
+        <span className="text-sm font-medium">{title}</span>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+    </button>
   );
 }
 
