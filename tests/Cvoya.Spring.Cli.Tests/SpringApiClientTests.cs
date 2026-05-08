@@ -130,8 +130,8 @@ public class SpringApiClientTests
                 json.TryGetProperty("name", out _).ShouldBeFalse();
                 json.GetProperty("displayName").GetString().ShouldBe("Ada");
                 json.GetProperty("role").GetString().ShouldBe("coder");
-                // #744: unitIds is required ≥1 on create. Kiota emits each
-                // entry as the dashed Guid form; assert on parseable shape.
+                // Kiota emits each unit id as the dashed Guid form; assert on
+                // parseable shape.
                 var units = json.GetProperty("unitIds");
                 units.ValueKind.ShouldBe(JsonValueKind.Array);
                 units.GetArrayLength().ShouldBe(1);
@@ -148,6 +148,36 @@ public class SpringApiClientTests
 
         result.Id.ShouldBe(agentGuid);
         result.DisplayName.ShouldBe("Ada");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task CreateAgentAsync_WithoutUnits_SendsEmptyUnitIds()
+    {
+        var agentGuid = Guid.NewGuid();
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents",
+            expectedMethod: HttpMethod.Post,
+            responseBody: $"{{\"id\":\"{agentGuid}\",\"name\":\"ada\",\"displayName\":\"Ada\",\"role\":\"coder\"}}",
+            returnStatusCode: HttpStatusCode.Created,
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                var units = json.GetProperty("unitIds");
+                units.ValueKind.ShouldBe(JsonValueKind.Array);
+                units.GetArrayLength().ShouldBe(0);
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.CreateAgentAsync(
+            "Ada",
+            "coder",
+            Array.Empty<Guid>(),
+            ct: TestContext.Current.CancellationToken);
+
+        result.Id.ShouldBe(agentGuid);
         handler.WasCalled.ShouldBeTrue();
     }
 

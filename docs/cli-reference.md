@@ -146,7 +146,10 @@ Inline credentials are still supplied via `--api-key` / `--api-key-from-file`, p
 # Author a new agent on a fixed-provider runtime
 # (ADR-0039 §8: --name is the only display surface; identity is platform-allocated.)
 $ spring agent create --name ada --unit eng --runtime claude-code --model claude-opus-4-7
-$ spring agent create --name ada --unit eng --description "Reviews backend PRs"
+$ spring agent create --name ada --description "Reviews backend PRs"
+
+# Install an agent from a catalog package
+$ spring agent create --name ada --from-package software-engineering
 
 # Spring Voyage Agent agent → must name the provider explicitly
 $ spring agent create --name ada --unit eng \
@@ -160,6 +163,8 @@ $ spring agent create --name ada --unit eng --inherit
 ```
 
 Scripts and scenario tests should pass `--name` explicitly; a bare token after `spring agent create` is rejected with the ADR-0039 migration hint.
+
+`--unit` is optional; omitting it creates a top-level tenant-parented agent that inherits from tenant defaults. `--from-package <name>` starts package installation through the catalog install endpoint and is mutually exclusive with inline definition and execution shorthand flags.
 
 Passing `--inherit` makes `spring agent create` omit the create-time execution shorthand overlay (`--runtime`, `--model-provider`, `--model`, `--image`) so the request body carries no execution block unless one was already supplied through `--definition` or `--definition-file`. The platform then resolves runtime, model, image, and hosting from the agent's parent unit set.
 

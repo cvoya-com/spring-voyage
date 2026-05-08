@@ -86,11 +86,14 @@ public static class AgentCommand
     /// the cascading purge helper (#320), and the clone surface (#458).
     /// </summary>
     public static Command Create(Option<string> outputOption)
+        => Create(outputOption, () => ClientFactory.Create());
+
+    internal static Command Create(Option<string> outputOption, Func<SpringApiClient> clientFactory)
     {
         var agentCommand = new Command("agent", "Manage agents");
 
         agentCommand.Subcommands.Add(CreateListCommand(outputOption));
-        agentCommand.Subcommands.Add(CreateCreateCommand(outputOption));
+        agentCommand.Subcommands.Add(CreateCreateCommand(outputOption, clientFactory));
         // #1629 PR6 — `show <id-or-name>` accepts a Guid (canonical no-dash
         // 32-hex or dashed) for direct lookup, OR a display_name for search
         // with disambiguation. `--unit <name-or-guid>` constrains the search
@@ -202,7 +205,7 @@ public static class AgentCommand
         return command;
     }
 
-    private static Command CreateCreateCommand(Option<string> outputOption)
+    private static Command CreateCreateCommand(Option<string> outputOption, Func<SpringApiClient> clientFactory)
     {
         // ADR-0039 §8 / §9: the positional <id> argument is removed from
         // `spring agent create`. Agent identity is assigned by the platform
@@ -234,14 +237,13 @@ public static class AgentCommand
             Description = "Optional human-readable description for the agent.",
         };
         var roleOption = new Option<string?>("--role") { Description = "The agent role" };
-        // #744: agents must carry ≥1 unit at creation time. --unit is repeatable
-        // so operators can assign an agent to multiple units in one call; the
-        // server rejects the request with 400 when the list is empty.
+        // ADR-0039: --unit is repeatable and optional. Omitting it creates a
+        // top-level tenant-parented agent that inherits from tenant defaults.
         var unitOption = new Option<string[]>("--unit")
         {
-            Description = "Unit to add the agent to. Repeat to assign multiple units; at least one is required.",
+            Description = "Unit to add the agent to. Repeat to assign multiple units; omit to create a top-level tenant-parented agent.",
             AllowMultipleArgumentsPerToken = true,
-            Required = true,
+            Required = false,
         };
         var definitionFileOption = new Option<string?>("--definition-file")
         {
@@ -252,6 +254,12 @@ public static class AgentCommand
         var definitionOption = new Option<string?>("--definition")
         {
             Description = "Inline JSON literal for the agent definition document. Alternative to --definition-file.",
+        };
+        var fromPackageOption = new Option<string?>("--from-package")
+        {
+            Description = "Install an agent from a package in the catalog. " +
+                "Provide the package name. Mutually exclusive with --definition, --definition-file, " +
+                "and execution shorthand flags (full validation in L6).",
         };
 
         // #409 acceptance: CLI parity for the agent execution block.
@@ -333,6 +341,7 @@ public static class AgentCommand
         command.Options.Add(unitOption);
         command.Options.Add(definitionFileOption);
         command.Options.Add(definitionOption);
+        command.Options.Add(fromPackageOption);
         command.Options.Add(imageOption);
         command.Options.Add(legacyContainerRuntimeOption);
         command.Options.Add(runtimeOption);
@@ -352,12 +361,37 @@ public static class AgentCommand
             var units = parseResult.GetValue(unitOption) ?? Array.Empty<string>();
             var definitionFile = parseResult.GetValue(definitionFileOption);
             var definitionInline = parseResult.GetValue(definitionOption);
+            var fromPackage = parseResult.GetValue(fromPackageOption);
             var image = parseResult.GetValue(imageOption);
             var runtime = parseResult.GetValue(runtimeOption);
             var modelProvider = parseResult.GetValue(modelProviderOption);
             var model = parseResult.GetValue(modelOption);
             var inherit = parseResult.GetValue(inheritOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
+
+            if (!string.IsNullOrWhiteSpace(fromPackage)
+                && (!string.IsNullOrWhiteSpace(definitionInline)
+                    || !string.IsNullOrWhiteSpace(definitionFile)
+                    || !string.IsNullOrWhiteSpace(image)
+                    || !string.IsNullOrWhiteSpace(runtime)))
+            {
+                await Console.Error.WriteLineAsync(
+                    "--from-package is mutually exclusive with --definition, --definition-file, --image, and --runtime.");
+                Environment.Exit(1);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fromPackage))
+            {
+                var installResult = await clientFactory().InstallPackagesAsync(
+                    new[] { new SpringApiClient.PackageInstallTargetRequest(fromPackage, null) },
+                    ct);
+
+                Console.WriteLine(output == "json"
+                    ? OutputFormatter.FormatJsonPlain(installResult)
+                    : $"Install started: {installResult.InstallId}");
+                return;
+            }
 
             string? definitionJson = definitionInline;
             if (!string.IsNullOrWhiteSpace(definitionFile))
@@ -378,7 +412,7 @@ public static class AgentCommand
             definitionJson = ApplyCreateExecutionShorthand(
                 definitionJson, inherit, image, runtime, modelProvider, model);
 
-            var client = ClientFactory.Create();
+            var client = clientFactory();
 
             // CLI accepts both no-dash hex (canonical post-#1629) and dashed
             // Guid forms; the shared GuidFormatter parses leniently.
