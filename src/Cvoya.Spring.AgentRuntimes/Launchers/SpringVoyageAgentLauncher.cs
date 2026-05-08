@@ -171,6 +171,15 @@ public class SpringVoyageAgentLauncher(
 
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
+        // ADR-0039 D4: when the agent has children, serialize the orchestration
+        // tool descriptors into SPRING_ORCHESTRATION_TOOLS so the Spring Voyage
+        // agent runtime can present them to the LLM as tool-call surfaces.
+        if (context.OrchestrationTools is { Length: > 0 })
+        {
+            envVars[OrchestrationToolsContract.EnvVar] =
+                System.Text.Json.JsonSerializer.Serialize(context.OrchestrationTools);
+        }
+
         // #1328: OLLAMA_ENDPOINT removed. The Dapr Conversation component YAML
         // (llm-ollama.yaml) now reads SPRING_LLM_PROVIDER_URL, which is
         // emitted by AgentContextBuilder for every launcher. OLLAMA_ENDPOINT is no
