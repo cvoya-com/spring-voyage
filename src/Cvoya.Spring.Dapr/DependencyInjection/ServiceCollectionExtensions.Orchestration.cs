@@ -133,11 +133,11 @@ internal static class ServiceCollectionExtensionsOrchestration
         // HTTP surface.
         services.TryAddSingleton<IAgentExecutionStore, DbAgentExecutionStore>();
 
-        // ADR-0039 A4: default IOrchestrationToolProvider returns an empty
-        // tool surface for every (agent, thread) pair. The directory-driven
-        // provider from task D2 replaces this default by registering before
-        // AddCvoyaSpring*; TryAdd keeps the override hook open.
-        services.TryAddSingleton<IOrchestrationToolProvider, EmptyOrchestrationToolProvider>();
+        // ADR-0039 D2: default IOrchestrationToolProvider resolves the
+        // directory-backed orchestration-tool surface for units with children.
+        // TryAdd keeps the override hook open for hosts that need a decorated
+        // or tenant-scoped provider.
+        services.TryAddSingleton<IOrchestrationToolProvider, DirectoryOrchestrationToolProvider>();
 
         // ADR-0039 C1: runtime-invocation pipeline extracted from
         // AgentActor's activate-and-dispatch closure. Singleton: stateless
