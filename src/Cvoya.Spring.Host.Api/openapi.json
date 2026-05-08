@@ -3518,138 +3518,6 @@
         }
       }
     },
-    "/api/v1/tenant/units/{id}/orchestration": {
-      "get": {
-        "tags": [
-          "UnitOrchestration"
-        ],
-        "summary": "Get the unit's persisted orchestration strategy",
-        "operationId": "GetUnitOrchestration",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UnitOrchestrationResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "UnitOrchestration"
-        ],
-        "summary": "Upsert the unit's orchestration strategy",
-        "operationId": "SetUnitOrchestration",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UnitOrchestrationResponse"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UnitOrchestrationResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "UnitOrchestration"
-        ],
-        "summary": "Clear the unit's orchestration strategy (fall back to inferred / default)",
-        "operationId": "ClearUnitOrchestration",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/tenant/units/{id}/execution": {
       "get": {
         "tags": [
@@ -13258,17 +13126,6 @@
           }
         }
       },
-      "UnitOrchestrationResponse": {
-        "type": "object",
-        "properties": {
-          "strategy": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
       "UnitPermissionEntry": {
         "required": [
           "humanId",
@@ -13882,9 +13739,6 @@
     },
     {
       "name": "UnitBoundary"
-    },
-    {
-      "name": "UnitOrchestration"
     },
     {
       "name": "UnitExecution"

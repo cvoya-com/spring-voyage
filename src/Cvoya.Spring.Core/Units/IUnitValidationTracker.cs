@@ -21,8 +21,8 @@ namespace Cvoya.Spring.Core.Units;
 /// </para>
 /// <para>
 /// All methods are no-ops when no row is found for the given actor id,
-/// matching the tolerance contract of <c>DbUnitOrchestrationStore</c> /
-/// <c>DbUnitExecutionStore</c>: a missing row never throws.
+/// matching the tolerance contract of <c>DbUnitExecutionStore</c>: a
+/// missing row never throws.
 /// </para>
 /// </remarks>
 public interface IUnitValidationTracker

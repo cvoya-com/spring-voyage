@@ -72,46 +72,6 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public void AddCvoyaSpringDapr_RegistersOrchestrationStrategies()
-    {
-        using var provider = BuildProvider();
-
-        var ai = provider.GetKeyedService<IOrchestrationStrategy>("ai");
-        var workflow = provider.GetKeyedService<IOrchestrationStrategy>("workflow");
-
-        ai.ShouldNotBeNull();
-        ai.ShouldBeOfType<AiOrchestrationStrategy>();
-        workflow.ShouldNotBeNull();
-        workflow.ShouldBeOfType<WorkflowOrchestrationStrategy>();
-    }
-
-    /// <summary>
-    /// Regression test for #312. <c>UnitActor</c> is constructed by the Dapr
-    /// actor runtime via plain DI and takes an unkeyed
-    /// <see cref="IOrchestrationStrategy"/>. Without an unkeyed default
-    /// registration, actor activation fails with
-    /// "Unable to resolve service for type 'IOrchestrationStrategy'". Ensure
-    /// the unkeyed default resolves to <see cref="AiOrchestrationStrategy"/>
-    /// and that the keyed registrations still resolve.
-    /// </summary>
-    [Fact]
-    public void AddCvoyaSpringDapr_RegistersUnkeyedOrchestrationStrategyDefault()
-    {
-        using var provider = BuildProvider();
-
-        var unkeyed = provider.GetService<IOrchestrationStrategy>();
-        var ai = provider.GetKeyedService<IOrchestrationStrategy>("ai");
-        var workflow = provider.GetKeyedService<IOrchestrationStrategy>("workflow");
-
-        unkeyed.ShouldNotBeNull();
-        unkeyed.ShouldBeOfType<AiOrchestrationStrategy>();
-        ai.ShouldNotBeNull();
-        ai.ShouldBeOfType<AiOrchestrationStrategy>();
-        workflow.ShouldNotBeNull();
-        workflow.ShouldBeOfType<WorkflowOrchestrationStrategy>();
-    }
-
-    [Fact]
     public void AddCvoyaSpringDapr_RegistersExecutionDispatcher()
     {
         using var provider = BuildProvider();

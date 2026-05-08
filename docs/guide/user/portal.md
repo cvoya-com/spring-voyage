@@ -191,13 +191,10 @@ Covers all five `UnitPolicy` dimensions — **Skill**, **Model**, **Cost**, **Ex
 
 ### Orchestration
 
-Surfaces the unit's orchestration strategy and label routing:
+Surfaces label routing policy:
 
 | Action | CLI |
 |--------|-----|
-| Inspect effective strategy | `spring unit orchestration get <unit>` |
-| Select strategy | `spring unit orchestration set <unit> --strategy {ai\|workflow\|label-routed}` |
-| Clear (fall back to inferred) | `spring unit orchestration clear <unit>` |
 | Add / edit label routing rule | `spring unit policy label-routing set <unit> --label frontend=frontend-engineer` |
 | Clear label routing | `spring unit policy label-routing clear <unit>` |
 
@@ -530,7 +527,6 @@ spring activity list --source <unit:..|agent:..> \
 | Per-source cost breakdown | `/analytics/costs` (bars) | *(none)* | tracked [#554](https://github.com/cvoya-com/spring-voyage/issues/554) |
 | `spring apply` for YAML manifests | *(none)* | `spring apply -f` | |
 | Unit policy editor | Policies tab | `spring unit policy <dim> get/set/clear` | at parity since PR #473 |
-| Orchestration strategy | Orchestration tab | `spring unit orchestration get/set/clear` | at parity since #606 |
 | Label-routing policy | Orchestration tab | `spring unit policy label-routing set/clear` | at parity since #602 |
 | Budget configuration | `/analytics/costs` | `spring cost set-budget` | at parity since PR #474 |
 | Expertise directory | `/directory` | `spring directory list/show/search` | at parity since PR #555 |

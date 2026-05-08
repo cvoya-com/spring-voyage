@@ -8,7 +8,6 @@ using System.Reflection;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Dapr.Actors;
 
 using global::Dapr.Actors;
@@ -25,8 +24,7 @@ using Xunit;
 
 /// <summary>
 /// Regression tests for ADR-0039 C2: UnitActor domain dispatch no longer
-/// resolves or invokes orchestration strategies. The strategy taxonomy still
-/// exists; this actor just does not depend on it.
+/// resolves or invokes the legacy orchestration strategy stack.
 /// </summary>
 public class UnitActorStrategyResolverTests
 {
@@ -39,8 +37,8 @@ public class UnitActorStrategyResolverTests
             .Select(p => p.ParameterType)
             .ToArray();
 
-        parameterTypes.ShouldNotContain(typeof(IOrchestrationStrategyResolver));
-        parameterTypes.ShouldNotContain(typeof(IOrchestrationStrategy));
+        parameterTypes.Select(t => t.Name)
+            .ShouldNotContain(name => name.Contains("OrchestrationStrategy", StringComparison.Ordinal));
     }
 
     [Fact]
