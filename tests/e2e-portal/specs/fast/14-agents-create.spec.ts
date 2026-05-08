@@ -52,6 +52,10 @@ test.describe("agents — create page", () => {
   }) => {
     await page.goto("/agents/create");
 
+    const executionBadge = page.getByTestId("execution-card-badge");
+    await expect(executionBadge).toBeVisible();
+    await expect(executionBadge).toHaveText("Inherits");
+
     await page.getByLabel("Agent id").fill(agentName("nounit"));
     await page.getByLabel("Display name").fill("No Unit");
 
