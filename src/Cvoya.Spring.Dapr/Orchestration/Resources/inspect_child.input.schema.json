@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "inspect_child.input",
+  "description": "Input for inspect_child — returns the child's metadata (role, description, declared expertise, current status).",
+  "type": "object",
+  "properties": {
+    "address": {
+      "type": "string",
+      "description": "Canonical scheme:no-dash-hex address of a direct child of the calling unit."
+    }
+  },
+  "required": ["address"],
+  "additionalProperties": false
+}

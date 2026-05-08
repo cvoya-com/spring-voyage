@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "list_children.output",
+  "description": "Output of list_children — array of direct-child descriptors per ADR-0039 §3.",
+  "type": "object",
+  "properties": {
+    "children": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Canonical scheme:no-dash-hex address (e.g. agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7)."
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["agent", "unit"]
+          },
+          "executionConfig": {
+            "type": ["object", "null"],
+            "description": "Resolved (runtime, model, image, hosting) per ADR-0038. Shape opaque to callers — read via inspect_child for typed access."
+          }
+        },
+        "required": ["address", "displayName", "kind"],
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": ["children"],
+  "additionalProperties": false
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "fanout_to_children.output",
+  "description": "Output of fanout_to_children — array of (address, response, status) triples per ADR-0039 §3.",
+  "type": "object",
+  "properties": {
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "response": {
+            "description": "The child's response payload, or null when the call did not complete."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["accepted", "routed", "failed"]
+          }
+        },
+        "required": ["address", "status"],
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": ["results"],
+  "additionalProperties": false
+}

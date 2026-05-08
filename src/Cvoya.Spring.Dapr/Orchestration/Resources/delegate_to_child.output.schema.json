@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "delegate_to_child.output",
+  "description": "Output of delegate_to_child — the child's synchronous response.",
+  "type": "object",
+  "properties": {
+    "address": {
+      "type": "string",
+      "description": "Address of the child that produced the response."
+    },
+    "response": {
+      "description": "The child's response payload. Shape is runtime-defined."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["accepted", "routed", "failed"],
+      "description": "Maps to OrchestrationDecisionStatus per ADR-0039 §4."
+    }
+  },
+  "required": ["address", "status"],
+  "additionalProperties": true
+}

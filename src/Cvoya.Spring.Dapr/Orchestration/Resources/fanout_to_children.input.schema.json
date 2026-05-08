@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "fanout_to_children.input",
+  "description": "Input for fanout_to_children — forward the inbound message to multiple direct children in parallel and collect their responses with a per-target timeout. Records an OrchestrationDecision with kind=fanout (ADR-0039 §4).",
+  "type": "object",
+  "properties": {
+    "addresses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "description": "Canonical scheme:no-dash-hex address of a direct child."
+      }
+    },
+    "message": {
+      "description": "The message payload to deliver to each target. Opaque to the platform."
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "description": "Optional rationale recorded verbatim on the OrchestrationDecision."
+    }
+  },
+  "required": ["addresses", "message"],
+  "additionalProperties": false
+}
