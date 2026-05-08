@@ -150,13 +150,31 @@ e2e::cli_unit_create() {
 }
 
 # e2e::cli_agent_create ARGS... — wraps `spring agent create`. The #744
-# contract requires ≥1 `--unit <id>` flag; this helper does no injection
-# (there is no sensible default) but exists so scenario call sites go
-# through a single name, making future drift trivial to fix in one place.
-# Same root-option hoisting as the unit helpers.
+# contract requires ≥1 `--unit <id>` flag; this helper does no unit
+# injection (there is no sensible default) but exists so scenario call
+# sites go through a single name, making future drift trivial to fix in
+# one place. Same root-option hoisting as the unit helpers.
+#
+# ADR-0039 §8 lifted the legacy positional <id> off `spring agent create`;
+# `--name` is now the only display surface. To keep existing scenarios
+# building without per-call churn, the first non-flag token is rewritten
+# into `--name <token>` automatically when the caller hasn't already
+# supplied `--name`. Callers can still pass `--name` explicitly; in that
+# case the helper does no rewriting.
 e2e::cli_agent_create() {
+    # Flags on `agent create` that take a separate value token (i.e. `--flag value`,
+    # not `--flag=value`). We need to know these so the helper can distinguish a
+    # bare-positional from a flag-value when scanning the argument list. Keep this
+    # set narrow — only the flags scenarios actually use today.
+    local -A value_taking_flags=(
+        [--name]=1 [--unit]=1 [--role]=1 [--definition]=1 [--definition-file]=1
+        [--image]=1 [--container-runtime]=1 [--runtime]=1 [--model-provider]=1
+        [--model]=1 [--agent]=1
+    )
     local -a root_args=() sub_args=()
-    local i=1 arg
+    local i=1 arg has_name=0
+    local first_positional=""
+    local -a passthrough=()
     while (( i <= $# )); do
         arg="${!i}"
         if _e2e_is_root_option "${arg}"; then
@@ -165,11 +183,38 @@ e2e::cli_agent_create() {
                 i=$((i+1))
                 if (( i <= $# )); then root_args+=("${!i}"); fi
             fi
+        elif [[ "${arg}" == "--name" || "${arg}" == --name=* ]]; then
+            has_name=1
+            passthrough+=("${arg}")
+            if [[ "${arg}" == "--name" ]]; then
+                i=$((i+1))
+                if (( i <= $# )); then passthrough+=("${!i}"); fi
+            fi
+        elif [[ -n "${value_taking_flags[${arg}]:-}" ]]; then
+            # `--flag value` — pass both tokens through together so the trailing
+            # value isn't mistaken for a positional.
+            passthrough+=("${arg}")
+            i=$((i+1))
+            if (( i <= $# )); then passthrough+=("${!i}"); fi
+        elif [[ "${arg}" == --* ]]; then
+            # `--flag=value` or value-less switch.
+            passthrough+=("${arg}")
+        elif [[ -z "${first_positional}" ]]; then
+            first_positional="${arg}"
         else
-            sub_args+=("${arg}")
+            passthrough+=("${arg}")
         fi
         i=$((i+1))
     done
+    if (( has_name == 0 )) && [[ -n "${first_positional}" ]]; then
+        sub_args+=(--name "${first_positional}")
+    elif [[ -n "${first_positional}" ]]; then
+        # Caller already supplied --name; pass the original positional
+        # through verbatim so the parser produces the ADR-0039 §8 rejection
+        # — surfacing the migration hint to anyone who copy-pasted both.
+        sub_args+=("${first_positional}")
+    fi
+    sub_args+=("${passthrough[@]}")
     e2e::cli "${root_args[@]}" agent create "${sub_args[@]}"
 }
 

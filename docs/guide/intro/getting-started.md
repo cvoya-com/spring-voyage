@@ -79,21 +79,20 @@ spring unit set engineering-team \
 Create an agent and add it to the unit:
 
 ```
-spring agent create ada \
+spring agent create \
+  --name ada \
+  --unit engineering-team \
   --role backend-engineer \
   --capabilities "csharp,python,postgresql" \
   --ai-backend claude \
   --execution delegated \
   --agent claude
-
-spring unit members add engineering-team ada
 ```
 
 You can add more agents the same way:
 
 ```
-spring agent create kay --role frontend-engineer --capabilities "typescript,react" --ai-backend claude --execution delegated --agent claude
-spring unit members add engineering-team kay
+spring agent create --name kay --unit engineering-team --role frontend-engineer --capabilities "typescript,react" --ai-backend claude --execution delegated --agent claude
 ```
 
 ## Adding a Connector

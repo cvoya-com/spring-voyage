@@ -104,7 +104,7 @@ spring agent execution clear <agent> [--field image|runtime|tool|provider|model|
 `spring agent create` accepts `--image`, `--runtime`, `--agent` as shorthands for the corresponding `execution.X` fields:
 
 ```bash
-spring agent create backend-eng --agent claude --image ghcr.io/my/agent:v1 --runtime podman
+spring agent create --name backend-eng --unit engineering-team --agent claude --image ghcr.io/my/agent:v1 --runtime podman
 ```
 
 ### Managing Members
@@ -159,8 +159,10 @@ This works regardless of how the unit was originally built (imperatively or decl
 ### Creating an Agent
 
 ```bash
-spring agent create <id> --role <role> --agent <runtime-id>
+spring agent create --name <display-name> --unit <unit> --role <role> --agent <runtime-id>
 ```
+
+Agent identity is assigned by the platform (a server-allocated Guid) per ADR-0039 §8; `--name` is the only display surface.
 
 Agent instructions, expertise, and other properties are typically set via YAML definitions. For quick adjustments:
 

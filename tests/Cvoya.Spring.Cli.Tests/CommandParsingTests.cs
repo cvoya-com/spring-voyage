@@ -26,19 +26,18 @@ public class CommandParsingTests
     }
 
     [Fact]
-    public void AgentCreate_ParsesIdAndNameOptions()
+    public void AgentCreate_ParsesNameAndUnitOptions()
     {
         var outputOption = CreateOutputOption();
         var agentCommand = AgentCommand.Create(outputOption);
         var rootCommand = new RootCommand { Options = { outputOption } };
         rootCommand.Subcommands.Add(agentCommand);
 
-        // #744: --unit is required on `agent create` so the CLI command line
-        // must supply at least one. Omitting it trips the option validator.
-        var parseResult = rootCommand.Parse("agent create my-agent --name \"My Agent\" --unit engineering");
+        // ADR-0039 §8: identity is server-allocated; --name is the only
+        // display surface. #744: --unit is required on `agent create`.
+        var parseResult = rootCommand.Parse("agent create --name \"My Agent\" --unit engineering");
 
         parseResult.Errors.ShouldBeEmpty();
-        parseResult.GetValue<string>("id").ShouldBe("my-agent");
         parseResult.GetValue<string>("--name").ShouldBe("My Agent");
         parseResult.GetValue<string[]>("--unit").ShouldBe(new[] { "engineering" });
     }
@@ -54,10 +53,48 @@ public class CommandParsingTests
         var rootCommand = new RootCommand { Options = { outputOption } };
         rootCommand.Subcommands.Add(agentCommand);
 
-        var parseResult = rootCommand.Parse("agent create orphan");
+        var parseResult = rootCommand.Parse("agent create --name orphan");
 
         parseResult.Errors.ShouldNotBeEmpty();
         parseResult.Errors.ShouldContain(e => e.Message.Contains("--unit"));
+    }
+
+    [Fact]
+    public void AgentCreate_MissingName_ProducesError()
+    {
+        // ADR-0039 §8: --name is the only display surface, and it is
+        // Required = true. Omitting it must trip the parser before any
+        // action runs.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse("agent create --unit engineering");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e => e.Message.Contains("--name"));
+    }
+
+    [Fact]
+    public void AgentCreate_LegacyPositionalId_RejectedAtParseTime()
+    {
+        // ADR-0039 §8 / §9: the positional <id> argument is removed from
+        // `spring agent create`. Agent identity is assigned by the platform
+        // (a server-allocated Guid). Old scripts that still pass a positional
+        // must see the migration hint at parse time, before any action runs.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create my-agent --name \"My Agent\" --unit engineering");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(
+            e => e.Message == AgentCommand.LegacyPositionalIdRejectionMessage);
+        AgentCommand.LegacyPositionalIdRejectionMessage.ShouldContain("ADR-0039");
     }
 
     [Fact]
@@ -74,7 +111,7 @@ public class CommandParsingTests
         rootCommand.Subcommands.Add(agentCommand);
 
         var parseResult = rootCommand.Parse(
-            "agent create ada --unit engineering --container-runtime podman");
+            "agent create --name ada --unit engineering --container-runtime podman");
 
         parseResult.Errors.ShouldNotBeEmpty();
         parseResult.Errors.ShouldContain(e =>

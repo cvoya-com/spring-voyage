@@ -144,10 +144,11 @@ Inline credentials are still supplied via `--api-key` / `--api-key-from-file`, p
 
 ```
 # Author a new agent on a fixed-provider runtime
-$ spring agent create ada --runtime claude-code --model claude-opus-4-7
+# (ADR-0039 §8: --name is the only display surface; identity is platform-allocated.)
+$ spring agent create --name ada --unit eng --runtime claude-code --model claude-opus-4-7
 
 # Spring Voyage Agent agent → must name the provider explicitly
-$ spring agent create ada \
+$ spring agent create --name ada --unit eng \
     --runtime spring-voyage --model-provider anthropic --model claude-opus-4-7
 
 # Override only the model id later — provider is preserved
