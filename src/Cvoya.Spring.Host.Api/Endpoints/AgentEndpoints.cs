@@ -1391,21 +1391,4 @@ public static class AgentEndpoints
         => obj.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String
             ? prop.GetString()
             : null;
-
-    private static AgentHostingMode ParseHostingMode(string? value)
-    {
-        if (value is null)
-        {
-            return AgentHostingMode.Ephemeral;
-        }
-        if (value.Equals("persistent", StringComparison.OrdinalIgnoreCase))
-        {
-            return AgentHostingMode.Persistent;
-        }
-        if (value.Equals("pooled", StringComparison.OrdinalIgnoreCase))
-        {
-            return AgentHostingMode.Pooled;
-        }
-        return AgentHostingMode.Ephemeral;
-    }
 }
