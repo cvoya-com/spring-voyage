@@ -652,6 +652,7 @@ Format. Each task lists **Files**, **Deliverable** (what to write / change), **A
 - **Deliverable.** Badge flips when any execution field is overridden. Pattern reused from DESIGN.md §12.6.
 - **Acceptance.** Vitest covers the flip.
 - **Blocked by.** I4.
+- **Status.** Delivered as part of I4 (PR #1940). The Execution card-header badge (`data-testid="execution-card-badge"`), the `executionHasOverride` flip predicate, and the `flips the Execution card badge from \`Inherits\` to \`Configured\` when any field is set` vitest case all land with I4 because the badge predicate reads the same `runtime`/`modelProviderId`/`modelId`/`image`/`hosting` form state the per-field inherit affordances introduce.
 
 **I6 — Render structured 422 multi-parent inheritance conflict response inline**
 
