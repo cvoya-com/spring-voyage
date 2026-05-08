@@ -9,6 +9,7 @@ using Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Orchestration;
 
 using Microsoft.Extensions.Logging;
 
@@ -114,6 +115,44 @@ public class CodexLauncherTests
     }
 
     [Fact]
+    public async Task PrepareAsync_OrchestrationToolsNullOrEmpty_DoesNotAddSpringOrchestrationMcpServer()
+    {
+        var nullToolsContext = LauncherCallbackTestSupport.CreateContext();
+        var emptyToolsContext = nullToolsContext with
+        {
+            OrchestrationTools = Array.Empty<OrchestrationToolDescriptor>()
+        };
+
+        var nullToolsPrep = await _launcher.PrepareAsync(
+            nullToolsContext, TestContext.Current.CancellationToken);
+        var emptyToolsPrep = await _launcher.PrepareAsync(
+            emptyToolsContext, TestContext.Current.CancellationToken);
+
+        ShouldNotContainSpringOrchestrationServer(nullToolsPrep);
+        ShouldNotContainSpringOrchestrationServer(emptyToolsPrep);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OrchestrationToolsPresent_AddsSpringOrchestrationMcpServer()
+    {
+        var context = LauncherCallbackTestSupport.CreateContext() with
+        {
+            OrchestrationTools = CreateOrchestrationTools()
+        };
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        var mcpServers = GetMcpServers(prep);
+        mcpServers.TryGetProperty("spring-orchestration", out var server).ShouldBeTrue();
+        server.GetProperty("type").GetString().ShouldBe("http");
+        server.GetProperty("url").GetString()
+            .ShouldBe(prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackUrlEnvVar]);
+        server.GetProperty("headers").GetProperty("Authorization").GetString()
+            .ShouldBe(
+                $"Bearer {prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}");
+    }
+
+    [Fact]
     public async Task PrepareAsync_InjectsOpenAiApiKey_FromCredentialResolver()
     {
         // #1714 step 2: Codex resolves the OpenAI API key through the
@@ -146,5 +185,34 @@ public class CodexLauncherTests
 
         ex.Message.ShouldContain("openai-api-key");
         ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
+    }
+
+    private static void ShouldNotContainSpringOrchestrationServer(AgentLaunchSpec prep)
+    {
+        var mcpServers = GetMcpServers(prep);
+
+        mcpServers.TryGetProperty("spring-orchestration", out _).ShouldBeFalse();
+    }
+
+    private static JsonElement GetMcpServers(AgentLaunchSpec prep)
+    {
+        using var parsed = JsonDocument.Parse(prep.WorkspaceFiles[".mcp.json"]);
+
+        return parsed.RootElement.GetProperty("mcpServers").Clone();
+    }
+
+    private static OrchestrationToolDescriptor[] CreateOrchestrationTools() =>
+    [
+        new(
+            OrchestrationToolName.ListChildren,
+            CreateObjectSchema(),
+            CreateObjectSchema())
+    ];
+
+    private static JsonElement CreateObjectSchema()
+    {
+        using var document = JsonDocument.Parse("""{"type":"object"}""");
+
+        return document.RootElement.Clone();
     }
 }

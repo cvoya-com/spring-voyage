@@ -94,32 +94,6 @@ public class CodexLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        var mcpConfig = new
-        {
-            mcpServers = new Dictionary<string, object>
-            {
-                ["spring-voyage"] = new
-                {
-                    type = "http",
-                    url = context.McpEndpoint,
-                    headers = new Dictionary<string, string>
-                    {
-                        ["Authorization"] = $"Bearer {context.McpToken}"
-                    }
-                }
-            }
-        };
-
-        var workspaceFiles = new Dictionary<string, string>
-        {
-            ["AGENTS.md"] = context.Prompt,
-            [".mcp.json"] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true })
-        };
-
-        _logger.LogInformation(
-            "Prepared Codex workspace request ({FileCount} files) for agent {AgentId} thread {ThreadId}",
-            workspaceFiles.Count, context.AgentId, context.ThreadId);
-
         // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN are
         // removed — AgentContextBuilder now emits the D1-canonical equivalents
         // (SPRING_AGENT_ID, SPRING_MCP_URL, SPRING_MCP_TOKEN) for every launcher.
@@ -135,6 +109,48 @@ public class CodexLauncher(
         };
 
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
+
+        var mcpServers = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["spring-voyage"] = new
+            {
+                type = "http",
+                url = context.McpEndpoint,
+                headers = new Dictionary<string, string>
+                {
+                    ["Authorization"] = $"Bearer {context.McpToken}"
+                }
+            }
+        };
+
+        if (context.OrchestrationTools is { Length: > 0 })
+        {
+            mcpServers["spring-orchestration"] = new
+            {
+                type = "http",
+                url = envVars[AgentCallbackEnvironmentContract.CallbackUrlEnvVar],
+                headers = new Dictionary<string, string>
+                {
+                    ["Authorization"] =
+                        $"Bearer {envVars[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}"
+                }
+            };
+        }
+
+        var mcpConfig = new
+        {
+            mcpServers
+        };
+
+        var workspaceFiles = new Dictionary<string, string>
+        {
+            ["AGENTS.md"] = context.Prompt,
+            [".mcp.json"] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true })
+        };
+
+        _logger.LogInformation(
+            "Prepared Codex workspace request ({FileCount} files) for agent {AgentId} thread {ThreadId}",
+            workspaceFiles.Count, context.AgentId, context.ThreadId);
 
         // #1714 step 2: inject the OpenAI API key into OPENAI_API_KEY.
         // Codex uses the OpenAI Platform API; its credential schema is
