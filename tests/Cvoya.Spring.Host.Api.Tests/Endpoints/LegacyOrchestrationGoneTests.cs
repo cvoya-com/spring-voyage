@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Tests.Endpoints;
 
 using System.Net;
+using System.Text.Json;
 
 using Shouldly;
 
@@ -20,15 +21,21 @@ public class LegacyOrchestrationGoneTests
     }
 
     [Theory]
-    [InlineData(HttpMethodName.Post, "/api/v1/tenant/units/{0}/orchestration")]
-    [InlineData(HttpMethodName.Get, "/api/v1/units/{0}/orchestration")]
-    public async Task LegacyOrchestrationEndpoint_Returns410(
-        HttpMethodName method,
+    [InlineData("GET", "/api/v1/tenant/units/{0}/orchestration")]
+    [InlineData("POST", "/api/v1/tenant/units/{0}/orchestration")]
+    [InlineData("PUT", "/api/v1/tenant/units/{0}/orchestration")]
+    [InlineData("DELETE", "/api/v1/tenant/units/{0}/orchestration")]
+    [InlineData("GET", "/api/v1/units/{0}/orchestration")]
+    [InlineData("POST", "/api/v1/units/{0}/orchestration")]
+    [InlineData("PUT", "/api/v1/units/{0}/orchestration")]
+    [InlineData("DELETE", "/api/v1/units/{0}/orchestration")]
+    public async Task LegacyOrchestrationEndpoint_Returns410WithMigrationHint(
+        string method,
         string pathTemplate)
     {
         var unitId = Guid.NewGuid().ToString("N");
         using var request = new HttpRequestMessage(
-            ToHttpMethod(method),
+            new HttpMethod(method),
             string.Format(pathTemplate, unitId));
 
         using var response = await _client.SendAsync(
@@ -36,18 +43,13 @@ public class LegacyOrchestrationGoneTests
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Gone);
-    }
 
-    private static HttpMethod ToHttpMethod(HttpMethodName method) => method switch
-    {
-        HttpMethodName.Get => HttpMethod.Get,
-        HttpMethodName.Post => HttpMethod.Post,
-        _ => throw new ArgumentOutOfRangeException(nameof(method), method, null),
-    };
-
-    public enum HttpMethodName
-    {
-        Get,
-        Post,
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        using var json = JsonDocument.Parse(body);
+        var root = json.RootElement;
+        root.GetProperty("title").GetString().ShouldBe("Orchestration endpoint removed");
+        root.GetProperty("status").GetInt32().ShouldBe((int)HttpStatusCode.Gone);
+        root.GetProperty("detail").GetString().ShouldBe(
+            "The orchestration endpoint is removed in ADR-0039. Configure the unit's runtime instead (see docs/concepts/agents.md).");
     }
 }
