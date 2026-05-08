@@ -2845,7 +2845,7 @@ export interface components {
             offset: number;
         };
         ExecutionModePolicy: {
-            forced?: null | components["schemas"]["AgentExecutionMode"];
+            forced?: components["schemas"]["AgentExecutionMode"];
             allowed?: null | components["schemas"]["AgentExecutionMode"][];
         };
         ExpertiseDomainDto: {
@@ -2913,8 +2913,8 @@ export interface components {
             maxLevel?: components["schemas"]["InitiativeLevel"];
             /** @default false */
             requireUnitApproval: boolean;
-            tier1?: null | components["schemas"]["Tier1Config"];
-            tier2?: null | components["schemas"]["Tier2Config"];
+            tier1?: components["schemas"]["Tier1Config"];
+            tier2?: components["schemas"]["Tier2Config"];
             allowedActions?: null | string[];
             blockedActions?: null | string[];
         };
@@ -3525,11 +3525,11 @@ export interface components {
             notifications: boolean;
         };
         UnitPolicyResponse: {
-            skill?: null | components["schemas"]["SkillPolicy"];
-            model?: null | components["schemas"]["ModelPolicy"];
-            cost?: null | components["schemas"]["CostPolicy"];
-            executionMode?: null | components["schemas"]["ExecutionModePolicy"];
-            initiative?: null | components["schemas"]["InitiativePolicy"];
+            skill?: components["schemas"]["SkillPolicy"];
+            model?: components["schemas"]["ModelPolicy"];
+            cost?: components["schemas"]["CostPolicy"];
+            executionMode?: components["schemas"]["ExecutionModePolicy"];
+            initiative?: components["schemas"]["InitiativePolicy"];
         };
         UnitReadinessResponse: {
             isReady: boolean;
