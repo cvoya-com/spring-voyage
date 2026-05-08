@@ -179,14 +179,13 @@ Each unit owns an optional `execution:` block that acts as the **default contain
 | Field      | Semantics                                                                                          |
 | ---------- | -------------------------------------------------------------------------------------------------- |
 | `image`    | Container image reference (e.g. `ghcr.io/...:tag`, `spring-agent:latest`).                         |
-| `runtime`  | Container runtime (`docker` or `podman`).                                                          |
-| `agent`    | Agent runtime registry id (e.g. `claude`, `openai`, `google`, `ollama`). The dispatcher derives the launcher from this via `IAgentRuntime.Kind` (#1732). |
+| `agent`    | Agent runtime registry id (e.g. `claude-code`, `codex`, `gemini`, `spring-voyage`). The dispatcher derives the launcher from this via the runtime catalogue (#1732). |
 | `provider` | LLM provider. Meaningful only when the resolved runtime kind is `spring-voyage` (#598 gating).        |
 | `model`    | Model identifier. Meaningful only when the resolved runtime kind is `spring-voyage` (#598 gating).    |
 
 > **#1732:** `tool:` was dropped from the manifest, persistence, REST DTOs, and CLI. The execution tool is now derived 1:1 from `agent` via the runtime registry's `IAgentRuntime.Kind` (e.g. `agent: claude` → `kind: claude-code-cli`). REST responses include a read-only `kind` derived field; the CLI prints it next to `agent` on `execution get` / `set`. Legacy YAML carrying `execution.tool:` is rejected with `LegacyExecutionToolField` and a migration hint.
 
-Every field is **independently optional and independently clearable** — a unit can declare only `runtime: podman` and leave `image`, `agent`, etc. for each member agent to provide.
+Every field is **independently optional and independently clearable** — a unit can declare only `agent: claude-code` and leave `image`, `model`, etc. for each member agent to provide. The container-runtime binary is platform configuration, not part of the execution defaults record.
 
 **Resolution chain per field.** At dispatch time `IAgentDefinitionProvider` merges the agent's own declared block with its parent unit's defaults:
 

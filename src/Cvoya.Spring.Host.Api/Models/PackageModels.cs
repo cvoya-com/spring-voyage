@@ -89,7 +89,6 @@ public record PackageDetail(
 /// kicking off install.
 /// </summary>
 /// <param name="Image">Default container image inherited by member units.</param>
-/// <param name="Runtime">Default container runtime selector inherited by member units.</param>
 /// <param name="Provider">Default LLM provider inherited by member units.</param>
 /// <param name="Model">Default model identifier inherited by member units.</param>
 /// <param name="InheritUnits">
@@ -99,7 +98,6 @@ public record PackageDetail(
 /// </param>
 public record PackageExecutionSummary(
     string? Image,
-    string? Runtime,
     string? Provider,
     string? Model,
     IReadOnlyList<string>? InheritUnits);

@@ -19,7 +19,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default <see cref="IUnitValidationWorkflowScheduler"/>. Resolves the
-/// unit's persisted execution defaults (<c>image</c>, <c>runtime</c>,
+/// unit's persisted execution defaults (<c>image</c>, <c>agent</c>,
 /// <c>model</c>) and its tenant-scoped LLM credential, then schedules a
 /// new <c>UnitValidationWorkflow</c> run via <see cref="DaprWorkflowClient"/>.
 /// </summary>
@@ -204,15 +204,9 @@ public class UnitValidationWorkflowScheduler(
     /// <remarks>
     /// <para>
     /// Precedence — <see cref="UnitExecutionDefaults.Agent"/> wins, then
-    /// <see cref="UnitExecutionDefaults.Runtime"/> (skipping known container-runtime
-    /// selectors <c>docker</c> / <c>podman</c>), then
     /// <see cref="UnitExecutionDefaults.Provider"/>. <c>Agent</c> is the
     /// source of truth (sourced from the manifest's <c>ai.agent</c>
-    /// field by <c>UnitCreationService</c>, or set via the execution PUT endpoint);
-    /// <c>Runtime</c> is used as a back-compat fallback for units persisted before
-    /// the <c>agent</c> slot existed where <c>Runtime</c> held the agent-runtime id
-    /// (e.g. <c>ollama</c>) — container-runtime selectors (<c>docker</c> /
-    /// <c>podman</c>) are filtered out so they cannot land as an agent-runtime id;
+    /// field by <c>UnitCreationService</c>, or set via the execution PUT endpoint).
     /// <c>Provider</c> is a last-ditch fallback because spring-voyage-style runtimes
     /// carry the same string in both their <c>provider</c> and <c>id</c> slots.
     /// </para>
@@ -224,15 +218,9 @@ public class UnitValidationWorkflowScheduler(
     internal static string? ResolveAgentRuntimeId(UnitExecutionDefaults defaults)
     {
         if (!string.IsNullOrWhiteSpace(defaults.Agent)) return defaults.Agent;
-        if (!string.IsNullOrWhiteSpace(defaults.Runtime)
-            && !IsContainerRuntimeSelector(defaults.Runtime)) return defaults.Runtime;
         if (!string.IsNullOrWhiteSpace(defaults.Provider)) return defaults.Provider;
         return null;
     }
-
-    private static bool IsContainerRuntimeSelector(string value) =>
-        string.Equals(value, "podman", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(value, "docker", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Returns the post-pull probe steps the runtime does NOT declare, so

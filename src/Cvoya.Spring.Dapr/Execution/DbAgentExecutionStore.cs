@@ -84,7 +84,6 @@ public class DbAgentExecutionStore(
         var existing = Extract(entity.Definition) ?? new AgentExecutionShape();
         var merged = new AgentExecutionShape(
             Image: PickTrimmed(shape.Image, existing.Image),
-            Runtime: PickTrimmed(shape.Runtime, existing.Runtime),
             Provider: PickTrimmed(shape.Provider, existing.Provider),
             Model: PickTrimmed(shape.Model, existing.Model),
             Hosting: PickTrimmed(shape.Hosting, existing.Hosting),
@@ -147,7 +146,6 @@ public class DbAgentExecutionStore(
         {
             var block = new Dictionary<string, object?>();
             if (!string.IsNullOrWhiteSpace(shape.Image)) block["image"] = shape.Image!.Trim();
-            if (!string.IsNullOrWhiteSpace(shape.Runtime)) block["runtime"] = shape.Runtime!.Trim();
             if (!string.IsNullOrWhiteSpace(shape.Provider)) block["provider"] = shape.Provider!.Trim();
             if (!string.IsNullOrWhiteSpace(shape.Model)) block["model"] = shape.Model!.Trim();
             if (!string.IsNullOrWhiteSpace(shape.Hosting)) block["hosting"] = shape.Hosting!.Trim();
@@ -177,7 +175,6 @@ public class DbAgentExecutionStore(
 
         var shape = new AgentExecutionShape(
             Image: GetStringOrNull(exec, "image"),
-            Runtime: GetStringOrNull(exec, "runtime"),
             Provider: GetStringOrNull(exec, "provider"),
             Model: GetStringOrNull(exec, "model"),
             Hosting: GetStringOrNull(exec, "hosting"),

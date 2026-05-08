@@ -92,7 +92,6 @@ public enum AgentHostingMode
 /// The container image to run. Nullable for A2A-native agents that do not
 /// require a container image (e.g. agents running as standalone services).
 /// </param>
-/// <param name="Runtime">Optional container runtime hint (e.g. <c>docker</c>, <c>podman</c>).</param>
 /// <param name="Hosting">
 /// The hosting mode for the agent. Defaults to <see cref="AgentHostingMode.Ephemeral"/>.
 /// </param>
@@ -120,7 +119,6 @@ public enum AgentHostingMode
 public record AgentExecutionConfig(
     string AgentRuntimeId,
     string? Image,
-    string? Runtime = null,
     AgentHostingMode Hosting = AgentHostingMode.Ephemeral,
     string? Provider = null,
     string? Model = null,

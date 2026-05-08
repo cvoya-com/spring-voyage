@@ -1694,7 +1694,6 @@ public static class UnitEndpoints
         return new AgentExecutionConfig(
             AgentRuntimeId: shape.Agent ?? string.Empty,
             Image: shape.Image,
-            Runtime: shape.Runtime,
             Provider: shape.Provider,
             Model: shape.Model);
     }
@@ -1921,7 +1920,7 @@ public static class UnitEndpoints
 
         // Project the child's persisted UnitExecutionDefaults onto the
         // resolver's AgentExecutionConfig shape. The five inheritable slots
-        // map 1:1 (Agent → AgentRuntimeId, Image, Runtime, Provider, Model);
+        // map 1:1 (Agent → AgentRuntimeId, Image, Provider, Model);
         // a unit with no defaults persisted is treated as fully-inheriting.
         var childOwnDefaults = await unitExecutionStore.GetAsync(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(childEntry.ActorId),
@@ -1930,7 +1929,6 @@ public static class UnitEndpoints
         var childOwnConfig = new AgentExecutionConfig(
             AgentRuntimeId: childOwnDefaults?.Agent ?? string.Empty,
             Image: childOwnDefaults?.Image,
-            Runtime: childOwnDefaults?.Runtime,
             Provider: childOwnDefaults?.Provider,
             Model: childOwnDefaults?.Model);
 

@@ -25,7 +25,6 @@ agent:
       id: claude-sonnet-4-6
   execution:
     image: spring-agent:latest
-    containerRuntime: podman
 
   cloning:
     policy: ephemeral-with-memory
@@ -70,17 +69,12 @@ unit:
       id: llama3.2:3b
   execution:
     image: spring-workflows/software-dev-cycle:latest
-    containerRuntime: podman
 
   members:
     - agent: agents/ada.yaml
     - agent: agents/kay.yaml
     - agent: agents/hopper.yaml
     - unit: units/database-team.yaml    # nested unit
-
-  execution:
-    image: spring-agent:latest
-    runtime: podman
 
   connectors:
     - type: github

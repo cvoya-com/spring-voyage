@@ -66,7 +66,7 @@ public class ExecutionConfigInheritanceResolver(
 {
     /// <summary>
     /// Field names returned on <see cref="InheritanceResolution.ConflictingFields"/>
-    /// for the five inheritable slots. Hosting is excluded — it is
+    /// for the four inheritable slots. Hosting is excluded — it is
     /// agent-owned per ADR-0039 §6.
     /// </summary>
     /// <remarks>
@@ -79,7 +79,6 @@ public class ExecutionConfigInheritanceResolver(
     {
         public const string Agent = "agent";
         public const string Image = "image";
-        public const string Runtime = "runtime";
         public const string Provider = "provider";
         public const string Model = "model";
     }
@@ -131,12 +130,6 @@ public class ExecutionConfigInheritanceResolver(
             parentValues: parentDefaults.Select(p => (p.UnitId, NullIfBlank(p.Defaults?.Image))),
             conflicts);
 
-        var resolvedRuntime = ResolveField(
-            FieldNames.Runtime,
-            ownValue: NullIfBlank(agentOwn.Runtime),
-            parentValues: parentDefaults.Select(p => (p.UnitId, NullIfBlank(p.Defaults?.Runtime))),
-            conflicts);
-
         var resolvedProvider = ResolveField(
             FieldNames.Provider,
             ownValue: NullIfBlank(agentOwn.Provider),
@@ -158,7 +151,6 @@ public class ExecutionConfigInheritanceResolver(
         {
             AgentRuntimeId = resolvedAgentRuntimeId ?? string.Empty,
             Image = resolvedImage,
-            Runtime = resolvedRuntime,
             Provider = resolvedProvider,
             Model = resolvedModel,
             // Hosting is agent-owned — pass through verbatim.

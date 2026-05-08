@@ -425,12 +425,12 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     // -------------------------------------------------------------------
 
     [Fact]
-    public async Task CreateAgent_MultiParentDivergingRuntime_Returns422WithStructuredBody()
+    public async Task CreateAgent_MultiParentDivergingAgentRuntime_Returns422WithStructuredBody()
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
 
-        // Two parent units that disagree on the inherited `runtime` slot.
+        // Two parent units that disagree on the inherited `agent` runtime slot.
         // The resolver short-circuits before any directory write, so we
         // never reach the agent register / membership upsert path.
         var unitDocker = new Guid("ee1ee111-0000-0000-0000-000000000010");
@@ -448,11 +448,11 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.UnitExecutionStore
             .GetAsync(unitDocker.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Runtime: "docker")));
+                new UnitExecutionDefaults(Agent: "claude-code")));
         _factory.UnitExecutionStore
             .GetAsync(unitPodman.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Runtime: "podman")));
+                new UnitExecutionDefaults(Agent: "spring-voyage")));
 
         var request = new CreateAgentRequest(
             "Conflicted Agent",
@@ -475,7 +475,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         root.GetProperty("error").GetString().ShouldBe("MultiParentInheritanceConflict");
         root.TryGetProperty("conflictingFields", out var fields).ShouldBeTrue();
-        fields.TryGetProperty("runtime", out var runtimeArray).ShouldBeTrue();
+        fields.TryGetProperty("agent", out var runtimeArray).ShouldBeTrue();
         runtimeArray.ValueKind.ShouldBe(JsonValueKind.Array);
 
         var runtimeValues = runtimeArray
@@ -486,9 +486,9 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             .ToList();
         runtimeValues.Count.ShouldBe(2);
         runtimeValues.ShouldContain(p =>
-            p.UnitId == unitDocker.ToString("N") && p.Value == "docker");
+            p.UnitId == unitDocker.ToString("N") && p.Value == "claude-code");
         runtimeValues.ShouldContain(p =>
-            p.UnitId == unitPodman.ToString("N") && p.Value == "podman");
+            p.UnitId == unitPodman.ToString("N") && p.Value == "spring-voyage");
 
         // Conflict short-circuits before any side effect: nothing was
         // registered in the directory and no membership rows were written.
@@ -504,7 +504,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task CreateAgent_MultiParentDivergingRuntime_AgentSetsItExplicitly_Returns201()
+    public async Task CreateAgent_MultiParentDivergingAgentRuntime_AgentSetsItExplicitly_Returns201()
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
@@ -520,20 +520,20 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.UnitExecutionStore
             .GetAsync(unitDocker.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Runtime: "docker")));
+                new UnitExecutionDefaults(Agent: "claude-code")));
         _factory.UnitExecutionStore
             .GetAsync(unitPodman.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Runtime: "podman")));
+                new UnitExecutionDefaults(Agent: "spring-voyage")));
 
         // Per ADR-0039 §6 rule 1 ("an explicit value on the agent always
-        // wins"), declaring `execution.runtime` on the agent's own block
+        // wins"), declaring `execution.agent` on the agent's own block
         // turns the slot into "agent-decided". The resolver no longer
         // reports a conflict on that field — the create succeeds.
         var definitionJson = """
             {
               "execution": {
-                "runtime": "docker"
+                "agent": "claude-code"
               }
             }
             """;

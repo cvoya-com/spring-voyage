@@ -36,7 +36,7 @@ public class DbAgentDefinitionProviderTests
             Definition = JsonSerializer.SerializeToElement(new
             {
                 instructions = "Be careful.",
-                execution = new { agent = "claude", image = "spring-agent:latest", runtime = "docker" }
+                execution = new { agent = "claude", image = "spring-agent:latest" }
             })
         };
 
@@ -46,7 +46,6 @@ public class DbAgentDefinitionProviderTests
         def.Execution.ShouldNotBeNull();
         def.Execution!.AgentRuntimeId.ShouldBe("claude");
         def.Execution.Image.ShouldBe("spring-agent:latest");
-        def.Execution.Runtime.ShouldBe("docker");
     }
 
     [Fact]

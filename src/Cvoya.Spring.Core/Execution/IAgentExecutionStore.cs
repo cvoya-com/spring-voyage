@@ -6,7 +6,7 @@ namespace Cvoya.Spring.Core.Execution;
 /// <summary>
 /// Read/write seam for the agent's persisted <c>execution:</c> block on
 /// the <c>AgentDefinitions.Definition</c> JSON (#601 / #603 / #409
-/// B-wide). Exposes the same five-field shape as <see cref="IUnitExecutionStore"/>
+/// B-wide). Exposes the same four-field shape as <see cref="IUnitExecutionStore"/>
 /// plus the <c>hosting</c> mode that is always agent-owned.
 /// </summary>
 /// <remarks>
@@ -20,8 +20,8 @@ namespace Cvoya.Spring.Core.Execution;
 /// </para>
 /// <para>
 /// <c>hosting</c> is agent-exclusive — a unit cannot change whether an
-/// agent is ephemeral or persistent. The five other fields (image,
-/// runtime, tool, provider, model) participate in the agent → unit →
+/// agent is ephemeral or persistent. The other fields (image, agent,
+/// provider, model) participate in the agent → unit →
 /// fail resolution chain documented in
 /// <c>docs/architecture/units.md</c>.
 /// </para>
@@ -68,16 +68,16 @@ public interface IAgentExecutionStore
 /// tool is derived 1:1 from <see cref="Agent"/> (the runtime registry
 /// id) via the catalogue runtime's
 /// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/> field.
+/// ADR-0039 G8 removes the container-runtime selector from this record;
+/// the host process owns that platform setting.
 /// </remarks>
 /// <param name="Image">Container image reference.</param>
-/// <param name="Runtime">Container runtime identifier.</param>
 /// <param name="Provider">LLM model provider (Spring Voyage Agent–specific).</param>
 /// <param name="Model">Model identifier (Spring Voyage Agent–specific).</param>
 /// <param name="Hosting">Hosting mode (ephemeral / persistent). Agent-exclusive.</param>
 /// <param name="Agent">Agent-runtime registry id (e.g. <c>claude</c>, <c>codex</c>, <c>spring-voyage</c>). Determines both the validation pipeline and the launcher selected at dispatch (via the catalogue runtime's <c>Launcher</c> field).</param>
 public record AgentExecutionShape(
     string? Image = null,
-    string? Runtime = null,
     string? Provider = null,
     string? Model = null,
     string? Hosting = null,
@@ -86,7 +86,6 @@ public record AgentExecutionShape(
     /// <summary>True when every field is null / whitespace.</summary>
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Runtime)
         && string.IsNullOrWhiteSpace(Provider)
         && string.IsNullOrWhiteSpace(Model)
         && string.IsNullOrWhiteSpace(Hosting)

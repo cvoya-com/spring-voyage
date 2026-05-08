@@ -36,13 +36,13 @@ unit:
   structure: hierarchical            # hierarchical | peer | custom
   
   # --- Unit AI (the unit IS an agent — same ai block pattern) ---
-  # Delegated: orchestration runs in a workflow container
   ai:
-    execution: delegated
-    tool: software-dev-cycle         # registered workflow tool
-    environment:                     # container for orchestration logic
-      image: spring-workflows/software-dev-cycle:latest
-      runtime: podman
+    runtime: spring-voyage           # AgentRuntime id from platform/runtime-catalog.yaml
+    model:
+      provider: ollama
+      id: llama3.2:3b
+  execution:
+    image: spring-workflows/software-dev-cycle:latest
   
   members:
     - agent: ada
@@ -53,12 +53,10 @@ unit:
   # --- Default execution block for member agents (#601 B-wide) ---
   # Members that don't declare a given field inherit from this block
   # per the agent → unit → fail resolution chain.
-  # #1732: 'tool' was dropped — the execution tool is derived from
-  # the runtime registry via 'ai.agent' (each IAgentRuntime declares
-  # its own Kind 1:1, e.g. claude → claude-code-cli).
+  # #1732: 'tool' was dropped — the launcher is derived from
+  # the runtime registry via ai.runtime.
   execution:
     image: spring-agent:latest
-    runtime: podman                  # docker | podman
     provider: anthropic              # spring-voyage runtime kind only (#598 gating)
     model: claude-sonnet             # spring-voyage runtime kind only (#598 gating)
   

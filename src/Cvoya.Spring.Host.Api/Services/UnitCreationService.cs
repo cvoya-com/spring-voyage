@@ -307,9 +307,8 @@ public class UnitCreationService : IUnitCreationService
     /// <remarks>
     /// #1683: <paramref name="agent"/> carries the manifest's <c>ai.agent</c>
     /// value (the agent-runtime registry id) so it lands in the execution
-    /// block's <c>agent</c> slot alongside the operator-declared
-    /// <c>execution.runtime</c> (which is the container-runtime selector,
-    /// not the agent-runtime id).
+    /// block's <c>agent</c> slot. ADR-0039 G8 removed the container-
+    /// runtime selector from execution defaults; host configuration owns it.
     /// </remarks>
     private async Task PersistUnitExecutionAsync(
         string unitName,
@@ -335,7 +334,6 @@ public class UnitCreationService : IUnitCreationService
             // from the structured manifest model when present.
             var defaults = new UnitExecutionDefaults(
                 Image: execution.Image,
-                Runtime: execution.Runtime,
                 Provider: null,
                 Model: execution.Model,
                 Agent: agent);
@@ -987,11 +985,6 @@ public class UnitCreationService : IUnitCreationService
             // validate against. The manifest path already writes this
             // through PersistUnitExecutionAsync.
             //
-            // #1065: `Runtime` is the *container runtime* slot
-            // (`docker | podman`) — never the LLM provider. The direct-
-            // create request body carries no `--runtime` field (only
-            // `unit execution set` does), so we leave `Runtime` null
-            // here and let operators set it explicitly.
             // #1683: `Agent` (the agent-runtime registry id) is also
             // left null here — the direct-create request body carries
             // no `--agent` flag and partial-update semantics preserve
@@ -1019,7 +1012,6 @@ public class UnitCreationService : IUnitCreationService
                         actorId,
                         new UnitExecutionDefaults(
                             Image: null,
-                            Runtime: null,
                             Provider: provider,
                             Model: model,
                             Agent: null),

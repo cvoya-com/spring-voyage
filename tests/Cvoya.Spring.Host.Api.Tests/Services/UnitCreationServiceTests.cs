@@ -546,7 +546,7 @@ public class UnitCreationServiceTests
             UnitStatus.Validating, Arg.Any<CancellationToken>());
     }
 
-    // --- #1065: provider must NOT leak into the execution-defaults Runtime slot ---
+    // --- #1065: provider must NOT leak into execution defaults as a runtime id ---
 
     [Fact]
     public async Task CreateAsync_WithModelOnly_PersistsModelInExecutionDefaults()
@@ -573,13 +573,12 @@ public class UnitCreationServiceTests
         await fixture.ExecutionStore.Received(1).SetAsync(
             Arg.Is<string>(id => IsGuidN(id)),
             Arg.Is<Cvoya.Spring.Core.Execution.UnitExecutionDefaults>(d =>
-                d.Runtime == null
-                && d.Provider == null
+                d.Provider == null
                 && d.Model == "llama3.2:3b"),
             Arg.Any<CancellationToken>());
     }
 
-    // #1732: the symmetric "tool-only create leaves Provider/Runtime null"
+    // #1732: the symmetric "tool-only create leaves Provider null"
     // assertion is obsolete — Tool is no longer threaded through the
     // CreateUnitRequest body.
 

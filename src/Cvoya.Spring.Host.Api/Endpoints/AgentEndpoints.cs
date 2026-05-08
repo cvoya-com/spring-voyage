@@ -127,8 +127,8 @@ public static class AgentEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         // Agent execution surface (#601 / #603 / #409 B-wide). Exposes
-        // the agent's own `execution:` block (image / runtime / tool /
-        // provider / model / hosting). Resolution chain (agent → unit
+        // the agent's own `execution:` block (image / runtime / model /
+        // hosting). Resolution chain (agent → unit
         // → fail) happens in IAgentDefinitionProvider at dispatch time.
         group.MapGet("/{id}/execution", GetAgentExecutionAsync)
             .WithName("GetAgentExecution")
@@ -240,12 +240,10 @@ public static class AgentEndpoints
         request ??= new AgentExecutionResponse();
 
         // ADR-0038: map the new wire shape onto the internal store shape.
-        // ADR-0039 §7 drops the wire-side `containerRuntime` slot; the
-        // internal store still carries `Runtime` until G8 but never
-        // accepts it from the wire.
+        // ADR-0039 §7/G8 drops the container-runtime slot; the host
+        // process owns that platform setting.
         var shape = new AgentExecutionShape(
             Image: request.Image,
-            Runtime: null,
             Provider: request.Model?.Provider,
             Model: request.Model?.Id,
             Hosting: request.Hosting,
@@ -321,7 +319,6 @@ public static class AgentEndpoints
         existing ??= new AgentExecutionShape();
         return new AgentExecutionShape(
             Image: PickNonBlank(patch.Image, existing.Image),
-            Runtime: PickNonBlank(patch.Runtime, existing.Runtime),
             Provider: PickNonBlank(patch.Provider, existing.Provider),
             Model: PickNonBlank(patch.Model, existing.Model),
             Hosting: PickNonBlank(patch.Hosting, existing.Hosting),
@@ -357,7 +354,6 @@ public static class AgentEndpoints
         new(
             AgentRuntimeId: shape.Agent ?? string.Empty,
             Image: shape.Image,
-            Runtime: shape.Runtime,
             Hosting: ParseHostingMode(shape.Hosting),
             Provider: shape.Provider,
             Model: shape.Model);
@@ -387,7 +383,7 @@ public static class AgentEndpoints
     /// </summary>
     /// <remarks>
     /// Each entry under <c>conflictingFields</c> is the diverging field name
-    /// (e.g. <c>image</c>, <c>runtime</c>, <c>model</c>) mapped to the list
+    /// (e.g. <c>image</c>, <c>agent</c>, <c>model</c>) mapped to the list
     /// of contributing parent values. Each parent value is a
     /// <c>{ source, value }</c> pair where <c>source</c> is the parent unit
     /// id rendered in 32-char no-dash hex per the platform's URL/wire form
@@ -1373,7 +1369,6 @@ public static class AgentEndpoints
 
         var agentRuntimeId = ReadStringOrNull(exec, "agent");
         var image = ReadStringOrNull(exec, "image");
-        var runtime = ReadStringOrNull(exec, "runtime");
         var provider = ReadStringOrNull(exec, "provider");
         var model = ReadStringOrNull(exec, "model");
         var hosting = ParseHostingMode(ReadStringOrNull(exec, "hosting"));
@@ -1381,7 +1376,6 @@ public static class AgentEndpoints
         return new AgentExecutionConfig(
             AgentRuntimeId: agentRuntimeId ?? string.Empty,
             Image: image,
-            Runtime: runtime,
             Hosting: hosting,
             Provider: provider,
             Model: model);
@@ -1391,4 +1385,5 @@ public static class AgentEndpoints
         => obj.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String
             ? prop.GetString()
             : null;
+
 }

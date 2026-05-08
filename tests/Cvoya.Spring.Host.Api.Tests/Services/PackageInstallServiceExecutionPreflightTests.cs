@@ -128,11 +128,11 @@ public class PackageInstallServiceExecutionPreflightTests
     }
 
     [Fact]
-    public async Task InstallAsync_MemberOverrideImage_PackageRuntime_FieldwiseMerge()
+    public async Task InstallAsync_MemberOverrideImage_PackageModel_FieldwiseMerge()
     {
-        // Field-wise merge: the package supplies runtime; the member
+        // Field-wise merge: the package supplies model; the member
         // supplies its own image. The activator should see the merged
-        // execution defaults — member image plus inherited runtime.
+        // execution defaults — member image plus inherited model.
         using var pkg = await BuildPackageAsync(
             packageYaml: """
                 apiVersion: spring.voyage/v1
@@ -144,7 +144,7 @@ public class PackageInstallServiceExecutionPreflightTests
                   - unit: alpha
                 execution:
                   image: ghcr.io/example/pkg:latest
-                  runtime: docker
+                  model: claude-opus-4-7
                 """,
             unitFiles: new[]
             {
@@ -170,7 +170,7 @@ public class PackageInstallServiceExecutionPreflightTests
 
         var captured = capturingActivator.Captured["alpha"]!;
         captured.Image.ShouldBe("ghcr.io/example/alpha:latest");  // member wins
-        captured.Runtime.ShouldBe("docker");                       // package fills the gap
+        captured.Model.ShouldBe("claude-opus-4-7");                // package fills the gap
     }
 
     // ---- Helpers --------------------------------------------------------

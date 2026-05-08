@@ -47,7 +47,6 @@ public class DbUnitExecutionStoreTests
             {
               "execution": {
                 "image": "ghcr.io/foo:latest",
-                "runtime": "podman",
                 "tool": "this-is-ignored",
                 "provider": "ollama",
                 "model": "llama3.2:3b",
@@ -58,7 +57,6 @@ public class DbUnitExecutionStoreTests
         var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
         defaults.ShouldNotBeNull();
         defaults!.Image.ShouldBe("ghcr.io/foo:latest");
-        defaults.Runtime.ShouldBe("podman");
         defaults.Provider.ShouldBe("ollama");
         defaults.Model.ShouldBe("llama3.2:3b");
         defaults.Agent.ShouldBe("claude");
@@ -73,15 +71,13 @@ public class DbUnitExecutionStoreTests
         using var doc = JsonDocument.Parse("""
             {
               "execution": {
-                "image": "ghcr.io/foo:latest",
-                "runtime": "podman"
+                "image": "ghcr.io/foo:latest"
               }
             }
             """);
         var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
         defaults.ShouldNotBeNull();
         defaults!.Image.ShouldBe("ghcr.io/foo:latest");
-        defaults.Runtime.ShouldBe("podman");
         defaults.Agent.ShouldBeNull();
     }
 
@@ -105,7 +101,7 @@ public class DbUnitExecutionStoreTests
     public void UnitExecutionDefaults_IsEmpty_WhenAllFieldsNullOrBlank()
     {
         new UnitExecutionDefaults().IsEmpty.ShouldBeTrue();
-        new UnitExecutionDefaults(Image: "  ", Runtime: null).IsEmpty.ShouldBeTrue();
+        new UnitExecutionDefaults(Image: "  ").IsEmpty.ShouldBeTrue();
     }
 
     [Fact]
@@ -157,7 +153,7 @@ public class DbUnitExecutionStoreTests
 
         await store.SetAsync(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid),
-            new UnitExecutionDefaults(Agent: "claude", Runtime: "podman"),
+            new UnitExecutionDefaults(Agent: "claude", Provider: "anthropic"),
             TestContext.Current.CancellationToken);
 
         await store.SetAsync(
@@ -171,7 +167,7 @@ public class DbUnitExecutionStoreTests
 
         read.ShouldNotBeNull();
         read!.Image.ShouldBe("ghcr.io/foo:latest");
-        read.Runtime.ShouldBe("podman");
+        read.Provider.ShouldBe("anthropic");
         read.Agent.ShouldBe("claude");
     }
 

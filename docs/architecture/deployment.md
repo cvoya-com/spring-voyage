@@ -32,11 +32,11 @@ Ephemeral is the default. Switch to persistent when the per-dispatch cold-start 
 # Agent YAML excerpt — persistent hosting
 agent:
   id: ollama-researcher
+  ai:
+    runtime: spring-voyage
   execution:
-    tool: spring-voyage
     image: ghcr.io/cvoya-com/spring-voyage-agent:latest
     hosting: persistent   # default: ephemeral
-    runtime: podman
 ```
 
 ---
