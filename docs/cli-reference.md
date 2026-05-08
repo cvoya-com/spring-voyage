@@ -155,6 +155,8 @@ $ spring agent create --name ada --unit eng \
 $ spring agent execution set ada --model claude-sonnet-4-6
 ```
 
+Scripts and scenario tests should pass `--name` explicitly; a bare token after `spring agent create` is rejected with the ADR-0039 migration hint.
+
 Per-field clear targets the new field-key surface: `image`, `container-runtime`, `runtime`, `model-provider`, `model`, `hosting` (agent only). Clearing `model-provider` wipes only the provider half of the structured `execution.model`; clearing `model` wipes the whole `{provider, id}` pair.
 
 ## `spring unit` (validation surface)

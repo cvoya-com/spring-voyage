@@ -37,8 +37,8 @@ body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
 
 # #744: agent create requires --unit; the membership is registered atomically.
-e2e::log "spring agent create ${agent} --unit ${unit}"
-response="$(e2e::cli_agent_create --output json "${agent}" --unit "${unit}")"
+e2e::log "spring agent create --name ${agent} --unit ${unit}"
+response="$(e2e::cli_agent_create --output json --name "${agent}" --unit "${unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "agent create succeeds"

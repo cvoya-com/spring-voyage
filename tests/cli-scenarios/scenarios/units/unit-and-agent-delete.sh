@@ -40,8 +40,8 @@ response="$(e2e::cli_unit_create --output json "${solo_unit}")"
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "solo unit create succeeds"
 
-e2e::log "spring agent create ${agent} --unit ${host_unit}"
-response="$(e2e::cli_agent_create --output json "${agent}" --unit "${host_unit}")"
+e2e::log "spring agent create --name ${agent} --unit ${host_unit}"
+response="$(e2e::cli_agent_create --output json --name "${agent}" --unit "${host_unit}")"
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "agent create succeeds"
 
