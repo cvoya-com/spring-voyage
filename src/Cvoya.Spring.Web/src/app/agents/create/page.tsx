@@ -17,6 +17,10 @@ import { Button } from "@/components/ui/button";
  * state, validation, and the two-phase install flow live in the
  * extracted component.
  *
+ * I7 audit (ADR-0039): the I3 extraction already delivered the I7
+ * deliverable — this page is the thin wrapper the plan asked for. No
+ * code changes required; this comment records the audit outcome.
+ *
  * Behaviour preserved from the pre-extraction page:
  *  - `handleCancel` calls `router.back()`.
  *  - `handleSuccess` redirects to `/units?node=<first>&tab=Agents` when
