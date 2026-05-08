@@ -57,23 +57,12 @@ using Cvoya.Spring.Core.Initiative;
 /// initiative constraint — the agent's own policy (stored via
 /// <see cref="IAgentPolicyStore"/>) is authoritative.
 /// </param>
-/// <param name="LabelRouting">
-/// Optional <see cref="LabelRoutingPolicy"/> describing how inbound-message
-/// labels map to unit members (#389). <c>null</c> means the unit is not
-/// label-routed; default orchestration strategies ignore the slot entirely.
-/// Unlike the first five dimensions this slot is a
-/// routing input, not a governance constraint — it lives on
-/// <see cref="UnitPolicy"/> because PR-C2 (#453) routes every operator-
-/// facing policy edit through the unified <c>spring unit policy</c> surface
-/// and adding a sixth slot is additive.
-/// </param>
 public record UnitPolicy(
     SkillPolicy? Skill = null,
     ModelPolicy? Model = null,
     CostPolicy? Cost = null,
     ExecutionModePolicy? ExecutionMode = null,
-    InitiativePolicy? Initiative = null,
-    LabelRoutingPolicy? LabelRouting = null)
+    InitiativePolicy? Initiative = null)
 {
     /// <summary>
     /// Returns an empty policy — no constraints in any dimension.
@@ -90,6 +79,5 @@ public record UnitPolicy(
         && Model is null
         && Cost is null
         && ExecutionMode is null
-        && Initiative is null
-        && LabelRouting is null;
+        && Initiative is null;
 }

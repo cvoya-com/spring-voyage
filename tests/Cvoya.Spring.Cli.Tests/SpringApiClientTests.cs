@@ -714,7 +714,7 @@ public class SpringApiClientTests
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/units/eng-team/policy",
             expectedMethod: HttpMethod.Get,
-            responseBody: "{\"skill\":null,\"model\":null,\"cost\":null,\"executionMode\":null,\"initiative\":null,\"labelRouting\":null}");
+            responseBody: "{\"skill\":null,\"model\":null,\"cost\":null,\"executionMode\":null,\"initiative\":null}");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
@@ -727,7 +727,6 @@ public class SpringApiClientTests
         policy.Cost.ShouldBeNull();
         policy.ExecutionMode.ShouldBeNull();
         policy.Initiative.ShouldBeNull();
-        policy.LabelRouting.ShouldBeNull();
         handler.WasCalled.ShouldBeTrue();
     }
 
@@ -744,7 +743,7 @@ public class SpringApiClientTests
             expectedMethod: HttpMethod.Get,
             responseBody:
                 "{\"skill\":{\"allowed\":[\"github\",\"filesystem\"],\"blocked\":[\"shell\"]}," +
-                "\"model\":null,\"cost\":null,\"executionMode\":null,\"initiative\":null,\"labelRouting\":null}");
+                "\"model\":null,\"cost\":null,\"executionMode\":null,\"initiative\":null}");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);

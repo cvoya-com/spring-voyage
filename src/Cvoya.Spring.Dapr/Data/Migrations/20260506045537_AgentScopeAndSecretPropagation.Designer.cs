@@ -854,10 +854,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("initiative");
 
-                    b.Property<JsonElement?>("LabelRouting")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("label_routing");
-
                     b.Property<JsonElement?>("Model")
                         .HasColumnType("jsonb")
                         .HasColumnName("model");

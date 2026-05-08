@@ -324,7 +324,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     cost = table.Column<JsonElement>(type: "jsonb", nullable: true),
                     execution_mode = table.Column<JsonElement>(type: "jsonb", nullable: true),
                     initiative = table.Column<JsonElement>(type: "jsonb", nullable: true),
-                    label_routing = table.Column<JsonElement>(type: "jsonb", nullable: true),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },

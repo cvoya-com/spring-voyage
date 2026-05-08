@@ -31,16 +31,6 @@ using YamlDotNet.Serialization.NamingConventions;
 /// still tracked under #414; the footer is written so that when parent-unit
 /// policy overlay arrives the rendering slots in without a CLI reshape.
 /// </para>
-/// <para>
-/// Label-routing coordination with PR-PLAT-ORCH-1 (#389): the sixth
-/// dimension — <c>label-routing</c> — hangs off <see cref="UnitPolicy.LabelRouting"/>
-/// and ships under this same verb group. <c>spring unit policy label-routing
-/// set</c> takes repeatable <c>--trigger label=member-path</c> pairs plus
-/// optional <c>--add-on-assign</c> / <c>--remove-on-assign</c> roundtrip
-/// label lists; the wire shape round-trips through the same
-/// <c>/api/v1/units/{id}/policy</c> endpoint and the merge / clear
-/// semantics are identical to the first five dimensions.
-/// </para>
 /// </remarks>
 public static class UnitPolicyCommand
 {
@@ -50,7 +40,7 @@ public static class UnitPolicyCommand
     /// same thing in the docs and the help output.
     /// </summary>
     internal static readonly IReadOnlyList<string> DimensionTokens =
-        new[] { "skill", "model", "cost", "execution-mode", "initiative", "label-routing" };
+        new[] { "skill", "model", "cost", "execution-mode", "initiative" };
 
     /// <summary>
     /// Entry point. Returns the <c>policy</c> subcommand tree for attachment
@@ -80,7 +70,6 @@ public static class UnitPolicyCommand
             "cost" => "Per-invocation / per-hour / per-day spend caps.",
             "execution-mode" => "Pinned or whitelisted execution mode (Auto / OnDemand).",
             "initiative" => "Unit-level deny overlay on allowed / blocked reflection actions.",
-            "label-routing" => "Label -> member routing map consumed by the label-routed orchestration strategy.",
             _ => "Unit policy dimension.",
         };
 
@@ -233,30 +222,6 @@ public static class UnitPolicyCommand
             Description = "Whether agent-initiated actions require unit-level approval.",
         };
 
-        // Label-routing flags (#389). `--trigger` carries a list of
-        // `label=member-path` pairs — the simplest form that covers the
-        // acceptance criteria without inventing a DSL. `--add-on-assign` /
-        // `--remove-on-assign` are plain string lists consumed by connectors
-        // after a successful routing decision.
-        var triggerOption = new Option<string[]?>("--trigger")
-        {
-            Description =
-                "Repeatable label->member mapping, e.g. --trigger agent:backend=backend-engineer " +
-                "--trigger agent:qa=qa-engineer. Comma-separated mappings are also accepted. " +
-                "The target is the member's Address.Path — bare agent / sub-unit name, no scheme.",
-            AllowMultipleArgumentsPerToken = true,
-        };
-        var addOnAssignOption = new Option<string[]?>("--add-on-assign")
-        {
-            Description = "Labels the upstream connector should apply after a successful assignment (e.g. in-progress).",
-            AllowMultipleArgumentsPerToken = true,
-        };
-        var removeOnAssignOption = new Option<string[]?>("--remove-on-assign")
-        {
-            Description = "Labels the upstream connector should strip after a successful assignment — typically the trigger labels themselves.",
-            AllowMultipleArgumentsPerToken = true,
-        };
-
         var command = new Command("set", $"Upsert the {dimension} policy on this unit.");
         command.Arguments.Add(unitArg);
         command.Options.Add(fileOption);
@@ -284,11 +249,6 @@ public static class UnitPolicyCommand
                 command.Options.Add(blockedOption);
                 command.Options.Add(maxLevelOption);
                 command.Options.Add(requireUnitApprovalOption);
-                break;
-            case "label-routing":
-                command.Options.Add(triggerOption);
-                command.Options.Add(addOnAssignOption);
-                command.Options.Add(removeOnAssignOption);
                 break;
         }
 
@@ -333,10 +293,7 @@ public static class UnitPolicyCommand
                     parseResult.GetValue(maxPerDayOption),
                     parseResult.GetValue(forcedOption),
                     parseResult.GetValue(maxLevelOption),
-                    parseResult.GetValue(requireUnitApprovalOption),
-                    parseResult.GetValue(triggerOption),
-                    parseResult.GetValue(addOnAssignOption),
-                    parseResult.GetValue(removeOnAssignOption));
+                    parseResult.GetValue(requireUnitApprovalOption));
             }
 
             if (newSlot is null)
@@ -424,7 +381,6 @@ public static class UnitPolicyCommand
         "cost" => policy.Cost,
         "execution-mode" => policy.ExecutionMode,
         "initiative" => policy.Initiative,
-        "label-routing" => policy.LabelRouting,
         _ => null,
     };
 
@@ -446,7 +402,6 @@ public static class UnitPolicyCommand
             Cost = current.Cost,
             ExecutionMode = current.ExecutionMode,
             Initiative = current.Initiative,
-            LabelRouting = current.LabelRouting,
         };
 
         switch (dimension)
@@ -465,9 +420,6 @@ public static class UnitPolicyCommand
                 break;
             case "initiative":
                 merged.Initiative = (InitiativePolicyWire?)slot;
-                break;
-            case "label-routing":
-                merged.LabelRouting = (LabelRoutingPolicyWire?)slot;
                 break;
         }
 
@@ -489,10 +441,7 @@ public static class UnitPolicyCommand
         double? maxPerDay,
         string? forced,
         string? maxLevel,
-        bool? requireUnitApproval,
-        string[]? trigger,
-        string[]? addOnAssign,
-        string[]? removeOnAssign)
+        bool? requireUnitApproval)
     {
         switch (dimension)
         {
@@ -555,53 +504,9 @@ public static class UnitPolicyCommand
                     MaxLevel = string.IsNullOrEmpty(maxLevel) ? null : NormaliseInitiativeLevel(maxLevel!),
                     RequireUnitApproval = requireUnitApproval,
                 };
-            case "label-routing":
-                if (trigger is null && addOnAssign is null && removeOnAssign is null)
-                {
-                    return null;
-                }
-                var triggerMap = ParseTriggerMap(trigger);
-                return new LabelRoutingPolicyWire
-                {
-                    TriggerLabels = triggerMap is null || triggerMap.Count == 0 ? null : triggerMap,
-                    AddOnAssign = NormaliseList(addOnAssign),
-                    RemoveOnAssign = NormaliseList(removeOnAssign),
-                };
             default:
                 return null;
         }
-    }
-
-    /// <summary>
-    /// Parses repeated <c>label=target</c> tokens. Accepts comma-separated
-    /// pairs inside a single token too, matching the ergonomics of
-    /// <see cref="NormaliseList"/>. Returns <c>null</c> if the caller passed
-    /// nothing so <c>set</c> can distinguish "no flag" from "empty map".
-    /// </summary>
-    private static Dictionary<string, string>? ParseTriggerMap(string[]? values)
-    {
-        if (values is null || values.Length == 0)
-        {
-            return null;
-        }
-
-        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var raw in values)
-        {
-            foreach (var token in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            {
-                var eq = token.IndexOf('=');
-                if (eq <= 0 || eq == token.Length - 1)
-                {
-                    throw new InvalidOperationException(
-                        $"Invalid --trigger value '{token}'. Expected 'label=member-path'.");
-                }
-                var key = token[..eq].Trim();
-                var value = token[(eq + 1)..].Trim();
-                map[key] = value;
-            }
-        }
-        return map;
     }
 
     private static List<string>? NormaliseList(string[]? values)
@@ -670,13 +575,6 @@ public static class UnitPolicyCommand
             // accept `executionMode:` too
             root = compactDict.ToDictionary(kvp => kvp.Key.ToString()!, kvp => (object?)kvp.Value);
         }
-        else if (dimension == "label-routing"
-                 && root.TryGetValue("labelRouting", out var labelCompact)
-                 && labelCompact is Dictionary<object, object> labelCompactDict)
-        {
-            // accept `labelRouting:` too
-            root = labelCompactDict.ToDictionary(kvp => kvp.Key.ToString()!, kvp => (object?)kvp.Value);
-        }
 
         return dimension switch
         {
@@ -720,52 +618,8 @@ public static class UnitPolicyCommand
                 RequireUnitApproval = ReadBool(root, "requireUnitApproval")
                     ?? ReadBool(root, "require_unit_approval"),
             },
-            "label-routing" => BuildLabelRoutingFromYaml(root),
             _ => null,
         };
-    }
-
-    /// <summary>
-    /// Builds a <see cref="LabelRoutingPolicyWire"/> from a parsed YAML map.
-    /// Accepts both camelCase (<c>triggerLabels</c>, <c>addOnAssign</c>,
-    /// <c>removeOnAssign</c>) and snake_case aliases for operator
-    /// ergonomics.
-    /// </summary>
-    private static LabelRoutingPolicyWire BuildLabelRoutingFromYaml(Dictionary<string, object?> root)
-    {
-        var triggerMap = ReadStringMap(root, "triggerLabels") ?? ReadStringMap(root, "trigger_labels");
-        var addOn = ReadList(root, "addOnAssign") ?? ReadList(root, "add_on_assign");
-        var removeOn = ReadList(root, "removeOnAssign") ?? ReadList(root, "remove_on_assign");
-
-        return new LabelRoutingPolicyWire
-        {
-            TriggerLabels = triggerMap is null || triggerMap.Count == 0 ? null : triggerMap,
-            AddOnAssign = addOn,
-            RemoveOnAssign = removeOn,
-        };
-    }
-
-    private static Dictionary<string, string>? ReadStringMap(Dictionary<string, object?> map, string key)
-    {
-        if (!map.TryGetValue(key, out var value) || value is null)
-        {
-            return null;
-        }
-        if (value is Dictionary<object, object> dict)
-        {
-            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var kvp in dict)
-            {
-                var k = kvp.Key?.ToString();
-                var v = kvp.Value?.ToString();
-                if (!string.IsNullOrWhiteSpace(k) && !string.IsNullOrWhiteSpace(v))
-                {
-                    result[k] = v;
-                }
-            }
-            return result;
-        }
-        return null;
     }
 
     private static List<string>? ReadList(Dictionary<string, object?> map, string key)
@@ -852,25 +706,8 @@ public static class UnitPolicyCommand
                 sb.AppendLine($"{indent}allowedActions:     {FormatList(init.AllowedActions)}");
                 sb.AppendLine($"{indent}blockedActions:     {FormatList(init.BlockedActions)}");
                 break;
-            case LabelRoutingPolicyWire label:
-                sb.AppendLine($"{indent}triggerLabels:   {FormatLabelMap(label.TriggerLabels)}");
-                sb.AppendLine($"{indent}addOnAssign:     {FormatList(label.AddOnAssign)}");
-                sb.AppendLine($"{indent}removeOnAssign:  {FormatList(label.RemoveOnAssign)}");
-                break;
         }
         return sb.ToString();
-    }
-
-    private static string FormatLabelMap(IReadOnlyDictionary<string, string>? labels)
-    {
-        if (labels is null || labels.Count == 0)
-        {
-            return "(none)";
-        }
-        var entries = labels
-            .Select(kvp => $"{kvp.Key}={kvp.Value}")
-            .ToList();
-        return "{" + string.Join(", ", entries) + "}";
     }
 
     private static string FormatList(IReadOnlyList<string>? values)
