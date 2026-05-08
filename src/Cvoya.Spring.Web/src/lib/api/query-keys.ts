@@ -67,7 +67,6 @@ export const queryKeys = {
       ["units", "initiativePolicy", id] as const,
     policy: (id: string) => ["units", "policy", id] as const,
     boundary: (id: string) => ["units", "boundary", id] as const,
-    orchestration: (id: string) => ["units", "orchestration", id] as const,
     execution: (id: string) => ["units", "execution", id] as const,
     ownExpertise: (id: string) => ["units", "ownExpertise", id] as const,
     aggregatedExpertise: (id: string) =>

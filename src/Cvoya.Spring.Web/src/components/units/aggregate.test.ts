@@ -201,18 +201,17 @@ describe("tabsFor", () => {
     ]);
   });
 
-  it("locks the unit tab order and count (per plan §4 — 7 visible + Config overflow)", () => {
+  it("locks the unit tab order and count (per plan §4 — 6 visible + Config overflow)", () => {
     expect([...UNIT_TABS.visible, ...UNIT_TABS.overflow]).toEqual([
       "Overview",
       "Agents",
-      "Orchestration",
       "Activity",
       "Messages",
       "Memory",
       "Policies",
       "Config",
     ]);
-    expect(UNIT_TABS.visible).toHaveLength(7);
+    expect(UNIT_TABS.visible).toHaveLength(6);
     expect(UNIT_TABS.overflow).toEqual(["Config"]);
   });
 
@@ -245,11 +244,10 @@ describe("tabsFor", () => {
 });
 
 describe("visibleTabsFor / overflowTabsFor", () => {
-  it("splits the Unit catalog into 7 visible + 1 overflow", () => {
+  it("splits the Unit catalog into 6 visible + 1 overflow", () => {
     expect(visibleTabsFor("Unit")).toEqual([
       "Overview",
       "Agents",
-      "Orchestration",
       "Activity",
       "Messages",
       "Memory",

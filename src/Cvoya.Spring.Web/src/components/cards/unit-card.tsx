@@ -64,7 +64,6 @@ export const UNIT_CARD_TABS: readonly CardTabName[] = [
   "Messages",
   "Activity",
   "Memory",
-  "Orchestration",
   "Policies",
 ] as const;
 

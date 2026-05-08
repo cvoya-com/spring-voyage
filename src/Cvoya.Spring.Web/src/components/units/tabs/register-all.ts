@@ -9,7 +9,6 @@
 // Unit tabs
 import "./unit-overview";
 import "./unit-agents";
-import "./unit-orchestration";
 import "./unit-activity";
 import "./unit-messages";
 import "./unit-memory";

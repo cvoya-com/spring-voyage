@@ -272,7 +272,6 @@ export const UNIT_TABS = {
   visible: [
     "Overview",
     "Agents",
-    "Orchestration",
     "Activity",
     "Messages",
     "Memory",
