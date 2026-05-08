@@ -113,4 +113,93 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
     // Submit button is disabled while the conflict block is showing.
     await expect(page.getByTestId("agent-create-submit")).toBeDisabled();
   });
+
+  test("submit re-enables after operator resolves conflict", async ({
+    page,
+    tracker,
+  }) => {
+    const unit = tracker.unit(unitName("agent-mp-resolve"));
+    const aId = tracker.agent(agentName("mp-resolve"));
+
+    // Seed one unit (same setup as the first test).
+    await apiPost("/api/v1/tenant/units", {
+      name: unit,
+      displayName: unit,
+      description: "Multi-parent resolve spec (e2e-portal)",
+      agent: AGENT_ID,
+      provider: PROVIDER_ID,
+      model: DEFAULT_MODEL,
+      hosting: "ephemeral",
+      isTopLevel: true,
+    });
+
+    // First: wire the mock so the first submit returns a 422 conflict.
+    let rejectNext = true;
+    await page.route(
+      (url) =>
+        url.pathname.startsWith("/api/v1/tenant/units/") &&
+        url.pathname.includes("/agents/"),
+      async (route) => {
+        if (route.request().method() !== "POST") {
+          await route.fallback();
+          return;
+        }
+        if (rejectNext) {
+          rejectNext = false;
+          await route.fulfill({
+            status: 422,
+            contentType: "application/problem+json",
+            body: JSON.stringify({
+              type: "https://docs.cvoya.com/spring/errors/multi-parent-inheritance-conflict",
+              title: "Multi-parent inheritance conflict",
+              status: 422,
+              detail:
+                "Inherited execution-config fields disagree across parent units.",
+              error: "MultiParentInheritanceConflict",
+              conflictingFields: {
+                runtime: [
+                  {
+                    source: "00000000000000000000000000000001",
+                    value: "claude-code",
+                  },
+                  {
+                    source: "00000000000000000000000000000002",
+                    value: "spring-voyage",
+                  },
+                ],
+              },
+            }),
+          });
+        } else {
+          await route.fallback();
+        }
+      },
+    );
+
+    await page.goto("/agents/create");
+    await page.getByLabel("Agent id").fill(aId);
+    await page.getByLabel("Display name").fill("MP Resolve Test");
+
+    // Assign the unit to trigger the conflict path.
+    await page
+      .getByRole("checkbox", { name: new RegExp(`assign to ${unit}`, "i") })
+      .first()
+      .check();
+
+    // First submit — gets the mocked 422.
+    await page.getByTestId("agent-create-submit").click();
+    const block = page.getByTestId("multi-parent-inheritance-conflict");
+    await expect(block).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("agent-create-submit")).toBeDisabled();
+
+    // Resolve: uncheck the conflicting unit. The conflict block should
+    // clear and the submit button should re-enable.
+    await page
+      .getByRole("checkbox", { name: new RegExp(`assign to ${unit}`, "i") })
+      .first()
+      .uncheck();
+
+    await expect(block).not.toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("agent-create-submit")).toBeEnabled();
+  });
 });
