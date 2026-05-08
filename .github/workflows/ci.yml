@@ -36,7 +36,8 @@ jobs:
       python_agents: ${{ steps.filter.outputs.python_agents }}
       connectors_web: ${{ steps.filter.outputs.connectors_web }}
       web: ${{ steps.filter.outputs.web }}
-      workflows: ${{ steps.filter.outputs.workflows }}
+      ci_workflow: ${{ steps.filter.outputs.ci_workflow }}
+      workflow_files: ${{ steps.filter.outputs.workflow_files }}
       dispatcher_host: ${{ steps.filter.outputs.dispatcher_host }}
       agent_images: ${{ steps.filter.outputs.agent_images }}
       docs: ${{ steps.filter.outputs.docs }}
@@ -83,7 +84,15 @@ jobs:
               - 'eslint.config.mjs'
               - 'package.json'
               - 'package-lock.json'
-            workflows:
+            ci_workflow:
+              # Editing ci.yml can alter any required job below, so fan out
+              # the full CI matrix on CI workflow changes.
+              - '.github/workflows/ci.yml'
+            workflow_files:
+              # Non-CI workflow edits only need the lightweight YAML guard
+              # below; running the full product test matrix for release or
+              # scheduled workflow edits adds cost without validating those
+              # workflows meaningfully.
               - '.github/workflows/**'
             dispatcher_host:
               - 'deployment/spring-voyage-host.sh'
@@ -151,13 +160,37 @@ jobs:
               - 'platform/runtime-catalog.yaml'
               - 'platform/runtime-catalog.schema.json'
 
+  workflow-yaml:
+    name: Workflow YAML syntax
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.workflow_files == 'true'
+    timeout-minutes: 2
 
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Parse workflow YAML files
+        shell: bash
+        run: |
+          ruby -e '
+            require "yaml"
+
+            paths = Dir[".github/workflows/*.yml"] + Dir[".github/workflows/*.yaml"]
+            paths.sort.each do |path|
+              YAML.load_file(path)
+              puts "ok #{path}"
+            rescue Psych::SyntaxError => e
+              warn "::error file=#{path},line=#{e.line},col=#{e.column}::#{e.message}"
+              exit 1
+            end
+          '
 
   build:
     name: Build
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.workflows == 'true'
+    if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.ci_workflow == 'true'
     timeout-minutes: 20
 
     steps:
@@ -186,7 +219,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     needs: [changes, build]
-    if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.workflows == 'true'
+    if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.ci_workflow == 'true'
     timeout-minutes: 30
 
     steps:
@@ -262,7 +295,7 @@ jobs:
     # output is a function of the PR's own sources.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.packages == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 10
 
     steps:
@@ -361,7 +394,7 @@ jobs:
     # pull_request run stays valid through the queue.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 15
 
     steps:
@@ -401,7 +434,7 @@ jobs:
     # or it didn't touch agent definitions.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.agents == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.agents == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 10
 
     steps:
@@ -468,7 +501,7 @@ jobs:
     # silently break it.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.runtime_catalog == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.runtime_catalog == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 5
 
     steps:
@@ -482,7 +515,8 @@ jobs:
           # `node -e` does not consult global npm modules by default, so make
           # the global install location resolvable via NODE_PATH. The `ajv`
           # CLI itself works without this because npm global bin is on PATH.
-          export NODE_PATH="$(npm root -g)"
+          node_path="$(npm root -g)"
+          export NODE_PATH="$node_path"
           # Convert YAML to JSON in-memory then validate. ajv-cli reads the
           # JSON Schema natively; the YAML→JSON one-liner avoids a separate
           # Python dependency.
@@ -503,7 +537,7 @@ jobs:
     # integration with other merged PRs.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.connectors_web == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.connectors_web == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 5
 
     steps:
@@ -520,7 +554,7 @@ jobs:
     # Skipped in the merge queue — pure intra-repo grep with no external deps.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.docs == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.docs == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 2
 
     steps:
@@ -555,7 +589,7 @@ jobs:
     # the queue.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.web == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.web == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 10
 
     steps:
@@ -585,7 +619,7 @@ jobs:
     # is intentionally broad).
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.web == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.web == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 10
 
     steps:
@@ -612,7 +646,7 @@ jobs:
     # type-checking.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.web == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.web == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 10
 
     steps:
@@ -643,7 +677,7 @@ jobs:
     # see.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.web == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.web == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 15
 
     steps:
@@ -700,7 +734,7 @@ jobs:
     # didn't exist.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.web == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.web == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 10
 
     steps:
@@ -743,7 +777,7 @@ jobs:
     # pull_request run stays valid through the queue.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.api_docs == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.api_docs == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 5
 
     steps:
@@ -789,7 +823,7 @@ jobs:
     # own sources, so it stays valid through the queue.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.web == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.web == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 15
 
     steps:
@@ -865,7 +899,7 @@ jobs:
     # while accessibility stays an `error` gate.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.web == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.web == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 15
 
     steps:
@@ -919,7 +953,7 @@ jobs:
     # the queue.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.python_agents == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.python_agents == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 5
 
     steps:
@@ -946,7 +980,7 @@ jobs:
     name: Test Python agents
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.python_agents == 'true' || needs.changes.outputs.workflows == 'true'
+    if: needs.changes.outputs.python_agents == 'true' || needs.changes.outputs.ci_workflow == 'true'
     timeout-minutes: 5
 
     steps:
@@ -975,7 +1009,7 @@ jobs:
     name: OpenAPI contract drift
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.openapi == 'true' || needs.changes.outputs.workflows == 'true'
+    if: needs.changes.outputs.openapi == 'true' || needs.changes.outputs.ci_workflow == 'true'
     timeout-minutes: 15
 
     steps:
@@ -1042,7 +1076,7 @@ jobs:
     name: EF Core model drift
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.efcore_model == 'true' || needs.changes.outputs.workflows == 'true'
+    if: needs.changes.outputs.efcore_model == 'true' || needs.changes.outputs.ci_workflow == 'true'
     timeout-minutes: 15
 
     steps:
@@ -1094,7 +1128,7 @@ jobs:
     # surface so unrelated PRs don't pay the build cost.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.dispatcher_host == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.dispatcher_host == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 15
 
     steps:
@@ -1129,7 +1163,7 @@ jobs:
     # dispatcher-smoke-full.yml and is workflow_dispatch-only.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.dispatcher_host == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.dispatcher_host == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 15
 
     steps:
@@ -1177,7 +1211,7 @@ jobs:
     # workflows changes since the audit is over .cs sources.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
@@ -1201,7 +1235,7 @@ jobs:
     # python-agent surface so unrelated PRs don't pay the build cost.
     if: >
       github.event_name != 'merge_group' &&
-      (needs.changes.outputs.agent_images == 'true' || needs.changes.outputs.workflows == 'true')
+      (needs.changes.outputs.agent_images == 'true' || needs.changes.outputs.ci_workflow == 'true')
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
@@ -1252,6 +1286,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - changes
+      - workflow-yaml
       - build
       - test
       - format
@@ -1310,9 +1345,11 @@ jobs:
           AGENT_IMAGES_RESULT: ${{ needs.agent-images-smoke.result }}
           DOCS_FRAMING_RESULT: ${{ needs.docs-evergreen-framing.result }}
           PACKAGE_VALIDATE_RESULT: ${{ needs.package-validate.result }}
+          WORKFLOW_YAML_RESULT: ${{ needs.workflow-yaml.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: |
           echo "changes=$CHANGES_RESULT"
+          echo "workflow-yaml=$WORKFLOW_YAML_RESULT"
           echo "build=$BUILD_RESULT"
           echo "test=$TEST_RESULT"
           echo "format=$FORMAT_RESULT"
@@ -1374,3 +1411,4 @@ jobs:
           ok "$AGENT_IMAGES_RESULT"     || { echo "::error::agent-images-smoke failed"; exit 1; }
           ok "$DOCS_FRAMING_RESULT"     || { echo "::error::docs-evergreen-framing failed"; exit 1; }
           ok "$PACKAGE_VALIDATE_RESULT" || { echo "::error::package-validate failed"; exit 1; }
+          ok "$WORKFLOW_YAML_RESULT"    || { echo "::error::workflow-yaml failed"; exit 1; }
