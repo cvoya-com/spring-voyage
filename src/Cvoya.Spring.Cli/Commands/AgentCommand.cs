@@ -261,6 +261,18 @@ public static class AgentCommand
                 "Provide the package name. Mutually exclusive with --definition, --definition-file, " +
                 "and execution shorthand flags (full validation in L6).",
         };
+        var connectorOption = new Option<string[]>("--connector")
+        {
+            Description = "Connector binding for the package install. Format: <slug>=<binding-id> or <slug>. " +
+                "Repeat to bind multiple connectors. Only valid with --from-package; errors when used alone.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var inputOption = new Option<string[]>("--input")
+        {
+            Description = "Package install input (legacy). Format: <key>=<value>. " +
+                "Repeat to set multiple inputs. Only valid with --from-package; errors when used alone.",
+            AllowMultipleArgumentsPerToken = true,
+        };
 
         // #409 acceptance: CLI parity for the agent execution block.
         // These flags are convenience shorthands for the equivalent
@@ -342,6 +354,8 @@ public static class AgentCommand
         command.Options.Add(definitionFileOption);
         command.Options.Add(definitionOption);
         command.Options.Add(fromPackageOption);
+        command.Options.Add(connectorOption);
+        command.Options.Add(inputOption);
         command.Options.Add(imageOption);
         command.Options.Add(legacyContainerRuntimeOption);
         command.Options.Add(runtimeOption);
@@ -349,6 +363,52 @@ public static class AgentCommand
         command.Options.Add(modelOption);
         command.Options.Add(inheritOption);
         command.Options.Add(legacyAgentOption);
+
+        command.Validators.Add(result =>
+        {
+            var fromPackage = result.GetValue(fromPackageOption);
+            var connectors = result.GetValue(connectorOption) ?? Array.Empty<string>();
+            var inputs = result.GetValue(inputOption) ?? Array.Empty<string>();
+            var definitionFile = result.GetValue(definitionFileOption);
+            var definitionInline = result.GetValue(definitionOption);
+            var image = result.GetValue(imageOption);
+            var runtime = result.GetValue(runtimeOption);
+            var modelProvider = result.GetValue(modelProviderOption);
+            var model = result.GetValue(modelOption);
+            var inherit = result.GetValue(inheritOption);
+
+            if (connectors.Length > 0 && string.IsNullOrWhiteSpace(fromPackage))
+            {
+                result.AddError(ConnectorRequiresFromPackageFlagMutexMessage);
+                return;
+            }
+
+            if (inputs.Length > 0 && string.IsNullOrWhiteSpace(fromPackage))
+            {
+                result.AddError(InputRequiresFromPackageFlagMutexMessage);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fromPackage)
+                && (!string.IsNullOrWhiteSpace(definitionInline)
+                    || !string.IsNullOrWhiteSpace(definitionFile)))
+            {
+                result.AddError(FromPackageDefinitionFlagMutexMessage);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fromPackage)
+                && HasAnyExecutionShorthand(image, runtime, modelProvider, model))
+            {
+                result.AddError(FromPackageExecutionShorthandFlagMutexMessage);
+                return;
+            }
+
+            if (inherit && HasAnyExecutionShorthand(image, runtime, modelProvider, model))
+            {
+                result.AddError(InheritExecutionShorthandFlagMutexMessage);
+            }
+        });
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -362,6 +422,8 @@ public static class AgentCommand
             var definitionFile = parseResult.GetValue(definitionFileOption);
             var definitionInline = parseResult.GetValue(definitionOption);
             var fromPackage = parseResult.GetValue(fromPackageOption);
+            var connectors = parseResult.GetValue(connectorOption) ?? Array.Empty<string>();
+            var inputs = parseResult.GetValue(inputOption) ?? Array.Empty<string>();
             var image = parseResult.GetValue(imageOption);
             var runtime = parseResult.GetValue(runtimeOption);
             var modelProvider = parseResult.GetValue(modelProviderOption);
@@ -369,22 +431,44 @@ public static class AgentCommand
             var inherit = parseResult.GetValue(inheritOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (!string.IsNullOrWhiteSpace(fromPackage)
-                && (!string.IsNullOrWhiteSpace(definitionInline)
-                    || !string.IsNullOrWhiteSpace(definitionFile)
-                    || !string.IsNullOrWhiteSpace(image)
-                    || !string.IsNullOrWhiteSpace(runtime)))
-            {
-                await Console.Error.WriteLineAsync(
-                    "--from-package is mutually exclusive with --definition, --definition-file, --image, and --runtime.");
-                Environment.Exit(1);
-                return;
-            }
-
             if (!string.IsNullOrWhiteSpace(fromPackage))
             {
+                IReadOnlyDictionary<string, string>? packageInputs;
+                try
+                {
+                    packageInputs = ParsePackageInputs(inputs);
+                }
+                catch (ArgumentException ex)
+                {
+                    await Console.Error.WriteLineAsync(ex.Message);
+                    Environment.Exit(1);
+                    return;
+                }
+
+                IReadOnlyDictionary<string, SpringApiClient.ConnectorBindingPayloadRequest>? packageConnectorBindings;
+                try
+                {
+                    packageConnectorBindings = ParsePackageConnectorBindings(connectors);
+                }
+                catch (ArgumentException ex)
+                {
+                    await Console.Error.WriteLineAsync(ex.Message);
+                    Environment.Exit(1);
+                    return;
+                }
+
+                var connectorBindings = packageConnectorBindings is null
+                    ? null
+                    : new SpringApiClient.PackageConnectorBindingsRequest(packageConnectorBindings, Units: null);
+
                 var installResult = await clientFactory().InstallPackagesAsync(
-                    new[] { new SpringApiClient.PackageInstallTargetRequest(fromPackage, null) },
+                    new[]
+                    {
+                        new SpringApiClient.PackageInstallTargetRequest(
+                            fromPackage,
+                            packageInputs,
+                            connectorBindings),
+                    },
                     ct);
 
                 Console.WriteLine(output == "json"
@@ -507,6 +591,105 @@ public static class AgentCommand
         "the agent id positional argument is removed in ADR-0039; agent " +
         "identity is assigned by the platform. Use --name <display-name> " +
         "instead. See ADR-0039 §8.";
+
+    /// <summary>
+    /// Parser diagnostic for <c>--connector</c> used outside the
+    /// <c>--from-package</c> package-install path.
+    /// </summary>
+    public const string ConnectorRequiresFromPackageFlagMutexMessage =
+        "error: --connector requires --from-package";
+
+    /// <summary>
+    /// Parser diagnostic for <c>--input</c> used outside the
+    /// <c>--from-package</c> package-install path.
+    /// </summary>
+    public const string InputRequiresFromPackageFlagMutexMessage =
+        "error: --input requires --from-package";
+
+    /// <summary>
+    /// Parser diagnostic for package installs mixed with inline definition input.
+    /// </summary>
+    public const string FromPackageDefinitionFlagMutexMessage =
+        "error: --from-package is mutually exclusive with --definition and --definition-file";
+
+    /// <summary>
+    /// Parser diagnostic for package installs mixed with execution shorthand flags.
+    /// </summary>
+    public const string FromPackageExecutionShorthandFlagMutexMessage =
+        "error: --from-package is mutually exclusive with execution shorthands (--image, --runtime, --model-provider, --model)";
+
+    /// <summary>
+    /// Parser diagnostic for inherited execution mixed with execution shorthand flags.
+    /// </summary>
+    public const string InheritExecutionShorthandFlagMutexMessage =
+        "error: --inherit is mutually exclusive with execution shorthands";
+
+    private static bool HasAnyExecutionShorthand(
+        string? image,
+        string? runtime,
+        string? modelProvider,
+        string? model)
+        => !string.IsNullOrWhiteSpace(image)
+            || !string.IsNullOrWhiteSpace(runtime)
+            || !string.IsNullOrWhiteSpace(modelProvider)
+            || !string.IsNullOrWhiteSpace(model);
+
+    private static IReadOnlyDictionary<string, string>? ParsePackageInputs(IReadOnlyList<string> inputs)
+    {
+        if (inputs.Count == 0)
+        {
+            return null;
+        }
+
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var raw in inputs)
+        {
+            var eqIdx = raw.IndexOf('=');
+            if (eqIdx < 0)
+            {
+                throw new ArgumentException(
+                    $"error: --input '{raw}' must be in <key>=<value> form.");
+            }
+
+            result[raw[..eqIdx]] = raw[(eqIdx + 1)..];
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyDictionary<string, SpringApiClient.ConnectorBindingPayloadRequest>?
+        ParsePackageConnectorBindings(IReadOnlyList<string> connectors)
+    {
+        if (connectors.Count == 0)
+        {
+            return null;
+        }
+
+        var result = new Dictionary<string, SpringApiClient.ConnectorBindingPayloadRequest>(
+            StringComparer.Ordinal);
+        foreach (var raw in connectors)
+        {
+            var token = raw.Trim();
+            var eqIdx = token.IndexOf('=');
+            var slug = eqIdx >= 0 ? token[..eqIdx].Trim() : token;
+            if (string.IsNullOrWhiteSpace(slug))
+            {
+                throw new ArgumentException(
+                    $"error: --connector '{raw}' must be in <slug>=<binding-id> or <slug> form.");
+            }
+
+            Dictionary<string, object> config = eqIdx >= 0
+                ? new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["bindingId"] = token[(eqIdx + 1)..],
+                }
+                : new Dictionary<string, object>(StringComparer.Ordinal);
+
+            result[slug] = new SpringApiClient.ConnectorBindingPayloadRequest(config);
+        }
+
+        return result;
+    }
 
     /// <summary>
     /// Merges the ADR-0038 execution-shorthand flags
