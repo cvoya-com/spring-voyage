@@ -9,8 +9,10 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -948,6 +950,10 @@ public static class UnitEndpoints
         IActorProxyFactory actorProxyFactory,
         IExpertiseAggregator expertiseAggregator,
         IUnitMembershipTenantGuard tenantGuard,
+        IExecutionConfigInheritanceResolver inheritanceResolver,
+        IUnitSubunitMembershipRepository subunitRepository,
+        IUnitExecutionStore unitExecutionStore,
+        ITenantContext tenantContext,
         CancellationToken cancellationToken)
     {
         var unitAddress = Address.For("unit", id);
@@ -973,6 +979,32 @@ public static class UnitEndpoints
                 title: "Member not found in this tenant",
                 detail: ex.Message,
                 statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // ADR-0039 §6 / B5: when assigning a unit-as-member (sub-unit), the
+        // child's effective execution config must remain consistent against
+        // the *new* expanded parent set. If the child inherits a field that
+        // diverges across the post-assignment parents, reject with 422 and a
+        // structured `MultiParentInheritanceConflict` body so the operator
+        // either pins the field on the child or removes a conflicting parent.
+        // Agent-as-member assignments go through B3's dedicated handler
+        // (AssignUnitAgentAsync) — this branch is sub-unit-only.
+        if (string.Equals(memberAddress.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            var conflictResult = await CheckSubunitInheritanceAsync(
+                parentUnitId: entry.ActorId,
+                childUnitAddress: memberAddress,
+                directoryService,
+                inheritanceResolver,
+                subunitRepository,
+                unitExecutionStore,
+                tenantContext,
+                cancellationToken);
+
+            if (conflictResult is not null)
+            {
+                return conflictResult;
+            }
         }
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
@@ -1614,5 +1646,106 @@ public static class UnitEndpoints
             "Agent {AgentId} unassigned from unit {UnitId}.", agentId, id);
 
         return Results.NoContent();
+    }
+
+    /// <summary>
+    /// ADR-0039 §6 / B5: enforces multi-parent execution-config consistency
+    /// when assigning a unit-as-member (sub-unit) to a parent unit. Resolves
+    /// the child unit's effective config against the *post-assignment* parent
+    /// set (existing parents ∪ new parent). If any inheritable field
+    /// diverges and the child has not pinned it explicitly, returns a 422
+    /// <c>MultiParentInheritanceConflict</c> result. Returns <c>null</c>
+    /// when assignment may proceed.
+    /// </summary>
+    /// <remarks>
+    /// The child's "own" config is its persisted <see cref="UnitExecutionDefaults"/>
+    /// — the same five string slots the resolver consumes for agent
+    /// inheritance. A unit that has not declared an execution block is
+    /// treated as fully-inheriting (every field null), matching the
+    /// resolver's per-field rule.
+    /// </remarks>
+    private static async Task<IResult?> CheckSubunitInheritanceAsync(
+        Guid parentUnitId,
+        Address childUnitAddress,
+        IDirectoryService directoryService,
+        IExecutionConfigInheritanceResolver inheritanceResolver,
+        IUnitSubunitMembershipRepository subunitRepository,
+        IUnitExecutionStore unitExecutionStore,
+        ITenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        // Resolve the child unit so we can key the existing-parents lookup
+        // and the execution-store read by its actor id, not the URL slug.
+        var childEntry = await directoryService.ResolveAsync(childUnitAddress, cancellationToken);
+        if (childEntry is null)
+        {
+            // The actor's AddMemberAsync will surface the "unknown member"
+            // failure; bypass the inheritance check rather than 404 here so
+            // the failure mode stays consistent with the existing handler.
+            return null;
+        }
+
+        // Build the post-assignment parent set: every current parent plus
+        // the new parent. De-duplicate so an idempotent re-add does not
+        // double-count.
+        var existingParents = await subunitRepository.ListByChildAsync(childEntry.ActorId, cancellationToken);
+        var parentIds = new List<Guid>(existingParents.Count + 1);
+        var seen = new HashSet<Guid>();
+        foreach (var edge in existingParents)
+        {
+            if (seen.Add(edge.ParentId))
+            {
+                parentIds.Add(edge.ParentId);
+            }
+        }
+        if (seen.Add(parentUnitId))
+        {
+            parentIds.Add(parentUnitId);
+        }
+
+        // Project the child's persisted UnitExecutionDefaults onto the
+        // resolver's AgentExecutionConfig shape. The five inheritable slots
+        // map 1:1 (Agent → AgentRuntimeId, Image, Runtime, Provider, Model);
+        // a unit with no defaults persisted is treated as fully-inheriting.
+        var childOwnDefaults = await unitExecutionStore.GetAsync(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(childEntry.ActorId),
+            cancellationToken);
+
+        var childOwnConfig = new AgentExecutionConfig(
+            AgentRuntimeId: childOwnDefaults?.Agent ?? string.Empty,
+            Image: childOwnDefaults?.Image,
+            Runtime: childOwnDefaults?.Runtime,
+            Provider: childOwnDefaults?.Provider,
+            Model: childOwnDefaults?.Model);
+
+        var resolution = inheritanceResolver.ResolveAgentConfig(
+            childOwnConfig,
+            parentIds,
+            tenantContext.CurrentTenantId,
+            cancellationToken);
+
+        if (resolution.ConflictingFields.Count == 0)
+        {
+            return null;
+        }
+
+        // Shape mirrors B1 (and the rest of the B-wave): a structured
+        // `MultiParentInheritanceConflict` body so the CLI / portal can
+        // print one line per diverging field with the per-parent values.
+        var conflictingFields = resolution.ConflictingFields.ToDictionary(
+            kvp => kvp.Key,
+            kvp => (object?)kvp.Value
+                .Select(pv => new { source = pv.Source, value = pv.Value })
+                .ToArray());
+
+        return Results.Problem(
+            title: "Multi-parent inheritance conflict",
+            detail: "Sub-unit assignment would leave the child unit inheriting an inconsistent execution config across its parents.",
+            statusCode: StatusCodes.Status422UnprocessableEntity,
+            extensions: new Dictionary<string, object?>
+            {
+                ["error"] = "MultiParentInheritanceConflict",
+                ["conflictingFields"] = conflictingFields,
+            });
     }
 }
