@@ -9,8 +9,10 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -173,7 +175,14 @@ public static class UnitEndpoints
             .WithSummary("Assign an agent to this unit. Creates a membership row (M:N per #160) and adds the agent to the unit's members list; no conflict is raised if the agent is also a member of another unit.")
             .Produces<AgentResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            // ADR-0039 §6 / B3: when assigning an agent to a unit expands its
+            // parent set into a state where an inherited execution-config
+            // field diverges across parents, the platform rejects with 422
+            // and a structured `MultiParentInheritanceConflict` body so the
+            // operator can either trim the parent set or set the field
+            // explicitly on the agent.
+            .Produces(StatusCodes.Status422UnprocessableEntity);
 
         group.MapDelete("/{id}/agents/{agentId}", UnassignUnitAgentAsync)
             .WithName("UnassignUnitAgent")
@@ -1440,6 +1449,9 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitMembershipRepository membershipRepository,
+        [FromServices] IAgentExecutionStore agentExecutionStore,
+        [FromServices] IExecutionConfigInheritanceResolver inheritanceResolver,
+        [FromServices] ITenantContext tenantContext,
         [FromServices] IExpertiseAggregator expertiseAggregator,
         [FromServices] IUnitMembershipTenantGuard tenantGuard,
         [FromServices] ILoggerFactory loggerFactory,
@@ -1488,6 +1500,26 @@ public static class UnitEndpoints
 
         var agentAssignUuid = agentEntry.ActorId;
 
+        // ADR-0039 §6 / B3: resolve the agent's effective execution config
+        // against its post-assignment parent set. Adding the agent to this
+        // unit can expand the parent set into a state where an inherited
+        // field diverges across parents — when it does, reject with 422 so
+        // the operator either trims the parent set or sets the field
+        // explicitly on the agent. We run the resolver before any state
+        // write so a rejection leaves no half-applied membership row.
+        var conflictResult = await CheckMultiParentInheritanceConflictAsync(
+            unitAssignUuid,
+            agentAssignUuid,
+            agentExecutionStore,
+            membershipRepository,
+            inheritanceResolver,
+            tenantContext,
+            cancellationToken);
+        if (conflictResult is not null)
+        {
+            return conflictResult;
+        }
+
         // C2b-1: M:N membership model (see #160). An agent may be a member
         // of multiple units. No 1:N conflict check — the old guard is gone
         // and operators may freely add the same agent to several units.
@@ -1522,6 +1554,128 @@ public static class UnitEndpoints
         var refreshed = await AgentEndpoints.GetDerivedAgentMetadataAsync(
             agentProxy, membershipRepository, agentAssignUuid, directoryService, cancellationToken);
         return Results.Ok(AgentEndpoints.ToAgentResponse(agentEntry, refreshed));
+    }
+
+    /// <summary>
+    /// Runs the ADR-0039 §6 multi-parent inheritance resolver against the
+    /// post-assignment parent set (the agent's existing memberships plus
+    /// <paramref name="newUnitId"/>). Returns a 422
+    /// <c>MultiParentInheritanceConflict</c> response when an inherited
+    /// field diverges across parents; returns <c>null</c> when the
+    /// resolution succeeds (caller proceeds with the assignment).
+    /// </summary>
+    /// <remarks>
+    /// The agent's "own" config is read from
+    /// <see cref="IAgentExecutionStore"/>; an agent with no persisted
+    /// execution block is fully inheriting (every field is null), which
+    /// is the common case operators hit when wiring an existing agent
+    /// into a second unit. Hosting is agent-owned and never participates
+    /// in the conflict map (the resolver excludes it by contract).
+    /// </remarks>
+    private static async Task<IResult?> CheckMultiParentInheritanceConflictAsync(
+        Guid newUnitId,
+        Guid agentId,
+        IAgentExecutionStore agentExecutionStore,
+        IUnitMembershipRepository membershipRepository,
+        IExecutionConfigInheritanceResolver inheritanceResolver,
+        ITenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        // Build the post-assignment parent set: every existing membership
+        // plus the new unit. Deduplicate so the idempotent re-assign case
+        // doesn't double-count and so an agent already in newUnitId
+        // (re-POST) sees the same parent set the resolver would compute
+        // post-write.
+        var memberships = await membershipRepository.ListByAgentAsync(agentId, cancellationToken);
+        var parentSet = new List<Guid>(memberships.Count + 1);
+        var seen = new HashSet<Guid>();
+        foreach (var m in memberships)
+        {
+            if (seen.Add(m.UnitId))
+            {
+                parentSet.Add(m.UnitId);
+            }
+        }
+        if (seen.Add(newUnitId))
+        {
+            parentSet.Add(newUnitId);
+        }
+
+        var ownShape = await agentExecutionStore.GetAsync(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(agentId),
+            cancellationToken);
+        var agentOwn = ToAgentExecutionConfig(ownShape);
+
+        var resolution = inheritanceResolver.ResolveAgentConfig(
+            agentOwn,
+            parentSet,
+            tenantContext.CurrentTenantId,
+            cancellationToken);
+
+        if (resolution.ConflictingFields.Count == 0)
+        {
+            return null;
+        }
+
+        return Results.Json(
+            BuildMultiParentInheritanceConflictBody(resolution),
+            statusCode: StatusCodes.Status422UnprocessableEntity);
+    }
+
+    /// <summary>
+    /// Maps an <see cref="AgentExecutionShape"/> read from
+    /// <see cref="IAgentExecutionStore"/> onto the
+    /// <see cref="AgentExecutionConfig"/> shape the inheritance resolver
+    /// expects. A null shape (agent has never declared its own execution
+    /// block) becomes an all-null config — every field is a candidate for
+    /// inheritance.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="AgentExecutionConfig.AgentRuntimeId"/> is non-nullable on
+    /// the record but the resolver normalises empty strings via
+    /// <c>NullIfBlank</c>, so passing an empty string is equivalent to
+    /// "no agent runtime declared" for the conflict-detection rules.
+    /// </remarks>
+    private static AgentExecutionConfig ToAgentExecutionConfig(AgentExecutionShape? shape)
+    {
+        if (shape is null)
+        {
+            return new AgentExecutionConfig(AgentRuntimeId: string.Empty, Image: null);
+        }
+
+        return new AgentExecutionConfig(
+            AgentRuntimeId: shape.Agent ?? string.Empty,
+            Image: shape.Image,
+            Runtime: shape.Runtime,
+            Provider: shape.Provider,
+            Model: shape.Model);
+    }
+
+    /// <summary>
+    /// Shapes the wire body the CLI parses on a 422 <c>MultiParentInheritanceConflict</c>:
+    /// <c>{ "error": "MultiParentInheritanceConflict", "conflictingFields": { field: [{source, value}, ...] } }</c>.
+    /// Each <c>source</c> is the canonical Guid hex form so the CLI can
+    /// resolve it back to a unit display name without round-tripping.
+    /// </summary>
+    private static object BuildMultiParentInheritanceConflictBody(InheritanceResolution resolution)
+    {
+        var fields = new Dictionary<string, IReadOnlyList<object>>(StringComparer.Ordinal);
+        foreach (var (field, values) in resolution.ConflictingFields)
+        {
+            fields[field] = values
+                .Select(v => (object)new
+                {
+                    source = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(v.Source),
+                    value = v.Value,
+                })
+                .ToList();
+        }
+
+        return new
+        {
+            error = "MultiParentInheritanceConflict",
+            conflictingFields = fields,
+        };
     }
 
     private static async Task<IResult> UnassignUnitAgentAsync(

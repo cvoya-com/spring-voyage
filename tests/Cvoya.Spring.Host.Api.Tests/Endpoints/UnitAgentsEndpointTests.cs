@@ -10,6 +10,7 @@ using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -308,6 +309,105 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
+    public async Task AssignUnitAgent_InheritingAgent_DivergingParents_Returns422()
+    {
+        // ADR-0039 §6 / B3: an agent that inherits its execution config
+        // (no own block) is being assigned to a second unit. The two parent
+        // units' persisted defaults disagree on `agent` (the runtime
+        // registry id) — the resolver flags it as a conflict and the
+        // endpoint rejects with the structured 422 envelope so the CLI /
+        // portal can surface "agent: engineering=claude, marketing=codex".
+        var ct = TestContext.Current.CancellationToken;
+        ClearAllMocks();
+
+        var unitProxy = ArrangeUnit("marketing", UnitMarketingUuid);
+        ArrangeUnit();
+        ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
+
+        // Existing membership: ada belongs to engineering.
+        await UpsertMembershipAsync(UnitName, "ada");
+
+        // Engineering pins runtime "claude"; marketing pins runtime "codex".
+        // The agent has no own execution block (default factory state — see
+        // AgentExecutionStore.GetAsync returning null), so both fields are
+        // up for inheritance.
+        _factory.UnitExecutionStore
+            .GetAsync(UnitEngineeringUuid.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Agent: "claude")));
+        _factory.UnitExecutionStore
+            .GetAsync(UnitMarketingUuid.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Agent: "codex")));
+
+        var response = await _client.PostAsync(
+            $"/api/v1/tenant/units/{UnitMarketingUuid:N}/agents/{AgentAdaUuid:N}", content: null, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
+        body.GetProperty("error").GetString().ShouldBe("MultiParentInheritanceConflict");
+        var conflictingFields = body.GetProperty("conflictingFields");
+        conflictingFields.TryGetProperty("agent", out var agentField).ShouldBeTrue();
+        agentField.GetArrayLength().ShouldBe(2);
+        var values = agentField.EnumerateArray()
+            .Select(e => e.GetProperty("value").GetString())
+            .OrderBy(v => v, StringComparer.Ordinal)
+            .ToList();
+        values.ShouldBe(new[] { "claude", "codex" });
+
+        // The membership write must NOT have happened — a 422 has to leave
+        // the directory and the membership table untouched so the operator
+        // can fix the conflict and retry.
+        (await GetMembershipAsync("marketing", "ada")).ShouldBeNull();
+        await unitProxy.DidNotReceive().AddMemberAsync(
+            Arg.Any<Address>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AssignUnitAgent_AgentHasOwnRuntime_DivergingParentsAccepted()
+    {
+        // Same parent-set divergence as the previous test, but the agent
+        // declared its own `agent` (runtime id). The resolver's "agent
+        // wins" rule suppresses the conflict for that field — the
+        // assignment succeeds with the same 200 the no-conflict path
+        // returns today.
+        var ct = TestContext.Current.CancellationToken;
+        ClearAllMocks();
+
+        var unitProxy = ArrangeUnit("marketing", UnitMarketingUuid);
+        ArrangeUnit();
+        ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
+
+        await UpsertMembershipAsync(UnitName, "ada");
+
+        _factory.UnitExecutionStore
+            .GetAsync(UnitEngineeringUuid.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Agent: "claude")));
+        _factory.UnitExecutionStore
+            .GetAsync(UnitMarketingUuid.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Agent: "codex")));
+
+        // Agent declares its own runtime explicitly, so the resolver does
+        // not consult either parent's `agent` slot for inheritance.
+        _factory.AgentExecutionStore
+            .GetAsync(AgentAdaUuid.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<AgentExecutionShape?>(
+                new AgentExecutionShape(Agent: "spring-voyage")));
+
+        var response = await _client.PostAsync(
+            $"/api/v1/tenant/units/{UnitMarketingUuid:N}/agents/{AgentAdaUuid:N}", content: null, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await GetMembershipAsync("marketing", "ada")).ShouldNotBeNull();
+        await unitProxy.Received(1).AddMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task UnassignUnitAgent_RemovesMembershipAndMember()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -491,6 +591,20 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         _factory.TenantGuard
             .EnsureSameTenantAsync(Arg.Any<Address>(), Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
+
+        // ADR-0039 §6 / B3: reset the inheritance-resolver inputs back to
+        // their permissive defaults so a 422-conflict seed in one test
+        // doesn't bleed into the next via the shared factory. The two
+        // store substitutes default to null (no own config / no parent
+        // defaults) which the resolver treats as "fully unset".
+        _factory.AgentExecutionStore.ClearReceivedCalls();
+        _factory.AgentExecutionStore
+            .GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<AgentExecutionShape?>(null));
+        _factory.UnitExecutionStore.ClearReceivedCalls();
+        _factory.UnitExecutionStore
+            .GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(null));
 
         // Each test gets a fresh scoped repository view via the DI container;
         // the underlying in-memory DB is per-factory but we clear rows here
