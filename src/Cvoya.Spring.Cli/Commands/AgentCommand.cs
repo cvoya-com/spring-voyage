@@ -237,12 +237,23 @@ public static class AgentCommand
         {
             Description = "Container image reference (shorthand for execution.image on the agent definition).",
         };
-        var containerRuntimeOption = new Option<string?>("--container-runtime")
+
+        // ADR-0039 §7 / §9: `--container-runtime` is removed from operator-facing
+        // surfaces — the host process picks one runtime at deploy time. We keep a
+        // hidden option only so the parser produces a precise migration hint when
+        // an old script reaches for it; supplying any value rejects at parse time.
+        var legacyContainerRuntimeOption = new Option<string?>("--container-runtime")
         {
-            Description = "Container runtime (shorthand for execution.containerRuntime). Allowed: " +
-                string.Join(", ", UnitExecutionCommand.ContainerRuntimeKeys) + ".",
+            Description = "REJECTED — container runtime is platform configuration (ADR-0039 §7).",
+            Hidden = true,
         };
-        containerRuntimeOption.AcceptOnlyFromAmong(UnitExecutionCommand.ContainerRuntimeKeys);
+        legacyContainerRuntimeOption.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(LegacyContainerRuntimeFlagRejectionMessage);
+            }
+        });
 
         // ADR-0038: agent-runtime selection is `--runtime <id>` (e.g.
         // claude-code, codex, gemini, spring-voyage). The structured model
@@ -291,7 +302,7 @@ public static class AgentCommand
         command.Options.Add(definitionFileOption);
         command.Options.Add(definitionOption);
         command.Options.Add(imageOption);
-        command.Options.Add(containerRuntimeOption);
+        command.Options.Add(legacyContainerRuntimeOption);
         command.Options.Add(runtimeOption);
         command.Options.Add(modelProviderOption);
         command.Options.Add(modelOption);
@@ -306,7 +317,6 @@ public static class AgentCommand
             var definitionFile = parseResult.GetValue(definitionFileOption);
             var definitionInline = parseResult.GetValue(definitionOption);
             var image = parseResult.GetValue(imageOption);
-            var containerRuntime = parseResult.GetValue(containerRuntimeOption);
             var runtime = parseResult.GetValue(runtimeOption);
             var modelProvider = parseResult.GetValue(modelProviderOption);
             var model = parseResult.GetValue(modelOption);
@@ -332,15 +342,15 @@ public static class AgentCommand
             // JSON so the single server write covers everything. When the
             // caller also passed a --definition / --definition-file, the
             // shorthand flags overlay on top.
-            // ADR-0038: the shorthand surface is now
-            // (image, container-runtime, runtime, model-provider, model).
-            // The structured model pair lands as `execution.model = {provider, id}`.
-            if (!string.IsNullOrWhiteSpace(image) || !string.IsNullOrWhiteSpace(containerRuntime)
+            // ADR-0038 + ADR-0039 §7: the shorthand surface is
+            // (image, runtime, model-provider, model). `containerRuntime`
+            // was removed in ADR-0039 — see LegacyContainerRuntimeFlagRejectionMessage.
+            if (!string.IsNullOrWhiteSpace(image)
                 || !string.IsNullOrWhiteSpace(runtime) || !string.IsNullOrWhiteSpace(modelProvider)
                 || !string.IsNullOrWhiteSpace(model))
             {
                 definitionJson = MergeExecutionShorthand(
-                    definitionJson, image, containerRuntime, runtime, modelProvider, model);
+                    definitionJson, image, runtime, modelProvider, model);
             }
 
             var client = ClientFactory.Create();
@@ -391,18 +401,38 @@ public static class AgentCommand
         "for the structured execution.model field.";
 
     /// <summary>
-    /// Merges the ADR-0038 execution-shorthand flags
-    /// (<c>--image</c> / <c>--container-runtime</c> / <c>--runtime</c> /
-    /// <c>--model-provider</c> / <c>--model</c>) into an optional
-    /// agent-definition JSON string. When <paramref name="definitionJson"/>
-    /// is null / empty, a fresh document carrying just the shorthand
-    /// fields is produced. The structured model pair lands as
-    /// <c>execution.model = {provider, id}</c>.
+    /// Stderr message used when the legacy <c>--container-runtime</c> flag is
+    /// passed to <c>spring agent create</c>. Pinned by tests so a future
+    /// rename doesn't slip past CI.
     /// </summary>
+    /// <remarks>
+    /// ADR-0039 §7 / §9: the container runtime is platform configuration
+    /// chosen by the host process at deploy time — it is no longer an
+    /// operator-facing CLI / manifest field. The rejection lives in the
+    /// option's parser hook so callers see the migration path before any
+    /// action runs.
+    /// </remarks>
+    public const string LegacyContainerRuntimeFlagRejectionMessage =
+        "--container-runtime was removed in ADR-0039. The container runtime is " +
+        "platform configuration — the host process picks one runtime at deploy " +
+        "time and every agent on that host uses it. See ADR-0039 §7.";
+
+    /// <summary>
+    /// Merges the ADR-0038 execution-shorthand flags
+    /// (<c>--image</c> / <c>--runtime</c> / <c>--model-provider</c> /
+    /// <c>--model</c>) into an optional agent-definition JSON string. When
+    /// <paramref name="definitionJson"/> is null / empty, a fresh document
+    /// carrying just the shorthand fields is produced. The structured model
+    /// pair lands as <c>execution.model = {provider, id}</c>.
+    /// </summary>
+    /// <remarks>
+    /// ADR-0039 §7 dropped the <c>--container-runtime</c> shorthand — the
+    /// container runtime is platform configuration and no longer flows
+    /// through this path.
+    /// </remarks>
     internal static string MergeExecutionShorthand(
         string? definitionJson,
         string? image,
-        string? containerRuntime,
         string? runtime,
         string? modelProvider,
         string? model)
@@ -431,7 +461,6 @@ public static class AgentCommand
             }
         }
         if (!string.IsNullOrWhiteSpace(image)) exec["image"] = image;
-        if (!string.IsNullOrWhiteSpace(containerRuntime)) exec["containerRuntime"] = containerRuntime;
         if (!string.IsNullOrWhiteSpace(runtime)) exec["runtime"] = runtime;
 
         // ADR-0038 structured model: { provider, id }. We carry forward

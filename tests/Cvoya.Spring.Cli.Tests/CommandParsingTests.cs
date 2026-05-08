@@ -61,6 +61,28 @@ public class CommandParsingTests
     }
 
     [Fact]
+    public void AgentCreate_LegacyContainerRuntimeFlag_RejectedAtParseTime()
+    {
+        // ADR-0039 §7 / §9: `--container-runtime` was removed from
+        // `spring agent create`. The container runtime is platform
+        // configuration; the host process picks one runtime at deploy
+        // time. Old scripts that still pass the flag must see the
+        // migration hint at parse time, before any action runs.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create ada --unit engineering --container-runtime podman");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e =>
+            e.Message == AgentCommand.LegacyContainerRuntimeFlagRejectionMessage);
+        AgentCommand.LegacyContainerRuntimeFlagRejectionMessage.ShouldContain("ADR-0039");
+    }
+
+    [Fact]
     public void MessageSend_ParsesAddressAndTextArguments()
     {
         var outputOption = CreateOutputOption();
