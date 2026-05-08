@@ -197,6 +197,36 @@ describe("AgentCreateForm — source step (K1)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// ADR-0039 K7 — page-only Browse stub branch.
+// ---------------------------------------------------------------------------
+
+describe("AgentCreateForm — Browse stub (K7)", () => {
+  it("advances from Browse to the coming-soon stub in page context", () => {
+    renderForm({ context: "page" });
+
+    fireEvent.click(screen.getByTestId("agent-source-card-browse"));
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    expect(
+      screen.getByRole("heading", { name: /browse agent packages/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("browse-coming-soon")).toBeVisible();
+    expect(screen.getByTestId("browse-coming-soon")).toHaveTextContent(
+      /Search the Spring Voyage package registry for community packages/i,
+    );
+  });
+
+  it("keeps the Next button disabled on the Browse stub step", () => {
+    renderForm({ context: "page" });
+
+    fireEvent.click(screen.getByTestId("agent-source-card-browse"));
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    expect(screen.getByRole("button", { name: /next/i })).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests — minimal "renders without crashing" smoke check (ADR-0039 I3 acceptance).
 // The full behavioural coverage lives in `app/agents/create/page.test.tsx`,
 // which exercises the same component through the page wrapper.
