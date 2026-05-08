@@ -828,53 +828,6 @@ public class SpringApiClient
     public Task ClearUnitBoundaryAsync(string unitId, CancellationToken ct = default)
         => _client.Api.V1.Tenant.Units[unitId].Boundary.DeleteAsync(cancellationToken: ct);
 
-    // Unit orchestration (#606). Dedicated GET/PUT/DELETE surface for the
-    // manifest-persisted `orchestration.strategy` key — the one ADR-0010
-    // deliberately deferred. Rides the same UnitDefinitions.Definition JSON
-    // the manifest-apply path writes (UnitCreationService), so either entry
-    // point yields a wire-identical on-disk shape.
-
-    /// <summary>
-    /// Gets the unit's <see cref="UnitOrchestrationResponse"/>. Returns the
-    /// canonical empty shape (<c>{ strategy: null }</c>) when the unit has
-    /// no manifest-declared strategy — the resolver will pick via policy
-    /// inference / unkeyed default per ADR-0010.
-    /// </summary>
-    public async Task<UnitOrchestrationResponse> GetUnitOrchestrationAsync(
-        string unitId,
-        CancellationToken ct = default)
-    {
-        var result = await _client.Api.V1.Tenant.Units[unitId].Orchestration.GetAsync(cancellationToken: ct);
-        return result ?? new UnitOrchestrationResponse();
-    }
-
-    /// <summary>
-    /// Upserts the unit's orchestration strategy key. An empty / whitespace
-    /// key is rejected server-side with a 400 — use
-    /// <see cref="ClearUnitOrchestrationAsync"/> to strip the slot.
-    /// </summary>
-    public async Task<UnitOrchestrationResponse> SetUnitOrchestrationAsync(
-        string unitId,
-        string strategyKey,
-        CancellationToken ct = default)
-    {
-        var body = new UnitOrchestrationResponse
-        {
-            Strategy = strategyKey,
-        };
-        var result = await _client.Api.V1.Tenant.Units[unitId].Orchestration.PutAsync(body, cancellationToken: ct);
-        return result ?? throw new InvalidOperationException(
-            $"Server returned an empty orchestration response for unit '{unitId}'.");
-    }
-
-    /// <summary>
-    /// Clears the unit's orchestration strategy. Idempotent — calling on a
-    /// unit that never had a strategy persisted is a no-op and returns
-    /// cleanly.
-    /// </summary>
-    public Task ClearUnitOrchestrationAsync(string unitId, CancellationToken ct = default)
-        => _client.Api.V1.Tenant.Units[unitId].Orchestration.DeleteAsync(cancellationToken: ct);
-
     // Unit execution (#601 / #603 / #409 B-wide). Dedicated GET/PUT/DELETE
     // surface for the manifest-persisted unit `execution:` block (image /
     // runtime / tool / provider / model). Rides the same

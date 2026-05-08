@@ -41,7 +41,6 @@ tests/cli-scenarios/
     ├── github-app/     GitHub App secret / key rotation
     ├── humans/         unit humans CRUD CLI
     ├── messaging/      message dispatch, multi-turn, multi-agent (llm)
-    ├── orchestration/  unit orchestration strategy round-trip
     ├── packages/       catalog install (incl. spring-voyage-oss)
     ├── policy/         unit policy CRUD (HTTP + CLI), llm enforcement
     ├── secrets/        secret CRUD + rotation across scopes
@@ -191,7 +190,6 @@ Bearer-token path. Scenarios that have no CLI counterpart stay on
 | agents | spring-voyage-agent-turn | llm | CLI | Dapr Agent via A2A — creates an agent with `--tool spring-voyage-agent`, dispatches a turn, and confirms the SpringVoyageAgentLauncher + Python Dapr Agent container can receive a task and return a response. |
 | units | unit-create-from-template | fast | CLI + curl | Catalog install of `software-engineering` package; cross-verifies the engineering-team unit + 3 agents across CLI `members list`, HTTP `/memberships`, and HTTP `/agents`. Replaces the deleted `unit create --from-template` path (#1583). |
 | units | unit-and-agent-delete | fast | CLI | Plain `agent delete` and `unit delete` verbs (non-cascading) plus their idempotency on missing artefacts — complementary to the cascading `purge` paths. |
-| orchestration | orchestration-strategies-roundtrip | fast | CLI | `spring unit orchestration {get,set,clear}` round-trip across the three platform-offered strategies (ai, workflow, label-routed). |
 | directory | directory-discover-agents | fast | CLI | Seed an expertise domain on a unit, discover via `directory list` / `search` / `show`. |
 | packages | package-install-spring-voyage-oss | fast | CLI | Install the spring-voyage-oss meta-package (5 units, 13 agents); verify all sub-units appear and the engineering sub-unit has its members wired. |
 | engagements | engagement-list-and-show | fast | CLI | `spring engagement list` and `spring thread show` round-trip; engagement index polling guarded against the eventual-consistency window. |
