@@ -130,7 +130,7 @@ public class ClaudeCodeLauncherTests
         var orchestration = servers.GetProperty("spring-orchestration");
         orchestration.GetProperty("type").GetString().ShouldBe("http");
         orchestration.GetProperty("url").GetString()
-            .ShouldBe(prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackUrlEnvVar]);
+            .ShouldBe(LauncherCallbackTestSupport.OrchestrationMcpUrl);
         orchestration.GetProperty("headers").GetProperty("Authorization").GetString()
             .ShouldBe(
                 $"Bearer {prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}");

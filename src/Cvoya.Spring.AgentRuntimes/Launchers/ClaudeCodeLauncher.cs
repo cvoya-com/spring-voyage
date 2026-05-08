@@ -185,7 +185,7 @@ public class ClaudeCodeLauncher(
             mcpServers[SpringOrchestrationMcpServerName] = new
             {
                 type = "http",
-                url = envVars[AgentCallbackEnvironmentContract.CallbackUrlEnvVar],
+                url = LauncherCallbackEnvironment.BuildOrchestrationMcpUrl(envVars),
                 headers = new Dictionary<string, string>
                 {
                     ["Authorization"] = $"Bearer {envVars[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}"

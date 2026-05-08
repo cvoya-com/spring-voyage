@@ -146,7 +146,7 @@ public class CodexLauncherTests
         mcpServers.TryGetProperty("spring-orchestration", out var server).ShouldBeTrue();
         server.GetProperty("type").GetString().ShouldBe("http");
         server.GetProperty("url").GetString()
-            .ShouldBe(prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackUrlEnvVar]);
+            .ShouldBe(LauncherCallbackTestSupport.OrchestrationMcpUrl);
         server.GetProperty("headers").GetProperty("Authorization").GetString()
             .ShouldBe(
                 $"Bearer {prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}");

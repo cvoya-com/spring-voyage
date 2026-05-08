@@ -128,7 +128,7 @@ public class CodexLauncher(
             mcpServers["spring-orchestration"] = new
             {
                 type = "http",
-                url = envVars[AgentCallbackEnvironmentContract.CallbackUrlEnvVar],
+                url = LauncherCallbackEnvironment.BuildOrchestrationMcpUrl(envVars),
                 headers = new Dictionary<string, string>
                 {
                     ["Authorization"] =

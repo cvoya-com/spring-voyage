@@ -140,7 +140,7 @@ public class GeminiLauncherTests
             .GetProperty("spring-orchestration");
 
         server.GetProperty("httpUrl").GetString()
-            .ShouldBe(prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackUrlEnvVar]);
+            .ShouldBe(LauncherCallbackTestSupport.OrchestrationMcpUrl);
         server.GetProperty("headers").GetProperty("Authorization").GetString()
             .ShouldBe($"Bearer {prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}");
 

@@ -14,4 +14,7 @@ public static class AgentCallbackEnvironmentContract
 
     /// <summary>Env var containing the per-invocation callback bearer token.</summary>
     public const string CallbackTokenEnvVar = "SPRING_CALLBACK_TOKEN";
+
+    /// <summary>Dispatcher route prefix for the orchestration callback API.</summary>
+    public const string OrchestrationRoutePrefix = "/v1/runtime/orchestration";
 }
