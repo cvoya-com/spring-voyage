@@ -58,12 +58,6 @@ public class UnitPolicyEntity : ITenantScopedEntity
     public JsonElement? Initiative { get; set; }
 
     /// <summary>
-    /// Persisted label-routing policy encoded as JSON, or <c>null</c> when
-    /// the unit is not label-routed. See #389.
-    /// </summary>
-    public JsonElement? LabelRouting { get; set; }
-
-    /// <summary>
     /// Timestamp when the row was first inserted.
     /// </summary>
     public DateTimeOffset CreatedAt { get; set; }

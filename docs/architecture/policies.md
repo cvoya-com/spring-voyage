@@ -10,7 +10,7 @@ For the root unit (the deployment-wide container), see [Root Unit](#root-unit) b
 
 ## Unit Policy Framework
 
-`UnitPolicy` (`Cvoya.Spring.Core/Policies/UnitPolicy.cs`) is the aggregate governance record attached to a unit; it is a record with six optional sub-policies, each a nullable slot:
+`UnitPolicy` (`Cvoya.Spring.Core/Policies/UnitPolicy.cs`) is the aggregate governance record attached to a unit; it is a record with five optional sub-policies, each a nullable slot:
 
 | Dimension                            | Type                    | What it constrains                                                                                                                                 |
 | ------------------------------------ | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -19,11 +19,8 @@ For the root unit (the deployment-wide container), see [Root Unit](#root-unit) b
 | **Cost** (`Cost`)                    | `CostPolicy`            | Per-invocation, per-hour, and per-day cost caps (rolling windows). Pre-call check before dispatch.                                                 |
 | **Execution mode** (`ExecutionMode`) | `ExecutionModePolicy`   | Pins or whitelists `AgentExecutionMode` (`Auto` / `OnDemand`). A `Forced` mode coerces the dispatch.                                               |
 | **Initiative** (`Initiative`)        | `InitiativePolicy`      | Unit-level DENY-overlay on per-agent reflection-action policy (allowed / blocked action types).                                                    |
-| **Label routing** (`LabelRouting`)   | `LabelRoutingPolicy`    | Trigger-label → member-path map consumed by `LabelRoutedOrchestrationStrategy` (#389). Routing input, not a governance constraint; enforcers ignore the slot. |
 
 A `null` slot means "no constraint at this unit along this dimension". An all-`null` policy (`UnitPolicy.Empty`) is equivalent to "this unit does not govern member agents" and repositories may treat it as a row deletion.
-
-The label-routing slot is intentionally carried on `UnitPolicy` rather than invented as a separate top-level concept: every operator-facing policy edit already flows through `spring unit policy` (#453) and the unified `/api/v1/units/{id}/policy` endpoint, so adding the sixth slot keeps the surface small. Enforcers (`IUnitPolicyEnforcer`) walk only the first five governance slots — `LabelRouting` is consulted by the orchestration strategy, never by governance checks.
 
 Unit policy wins over per-membership overrides and the agent's own declarations. A unit is a trust boundary: a unit that blocks a skill, pins an execution mode, or denies a model cannot be escaped by a per-agent override.
 
@@ -64,7 +61,7 @@ For every dimension, the enforcer walks **every unit the agent is a member of** 
 Operators edit unit policies through two equivalent paths:
 
 - **HTTP** — unified `GET / PUT /api/v1/units/{id}/policy` with the five optional dimension slots. The empty response shape is always returned for units that have never had a policy persisted, so callers never need to branch on 404 vs empty-policy.
-- **CLI** (#453) — `spring unit policy <dimension> get|set|clear <unit>` for each of `skill`, `model`, `cost`, `execution-mode`, `initiative`, and `label-routing` (#389). `set` accepts either per-dimension typed flags (e.g. `--allowed`, `--max-per-hour`, `--forced`, `--trigger label=member-path`) or a YAML fragment via `-f`. `get` prints the current slot plus the effective-policy inheritance chain; today the chain has a single hop because parent-unit overlay is tracked under #414.
+- **CLI** (#453) — `spring unit policy <dimension> get|set|clear <unit>` for each of `skill`, `model`, `cost`, `execution-mode`, and `initiative`. `set` accepts either per-dimension typed flags (e.g. `--allowed`, `--max-per-hour`, `--forced`) or a YAML fragment via `-f`. `get` prints the current slot plus the effective-policy inheritance chain; today the chain has a single hop because parent-unit overlay is tracked under #414.
 
 Both paths share the same wire contract — the CLI never mints a per-dimension endpoint. `set` and `clear` read the current policy, mutate only the target slot, and PUT the merged result so the other four slots are preserved across a dimension-scoped edit.
 

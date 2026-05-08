@@ -8,7 +8,7 @@ using System.Text.Json.Serialization;
 
 /// <summary>
 /// CLI-local wire shape for the unified <c>/api/v1/units/{id}/policy</c>
-/// endpoint. Mirrors the server's <c>UnitPolicyResponse</c> (six optional
+/// endpoint. Mirrors the server's <c>UnitPolicyResponse</c> (five optional
 /// dimension slots) with plain nullable references so <see cref="System.Text.Json"/>
 /// round-trips cleanly.
 /// </summary>
@@ -44,10 +44,6 @@ public sealed class UnitPolicyWire
     /// <summary>Optional unit-level initiative deny-overlay.</summary>
     [JsonPropertyName("initiative")]
     public InitiativePolicyWire? Initiative { get; set; }
-
-    /// <summary>Optional label-routing map + status-label hooks.</summary>
-    [JsonPropertyName("labelRouting")]
-    public LabelRoutingPolicyWire? LabelRouting { get; set; }
 }
 
 /// <summary>Skill (tool) allow/block list.</summary>
@@ -123,20 +119,4 @@ public sealed class InitiativePolicyWire
     /// <summary>Blocked reflection-action types.</summary>
     [JsonPropertyName("blockedActions")]
     public List<string>? BlockedActions { get; set; }
-}
-
-/// <summary>Label -> member routing map plus optional round-trip label hooks.</summary>
-public sealed class LabelRoutingPolicyWire
-{
-    /// <summary>Case-insensitive map from label name to target member path.</summary>
-    [JsonPropertyName("triggerLabels")]
-    public Dictionary<string, string>? TriggerLabels { get; set; }
-
-    /// <summary>Labels to apply after a successful assignment.</summary>
-    [JsonPropertyName("addOnAssign")]
-    public List<string>? AddOnAssign { get; set; }
-
-    /// <summary>Labels to remove after a successful assignment.</summary>
-    [JsonPropertyName("removeOnAssign")]
-    public List<string>? RemoveOnAssign { get; set; }
 }

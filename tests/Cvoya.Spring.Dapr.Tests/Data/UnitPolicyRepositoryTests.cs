@@ -126,14 +126,7 @@ public class UnitPolicyRepositoryTests : IDisposable
             Model: new ModelPolicy(Blocked: new[] { "gpt-4" }),
             Cost: new CostPolicy(MaxCostPerInvocation: 0.1m, MaxCostPerDay: 5m),
             ExecutionMode: new ExecutionModePolicy(Forced: AgentExecutionMode.OnDemand),
-            Initiative: new InitiativePolicy(BlockedActions: new[] { "delete-repo" }),
-            LabelRouting: new LabelRoutingPolicy(
-                TriggerLabels: new Dictionary<string, string>
-                {
-                    ["agent:backend"] = "backend-engineer",
-                },
-                AddOnAssign: new[] { "in-progress" },
-                RemoveOnAssign: new[] { "agent:backend" }));
+            Initiative: new InitiativePolicy(BlockedActions: new[] { "delete-repo" }));
 
         await _repository.SetAsync(EngineeringId, policy, ct);
         var stored = await _repository.GetAsync(EngineeringId, ct);
@@ -144,9 +137,6 @@ public class UnitPolicyRepositoryTests : IDisposable
         stored.Cost.MaxCostPerDay.ShouldBe(5m);
         stored.ExecutionMode!.Forced.ShouldBe(AgentExecutionMode.OnDemand);
         stored.Initiative!.BlockedActions.ShouldBe(new[] { "delete-repo" });
-        stored.LabelRouting!.TriggerLabels!["agent:backend"].ShouldBe("backend-engineer");
-        stored.LabelRouting.AddOnAssign.ShouldBe(new[] { "in-progress" });
-        stored.LabelRouting.RemoveOnAssign.ShouldBe(new[] { "agent:backend" });
     }
 
     [Fact]
