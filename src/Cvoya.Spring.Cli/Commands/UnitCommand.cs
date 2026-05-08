@@ -15,6 +15,23 @@ using Microsoft.Kiota.Abstractions;
 /// </summary>
 public static class UnitCommand
 {
+    /// <summary>
+    /// Stderr message used by the legacy <c>--container-runtime</c> flag's
+    /// parser rejection on <c>spring unit create</c> (ADR-0039 §7 / §9).
+    /// Pinned by tests so a future flag rename doesn't slip past CI.
+    /// </summary>
+    /// <remarks>
+    /// ADR-0039 §7 makes the container runtime platform configuration: the
+    /// host process picks one runtime at deploy time and every agent on
+    /// that host uses it. The rejection is parser-level only — there is no
+    /// stub command, no aliased handler. Operators see the migration path
+    /// before any action runs.
+    /// </remarks>
+    public const string LegacyContainerRuntimeFlagRejectionMessage =
+        "--container-runtime was removed in ADR-0039. The container runtime is platform " +
+        "configuration: the host picks one runtime at deploy time and every agent on that " +
+        "host uses it. Drop the flag — there is no per-unit override.";
+
     private static readonly OutputFormatter.Column<UnitResponse>[] UnitColumns =
     {
         new("id", u => GuidDisplay.Format(u.Id)),
@@ -223,6 +240,22 @@ public static class UnitCommand
                 result.AddError(UnitExecutionCommand.LegacyProviderFlagRejectionMessage);
             }
         });
+        // ADR-0039 §7: container runtime is platform configuration, not an
+        // operator-facing unit-create choice. The flag is rejected at parse
+        // time with the §9 migration hint so callers see the change before
+        // any action runs.
+        var legacyContainerRuntimeOption = new Option<string?>("--container-runtime")
+        {
+            Description = "REJECTED — container runtime is platform configuration in ADR-0039.",
+            Hidden = true,
+        };
+        legacyContainerRuntimeOption.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0)
+            {
+                result.AddError(LegacyContainerRuntimeFlagRejectionMessage);
+            }
+        });
         var hostingOption = new Option<string?>("--hosting")
         {
             Description = "Agent hosting mode (ephemeral, persistent).",
@@ -295,6 +328,7 @@ public static class UnitCommand
         command.Options.Add(modelProviderOption);
         command.Options.Add(legacyAgentOption);
         command.Options.Add(legacyProviderOption);
+        command.Options.Add(legacyContainerRuntimeOption);
         command.Options.Add(hostingOption);
         command.Options.Add(apiKeyOption);
         command.Options.Add(apiKeyFromFileOption);
