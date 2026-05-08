@@ -15,9 +15,8 @@ using Microsoft.Extensions.Logging;
 /// falls back to <c>label-routed</c> when the unit has a
 /// <see cref="UnitPolicy.LabelRouting"/> slot (ADR-0007 revisit criterion),
 /// and finally to the unkeyed platform default. Each message gets a fresh
-/// DI scope so scoped strategies like
-/// <see cref="LabelRoutedOrchestrationStrategy"/> can pick up hot
-/// <see cref="IUnitPolicyRepository"/> edits without actor recycling.
+/// DI scope so scoped strategies can pick up hot <see cref="IUnitPolicyRepository"/>
+/// edits without actor recycling.
 /// </summary>
 /// <remarks>
 /// <para>

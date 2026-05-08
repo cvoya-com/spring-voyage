@@ -29,11 +29,9 @@ namespace Cvoya.Spring.Core.Orchestration;
 /// </para>
 /// <para>
 /// Resolution is per-call (per domain message) so strategies registered
-/// <c>Scoped</c> — like <c>LabelRoutedOrchestrationStrategy</c>, which
-/// depends on the scoped <c>IUnitPolicyRepository</c> — pick up hot edits
-/// without actor recycling. The resolver owns the scope lifetime internally
-/// and disposes it when the returned <see cref="OrchestrationStrategyLease"/>
-/// is disposed.
+/// <c>Scoped</c> pick up hot edits without actor recycling. The resolver owns
+/// the scope lifetime internally and disposes it when the returned
+/// <see cref="OrchestrationStrategyLease"/> is disposed.
 /// </para>
 /// <para>
 /// An unknown manifest strategy key (declared but not registered) is

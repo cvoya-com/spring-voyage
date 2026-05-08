@@ -4,9 +4,8 @@
 namespace Cvoya.Spring.Core.Policies;
 
 /// <summary>
-/// Maps inbound-message labels onto unit members so a
-/// <c>LabelRoutedOrchestrationStrategy</c> can dispatch work by what a human
-/// has tagged rather than by LLM classification. Sixth concrete
+/// Maps inbound-message labels onto unit members so label-routing dispatch can
+/// use what a human has tagged rather than LLM classification. Sixth concrete
 /// <see cref="UnitPolicy"/> dimension — see #389.
 /// </summary>
 /// <remarks>
