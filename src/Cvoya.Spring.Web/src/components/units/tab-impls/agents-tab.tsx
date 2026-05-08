@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 
+import { AgentCreateDialog } from "@/components/agents/create-dialog";
 import { AgentCard, type AgentCardAgent } from "@/components/cards/agent-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,33 +16,31 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
-import { buildCreateAgentRequest } from "@/lib/agents/create-agent";
 import type {
   AgentResponse,
   UnitMembershipResponse,
 } from "@/lib/api/types";
 import {
   MembershipDialog,
-  type InlineAgentCreateValues,
   type MembershipFormValues,
 } from "@/components/units/membership-dialog";
 
 interface AgentsTabProps {
   unitId: string;
+  unitDisplayName: string;
 }
 
 type DialogState =
   | { mode: "closed" }
-  | { mode: "add" }
   | { mode: "edit"; membership: UnitMembershipResponse };
 
 /**
  * Agents tab for the unit configuration page. Lists the memberships that
  * belong to this unit (one row per `UnitMembershipResponse`) and offers:
  *
- *  - An "Add agent" button at the top that opens a dialog with an agent
- *    picker + per-membership config form.
- *  - An edit icon per row that opens the same dialog pre-populated.
+ *  - An "Add agent" button at the top that opens the shared create-agent
+ *    dialog preselected to this unit.
+ *  - An edit icon per row that opens the membership dialog pre-populated.
  *  - A remove icon per row that confirms, then deletes the membership.
  *
  * Layout note (#472, PR-R2): each membership renders inside the shared
@@ -56,13 +55,14 @@ type DialogState =
  *   PUT    /api/v1/units/{unitId}/memberships/{agentAddress}
  *   DELETE /api/v1/units/{unitId}/memberships/{agentAddress}
  */
-export function AgentsTab({ unitId }: AgentsTabProps) {
+export function AgentsTab({ unitId, unitDisplayName }: AgentsTabProps) {
   const { toast } = useToast();
   const [memberships, setMemberships] = useState<UnitMembershipResponse[]>([]);
   const [allAgents, setAllAgents] = useState<AgentResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [dialog, setDialog] = useState<DialogState>({ mode: "closed" });
   const [confirmRemove, setConfirmRemove] =
     useState<UnitMembershipResponse | null>(null);
@@ -103,14 +103,6 @@ export function AgentsTab({ unitId }: AgentsTabProps) {
     return m;
   }, [allAgents]);
 
-  // Post-C2b-1 an agent may belong to multiple units (M:N). "Assignable"
-  // is just "not already a member of THIS unit" — membership of another
-  // unit does not disqualify the agent.
-  const assignableAgents = useMemo(() => {
-    const inThisUnit = new Set(memberships.map((m) => m.agentAddress));
-    return allAgents.filter((a) => !inThisUnit.has(a.name));
-  }, [memberships, allAgents]);
-
   const handleUpsert = async (values: MembershipFormValues) => {
     const saved = await api.upsertUnitMembership(
       unitId,
@@ -134,31 +126,21 @@ export function AgentsTab({ unitId }: AgentsTabProps) {
       return [...prev, saved];
     });
     toast({
-      title: dialog.mode === "edit" ? "Membership updated" : "Agent added",
+      title: "Membership updated",
       description: saved.agentAddress,
     });
     setDialog({ mode: "closed" });
   };
 
-  // Inline create-and-assign flow (#1040). Creates the agent against
-  // the current unit through the shared helper, then refreshes the
-  // memberships list so the new row appears in place. The MembershipDialog
-  // close happens inside the dialog after `onSubmit` resolves; surfacing
-  // a toast here mirrors the standalone /agents/create page.
-  const handleInlineCreate = async (values: InlineAgentCreateValues) => {
-    const body = buildCreateAgentRequest({
-      displayName: values.displayName,
-      role: values.role,
-      unitIds: [unitId],
-    });
-    const created = await api.createAgent(body);
-    await load();
-    toast({
-      title: "Agent created",
-      description: created.name,
-    });
-    setDialog({ mode: "closed" });
-  };
+  const handleAddDialogOpenChange = useCallback(
+    (open: boolean) => {
+      setAddDialogOpen(open);
+      if (!open) {
+        void load();
+      }
+    },
+    [load],
+  );
 
   const handleRemove = async () => {
     const target = confirmRemove;
@@ -188,9 +170,9 @@ export function AgentsTab({ unitId }: AgentsTabProps) {
         <CardTitle>Agents</CardTitle>
         <Button
           size="sm"
-          onClick={() => setDialog({ mode: "add" })}
-          // #1040: inline create lives inside this dialog now, so the
-          // button stays enabled even when no agents exist yet — the
+          onClick={() => setAddDialogOpen(true)}
+          // ADR-0039 J2: create-agent lives inside this dialog now, so
+          // the button stays enabled even when no agents exist yet — the
           // operator can bootstrap the unit's first agent right here.
           disabled={loading}
           aria-label="Add agent"
@@ -211,7 +193,7 @@ export function AgentsTab({ unitId }: AgentsTabProps) {
         ) : memberships.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No agents assigned to this unit yet. Click{" "}
-            <span className="font-medium">Add agent</span> to assign one.
+            <span className="font-medium">Add agent</span> to create one.
           </p>
         ) : (
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -294,20 +276,20 @@ export function AgentsTab({ unitId }: AgentsTabProps) {
         )}
       </CardContent>
 
+      <AgentCreateDialog
+        unitId={unitId}
+        unitDisplayName={unitDisplayName}
+        open={addDialogOpen}
+        onOpenChange={handleAddDialogOpenChange}
+      />
+
       <MembershipDialog
-        open={dialog.mode !== "closed"}
+        open={dialog.mode === "edit"}
         unitLabel={unitId}
-        mode={dialog.mode === "edit" ? "edit" : "add"}
-        assignableAgents={assignableAgents}
+        mode="edit"
+        assignableAgents={[]}
         initial={dialog.mode === "edit" ? dialog.membership : null}
         agentDisplayNames={displayNameMap}
-        // Only the add flow exposes inline-create; editing an existing
-        // membership has nothing to do with creating a brand-new agent.
-        inlineCreate={
-          dialog.mode === "add"
-            ? { onSubmit: handleInlineCreate }
-            : undefined
-        }
         onCancel={() => setDialog({ mode: "closed" })}
         onSubmit={handleUpsert}
       />
