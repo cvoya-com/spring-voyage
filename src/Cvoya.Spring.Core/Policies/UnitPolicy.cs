@@ -60,9 +60,8 @@ using Cvoya.Spring.Core.Initiative;
 /// <param name="LabelRouting">
 /// Optional <see cref="LabelRoutingPolicy"/> describing how inbound-message
 /// labels map to unit members (#389). <c>null</c> means the unit is not
-/// label-routed — the <c>LabelRoutedOrchestrationStrategy</c> treats this
-/// as "drop every message" and the default orchestration strategies ignore
-/// the slot entirely. Unlike the first five dimensions this slot is a
+/// label-routed; default orchestration strategies ignore the slot entirely.
+/// Unlike the first five dimensions this slot is a
 /// routing input, not a governance constraint — it lives on
 /// <see cref="UnitPolicy"/> because PR-C2 (#453) routes every operator-
 /// facing policy edit through the unified <c>spring unit policy</c> surface

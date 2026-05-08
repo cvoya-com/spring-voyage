@@ -24,12 +24,11 @@ using Octokit;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The strategy (<c>LabelRoutedOrchestrationStrategy</c>) deliberately does
-/// not perform the label write because only the connector holds the external
-/// GitHub credentials. Splitting the responsibility along the event boundary
-/// keeps the core routing pipeline unaware of the GitHub API surface and lets
-/// any other label-aware connector subscribe to the same event shape without
-/// coupling back to the strategy.
+/// Core routing deliberately does not perform the label write because only
+/// the connector holds the external GitHub credentials. Splitting the
+/// responsibility along the event boundary keeps the core routing pipeline
+/// unaware of the GitHub API surface and lets any other label-aware connector
+/// subscribe to the same event shape without coupling back to the dispatcher.
 /// </para>
 /// <para>
 /// Idempotency: GitHub's remove-label API returns 404 when the label is
