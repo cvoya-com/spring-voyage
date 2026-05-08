@@ -148,7 +148,8 @@ public static class AgentEndpoints
             .Accepts<AgentExecutionResponse>("application/json")
             .Produces<AgentExecutionResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
         group.MapDelete("/{id}/execution", ClearAgentExecutionAsync)
             .WithName("ClearAgentExecution")
@@ -181,6 +182,9 @@ public static class AgentEndpoints
         HttpContext httpContext,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IAgentExecutionStore store,
+        [FromServices] IUnitMembershipRepository membershipRepository,
+        [FromServices] IExecutionConfigInheritanceResolver inheritanceResolver,
+        [FromServices] ITenantContext tenantContext,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -273,9 +277,142 @@ public static class AgentEndpoints
         // programmatic callers that write fields in any order.
 
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+
+        // ADR-0039 §6 (B2): multi-parent inheritance validation runs
+        // BEFORE the store.SetAsync call. The "agent's own" view the
+        // resolver intersects against parent set is the patched view —
+        // patched values from the request layered over whatever is
+        // already persisted on the agent. A field the operator left null
+        // in the patch keeps its existing persisted value (mirrors the
+        // partial-update semantics of DbAgentExecutionStore.SetAsync);
+        // a field the operator set explicitly suppresses inheritance for
+        // that slot per the resolver's contract.
+        var existing = await store.GetAsync(actorId, cancellationToken);
+        var merged = MergePatchedShape(existing, shape);
+        var memberships = await membershipRepository.ListByAgentAsync(entry.ActorId, cancellationToken);
+        var parentUnitIds = memberships.Select(m => m.UnitId).ToList();
+        var resolution = inheritanceResolver.ResolveAgentConfig(
+            agentOwn: ShapeToConfig(merged),
+            parentUnitIds: parentUnitIds,
+            tenantId: tenantContext.CurrentTenantId,
+            ct: cancellationToken);
+        if (resolution.ConflictingFields.Count > 0)
+        {
+            return MultiParentInheritanceConflictResult(resolution.ConflictingFields);
+        }
+
         await store.SetAsync(actorId, shape, cancellationToken);
         var stored = await store.GetAsync(actorId, cancellationToken);
         return Results.Ok(ToAgentExecutionResponse(stored));
+    }
+
+    /// <summary>
+    /// Layers <paramref name="patch"/> over <paramref name="existing"/> using
+    /// the same partial-update semantics as
+    /// <see cref="DbAgentExecutionStore"/>.<c>SetAsync</c>: a non-blank field on
+    /// the patch replaces the existing slot; a null/blank field leaves the
+    /// existing value alone. Used by the <c>PUT /api/v1/tenant/agents/{id}/execution</c>
+    /// path so the inheritance resolver sees the post-patch agent config (ADR-0039 §6 / B2).
+    /// </summary>
+    private static AgentExecutionShape MergePatchedShape(
+        AgentExecutionShape? existing,
+        AgentExecutionShape patch)
+    {
+        existing ??= new AgentExecutionShape();
+        return new AgentExecutionShape(
+            Image: PickNonBlank(patch.Image, existing.Image),
+            Runtime: PickNonBlank(patch.Runtime, existing.Runtime),
+            Provider: PickNonBlank(patch.Provider, existing.Provider),
+            Model: PickNonBlank(patch.Model, existing.Model),
+            Hosting: PickNonBlank(patch.Hosting, existing.Hosting),
+            Agent: PickNonBlank(patch.Agent, existing.Agent));
+
+        static string? PickNonBlank(string? incoming, string? fallback)
+        {
+            if (!string.IsNullOrWhiteSpace(incoming)) return incoming.Trim();
+            if (!string.IsNullOrWhiteSpace(fallback)) return fallback.Trim();
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Projects an <see cref="AgentExecutionShape"/> onto an
+    /// <see cref="AgentExecutionConfig"/> for the inheritance resolver. The
+    /// resolver intersects against parent unit defaults per field; a blank
+    /// slot on the agent surfaces the field as a candidate for inheritance.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="AgentExecutionConfig.AgentRuntimeId"/> is non-nullable so a
+    /// missing <see cref="AgentExecutionShape.Agent"/> projects to the empty
+    /// string — the resolver treats blank as null-equivalent through its own
+    /// <c>NullIfBlank</c> normaliser, so the candidate-for-inheritance branch
+    /// fires the same way. <c>hosting</c> on the shape is a free-form string
+    /// (<c>"ephemeral"</c> / <c>"persistent"</c>); the resolver passes
+    /// <see cref="AgentExecutionConfig.Hosting"/> through verbatim because
+    /// hosting is agent-owned per ADR-0039 §6 — the parsed enum value here
+    /// only affects the round-trip through the resolver and is not what the
+    /// store persists.
+    /// </remarks>
+    private static AgentExecutionConfig ShapeToConfig(AgentExecutionShape shape) =>
+        new(
+            AgentRuntimeId: shape.Agent ?? string.Empty,
+            Image: shape.Image,
+            Runtime: shape.Runtime,
+            Hosting: ParseHostingMode(shape.Hosting),
+            Provider: shape.Provider,
+            Model: shape.Model);
+
+    private static AgentHostingMode ParseHostingMode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return AgentHostingMode.Ephemeral;
+        }
+        if (value.Equals("persistent", StringComparison.OrdinalIgnoreCase))
+        {
+            return AgentHostingMode.Persistent;
+        }
+        if (value.Equals("pooled", StringComparison.OrdinalIgnoreCase))
+        {
+            return AgentHostingMode.Pooled;
+        }
+        return AgentHostingMode.Ephemeral;
+    }
+
+    /// <summary>
+    /// Builds the structured 422 envelope ADR-0039 §6 pins for a
+    /// multi-parent inheritance conflict. Mirrors the body shape the
+    /// CLI / portal pattern-match on:
+    /// <c>{ "error": "MultiParentInheritanceConflict", "conflictingFields": { … } }</c>.
+    /// </summary>
+    /// <remarks>
+    /// Each entry under <c>conflictingFields</c> is the diverging field name
+    /// (e.g. <c>image</c>, <c>runtime</c>, <c>model</c>) mapped to the list
+    /// of contributing parent values. Each parent value is a
+    /// <c>{ source, value }</c> pair where <c>source</c> is the parent unit
+    /// id rendered in 32-char no-dash hex per the platform's URL/wire form
+    /// for actor identifiers (CONVENTIONS.md § Identifiers).
+    /// </remarks>
+    private static IResult MultiParentInheritanceConflictResult(
+        IReadOnlyDictionary<string, IReadOnlyList<ParentValue>> conflictingFields)
+    {
+        var serialised = conflictingFields.ToDictionary(
+            kvp => kvp.Key,
+            kvp => (object?)kvp.Value
+                .Select(pv => new
+                {
+                    source = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(pv.Source),
+                    value = pv.Value,
+                })
+                .ToArray());
+
+        return Results.Json(
+            new
+            {
+                error = "MultiParentInheritanceConflict",
+                conflictingFields = serialised,
+            },
+            statusCode: StatusCodes.Status422UnprocessableEntity);
     }
 
     private static async Task<IResult> ClearAgentExecutionAsync(
@@ -1254,21 +1391,4 @@ public static class AgentEndpoints
         => obj.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String
             ? prop.GetString()
             : null;
-
-    private static AgentHostingMode ParseHostingMode(string? value)
-    {
-        if (value is null)
-        {
-            return AgentHostingMode.Ephemeral;
-        }
-        if (value.Equals("persistent", StringComparison.OrdinalIgnoreCase))
-        {
-            return AgentHostingMode.Persistent;
-        }
-        if (value.Equals("pooled", StringComparison.OrdinalIgnoreCase))
-        {
-            return AgentHostingMode.Pooled;
-        }
-        return AgentHostingMode.Ephemeral;
-    }
 }
