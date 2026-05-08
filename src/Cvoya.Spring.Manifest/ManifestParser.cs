@@ -46,6 +46,14 @@ public static class ManifestParser
         // precise ADR-0038 migration hint instead.
         DetectLegacyAiShapes(yamlText);
 
+        // ADR-0039 § 9: `execution.containerRuntime` is removed — the
+        // container runtime is platform configuration, not a per-unit
+        // / per-agent field. A unit YAML still carrying the key is
+        // rejected here with a precise migration hint (matches the
+        // wire-DTO `LegacyContainerRuntimeField` error path so operators
+        // see the same message regardless of entry point).
+        DetectLegacyContainerRuntime(yamlText);
+
         UnitManifest? manifest;
         try
         {
@@ -282,6 +290,69 @@ public static class ManifestParser
             }
         }
     }
+
+    /// <summary>
+    /// Walks the raw YAML and rejects pre-ADR-0039 shapes that declare a
+    /// <c>containerRuntime:</c> field — either at the document root or
+    /// nested under <c>execution:</c> — with the
+    /// <c>LegacyContainerRuntimeField</c> migration hint from ADR-0039
+    /// § 9. Shared by <see cref="ManifestParser.Parse"/> and the
+    /// package-side parser so unit YAML, agent YAML (via the validator),
+    /// and the package-level <c>execution:</c> block all reject the same
+    /// shape.
+    /// </summary>
+    internal static void DetectLegacyContainerRuntime(string yamlText)
+    {
+        if (string.IsNullOrWhiteSpace(yamlText))
+        {
+            return;
+        }
+
+        YamlStream stream;
+        try
+        {
+            stream = new YamlStream();
+            stream.Load(new StringReader(yamlText));
+        }
+        catch (YamlException)
+        {
+            // Typed deserialisation will surface the same parse error
+            // with a richer message; bail out and let it run.
+            return;
+        }
+
+        foreach (var doc in stream.Documents)
+        {
+            if (doc.RootNode is not YamlMappingNode root)
+            {
+                continue;
+            }
+
+            // ADR-0039 § 9: reject `containerRuntime:` at the document root
+            // (e.g. a wire-DTO body that hoisted the field out of execution:).
+            if (root.Children.ContainsKey(new YamlScalarNode("containerRuntime")))
+            {
+                throw new ManifestParseException(LegacyContainerRuntimeMessage);
+            }
+
+            // ADR-0039 § 9: reject `execution.containerRuntime:` — the
+            // canonical location of the legacy field on unit / package
+            // manifests (per the migration table).
+            if (TryGetMapping(root, "execution", out var executionNode)
+                && executionNode!.Children.ContainsKey(new YamlScalarNode("containerRuntime")))
+            {
+                throw new ManifestParseException(LegacyContainerRuntimeMessage);
+            }
+        }
+    }
+
+    /// <summary>
+    /// ADR-0039 § 9 migration hint surfaced by both the unit / agent
+    /// manifest parser path and the wire-DTO rejection path.
+    /// </summary>
+    internal const string LegacyContainerRuntimeMessage =
+        "LegacyContainerRuntimeField: containerRuntime is removed in ADR-0039; " +
+        "the container runtime is platform configuration.";
 
     private static bool TryGetMapping(YamlMappingNode parent, string key, out YamlMappingNode? value)
     {
