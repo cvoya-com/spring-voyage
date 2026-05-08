@@ -88,7 +88,7 @@ interface FormState {
 
 type AgentSource = "scratch" | "from-package" | "browse";
 type AgentCreateContext = "page" | "dialog";
-type PageBranch = "source" | "scratch" | "from-package";
+type PageBranch = "source" | "scratch" | "from-package" | "browse";
 
 type SubmitPhase =
   | "idle"
@@ -809,6 +809,11 @@ export function AgentCreateForm({
 
     if (source === "from-package") {
       setPageBranch("from-package");
+      return;
+    }
+
+    if (source === "browse") {
+      setPageBranch("browse");
     }
   };
 
@@ -876,21 +881,6 @@ export function AgentCreateForm({
               onSelect={() => setSource("browse")}
               testId="agent-source-card-browse"
             />
-
-            {source === "browse" && (
-              <div
-                role="status"
-                data-testid="browse-coming-soon"
-                className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
-              >
-                The Spring Voyage package registry browser is not yet
-                available in the portal. Use{" "}
-                <code className="font-mono">
-                  spring package install &lt;package-name&gt;
-                </code>{" "}
-                from the CLI.
-              </div>
-            )}
           </CardContent>
         </Card>
 
@@ -901,7 +891,6 @@ export function AgentCreateForm({
           <Button
             type="button"
             onClick={handleSourceNext}
-            disabled={source === "browse"}
           >
             Next
           </Button>
@@ -941,6 +930,52 @@ export function AgentCreateForm({
           <Button type="button" variant="outline" onClick={handleCancel}>
             Cancel
           </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (context === "page" && pageBranch === "browse") {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Search className="h-5 w-5" aria-hidden />
+              Browse agent packages
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div
+              role="status"
+              data-testid="browse-coming-soon"
+              className="space-y-3 rounded-md border border-border bg-muted/30 px-4 py-6 text-center"
+            >
+              <Package
+                className="mx-auto h-8 w-8 text-muted-foreground"
+                aria-hidden
+              />
+              <p className="text-sm font-medium">Coming soon</p>
+              <p className="text-xs text-muted-foreground">
+                Search the Spring Voyage package registry for community
+                packages. (Coming soon — use the CLI for now.)
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex items-center justify-between gap-2">
+          <Button type="button" variant="outline" onClick={handleSourceBack}>
+            Back
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" onClick={handleCancel}>
+              Cancel
+            </Button>
+            <Button type="button" disabled>
+              Next
+            </Button>
+          </div>
         </div>
       </div>
     );

@@ -637,7 +637,7 @@ The page Source step reuses the unit-create SourceCard chrome: full-width button
 
 - **Scratch** — advances to the existing scratch form (`Identity`, `Execution`, `Unit assignment`, submit).
 - **From package** — visible placeholder only in K1; the package picker is wired in K2.
-- **Browse** — portal registry browser stub. Selecting it shows CLI fallback copy and disables Next.
+- **Browse** — advances to the page-only Browse stub (`Source → Browse`). The stub shows CLI fallback copy and keeps Next disabled.
 
 No new tokens or component variants are introduced; this is a page-level composition of `Card`, `Button`, and lucide icons.
 
