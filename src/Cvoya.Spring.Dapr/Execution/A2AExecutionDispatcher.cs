@@ -226,7 +226,10 @@ public class A2AExecutionDispatcher(
             // D3a: populate D1-spec metadata so the context builder can mint the
             // full bootstrap bundle (env vars + /spring/context/ files) per § 2.
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
-            OrchestrationTools: orchestrationTools);
+            OrchestrationTools: orchestrationTools,
+            AgentAddress: message.To,
+            CallbackThreadId: threadGuid,
+            MessageId: message.Id);
 
         // D3a: assemble the IAgentContext bootstrap bundle (env vars + mounted
         // context files) defined by the D1 spec § 2. The bundle is merged into
@@ -457,7 +460,7 @@ public class A2AExecutionDispatcher(
         else
         {
             // Not running (or unhealthy) — auto-start the agent container.
-            (endpoint, containerId) = await StartPersistentAgentAsync(definition, message.To, cancellationToken);
+            (endpoint, containerId) = await StartPersistentAgentAsync(definition, message, cancellationToken);
         }
 
         if (string.IsNullOrEmpty(containerId))
@@ -503,10 +506,11 @@ public class A2AExecutionDispatcher(
     /// </summary>
     private async Task<(Uri Endpoint, string ContainerId)> StartPersistentAgentAsync(
         AgentDefinition definition,
-        Address dispatchTarget,
+        SvMessage message,
         CancellationToken cancellationToken)
     {
         var agentId = definition.AgentId;
+        var dispatchTarget = message.To;
 
         if (definition.Execution?.Image is null)
         {
@@ -555,7 +559,12 @@ public class A2AExecutionDispatcher(
             Model: definition.Execution.Model,
             // D3a: populate D1-spec metadata for context builder.
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
-            OrchestrationTools: orchestrationTools);
+            OrchestrationTools: orchestrationTools,
+            AgentAddress: dispatchTarget,
+            CallbackThreadId: Guid.TryParse(message.ThreadId, out var callbackThreadId)
+                ? callbackThreadId
+                : Guid.Empty,
+            MessageId: message.Id);
 
         // D3a: assemble the IAgentContext bootstrap bundle (env vars + /spring/context/ files).
         var bootstrapContext = await _agentContextBuilder.BuildAsync(launchContext, cancellationToken);

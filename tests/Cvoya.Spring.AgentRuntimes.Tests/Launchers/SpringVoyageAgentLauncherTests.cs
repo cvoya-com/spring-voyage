@@ -25,6 +25,7 @@ public class SpringVoyageAgentLauncherTests
     private readonly ILoggerFactory _loggerFactory;
     private readonly IOptions<OllamaOptions> _ollamaOptions;
     private readonly ILlmCredentialResolver _credentialResolver;
+    private readonly LauncherCallbackTestSupport _callbackSupport;
     private readonly SpringVoyageAgentLauncher _launcher;
 
     public SpringVoyageAgentLauncherTests()
@@ -39,8 +40,10 @@ public class SpringVoyageAgentLauncherTests
 
         _credentialResolver = Substitute.For<ILlmCredentialResolver>();
 
+        _callbackSupport = new LauncherCallbackTestSupport();
         var scopeFactory = TestScopeFactory.For(_credentialResolver);
-        _launcher = new SpringVoyageAgentLauncher(_ollamaOptions, scopeFactory, _loggerFactory);
+        _launcher = new SpringVoyageAgentLauncher(
+            _ollamaOptions, scopeFactory, _loggerFactory, _callbackSupport.Builder);
     }
 
     private void SeedTenantSecret(string providerId, string secretName, string value)
@@ -91,6 +94,7 @@ public class SpringVoyageAgentLauncherTests
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        _callbackSupport.AssertCallbackEnvironment(prep, context);
         // #1327: SPRING_MODEL and SPRING_LLM_PROVIDER are now D1-spec-declared (§ 2.2.1).
         prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("llama3.2:3b");
         prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("ollama");
@@ -139,7 +143,8 @@ public class SpringVoyageAgentLauncherTests
     {
         var options = Options.Create(new OllamaOptions { DefaultModel = "phi3:mini", BaseUrl = "" });
         var scopeFactory = TestScopeFactory.For(_credentialResolver);
-        var launcher = new SpringVoyageAgentLauncher(options, scopeFactory, _loggerFactory);
+        var launcher = new SpringVoyageAgentLauncher(
+            options, scopeFactory, _loggerFactory, _callbackSupport.Builder);
         var context = CreateContext();
 
         var prep = await launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
@@ -156,15 +161,11 @@ public class SpringVoyageAgentLauncherTests
         // SpringVoyageAgentLauncher must forward them to the container env vars so the
         // Python Dapr Agent binds to the matching Conversation component.
         SeedTenantSecret("openai", "openai-api-key", "sk-openai-fake");
-        var context = new AgentLaunchContext(
-            AgentId: "dapr-test-agent",
-            ThreadId: "conv-openai",
-            Prompt: "prompt",
-            McpEndpoint: "http://host.docker.internal:9999/mcp/",
-            McpToken: "t",
-            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
-            Provider: "openai",
-            Model: "gpt-4o-mini");
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "prompt",
+            mcpToken: "t",
+            provider: "openai",
+            model: "gpt-4o-mini");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
@@ -364,22 +365,14 @@ public class SpringVoyageAgentLauncherTests
     }
 
     private static AgentLaunchContext MakeContext(string provider, string model) =>
-        new(
-            AgentId: "dapr-test-agent",
-            ThreadId: "conv-1",
-            Prompt: "## System\nYou are a helpful assistant.",
-            McpEndpoint: "http://host.docker.internal:9999/mcp/",
-            McpToken: "t",
-            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
-            Provider: provider,
-            Model: model);
+        LauncherCallbackTestSupport.CreateContext(
+            prompt: "## System\nYou are a helpful assistant.",
+            mcpToken: "t",
+            provider: provider,
+            model: model);
 
     private static AgentLaunchContext CreateContext() =>
-        new(
-            AgentId: "dapr-test-agent",
-            ThreadId: "conv-99",
-            Prompt: "## System\nYou are a helpful assistant.",
-            McpEndpoint: "http://host.docker.internal:9999/mcp/",
-            McpToken: "test-token-xyz",
-            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+        LauncherCallbackTestSupport.CreateContext(
+            prompt: "## System\nYou are a helpful assistant.",
+            mcpToken: "test-token-xyz");
 }

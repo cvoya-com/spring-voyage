@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Core.Execution;
 
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
 
@@ -135,6 +136,21 @@ public interface IAgentRuntimeLauncher
 /// contract does not require launchers to act on this field; per-runtime
 /// attachment lands in tasks D4–D7 of ADR-0039's plan.
 /// </param>
+/// <param name="AgentAddress">
+/// Full address for the invoked runtime. Defaults to <c>agent:{AgentId}</c>
+/// when omitted, but dispatchers should pass the inbound message target so
+/// unit runtimes receive a <c>unit:</c>-scoped callback token.
+/// </param>
+/// <param name="CallbackThreadId">
+/// Guid-shaped thread id to stamp into the per-invocation callback token.
+/// Defaults to parsing <see cref="ThreadId"/> when omitted.
+/// </param>
+/// <param name="MessageId">
+/// Inbound message id to stamp into the per-invocation callback token.
+/// Launchers require this for <c>SPRING_CALLBACK_TOKEN</c>; synthetic
+/// launch paths that are not serving an inbound message must supply their
+/// own synthetic id.
+/// </param>
 public record AgentLaunchContext(
     string AgentId,
     string ThreadId,
@@ -148,7 +164,10 @@ public record AgentLaunchContext(
     bool ConcurrentThreads = true,
     string? Provider = null,
     string? Model = null,
-    OrchestrationToolDescriptor[]? OrchestrationTools = null);
+    OrchestrationToolDescriptor[]? OrchestrationTools = null,
+    Address? AgentAddress = null,
+    Guid? CallbackThreadId = null,
+    Guid? MessageId = null);
 
 /// <summary>
 /// Output of <see cref="IAgentRuntimeLauncher.PrepareAsync"/>. Pure data — no

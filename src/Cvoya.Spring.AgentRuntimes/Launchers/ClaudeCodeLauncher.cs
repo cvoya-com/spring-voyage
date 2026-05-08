@@ -33,7 +33,8 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public class ClaudeCodeLauncher(
     IServiceScopeFactory scopeFactory,
-    ILoggerFactory loggerFactory) : IAgentRuntimeLauncher
+    ILoggerFactory loggerFactory,
+    IAgentCallbackEnvironmentBuilder? callbackEnvironmentBuilder = null) : IAgentRuntimeLauncher
 {
     /// <summary>
     /// Provider id this launcher consumes from the catalogue's
@@ -170,6 +171,8 @@ public class ClaudeCodeLauncher(
             // it (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
         };
+
+        LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
         // #1714 step 2: inject the Claude OAuth token into
         // CLAUDE_CODE_OAUTH_TOKEN. The Claude agent runtime is OAuth-only

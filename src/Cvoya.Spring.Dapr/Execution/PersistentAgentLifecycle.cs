@@ -159,7 +159,10 @@ public class PersistentAgentLifecycle(
             TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
             Provider: definition.Execution.Provider,
             Model: definition.Execution.Model,
-            OrchestrationTools: orchestrationTools);
+            OrchestrationTools: orchestrationTools,
+            AgentAddress: deployTarget,
+            CallbackThreadId: Guid.NewGuid(),
+            MessageId: Guid.NewGuid());
 
         var prep = await launcher.PrepareAsync(launchContext, cancellationToken);
 

@@ -15,6 +15,7 @@
     <ProjectReference Include="..\..\src\Cvoya.Spring.AgentRuntimes\Cvoya.Spring.AgentRuntimes.csproj" />
     <ProjectReference Include="..\..\src\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
     <ProjectReference Include="..\..\src\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
+    <ProjectReference Include="..\..\src\Cvoya.Spring.Dispatcher\Cvoya.Spring.Dispatcher.csproj" />
   </ItemGroup>
 
   <ItemGroup>

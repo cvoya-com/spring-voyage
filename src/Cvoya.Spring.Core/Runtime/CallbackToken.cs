@@ -22,8 +22,7 @@ using Cvoya.Spring.Core.Messaging;
 /// </para>
 /// <para>
 /// This record is the wire-shape, free of JWT concerns. The issuer
-/// (<c>Cvoya.Spring.Dispatcher.Auth.CallbackTokenIssuer</c>) signs the claim
-/// shape into a compact JWT; the validator
+/// (<c>ICallbackTokenIssuer</c>) signs the claim shape into a compact JWT; the validator
 /// (<c>Cvoya.Spring.Dispatcher.Auth.CallbackTokenValidator</c>) returns the
 /// same shape after verifying the signature, the expiry, and the claim
 /// presence. Keeping the record in <c>Cvoya.Spring.Core</c> lets both halves

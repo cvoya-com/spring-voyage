@@ -13,8 +13,10 @@ using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Policies;
+using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Agents;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Capabilities;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.Execution;
@@ -47,6 +49,7 @@ internal static class ServiceCollectionExtensionsExecution
         // section moved to DaprSidecarOptions ("Dapr:Sidecar").
         services.AddOptions<DaprSidecarOptions>().BindConfiguration(DaprSidecarOptions.SectionName);
         services.AddOptions<DispatcherClientOptions>().BindConfiguration(DispatcherClientOptions.SectionName);
+        services.AddOptions<CallbackTokenOptions>().BindConfiguration(CallbackTokenOptions.SectionName);
         services.AddOptions<UnitRuntimeOptions>().BindConfiguration(UnitRuntimeOptions.SectionName);
 
         // LLM dispatch seam (ADR 0028 Decision E / #1168) — IAiProvider
@@ -170,6 +173,9 @@ internal static class ServiceCollectionExtensionsExecution
         // alternative topologies) can pre-register their own IContainerRuntime.
         services.AddDispatcherHttpClient();
         services.TryAddSingleton<IContainerRuntime, DispatcherClientContainerRuntime>();
+        services.TryAddSingleton<ITenantSigningKeyProvider, DispatcherClientTenantSigningKeyProvider>();
+        services.TryAddSingleton<ICallbackTokenIssuer, CallbackTokenIssuer>();
+        services.TryAddSingleton<IAgentCallbackEnvironmentBuilder, DispatcherCallbackEnvironmentBuilder>();
         services.AddSingleton<IDaprSidecarManager, DaprSidecarManager>();
         services.AddSingleton<ContainerLifecycleManager>();
         services.TryAddSingleton<IUnitContainerLifecycle, UnitContainerLifecycle>();

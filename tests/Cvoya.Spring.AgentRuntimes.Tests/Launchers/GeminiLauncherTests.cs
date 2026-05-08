@@ -27,6 +27,7 @@ public class GeminiLauncherTests
 
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILlmCredentialResolver _credentialResolver;
+    private readonly LauncherCallbackTestSupport _callbackSupport;
     private readonly GeminiLauncher _launcher;
 
     public GeminiLauncherTests()
@@ -42,8 +43,9 @@ public class GeminiLauncherTests
                 Source: LlmCredentialSource.Tenant,
                 SecretName: "google-api-key"));
 
+        _callbackSupport = new LauncherCallbackTestSupport();
         var scopeFactory = TestScopeFactory.For(_credentialResolver);
-        _launcher = new GeminiLauncher(scopeFactory, _loggerFactory);
+        _launcher = new GeminiLauncher(scopeFactory, _loggerFactory, _callbackSupport.Builder);
     }
 
     [Fact]
@@ -65,13 +67,9 @@ public class GeminiLauncherTests
         // The contract is now enforced by code review on the launcher
         // implementation, which is pure-functional dictionary
         // construction.
-        var context = new AgentLaunchContext(
-            AgentId: "gemini-agent",
-            ThreadId: "conv-88",
-            Prompt: "## Platform Instructions\nAnalyze thoroughly.",
-            McpEndpoint: "http://host.docker.internal:9999/mcp/",
-            McpToken: "gemini-secret-token",
-            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "## Platform Instructions\nAnalyze thoroughly.",
+            mcpToken: "gemini-secret-token");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
@@ -95,6 +93,7 @@ public class GeminiLauncherTests
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
         prep.WorkingDirectory.ShouldBeNull();
@@ -103,13 +102,9 @@ public class GeminiLauncherTests
     [Fact]
     public async Task PrepareAsync_SetsSpringWorkspacePath_ToCanonicalMountPath()
     {
-        var context = new AgentLaunchContext(
-            AgentId: "gemini-agent",
-            ThreadId: "conv-1",
-            Prompt: "Be helpful.",
-            McpEndpoint: "http://host.docker.internal:9999/mcp/",
-            McpToken: "gemini-secret-token",
-            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "Be helpful.",
+            mcpToken: "gemini-secret-token");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
@@ -121,13 +116,9 @@ public class GeminiLauncherTests
     [Fact]
     public async Task PrepareAsync_InjectsGoogleApiKey_FromCredentialResolver()
     {
-        var context = new AgentLaunchContext(
-            AgentId: "gemini-agent",
-            ThreadId: "conv-1",
-            Prompt: "Be helpful.",
-            McpEndpoint: "http://host.docker.internal:9999/mcp/",
-            McpToken: "gemini-secret-token",
-            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "Be helpful.",
+            mcpToken: "gemini-secret-token");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
@@ -144,13 +135,9 @@ public class GeminiLauncherTests
                 Source: LlmCredentialSource.NotFound,
                 SecretName: "google-api-key"));
 
-        var context = new AgentLaunchContext(
-            AgentId: "gemini-agent",
-            ThreadId: "conv-1",
-            Prompt: "Be helpful.",
-            McpEndpoint: "http://host.docker.internal:9999/mcp/",
-            McpToken: "gemini-secret-token",
-            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "Be helpful.",
+            mcpToken: "gemini-secret-token");
 
         var ex = await Should.ThrowAsync<SpringException>(
             () => _launcher.PrepareAsync(context, TestContext.Current.CancellationToken));

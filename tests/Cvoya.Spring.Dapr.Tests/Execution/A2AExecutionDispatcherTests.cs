@@ -340,6 +340,7 @@ public class A2AExecutionDispatcherTests
     public async Task DispatchAsync_EphemeralAgent_IssuesMcpSessionAndPassesToLauncher()
     {
         var message = CreateMessage();
+        var threadId = Guid.Parse(message.ThreadId!);
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("the prompt");
         InstallA2AStub();
@@ -353,7 +354,10 @@ public class A2AExecutionDispatcherTests
                 ctx.ThreadId == message.ThreadId &&
                 ctx.McpToken == "test-token" &&
                 ctx.McpEndpoint == "http://host.docker.internal:12345/mcp/" &&
-                ctx.Prompt == "the prompt"),
+                ctx.Prompt == "the prompt" &&
+                ctx.AgentAddress == message.To &&
+                ctx.CallbackThreadId == threadId &&
+                ctx.MessageId == message.Id),
             Arg.Any<CancellationToken>());
     }
 

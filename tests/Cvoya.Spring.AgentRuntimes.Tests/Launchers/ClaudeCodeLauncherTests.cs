@@ -27,6 +27,7 @@ public class ClaudeCodeLauncherTests
 
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILlmCredentialResolver _credentialResolver;
+    private readonly LauncherCallbackTestSupport _callbackSupport;
     private readonly ClaudeCodeLauncher _launcher;
 
     public ClaudeCodeLauncherTests()
@@ -42,8 +43,9 @@ public class ClaudeCodeLauncherTests
                 Source: LlmCredentialSource.Tenant,
                 SecretName: "anthropic-api-key"));
 
+        _callbackSupport = new LauncherCallbackTestSupport();
         var scopeFactory = TestScopeFactory.For(_credentialResolver);
-        _launcher = new ClaudeCodeLauncher(scopeFactory, _loggerFactory);
+        _launcher = new ClaudeCodeLauncher(scopeFactory, _loggerFactory, _callbackSupport.Builder);
     }
 
     [Fact]
@@ -66,13 +68,7 @@ public class ClaudeCodeLauncherTests
         // CI flake (#1082). The contract is now enforced by code review
         // on the launcher implementation, which is pure-functional
         // dictionary construction.
-        var context = new AgentLaunchContext(
-            AgentId: "ada",
-            ThreadId: "conv-42",
-            Prompt: "## Platform Instructions\nBe helpful.",
-            McpEndpoint: "http://host.docker.internal:9999/mcp/",
-            McpToken: "top-secret-token",
-            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+        var context = CreateContext();
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
@@ -96,6 +92,7 @@ public class ClaudeCodeLauncherTests
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
         prep.WorkingDirectory.ShouldBeNull(
@@ -259,11 +256,5 @@ public class ClaudeCodeLauncherTests
     }
 
     private static AgentLaunchContext CreateContext() =>
-        new(
-            AgentId: "ada",
-            ThreadId: "conv-42",
-            Prompt: "## Platform Instructions\nBe helpful.",
-            McpEndpoint: "http://host.docker.internal:9999/mcp/",
-            McpToken: "top-secret-token",
-            TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+        LauncherCallbackTestSupport.CreateContext();
 }
