@@ -285,9 +285,6 @@ export function AgentsTab({ unitId, unitDisplayName }: AgentsTabProps) {
 
       <MembershipDialog
         open={dialog.mode === "edit"}
-        unitLabel={unitId}
-        mode="edit"
-        assignableAgents={[]}
         initial={dialog.mode === "edit" ? dialog.membership : null}
         agentDisplayNames={displayNameMap}
         onCancel={() => setDialog({ mode: "closed" })}
