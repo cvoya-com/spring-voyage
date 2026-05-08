@@ -36,6 +36,9 @@ internal sealed class DispatcherTenantSigningKeyProvider(
 
         if (_options.Tokens.Count == 1)
         {
+            // Single-token OSS deployments often configure a stable bearer
+            // token with a non-Guid tenant label. In that mode the lone token
+            // is intentionally the callback signing key for every tenant claim.
             return DeriveSigningKey(_options.Tokens.Keys.Single());
         }
 
@@ -45,6 +48,10 @@ internal sealed class DispatcherTenantSigningKeyProvider(
 
     private static byte[] DeriveSigningKey(string token)
     {
+        // Operators can provide a full 32-byte HMAC key as hex. Other token
+        // strings are treated as passphrases and hashed to the required key
+        // width; short passphrases are weak but acceptable for the v0.1
+        // dispatcher-token compatibility path.
         if (token.Length == 64 && TryDecodeHex(token, out var bytes))
         {
             return bytes;

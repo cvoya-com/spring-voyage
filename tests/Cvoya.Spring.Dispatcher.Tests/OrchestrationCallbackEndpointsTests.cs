@@ -257,6 +257,38 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
+    public async Task AnyEndpoint_CallerAddressDiffersFromToken_Returns403()
+    {
+        using var factory = new OrchestrationDispatcherFactory();
+        var client = factory.CreateCallbackClient(UnitAddress);
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/runtime/orchestration/list-children",
+            Request(ChildAddress, factory.ThreadId),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        var json = await ReadJsonAsync(response);
+        json.GetProperty("error").GetString().ShouldBe("CallerMismatch");
+    }
+
+    [Fact]
+    public async Task AnyEndpoint_ThreadIdDiffersFromToken_Returns400()
+    {
+        using var factory = new OrchestrationDispatcherFactory();
+        var client = factory.CreateCallbackClient(UnitAddress);
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/runtime/orchestration/list-children",
+            Request(UnitAddress, Guid.Parse("eeeeeeee-0000-0000-0000-000000000099")),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var json = await ReadJsonAsync(response);
+        json.GetProperty("error").GetString().ShouldBe("ThreadMismatch");
+    }
+
+    [Fact]
     public async Task AnyEndpoint_InvalidToken_Returns401()
     {
         using var factory = new OrchestrationDispatcherFactory();
