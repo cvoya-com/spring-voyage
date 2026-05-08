@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, Package, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -20,18 +20,27 @@ export interface SourcePackagePickerProps {
   onSelect: (packageName: string) => void;
   onBack: () => void;
   onCancel: () => void;
+  selectedPackageName?: string | null;
+  onSelectionChange?: (packageName: string) => void;
+  selectionDetail?: ReactNode;
 }
 
 export function SourcePackagePicker({
   onSelect,
   onBack,
   onCancel,
+  selectedPackageName: controlledSelectedPackageName,
+  onSelectionChange,
+  selectionDetail,
 }: SourcePackagePickerProps) {
   const packagesQuery = usePackages();
   const [search, setSearch] = useState("");
-  const [selectedPackageName, setSelectedPackageName] = useState<string | null>(
-    null,
-  );
+  const [
+    internalSelectedPackageName,
+    setInternalSelectedPackageName,
+  ] = useState<string | null>(null);
+  const selectedPackageName =
+    controlledSelectedPackageName ?? internalSelectedPackageName;
 
   const filteredPackages = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -46,6 +55,12 @@ export function SourcePackagePicker({
   const selectedPackage = filteredPackages.find(
     (pkg) => pkg.name === selectedPackageName,
   );
+  const selectPackage = (packageName: string) => {
+    if (controlledSelectedPackageName === undefined) {
+      setInternalSelectedPackageName(packageName);
+    }
+    onSelectionChange?.(packageName);
+  };
   const errorMessage =
     packagesQuery.error instanceof Error
       ? packagesQuery.error.message
@@ -118,7 +133,7 @@ export function SourcePackagePicker({
                       role="radio"
                       aria-checked={isSelected}
                       data-testid={`package-picker-item-${pkg.name}`}
-                      onClick={() => setSelectedPackageName(pkg.name)}
+                      onClick={() => selectPackage(pkg.name)}
                       className={cn(
                         "flex w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                         isSelected
@@ -158,6 +173,8 @@ export function SourcePackagePicker({
               </div>
             )}
           </div>
+
+          {selectionDetail}
         </CardContent>
       </Card>
 

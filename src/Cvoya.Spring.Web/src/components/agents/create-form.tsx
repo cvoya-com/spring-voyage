@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { AlertTriangle, Package, Search, Sparkles } from "lucide-react";
+import { AlertTriangle, Package, Plug, Search, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,11 +14,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiError } from "@/lib/api/client";
 import {
   useModelProviderModels,
   useModelProviders,
+  usePackage,
   useUnitExecution,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
@@ -42,7 +44,7 @@ import {
   type HostingMode,
   type RuntimeId,
 } from "@/lib/ai-models";
-import type { UnitResponse } from "@/lib/api/types";
+import type { PackageDetail, UnitResponse } from "@/lib/api/types";
 import { SourcePackagePicker } from "./source-package-picker";
 
 // ---------------------------------------------------------------------------
@@ -151,9 +153,14 @@ export type AgentCreateFormInitialSnapshot =
 export interface AgentCreateFormProps {
   /**
    * Page mode starts with the ADR-0039 K1 Source step. Dialog mode skips
-   * Source entirely and always uses the scratch branch.
+   * Source and starts from `initialSource` when provided, otherwise scratch.
    */
   context: AgentCreateContext;
+  /**
+   * Optional source override for shells that skip the page-level Source
+   * step but still need to start in a non-scratch branch.
+   */
+  initialSource?: AgentSource;
   /**
    * Optional initial unit ids (URL-safe names). Useful for the
    * unit-tab dialog (J1) where the dialog opens "from" a specific unit
@@ -186,6 +193,11 @@ export interface AgentCreateFormProps {
    * When omitted, the cancel/back buttons stay visible but no-op.
    */
   onCancel?: () => void;
+  /**
+   * Called when a non-page branch backs out to the scratch form. Page mode
+   * handles this internally by returning to the Source step.
+   */
+  onSourceBack?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -227,11 +239,13 @@ function normalizeHosting(hosting: string | undefined): HostingMode | "" {
  */
 export function AgentCreateForm({
   context,
+  initialSource: initialSourceProp,
   initialUnitIds = [],
   initialSnapshot,
   onSnapshotChange,
   onSuccess,
   onCancel,
+  onSourceBack,
 }: AgentCreateFormProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -257,17 +271,22 @@ export function AgentCreateForm({
   );
 
   const initialSource = useMemo<AgentSource>(
-    () => normalizeSource(initialSnapshot?.source) ?? "scratch",
-    [initialSnapshot?.source],
+    () =>
+      normalizeSource(initialSourceProp ?? initialSnapshot?.source) ??
+      "scratch",
+    [initialSourceProp, initialSnapshot?.source],
   );
   const [form, setForm] = useState<FormState>(initialForm);
   const [source, setSource] = useState<AgentSource>(initialSource);
   const [sourcePackageName, setSourcePackageName] = useState<string | null>(
     null,
   );
-  const [pageBranch, setPageBranch] = useState<PageBranch>(
-    context === "page" ? "source" : "scratch",
-  );
+  const [pageBranch, setPageBranch] = useState<PageBranch>(() => {
+    if (context === "page") return "source";
+    if (initialSource === "from-package") return "from-package";
+    if (initialSource === "browse") return "browse";
+    return "scratch";
+  });
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [create, setCreate] = useState<CreateState>(INITIAL_CREATE);
 
@@ -672,7 +691,14 @@ export function AgentCreateForm({
   };
 
   const handleSourceBack = () => {
-    setPageBranch("source");
+    setSource("scratch");
+    setSourcePackageName(null);
+    if (context === "page") {
+      setPageBranch("source");
+      return;
+    }
+    setPageBranch("scratch");
+    onSourceBack?.();
   };
 
   // ── Derived UI state ───────────────────────────────────────────────────
@@ -753,15 +779,20 @@ export function AgentCreateForm({
     );
   }
 
-  if (context === "page" && pageBranch === "from-package") {
+  if (pageBranch === "from-package") {
     return (
       <SourcePackagePicker
+        selectedPackageName={sourcePackageName}
+        onSelectionChange={setSourcePackageName}
         onSelect={(packageName) => {
           setSourcePackageName(packageName);
           setPageBranch("scratch");
         }}
         onBack={handleSourceBack}
         onCancel={handleCancel}
+        selectionDetail={
+          <PackageConnectorRequirementsPanel packageName={sourcePackageName} />
+        }
       />
     );
   }
@@ -1346,6 +1377,102 @@ export function AgentCreateForm({
       </div>
     </form>
   );
+}
+
+function PackageConnectorRequirementsPanel({
+  packageName,
+}: {
+  packageName: string | null;
+}) {
+  const packageQuery = usePackage(packageName ?? "", {
+    enabled: Boolean(packageName),
+  });
+
+  if (!packageName) return null;
+
+  if (packageQuery.isPending) {
+    return (
+      <div
+        role="status"
+        aria-label="Loading connector requirements"
+        data-testid="package-connector-requirements"
+        className="rounded-md border border-border bg-muted/30 px-3 py-2"
+      >
+        <div className="flex items-start gap-2">
+          <Skeleton className="mt-0.5 h-4 w-4 shrink-0 rounded-full" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-64 max-w-full" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (packageQuery.isError) {
+    const message =
+      packageQuery.error instanceof Error
+        ? packageQuery.error.message
+        : "Could not load connector requirements.";
+    return (
+      <div
+        role="alert"
+        data-testid="package-connector-requirements"
+        className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-foreground"
+      >
+        <AlertTriangle
+          className="mt-0.5 h-4 w-4 shrink-0 text-warning"
+          aria-hidden
+        />
+        <p className="flex-1">
+          Could not load connector requirements: {message}
+        </p>
+      </div>
+    );
+  }
+
+  const requirements = connectorRequirements(packageQuery.data);
+  if (requirements.length === 0) return null;
+
+  return (
+    <div
+      role="status"
+      data-testid="package-connector-requirements"
+      className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm text-foreground"
+    >
+      <div className="flex items-start gap-2">
+        <Plug className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">Connector requirements</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Bind these connector types from the unit&apos;s Connector tab after
+            creation.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+            {requirements.map((connectorType) => (
+              <li key={connectorType}>
+                <span className="font-mono">{connectorType}</span>
+                {" - bind after creation from the unit's Connector tab"}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function connectorRequirements(pkg: PackageDetail | null | undefined): string[] {
+  const seen = new Set<string>();
+  const requirements: string[] = [];
+  for (const declaration of pkg?.connectorDeclarations ?? []) {
+    const connectorType = declaration.type.trim();
+    if (!connectorType || declaration.required === false) continue;
+    if (seen.has(connectorType)) continue;
+    seen.add(connectorType);
+    requirements.push(connectorType);
+  }
+  return requirements;
 }
 
 function SourceCard({

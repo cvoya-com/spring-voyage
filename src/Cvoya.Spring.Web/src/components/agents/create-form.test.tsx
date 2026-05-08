@@ -6,6 +6,8 @@ import type { ReactNode } from "react";
 import type {
   AgentResponse,
   InstalledModelProviderResponse,
+  PackageDetail,
+  PackageSummary,
   UnitExecutionResponse,
   UnitResponse,
 } from "@/lib/api/types";
@@ -20,6 +22,8 @@ const listModelProviders = vi.fn();
 const getModelProviderModels = vi.fn();
 const getUnitExecution = vi.fn();
 const createAgent = vi.fn();
+const listPackages = vi.fn();
+const getPackage = vi.fn();
 
 // Re-export the real ApiError so the production code's `instanceof
 // ApiError` check (used by the multi-parent inheritance conflict path —
@@ -38,6 +42,8 @@ vi.mock("@/lib/api/client", async () => {
       getModelProviderModels: (id: string) => getModelProviderModels(id),
       getUnitExecution: (id: string) => getUnitExecution(id),
       createAgent: (body: unknown) => createAgent(body),
+      listPackages: () => listPackages(),
+      getPackage: (name: string) => getPackage(name),
     },
   };
 });
@@ -121,6 +127,40 @@ function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   } as AgentResponse;
 }
 
+function makePackageSummary(
+  overrides: Partial<PackageSummary> = {},
+): PackageSummary {
+  return {
+    name: overrides.name ?? "agent-pack",
+    description: overrides.description ?? "Agent package",
+    unitTemplateCount: overrides.unitTemplateCount ?? 0,
+    agentTemplateCount: overrides.agentTemplateCount ?? 1,
+    skillCount: overrides.skillCount ?? 0,
+    connectorCount: overrides.connectorCount ?? 0,
+    workflowCount: overrides.workflowCount ?? 0,
+    version: overrides.version ?? null,
+  } as PackageSummary;
+}
+
+function makePackageDetail(
+  overrides: Partial<PackageDetail> = {},
+): PackageDetail {
+  return {
+    name: overrides.name ?? "agent-pack",
+    description: overrides.description ?? "Agent package",
+    readme: overrides.readme ?? null,
+    version: overrides.version ?? null,
+    unitTemplates: overrides.unitTemplates ?? [],
+    agentTemplates: overrides.agentTemplates ?? [],
+    skills: overrides.skills ?? [],
+    connectors: overrides.connectors ?? [],
+    workflows: overrides.workflows ?? [],
+    connectorDeclarations: overrides.connectorDeclarations ?? [],
+    content: overrides.content ?? [],
+    execution: overrides.execution ?? null,
+  } as PackageDetail;
+}
+
 function renderForm(
   props: Partial<Parameters<typeof AgentCreateForm>[0]> = {},
 ) {
@@ -158,6 +198,8 @@ beforeEach(() => {
     model: null,
   } as UnitExecutionResponse);
   createAgent.mockResolvedValue(makeAgent());
+  listPackages.mockResolvedValue([]);
+  getPackage.mockResolvedValue(makePackageDetail());
 });
 
 // ---------------------------------------------------------------------------
@@ -233,6 +275,67 @@ describe("AgentCreateForm — Browse stub (K7)", () => {
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
     expect(screen.getByRole("button", { name: /next/i })).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0039 K3 — from-package connector requirements panel.
+// ---------------------------------------------------------------------------
+
+describe("AgentCreateForm — package connector requirements (K3)", () => {
+  it("shows connector requirements after selecting a package that declares them", async () => {
+    listPackages.mockResolvedValue([
+      makePackageSummary({ name: "software-agents", agentTemplateCount: 2 }),
+    ]);
+    getPackage.mockResolvedValue(
+      makePackageDetail({
+        name: "software-agents",
+        connectorDeclarations: [{ type: "github", required: true }],
+      }),
+    );
+
+    renderForm({ context: "page" });
+
+    fireEvent.click(screen.getByTestId("agent-source-card-from-package"));
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    fireEvent.click(
+      await screen.findByTestId("package-picker-item-software-agents"),
+    );
+
+    await screen.findByText("Connector requirements");
+    const panel = screen.getByTestId("package-connector-requirements");
+    expect(panel).toHaveTextContent("Connector requirements");
+    expect(panel).toHaveTextContent("github");
+    expect(panel).toHaveTextContent(/unit's Connector tab/i);
+  });
+
+  it("does not show connector requirements for a package without declarations", async () => {
+    listPackages.mockResolvedValue([
+      makePackageSummary({ name: "plain-agents", agentTemplateCount: 1 }),
+    ]);
+    getPackage.mockResolvedValue(
+      makePackageDetail({
+        name: "plain-agents",
+        connectorDeclarations: [],
+      }),
+    );
+
+    renderForm({ context: "page" });
+
+    fireEvent.click(screen.getByTestId("agent-source-card-from-package"));
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    fireEvent.click(
+      await screen.findByTestId("package-picker-item-plain-agents"),
+    );
+
+    await waitFor(() => {
+      expect(getPackage).toHaveBeenCalledWith("plain-agents");
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("package-connector-requirements"),
+      ).not.toBeInTheDocument();
+    });
   });
 });
 
