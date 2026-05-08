@@ -3,8 +3,12 @@
 
 namespace Cvoya.Spring.Dapr.Orchestration;
 
+using System.Text.Json;
+
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Routing;
 
@@ -17,7 +21,8 @@ public class OrchestrationToolHandlers(
     IActorProxyFactory actorProxyFactory,
     IAgentProxyResolver agentProxyResolver,
     OrchestrationDepthCounter depthCounter,
-    ILogger<OrchestrationToolHandlers> logger)
+    ILogger<OrchestrationToolHandlers> logger,
+    IActivityEventBus activityEventBus)
 {
     public async Task<Address[]> HandleListChildrenAsync(
         Address caller,
@@ -28,6 +33,7 @@ public class OrchestrationToolHandlers(
 
         EnsureUnitCaller(caller);
 
+        // no OrchestrationDecision event per ADR-0039 §4.
         return await ReadMembersAsync(caller, ct);
     }
 
@@ -43,6 +49,7 @@ public class OrchestrationToolHandlers(
         EnsureUnitCaller(caller);
         await EnsureDirectChildrenAsync(caller, [target], ct);
 
+        // no OrchestrationDecision event per ADR-0039 §4.
         return new Dictionary<string, object?>
         {
             ["scheme"] = target.Scheme,
@@ -78,7 +85,40 @@ public class OrchestrationToolHandlers(
                 reason);
         }
 
-        return await SendToTargetAsync(caller, target, message, ct);
+        Message? response;
+
+        try
+        {
+            response = await SendToTargetAsync(caller, target, message, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await PublishDecisionAsync(
+                caller,
+                threadId,
+                message.Id,
+                OrchestrationDecisionKind.Delegate,
+                [target],
+                OrchestrationDecisionStatus.Failed,
+                [],
+                reason,
+                CancellationToken.None);
+
+            throw;
+        }
+
+        await PublishDecisionAsync(
+            caller,
+            threadId,
+            message.Id,
+            OrchestrationDecisionKind.Delegate,
+            [target],
+            OrchestrationDecisionStatus.Routed,
+            response is null ? [] : [response.Id],
+            reason,
+            ct);
+
+        return response;
     }
 
     public async Task<(Address Target, Message? Response, Exception? Error)[]> HandleFanoutToChildrenAsync(
@@ -110,7 +150,27 @@ public class OrchestrationToolHandlers(
         }
 
         var tasks = targets.Select(target => SendToTargetResultAsync(caller, target, message, ct)).ToArray();
-        return await Task.WhenAll(tasks);
+        var results = await Task.WhenAll(tasks);
+        var status = results.Any(result => result.Error is not null)
+            ? OrchestrationDecisionStatus.Failed
+            : OrchestrationDecisionStatus.Routed;
+        var resultMessageIds = results
+            .Where(result => result.Response is not null)
+            .Select(result => result.Response!.Id)
+            .ToArray();
+
+        await PublishDecisionAsync(
+            caller,
+            threadId,
+            message.Id,
+            OrchestrationDecisionKind.Fanout,
+            targets.ToArray(),
+            status,
+            resultMessageIds,
+            reason,
+            ct);
+
+        return results;
     }
 
     public async Task<string> HandleQueryChildStatusAsync(
@@ -125,8 +185,76 @@ public class OrchestrationToolHandlers(
         EnsureUnitCaller(caller);
         await EnsureDirectChildrenAsync(caller, [target], ct);
 
+        // no OrchestrationDecision event per ADR-0039 §4.
         // ADR-0039 / #1826 v0.1 default: child status has no concrete source yet.
         return "unknown";
+    }
+
+    private async Task PublishDecisionAsync(
+        Address caller,
+        Guid threadId,
+        Guid inputMessageId,
+        OrchestrationDecisionKind kind,
+        Address[] targets,
+        OrchestrationDecisionStatus status,
+        Guid[] resultMessageIds,
+        string? reason,
+        CancellationToken ct)
+    {
+        // TODO #1827: replace Guid.Empty with the callback token tenant id once
+        // the orchestration handler receives the invocation scope.
+        var decision = new OrchestrationDecision(
+            Guid.NewGuid(),
+            Guid.Empty,
+            caller,
+            threadId,
+            inputMessageId,
+            kind,
+            targets,
+            status,
+            resultMessageIds,
+            reason,
+            Metadata: null,
+            DateTimeOffset.UtcNow);
+
+        var activityEvent = new ActivityEvent(
+            Guid.NewGuid(),
+            decision.CreatedAt,
+            caller,
+            ActivityEventType.DecisionMade,
+            status == OrchestrationDecisionStatus.Failed ? ActivitySeverity.Warning : ActivitySeverity.Info,
+            BuildDecisionSummary(kind, status, targets.Length),
+            JsonSerializer.SerializeToElement(decision),
+            threadId.ToString("D"));
+
+        try
+        {
+            await activityEventBus.PublishAsync(activityEvent, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to emit orchestration decision {DecisionId} for unit {UnitAddress}.",
+                decision.DecisionId,
+                caller);
+        }
+    }
+
+    private static string BuildDecisionSummary(
+        OrchestrationDecisionKind kind,
+        OrchestrationDecisionStatus status,
+        int targetCount)
+    {
+        return kind switch
+        {
+            OrchestrationDecisionKind.Delegate =>
+                $"Orchestration delegate decision {status} for 1 target.",
+            OrchestrationDecisionKind.Fanout =>
+                $"Orchestration fanout decision {status} for {targetCount} targets.",
+            _ =>
+                $"Orchestration decision {status}.",
+        };
     }
 
     private static void EnsureUnitCaller(Address caller)
