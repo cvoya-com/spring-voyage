@@ -5,7 +5,9 @@ namespace Cvoya.Spring.Dapr.Tests.Orchestration;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
@@ -31,11 +33,13 @@ public class OrchestrationToolHandlersTests
 
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly IAgentProxyResolver _agentProxyResolver = Substitute.For<IAgentProxyResolver>();
+    private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly ILogger<OrchestrationToolHandlers> _logger =
         Substitute.For<ILogger<OrchestrationToolHandlers>>();
 
     private readonly Dictionary<string, Address[]> _members = new();
     private readonly Dictionary<string, IAgent> _agents = new();
+    private readonly List<ActivityEvent> _publishedEvents = [];
 
     public OrchestrationToolHandlersTests()
     {
@@ -59,6 +63,10 @@ public class OrchestrationToolHandlersTests
                     ? agent
                     : null;
             });
+
+        _activityEventBus
+            .PublishAsync(Arg.Do<ActivityEvent>(evt => _publishedEvents.Add(evt)), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
     }
 
     [Fact]
@@ -74,7 +82,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleListChildren_HappyPath_ReturnsMembers()
+    public async Task HandleListChildren_DoesNotEmitEvent()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -87,6 +95,7 @@ public class OrchestrationToolHandlersTests
             TestContext.Current.CancellationToken);
 
         result.ShouldBe([child]);
+        await AssertNoDecisionPublishedAsync();
     }
 
     [Fact]
@@ -188,12 +197,14 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_HappyPath_ReturnsChildResponse()
+    public async Task HandleDelegateToChild_HappyPath_EmitsRouted()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
         var response = CreateResponse(target, caller);
+        var message = CreateMessage();
+        var threadId = Guid.NewGuid();
         Message? delivered = null;
         var agent = Substitute.For<IAgent>();
 
@@ -205,15 +216,77 @@ public class OrchestrationToolHandlersTests
         var result = await handlers.HandleDelegateToChildAsync(
             caller,
             target,
-            CreateMessage(),
+            message,
             null,
-            Guid.NewGuid(),
+            threadId,
             TestContext.Current.CancellationToken);
 
         result.ShouldBe(response);
         delivered.ShouldNotBeNull();
         delivered!.From.ShouldBe(caller);
         delivered.To.ShouldBe(target);
+
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(evt => IsDecisionEvent(
+                evt,
+                OrchestrationDecisionKind.Delegate,
+                OrchestrationDecisionStatus.Routed)),
+            Arg.Any<CancellationToken>());
+
+        var decision = ReadSingleDecision(caller);
+        decision.TenantId.ShouldBe(Guid.Empty);
+        decision.UnitAddress.ShouldBe(caller);
+        decision.ThreadId.ShouldBe(threadId);
+        decision.InputMessageId.ShouldBe(message.Id);
+        decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
+        decision.Targets.ShouldBe([target]);
+        decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
+        decision.ResultMessageIds.ShouldBe([response.Id]);
+        decision.Reason.ShouldBeNull();
+        decision.Metadata.ShouldBeNull();
+        decision.DecisionId.ShouldNotBe(Guid.Empty);
+        decision.CreatedAt.ShouldNotBe(default);
+    }
+
+    [Fact]
+    public async Task HandleDelegateToChild_Exception_EmitsFailed()
+    {
+        var handlers = CreateHandlers();
+        var caller = Unit();
+        var target = Agent(ChildAgentId);
+        var message = CreateMessage();
+        var threadId = Guid.NewGuid();
+        const string reason = "target owns the work";
+
+        RegisterMembers(caller, target);
+        _agentProxyResolver.Resolve(target.Scheme, target.Id.ToString("N"))
+            .Throws(new InvalidOperationException("resolver failed"));
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            handlers.HandleDelegateToChildAsync(
+                caller,
+                target,
+                message,
+                reason,
+                threadId,
+                TestContext.Current.CancellationToken));
+
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(evt => IsDecisionEvent(
+                evt,
+                OrchestrationDecisionKind.Delegate,
+                OrchestrationDecisionStatus.Failed)),
+            Arg.Any<CancellationToken>());
+
+        var decision = ReadSingleDecision(caller);
+        decision.UnitAddress.ShouldBe(caller);
+        decision.ThreadId.ShouldBe(threadId);
+        decision.InputMessageId.ShouldBe(message.Id);
+        decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
+        decision.Targets.ShouldBe([target]);
+        decision.Status.ShouldBe(OrchestrationDecisionStatus.Failed);
+        decision.ResultMessageIds.ShouldBeEmpty();
+        decision.Reason.ShouldBe(reason);
     }
 
     [Fact]
@@ -283,13 +356,71 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleFanoutToChildren_OneTargetFails_OtherSucceeds()
+    public async Task HandleFanoutToChildren_HappyPath_EmitsRouted()
+    {
+        var handlers = CreateHandlers();
+        var caller = Unit();
+        var targetOne = Agent(ChildAgentId);
+        var targetTwo = Agent(OtherChildAgentId);
+        var responseOne = CreateResponse(targetOne, caller);
+        var responseTwo = CreateResponse(targetTwo, caller);
+        var message = CreateMessage();
+        var threadId = Guid.NewGuid();
+        const string reason = "ask both children";
+        var agentOne = Substitute.For<IAgent>();
+        var agentTwo = Substitute.For<IAgent>();
+
+        RegisterMembers(caller, targetOne, targetTwo);
+        RegisterAgent(targetOne, agentOne);
+        RegisterAgent(targetTwo, agentTwo);
+        agentOne.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(responseOne);
+        agentTwo.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(responseTwo);
+
+        var results = await handlers.HandleFanoutToChildrenAsync(
+            caller,
+            [targetOne, targetTwo],
+            message,
+            reason,
+            threadId,
+            TestContext.Current.CancellationToken);
+
+        results.Length.ShouldBe(2);
+        results[0].Target.ShouldBe(targetOne);
+        results[0].Response.ShouldBe(responseOne);
+        results[0].Error.ShouldBeNull();
+        results[1].Target.ShouldBe(targetTwo);
+        results[1].Response.ShouldBe(responseTwo);
+        results[1].Error.ShouldBeNull();
+
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(evt => IsDecisionEvent(
+                evt,
+                OrchestrationDecisionKind.Fanout,
+                OrchestrationDecisionStatus.Routed)),
+            Arg.Any<CancellationToken>());
+
+        var decision = ReadSingleDecision(caller);
+        decision.ThreadId.ShouldBe(threadId);
+        decision.InputMessageId.ShouldBe(message.Id);
+        decision.Kind.ShouldBe(OrchestrationDecisionKind.Fanout);
+        decision.Targets.ShouldBe([targetOne, targetTwo]);
+        decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
+        decision.ResultMessageIds.ShouldBe([responseOne.Id, responseTwo.Id]);
+        decision.Reason.ShouldBe(reason);
+    }
+
+    [Fact]
+    public async Task HandleFanoutToChildren_PartialFailure_EmitsFailed()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var targetOne = Agent(ChildAgentId);
         var targetTwo = Agent(OtherChildAgentId);
         var response = CreateResponse(targetOne, caller);
+        var message = CreateMessage();
+        var threadId = Guid.NewGuid();
         var successfulAgent = Substitute.For<IAgent>();
         var failingAgent = Substitute.For<IAgent>();
 
@@ -304,9 +435,9 @@ public class OrchestrationToolHandlersTests
         var results = await handlers.HandleFanoutToChildrenAsync(
             caller,
             [targetOne, targetTwo],
-            CreateMessage(),
+            message,
             null,
-            Guid.NewGuid(),
+            threadId,
             TestContext.Current.CancellationToken);
 
         results.Length.ShouldBe(2);
@@ -316,6 +447,21 @@ public class OrchestrationToolHandlersTests
         results[1].Target.ShouldBe(targetTwo);
         results[1].Response.ShouldBeNull();
         results[1].Error.ShouldBeOfType<InvalidOperationException>();
+
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(evt => IsDecisionEvent(
+                evt,
+                OrchestrationDecisionKind.Fanout,
+                OrchestrationDecisionStatus.Failed)),
+            Arg.Any<CancellationToken>());
+
+        var decision = ReadSingleDecision(caller);
+        decision.ThreadId.ShouldBe(threadId);
+        decision.InputMessageId.ShouldBe(message.Id);
+        decision.Kind.ShouldBe(OrchestrationDecisionKind.Fanout);
+        decision.Targets.ShouldBe([targetOne, targetTwo]);
+        decision.Status.ShouldBe(OrchestrationDecisionStatus.Failed);
+        decision.ResultMessageIds.ShouldBe([response.Id]);
     }
 
     [Fact]
@@ -350,7 +496,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleInspectChild_HappyPath_ReturnsMeta()
+    public async Task HandleInspectChild_DoesNotEmitEvent()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -365,6 +511,7 @@ public class OrchestrationToolHandlersTests
 
         meta["scheme"].ShouldBe(Address.AgentScheme);
         meta["id"].ShouldBe(ChildAgentId);
+        await AssertNoDecisionPublishedAsync();
     }
 
     [Fact]
@@ -399,7 +546,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleQueryChildStatus_HappyPath_ReturnsUnknown()
+    public async Task HandleQueryChildStatus_DoesNotEmitEvent()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -413,6 +560,7 @@ public class OrchestrationToolHandlersTests
             TestContext.Current.CancellationToken);
 
         status.ShouldBe("unknown");
+        await AssertNoDecisionPublishedAsync();
     }
 
     private OrchestrationToolHandlers CreateHandlers(OrchestrationDepthCounter? depthCounter = null) =>
@@ -420,7 +568,50 @@ public class OrchestrationToolHandlersTests
             _actorProxyFactory,
             _agentProxyResolver,
             depthCounter ?? new OrchestrationDepthCounter(),
-            _logger);
+            _logger,
+            _activityEventBus);
+
+    private async Task AssertNoDecisionPublishedAsync()
+    {
+        _publishedEvents.ShouldBeEmpty();
+        await _activityEventBus.DidNotReceiveWithAnyArgs().PublishAsync(default!, default);
+    }
+
+    private OrchestrationDecision ReadSingleDecision(Address caller)
+    {
+        _publishedEvents.Count.ShouldBe(1);
+        var activityEvent = _publishedEvents.Single();
+
+        activityEvent.Source.ShouldBe(caller);
+        activityEvent.EventType.ShouldBe(ActivityEventType.DecisionMade);
+        activityEvent.Details.ShouldNotBeNull();
+        activityEvent.CorrelationId.ShouldNotBeNull();
+
+        var decision = JsonSerializer.Deserialize<OrchestrationDecision>(
+            activityEvent.Details!.Value.GetRawText());
+
+        decision.ShouldNotBeNull();
+        return decision!;
+    }
+
+    private static bool IsDecisionEvent(
+        ActivityEvent activityEvent,
+        OrchestrationDecisionKind kind,
+        OrchestrationDecisionStatus status)
+    {
+        if (activityEvent.EventType != ActivityEventType.DecisionMade ||
+            activityEvent.Details is null)
+        {
+            return false;
+        }
+
+        var decision = JsonSerializer.Deserialize<OrchestrationDecision>(
+            activityEvent.Details.Value.GetRawText());
+
+        return decision is not null &&
+            decision.Kind == kind &&
+            decision.Status == status;
+    }
 
     private void RegisterMembers(Address unit, params Address[] members) =>
         _members[unit.Id.ToString("N")] = members;
