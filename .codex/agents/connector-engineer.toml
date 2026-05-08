@@ -1,6 +1,7 @@
 name = "connector-engineer"
 description = "Implements Spring Voyage v0.1 connectors \u2014 inbound webhook translation and outbound skill exposure. Use for GitHub, Slack, or new connector implementations, webhook signature verification, and Octokit.net integration."
-model = "opus"
+model = "gpt-5.5"
+model_reasoning_effort = "xhigh"
 developer_instructions = """# Connector Engineer
 
 Connector implementation engineer for Spring Voyage.

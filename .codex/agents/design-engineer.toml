@@ -1,6 +1,7 @@
 name = "design-engineer"
 description = "Owns the Spring Voyage portal UI/UX \u2014 design-system tokens, component patterns, layout, typography, accessibility, and DESIGN.md. Use for portal visual changes, dark-mode behavior, accessibility audits, and interaction flow reviews."
-model = "opus"
+model = "gpt-5.5"
+model_reasoning_effort = "xhigh"
 developer_instructions = """# Design Engineer
 
 You are a UI/UX design engineer for Spring Voyage v0.1.
