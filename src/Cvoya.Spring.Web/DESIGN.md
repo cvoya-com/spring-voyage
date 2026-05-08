@@ -553,7 +553,7 @@ The card header carries an `Inherits` outline badge when no own declarations exi
 
 **Surfaces using this pattern.** The unit-side `<AgentExecutionPanel>` (`src/components/agents/tab-impls/execution-panel.tsx`) and the create-agent form's Execution card (`src/components/agents/create-form.tsx`, ADR-0039 I4/I5). The create form applies the per-field indicator to the five execution-block values — `runtime`, `model.provider`, `model.id`, `image`, `hosting` — whenever the value is inherited from the selected unit or tenant defaults. Once the operator sets an explicit value, that field drops the inherited placeholder/help copy and shows the normal override help copy instead. The Execution card header carries `data-testid="execution-card-badge"` and renders `Inherits` while all five values are inherited, flipping to `Configured` as soon as any execution value is explicit.
 
-**Agent-create page vs dialog.** `<AgentCreateForm context="page">` on `/agents/create` starts with a Source step before the scratch form. The page Source step renders three `<SourceCard>`s: Scratch, From package (K2 package picker pending), and Browse (K7 browse stub). `<AgentCreateDialog>` (`src/components/agents/create-dialog.tsx`) is the unit-tab shell; it skips Source, preselects the current unit, and always enters the scratch flow. The dialog shows a fixed unit confirmation strip above the shared form.
+**Agent-create page vs dialog.** `<AgentCreateForm context="page">` on `/agents/create` starts with a Source step before the scratch form. The page Source step renders three `<SourceCard>`s: Scratch, From package, and Browse (K7 browse stub). From package renders `<SourcePackagePicker>`: a catalog-backed card with dense search input, radio-style package rows filtered to packages whose `agentTemplateCount > 0`, a disabled-until-selected Confirm action, and the same Back / Cancel footer as other page-only branches. Confirm stores the selected package name locally and falls through to the scratch form with an info-palette selected-package strip; full install wiring remains a later slice. `<AgentCreateDialog>` (`src/components/agents/create-dialog.tsx`) is the unit-tab shell; it skips Source, preselects the current unit, and always enters the scratch flow. The dialog shows a fixed unit confirmation strip above the shared form.
 
 | `data-testid` | Surface | Purpose |
 |---|---|---|
@@ -562,6 +562,10 @@ The card header carries an `Inherits` outline badge when no own declarations exi
 | `agent-source-card-scratch` | Source step (page only) | Scratch path card |
 | `agent-source-card-from-package` | Source step (page only) | From-package path card |
 | `agent-source-card-browse` | Source step (page only) | Browse stub card |
+| `package-picker-search` | From-package step (page only) | Client-side package search input |
+| `package-picker-list` | From-package step (page only) | Catalog result container |
+| `package-picker-item-<name>` | From-package step (page only) | Selectable package row |
+| `package-picker-confirm` | From-package step (page only) | Confirm selected package |
 | `browse-coming-soon` | Browse step (page only) | Coming-soon stub container |
 | `agent-create-submit` | Dialog/page | Submit button |
 | `agent-create-dialog-unit-strip` | Dialog | Preselected-unit confirmation strip |
@@ -648,7 +652,7 @@ Tenant-wide agent list at `/agents`. Lists all registered agents via `GET /api/v
 The page Source step reuses the unit-create SourceCard chrome: full-width button cards with `rounded-md` borders, `aria-pressed`, a `h-10 w-10` muted icon well, primary tint when selected, and `hover:border-primary/40 hover:bg-accent/50` when idle. The cards are:
 
 - **Scratch** — advances to the existing scratch form (`Identity`, `Execution`, `Unit assignment`, submit).
-- **From package** — visible placeholder only in K1; the package picker is wired in K2.
+- **From package** — advances to the K2 package picker. The picker lists packages from `GET /api/v1/packages`, filters client-side to `agentTemplateCount > 0`, supports case-insensitive substring search over display/name text, and uses radio-style rows with a Confirm button disabled until one package is selected.
 - **Browse** — advances to the page-only Browse stub (`Source → Browse`). The stub shows CLI fallback copy and keeps Next disabled.
 
 No new tokens or component variants are introduced; this is a page-level composition of `Card`, `Button`, and lucide icons.
