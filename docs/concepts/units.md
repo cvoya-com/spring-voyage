@@ -1,97 +1,63 @@
 # Units
 
-A **unit** is a composite agent -- a group of agents that appears as a single entity to the outside world. Units are the organizational primitive of Spring Voyage.
+A **unit** is an agent with children. It receives messages and runs through the
+same mailbox, execution config, runtime launcher, inheritance, and orchestration
+tool model described in [Agents](agents.md). This page covers only the
+unit-specific layer added on top of the agent primitive.
 
-## The Core Idea: A Unit IS an Agent
+## Children
 
-The most important thing about units is that they implement the same interface as individual agents. A unit can receive messages, has an address, has an expertise profile, and emits an activity stream. Any entity that can interact with an agent can interact with a unit -- without knowing or caring that it's actually a group.
+Units are hierarchical containers. A unit can contain leaf agents and other
+units, so teams can be composed recursively. The children list is the structural
+difference between a unit and a leaf agent.
 
-This means units compose recursively. A unit can contain other units, which contain other units, to arbitrary depth. An engineering team (a unit) can contain a backend team (a unit), a frontend team (a unit), and a DevOps team (a unit). From the outside, the engineering team looks like a single agent.
+## Membership and permissions
 
-## What a Unit Owns
-
-Every unit manages:
-
-- **Identity** -- a stable `Guid` and a `display_name`, addressable as `unit:<guid>` (also reachable via `agent:<guid>` because a unit IS an agent)
-- **Membership** -- which agents and sub-units belong to this unit
-- **Boundary** -- what is visible to the parent unit (see below)
-- **Activity stream** -- aggregated activity from all members
-- **Expertise directory** -- the combined expertise of all members
-- **Policies** -- rules governing communication, work assignment, initiative, and cost
-
-## Orchestration: A Mechanism Inside the Unit
-
-Once a unit exists and has members, it needs an answer to a narrow question: when a message arrives, which member handles it? That decision is made by the unit's **orchestration strategy** -- a pluggable component that determines how messages are routed to members.
-
-Orchestration is one mechanism inside the unit's collaboration model -- it sits alongside membership, the boundary, policies, and the activity stream. It is not the whole of what a unit is; it is how the unit decides to route the next piece of work.
-
-Three orchestration strategies ship today:
-
-| Strategy | Description | AI Involvement |
-|----------|-------------|----------------|
-| **AI-orchestrated** | A single LLM call receives the message plus the member list and returns the target member address. Default strategy. | Full |
-| **Workflow** | A durable workflow container drives the sequence. The container invokes agents as activities. | None or minimal |
-| **Label-routed** | Payload labels are matched against a trigger map; the message is forwarded to the mapped member. | None |
-
-The strategy can be swapped independently of the unit's identity — for example, upgrading from label-routed to AI-orchestrated as a team matures. See [Architecture: Orchestration](../architecture/orchestration.md) for the full strategy catalogue and the resolver protocol.
-
-### AI-Orchestrated Routing
-
-When a unit uses the AI-orchestrated strategy, Spring Voyage makes a single lightweight LLM call (no tool loop — see [ADR 0021 — Spring Voyage is not an agent runtime](../decisions/0021-spring-voyage-is-not-an-agent-runtime.md)) to decide which member should receive the incoming message. The LLM sees the message plus the unit's member directory and returns a target address. The member then runs in its own execution environment as usual.
-
-For workflow-based orchestration, the unit delegates to a workflow container that drives the sequence and may invoke agents as activities.
-
-## Unit Boundary
-
-When a unit participates as a member of a parent unit, its **boundary** controls what the parent can see.
-
-### Opacity Levels
-
-| Level | What the parent sees |
-|-------|---------------------|
-| **Transparent** | All members, their capabilities, expertise, and activity streams. Full internal structure. |
-| **Translucent** | A filtered or projected subset. The boundary defines what is exposed. |
-| **Opaque** | The unit appears as a single agent. No internal structure visible. |
-
-### Boundary Operations
-
-- **Projection** -- expose a subset of member capabilities as the unit's own. The engineering team exposes "implement feature" and "review PR" but hides "run CI" and "deploy staging."
-- **Filtering** -- only certain message types pass through the boundary. Internal status updates stay internal; only completed results, errors, and escalations propagate outward.
-- **Synthesis** -- create new virtual capabilities by combining members. "Full-stack implementation" emerges from the combination of backend, frontend, and QA agents.
-- **Aggregation** -- expertise profiles and activity streams are merged before exposing to the parent.
-
-### Deep Access
-
-Despite encapsulation, a human or agent with appropriate permissions can address any agent at arbitrary depth using its `Guid` (e.g., `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`). The directory resolves the address; the permission walk traverses the membership graph from that actor toward the tenant root and evaluates each boundary's `deep_access` policy against the sender. The boundary is a default, not a wall -- permission-based deep access is always available.
-
-## Organizational Patterns
-
-Units can model any organizational structure:
-
-| Pattern | Description | Example |
-|---------|-------------|---------|
-| **Engineering Team** | Specialized agents with defined roles | Backend + frontend + QA + DevOps |
-| **Product Squad** | Cross-functional group for a feature | PM + design + engineering agents |
-| **Research Cell** | Agents autonomously monitoring a domain | Paper tracking, trend analysis |
-| **Support Desk** | Agents responding to external requests | Customer support, internal helpdesk |
-| **Creative Studio** | Agents collaborating on creative output | Writing, design, art direction |
-| **Operations Center** | Agents monitoring systems and incidents | Infrastructure alerts, SLA monitoring |
-| **Ad-hoc Task Force** | Temporary unit for a specific problem | Incident response, sprint goal |
-
-These patterns are illustrative -- any structure can be modeled through unit composition, boundary configuration, and orchestration strategy selection.
-
-## The Tenant as Root
-
-The tenant row itself is the root of the membership graph. Top-level units appear as membership rows whose parent is the tenant; standalone agents are members of those top-level units. Tenant-wide directory services, addressing, cross-unit routing, and default policies are anchored at the tenant. There is no separate "root unit" entity — the tenant fills that role.
-
-## Human Participation
-
-Units define which humans can interact with them and at what permission level:
+Membership records define which agents or sub-units belong to a unit. Humans
+participate through permission grants on the unit:
 
 | Role | Permissions |
-|------|-------------|
-| **Owner** | Full control -- configure, manage members, set policies, delete |
-| **Operator** | Start/stop, interact with agents, approve workflow steps, view all |
-| **Viewer** | Read-only -- state, activity feed, metrics, agent status |
+| --- | --- |
+| Owner | Configure the unit, manage members, set policies, and delete. |
+| Operator | Start, stop, interact, approve workflow steps, and view operational state. |
+| Viewer | Read state, activity, metrics, and agent status. |
 
-Multiple humans can participate in the same unit at different permission levels.
+Permissions can flow through the hierarchy unless a boundary or explicit grant
+changes the view.
+
+## Lifecycle workflow
+
+Units have their own lifecycle workflow: creation, validation, activation,
+operation, suspension, teardown, and soft deletion. Validation checks runtime,
+connector bindings, credentials, image, and membership shape before the unit is
+ready.
+
+## Expertise aggregation
+
+A unit aggregates expertise from its children. The directory can expose raw
+child expertise, projected expertise, or synthesised team-level capabilities
+depending on the unit boundary. This lets a parent ask what the unit can do
+without every member detail.
+
+## Boundary
+
+A unit boundary controls what the parent can see when the unit is used as a
+child:
+
+| Level | What the parent sees |
+| --- | --- |
+| Transparent | Child members, expertise, and activity are visible. |
+| Translucent | A filtered or projected subset is visible. |
+| Opaque | The unit appears as a single agent. |
+
+Boundary rules project, filter, synthesise, or aggregate the internal view.
+Deep access is still permission-gated by the membership graph; the boundary is a
+default presentation, not an identity wall.
+
+## Connector binding
+
+Connectors bind external systems to units. A GitHub, Slack, or Figma connector
+translates external events into messages addressed to the unit and exposes
+connector skills to agents working inside that unit. Connector configuration is
+owned by the binding; unit membership and boundary rules decide which children
+can observe or act on the resulting work.

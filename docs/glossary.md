@@ -120,8 +120,11 @@ The deterministic v5 UUID owning every tenant-scoped row in a fresh OSS install:
 **Observer**
 An agent that subscribes to another agent's activity stream (with permission).
 
-**Orchestration Strategy**
-A pluggable component that determines how a unit routes incoming messages to its members. Orchestration is one mechanism inside a unit's collaboration model — it sits alongside membership, the boundary, policies, and the activity stream, and answers "which member handles this message?" Five strategies ship in the platform: Rule-based, Workflow, AI-orchestrated, AI+Workflow hybrid, Peer. External orchestrators (ADK, LangGraph, Temporal, …) participate via A2A.
+**Orchestration Decision**
+An event emitted by the platform when a delegation tool call is processed. Shape: `{kind, childId, status, payload, response}`.
+
+**Orchestration Tools**
+The five platform-provided tools (`list_children`, `inspect_child`, `delegate_to_child`, `fanout_to_children`, `query_child_status`) injected into agent runtimes to enable parent agents to coordinate with their children. Orchestration is the runtime's decision, not the platform's configuration.
 
 **Package**
 An installable bundle of domain-specific content: agent templates, unit templates, skills, workflows, connectors, and execution environments. How the platform remains domain-agnostic while supporting specific domains.
@@ -151,10 +154,13 @@ The ordered, timestamped record of all artifacts within a thread: messages (user
 A named pub/sub channel for event distribution. Topic names are namespaced by tenant + owner Guid + topic name (`{tenant-id}/{owner-id}/{topic}`); system topics use the `system/` prefix.
 
 **Unit**
-A group of agents — and the humans who work with them — performing together. A unit IS an agent (composite pattern) -- it implements the same interfaces and can contain agents and/or other units recursively. Each unit picks an orchestration strategy that decides how it routes work across its members; humans participate as Owners, Operators, or Viewers via the unit's permission model.
+A group of agents -- and the humans who work with them -- performing together. A unit IS an agent (composite pattern): it has a mailbox, execution config, and runtime invocation path, with hierarchy, membership, connector binding, and boundary rules added on top.
 
 **Unit Actor (UnitActor)**
-The Dapr virtual actor implementing a unit. Manages membership, policies, the expertise directory, and delegates to the orchestration strategy.
+The Dapr virtual actor implementing a unit. Manages membership, policies, the expertise directory, boundaries, connector bindings, and the unit-specific lifecycle while dispatching domain messages through the runtime-launcher path shared with agents.
+
+**unit-as-agent**
+The ADR-0039 framing that a unit IS an agent: it has a mailbox, execution config, and can be invoked by a runtime. A unit's "unit-ness" (hierarchy, membership, connector binding) is additive on top of the agent primitive.
 
 **Workflow**
 A durable, structured execution plan. Domain workflows run in containers; platform-internal workflows run in the host process.
