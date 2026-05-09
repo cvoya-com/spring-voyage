@@ -1,63 +1,50 @@
 # Units
 
-A **unit** is an agent with children. It receives messages and runs through the
-same mailbox, execution config, runtime launcher, inheritance, and orchestration
-tool model described in [Agents](agents.md). This page covers only the
-unit-specific layer added on top of the agent primitive.
+## What a unit is
+
+A **unit** is an [agent](agents.md) that owns children.
+
+This page covers only the unit-specific layer. Shared concepts such as mailbox
+intake, execution config, runtime invocation, inheritance, and orchestration
+tools live in [Agents](agents.md).
 
 ## Children
 
-Units are hierarchical containers. A unit can contain leaf agents and other
-units, so teams can be composed recursively. The children list is the structural
-difference between a unit and a leaf agent.
+Units compose leaf agents and sub-units. Member agents are assigned through
+`POST /api/v1/tenant/units/{id}/agents/{agentId}`; sub-units are added through
+the membership surface at `PUT /api/v1/tenant/units/{unitId}/memberships/{agentAddress}`.
+Both paths update the unit's child list, which is the list exposed to the
+runtime through `list_children`.
 
-## Membership and permissions
+## Permissions
 
-Membership records define which agents or sub-units belong to a unit. Humans
-participate through permission grants on the unit:
-
-| Role | Permissions |
-| --- | --- |
-| Owner | Configure the unit, manage members, set policies, and delete. |
-| Operator | Start, stop, interact, approve workflow steps, and view operational state. |
-| Viewer | Read state, activity, metrics, and agent status. |
-
-Permissions can flow through the hierarchy unless a boundary or explicit grant
-changes the view.
+A unit owns human permission grants, the expertise scope it exposes, and the
+expertise boundary enforced by `UnitBoundary`. Human grants control who can
+configure, operate, or view the unit. Declared expertise plus boundary rules
+govern what outside callers can see and which issues or work the unit is
+eligible to receive.
 
 ## Lifecycle workflow
 
-Units have their own lifecycle workflow: creation, validation, activation,
-operation, suspension, teardown, and soft deletion. Validation checks runtime,
-connector bindings, credentials, image, and membership shape before the unit is
-ready.
+The unit lifecycle runs from creation to membership and then active operation:
 
-## Expertise aggregation
-
-A unit aggregates expertise from its children. The directory can expose raw
-child expertise, projected expertise, or synthesised team-level capabilities
-depending on the unit boundary. This lets a parent ask what the unit can do
-without every member detail.
-
-## Boundary
-
-A unit boundary controls what the parent can see when the unit is used as a
-child:
-
-| Level | What the parent sees |
-| --- | --- |
-| Transparent | Child members, expertise, and activity are visible. |
-| Translucent | A filtered or projected subset is visible. |
-| Opaque | The unit appears as a single agent. |
-
-Boundary rules project, filter, synthesise, or aggregate the internal view.
-Deep access is still permission-gated by the membership graph; the boundary is a
-default presentation, not an identity wall.
+1. Create the unit and persist its identity, execution config, optional
+   connector binding, boundary, and own expertise.
+2. Add member agents or sub-units.
+3. Validate runtime, credentials, connector binding, image, and membership
+   shape.
+4. Activate the unit so domain messages can invoke its runtime.
 
 ## Connector binding
 
-Connectors bind external systems to units. A GitHub, Slack, or Figma connector
-translates external events into messages addressed to the unit and exposes
-connector skills to agents working inside that unit. Connector configuration is
-owned by the binding; unit membership and boundary rules decide which children
-can observe or act on the resulting work.
+A unit can be bound to a connector such as GitHub, Arxiv, or Web Search. The
+binding stores connector-specific configuration and credentials, translates
+external events into messages for the unit, and contributes connector skills to
+runtime tool discovery. See [Connectors](connectors.md) for the binding model.
+
+## Expertise aggregation
+
+When a unit has children, its expertise is the union of the children's declared
+expertise plus any expertise declared directly on the unit. Boundary rules can
+project, filter, or synthesise that aggregate so callers outside the unit see
+the unit-level capability rather than every internal detail.

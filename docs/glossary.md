@@ -120,11 +120,11 @@ The deterministic v5 UUID owning every tenant-scoped row in a fresh OSS install:
 **Observer**
 An agent that subscribes to another agent's activity stream (with permission).
 
-**Orchestration Decision**
-An event emitted by the platform when a delegation tool call is processed. Shape: `{kind, childId, status, payload, response}`.
+**Orchestration decision**
+An `ActivityEvent` with `EventType=DecisionMade` published by the platform each time a unit's runtime calls a delegation tool. The payload is an `OrchestrationDecision` record with `Kind`, `Status` (`Accepted`, `Routed`, or `Failed`), `Targets`, `ResultMessageIds`, and optional `Reason`.
 
-**Orchestration Tools**
-The five platform-provided tools (`list_children`, `inspect_child`, `delegate_to_child`, `fanout_to_children`, `query_child_status`) injected into agent runtimes to enable parent agents to coordinate with their children. Orchestration is the runtime's decision, not the platform's configuration.
+**Orchestration tools**
+The five MCP/actor tools (`list_children`, `inspect_child`, `delegate_to_child`, `fanout_to_children`, `query_child_status`) that the runtime launcher attaches to a unit's execution context when children exist.
 
 **Package**
 An installable bundle of domain-specific content: agent templates, unit templates, skills, workflows, connectors, and execution environments. How the platform remains domain-agnostic while supporting specific domains.
@@ -159,8 +159,8 @@ A group of agents -- and the humans who work with them -- performing together. A
 **Unit Actor (UnitActor)**
 The Dapr virtual actor implementing a unit. Manages membership, policies, the expertise directory, boundaries, connector bindings, and the unit-specific lifecycle while dispatching domain messages through the runtime-launcher path shared with agents.
 
-**unit-as-agent**
-The ADR-0039 framing that a unit IS an agent: it has a mailbox, execution config, and can be invoked by a runtime. A unit's "unit-ness" (hierarchy, membership, connector binding) is additive on top of the agent primitive.
+**Unit-as-agent**
+The framing from ADR-0039: a unit is an agent that has children. There is no structural difference; the presence or absence of children determines whether orchestration tools are attached.
 
 **Workflow**
 A durable, structured execution plan. Domain workflows run in containers; platform-internal workflows run in the host process.

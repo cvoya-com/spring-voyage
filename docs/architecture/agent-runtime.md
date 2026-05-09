@@ -87,7 +87,10 @@ through `IUnitExecutionStore`, and runs a field-level precedence merge:
 - `hosting` is **agent-exclusive** — never inherits. A unit cannot change
   whether an agent is ephemeral or persistent.
 
-See [Orchestration — Unit execution defaults and the agent → unit → fail resolution chain](orchestration.md#unit-execution-defaults-and-the-agent--unit--fail-resolution-chain-601-b-wide) for the full contract and the HTTP / CLI / portal surfaces that edit the same persisted JSON the merge reads.
+See [ADR-0039 § 6](../decisions/0039-units-are-agents.md#6-inheritance-top-level-under-tenant-multi-parent-override-reparenting-validation)
+for the current inheritance contract, including top-level tenant defaults,
+single-parent inheritance, multi-parent conflict validation, and reparenting
+checks.
 
 ```text
 AgentActor.ExecuteTurn()
@@ -241,31 +244,25 @@ SDK clients.
 
 ---
 
-## 4b. Orchestration tool surface
+## 4b. Orchestration-tool surface
 
-ADR-0039 closes the orchestration surface to five platform-provided tools:
+ADR-0039 closes the orchestration surface to five platform-provided tools. The
+launcher attaches them automatically when the invoked agent has children; a
+leaf agent receives an empty tool set. Unit operators and agent code do not
+enable anything separately.
 
 | Tool | Purpose |
 | --- | --- |
-| `list_children` | Enumerate the invoked agent's direct children. |
-| `inspect_child` | Return metadata and status for one direct child. |
-| `delegate_to_child` | Forward the in-flight work to one direct child. |
-| `fanout_to_children` | Forward the work to multiple direct children in parallel. |
-| `query_child_status` | Read one direct child's current execution status. |
+| `list_children` | Returns the unit's current member list. |
+| `inspect_child` | Returns the child's role metadata, declared expertise, and status. |
+| `delegate_to_child` | Routes the current message thread to exactly one child. |
+| `fanout_to_children` | Routes the current message thread to multiple children in parallel. |
+| `query_child_status` | Returns the last-known status of a child's thread. |
 
-The platform supplies these tools only when the invoked agent has children.
-Leaf agents receive no orchestration tools. The runtime decides whether to use
-the tools; there is no platform-side orchestration policy or strategy selection
-on the dispatch path.
-
-Launcher-specific attachment follows each runtime's native mechanism:
-
-- `ClaudeCodeLauncher`, `CodexLauncher`, and `GeminiLauncher` attach a
-  Spring orchestration MCP server alongside the normal platform MCP server.
-- `SpringVoyageAgentLauncher` serialises the descriptors into
-  `SPRING_ORCHESTRATION_TOOLS`.
-- Custom HTTP/A2A runtimes use the same descriptor set and callback-token
-  contract, but choose their own runtime-side presentation.
+The runtime decides whether to answer directly, inspect children, delegate to
+one child, or fan out to several children. The platform supplies the tools,
+checks the call, routes the resulting child messages, and records delegation
+evidence.
 
 See [ADR-0039 section 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime).
 
@@ -278,44 +275,54 @@ which takes the invoked address and thread id and returns an
 JSON Schemas.
 
 `AgentLaunchContext.OrchestrationTools` carries that descriptor array into the
-selected `IAgentRuntimeLauncher`. The launcher attaches the descriptors in the
-form its runtime understands: MCP configuration for CLI-sidecar runtimes, an
-environment variable for the Spring Voyage Agent runtime, or another
-runtime-specific mechanism for a custom launcher. This keeps the platform
-contract uniform while allowing each runtime image to expose tools through its
-own native interface.
+selected `IAgentRuntimeLauncher`. Each launcher maps the five abstract tool
+descriptors to the runtime's native tool-calling surface:
+
+| Runtime | Attachment mechanism |
+| --- | --- |
+| `spring-voyage` | Serialises the descriptors into `SPRING_ORCHESTRATION_TOOLS`; the runtime can invoke the handlers through Dapr actor-backed platform calls. |
+| `claude-code` | Adds a Spring orchestration MCP server alongside the normal platform MCP server. |
+| `codex` | Adds the same Spring orchestration MCP surface using Codex's MCP configuration. |
+| `gemini` | Adds the same Spring orchestration MCP surface using Gemini CLI's tool configuration. |
+
+Custom launchers use their runtime's own extension mechanism, but the abstract
+tool names and JSON Schemas stay the same. This keeps the platform contract
+uniform while allowing each runtime image to expose tools through its native
+interface.
 
 This responsibility builds on the launcher contract from
 [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md) and the
 tool surface from [ADR-0039 section 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime).
 
-## 4d. OrchestrationDecision event
+## 4d. `OrchestrationDecision` event shape
 
-When a runtime invokes a delegation tool, the platform's tool-call handler
-records an `OrchestrationDecision` in the activity stream. The runtime supplies
-the intent; the platform records the evidence when it processes the tool call.
+When the runtime calls a delegation tool, the platform publishes a
+`DecisionMade` activity event. The durable payload is the Core
+`OrchestrationDecision` record:
 
-The event payload is shaped for subscribers as:
-
-```json
-{
-  "kind": "delegate_to_child | fanout_to_children | ...",
-  "childId": "<agent-id>",
-  "status": "pending | completed | failed",
-  "payload": { },
-  "response": { }
+```text
+ActivityEvent {
+  EventType: DecisionMade,
+  UnitId: <caller's unit id>,
+  Details: OrchestrationDecision {
+    Kind: Delegate | Fanout | Inspect | NoOp,
+    Status: Accepted | Routed | Failed,
+    Targets: [<child unit or agent addresses>],
+    ResultMessageIds: [<ids of child responses>],
+    Reason: <optional human-readable explanation>
+  }
 }
 ```
 
-The Core domain record stores the durable audit fields: decision id, tenant id,
-unit address, thread id, input message id, decision kind, target addresses,
-status, result message ids, runtime-supplied reason, optional metadata, and
-creation time. The reason is plain text supplied by the runtime; it is not
-hidden model reasoning.
+The full record also carries `DecisionId`, `TenantId`, `UnitAddress`,
+`ThreadId`, `InputMessageId`, optional `Metadata`, and `CreatedAt`. `Reason` is
+plain text supplied by the runtime's tool call; it is never hidden model
+reasoning.
 
-Subscribers consume this stream instead of platform orchestration policy. For
-example, the GitHub connector's label-routing roundtrip listens for delegation
-decisions and applies connector-side label rules.
+Subscribers consume this stream as delegation evidence. For example, the
+GitHub connector's label-roundtrip subscriber listens for routed
+`Delegate` decisions and applies connector-side label rules from the unit's
+GitHub binding.
 
 See [ADR-0039 section 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence).
 
