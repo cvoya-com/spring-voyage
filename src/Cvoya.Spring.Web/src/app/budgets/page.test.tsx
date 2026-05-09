@@ -16,6 +16,7 @@ import type {
   CostDashboardSummary,
   CostSummaryResponse,
   TenantCostTimeseriesResponse,
+  TenantTreeResponse,
   UnitDashboardSummary,
 } from "@/lib/api/types";
 
@@ -25,6 +26,7 @@ const getDashboardUnits = vi.fn<() => Promise<UnitDashboardSummary[]>>();
 const getTenantCost = vi.fn<() => Promise<CostSummaryResponse | null>>();
 const getTenantCostTimeseries =
   vi.fn<() => Promise<TenantCostTimeseriesResponse | null>>();
+const getTenantTree = vi.fn<() => Promise<TenantTreeResponse>>();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -33,6 +35,7 @@ vi.mock("@/lib/api/client", () => ({
     getDashboardUnits: () => getDashboardUnits(),
     getTenantCost: () => getTenantCost(),
     getTenantCostTimeseries: () => getTenantCostTimeseries(),
+    getTenantTree: () => getTenantTree(),
   },
 }));
 
@@ -78,12 +81,15 @@ function makeUnit(
 }
 
 describe("/budgets", () => {
+  const unitId = "8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7";
+
   beforeEach(() => {
     getTenantBudget.mockReset();
     getDashboardCosts.mockReset();
     getDashboardUnits.mockReset();
     getTenantCost.mockReset();
     getTenantCostTimeseries.mockReset();
+    getTenantTree.mockReset();
     getTenantCost.mockResolvedValue({ totalCost: 0, breakdowns: [] } as unknown as CostSummaryResponse);
     // Default to the empty-series shape — the `/budgets` sparkline
     // renders "no line" rather than a flat zero for empty tenants.
@@ -92,6 +98,15 @@ describe("/budgets", () => {
       to: "2026-04-21T00:00:00Z",
       bucket: "1d",
       series: [],
+    });
+    getTenantTree.mockResolvedValue({
+      tree: {
+        id: "tenant",
+        name: "Tenant",
+        kind: "Tenant",
+        status: "running",
+        children: [],
+      },
     });
   });
 
@@ -123,23 +138,44 @@ describe("/budgets", () => {
     getTenantBudget.mockResolvedValue({ dailyBudget: 100 } as BudgetResponse);
     getDashboardCosts.mockResolvedValue({
       totalCost: 80,
-      costsBySource: [{ source: "unit://alpha", totalCost: 70 }],
+      costsBySource: [{ source: unitId, totalCost: 70 }],
       periodStart: null,
       periodEnd: null,
     });
-    getDashboardUnits.mockResolvedValue([makeUnit()]);
+    getDashboardUnits.mockResolvedValue([
+      makeUnit({ name: unitId, displayName: "Dashboard stale name" }),
+    ]);
+    getTenantTree.mockResolvedValue({
+      tree: {
+        id: "tenant",
+        name: "Tenant",
+        kind: "Tenant",
+        status: "running",
+        children: [
+          {
+            id: unitId,
+            name: "Alpha",
+            kind: "Unit",
+            status: "running",
+            children: [],
+          },
+        ],
+      },
+    });
 
     renderPage();
 
     await waitFor(() => {
-      const row = screen.getByTestId("budgets-unit-row-alpha");
+      const row = screen.getByTestId(`budgets-unit-row-${unitId}`);
       expect(row).toBeInTheDocument();
       expect(row).toHaveAttribute(
         "href",
-        "/units?node=alpha&tab=policies",
+        `/units?node=${unitId}&tab=policies`,
       );
     });
     // 70 / 100 = 70% — should be the warning variant.
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByText(unitId)).not.toBeInTheDocument();
     expect(screen.getByText(/70% of cap/i)).toBeInTheDocument();
   });
 

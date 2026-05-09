@@ -36,19 +36,29 @@ import {
   useDashboardUnits,
   useTenantBudget,
   useTenantCostTimeseries,
+  useTenantTree,
 } from "@/lib/api/queries";
 import type { UnitDashboardSummary } from "@/lib/api/types";
 import { cn, formatCost } from "@/lib/utils";
 
-/**
- * Trim a `scheme://path` address to the bare path so the per-unit row
- * can key by the UnitDashboardSummary `name`. Per-source rows emit
- * `unit://alpha` in the cost breakdown, but the dashboard-units list
- * carries just `alpha`.
- */
-function unitFromSource(source: string): string | null {
-  if (source.startsWith("unit://")) return source.slice("unit://".length);
-  return null;
+type SourceLookupNode = {
+  id: string;
+  name: string;
+  kind: "Tenant" | "Unit" | "Agent";
+  children?: SourceLookupNode[];
+};
+
+/** Index unit display names by the no-dash GUID source emitted by costs. */
+function buildUnitNameById(
+  tree: SourceLookupNode | null | undefined,
+): Map<string, string> {
+  const byId = new Map<string, string>();
+  const walk = (node: SourceLookupNode) => {
+    if (node.kind === "Unit") byId.set(node.id, node.name);
+    for (const child of node.children ?? []) walk(child);
+  };
+  if (tree) walk(tree);
+  return byId;
 }
 
 /**
@@ -90,6 +100,7 @@ export default function BudgetsIndexPage() {
   const tenantBudget = useTenantBudget();
   const dashboardCosts = useDashboardCosts();
   const dashboardUnits = useDashboardUnits();
+  const tenantTree = useTenantTree();
   // Real 30d tenant cost sparkline — feeds both the `<CostSummaryCard>`
   // footer and the budget-card's inline sparkline. Shares the cache slot
   // with downstream consumers (#910 analytics chart, #902 tenant-budgets
@@ -107,25 +118,29 @@ export default function BudgetsIndexPage() {
     () => seriesToCostPoints(tenantTimeseries.data),
     [tenantTimeseries.data],
   );
+  const unitNameById = useMemo(
+    () => buildUnitNameById(tenantTree.data),
+    [tenantTree.data],
+  );
 
   const unitRows = useMemo(() => {
     const units = dashboardUnits.data ?? [];
     const breakdown = dashboardCosts.data?.costsBySource ?? [];
     const byUnit = new Map<string, number>();
     for (const row of breakdown) {
-      const name = unitFromSource(row.source);
-      if (name) byUnit.set(name, (byUnit.get(name) ?? 0) + row.totalCost);
+      byUnit.set(row.source, (byUnit.get(row.source) ?? 0) + row.totalCost);
     }
     return units
       .map((u) => ({
         unit: u,
+        displayName: unitNameById.get(u.name) ?? u.name,
         spend: byUnit.get(u.name) ?? 0,
       }))
       .sort((a, b) => b.spend - a.spend);
-  }, [dashboardUnits.data, dashboardCosts.data]);
+  }, [dashboardUnits.data, dashboardCosts.data, unitNameById]);
 
   const unitsLoading =
-    dashboardUnits.isPending || dashboardCosts.isPending;
+    dashboardUnits.isPending || dashboardCosts.isPending || tenantTree.isPending;
 
   return (
     <div className="space-y-6">
@@ -248,10 +263,11 @@ export default function BudgetsIndexPage() {
               className="divide-y divide-border"
               aria-label="Per-unit budgets"
             >
-              {unitRows.map(({ unit, spend }) => (
+              {unitRows.map(({ unit, displayName, spend }) => (
                 <UnitSpendRow
                   key={unit.name}
                   unit={unit}
+                  displayName={displayName}
                   spend={spend}
                   tenantCap={tenantCap}
                 />
@@ -292,10 +308,12 @@ export default function BudgetsIndexPage() {
  */
 function UnitSpendRow({
   unit,
+  displayName,
   spend,
   tenantCap,
 }: {
   unit: UnitDashboardSummary;
+  displayName: string;
   spend: number;
   tenantCap: number | null;
 }) {
@@ -317,10 +335,9 @@ function UnitSpendRow({
       >
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{unit.displayName || unit.name}</span>
-            <Badge variant="outline" className="font-mono text-[11px]">
-              unit://{unit.name}
-            </Badge>
+            <span className="font-medium" title={unit.name}>
+              {displayName}
+            </span>
             <Badge variant={variant === "outline" ? "outline" : variant}>
               {pct !== null ? `${pct.toFixed(0)}% of cap` : formatCost(spend)}
             </Badge>

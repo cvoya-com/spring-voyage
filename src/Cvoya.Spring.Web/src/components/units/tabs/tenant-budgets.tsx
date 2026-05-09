@@ -32,10 +32,24 @@ import { registerTab, type TabContentProps } from "./index";
 // Maximum number of top units to surface in the tab.
 const TOP_N = 5;
 
-/** Extract the bare unit name from a `unit://name` address. */
-function unitNameFromSource(source: string): string | null {
-  if (source.startsWith("unit://")) return source.slice("unit://".length);
-  return null;
+type SourceLookupNode = {
+  id: string;
+  name: string;
+  kind: "Tenant" | "Unit" | "Agent";
+  children?: SourceLookupNode[];
+};
+
+/** Index tree nodes by the no-dash GUID source emitted by costs. */
+function buildSourceNodeById(
+  tree: SourceLookupNode | null | undefined,
+): Map<string, SourceLookupNode> {
+  const byId = new Map<string, SourceLookupNode>();
+  const walk = (node: SourceLookupNode) => {
+    byId.set(node.id, node);
+    for (const child of node.children ?? []) walk(child);
+  };
+  if (tree) walk(tree);
+  return byId;
 }
 
 /** Project the time-series payload to the numeric array the sparkline needs. */
@@ -95,6 +109,7 @@ function TenantBudgetsTab({ node }: TabContentProps) {
   // are mounted (queryKeys.tenant.costTimeseries("7d", "1d")).
   const timeseries = useTenantCostTimeseries("7d", "1d");
   const dashboardCosts = useDashboardCosts();
+  const sourceNodeById = useMemo(() => buildSourceNodeById(node), [node]);
 
   const sevenDaySeries = useMemo(
     () => seriesToPoints(timeseries.data),
@@ -104,16 +119,21 @@ function TenantBudgetsTab({ node }: TabContentProps) {
   // Top-N units by 24h spend, sorted descending.
   const topUnits = useMemo(() => {
     const breakdown = dashboardCosts.data?.costsBySource ?? [];
-    const byUnit = new Map<string, number>();
+    const byUnit = new Map<string, { name: string; spend: number }>();
     for (const row of breakdown) {
-      const name = unitNameFromSource(row.source);
-      if (name) byUnit.set(name, (byUnit.get(name) ?? 0) + row.totalCost);
+      const sourceNode = sourceNodeById.get(row.source);
+      if (sourceNode && sourceNode.kind !== "Unit") continue;
+      const current = byUnit.get(row.source);
+      byUnit.set(row.source, {
+        name: sourceNode?.name ?? row.source,
+        spend: (current?.spend ?? 0) + row.totalCost,
+      });
     }
     return Array.from(byUnit.entries())
-      .map(([name, spend]) => ({ name, spend }))
+      .map(([id, { name, spend }]) => ({ id, name, spend }))
       .sort((a, b) => b.spend - a.spend)
       .slice(0, TOP_N);
-  }, [dashboardCosts.data]);
+  }, [dashboardCosts.data, sourceNodeById]);
 
   if (node.kind !== "Tenant") return null;
 
@@ -166,14 +186,14 @@ function TenantBudgetsTab({ node }: TabContentProps) {
               Top {topUnits.length === 1 ? "unit" : `${topUnits.length} units`} by 24h spend
             </div>
             <ul className="divide-y divide-border rounded-md border border-border">
-              {topUnits.map(({ name, spend }) => (
+              {topUnits.map(({ id, name, spend }) => (
                 <li
-                  key={name}
+                  key={id}
                   className="flex items-center justify-between px-3 py-1.5"
-                  data-testid={`tab-tenant-budgets-unit-${name}`}
+                  data-testid={`tab-tenant-budgets-unit-${id}`}
                 >
-                  <Badge variant="outline" className="font-mono text-[11px]">
-                    unit://{name}
+                  <Badge variant="outline" className="text-[11px]" title={id}>
+                    {name}
                   </Badge>
                   <span className="font-mono tabular-nums text-xs">
                     {formatCost(spend)}

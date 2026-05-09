@@ -33,6 +33,8 @@ import TenantBudgetsTab from "./tenant-budgets";
 
 const DEFAULT_TIMESERIES = { data: null };
 const DEFAULT_DASHBOARD_COSTS = { data: null, isPending: false };
+const UNIT_ALPHA_ID = "8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7";
+const UNIT_BETA_ID = "dd55c4ea8d725e43a9df88d07af02b69";
 
 describe("TenantBudgetsTab (#902)", () => {
   const node: TenantNode = {
@@ -81,6 +83,23 @@ describe("TenantBudgetsTab (#902)", () => {
   });
 
   it("renders the top units by spend when cost breakdown is available", () => {
+    const nodeWithUnits: TenantNode = {
+      ...node,
+      children: [
+        {
+          kind: "Unit",
+          id: UNIT_ALPHA_ID,
+          name: "Alpha",
+          status: "running",
+        },
+        {
+          kind: "Unit",
+          id: UNIT_BETA_ID,
+          name: "Beta",
+          status: "running",
+        },
+      ],
+    };
     useTenantCostMock.mockReturnValueOnce({
       data: { totalCost: 10.0, recordCount: 5 },
     });
@@ -89,24 +108,27 @@ describe("TenantBudgetsTab (#902)", () => {
       data: {
         totalCost: 10.0,
         costsBySource: [
-          { source: "unit://alpha", totalCost: 6.0 },
-          { source: "unit://beta", totalCost: 4.0 },
+          { source: UNIT_ALPHA_ID, totalCost: 6.0 },
+          { source: UNIT_BETA_ID, totalCost: 4.0 },
         ],
         periodStart: null,
         periodEnd: null,
       },
       isPending: false,
     });
-    render(<TenantBudgetsTab node={node} path={[node]} />);
+    render(<TenantBudgetsTab node={nodeWithUnits} path={[nodeWithUnits]} />);
     expect(
       screen.getByTestId("tab-tenant-budgets-top-units"),
     ).toBeInTheDocument();
     expect(
-      screen.getByTestId("tab-tenant-budgets-unit-alpha"),
+      screen.getByTestId(`tab-tenant-budgets-unit-${UNIT_ALPHA_ID}`),
     ).toBeInTheDocument();
     expect(
-      screen.getByTestId("tab-tenant-budgets-unit-beta"),
+      screen.getByTestId(`tab-tenant-budgets-unit-${UNIT_BETA_ID}`),
     ).toBeInTheDocument();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Beta")).toBeInTheDocument();
+    expect(screen.queryByText(UNIT_ALPHA_ID)).not.toBeInTheDocument();
   });
 
   it("shows the cross-links to analytics and budgets", () => {
