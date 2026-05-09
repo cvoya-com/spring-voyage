@@ -1,6 +1,6 @@
 # Agent SDK
 
-`Cvoya.Spring.AgentSdk` is the thin HTTP client package that agent processes use to call back into the Spring Voyage dispatcher. It lives at `src/Cvoya.Spring.AgentSdk/`, targets `net9.0`, and has no Dapr, EF, API-host, or worker-host dependency. Runtime image authors reference it from their image project when they need workflow-style orchestration callbacks.
+`Cvoya.Spring.AgentSdk` is the thin HTTP client package that agent processes use to call back into the Spring Voyage dispatcher. It lives at `src/Cvoya.Spring.AgentSdk/`, inherits the solution target framework from `Directory.Build.props`, and has no Dapr, EF, API-host, or worker-host dependency. Runtime image authors reference it from their image project when they need workflow-style orchestration callbacks.
 
 ## Environment-Variable Contract
 

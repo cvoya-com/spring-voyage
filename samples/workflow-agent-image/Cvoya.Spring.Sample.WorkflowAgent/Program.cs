@@ -9,16 +9,32 @@ public static class Program
 {
     public static async Task Main()
     {
-        var callbackClient = SpringAgent.FromEnvironment();
-        var inboundMessage = await Console.In.ReadToEndAsync();
-        var threadId = Environment.GetEnvironmentVariable("SPRING_THREAD_ID")
-            ?? throw new InvalidOperationException("SPRING_THREAD_ID env var is required");
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
 
-        var result = await WorkflowStateMachine.RunAsync(
-            callbackClient,
-            threadId,
-            inboundMessage);
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            var callbackClient = SpringAgent.FromEnvironment();
+            var inboundMessage = await Console.In.ReadToEndAsync(cancellation.Token);
+            var threadId = Environment.GetEnvironmentVariable("SPRING_THREAD_ID")
+                ?? throw new InvalidOperationException("SPRING_THREAD_ID env var is required");
 
-        Console.WriteLine(result);
+            var result = await WorkflowStateMachine.RunAsync(
+                callbackClient,
+                threadId,
+                inboundMessage,
+                cancellation.Token);
+
+            Console.WriteLine(result);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
     }
 }
