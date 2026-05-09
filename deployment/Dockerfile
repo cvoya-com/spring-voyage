@@ -42,7 +42,9 @@ RUN dotnet publish src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj \
 # The Web project is a member of the repo-root npm workspace alongside
 # sibling connector packages under src/Cvoya.Spring.Connector.*/web.
 # Copy workspace manifests first for cacheable `npm ci`, then sources.
-FROM node:22-bookworm-slim AS web-build
+# Pinned to an exact patch so rebuilds are reproducible. Bump in lockstep
+# with deployment/Dockerfile.agent-base when rolling Node forward.
+FROM docker.io/library/node:22.22.2-bookworm-slim AS web-build
 WORKDIR /build
 
 COPY package.json package-lock.json ./

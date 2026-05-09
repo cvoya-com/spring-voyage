@@ -20,9 +20,15 @@
 # spring-voyage-agent (python_requires>=3.12) and useful for any role-flavored
 # image that layers on top of this one.
 
+# NODE_VERSION (the major series) drives the nodesource apt-repo install
+# in the runtime stage below. The build-stage FROM is pinned to a specific
+# patch (independent of this ARG) so a rebuild produces the same sidecar
+# bundle bit-for-bit; nodesource's `setup_<MAJOR>.x` URL only accepts the
+# major number, so the two pins are managed separately. Keep both bumps in
+# the same PR when rolling Node forward.
 ARG NODE_VERSION=22
 
-FROM docker.io/library/node:${NODE_VERSION}-trixie-slim AS sidecar-build
+FROM docker.io/library/node:22.22.2-trixie-slim AS sidecar-build
 
 WORKDIR /build
 COPY deployment/agent-sidecar/package.json deployment/agent-sidecar/tsconfig.json ./
@@ -32,7 +38,10 @@ RUN npm install --omit=optional --no-audit --no-fund \
  && npm prune --omit=dev
 
 
-FROM docker.io/library/python:3.13-slim
+# Pinned to an exact patch so rebuilds are reproducible. Bump in lockstep
+# with the agents/spring-voyage-agent and dapr-agent images so every
+# Python-bearing image in the platform tracks the same interpreter line.
+FROM docker.io/library/python:3.13.13-slim
 
 # Re-declare ARG so it's in scope for RUN steps below.
 ARG NODE_VERSION

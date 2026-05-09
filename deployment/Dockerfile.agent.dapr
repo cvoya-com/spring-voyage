@@ -37,7 +37,11 @@
 #     -t localhost/spring-voyage-agent:latest \
 #     .
 
-FROM docker.io/library/python:3.12-slim
+# Pinned to an exact patch and aligned to Python 3.13 to match
+# deployment/Dockerfile.agent-base and agents/spring-voyage-agent/Dockerfile —
+# every Python-bearing platform image now tracks the same interpreter line.
+# Bump in lockstep when rolling Python forward.
+FROM docker.io/library/python:3.13.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
