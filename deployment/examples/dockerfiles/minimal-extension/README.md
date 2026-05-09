@@ -5,9 +5,9 @@ tool-bearing agent images shipped by `deployment/build-agent-images.sh`
 (the entry point added in PR 3b of #1087, #1096) under your own name so
 unit / agent manifests reference a stable, pinned identifier.
 
-The example below extends `localhost/spring-voyage-agent-claude-code:latest`
+The example below extends `ghcr.io/cvoya-com/claude-code-base:latest`
 (BYOI conformance path 1 — agent-base bridge + Claude Code CLI).
-Substitute `localhost/spring-voyage-agent:latest` for the Dapr
+Substitute `ghcr.io/cvoya-com/spring-voyage-agent:latest` for the Dapr
 Agent path-3 runtime, or `ghcr.io/cvoya-com/agent-base:1.0.0` if you only
 want the bridge sidecar and will install your own CLI on top.
 
@@ -21,13 +21,11 @@ or MCP servers in the image.
 ## Build
 
 ```
-podman build -t localhost/my-agent:latest .
-# or: docker build -t localhost/my-agent:latest .
+podman build -t ghcr.io/<org>/my-agent:latest .
+# or: docker build -t ghcr.io/<org>/my-agent:latest .
 ```
 
-Replace `localhost/my-agent:latest` with whatever registry / name you
-prefer; for single-host deployments the `localhost/` prefix keeps the
-image in the local rootless-podman store.
+Replace `ghcr.io/<org>/my-agent:latest` with your registry / name.
 
 ## Reference it
 
@@ -37,7 +35,7 @@ image in the local rootless-podman store.
 unit:
   name: my-team
   execution:
-    image: localhost/my-agent:latest
+    image: ghcr.io/<org>/my-agent:latest
 ```
 
 The unit execution block acts as the default for every member agent
@@ -55,7 +53,7 @@ For multi-host deployments push the image to a registry every host can
 pull from, then reference the fully-qualified name:
 
 ```
-podman push localhost/my-agent:latest ghcr.io/<org>/my-agent:latest
+podman push ghcr.io/<org>/my-agent:latest
 # unit.yaml
 execution:
   image: ghcr.io/<org>/my-agent:latest

@@ -5,8 +5,8 @@
 #
 # Builds seven images, in dependency order:
 #   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>  (path-1 BYOI base)
-#   2. localhost/spring-voyage-agent-claude-code:<tag>   (path-1 reference, FROMs #1)
-#   3. localhost/spring-voyage-agent:<tag>          (path-3 native A2A)
+#   2. ghcr.io/cvoya-com/claude-code-base:<tag>           (path-1 reference, FROMs #1)
+#   3. ghcr.io/cvoya-com/spring-voyage-agent:<tag>        (path-3 native A2A)
 #   4. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #1)
 #   5. ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<tag>                (FROMs #1)
 #   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:<tag>    (FROMs #1)
@@ -14,10 +14,12 @@
 #
 # Conformance paths are documented in
 # `docs/architecture/agent-runtime.md` § 7. The ghcr-namespaced images are
-# the same artifacts the `release-agent-base.yml` and
-# `release-oss-agent-images.yml` workflows publish on tag push — building
-# locally here is the offline fallback for laptops + CI runs without GHCR
-# pull access.
+# the same artifacts the `release.yml`, `release-agent-base.yml`, and
+# `release-oss-agent-images.yml` workflows publish on tag push. The GHCR tags
+# intentionally exist in the local image store before GHCR publishing is
+# enabled: the runtime catalogue uses those canonical refs, and the dispatcher
+# checks the exact configured ref with `image inspect` before trying a network
+# pull.
 #
 # Usage:
 #   deployment/build-agent-images.sh                # builds :dev tags
@@ -43,6 +45,7 @@ TAG="dev"
 SKIP_AGENT_BASE=0
 SKIP_OSS=0
 PUSH=0
+TAG_LOCAL_ALIASES=1
 AGENT_BASE_OVERRIDE="${AGENT_BASE_IMAGE:-}"
 
 usage() {
@@ -51,8 +54,8 @@ Usage: deployment/build-agent-images.sh [options]
 
 Builds, in order:
   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>
-  2. localhost/spring-voyage-agent-claude-code:<tag>
-  3. localhost/spring-voyage-agent:<tag>
+  2. ghcr.io/cvoya-com/claude-code-base:<tag>
+  3. ghcr.io/cvoya-com/spring-voyage-agent:<tag>
   4. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #1)
   5. ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<tag>                (FROMs #1)
   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:<tag>    (FROMs #1)
@@ -65,10 +68,12 @@ Options:
                                already-pulled / already-built reference.
   --skip-oss                   Skip building the four OSS role images (steps
                                4-7). Still builds the existing three (steps 1-3).
+  --ghcr-only                  Tag only canonical ghcr.io/... image refs.
+                               By default the script also writes localhost/...
+                               aliases for older local dev workflows.
   --push                       After building each ghcr.io/... image, also
-                               push it to the registry. localhost/... images
-                               are never pushed (they are locally-tagged by
-                               design).
+                               push it to the registry. localhost/... aliases
+                               are never pushed.
   --agent-base-image <ref>     Override the FROM line of the claude-code and
                                OSS role images. Defaults to
                                ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>
@@ -114,6 +119,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-oss)
             SKIP_OSS=1
+            shift
+            ;;
+        --ghcr-only)
+            TAG_LOCAL_ALIASES=0
             shift
             ;;
         --push)
@@ -163,8 +172,10 @@ fi
 log() { printf '[build-agent-images] %s\n' "$*" >&2; }
 
 AGENT_BASE_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-base"
-CLAUDE_IMAGE="localhost/spring-voyage-agent-claude-code"
-SV_AGENT_IMAGE="localhost/spring-voyage-agent"
+CLAUDE_IMAGE="ghcr.io/cvoya-com/claude-code-base"
+CLAUDE_LOCAL_ALIAS="localhost/spring-voyage-agent-claude-code"
+SV_AGENT_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent"
+SV_AGENT_LOCAL_ALIAS="localhost/spring-voyage-agent"
 OSS_SE_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering"
 OSS_DESIGN_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-design"
 OSS_PM_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management"
@@ -200,20 +211,32 @@ if [[ -z "${AGENT_BASE_OVERRIDE}" ]]; then
     AGENT_BASE_OVERRIDE="${AGENT_BASE_IMAGE}:${TAG}"
 fi
 
-# ---- 2. agent-claude-code (path 1) ---------------------------------------
+# ---- 2. claude-code-base (path 1) ----------------------------------------
+claude_tags=(--tag "${CLAUDE_IMAGE}:${TAG}")
+if [[ "${TAG_LOCAL_ALIASES}" -eq 1 ]]; then
+    claude_tags+=(--tag "${CLAUDE_LOCAL_ALIAS}:${TAG}")
+fi
+
 log "building ${CLAUDE_IMAGE}:${TAG} (FROM ${AGENT_BASE_OVERRIDE})"
 "${DOCKER}" build \
     --file "${SCRIPT_DIR}/Dockerfile.agent.claude-code" \
     --build-arg "AGENT_BASE_IMAGE=${AGENT_BASE_OVERRIDE}" \
-    --tag "${CLAUDE_IMAGE}:${TAG}" \
+    "${claude_tags[@]}" \
     "${REPO_ROOT}"
+maybe_push "${CLAUDE_IMAGE}:${TAG}"
 
-# ---- 3. agent-dapr (path 3 — native A2A) ---------------------------------
+# ---- 3. spring-voyage-agent (path 3 — native A2A) -------------------------
+sv_agent_tags=(--tag "${SV_AGENT_IMAGE}:${TAG}")
+if [[ "${TAG_LOCAL_ALIASES}" -eq 1 ]]; then
+    sv_agent_tags+=(--tag "${SV_AGENT_LOCAL_ALIAS}:${TAG}")
+fi
+
 log "building ${SV_AGENT_IMAGE}:${TAG}"
 "${DOCKER}" build \
     --file "${SCRIPT_DIR}/Dockerfile.agent.dapr" \
-    --tag "${SV_AGENT_IMAGE}:${TAG}" \
+    "${sv_agent_tags[@]}" \
     "${REPO_ROOT}"
+maybe_push "${SV_AGENT_IMAGE}:${TAG}"
 
 if [[ "${SKIP_OSS}" -eq 1 ]]; then
     log "skipping OSS role image builds (--skip-oss)"
@@ -259,6 +282,10 @@ log "built agent images at tag :${TAG}"
 log "  ${AGENT_BASE_IMAGE}:${TAG}"
 log "  ${CLAUDE_IMAGE}:${TAG}"
 log "  ${SV_AGENT_IMAGE}:${TAG}"
+if [[ "${TAG_LOCAL_ALIASES}" -eq 1 ]]; then
+    log "  ${CLAUDE_LOCAL_ALIAS}:${TAG} (local alias)"
+    log "  ${SV_AGENT_LOCAL_ALIAS}:${TAG} (local alias)"
+fi
 if [[ "${SKIP_OSS}" -eq 0 ]]; then
     log "  ${OSS_SE_IMAGE}:${TAG}"
     log "  ${OSS_DESIGN_IMAGE}:${TAG}"

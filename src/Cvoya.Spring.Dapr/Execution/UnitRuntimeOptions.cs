@@ -17,7 +17,7 @@ public class UnitRuntimeOptions
     /// <summary>
     /// Gets or sets the container image used when a unit is started.
     /// </summary>
-    public string Image { get; set; } = "ghcr.io/cvoya/spring-agent:latest";
+    public string Image { get; set; } = "ghcr.io/cvoya-com/spring-voyage-agent:latest";
 
     /// <summary>
     /// Gets or sets the port the unit's application container listens on.

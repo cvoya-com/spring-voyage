@@ -17,7 +17,7 @@ A domain package that ships a software engineering team — tech lead, backend e
 
 ## Agent runtime
 
-All agents use the `claude-code` tool backed by `claude-sonnet-4-6`. The execution image is `localhost/spring-voyage-agent-claude-code:latest` running under **podman**.
+All agents use the `claude-code` tool backed by `claude-sonnet-4-6`. The execution image is `ghcr.io/cvoya-com/claude-code-base:latest` running under **podman**.
 
 ## Connector
 

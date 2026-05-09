@@ -551,7 +551,7 @@ ai:
     provider: ollama
     id: llama3.2:3b
 execution:
-  image: localhost/spring-voyage-agent:latest # required for container-backed runtimes
+  image: ghcr.io/cvoya-com/spring-voyage-agent:latest # required for container-backed runtimes
   hosting: ephemeral                          # or "persistent"
 ```
 

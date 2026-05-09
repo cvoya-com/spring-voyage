@@ -50,7 +50,7 @@ test.describe("units — lifecycle (start / stop / delete)", () => {
     // as a workflow-registry race).
     await apiPut(
       `/api/v1/tenant/units/${encodeURIComponent(name)}/execution`,
-      { image: "localhost/spring-dapr-agent", runtime: "podman" },
+      { image: "ghcr.io/cvoya-com/spring-voyage-agent:latest", runtime: "podman" },
     );
 
     await page.goto(`/units/${name}`);

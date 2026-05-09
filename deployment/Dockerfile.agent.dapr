@@ -30,7 +30,7 @@
 #
 # Build:
 #   deployment/build-agent-images.sh
-#       (preferred — builds agent-base, agent-claude-code, agent-dapr together)
+#       (preferred — builds agent-base, agent-claude-code, and spring-voyage-agent together)
 #
 #   docker build \
 #     -f deployment/Dockerfile.agent.dapr \

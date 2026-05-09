@@ -125,7 +125,7 @@ Releases are triggered by tag pushes only — never by merges to `main`. The tab
 | --- | --- | --- |
 | [`release-agent-base.yml`](../../.github/workflows/release-agent-base.yml) | `agent-base-v*` | `ghcr.io/cvoya-com/agent-base`, `@cvoya/spring-voyage-agent-sidecar` npm package, SEA binaries |
 | [`release-oss-agent-images.yml`](../../.github/workflows/release-oss-agent-images.yml) | `oss-agents-v*` | Four OSS role images (software-engineering, design, product-management, program-management) |
-| [`release.yml`](../../.github/workflows/release.yml) | `v*` | `ghcr.io/cvoya-com/spring-agent`, `ghcr.io/cvoya-com/agent-base`, `ghcr.io/cvoya-com/agent-dapr`, GitHub Release |
+| [`release.yml`](../../.github/workflows/release.yml) | `v*` | `ghcr.io/cvoya-com/claude-code-base`, `ghcr.io/cvoya-com/agent-base`, `ghcr.io/cvoya-com/spring-voyage-agent`, GitHub Release |
 | [`release-spring-dispatcher.yml`](../../.github/workflows/release-spring-dispatcher.yml) | `dispatcher-v*` | Self-contained dispatcher binaries (5 RIDs) |
 
 `scripts/release.sh` orchestrates steps 1–3 in dependency order. The dispatcher workflow is independent and not driven by the release script.
@@ -144,9 +144,9 @@ Container images are published to the GitHub Container Registry (`ghcr.io/cvoya-
 
 | Image | Published by | Description |
 | --- | --- | --- |
-| `ghcr.io/cvoya-com/spring-agent` | `release.yml` | Primary agent runtime (claude-code); the default image in `UnitRuntimeOptions.cs`. |
+| `ghcr.io/cvoya-com/claude-code-base` | `release.yml` | Claude Code runtime image; the default image for the `claude-code` runtime. |
 | `ghcr.io/cvoya-com/agent-base` | `release-agent-base.yml`, `release.yml` | BYOI conformance path-1 base image; bundles the A2A sidecar bridge. |
-| `ghcr.io/cvoya-com/agent-dapr` | `release.yml` | Dapr-native A2A agent (path-3). |
+| `ghcr.io/cvoya-com/spring-voyage-agent` | `release.yml` | Dapr-native A2A agent (path-3). |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering` | `release-oss-agent-images.yml` | OSS software-engineering role agent. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-design` | `release-oss-agent-images.yml` | OSS design role agent. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management` | `release-oss-agent-images.yml` | OSS product-management role agent. |
@@ -166,7 +166,7 @@ The tag pushed to the container registry has the leading `v` stripped (e.g., git
 
 ### Local and VPS deployment
 
-`deployment/deploy.sh` and `deployment/deploy-remote.sh` build images locally with Podman on the target host. They do not pull from the registry; `ghcr.io/cvoya-com/spring-agent:latest` is available for operators who prefer a pre-built image.
+`deployment/deploy.sh` and `deployment/deploy-remote.sh` build images locally with Podman on the target host. The local build writes the same canonical GHCR refs that release builds publish, so the dispatcher can resolve runtime defaults from the local image store before any registry pull.
 
 ## Changelog
 

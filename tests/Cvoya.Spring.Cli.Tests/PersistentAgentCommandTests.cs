@@ -52,11 +52,11 @@ public class PersistentAgentCommandTests
         var root = BuildRoot(out _);
 
         var parseResult = root.Parse(
-            "agent deploy ada --image ghcr.io/cvoya-com/spring-agent:2.1.98 --replicas 1");
+            "agent deploy ada --image ghcr.io/cvoya-com/claude-code-base:2.1.98 --replicas 1");
 
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue<string>("id").ShouldBe("ada");
-        parseResult.GetValue<string>("--image").ShouldBe("ghcr.io/cvoya-com/spring-agent:2.1.98");
+        parseResult.GetValue<string>("--image").ShouldBe("ghcr.io/cvoya-com/claude-code-base:2.1.98");
         parseResult.GetValue<int?>("--replicas").ShouldBe(1);
     }
 

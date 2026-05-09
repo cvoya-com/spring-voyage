@@ -56,7 +56,7 @@ unit:
   # #1732: 'tool' was dropped — the launcher is derived from
   # the runtime registry via ai.runtime.
   execution:
-    image: spring-agent:latest
+    image: ghcr.io/cvoya-com/claude-code-base:latest
     provider: anthropic              # spring-voyage runtime kind only (#598 gating)
     model: claude-sonnet             # spring-voyage runtime kind only (#598 gating)
 

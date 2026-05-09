@@ -21,9 +21,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-
 TAG="${SMOKE_IMAGE_TAG:-dev}"
 NAME_SUFFIX="$$"
 
@@ -165,8 +162,8 @@ smoke_one() {
     done
 }
 
-CLAUDE_IMAGE="localhost/spring-voyage-agent-claude-code:${TAG}"
-SV_AGENT_IMAGE="localhost/spring-voyage-agent:${TAG}"
+CLAUDE_IMAGE="ghcr.io/cvoya-com/claude-code-base:${TAG}"
+SV_AGENT_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent:${TAG}"
 
 # ---- 1. claude-code (path 1) --------------------------------------------
 # The image's ENTRYPOINT is the agent-base bridge. The bridge requires

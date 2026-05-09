@@ -1224,7 +1224,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     # PR 3b of #1087 (#1096): build the three tool-bearing agent images
-    # (`agent-base`, `agent-claude-code`, `agent-dapr`) the dispatcher
+    # (`agent-base`, `agent-claude-code`, `spring-voyage-agent`) the dispatcher
     # launches today and smoke-test that each one exposes
     # /.well-known/agent.json with the BYOI conformance shape
     # (`docs/architecture/agent-runtime.md` § 7).

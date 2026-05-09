@@ -71,7 +71,7 @@ test.describe("units page — Engagement affordance (#1461–#1464)", () => {
     });
     await apiPut(
       `/api/v1/tenant/units/${encodeURIComponent(unit)}/execution`,
-      { image: "localhost/spring-dapr-agent", runtime: "podman" },
+      { image: "ghcr.io/cvoya-com/spring-voyage-agent:latest", runtime: "podman" },
     );
     await apiPost("/api/v1/tenant/agents", {
       name: agent,

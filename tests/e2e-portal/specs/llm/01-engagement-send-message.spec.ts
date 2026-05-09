@@ -46,7 +46,7 @@ test.describe("engagement — send message via composer", () => {
     // aren't on `CreateUnitRequest`; they live on `/execution`.
     await apiPut(
       `/api/v1/tenant/units/${encodeURIComponent(unit)}/execution`,
-      { image: "localhost/spring-dapr-agent", runtime: "podman" },
+      { image: "ghcr.io/cvoya-com/spring-voyage-agent:latest", runtime: "podman" },
     );
     await apiPost("/api/v1/tenant/agents", {
       name: agent,

@@ -5,12 +5,12 @@ CLI tooling the agent process can shell out to. Use this template when
 your agent workflow needs a tool that isn't shipped with the
 per-tool images produced by `deployment/build-agent-images.sh` (added
 in PR 3b of #1087, #1096) — for example
-`localhost/spring-voyage-agent-claude-code:latest` (Claude Code path 1)
-or `localhost/spring-voyage-agent:latest` (Dapr Agent path 3).
+`ghcr.io/cvoya-com/claude-code-base:latest` (Claude Code path 1)
+or `ghcr.io/cvoya-com/spring-voyage-agent:latest` (Dapr Agent path 3).
 
 ## What this Dockerfile does
 
-Inherits `localhost/spring-voyage-agent-claude-code:latest`, switches to
+Inherits `ghcr.io/cvoya-com/claude-code-base:latest`, switches to
 root long enough to install extra packages via `apt-get`, then drops
 back to the non-root `agent` user so the runtime identity matches the
 base image.
@@ -26,8 +26,8 @@ Pick the shape you need, un-comment it, and rebuild.
 ## Build
 
 ```
-podman build -t localhost/my-agent-with-tools:latest .
-# or: docker build -t localhost/my-agent-with-tools:latest .
+podman build -t ghcr.io/<org>/my-agent-with-tools:latest .
+# or: docker build -t ghcr.io/<org>/my-agent-with-tools:latest .
 ```
 
 ## Reference it
@@ -38,7 +38,7 @@ podman build -t localhost/my-agent-with-tools:latest .
 unit:
   name: platform-eng
   execution:
-    image: localhost/my-agent-with-tools:latest
+    image: ghcr.io/<org>/my-agent-with-tools:latest
     runtime: podman
 ```
 
@@ -73,8 +73,7 @@ For multi-host deployments push the image to a registry every host can
 pull from:
 
 ```
-podman push localhost/my-agent-with-tools:latest \
-            ghcr.io/<org>/my-agent-with-tools:latest
+podman push ghcr.io/<org>/my-agent-with-tools:latest
 ```
 
 Platform-side registry integration (searchable image catalog from the

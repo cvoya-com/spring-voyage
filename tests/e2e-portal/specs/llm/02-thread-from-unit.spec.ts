@@ -35,7 +35,7 @@ test.describe("threads — start from unit detail (#1459 / #1460)", () => {
     // with "Ephemeral agent requires a container image" downstream.
     await apiPut(
       `/api/v1/tenant/units/${encodeURIComponent(unit)}/execution`,
-      { image: "localhost/spring-dapr-agent", runtime: "podman" },
+      { image: "ghcr.io/cvoya-com/spring-voyage-agent:latest", runtime: "podman" },
     );
     await apiPost("/api/v1/tenant/agents", {
       name: agent,

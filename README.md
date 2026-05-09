@@ -162,7 +162,7 @@ docker compose --env-file spring.env up -d
 ./deploy.sh up
 ```
 
-You can skip the build step entirely if you point `SPRING_PLATFORM_IMAGE` / `SPRING_AGENT_IMAGE` in `spring.env` at pre-published images in a registry; the runtime pulls them on first `up`. For remote VPS deployments, `deploy-remote.sh` wraps SSH + rsync and supports the same registry flow via `SPRING_SKIP_SOURCE_SYNC=1`.
+You can skip the build step entirely if you point `SPRING_PLATFORM_IMAGE` and unit execution images at pre-published registry refs; the runtime pulls them on first `up`. For remote VPS deployments, `deploy-remote.sh` wraps SSH + rsync and supports the same registry flow via `SPRING_SKIP_SOURCE_SYNC=1`.
 
 **First-run follow-up: set LLM credentials.** LLM provider API keys are **tier-2 tenant-default credentials**, not deployment config — they do NOT live in `spring.env`. Three paths, pick whichever fits:
 
@@ -207,10 +207,10 @@ See the [Getting Started guide](docs/guide/intro/getting-started.md) for a full 
 
 An agent dispatches in a container. The platform ships two reference tool-bearing images plus a bridge base image (PR 3b of [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087), [#1096](https://github.com/cvoya-com/spring-voyage/issues/1096)), all built by `./deployment/build-agent-images.sh`:
 
-| Image (local tag) | Conformance path | Use it for |
+| Image | Conformance path | Use it for |
 | ----------------- | ---------------- | ---------- |
-| `localhost/spring-voyage-agent-claude-code:latest` | path 1 (bridge) | Anthropic Claude Code CLI on top of the agent-base bridge. |
-| `localhost/spring-voyage-agent:latest`        | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
+| `ghcr.io/cvoya-com/claude-code-base:latest` | path 1 (bridge) | Anthropic Claude Code CLI on top of the agent-base bridge. |
+| `ghcr.io/cvoya-com/spring-voyage-agent:latest`        | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
 | `ghcr.io/cvoya-com/agent-base:<semver>`                | path 1 base     | Bring your own CLI on top of the bridge sidecar. |
 
 To layer extra tooling on top, the shortest path is a Dockerfile that extends one of the bases. Two starter templates ship under [`deployment/examples/dockerfiles/`](deployment/examples/dockerfiles/):
