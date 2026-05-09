@@ -136,8 +136,9 @@ unit:
       id: llama3.2:3b
   execution:
     image: my-org/research-cycle:latest
-    containerRuntime: podman
 ```
+
+The container engine (`docker` / `podman`) is host-level platform configuration, not a package or unit manifest field.
 
 ## Creating Execution Environments
 
@@ -157,7 +158,6 @@ Agent-level (specific to this agent):
 agent:
   execution:
     image: my-org/research-env:latest
-    containerRuntime: podman
 ```
 
 Unit-level (default for all members):
@@ -165,7 +165,6 @@ Unit-level (default for all members):
 unit:
   execution:
     image: my-org/research-env:latest
-    containerRuntime: podman
 ```
 
 Agents that don't specify their own environment inherit the unit's default.

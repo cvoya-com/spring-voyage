@@ -89,7 +89,7 @@ public class LegacyContainerRuntimeFieldTests : IClassFixture<CustomWebApplicati
 
         // Hand-craft the body so we can ship the removed key past the typed DTO.
         using var content = new StringContent(
-            """{"image":"ghcr.io/example/agent:latest","containerRuntime":"docker","runtime":"spring-voyage"}""",
+            """{"image":"ghcr.io/example/agent:latest","containerRuntime":"podman","runtime":"spring-voyage"}""",
             Encoding.UTF8,
             "application/json");
 

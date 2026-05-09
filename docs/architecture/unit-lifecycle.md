@@ -67,13 +67,11 @@ spring unit set engineering-team \
   --structure hierarchical \
   --ai-execution delegated \
   --ai-tool software-dev-cycle \
-  --ai-environment-image spring-workflows/software-dev-cycle:latest \
-  --ai-environment-runtime podman
+  --ai-environment-image spring-workflows/software-dev-cycle:latest
 
 # Set default execution environment for member agents
 spring unit set engineering-team \
-  --execution-image spring-agent:latest \
-  --execution-runtime podman
+  --execution-image spring-agent:latest
 
 # Add agents (creates them if they don't exist)
 spring agent create ada \
