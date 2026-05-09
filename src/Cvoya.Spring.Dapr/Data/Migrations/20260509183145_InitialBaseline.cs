@@ -195,12 +195,33 @@ public partial class InitialBaseline : Migration
                 store_key = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: false),
                 origin = table.Column<int>(type: "integer", nullable: false),
                 version = table.Column<int>(type: "integer", nullable: true),
+                propagate = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
                 created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                 updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
             },
             constraints: table =>
             {
                 table.PrimaryKey("PK_secret_registry_entries", x => x.id);
+            });
+
+        migrationBuilder.CreateTable(
+            name: "tenant_connector_installs",
+            schema: "spring",
+            columns: table => new
+            {
+                id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                connector_id = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                config = table.Column<JsonElement>(type: "jsonb", nullable: true),
+                installed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                deleted_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                package_install_id = table.Column<Guid>(type: "uuid", nullable: true),
+                unit_id = table.Column<Guid>(type: "uuid", nullable: true)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_tenant_connector_installs", x => x.id);
             });
 
         migrationBuilder.CreateTable(
@@ -218,23 +239,6 @@ public partial class InitialBaseline : Migration
             constraints: table =>
             {
                 table.PrimaryKey("PK_tenant_model_provider_installs", x => new { x.tenant_id, x.provider_id });
-            });
-
-        migrationBuilder.CreateTable(
-            name: "tenant_connector_installs",
-            schema: "spring",
-            columns: table => new
-            {
-                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
-                connector_id = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                config = table.Column<JsonElement>(type: "jsonb", nullable: true),
-                installed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                deleted_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
-            },
-            constraints: table =>
-            {
-                table.PrimaryKey("PK_tenant_connector_installs", x => new { x.tenant_id, x.connector_id });
             });
 
         migrationBuilder.CreateTable(
@@ -469,15 +473,39 @@ public partial class InitialBaseline : Migration
             unique: true);
 
         migrationBuilder.CreateIndex(
-            name: "IX_tenant_model_provider_installs_tenant_id",
+            name: "ix_tenant_connector_installs_pkg_scope",
             schema: "spring",
-            table: "tenant_model_provider_installs",
-            column: "tenant_id");
+            table: "tenant_connector_installs",
+            columns: new[] { "tenant_id", "connector_id", "package_install_id" },
+            unique: true,
+            filter: "\"package_install_id\" IS NOT NULL AND \"unit_id\" IS NULL");
 
         migrationBuilder.CreateIndex(
             name: "IX_tenant_connector_installs_tenant_id",
             schema: "spring",
             table: "tenant_connector_installs",
+            column: "tenant_id");
+
+        migrationBuilder.CreateIndex(
+            name: "ix_tenant_connector_installs_tenant_slug",
+            schema: "spring",
+            table: "tenant_connector_installs",
+            columns: new[] { "tenant_id", "connector_id" },
+            unique: true,
+            filter: "\"package_install_id\" IS NULL AND \"unit_id\" IS NULL");
+
+        migrationBuilder.CreateIndex(
+            name: "ix_tenant_connector_installs_unit_scope",
+            schema: "spring",
+            table: "tenant_connector_installs",
+            columns: new[] { "tenant_id", "connector_id", "unit_id" },
+            unique: true,
+            filter: "\"unit_id\" IS NOT NULL");
+
+        migrationBuilder.CreateIndex(
+            name: "IX_tenant_model_provider_installs_tenant_id",
+            schema: "spring",
+            table: "tenant_model_provider_installs",
             column: "tenant_id");
 
         migrationBuilder.CreateIndex(
@@ -545,11 +573,11 @@ public partial class InitialBaseline : Migration
             schema: "spring");
 
         migrationBuilder.DropTable(
-            name: "tenant_model_provider_installs",
+            name: "tenant_connector_installs",
             schema: "spring");
 
         migrationBuilder.DropTable(
-            name: "tenant_connector_installs",
+            name: "tenant_model_provider_installs",
             schema: "spring");
 
         migrationBuilder.DropTable(
