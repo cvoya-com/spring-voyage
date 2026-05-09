@@ -597,7 +597,6 @@ public class OrchestrationToolHandlersTests
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleQueryChildStatusAsync(
                 Agent(NonChildAgentId),
-                TenantId,
                 Agent(ChildAgentId),
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
@@ -614,7 +613,6 @@ public class OrchestrationToolHandlersTests
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleQueryChildStatusAsync(
                 Unit(),
-                TenantId,
                 Agent(NonChildAgentId),
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
@@ -632,7 +630,6 @@ public class OrchestrationToolHandlersTests
 
         var status = await handlers.HandleQueryChildStatusAsync(
             caller,
-            TenantId,
             target,
             Guid.NewGuid(),
             TestContext.Current.CancellationToken);

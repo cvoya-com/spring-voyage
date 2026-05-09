@@ -183,7 +183,6 @@ public class OrchestrationToolHandlers(
 
     public async Task<string> HandleQueryChildStatusAsync(
         Address caller,
-        Guid tenantId,
         Address target,
         Guid threadId,
         CancellationToken ct = default)

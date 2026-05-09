@@ -203,7 +203,6 @@ public static class OrchestrationCallbackEndpoints
         {
             var status = await handlers.HandleQueryChildStatusAsync(
                 claims.AgentAddress,
-                claims.TenantId,
                 target,
                 claims.ThreadId,
                 cancellationToken);
