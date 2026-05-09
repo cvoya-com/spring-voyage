@@ -21,7 +21,7 @@ public static class SpringAgent
 
     /// <summary>
     /// Creates an OrchestrationClient configured from the standard environment variables,
-    /// preferring a per-message <c>callbackToken</c> from the inbound message body when present.
+    /// preferring a per-message <c>message.metadata.callbackToken</c> from the inbound message body when present.
     /// </summary>
     public static IOrchestrationClient FromEnvironment(string? inboundMessageBody)
     {
@@ -35,7 +35,7 @@ public static class SpringAgent
 
     /// <summary>
     /// Creates an OrchestrationClient configured from the standard environment variables,
-    /// preferring a per-message <c>callbackToken</c> from the inbound message body when present.
+    /// preferring a per-message <c>message.metadata.callbackToken</c> from the inbound message body when present.
     /// </summary>
     public static IOrchestrationClient FromEnvironment(JsonElement inboundMessageBody)
     {
@@ -78,62 +78,28 @@ public static class SpringAgent
 
     private static string? TryReadCallbackToken(JsonElement inboundMessageBody)
     {
-        if (TryReadCallbackTokenFromObject(inboundMessageBody, out var token))
-        {
-            return token;
-        }
-
         if (inboundMessageBody.ValueKind != JsonValueKind.Object)
         {
             return null;
         }
 
-        if (inboundMessageBody.TryGetProperty("message", out var message) &&
-            TryReadCallbackTokenFromObject(message, out token))
+        var payload = inboundMessageBody;
+        if (inboundMessageBody.TryGetProperty("params", out var parameters))
         {
-            return token;
+            payload = parameters;
         }
 
-        if (!inboundMessageBody.TryGetProperty("params", out var parameters))
-        {
-            return null;
-        }
-
-        if (TryReadCallbackTokenFromObject(parameters, out token))
-        {
-            return token;
-        }
-
-        return parameters.TryGetProperty("message", out message) &&
-            TryReadCallbackTokenFromObject(message, out token)
-                ? token
-                : null;
-    }
-
-    private static bool TryReadCallbackTokenFromObject(JsonElement element, out string? token)
-    {
-        token = null;
-        if (element.ValueKind != JsonValueKind.Object)
-        {
-            return false;
-        }
-
-        if (element.TryGetProperty(CallbackTokenPayloadField, out var directToken) &&
-            directToken.ValueKind == JsonValueKind.String)
-        {
-            token = directToken.GetString();
-            return !string.IsNullOrWhiteSpace(token);
-        }
-
-        if (!element.TryGetProperty("metadata", out var metadata) ||
+        if (!payload.TryGetProperty("message", out var message) ||
+            message.ValueKind != JsonValueKind.Object ||
+            !message.TryGetProperty("metadata", out var metadata) ||
             metadata.ValueKind != JsonValueKind.Object ||
             !metadata.TryGetProperty(CallbackTokenPayloadField, out var metadataToken) ||
             metadataToken.ValueKind != JsonValueKind.String)
         {
-            return false;
+            return null;
         }
 
-        token = metadataToken.GetString();
-        return !string.IsNullOrWhiteSpace(token);
+        var token = metadataToken.GetString();
+        return string.IsNullOrWhiteSpace(token) ? null : token;
     }
 }

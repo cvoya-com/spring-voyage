@@ -7,7 +7,7 @@ Required environment variables:
 | Variable | Purpose |
 | --- | --- |
 | `SPRING_CALLBACK_URL` | Dispatcher base URL for SDK callbacks. |
-| `SPRING_CALLBACK_TOKEN` | Launch-time bearer token injected by the launcher. Used as a fallback when the inbound message has no `callbackToken`. |
+| `SPRING_CALLBACK_TOKEN` | Launch-time bearer token injected by the launcher. Used as a fallback when the inbound message has no `message.metadata.callbackToken`. |
 | `SPRING_THREAD_ID` | Current dispatcher thread id. |
 | `SPRING_CHILD_0` | First direct child address, selected when the message contains `code`. |
 | `SPRING_CHILD_1` | Second direct child address, selected otherwise. |
@@ -30,4 +30,4 @@ printf 'write some code' | docker run --rm -i \
   sv-workflow-sample
 ```
 
-Persistent containers should pass the raw inbound message body to `SpringAgent.FromEnvironment(inboundMessageBody)`. When that body includes `callbackToken`, the SDK uses it for the current turn instead of the launch-time `SPRING_CALLBACK_TOKEN`.
+Persistent containers should pass the raw inbound A2A `message/send` params to `SpringAgent.FromEnvironment(inboundMessageBody)`. When that body includes `message.metadata.callbackToken`, the SDK uses it for the current turn instead of the launch-time `SPRING_CALLBACK_TOKEN`.

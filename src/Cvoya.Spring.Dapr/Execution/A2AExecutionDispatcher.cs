@@ -10,6 +10,7 @@ using A2A.V0_3;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
@@ -758,15 +759,20 @@ public class A2AExecutionDispatcher(
 
     private string IssuePerMessageCallbackToken(SvMessage message)
     {
-        var threadId = Guid.TryParse(message.ThreadId, out var parsedThreadId)
-            ? parsedThreadId
-            : Guid.Empty;
+        if (string.IsNullOrWhiteSpace(message.ThreadId) ||
+            !GuidFormatter.TryParse(message.ThreadId, out var threadId))
+        {
+            throw new SpringException(
+                $"Message '{message.Id:N}' has malformed thread id '{message.ThreadId ?? "(null)"}'; " +
+                "persistent A2A dispatch cannot issue a scoped SPRING_CALLBACK_TOKEN.");
+        }
 
         return _callbackTokenIssuer.Issue(new CallbackToken(
             _tenantContext.CurrentTenantId,
             message.To,
             threadId,
             message.Id,
+            // The issuer treats default ExpiresAt as "use the configured callback-token lifetime".
             ExpiresAt: default));
     }
 

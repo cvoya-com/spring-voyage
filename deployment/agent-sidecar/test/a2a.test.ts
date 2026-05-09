@@ -113,7 +113,10 @@ describe("A2AHandler.handle", () => {
       jsonrpc: "2.0",
       method: "message/send",
       params: {
+        callbackToken: "top-level-injected-token",
+        metadata: { callbackToken: "params-metadata-injected-token" },
         message: {
+          callbackToken: "message-injected-token",
           metadata: { callbackToken: "fresh-message-token" },
           parts: [{ text: "ping" }],
         },

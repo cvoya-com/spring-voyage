@@ -208,27 +208,12 @@ export class A2AHandler {
       return undefined;
     }
 
-    const paramRecord = params as Record<string, unknown>;
-    const paramToken = this.readCallbackToken(paramRecord);
-    if (paramToken) {
-      return paramToken;
-    }
-
-    const message = paramRecord["message"];
+    const message = (params as Record<string, unknown>)["message"];
     if (!message || typeof message !== "object") {
       return undefined;
     }
 
-    return this.readCallbackToken(message as Record<string, unknown>);
-  }
-
-  private readCallbackToken(record: Record<string, unknown>): string | undefined {
-    const direct = record[CALLBACK_TOKEN_FIELD];
-    if (typeof direct === "string" && direct.length > 0) {
-      return direct;
-    }
-
-    const metadata = record["metadata"];
+    const metadata = (message as Record<string, unknown>)["metadata"];
     if (!metadata || typeof metadata !== "object") {
       return undefined;
     }

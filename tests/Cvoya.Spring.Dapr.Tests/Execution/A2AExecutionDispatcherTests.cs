@@ -252,47 +252,19 @@ public class A2AExecutionDispatcherTests
     private static string? ReadCallbackTokenFromA2ARequest(byte[] body)
     {
         using var document = JsonDocument.Parse(body);
-        if (!document.RootElement.TryGetProperty("params", out var parameters))
-        {
-            return null;
-        }
-
-        if (TryReadCallbackToken(parameters, out var token))
-        {
-            return token;
-        }
-
-        return parameters.TryGetProperty("message", out var message) &&
-            TryReadCallbackToken(message, out token)
-                ? token
-                : null;
-    }
-
-    private static bool TryReadCallbackToken(JsonElement element, out string? token)
-    {
-        token = null;
-        if (element.ValueKind != JsonValueKind.Object)
-        {
-            return false;
-        }
-
-        if (element.TryGetProperty(A2AExecutionDispatcher.CallbackTokenPayloadField, out var directToken) &&
-            directToken.ValueKind == JsonValueKind.String)
-        {
-            token = directToken.GetString();
-            return token is not null;
-        }
-
-        if (!element.TryGetProperty("metadata", out var metadata) ||
+        if (!document.RootElement.TryGetProperty("params", out var parameters) ||
+            parameters.ValueKind != JsonValueKind.Object ||
+            !parameters.TryGetProperty("message", out var message) ||
+            message.ValueKind != JsonValueKind.Object ||
+            !message.TryGetProperty("metadata", out var metadata) ||
             metadata.ValueKind != JsonValueKind.Object ||
             !metadata.TryGetProperty(A2AExecutionDispatcher.CallbackTokenPayloadField, out var metadataToken) ||
             metadataToken.ValueKind != JsonValueKind.String)
         {
-            return false;
+            return null;
         }
 
-        token = metadataToken.GetString();
-        return token is not null;
+        return metadataToken.GetString();
     }
 
     [Fact]
@@ -567,6 +539,37 @@ public class A2AExecutionDispatcherTests
             claims.AgentAddress == secondMessage.To &&
             claims.ThreadId == secondThreadId &&
             claims.MessageId == secondMessage.Id));
+    }
+
+    [Fact]
+    public async Task DispatchAsync_PersistentAgent_MalformedThreadId_ThrowsBeforeIssuingCallbackToken()
+    {
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId,
+                "My Agent",
+                "instructions",
+                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        _persistentRegistry.Register(
+            AgentId,
+            new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/"),
+            "existing-container");
+
+        var message = CreateMessage(threadId: "not-a-guid");
+
+        var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+        var ex = await Should.ThrowAsync<SpringException>(act);
+
+        ex.Message.ShouldContain("malformed thread id");
+        _callbackTokenIssuer.DidNotReceive().Issue(Arg.Any<CallbackToken>());
+        await _containerRuntime.DidNotReceive().SendHttpJsonAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<byte[]>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
