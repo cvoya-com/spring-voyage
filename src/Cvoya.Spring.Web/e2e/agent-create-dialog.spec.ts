@@ -27,6 +27,12 @@ const providers = [
   },
 ];
 
+const inheritedExecution = {
+  image: "ghcr.io/cvoya-com/spring-voyage-agent:latest",
+  runtime: "spring-voyage",
+  model: { provider: "anthropic", id: "claude-sonnet-4-6" },
+};
+
 type AgentFixture = {
   id: string;
   name: string;
@@ -81,14 +87,34 @@ async function mockDialogFlowApis(page: Page) {
   const agents: AgentFixture[] = [];
   const memberships: ReturnType<typeof makeMembership>[] = [];
   const createRequests: unknown[] = [];
+  const unexpectedApiErrors: string[] = [];
 
-  await page.route("**/api/v1/tenant/**", async (route) => {
-    const request = route.request();
+  page.on("response", (response) => {
+    const url = new URL(response.url());
+    if (
+      url.pathname.startsWith("/api/v1/tenant/") &&
+      response.status() >= 400
+    ) {
+      unexpectedApiErrors.push(
+        `${response.status()} ${response.request().method()} ${url.pathname}`,
+      );
+    }
+  });
+
+  page.on("requestfailed", (request) => {
     const url = new URL(request.url());
-    const method = request.method();
-    const path = url.pathname;
+    if (url.pathname.startsWith("/api/v1/tenant/")) {
+      unexpectedApiErrors.push(
+        `failed ${request.method()} ${url.pathname}: ${
+          request.failure()?.errorText ?? "unknown"
+        }`,
+      );
+    }
+  });
 
-    if (method === "GET" && path === "/api/v1/tenant/tree") {
+  await page.route(
+    (url) => url.pathname === "/api/v1/tenant/tree",
+    async (route) => {
       await route.fulfill({
         json: {
           tree: {
@@ -114,66 +140,68 @@ async function mockDialogFlowApis(page: Page) {
           },
         },
       });
-      return;
-    }
+    },
+  );
 
-    if (method === "GET" && path === `/api/v1/tenant/units/${unit.id}`) {
+  await page.route(
+    (url) => url.pathname === `/api/v1/tenant/units/${unit.id}`,
+    async (route) => {
       await route.fulfill({ json: unit });
-      return;
-    }
+    },
+  );
 
-    if (method === "GET" && path === "/api/v1/tenant/units") {
+  await page.route(
+    (url) => url.pathname === "/api/v1/tenant/units",
+    async (route) => {
       await route.fulfill({ json: [unit] });
-      return;
-    }
+    },
+  );
 
-    if (
-      method === "GET" &&
-      path === `/api/v1/tenant/units/${unit.id}/memberships`
-    ) {
+  await page.route(
+    (url) =>
+      url.pathname === `/api/v1/tenant/units/${unit.id}/memberships`,
+    async (route) => {
       await route.fulfill({ json: memberships });
-      return;
-    }
+    },
+  );
 
-    if (
-      method === "GET" &&
-      path === `/api/v1/tenant/units/${unit.name}/execution`
-    ) {
-      await route.fulfill({
-        json: {
-          image: "ghcr.io/cvoya-com/spring-voyage-agent:latest",
-          runtime: "spring-voyage",
-          model: { provider: "anthropic", id: "claude-sonnet-4-6" },
-        },
-      });
-      return;
-    }
+  await page.route(
+    (url) =>
+      url.pathname === `/api/v1/tenant/units/${unit.id}/execution` ||
+      url.pathname === `/api/v1/tenant/units/${unit.name}/execution`,
+    async (route) => {
+      await route.fulfill({ json: inheritedExecution });
+    },
+  );
 
-    if (
-      method === "GET" &&
-      path === "/api/v1/tenant/model-providers/installs"
-    ) {
+  await page.route(
+    (url) => url.pathname === "/api/v1/tenant/model-providers/installs",
+    async (route) => {
       await route.fulfill({ json: providers });
-      return;
-    }
+    },
+  );
 
-    if (
-      method === "GET" &&
-      path === "/api/v1/tenant/model-providers/installs/anthropic/models"
-    ) {
+  await page.route(
+    (url) =>
+      url.pathname ===
+      "/api/v1/tenant/model-providers/installs/anthropic/models",
+    async (route) => {
       await route.fulfill({
         json: [{ id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6" }],
       });
-      return;
-    }
+    },
+  );
 
-    if (path === "/api/v1/tenant/agents") {
-      if (method === "GET") {
+  await page.route(
+    (url) => url.pathname === "/api/v1/tenant/agents",
+    async (route) => {
+      const request = route.request();
+      if (request.method() === "GET") {
         await route.fulfill({ json: agents });
         return;
       }
 
-      if (method === "POST") {
+      if (request.method() === "POST") {
         const body = request.postDataJSON();
         createRequests.push(body);
         const displayName =
@@ -184,50 +212,51 @@ async function mockDialogFlowApis(page: Page) {
         await route.fulfill({ status: 201, json: created });
         return;
       }
-    }
 
-    await route.fulfill({
-      status: 404,
-      json: { error: `Unhandled ${method} ${path}` },
-    });
+      await route.fallback();
+    },
+  );
+
+  return { agents, createRequests, memberships, unexpectedApiErrors };
+}
+
+async function openCreateDialogFromAgentsTab(page: Page) {
+  await page.goto(`/units?node=${unit.id}&tab=Agents`);
+
+  await expect(page.getByTestId("detail-title")).toHaveText(unit.displayName);
+  await expect(page.getByRole("button", { name: /add agent/i })).toBeEnabled();
+
+  await page.getByRole("button", { name: /add agent/i }).click();
+
+  const dialog = page.getByRole("dialog", {
+    name: `Create agent in ${unit.displayName}`,
   });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText(
+    `This agent will be registered in ${unit.displayName}`,
+  );
+  await expect(page.getByTestId("agent-create-dialog-unit-strip")).toContainText(
+    unit.displayName,
+  );
+  await expect(page.getByLabel(`Assign to ${unit.displayName}`)).toBeChecked();
 
-  return { agents, createRequests, memberships };
+  return dialog;
+}
+
+async function fillIdentityAndSubmit(page: Page, displayName = "Ada") {
+  await page.getByLabel("Agent id").fill("ada");
+  await page.getByLabel("Display name").fill(displayName);
+  await page.getByTestId("agent-create-submit").click();
 }
 
 test.describe("agent create dialog", () => {
-  test("creates an inherited agent from the unit Agents tab", async ({
+  test("submit without execution overrides sends definitionJson null", async ({
     page,
   }) => {
     const api = await mockDialogFlowApis(page);
+    const dialog = await openCreateDialogFromAgentsTab(page);
 
-    await page.goto(`/units?node=${unit.id}&tab=Agents`);
-
-    await expect(page.getByTestId("detail-title")).toHaveText(
-      unit.displayName,
-    );
-    await expect(page.getByRole("button", { name: /add agent/i })).toBeEnabled();
-
-    await page.getByRole("button", { name: /add agent/i }).click();
-
-    const dialog = page.getByRole("dialog", {
-      name: `Create agent in ${unit.displayName}`,
-    });
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText(
-      `This agent will be registered in ${unit.displayName}`,
-    );
-    await expect(
-      page.getByTestId("agent-create-dialog-unit-strip"),
-    ).toContainText(unit.displayName);
-    await expect(
-      page.getByLabel(`Assign to ${unit.displayName}`),
-    ).toBeChecked();
-
-    await page.getByLabel("Agent id").fill("ada");
-    await page.getByLabel("Display name").fill("Ada");
-
-    await page.getByTestId("agent-create-submit").click();
+    await fillIdentityAndSubmit(page);
 
     await expect.poll(() => api.createRequests.length).toBe(1);
     expect(api.createRequests[0]).toMatchObject({
@@ -242,5 +271,29 @@ test.describe("agent create dialog", () => {
     await expect(page.getByTestId("agent-card-ada")).toContainText("Ada");
     expect(api.agents).toHaveLength(1);
     expect(api.memberships).toHaveLength(1);
+    expect(api.unexpectedApiErrors).toEqual([]);
+  });
+
+  test("submit with runtime override sends definitionJson", async ({
+    page,
+  }) => {
+    const api = await mockDialogFlowApis(page);
+
+    await openCreateDialogFromAgentsTab(page);
+    await page.getByLabel("Agent runtime").selectOption("spring-voyage");
+    await fillIdentityAndSubmit(page, "Ada Runtime");
+
+    await expect.poll(() => api.createRequests.length).toBe(1);
+    const request = api.createRequests[0] as {
+      definitionJson: string | null;
+      unitIds: string[];
+    };
+
+    expect(request.unitIds).toEqual([unit.id]);
+    expect(request.definitionJson).not.toBeNull();
+    expect(JSON.parse(request.definitionJson ?? "")).toMatchObject({
+      runtime: "spring-voyage",
+    });
+    expect(api.unexpectedApiErrors).toEqual([]);
   });
 });
