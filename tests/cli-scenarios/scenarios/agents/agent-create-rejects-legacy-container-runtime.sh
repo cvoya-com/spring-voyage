@@ -2,37 +2,28 @@
 # pool: fast
 # ADR-0039 sections 7 / 9: `--container-runtime` is removed from operator-facing
 # agent-create surfaces. The CLI rejects the flag at parse time with a
-# migration hint on stderr; no API call, no agent side-effect.
+# migration hint in the merged CLI output; no API call, no agent side-effect.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${HERE}/../../_lib.sh"
 
 name="$(e2e::agent_name reject-cr)"
-stdout_file="$(mktemp)"
-stderr_file="$(mktemp)"
-trap 'rm -f "${stdout_file}" "${stderr_file}"' EXIT
 
-e2e::log "spring agent create --name ${name} --container-runtime docker (legacy flag)"
-set +e
-# SPRING_CLI is intentionally word-split: it may be a single binary path
-# or a multi-token command such as "dotnet run --project <path> --".
-# shellcheck disable=SC2086
-${SPRING_CLI} agent create --name "${name}" --container-runtime docker >"${stdout_file}" 2>"${stderr_file}"
-code=$?
-set -e
-
-stderr="$(<"${stderr_file}")"
-stdout="$(<"${stdout_file}")"
+e2e::log "spring agent create --name ${name} --container-runtime podman (legacy flag)"
+response="$(e2e::cli agent create --name "${name}" --container-runtime podman)"
+code="${response##*$'\n'}"
+body="${response%$'\n'*}"
 
 if [[ "${code}" != "0" ]]; then
     e2e::ok "legacy --container-runtime rejected at parse time (exit ${code})"
 else
-    e2e::fail "legacy --container-runtime accepted (exit ${code}); expected non-zero. Stdout: ${stdout:0:500}"
+    e2e::fail "legacy --container-runtime accepted (exit ${code}); expected non-zero. Body: ${body:0:500}"
 fi
 
-e2e::expect_contains "ADR-0039" "${stderr}" "stderr rejection message names ADR-0039"
-e2e::expect_contains "container runtime" "${stderr}" "stderr rejection message names the migrated concept"
-e2e::expect_contains "platform configuration" "${stderr}" "stderr rejection message explains the new ownership"
+expected="--container-runtime was removed in ADR-0039. The container runtime is "
+expected+="platform configuration — the host process picks one runtime at deploy "
+expected+="time and every agent on that host uses it. See ADR-0039 §7."
+e2e::expect_contains "${expected}" "${body}" "rejection message prints the ADR-0039 migration hint"
 
 e2e::summary

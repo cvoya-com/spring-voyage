@@ -116,7 +116,7 @@ ADR-0038 reshapes the per-agent / per-unit execution shorthands into three flags
 | `--model-provider <id>` | `execution.model.provider` (the structured-model provider half) | required for multi-provider runtimes (`spring-voyage`, `custom`); optional for fixed-provider runtimes — must match the implied provider when supplied |
 | `--model <id>` | `execution.model.id` (the structured-model id half) | whenever you want to pin a specific model |
 
-The container image shorthand remains: `--image <ref>`. The agent-only `--hosting <ephemeral|persistent>` flag also remains.
+The active execution shorthands are `--image <ref>` and, for agents, `--hosting <ephemeral|persistent>`.
 
 The legacy `--agent` and flat `--provider` flags are **rejected at parse time** with a clear migration hint — there is no compatibility alias.
 

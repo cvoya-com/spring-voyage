@@ -11,8 +11,8 @@ source "${HERE}/../../_lib.sh"
 # before any HTTP client was needed.
 export SPRING_API_URL="http://127.0.0.1:9"
 
-e2e::log "spring agent create --name my-agent my-positional-token (removed positional)"
-response="$(e2e::cli agent create --name my-agent my-positional-token)"
+e2e::log "spring agent create my-agent (removed positional)"
+response="$(e2e::cli agent create my-agent)"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 

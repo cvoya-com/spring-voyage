@@ -57,6 +57,7 @@ public static class AgentEndpoints
         group.MapPost("/", CreateAgentAsync)
             .WithName("CreateAgent")
             .WithSummary("Create a new agent")
+            .Accepts<CreateAgentRequest>("application/json")
             .Produces<AgentResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -911,7 +912,7 @@ public static class AgentEndpoints
     }
 
     private static async Task<IResult> CreateAgentAsync(
-        CreateAgentRequest request,
+        HttpContext httpContext,
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         IUnitMembershipRepository membershipRepository,
@@ -921,7 +922,54 @@ public static class AgentEndpoints
         SpringDbContext db,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(request);
+        var jsonOptions = httpContext.RequestServices
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
+            .Value
+            .SerializerOptions;
+
+        CreateAgentRequest? request;
+        JsonDocument document;
+        try
+        {
+            document = await JsonDocument.ParseAsync(httpContext.Request.Body, cancellationToken: cancellationToken);
+        }
+        catch (JsonException ex)
+        {
+            return Results.Problem(
+                detail: $"Request body is not valid JSON: {ex.Message}",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        using (document)
+        {
+            // ADR-0039 §7 / §9: reject the legacy top-level
+            // `containerRuntime` key before typed deserialisation silently
+            // drops it from the create request DTO.
+            var legacy = LegacyExecutionFieldProblems
+                .LegacyContainerRuntimeFieldOrNull(document.RootElement);
+            if (legacy is not null)
+            {
+                return legacy;
+            }
+
+            try
+            {
+                request = document.Deserialize<CreateAgentRequest>(jsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                return Results.Problem(
+                    detail: $"Request body could not be deserialized: {ex.Message}",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+        }
+
+        if (request is null)
+        {
+            return Results.Problem(
+                detail: "Request body is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
 
         // #1632: a Guid-shaped display name would collide with the Guid-first
         // addressing surface defined by #1629 — every endpoint that accepts
