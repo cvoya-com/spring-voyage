@@ -316,6 +316,20 @@ export function AgentCreateForm({
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [create, setCreate] = useState<CreateState>(INITIAL_CREATE);
 
+  const clearSubmitFeedback = () => {
+    setValidationMessage(null);
+    setCreate((prev) => {
+      if (
+        prev.phase === "failed" ||
+        prev.error !== null ||
+        prev.multiParentConflict !== null
+      ) {
+        return INITIAL_CREATE;
+      }
+      return prev;
+    });
+  };
+
   const selectSourcePackage = (packageName: string | null) => {
     if (packageName !== sourcePackageName) {
       setPackageInputs({});
@@ -344,17 +358,7 @@ export function AgentCreateForm({
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
-    setValidationMessage(null);
-    if (create.phase === "idle" || create.phase === "failed") {
-      setCreate(INITIAL_CREATE);
-    }
-    // ADR-0039 I6: any form-state change invalidates a stale conflict
-    // block so the submit button re-enables once the operator has
-    // resolved the divergence (trimmed the parent set or set the
-    // conflicting field explicitly).
-    if (create.multiParentConflict !== null) {
-      setCreate((prev) => ({ ...prev, multiParentConflict: null }));
-    }
+    clearSubmitFeedback();
   };
 
   // ── Queries ────────────────────────────────────────────────────────────
@@ -371,6 +375,47 @@ export function AgentCreateForm({
     [providersQuery.data],
   );
 
+  // ── Inherit-from-parent context (ADR-0039 I4) ──────────────────────────
+  //
+  // The "inherited value" we surface in the per-field placeholder + help
+  // copy depends on the selected unit set:
+  //   * 0 units → tenant defaults; we don't have a tenant-defaults endpoint
+  //     yet so fall back to platform defaults (claude-code, etc.) and
+  //     name the parent "tenant defaults".
+  //   * 1 unit → that unit's own resolved execution block.
+  //   * >1 units → the selected parents may diverge; show the generic
+  //     "parent" source without a concrete value and let backend
+  //     validation return the structured conflict if needed.
+  //
+  // We load `useUnitExecution` only for the single-parent case so the
+  // values surface as soon as the operator ticks exactly one unit.
+  const hasMultipleSelectedUnits = form.unitIds.length > 1;
+  const selectedUnitKey =
+    form.unitIds.length === 1 ? form.unitIds[0] : null;
+  const selectedUnit = useMemo(
+    () =>
+      (unitsQuery.data ?? []).find(
+        (u) => u.name === selectedUnitKey || u.id === selectedUnitKey,
+      ) ?? null,
+    [unitsQuery.data, selectedUnitKey],
+  );
+  const selectedUnitName = selectedUnit?.name ?? selectedUnitKey;
+  const selectedUnitExecutionQuery = useUnitExecution(
+    selectedUnitName ?? "",
+    { enabled: Boolean(selectedUnitName) },
+  );
+
+  /** Display name for the inherit-source — unit name, or "tenant defaults". */
+  const inheritSourceLabel: string = hasMultipleSelectedUnits
+    ? "parent"
+    : selectedUnit?.displayName?.trim() ||
+      selectedUnit?.name ||
+      "tenant defaults";
+
+  const inheritedRuntimeForPicker =
+    normalizeRuntime(selectedUnitExecutionQuery.data?.runtime ?? undefined) ||
+    DEFAULT_RUNTIME_ID;
+
   const selectedSourcePackageQuery = usePackage(sourcePackageName ?? "", {
     enabled: Boolean(sourcePackageName),
   });
@@ -380,9 +425,8 @@ export function AgentCreateForm({
   // gating logic for the provider/model dropdowns still needs to resolve
   // against *some* runtime. Use the inherited (or platform default)
   // runtime as the effective key for those decisions.
-  const inheritedRuntimeFallback: RuntimeId = DEFAULT_RUNTIME_ID;
   const effectiveRuntime: RuntimeId =
-    (form.runtime || inheritedRuntimeFallback) as RuntimeId;
+    (form.runtime || inheritedRuntimeForPicker) as RuntimeId;
 
   // ADR-0038 §1: the runtime descriptor decides whether the provider
   // is fixed or operator-picked.
@@ -465,41 +509,6 @@ export function AgentCreateForm({
     enabled: Boolean(activeProviderId),
   });
 
-  // ── Inherit-from-parent context (ADR-0039 I4) ──────────────────────────
-  //
-  // The "inherited value" we surface in the per-field placeholder + help
-  // copy depends on the selected unit set:
-  //   * 0 units → tenant defaults; we don't have a tenant-defaults endpoint
-  //     yet so fall back to platform defaults (claude-code, etc.) and
-  //     name the parent "tenant defaults".
-  //   * 1 unit → that unit's own resolved execution block.
-  //   * >1 units → DESIGN.md §12.6 validation work (multi-parent conflict)
-  //     is a separate task; for I4 we surface the first selected unit
-  //     and rely on backend validation to reject conflicting parents at
-  //     create time.
-  //
-  // We load `useUnitExecution` for the first selected unit so the values
-  // surface as soon as the operator ticks a unit checkbox.
-  const selectedUnitKey = form.unitIds[0] ?? null;
-  const selectedUnit = useMemo(
-    () =>
-      (unitsQuery.data ?? []).find(
-        (u) => u.name === selectedUnitKey || u.id === selectedUnitKey,
-      ) ?? null,
-    [unitsQuery.data, selectedUnitKey],
-  );
-  const selectedUnitName = selectedUnit?.name ?? selectedUnitKey;
-  const selectedUnitExecutionQuery = useUnitExecution(
-    selectedUnitName ?? "",
-    { enabled: Boolean(selectedUnitName) },
-  );
-
-  /** Display name for the inherit-source — unit name, or "tenant defaults". */
-  const inheritSourceLabel: string =
-    selectedUnit?.displayName?.trim() ||
-    selectedUnit?.name ||
-    "tenant defaults";
-
   /**
    * Resolve the inherited value for one execution slot. Returns `null`
    * when there is nothing to surface (the platform-side default is not
@@ -508,6 +517,7 @@ export function AgentCreateForm({
   const inheritedValue = useCallback(
     (slot: "runtime" | "modelProvider" | "modelId" | "image" | "hosting"): string | null => {
       const unitDefaults = selectedUnitExecutionQuery.data ?? null;
+      if (hasMultipleSelectedUnits) return null;
       // 1-unit case: use the unit's own /execution row.
       if (selectedUnitName) {
         switch (slot) {
@@ -548,7 +558,7 @@ export function AgentCreateForm({
           return null;
       }
     },
-    [selectedUnitName, selectedUnitExecutionQuery.data],
+    [hasMultipleSelectedUnits, selectedUnitName, selectedUnitExecutionQuery.data],
   );
 
   const modelOptions = useMemo(() => {
@@ -720,12 +730,6 @@ export function AgentCreateForm({
             error: null,
             multiParentConflict: conflict,
           }));
-          toast({
-            title: "Agent create blocked",
-            description:
-              "Parent units disagree on an inherited execution-config field.",
-            variant: "destructive",
-          });
           return;
         }
       }
@@ -1081,7 +1085,7 @@ export function AgentCreateForm({
           <CardTitle>Execution</CardTitle>
           {executionHasOverride ? (
             <Badge
-              variant="default"
+              variant="outline"
               className="text-xs font-normal"
               data-testid="execution-card-badge"
             >
@@ -1123,12 +1127,14 @@ export function AgentCreateForm({
             inheritedValue={inheritedValue("runtime")}
             onClear={
               form.runtime !== ""
-                ? () =>
+                ? () => {
                     setForm((prev) => ({
                       ...prev,
                       runtime: "",
                       modelId: "",
-                    }))
+                    }));
+                    clearSubmitFeedback();
+                  }
                 : undefined
             }
             disabled={submitting}
@@ -1148,7 +1154,7 @@ export function AgentCreateForm({
                   modelProviderId: nextFixed ?? prev.modelProviderId,
                   modelId: "",
                 }));
-                setValidationMessage(null);
+                clearSubmitFeedback();
               }}
               aria-label="Agent runtime"
               data-testid="agent-create-runtime-select"
@@ -1190,25 +1196,28 @@ export function AgentCreateForm({
               inheritedValue={inheritedValue("modelProvider")}
               onClear={
                 form.modelProviderId !== ""
-                  ? () =>
+                  ? () => {
                       setForm((prev) => ({
                         ...prev,
                         modelProviderId: "",
                         modelId: "",
-                      }))
+                      }));
+                      clearSubmitFeedback();
+                    }
                   : undefined
               }
               disabled={submitting}
             >
               <select
                 value={form.modelProviderId}
-                onChange={(e) =>
+                onChange={(e) => {
                   setForm((prev) => ({
                     ...prev,
                     modelProviderId: e.target.value,
                     modelId: "",
-                  }))
-                }
+                  }));
+                  clearSubmitFeedback();
+                }}
                 aria-label="Model provider"
                 data-testid="agent-create-model-provider-select"
                 disabled={submitting || pickerProviders.length === 0}
@@ -1249,7 +1258,10 @@ export function AgentCreateForm({
             inheritedValue={inheritedValue("image")}
             onClear={
               form.image !== ""
-                ? () => setForm((prev) => ({ ...prev, image: "" }))
+                ? () => {
+                    setForm((prev) => ({ ...prev, image: "" }));
+                    clearSubmitFeedback();
+                  }
                 : undefined
             }
             disabled={submitting}
@@ -1285,7 +1297,10 @@ export function AgentCreateForm({
             inheritedValue={inheritedValue("modelId")}
             onClear={
               form.modelId !== ""
-                ? () => setForm((prev) => ({ ...prev, modelId: "" }))
+                ? () => {
+                    setForm((prev) => ({ ...prev, modelId: "" }));
+                    clearSubmitFeedback();
+                  }
                 : undefined
             }
             disabled={submitting}
@@ -1326,19 +1341,23 @@ export function AgentCreateForm({
             inheritedValue={inheritedValue("hosting")}
             onClear={
               form.hosting !== ""
-                ? () => setForm((prev) => ({ ...prev, hosting: "" }))
+                ? () => {
+                    setForm((prev) => ({ ...prev, hosting: "" }));
+                    clearSubmitFeedback();
+                  }
                 : undefined
             }
             disabled={submitting}
           >
             <select
               value={form.hosting}
-              onChange={(e) =>
+              onChange={(e) => {
                 setForm((prev) => ({
                   ...prev,
                   hosting: e.target.value as HostingMode | "",
-                }))
-              }
+                }));
+                clearSubmitFeedback();
+              }}
               aria-label="Hosting mode"
               data-testid="agent-create-hosting-select"
               disabled={submitting}
@@ -1428,17 +1447,7 @@ export function AgentCreateForm({
                               );
                           return { ...prev, unitIds: next };
                         });
-                        setValidationMessage(null);
-                        // ADR-0039 I6: trimming the parent set is one of
-                        // the two operator-resolutions for a multi-parent
-                        // conflict. Clear the inline error so the submit
-                        // button re-enables.
-                        if (create.multiParentConflict !== null) {
-                          setCreate((prev) => ({
-                            ...prev,
-                            multiParentConflict: null,
-                          }));
-                        }
+                        clearSubmitFeedback();
                       }}
                       disabled={submitting}
                       aria-label={`Assign to ${unit.displayName || unit.name}`}

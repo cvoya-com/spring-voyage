@@ -84,6 +84,15 @@ describe("create-agent helper (#1040)", () => {
       });
     });
 
+    it("emits a complete structured model when provider and id are both supplied (ADR-0039 I1)", () => {
+      const json = buildAgentDefinitionJson({
+        model: { provider: "anthropic", id: "claude-3-5-sonnet" },
+      });
+      expect(JSON.parse(json as string)).toEqual({
+        model: { provider: "anthropic", id: "claude-3-5-sonnet" },
+      });
+    });
+
     it("only includes fields that were actually supplied", () => {
       const json = buildAgentDefinitionJson({ runtime: "codex" });
       expect(JSON.parse(json as string)).toEqual({
@@ -91,22 +100,24 @@ describe("create-agent helper (#1040)", () => {
       });
     });
 
-    it("emits only the supplied half of the structured model", () => {
+    it("omits the structured model when only one half is supplied", () => {
       expect(
         JSON.parse(
           buildAgentDefinitionJson({
+            runtime: "spring-voyage",
             model: { provider: "ollama", id: "" },
           }) as string,
         ),
-      ).toEqual({ model: { provider: "ollama" } });
+      ).toEqual({ runtime: "spring-voyage" });
 
       expect(
         JSON.parse(
           buildAgentDefinitionJson({
+            runtime: "spring-voyage",
             model: { provider: "", id: "llama3.2:3b" },
           }) as string,
         ),
-      ).toEqual({ model: { id: "llama3.2:3b" } });
+      ).toEqual({ runtime: "spring-voyage" });
     });
 
     it("trims whitespace on provider and id", () => {

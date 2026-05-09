@@ -1,26 +1,23 @@
 // E2E: AgentCreateForm — multi-parent inheritance conflict (ADR-0039 §6 / I6).
 //
-// The portal renders an inline error block when the membership-add
-// endpoint returns the structured 422 `MultiParentInheritanceConflict`
-// body. Reproducing the conflict against the live backend requires
-// at least two parent units with diverging execution-config — that is
-// expensive to set up here; instead we mock just the membership-add
-// route via `page.route()` so the test exercises the form's
-// detect-parse-render path end-to-end without needing the resolver
-// to actually trigger.
+// The portal renders an inline error block when the direct create endpoint
+// returns the structured 422 `MultiParentInheritanceConflict` body.
+// Reproducing the conflict against the live backend requires at least two
+// parent units with diverging execution config, so these specs mock only
+// `POST /api/v1/tenant/agents` and exercise the form's detect-parse-render
+// path end-to-end without needing the resolver to actually trigger.
 //
-// Cleanup: the install runs against the real backend, so the agent
-// row that lands as part of Phase-1 must be tracked for `afterEach`
-// teardown. The unit is also tracked; both are deleted by the
-// shared tracker fixture.
+// Cleanup: each spec registers the unit and agent names with the shared
+// tracker. Only the successful resubmit creates an agent row.
 
 import { apiPost } from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
 import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
+import { openScratchAgentCreate } from "../../helpers/agent-create.js";
 
 test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () => {
-  test("renders the inline conflict block when membership-add returns 422", async ({
+  test("renders the inline conflict block when direct create returns 422", async ({
     page,
     tracker,
   }) => {
@@ -43,14 +40,10 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
       isTopLevel: true,
     });
 
-    // Mock just the membership-add endpoint. The install (Phase 1)
-    // runs against the real backend so the operator-visible state
-    // matches what they'd see in production. Pattern matches
-    // `/api/v1/tenant/units/<unit>/agents/<agentId>` POST only.
+    // Mock just the direct create endpoint. The body shape and
+    // conflict rendering are the load-bearing path for this spec.
     await page.route(
-      (url) =>
-        url.pathname.startsWith("/api/v1/tenant/units/") &&
-        url.pathname.includes("/agents/"),
+      (url) => url.pathname === "/api/v1/tenant/agents",
       async (route) => {
         if (route.request().method() !== "POST") {
           await route.fallback();
@@ -84,7 +77,7 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
       },
     );
 
-    await page.goto("/agents/create");
+    await openScratchAgentCreate(page);
 
     await page.getByLabel("Agent id").fill(aId);
     await page.getByLabel("Display name").fill("Multi Parent Conflict");
@@ -94,9 +87,8 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
       .first()
       .check();
 
-    // Submit. The install completes against the real backend, then
-    // the mocked membership-add returns 422 and the form renders the
-    // inline conflict block.
+    // Submit. The mocked create endpoint returns 422 and the form
+    // renders the inline conflict block.
     await page.getByTestId("agent-create-submit").click();
 
     const block = page.getByTestId("multi-parent-inheritance-conflict");
@@ -133,12 +125,11 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
       isTopLevel: true,
     });
 
-    // First: wire the mock so the first submit returns a 422 conflict.
+    // First: wire the mock so the first direct-create submit returns
+    // a 422 conflict. The second submit falls back to the live backend.
     let rejectNext = true;
     await page.route(
-      (url) =>
-        url.pathname.startsWith("/api/v1/tenant/units/") &&
-        url.pathname.includes("/agents/"),
+      (url) => url.pathname === "/api/v1/tenant/agents",
       async (route) => {
         if (route.request().method() !== "POST") {
           await route.fallback();
@@ -176,7 +167,7 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
       },
     );
 
-    await page.goto("/agents/create");
+    await openScratchAgentCreate(page);
     await page.getByLabel("Agent id").fill(aId);
     await page.getByLabel("Display name").fill("MP Resolve Test");
 
@@ -192,14 +183,24 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
     await expect(block).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId("agent-create-submit")).toBeDisabled();
 
-    // Resolve: uncheck the conflicting unit. The conflict block should
-    // clear and the submit button should re-enable.
-    await page
-      .getByRole("checkbox", { name: new RegExp(`assign to ${unit}`, "i") })
-      .first()
-      .uncheck();
+    // Resolve: set an explicit value for the conflicting execution field. The
+    // conflict block should clear and the submit button should re-enable.
+    await page.getByLabel("Agent runtime").selectOption("claude-code");
 
     await expect(block).not.toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("agent-create-submit")).toBeEnabled();
+    await expect(page.getByTestId("execution-card-badge")).toHaveText(
+      "Configured",
+    );
+
+    // Resubmit after correction. The second request falls back to the live
+    // backend with the unit assignment still intact.
+    await page.getByTestId("agent-create-submit").click();
+    await page.waitForURL((url) => !url.pathname.endsWith("/agents/create"), {
+      timeout: 60_000,
+    });
+
+    await page.goto("/agents");
+    await expect(page.getByText("MP Resolve Test").first()).toBeVisible();
   });
 });
