@@ -179,6 +179,13 @@ info ""
 info "This takes 5–15 minutes on first run (depends on network / CPU)."
 info ""
 
+# Optional step: authenticate to GHCR for pre-built image pulls
+if [[ -n "${GHCR_PAT:-}" ]]; then
+    echo "Logging into GHCR with provided PAT..."
+    echo "${GHCR_PAT}" | podman login ghcr.io -u "${GHCR_USER:-oauth2}" --password-stdin
+    echo "GHCR login succeeded. Subsequent podman pull calls will use cached credentials."
+fi
+
 BUILD_IMAGES=$(prompt "Build agent images now? (recommended)" "Y")
 if [[ "${BUILD_IMAGES,,}" == "y" ]]; then
     # Resolve container CLI the same way build-agent-images.sh does so the

@@ -358,7 +358,7 @@ public class SpringApiClient
     }
 
     /// <summary>
-    /// Creates a new unit. Server requires non-null Name/DisplayName/Description
+    /// Creates a new unit. Server requires non-null Name/DisplayName
     /// on <c>CreateUnitRequest</c>; optional inputs are normalised here so the
     /// server validator accepts them. <paramref name="model"/> and
     /// <paramref name="color"/> ride the same request body (#315) so the CLI
@@ -384,7 +384,7 @@ public class SpringApiClient
         {
             Name = name,
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? name : displayName,
-            Description = description ?? string.Empty,
+            Description = string.IsNullOrWhiteSpace(description) ? null : description,
             Model = string.IsNullOrWhiteSpace(model) ? null : model,
             Color = string.IsNullOrWhiteSpace(color) ? null : color,
             Hosting = string.IsNullOrWhiteSpace(hosting) ? null : hosting,
