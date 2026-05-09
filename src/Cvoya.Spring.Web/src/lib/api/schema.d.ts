@@ -3487,6 +3487,8 @@ export interface components {
             appInstallationId?: null | number;
             events?: null | string[];
             reviewer?: null | string;
+            add_on_assign?: null | string[];
+            remove_on_assign?: null | string[];
         };
         UnitGitHubConfigResponse: {
             unitId: string;
@@ -3497,6 +3499,8 @@ export interface components {
             events: string[];
             reviewer: null | string;
             eventsAreDefault: boolean;
+            add_on_assign?: null | string[];
+            remove_on_assign?: null | string[];
         };
         UnitLifecycleResponse: {
             /** Format: uuid */

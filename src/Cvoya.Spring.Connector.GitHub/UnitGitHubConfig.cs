@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Connector.GitHub;
 
+using System.Text.Json.Serialization;
+
 /// <summary>
 /// Per-unit GitHub connector configuration. Persisted on the unit actor
 /// through the generic <see cref="Connectors.IUnitConnectorConfigStore"/>
@@ -27,9 +29,13 @@ namespace Cvoya.Spring.Connector.GitHub;
 /// default reviewer" — agents that explicitly pass a reviewer to
 /// <c>RequestPullRequestReviewSkill</c> still override per-call.
 /// </param>
+/// <param name="AddOnAssign">Labels to add when an issue is assigned through this unit.</param>
+/// <param name="RemoveOnAssign">Labels to remove when an issue is assigned through this unit.</param>
 public record UnitGitHubConfig(
     string Owner,
     string Repo,
     long? AppInstallationId = null,
     IReadOnlyList<string>? Events = null,
-    string? Reviewer = null);
+    string? Reviewer = null,
+    [property: JsonPropertyName("add_on_assign")] IReadOnlyList<string>? AddOnAssign = null,
+    [property: JsonPropertyName("remove_on_assign")] IReadOnlyList<string>? RemoveOnAssign = null);
