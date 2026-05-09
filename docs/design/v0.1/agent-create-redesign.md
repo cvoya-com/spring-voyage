@@ -17,7 +17,7 @@ ADR-0039 is the architectural prerequisite: it decides that a unit is an agent, 
 | Unit-tab "Add Agent" dialog (picker) | `src/components/units/tab-impls/agents-tab.tsx` + `src/components/units/membership-dialog.tsx` | `POST /api/v1/tenant/agents` (via `buildCreateAgentRequest`) for inline-create; `PUT /api/v1/units/{id}/memberships/{addr}` for the picker path | **Picker mode:** agent select + per-membership (model, specialty, executionMode, enabled). **Inline-create sub-mode:** displayName + role only — runtime / provider / model / image not exposed |
 | Standalone wizard | `src/app/agents/create/page.tsx` + `src/app/agents/create/build-agent-package.ts` | `POST /api/v1/packages/install/file` (assembles an `AgentPackage` YAML); per-unit `POST /api/v1/units/{id}/agents/{agentId}` after install reaches `active` | id, displayName, role, description, runtime, model provider, model id, image (no hosting; no connector — connectors are unit-scoped today), unit assignments (multi) |
 | Unit-create wizard (the surface agents must mirror) | `src/app/units/create/page.tsx` (3,901 LOC; `wizard-persistence.ts`) | `POST /api/v1/packages/install` (catalog), `POST /api/v1/packages/install/file` (file/scratch), or `POST /api/v1/tenant/units` + `PUT /api/v1/tenant/units/{id}/execution` (scratch direct path); see lines 1226–1340 | Source step (catalog / browse / scratch) → branch-specific steps. Scratch covers identity, runtime, provider, model, image, hosting, color, connector binding, parent-unit picker, inline-LLM-credential entry |
-| CLI | `src/Cvoya.Spring.Cli/Commands/AgentCommand.cs` (`CreateCreateCommand`) | `POST /api/v1/tenant/agents` via the generated `ApiClient` | id, `--name` (display), `--role`, `--unit` (≥1, repeatable, required), `--definition` / `--definition-file` (JSON blob), `--image`, `--container-runtime`, `--runtime`, `--model-provider`, `--model`. Legacy `--agent` rejected at parse time per ADR-0038 §7. **No `--from-package`, no `--inherit`, no `--description`** |
+| CLI | `src/Cvoya.Spring.Cli/Commands/AgentCommand.cs` (`CreateCreateCommand`) | `POST /api/v1/tenant/agents` via the generated `ApiClient` | id, `--name` (display), `--role`, `--unit` (≥1, repeatable, required), `--definition` / `--definition-file` (JSON blob), `--image`, `--runtime`, `--model-provider`, `--model`. Legacy `--agent` rejected at parse time per ADR-0038 §7; legacy `--container-runtime` rejected at parse time per ADR-0039 §7. **No `--from-package`, no `--inherit`, no `--description`** |
 
 ### 1.2 Backend contract (`POST /api/v1/tenant/agents`)
 
@@ -434,7 +434,7 @@ From `src/Cvoya.Spring.Cli/Commands/AgentCommand.cs:205-376`:
 | `--definition-file <path>` | no | Path to a JSON file containing the agent definition document |
 | `--definition <inline>` | no | Inline JSON literal for the agent definition |
 | `--image <ref>` | no | Container image (shorthand for `execution.image`) |
-| `--container-runtime <docker\|podman>` | no | Container runtime shorthand |
+| `--container-runtime <docker\|podman>` | rejected at parse | Legacy ADR-0039 §7 — container engine is platform/host configuration |
 | `--runtime <id>` | no | Agent runtime id (shorthand for `execution.runtime`) |
 | `--model-provider <id>` | no | Model-provider id (shorthand for `execution.model.provider`) |
 | `--model <id>` | no | Model id (shorthand for `execution.model.id`) |

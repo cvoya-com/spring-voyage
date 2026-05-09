@@ -60,8 +60,7 @@ spring unit set engineering-team \
   --structure hierarchical \
   --ai-execution delegated \
   --ai-tool software-dev-cycle \
-  --ai-environment-image spring-workflows/software-dev-cycle:latest \
-  --ai-environment-runtime podman
+  --ai-environment-image spring-workflows/software-dev-cycle:latest
 ```
 
 ### Set the Default Execution Environment
@@ -70,8 +69,7 @@ This is the container image that member agents will use by default:
 
 ```
 spring unit set engineering-team \
-  --execution-image spring-agent:latest \
-  --execution-runtime podman
+  --execution-image spring-agent:latest
 ```
 
 ## Creating Agents
