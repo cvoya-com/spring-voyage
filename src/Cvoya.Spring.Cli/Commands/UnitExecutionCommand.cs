@@ -51,15 +51,6 @@ public static class UnitExecutionCommand
     };
 
     /// <summary>
-    /// Stderr message used by the legacy <c>--container-runtime</c>
-    /// flag's parser-level rejection. Pinned by tests so a future flag
-    /// rename doesn't slip past CI. Verbatim from ADR-0039 §9.
-    /// </summary>
-    public const string LegacyContainerRuntimeFlagRejectionMessage =
-        "--container-runtime was removed in ADR-0039. " +
-        "containerRuntime is removed in ADR-0039; the container runtime is platform configuration.";
-
-    /// <summary>
     /// Entry point. Returns the <c>execution</c> subcommand tree for
     /// attachment under <c>unit</c>.
     /// </summary>
@@ -131,20 +122,6 @@ public static class UnitExecutionCommand
             Description = "Default container image reference (e.g. ghcr.io/... or localhost/spring-voyage-agent-claude-code:latest).",
         };
 
-        // ADR-0039 §7: legacy `--container-runtime` rejected at parse time.
-        var legacyContainerRuntimeOption = new Option<string?>("--container-runtime")
-        {
-            Description = "REJECTED — the container runtime is platform configuration (ADR-0039 §7).",
-            Hidden = true,
-        };
-        legacyContainerRuntimeOption.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(LegacyContainerRuntimeFlagRejectionMessage);
-            }
-        });
-
         var runtimeOption = new Option<string?>("--runtime")
         {
             Description = "Default agent runtime id (e.g. claude-code, codex, gemini, spring-voyage). " +
@@ -162,46 +139,15 @@ public static class UnitExecutionCommand
                 "Default model id. The value is accepted as opaque on the wire and validated at unit activation.",
         };
 
-        // ADR-0038 §7: legacy `--agent` rejected at parse time.
-        var legacyAgentOption = new Option<string?>("--agent")
-        {
-            Description = "REJECTED — use --runtime instead (ADR-0038).",
-            Hidden = true,
-        };
-        legacyAgentOption.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(AgentCommand.LegacyAgentFlagRejectionMessage);
-            }
-        });
-        // ADR-0038: the flat `--provider` flag is gone — provider lives
-        // inside the structured execution.model and is named via --model-provider.
-        var legacyProviderOption = new Option<string?>("--provider")
-        {
-            Description = "REJECTED — use --model-provider instead (ADR-0038).",
-            Hidden = true,
-        };
-        legacyProviderOption.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(LegacyProviderFlagRejectionMessage);
-            }
-        });
-
         var command = new Command(
             "set",
             "Upsert one or more fields on the unit's execution defaults. Partial update — " +
             "pass only the flags you want to change; unlisted fields keep their current value.");
         command.Arguments.Add(unitArg);
         command.Options.Add(imageOption);
-        command.Options.Add(legacyContainerRuntimeOption);
         command.Options.Add(runtimeOption);
         command.Options.Add(modelProviderOption);
         command.Options.Add(modelOption);
-        command.Options.Add(legacyAgentOption);
-        command.Options.Add(legacyProviderOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -263,15 +209,6 @@ public static class UnitExecutionCommand
 
         return command;
     }
-
-    /// <summary>
-    /// Stderr message used by the legacy <c>--provider</c> flag's
-    /// parser-level rejection. Pinned by tests so a future flag rename
-    /// doesn't slip past CI.
-    /// </summary>
-    public const string LegacyProviderFlagRejectionMessage =
-        "--provider was removed in ADR-0038. Provider now lives inside the structured " +
-        "execution.model field — pass --model-provider <id> alongside --model <id>.";
 
     // ---- clear -------------------------------------------------------------
 

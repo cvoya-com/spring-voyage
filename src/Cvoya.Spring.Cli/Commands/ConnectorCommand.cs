@@ -15,8 +15,8 @@ using Cvoya.Spring.Cli.Utilities;
 /// track). Mirrors the portal's connector chooser and unit Connector tab:
 /// <list type="bullet">
 ///   <item><description><c>spring connector catalog</c> — list every registered connector type, matching the portal's connector list.</description></item>
-///   <item><description><c>spring connector show --unit &lt;name&gt;</c> — show the unit's active binding plus connector-specific config (GitHub today).</description></item>
-///   <item><description><c>spring connector bind --unit &lt;name&gt; --type &lt;type&gt;</c> — bind the unit to a connector and upsert its per-unit config.</description></item>
+///   <item><description><c>spring connector unit-binding --unit &lt;guid&gt;</c> — show the unit's active binding plus connector-specific config (GitHub today).</description></item>
+///   <item><description><c>spring connector bind --unit &lt;guid&gt; --type &lt;type&gt;</c> — bind the unit to a connector and upsert its per-unit config.</description></item>
 ///   <item><description><c>spring connector bindings &lt;slugOrId&gt;</c> — list every unit bound to a connector type, mirroring the portal's <c>/connectors/{slug}</c> "Bound units" list (#520).</description></item>
 /// </list>
 /// </summary>
@@ -193,7 +193,7 @@ public static class ConnectorCommand
     {
         var unitOption = new Option<string>("--unit")
         {
-            Description = "The unit name whose connector binding should be shown.",
+            Description = "The unit identifier (Guid) whose connector binding should be shown.",
             Required = true,
         };
 
@@ -287,7 +287,7 @@ public static class ConnectorCommand
     {
         var unitOption = new Option<string>("--unit")
         {
-            Description = "The unit name to bind to a connector.",
+            Description = "The unit identifier (Guid) to bind to a connector.",
             Required = true,
         };
         var typeOption = new Option<string>("--type")

@@ -207,26 +207,6 @@ public static class AgentCommand
 
     private static Command CreateCreateCommand(Option<string> outputOption, Func<SpringApiClient> clientFactory)
     {
-        // ADR-0039 §8 / §9: the positional <name> / <id> argument is removed from
-        // `spring agent create`. Agent identity is assigned by the platform
-        // (a server-allocated Guid); `--name` is the only display surface.
-        // We keep a hidden zero-or-one positional with a validator so old
-        // scripts that still pass a positional see the migration hint at
-        // parse time rather than a generic "unrecognized argument" error.
-        var legacyPositionalNameArg = new Argument<string?>("name")
-        {
-            Description = "REJECTED — positional <name> is removed (ADR-0039 §8). Use --name.",
-            Arity = ArgumentArity.ZeroOrOne,
-            Hidden = true,
-        };
-        legacyPositionalNameArg.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(LegacyPositionalIdRejectionMessage);
-            }
-        });
-
         var nameOption = new Option<string?>("--name")
         {
             Description = "Human-readable display name. Required — agent identity is assigned by the platform (ADR-0039 §8).",
@@ -285,23 +265,6 @@ public static class AgentCommand
             Description = "Container image reference (shorthand for execution.image on the agent definition).",
         };
 
-        // ADR-0039 §7 / §9: `--container-runtime` is removed from operator-facing
-        // surfaces — the host process picks one runtime at deploy time. We keep a
-        // hidden option only so the parser produces a precise migration hint when
-        // an old script reaches for it; supplying any value rejects at parse time.
-        var legacyContainerRuntimeOption = new Option<string?>("--container-runtime")
-        {
-            Description = "REJECTED — container runtime is platform configuration (ADR-0039 §7).",
-            Hidden = true,
-        };
-        legacyContainerRuntimeOption.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(LegacyContainerRuntimeFlagRejectionMessage);
-            }
-        });
-
         // ADR-0038: agent-runtime selection is `--runtime <id>` (e.g.
         // claude-code, codex, gemini, spring-voyage). The structured model
         // pair `--model-provider` + `--model` ships the {provider, id} half
@@ -334,25 +297,7 @@ public static class AgentCommand
             Description = "Omit all execution fields; the agent inherits its runtime, model, image, and hosting from its parent unit(s).",
         };
 
-        // ADR-0038 §7: legacy `--agent` flag is rejected at parse time
-        // with a clear hint — the rejection lives in the option's
-        // ParseArgument hook so callers see the migration path before
-        // the action runs.
-        var legacyAgentOption = new Option<string?>("--agent")
-        {
-            Description = "REJECTED — use --runtime instead (ADR-0038).",
-            Hidden = true,
-        };
-        legacyAgentOption.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(LegacyAgentFlagRejectionMessage);
-            }
-        });
-
         var command = new Command("create", "Create a new agent");
-        command.Arguments.Add(legacyPositionalNameArg);
         command.Options.Add(nameOption);
         command.Options.Add(descriptionOption);
         command.Options.Add(roleOption);
@@ -363,13 +308,11 @@ public static class AgentCommand
         command.Options.Add(connectorOption);
         command.Options.Add(inputOption);
         command.Options.Add(imageOption);
-        command.Options.Add(legacyContainerRuntimeOption);
         command.Options.Add(runtimeOption);
         command.Options.Add(modelProviderOption);
         command.Options.Add(modelOption);
         command.Options.Add(hostingOption);
         command.Options.Add(inheritOption);
-        command.Options.Add(legacyAgentOption);
 
         command.Validators.Add(result =>
         {
@@ -565,55 +508,6 @@ public static class AgentCommand
 
         return command;
     }
-
-    /// <summary>
-    /// Stderr message used by the legacy <c>--agent</c> flag's parser
-    /// rejection. Pinned by tests so a future flag rename doesn't slip
-    /// past CI.
-    /// </summary>
-    /// <remarks>
-    /// ADR-0038 §7: the rejection is parser-level only — there is no
-    /// stub command, no aliased handler. Operators see the migration
-    /// path before any action runs.
-    /// </remarks>
-    public const string LegacyAgentFlagRejectionMessage =
-        "--agent was removed in ADR-0038. Use --runtime <id> to pick the agent runtime " +
-        "(claude-code / codex / gemini / spring-voyage); pair with --model-provider and --model " +
-        "for the structured execution.model field.";
-
-    /// <summary>
-    /// Stderr message used when the legacy <c>--container-runtime</c> flag is
-    /// passed to <c>spring agent create</c>. Pinned by tests so a future
-    /// rename doesn't slip past CI.
-    /// </summary>
-    /// <remarks>
-    /// ADR-0039 §7 / §9: the container runtime is platform configuration
-    /// chosen by the host process at deploy time — it is no longer an
-    /// operator-facing CLI / manifest field. The rejection lives in the
-    /// option's parser hook so callers see the migration path before any
-    /// action runs.
-    /// </remarks>
-    public const string LegacyContainerRuntimeFlagRejectionMessage =
-        "--container-runtime was removed in ADR-0039. The container runtime is " +
-        "platform configuration — the host process picks one runtime at deploy " +
-        "time and every agent on that host uses it. See ADR-0039 §7.";
-
-    /// <summary>
-    /// Stderr message used by the parse-time rejection of a positional
-    /// <c>&lt;name&gt;</c> / <c>&lt;id&gt;</c> argument passed to
-    /// <c>spring agent create</c>. Pinned by tests so a future rename doesn't
-    /// slip past CI.
-    /// </summary>
-    /// <remarks>
-    /// ADR-0039 §8 / §9: agent identity is assigned by the platform (a
-    /// server-allocated Guid). The previous positional was removed; <c>--name</c>
-    /// is the only display surface. The rejection lives on a hidden
-    /// <see cref="ArgumentArity.ZeroOrOne"/> positional so old scripts see the
-    /// migration path before any action runs.
-    /// </remarks>
-    public const string LegacyPositionalIdRejectionMessage =
-        "Positional <name> was removed in ADR-0039. Use --name <display-name> " +
-        "to set the agent's display name.";
 
     /// <summary>
     /// Parser diagnostic for <c>--connector</c> used outside the
@@ -870,7 +764,7 @@ public static class AgentCommand
         // overlay on top.
         // ADR-0038 + ADR-0039 §7: the shorthand surface is (image, runtime,
         // model-provider, model, hosting). `containerRuntime` was removed in
-        // ADR-0039 — see LegacyContainerRuntimeFlagRejectionMessage.
+        // ADR-0039.
         if (!string.IsNullOrWhiteSpace(image)
             || !string.IsNullOrWhiteSpace(runtime) || !string.IsNullOrWhiteSpace(modelProvider)
             || !string.IsNullOrWhiteSpace(model) || !string.IsNullOrWhiteSpace(hosting))

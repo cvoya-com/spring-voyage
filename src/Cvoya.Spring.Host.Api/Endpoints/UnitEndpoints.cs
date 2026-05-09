@@ -412,7 +412,9 @@ public static class UnitEndpoints
         try
         {
             var result = await creationService.CreateAsync(request, cancellationToken);
-            return Results.Created($"/api/v1/units/{request.Name}", result.Unit);
+            return Results.Created(
+                $"/api/v1/units/{Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(result.Unit.Id)}",
+                result.Unit);
         }
         catch (InvalidUnitParentRequestException ex)
         {
