@@ -1,23 +1,30 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-using Cvoya.Spring.Packages.SoftwareEngineering.Workflows;
+namespace Cvoya.Spring.Packages.SoftwareEngineering.Workflows;
+
 using Cvoya.Spring.Packages.SoftwareEngineering.Workflows.Activities;
-using Dapr.Workflow;
+using global::Dapr.Workflow;
 
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddDaprWorkflow(options =>
+public partial class Program
 {
-    options.RegisterWorkflow<SoftwareDevCycleWorkflow>();
-    options.RegisterActivity<TriageActivity>();
-    options.RegisterActivity<AssignByExpertiseActivity>();
-    options.RegisterActivity<CreatePlanActivity>();
-    options.RegisterActivity<ImplementActivity>();
-    options.RegisterActivity<ReviewActivity>();
-    options.RegisterActivity<MergeActivity>();
-});
+    public static void Main(string[] args)
+    {
+        var builder = WebApplication.CreateBuilder(args);
 
-var app = builder.Build();
+        builder.Services.AddDaprWorkflow(options =>
+        {
+            options.RegisterWorkflow<SoftwareDevCycleWorkflow>();
+            options.RegisterActivity<TriageActivity>();
+            options.RegisterActivity<AssignByExpertiseActivity>();
+            options.RegisterActivity<CreatePlanActivity>();
+            options.RegisterActivity<ImplementActivity>();
+            options.RegisterActivity<ReviewActivity>();
+            options.RegisterActivity<MergeActivity>();
+        });
 
-app.Run();
+        var app = builder.Build();
+
+        app.Run();
+    }
+}
