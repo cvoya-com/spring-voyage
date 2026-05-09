@@ -44,7 +44,7 @@ Autonomous AI agents — organized into composable groups called **units** — c
 
 Agents connect to external systems through pluggable **connectors**, communicate via typed **messages**, take **initiative** to act autonomously, and can be observed by humans and other agents in real-time.
 
-**Orchestration is a mechanism, not the goal.** Each unit picks an orchestration strategy that decides how it routes work across its members ([§ Orchestration](orchestration.md)). The platform supports multiple strategies (rule-based, workflow, AI-driven, label-routed, peer) plus external orchestrators over A2A, but orchestration is one part of the substrate that supports collaboration — not the headline category Spring Voyage occupies.
+**Orchestration is a mechanism, not the goal.** A unit is an agent that has children. When a unit's runtime is invoked, the platform attaches a closed set of [orchestration tools](units.md) (`list_children`, `inspect_child`, `delegate_to_child`, `fanout_to_children`, `query_child_status`); the runtime's instructions decide whether and how to delegate. Each delegation records an `OrchestrationDecision` event. Orchestration is runtime behaviour, not a platform-configured strategy ([ADR-0039](../decisions/0039-units-are-agents.md)). External orchestrators still participate as peers over A2A, but the platform does not classify or store an orchestration policy per unit.
 
 ### Design Goals
 
@@ -97,7 +97,7 @@ Each goal directly addresses a v1 limitation:
 | [Messaging](messaging.md) | Mailbox, message processing, addressing, activation model |
 | [Units & Agents](units.md) | Unit entity model (identity, membership, nested units, composite pattern); entry point to the units-and-agents cluster |
 | [Agents](agents.md) | Agent model, execution pattern, cloning policies, role, prompt assembly, platform tools |
-| [Orchestration](orchestration.md) | Orchestration strategies (AI, workflow, label-routed), unit boundary, execution-defaults resolution chain |
+| [Orchestration](orchestration.md) | Retired — see [Units & Agents](units.md) for the orchestration-tool surface and `OrchestrationDecision` event shape ([ADR-0039](../decisions/0039-units-are-agents.md)) |
 | [Policies](policies.md) | Unit policy framework (skill, model, cost, execution mode, initiative), root unit |
 | [Expertise](expertise.md) | Expertise profiles, directory, recursive aggregation, directory search, YAML seeding |
 | [Unit Lifecycle](unit-lifecycle.md) | Status DAG, validation workflow, imperative and declarative creation paths, observe and teardown |

@@ -67,7 +67,7 @@ Responsible for milestone hygiene, sub-issue and blocked-by relationships, and d
 
 Each sub-unit declares `execution.hosting: permanent`. The agent containers stay warm across messages — the right default for a team that runs continuously rather than responding to isolated, ephemeral requests.
 
-The top-level `spring-voyage-oss` unit lists the four sub-units as `members`. Messages routed to the top-level unit are dispatched by the unit's orchestration strategy to the appropriate sub-unit; each sub-unit then routes internally to the appropriate member agent.
+The top-level `spring-voyage-oss` unit lists the four sub-units as `members`. Messages routed to the top-level unit invoke the top-level unit's runtime; the runtime uses the orchestration tools to inspect and delegate to the appropriate sub-unit, which then runs its own runtime to delegate to one of its member agents.
 
 Each sub-unit declares a GitHub connector at template level:
 

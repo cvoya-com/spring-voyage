@@ -1,6 +1,8 @@
 # 0010 — Manifest-driven orchestration-strategy selection resolves per message
 
-- **Status:** Accepted — `orchestration.strategy` on the manifest persists to `UnitDefinitions.Definition`; `UnitActor` consults `IOrchestrationStrategyResolver` per domain message; `UnitPolicy.LabelRouting` infers `label-routed` when no manifest key is declared.
+> **Superseded by [ADR-0039](0039-units-are-agents.md).** The orchestration-strategy taxonomy (`IOrchestrationStrategy`, `IOrchestrationStrategyResolver`, the `orchestration:` manifest block) was removed. A unit is an agent that has children; its runtime decides whether to delegate via the orchestration tools the launcher attaches. The body below is preserved as historical context only.
+
+- **Status:** Superseded by [ADR-0039](0039-units-are-agents.md) — `orchestration.strategy` on the manifest persists to `UnitDefinitions.Definition`; `UnitActor` consults `IOrchestrationStrategyResolver` per domain message; `UnitPolicy.LabelRouting` infers `label-routed` when no manifest key is declared.
 - **Date:** 2026-04-17
 - **Closes:** [#491](https://github.com/cvoya-com/spring-voyage/issues/491)
 - **Related code:** `src/Cvoya.Spring.Manifest/UnitManifest.cs`, `src/Cvoya.Spring.Core/Orchestration/IOrchestrationStrategyProvider.cs`, `src/Cvoya.Spring.Core/Orchestration/IOrchestrationStrategyResolver.cs`, `src/Cvoya.Spring.Dapr/Orchestration/DbOrchestrationStrategyProvider.cs`, `src/Cvoya.Spring.Dapr/Orchestration/DefaultOrchestrationStrategyResolver.cs`, `src/Cvoya.Spring.Dapr/Actors/UnitActor.cs`, `src/Cvoya.Spring.Host.Api/Services/UnitCreationService.cs`

@@ -17,11 +17,14 @@ SpringVoyage.sln
 src/
   Spring.Core/                    # Domain interfaces and types (no Dapr dependency)
     Messaging/                    # IAddressable, IMessageReceiver, Message, Address
-    Orchestration/                # IOrchestrationStrategy, IUnitContext
+    Orchestration/                # IOrchestrationToolProvider, OrchestrationDecision,
+                                  #   OrchestrationToolDescriptor, IUnitContext
+    Agents/                       # IExecutionConfigInheritanceResolver and agent-config types
+    Execution/                    # IAgentRuntimeLauncher, AgentLaunchSpec
     Observability/                # IActivityObservable, ActivityEvent
   Spring.Dapr/                    # Dapr implementations of Core interfaces
     Actors/                       # AgentActor, UnitActor, ConnectorActor, HumanActor
-    Orchestration/                # RuleBasedStrategy, WorkflowStrategy, AiStrategy, etc.
+    Execution/                    # A2AExecutionDispatcher, runtime invocation glue
   Spring.A2A/                     # A2A protocol client and server
   Spring.Connector.GitHub/        # GitHub connector (C#)
   Spring.Connector.Slack/         # Slack connector

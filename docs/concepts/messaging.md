@@ -75,7 +75,7 @@ All actors have flat, globally unique Dapr actor ids derived from their `Guid`. 
 
 **Permission enforcement** happens at resolution time. The directory walks the membership graph from the addressed actor toward the tenant root and at each boundary edge evaluates the permission rule against the sender; the walk returns either an actor id (permitted) or a structured deny (rejected). This is one synchronous check whose cost is O(membership depth), not per-hop forwarding.
 
-When the addressed actor is a unit (rather than a specific member), the unit applies its boundary filtering and delegates to its orchestration strategy, which picks a member to handle the message.
+When the addressed actor is a unit (rather than a specific member), the unit applies its boundary filtering and invokes its own runtime; the runtime decides whether to answer directly or delegate to a child via the orchestration tools the launcher attaches (see [ADR-0039](../decisions/0039-units-are-agents.md)).
 
 ## Pub/Sub Topics
 

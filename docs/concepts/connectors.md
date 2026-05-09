@@ -29,7 +29,7 @@ When a connector is attached to a unit, it:
 
 1. Begins listening for external events from the connected system
 2. Translates those events into platform messages
-3. Routes messages to the unit (which then routes to agents via its orchestration strategy)
+3. Routes messages to the unit; the unit's runtime decides whether to answer directly or delegate to a child via the orchestration tools (see [ADR-0039](../decisions/0039-units-are-agents.md))
 4. Registers its skills with the unit, making them available to all agents
 
 ## Skill Discovery
@@ -62,8 +62,8 @@ The portal's create-unit wizard and the unit's Connector tab use a different sur
 
 GitHub label roundtrip rules are configured on each GitHub unit binding.
 `AddOnAssign` lists labels to add and `RemoveOnAssign` lists labels to remove
-after the unit routes work to a child. They are not platform-level
-`LabelRoutingPolicy` fields.
+after the unit routes work to a child. The rules live on the connector binding;
+the platform itself does not model label-routing policy.
 
 Configure the lists with:
 

@@ -42,7 +42,7 @@ The full per-endpoint reference is in `v1.html` (see [Contents](#contents) above
 | Cost & Budget | `Costs`, `Tenant`, `Budgets` | Per-agent, per-unit, per-tenant cost; cost time series; per-agent / per-unit / per-tenant budgets |
 | Cloning | `Clones`, `CloningPolicy` | Per-agent clones; per-agent + tenant-wide cloning policy |
 | Expertise | `Expertise` | Per-agent expertise, per-unit own + aggregated expertise |
-| Unit governance | `UnitPolicy`, `UnitBoundary`, `UnitOrchestration`, `UnitExecution` | Unit policy, boundary projection rules, orchestration strategy, execution defaults |
+| Unit governance | `UnitPolicy`, `UnitBoundary`, `UnitExecution` | Unit policy, boundary projection rules, execution defaults (orchestration is runtime behaviour per [ADR-0039](../decisions/0039-units-are-agents.md); the prior `/units/{id}/orchestration` HTTP surface is removed and returns 410) |
 | Platform tenants | `PlatformTenants` | Platform-level tenant CRUD (PlatformOperator only) |
 | Dashboard | `Dashboard` | Summary, unit KPIs, agent metrics, cost rollup |
 | Packages | `Packages` | Installed-package + unit-template discovery |

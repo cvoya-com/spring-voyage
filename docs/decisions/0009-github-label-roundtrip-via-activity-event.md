@@ -1,9 +1,11 @@
 # 0009 — GitHub label roundtrip wired via activity-event subscription
 
-- **Status:** Accepted — strategy emits `DecisionMade` event; GitHub connector subscribes as a hosted service.
+> **Superseded by [ADR-0039](0039-units-are-agents.md).** The strategy taxonomy this ADR depended on was removed; the connector subscriber now filters on `OrchestrationDecision` events (`Kind == Delegate`) and per-binding label-roundtrip rules replace the unit-level `LabelRoutingPolicy`. See ADR-0039 § 4 and `docs/concepts/connectors.md` § GitHub Label Routing for the current shape. The body below is preserved as historical context only.
+
+- **Status:** Superseded by [ADR-0039](0039-units-are-agents.md) — strategy emits `DecisionMade` event; GitHub connector subscribes as a hosted service.
 - **Date:** 2026-04-16
 - **Closes:** [#492](https://github.com/cvoya-com/spring-voyage/issues/492)
-- **Related code:** `src/Cvoya.Spring.Dapr/Orchestration/LabelRoutedOrchestrationStrategy.cs`, `src/Cvoya.Spring.Connector.GitHub/Labels/LabelRoutingRoundtripSubscriber.cs`, `src/Cvoya.Spring.Connector.GitHub/DependencyInjection/ServiceCollectionExtensions.cs`
+- **Related code (historical):** `src/Cvoya.Spring.Dapr/Orchestration/LabelRoutedOrchestrationStrategy.cs`, `src/Cvoya.Spring.Connector.GitHub/Labels/LabelRoutingRoundtripSubscriber.cs`, `src/Cvoya.Spring.Connector.GitHub/DependencyInjection/ServiceCollectionExtensions.cs`
 
 ## Context
 

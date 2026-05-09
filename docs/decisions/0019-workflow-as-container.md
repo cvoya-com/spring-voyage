@@ -7,7 +7,7 @@
 
 ## Context
 
-Spring Voyage units that pick the workflow orchestration strategy delegate sequencing to a long-running, durable workflow. Two shapes were on the table:
+Spring Voyage units whose runtime image embeds a workflow engine delegate sequencing to a long-running, durable workflow (per [ADR-0039](0039-units-are-agents.md), this is one shape of "the unit's runtime decides"). Two shapes were on the table:
 
 1. **Compile every workflow into the host.** All workflows live in the platform binary; deploying a workflow change means redeploying the platform.
 2. **Workflows as containers.** Each domain workflow is an independent container image with its own Dapr sidecar; the platform invokes it through the dispatcher path.

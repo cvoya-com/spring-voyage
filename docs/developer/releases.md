@@ -9,7 +9,7 @@ Spring Voyage follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 | Change type | Bump | Examples |
 | --- | --- | --- |
 | **MAJOR** — incompatible changes that require users or extenders to modify their code or configuration | `MAJOR` | Remove or rename a public type/member in `Cvoya.Spring.Core`; change an interface signature; rename a Dapr state key in a way that loses data on upgrade; change default DI registrations so existing hosts fail to start; drop support for a runtime (e.g., .NET version) |
-| **MINOR** — backwards-compatible additions | `MINOR` | New interface, new orchestration strategy, new connector, new API endpoint, new CLI command, new optional configuration |
+| **MINOR** — backwards-compatible additions | `MINOR` | New interface, new connector, new API endpoint, new CLI command, new optional configuration |
 | **PATCH** — backwards-compatible bug fixes | `PATCH` | Fix a crash, correct incorrect routing, tighten validation, resolve a regression |
 
 ### What counts as a breaking change

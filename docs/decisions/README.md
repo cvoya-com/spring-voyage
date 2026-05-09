@@ -20,10 +20,10 @@ For open design questions that have **not** yet been decided, see [`../architect
 | [0004](0004-per-agent-secrets.md) | Per-agent secrets: storage scope vs ACL vs status quo | Deferred — unit remains the trust boundary |
 | [0005](0005-portal-standalone-mode.md) | Web portal runs in Next.js `standalone` mode | Accepted — `output: "standalone"` |
 | [0006](0006-expertise-directory-aggregation.md) | Recursive expertise directory aggregation | Accepted — single aggregator, path+origin on every entry |
-| [0007](0007-label-routing-match-semantics.md) | Label-routing match semantics for `LabelRoutedOrchestrationStrategy` | Accepted — case-insensitive set intersection, first payload label wins |
+| [0007](0007-label-routing-match-semantics.md) | Label-routing match semantics for `LabelRoutedOrchestrationStrategy` | Superseded by [0039](0039-units-are-agents.md) — strategy taxonomy removed |
 | [0008](0008-unit-boundary-decorator.md) | Unit boundary as decorator over the expertise aggregator | Accepted — caller-aware decorator, opacity/projection/synthesis |
-| [0009](0009-github-label-roundtrip-via-activity-event.md) | GitHub label roundtrip wired via activity-event subscription | Accepted — `LabelRouted` DecisionMade event; hosted-service subscriber |
-| [0010](0010-manifest-orchestration-strategy-selector.md) | Manifest-driven orchestration-strategy selection resolves per message | Accepted — manifest key > policy inference > unkeyed default; per-message scope |
+| [0009](0009-github-label-roundtrip-via-activity-event.md) | GitHub label roundtrip wired via activity-event subscription | Superseded by [0039](0039-units-are-agents.md) — subscriber rewires to `OrchestrationDecision` events; per-binding rules replace `LabelRoutingPolicy` |
+| [0010](0010-manifest-orchestration-strategy-selector.md) | Manifest-driven orchestration-strategy selection resolves per message | Superseded by [0039](0039-units-are-agents.md) — strategy selection removed; runtime decides |
 | [0011](0011-persistent-agent-lifecycle-http-surface.md) | Persistent-agent lifecycle HTTP surface (deploy/scale/logs/undeploy) | Accepted — dedicated `PersistentAgentLifecycle` service, CLI verbs on top |
 | [0012](0012-spring-dispatcher-service-extraction.md) | Extract container-runtime ownership into `spring-dispatcher` | Accepted — HTTP-fronted service; worker binds `DispatcherClientContainerRuntime` |
 | [0013](0013-hierarchy-aware-permission-resolution.md) | Hierarchy-aware permission resolution (inherit-by-default, nearest-grant-wins, fail-closed) | Accepted — `UnitPermissionInheritance` flag, `Isolated` opt-out |

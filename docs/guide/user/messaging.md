@@ -43,13 +43,13 @@ The CLI resolves the address via the platform directory, hands the domain messag
 
 ### Example: address a whole unit
 
-When the sender does not know (or does not want to pick) which member should handle the work, target the unit itself and let its orchestration strategy decide:
+When the sender does not know (or does not want to pick) which member should handle the work, target the unit itself and let the unit's runtime decide:
 
 ```bash
 spring message send unit:dd55c4ea8d725e43a9df88d07af02b69 "Implement the login feature described in issue #15"
 ```
 
-The unit actor receives the message, applies boundary filtering, and dispatches to a member according to the orchestration strategy configured for that unit. Responses flow back through the same thread.
+The unit actor receives the message, applies boundary filtering, and invokes the unit's runtime through the same launcher path used for any agent. The runtime decides whether to answer directly or delegate to a child through the orchestration tools (see [Units & Agents](../../architecture/units.md) and [ADR-0039](../../decisions/0039-units-are-agents.md)). Responses flow back through the same thread.
 
 ### Example: multicast
 
@@ -121,7 +121,7 @@ See [Observing Activity](observing.md#conversations-and-inbox) for more examples
 | Scheme        | Shape                          | When to use                                                                                          |
 | ------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `agent`       | `agent:<32-hex-no-dash>`       | You know exactly which member should handle the work.                                                |
-| `unit`        | `unit:<32-hex-no-dash>`        | You want the unit's orchestration strategy to pick a member (or the message is for the unit itself). |
+| `unit`        | `unit:<32-hex-no-dash>`        | You want the unit's runtime to handle the work (answer directly or delegate to a child via the orchestration tools). |
 | `human`       | `human:<32-hex-no-dash>`       | You want to route a message to a human participant (notifications, approvals, escalations).         |
 | `connector`   | `connector:<32-hex-no-dash>`   | You want to invoke a connector (e.g. a GitHub connector) as if it were a peer actor.                |
 
@@ -143,7 +143,7 @@ If the sender lacks permission to reach the addressed agent (the receiving unit 
 
 ## Tips
 
-- **Let the unit route when in doubt.** Addressing the unit (`unit:<id>`) and letting the orchestration strategy pick a member is usually the right default for cross-team requests. Pin to a specific `agent:<id>` only when the work genuinely needs that specific agent.
+- **Let the unit route when in doubt.** Addressing the unit (`unit:<id>`) and letting the unit's runtime decide whether to answer or delegate is usually the right default for cross-team requests. Pin to a specific `agent:<id>` only when the work genuinely needs that specific agent.
 - **Hold on to thread ids.** Pass the same `--thread <id>` on follow-ups so the agent's mailbox threads your messages together. Without it, each send creates a fresh thread — noisier and harder to follow.
 - **Multicast is an aggregator, not a fan-out trigger.** A multicast send waits for every matching actor to respond before returning an aggregate payload to the sender. Use it to broadcast announcements; avoid it for long-running work where you want the first responder to win.
 - **The web portal shows the same traffic.** The portal's unit and agent pages display activity events (messages, checkpoints, completions) for any work you drive from the CLI. CLI and portal stay in lock-step — either surface is a valid operator entry point.

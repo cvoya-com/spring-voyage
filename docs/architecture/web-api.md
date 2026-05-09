@@ -58,7 +58,7 @@ The resource groups (counts taken from the committed `openapi.json` at the v0.1 
 | Cost & Budget | `Costs`, `Tenant`, `Budgets` | 8 | GET / PUT | Per-agent, per-unit, per-tenant cost; cost time series; per-agent / per-unit / per-tenant budgets |
 | Cloning | `Clones`, `CloningPolicy` | 9 | GET / POST / PUT / DELETE | Per-agent clones; per-agent + tenant-wide cloning policy |
 | Expertise | `Expertise` | 5 | GET / PUT | Per-agent expertise, per-unit own + aggregated expertise |
-| Unit governance | `UnitPolicy`, `UnitBoundary`, `UnitOrchestration`, `UnitExecution` | 11 | GET / PUT / DELETE | Unit policy, boundary projection rules, orchestration strategy, execution defaults |
+| Unit governance | `UnitPolicy`, `UnitBoundary`, `UnitExecution` | 11 | GET / PUT / DELETE | Unit policy, boundary projection rules, execution defaults (orchestration is runtime behaviour per [ADR-0039](../decisions/0039-units-are-agents.md); the legacy `/units/{id}/orchestration` endpoint returns 410 Gone) |
 | Platform tenants | `PlatformTenants` | 4 | GET / POST / PATCH / DELETE | Platform-level tenant CRUD (PlatformOperator only) |
 | Dashboard | `Dashboard` | 4 | GET | Summary, unit KPIs, agent metrics, cost rollup |
 | Packages | `Packages` | 4 | GET | Installed-package + unit-template discovery |

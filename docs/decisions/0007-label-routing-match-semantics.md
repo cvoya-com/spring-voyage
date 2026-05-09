@@ -1,6 +1,8 @@
 # 0007 — Label-routing match semantics for `LabelRoutedOrchestrationStrategy`
 
-- **Status:** Accepted — case-insensitive set intersection; first payload label wins; `UnitPolicy.LabelRouting` carries the config.
+> **Superseded by [ADR-0039](0039-units-are-agents.md).** The `LabelRoutedOrchestrationStrategy` and `LabelRoutingPolicy` types this ADR describes were removed; label-routing roundtrip rules now live on the GitHub connector binding and fire on `OrchestrationDecision` events. See `docs/concepts/connectors.md` § GitHub Label Routing for the current shape. The body below is preserved as historical context only.
+
+- **Status:** Superseded by [ADR-0039](0039-units-are-agents.md) — case-insensitive set intersection; first payload label wins; `UnitPolicy.LabelRouting` carries the config.
 - **Date:** 2026-04-17
 - **Closes:** [#389](https://github.com/cvoya-com/spring-voyage/issues/389)
 - **Related code:** `src/Cvoya.Spring.Core/Policies/LabelRoutingPolicy.cs`, `src/Cvoya.Spring.Core/Policies/UnitPolicy.cs`, `src/Cvoya.Spring.Dapr/Orchestration/LabelRoutedOrchestrationStrategy.cs`, `src/Cvoya.Spring.Cli/Commands/UnitPolicyCommand.cs`, `src/Cvoya.Spring.Host.Api/Models/PolicyModels.cs`
