@@ -11,7 +11,7 @@ ai:
     provider: anthropic
     id: claude-sonnet-4-6
   environment:
-    image: localhost/spring-voyage-agent-claude-code:latest
+    image: ghcr.io/cvoya-com/claude-code-base:latest
 instructions: |
   You are a backend software engineer. You implement features, fix bugs,
   write tests, and perform code reviews. You work with the codebase directly

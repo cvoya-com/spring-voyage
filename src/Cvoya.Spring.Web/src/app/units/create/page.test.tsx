@@ -1429,7 +1429,7 @@ describe("CreateUnitPage — #968/#622 image-reference suggestions", () => {
   it("shows datalist suggestions when history has prior image refs", async () => {
     mockLoadImageHistory.mockReturnValue([
       "ghcr.io/spring-voyage/agent:latest",
-      "localhost/spring-agent:dev",
+      "ghcr.io/cvoya-com/spring-voyage-agent:dev",
     ]);
 
     renderPage();
@@ -1440,7 +1440,7 @@ describe("CreateUnitPage — #968/#622 image-reference suggestions", () => {
     const options = datalist!.querySelectorAll("option");
     const values = Array.from(options).map((o) => o.value);
     expect(values).toContain("ghcr.io/spring-voyage/agent:latest");
-    expect(values).toContain("localhost/spring-agent:dev");
+    expect(values).toContain("ghcr.io/cvoya-com/spring-voyage-agent:dev");
 
     const imageInput = screen.getByLabelText(/^execution image$/i);
     expect(imageInput.getAttribute("list")).toBe("image-history-suggestions");

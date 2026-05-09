@@ -38,7 +38,7 @@ test.describe("engagement — create 1:1 + multi-turn (#1455)", () => {
     });
     await apiPut(
       `/api/v1/tenant/units/${encodeURIComponent(unit)}/execution`,
-      { image: "localhost/spring-dapr-agent", runtime: "podman" },
+      { image: "ghcr.io/cvoya-com/spring-voyage-agent:latest", runtime: "podman" },
     );
     await apiPost("/api/v1/tenant/agents", {
       name: agent,

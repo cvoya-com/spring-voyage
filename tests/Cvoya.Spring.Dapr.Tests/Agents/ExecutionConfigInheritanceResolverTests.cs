@@ -56,7 +56,7 @@ public class ExecutionConfigInheritanceResolverTests
     {
         var agentOwn = new AgentExecutionConfig(
             AgentRuntimeId: "claude",
-            Image: "spring-agent:latest",
+            Image: "ghcr.io/cvoya-com/claude-code-base:latest",
             Hosting: AgentHostingMode.Persistent,
             Provider: "anthropic",
             Model: "claude-sonnet");

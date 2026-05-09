@@ -25,7 +25,7 @@ members:
   - agent: pm
   - agent: design
 execution:
-  image: localhost/spring-voyage-agent-claude-code:latest
+  image: ghcr.io/cvoya-com/claude-code-base:latest
 requires:
   - connector: github
 policies:

@@ -6,8 +6,7 @@ name: Release agent-base + sidecar
 #   - GitHub Release with linux-amd64, linux-arm64, darwin-arm64 SEA binaries
 #
 # Tag shape: `agent-base-vX.Y.Z`. We use a scoped tag prefix so this
-# workflow does not fight with `release-spring-agent-image.yml` (which
-# matches `v*` for the legacy spring-agent image) or with future
+# workflow does not fight with `release.yml` platform tags or future
 # component-scoped releases.
 #
 # Untrusted inputs (github.ref_name, inputs.tag) are routed through env

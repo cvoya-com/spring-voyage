@@ -34,7 +34,7 @@ Set execution defaults (image, runtime, tool, provider, model) independently:
 # Set one or more execution defaults (partial update — pass only flags you want to change)
 spring unit execution set <name> \
   --agent claude \
-  --image localhost/spring-voyage-agent-claude-code:latest \
+  --image ghcr.io/cvoya-com/claude-code-base:latest \
   --runtime podman \
   --model claude-sonnet-4-6
 ```
@@ -227,8 +227,8 @@ OSS launchers (Claude Code, Codex, Gemini) use path 1; Dapr Agent uses path 3. S
 
 | Image | Path | `tool:` | Ready to dispatch? |
 |-------|------|---------|-------------------|
-| `localhost/spring-voyage-agent-claude-code:latest` | 1 | `claude-code` | Yes — after `./deployment/build-agent-images.sh` runs |
-| `localhost/spring-voyage-agent:latest` | 3 | `spring-voyage-agent` | Yes — after `./deployment/build-agent-images.sh` runs |
+| `ghcr.io/cvoya-com/claude-code-base:latest` | 1 | `claude-code` | Yes — after `./deployment/build-agent-images.sh` runs |
+| `ghcr.io/cvoya-com/spring-voyage-agent:latest` | 3 | `spring-voyage-agent` | Yes — after `./deployment/build-agent-images.sh` runs |
 | `ghcr.io/cvoya-com/agent-base:<semver>` | 1 base | (none) | No — use as a `FROM` base, not as a dispatch target |
 
 `./deploy.sh build` runs `build-agent-images.sh` for you.

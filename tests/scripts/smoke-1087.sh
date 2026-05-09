@@ -298,7 +298,7 @@ assert_a2a_roundtrip() {
 # key, no network egress, no model. We're verifying the bridge / A2A
 # wire path, not Claude itself.
 run_path1() {
-    local image="localhost/spring-voyage-agent-claude-code:${TAG}"
+    local image="ghcr.io/cvoya-com/claude-code-base:${TAG}"
     local port name
     port="$(free_port)"
     name="spring-voyage-smoke-1087-path1-${NAME_SUFFIX}"
@@ -407,7 +407,7 @@ run_path2() {
 # enable this leg by default. tests/scripts/smoke-agent-images.sh shares
 # the same gate, so flipping it in one place flips it in both.
 run_path3_if_enabled() {
-    local image="localhost/spring-voyage-agent:${TAG}"
+    local image="ghcr.io/cvoya-com/spring-voyage-agent:${TAG}"
     if [[ "${SMOKE_DAPR:-0}" == "1" ]]; then
         local port name card
         port="$(free_port)"

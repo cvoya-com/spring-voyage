@@ -30,7 +30,7 @@ test.describe("units — wizard scratch end-to-end (regression for #1598)", () =
     baseURL,
   }) => {
     const slug = tracker.unit(unitName("wiz-scratch-regr"));
-    const image = "localhost/spring-voyage-agent:latest";
+    const image = "ghcr.io/cvoya-com/spring-voyage-agent:latest";
 
     // Source: Scratch
     await page.goto("/units/create");

@@ -264,21 +264,19 @@ flowchart LR
 
 ## Release and Image Publishing
 
-### `spring-agent` container image
+### Agent runtime container images
 
-The `spring-agent` image (Claude Code runtime, `packages/software-engineering/execution/spring-agent/Dockerfile`) is published to `ghcr.io/cvoya-com/spring-agent` by the `Release spring-agent image` GitHub Actions workflow. The workflow is scoped to git tag pushes — day-to-day CI does not push to the registry.
+The reference agent runtime images are published to GHCR by `release.yml`:
+
+- `ghcr.io/cvoya-com/claude-code-base` — Claude Code on the A2A bridge.
+- `ghcr.io/cvoya-com/spring-voyage-agent` — native path-3 A2A runtime.
 
 ### Tag → GHCR flow
 
 1. A maintainer pushes a semver-style tag to `main` (e.g. `git tag v0.1.0 && git push origin v0.1.0`). The tag pattern `v*` gates the workflow.
-2. `.github/workflows/release-spring-agent-image.yml` runs on `ubuntu-latest` with `permissions: packages: write`. It authenticates to GHCR using the per-job `GITHUB_TOKEN` — no PAT or long-lived secret is involved.
-3. The workflow parses `ARG CLAUDE_CODE_VERSION=<x.y.z>` out of the Dockerfile (single source of truth for the pinned CLI version) and passes it back through as a `--build-arg` so image contents and the workflow's `claude-<version>` tag can never drift.
-4. `docker/build-push-action` builds the image for `linux/amd64` + `linux/arm64` via QEMU + Buildx and pushes four tags:
-   - `<git-tag>` (e.g. `v0.1.0`)
-   - `<semver>` (e.g. `0.1.0`, with the leading `v` stripped)
-   - `claude-<baked-version>` (e.g. `claude-2.1.98`) so operators can pin on CLI revision instead of platform release
-   - `latest` — rolls forward to every published release
-5. OCI labels (`org.opencontainers.image.*` + `com.cvoya.spring-agent.claude-code-version`) are stamped onto the manifest so `docker inspect` shows the source commit and CLI version.
+2. `.github/workflows/release.yml` builds the images under their canonical `ghcr.io/cvoya-com/...:<version>` tags with `deployment/build-agent-images.sh --ghcr-only`.
+3. The workflow pushes the immutable release tag. Stable releases also update the floating `:X.Y` and `:latest` tags.
+4. The workflow marks the GHCR packages public after push.
 
 A manual `workflow_dispatch` input is also available for republishing an existing tag without cutting a new git ref — useful if a transient registry failure interrupts the original run.
 
@@ -286,16 +284,15 @@ A manual `workflow_dispatch` input is also available for republishing an existin
 
 ```bash
 # Pull by platform release
-docker pull ghcr.io/cvoya-com/spring-agent:v0.1.0
+docker pull ghcr.io/cvoya-com/claude-code-base:0.1.0
+docker pull ghcr.io/cvoya-com/spring-voyage-agent:0.1.0
 
-# Pull by baked Claude Code CLI revision
-docker pull ghcr.io/cvoya-com/spring-agent:claude-2.1.98
-
-# Sanity-check the baked CLI
-docker run --rm ghcr.io/cvoya-com/spring-agent:v0.1.0 --version
+# Pull the latest stable release
+docker pull ghcr.io/cvoya-com/claude-code-base:latest
+docker pull ghcr.io/cvoya-com/spring-voyage-agent:latest
 ```
 
-Consumers that want the Dockerfile's `--build-arg CLAUDE_CODE_VERSION=<x.y.z>` escape hatch can continue to build locally; the published image covers the default (pinned) version for operators who don't need a custom CLI build.
+Consumers that want the Dockerfile's `--build-arg CLAUDE_CODE_VERSION=<x.y.z>` escape hatch can continue to build locally; `deployment/build-agent-images.sh` still tags the result with the same canonical GHCR ref in the local image store so the dispatcher finds it before pulling.
 
 ---
 

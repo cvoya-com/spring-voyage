@@ -14,8 +14,8 @@ open-source single-host scenario.
 | `spring-voyage-host.sh`  | Manages host-process services (`spring-dispatcher`). Used directly when bouncing the dispatcher in isolation; called by `deploy.sh up/down`. |
 | `Dockerfile`             | Multi-stage platform image (.NET 10 API/Worker + Web + Dapr CLI). |
 | `Dockerfile.agent-base`  | A2A bridge sidecar base image (BYOI conformance path 1 — see [`docs/architecture/agent-runtime.md` § 7](../docs/architecture/agent-runtime.md#7-byoi-conformance-contract)). Published as `ghcr.io/cvoya-com/agent-base:<semver>` by `release-agent-base.yml`. |
-| `Dockerfile.agent.claude-code` | Claude Code CLI on top of `agent-base` (path 1 reference). Built locally as `localhost/spring-voyage-agent-claude-code:latest`. |
-| `Dockerfile.agent.dapr`  | Dapr Agent native A2A image (path 3). Built locally as `localhost/spring-voyage-agent:latest`. |
+| `Dockerfile.agent.claude-code` | Claude Code CLI on top of `agent-base` (path 1 reference). Built locally as `ghcr.io/cvoya-com/claude-code-base:latest`. |
+| `Dockerfile.agent.dapr`  | Dapr Agent native A2A image (path 3). Built locally as `ghcr.io/cvoya-com/spring-voyage-agent:latest`. |
 | `build-agent-images.sh`  | Builds the three agent images above. Invoked by `deploy.sh build`. |
 | `build-sidecar.sh`       | Builds `ghcr.io/cvoya-com/agent-base:dev` from local sources. Used when iterating on the bridge sidecar without GHCR pull access. |
 | `Caddyfile`              | Single-host path-routed Caddy config (default).                   |
@@ -43,8 +43,8 @@ either reference it directly or layer extra tooling on top:
 | Base image                                              | Conformance path | Use it for |
 | ------------------------------------------------------- | ---------------- | ---------- |
 | `ghcr.io/cvoya-com/agent-base:<semver>`                     | path 1 (bridge)  | Bring your own CLI; the bridge handles A2A. |
-| `localhost/spring-voyage-agent-claude-code:latest`      | path 1 (bridge)  | Claude Code CLI baked in; ready to dispatch. |
-| `localhost/spring-voyage-agent:latest`             | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
+| `ghcr.io/cvoya-com/claude-code-base:latest`      | path 1 (bridge)  | Claude Code CLI baked in; ready to dispatch. |
+| `ghcr.io/cvoya-com/spring-voyage-agent:latest`             | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<semver>` | path 1 (bridge) | OSS dogfooding SE team — .NET SDK, gh CLI, Playwright + browsers. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<semver>` | path 1 (bridge) | OSS dogfooding design team — Playwright Chromium, Mermaid CLI, ImageMagick. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:<semver>` | path 1 (bridge) | OSS dogfooding PM team — gh CLI, Mermaid CLI, markdownlint. |
@@ -55,8 +55,9 @@ The four `spring-voyage-agent-oss-*` images are the role-flavored agents that ba
 Build them locally with:
 
 ```bash
-./deployment/build-agent-images.sh                # all eight at :dev
-./deployment/build-agent-images.sh --tag latest   # all eight at :latest
+./deployment/build-agent-images.sh                # all seven at :dev
+./deployment/build-agent-images.sh --tag latest   # all seven at :latest
+./deployment/deploy.sh build --ghcr-only          # release-style canonical tags only
 ```
 
 To layer extra tooling on top of one of the bases, start from a
@@ -75,7 +76,7 @@ agent manifest:
 unit:
   name: my-team
   execution:
-    image: localhost/my-agent:latest
+    image: ghcr.io/<org>/my-agent:latest
     runtime: podman
 ```
 
@@ -440,7 +441,7 @@ images to a registry, skip source sync and build:
 
 ```bash
 export SPRING_SKIP_SOURCE_SYNC=1
-# Point SPRING_PLATFORM_IMAGE / SPRING_AGENT_IMAGE in spring.env at the registry.
+# Point image settings in spring.env at the registry.
 ./deploy-remote.sh deploy      # now: rsync deployment/ + spring.env, then `up` (pulls images)
 ```
 

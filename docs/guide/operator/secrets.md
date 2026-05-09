@@ -186,7 +186,7 @@ Anthropic exposes two credential shapes. Both are first-class in Spring Voyage a
 
 **Pick the API key when:** your unit uses any agent image that calls the Anthropic Platform REST API directly — single-shot completions through `IAiProvider`, custom agent images that wrap the Anthropic SDK, or any third-party CLI that itself dials `api.anthropic.com`.
 
-**Pick the OAuth token when:** your unit uses the Claude Code container image (`ghcr.io/cvoya-com/spring-voyage-agent-claude-code`) and you want the full `claude` CLI surface — hooks, plugins, skills, keychain, auto-memory. OAuth tokens cannot authenticate the REST API; the platform's `IAiProvider` and any custom REST caller will see a 401.
+**Pick the OAuth token when:** your unit uses the Claude Code container image (`ghcr.io/cvoya-com/claude-code-base`) and you want the full `claude` CLI surface — hooks, plugins, skills, keychain, auto-memory. OAuth tokens cannot authenticate the REST API; the platform's `IAiProvider` and any custom REST caller will see a 401.
 
 **Both code paths in the same fleet?** Pick whichever is the more common dispatch path; the other will probe-pass-but-runtime-fail and you will need to plan around it. The platform's pre-flight check (`GET /api/v1/platform/credentials/anthropic/status?dispatchPath=…`) reports per-path resolvability so the wizard / portal can warn you before the first message dispatches.
 

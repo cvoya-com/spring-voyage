@@ -36,7 +36,7 @@ public class DbAgentDefinitionProviderTests
             Definition = JsonSerializer.SerializeToElement(new
             {
                 instructions = "Be careful.",
-                execution = new { agent = "claude", image = "spring-agent:latest" }
+                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/claude-code-base:latest" }
             })
         };
 
@@ -45,7 +45,7 @@ public class DbAgentDefinitionProviderTests
         def.Instructions.ShouldBe("Be careful.");
         def.Execution.ShouldNotBeNull();
         def.Execution!.AgentRuntimeId.ShouldBe("claude");
-        def.Execution.Image.ShouldBe("spring-agent:latest");
+        def.Execution.Image.ShouldBe("ghcr.io/cvoya-com/claude-code-base:latest");
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "claude", image = "spring-agent:latest", hosting = "persistent" }
+                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/claude-code-base:latest", hosting = "persistent" }
             })
         };
 
@@ -135,7 +135,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "claude", image = "spring-agent:latest" }
+                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/claude-code-base:latest" }
             })
         };
 
@@ -158,7 +158,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "claude", image = "spring-agent:latest", hosting = "pooled" }
+                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/claude-code-base:latest", hosting = "pooled" }
             })
         };
 
@@ -183,7 +183,7 @@ public class DbAgentDefinitionProviderTests
                 execution = new
                 {
                     agent = "openai",
-                    image = "localhost/spring-voyage-agent:latest",
+                    image = "ghcr.io/cvoya-com/spring-voyage-agent:latest",
                     provider = "openai",
                     model = "gpt-4o-mini",
                 }
@@ -206,7 +206,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "openai", image = "localhost/spring-voyage-agent:latest" }
+                execution = new { agent = "openai", image = "ghcr.io/cvoya-com/spring-voyage-agent:latest" }
             })
         };
 

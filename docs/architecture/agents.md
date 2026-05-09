@@ -25,7 +25,7 @@ agent:
       provider: anthropic
       id: claude-sonnet-4-6
   execution:
-    image: spring-agent:latest          # container image; host config selects docker/podman
+    image: ghcr.io/cvoya-com/claude-code-base:latest          # container image; host config selects docker/podman
 
   cloning:
     policy: ephemeral-with-memory
@@ -64,7 +64,7 @@ Spring Voyage does **not** implement its own in-platform tool-use loop. The `Hos
 
 ```yaml
 execution:
-  image: spring-agent:latest          # container image
+  image: ghcr.io/cvoya-com/claude-code-base:latest          # container image
 ```
 
 Agents that don't specify `execution.<field>` inherit the default from their parent unit's `execution` block (see [Unit execution defaults](orchestration.md#unit-execution-defaults-and-the-agent--unit--fail-resolution-chain-601-b-wide) in the Orchestration doc). This is implemented end-to-end per the resolution chain described there — the `IAgentDefinitionProvider` merges the unit-level block onto the agent-declared block at dispatch time, and both HTTP / CLI surfaces edit the same persisted JSON document the resolver reads.

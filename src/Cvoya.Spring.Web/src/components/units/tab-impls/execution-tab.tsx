@@ -313,7 +313,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
                   image: e.target.value ? e.target.value : null,
                 }))
               }
-              placeholder="ghcr.io/... or localhost/spring-voyage-agent-claude-code:latest"
+              placeholder="ghcr.io/cvoya-com/claude-code-base:latest"
               list={imageHistory.length > 0 ? "unit-execution-image-suggestions" : undefined}
               aria-label="Execution image"
               data-testid="execution-image-input"

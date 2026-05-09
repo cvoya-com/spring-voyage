@@ -21,7 +21,8 @@
 #   SPRING_SKIP_SOURCE_SYNC Optional. Set to 1 to skip rsyncing the repo (pull images on the VPS instead).
 #
 # Pull-images-only flow: set SPRING_SKIP_SOURCE_SYNC=1 and configure
-# SPRING_PLATFORM_IMAGE / SPRING_AGENT_IMAGE in spring.env to a registry URL.
+# SPRING_PLATFORM_IMAGE and unit execution images in spring.env/manifests to
+# registry URLs.
 # The remote deploy.sh will then run the images without rebuilding on the VPS.
 
 set -euo pipefail

@@ -353,7 +353,7 @@ export function AgentExecutionPanel({
             placeholder={
               inherited("image")
                 ? `inherited from unit: ${inherited("image")}`
-                : "ghcr.io/... or localhost/spring-voyage-agent-claude-code:latest"
+                : "ghcr.io/cvoya-com/claude-code-base:latest"
             }
             list={imageHistory.length > 0 ? "agent-execution-image-suggestions" : undefined}
             aria-label="Agent execution image"

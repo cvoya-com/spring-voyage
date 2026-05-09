@@ -40,8 +40,8 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   REGISTRY: ghcr.io
-  # The primary spring-agent image consumed by UnitRuntimeOptions.cs.
-  SPRING_AGENT_IMAGE: ghcr.io/cvoya-com/spring-agent
+  CLAUDE_CODE_IMAGE: ghcr.io/cvoya-com/claude-code-base
+  SPRING_VOYAGE_AGENT_IMAGE: ghcr.io/cvoya-com/spring-voyage-agent
 
 jobs:
   # ── 1. Resolve ─────────────────────────────────────────────────────────────
@@ -212,39 +212,37 @@ jobs:
           RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          bash deployment/build-agent-images.sh --tag "${RELEASE_VERSION}"
+          bash deployment/build-agent-images.sh --tag "${RELEASE_VERSION}" --ghcr-only
 
       # The build script tags:
-      #   ghcr.io/cvoya-com/agent-base:<tag>              (ready to push)
-      #   spring-voyage-agent-claude-code:<tag>            (local — re-tagged below)
-      #   spring-voyage-agent:<tag>                   (local — re-tagged below)
-      - name: Tag and push spring-agent (claude-code runtime)
+      #   ghcr.io/cvoya-com/spring-voyage-agent-base:<tag> (re-tagged below)
+      #   ghcr.io/cvoya-com/claude-code-base:<tag>          (ready to push)
+      #   ghcr.io/cvoya-com/spring-voyage-agent:<tag>       (ready to push)
+      - name: Tag and push claude-code-base
         shell: bash
         env:
           RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
           MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
           IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
-          TARGET_BASE: ${{ env.SPRING_AGENT_IMAGE }}
+          TARGET_BASE: ${{ env.CLAUDE_CODE_IMAGE }}
         run: |
           set -euo pipefail
           # Immutable version tag — always pushed, stable and pre-release alike.
-          docker tag "localhost/spring-voyage-agent-claude-code:${RELEASE_VERSION}" \
-            "${TARGET_BASE}:${RELEASE_VERSION}"
           docker push "${TARGET_BASE}:${RELEASE_VERSION}"
           echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
 
           if [[ "$IS_PRERELEASE" == "false" ]]; then
-            docker tag "localhost/spring-voyage-agent-claude-code:${RELEASE_VERSION}" \
+            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:${MAJOR_MINOR}"
             docker push "${TARGET_BASE}:${MAJOR_MINOR}"
             echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
 
-            docker tag "localhost/spring-voyage-agent-claude-code:${RELEASE_VERSION}" \
+            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:latest"
             docker push "${TARGET_BASE}:latest"
             echo "Pushed ${TARGET_BASE}:latest"
           else
-            echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for spring-agent"
+            echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for claude-code-base"
           fi
 
       - name: Tag and push agent-base
@@ -275,32 +273,40 @@ jobs:
             echo "Pushed ${TARGET_BASE}:latest"
           fi
 
-      - name: Tag and push agent-dapr
+      - name: Tag and push spring-voyage-agent (native A2A runtime)
         shell: bash
         env:
           RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
           MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
           IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+          TARGET_BASE: ${{ env.SPRING_VOYAGE_AGENT_IMAGE }}
         run: |
           set -euo pipefail
-          TARGET_BASE="ghcr.io/cvoya-com/agent-dapr"
 
-          docker tag "localhost/spring-voyage-agent:${RELEASE_VERSION}" \
-            "${TARGET_BASE}:${RELEASE_VERSION}"
           docker push "${TARGET_BASE}:${RELEASE_VERSION}"
           echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
 
           if [[ "$IS_PRERELEASE" == "false" ]]; then
-            docker tag "localhost/spring-voyage-agent:${RELEASE_VERSION}" \
+            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:${MAJOR_MINOR}"
             docker push "${TARGET_BASE}:${MAJOR_MINOR}"
             echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
 
-            docker tag "localhost/spring-voyage-agent:${RELEASE_VERSION}" \
+            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:latest"
             docker push "${TARGET_BASE}:latest"
             echo "Pushed ${TARGET_BASE}:latest"
           fi
+
+      - name: Make GHCR packages public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for package in claude-code-base agent-base spring-voyage-agent; do
+            gh api -X PATCH "/orgs/cvoya-com/packages/container/${package}" \
+              -F visibility=public
+          done
 
       - name: Image publish summary
         shell: bash
@@ -315,13 +321,13 @@ jobs:
             echo "| Image | Tags |"
             echo "| --- | --- |"
             if [[ "$IS_PRERELEASE" == "false" ]]; then
-              echo "| \`ghcr.io/cvoya-com/spring-agent\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/claude-code-base\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
               echo "| \`ghcr.io/cvoya-com/agent-base\`   | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/agent-dapr\`   | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
             else
-              echo "| \`ghcr.io/cvoya-com/spring-agent\` | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
+              echo "| \`ghcr.io/cvoya-com/claude-code-base\` | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
               echo "| \`ghcr.io/cvoya-com/agent-base\`   | \`${RELEASE_VERSION}\` (pre-release) |"
-              echo "| \`ghcr.io/cvoya-com/agent-dapr\`   | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | \`${RELEASE_VERSION}\` (pre-release) |"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 

@@ -24,7 +24,7 @@ agent:
       provider: anthropic  # ModelProvider id; intrinsic to the model
       id: claude-sonnet-4-6
   execution:
-    image: spring-agent:latest
+    image: ghcr.io/cvoya-com/claude-code-base:latest
 
   cloning:
     policy: ephemeral-with-memory
