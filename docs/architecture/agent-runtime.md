@@ -247,36 +247,63 @@ SDK clients.
 ## 4b. Orchestration-tool surface
 
 ADR-0039 closes the orchestration surface to five platform-provided tools. The
-launcher attaches them automatically when the invoked agent has children; a
-leaf agent receives an empty tool set. Unit operators and agent code do not
-enable anything separately.
+runtime path resolves these tools when the invoked agent has children and passes
+the descriptors to the selected launcher through
+`AgentLaunchContext.OrchestrationTools`. A leaf agent receives an empty tool
+set. Unit operators and runtime authors do not enable a separate orchestration
+mode.
 
-| Tool | Purpose |
+| Tool | Description |
 | --- | --- |
-| `list_children` | Returns the unit's current member list. |
-| `inspect_child` | Returns the child's role metadata, declared expertise, and status. |
-| `delegate_to_child` | Routes the current message thread to exactly one child. |
-| `fanout_to_children` | Routes the current message thread to multiple children in parallel. |
-| `query_child_status` | Returns the last-known status of a child's thread. |
+| `list_children` | Returns the address array of the unit's current direct members. No `OrchestrationDecision` event. |
+| `inspect_child` | Returns metadata (`scheme`, `id`) for a specific child. No `OrchestrationDecision` event. |
+| `delegate_to_child` | Dispatches the inbound message to a single child and returns the child's reply. Emits `OrchestrationDecision` with `Kind=Delegate`. |
+| `fanout_to_children` | Dispatches to all children, or to a filtered set of children, and returns all replies. Emits `OrchestrationDecision` with `Kind=Fanout`. |
+| `query_child_status` | Queries in-flight status of a prior dispatch. No `OrchestrationDecision` event. |
 
 The runtime decides whether to answer directly, inspect children, delegate to
 one child, or fan out to several children. The platform supplies the tools,
 checks the call, routes the resulting child messages, and records delegation
 evidence.
 
+The same five tools are exposed through two runtime-facing surfaces:
+
+| Surface | Runtime style | Runtimes | Attachment |
+| --- | --- | --- | --- |
+| MCP / env-var-keyed tool calls | LLM-driven | `spring-voyage`, `claude-code`, `codex`, `gemini` | The launcher injects orchestration tool definitions into the runtime's tool-call surface. `spring-voyage` receives the descriptor array through `SPRING_ORCHESTRATION_TOOLS`; the CLI runtimes receive a Spring orchestration MCP server. |
+| Typed HTTP callback SDK | Workflow-driven | Runtime images using `Cvoya.Spring.AgentSdk` | The launcher stamps `SPRING_CALLBACK_URL` and `SPRING_CALLBACK_TOKEN` into the container environment. The SDK discovers those values and exposes typed `IOrchestrationClient` methods over the dispatcher's callback API. |
+
+Both surfaces dispatch to the same platform-side
+[`OrchestrationToolHandlers`](../../src/Cvoya.Spring.Dapr/Orchestration/OrchestrationToolHandlers.cs)
+implementation and produce the same `OrchestrationDecision` evidence. The
+SDK surface lives in
+[`src/Cvoya.Spring.AgentSdk/`](../../src/Cvoya.Spring.AgentSdk/) and is
+documented in [Agent SDK](agent-sdk.md).
+
 See [ADR-0039 section 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime).
 
 ## 4c. Launcher's tool-attachment responsibility
 
-The runtime path resolves orchestration tools before it calls the launcher. The
-source of truth is `IOrchestrationToolProvider.GetOrchestrationTools(...)`,
-which takes the invoked address and thread id and returns an
-`OrchestrationToolDescriptor[]` with the closed tool name plus input and output
-JSON Schemas.
+Each per-runtime launcher is responsible for attaching the orchestration tool
+surface before handing off to the runtime image. The runtime path resolves the
+available tools before it calls the launcher. The source of truth is
+`IOrchestrationToolProvider.GetOrchestrationTools(...)`, which takes the
+invoked address and thread id and returns an `OrchestrationToolDescriptor[]`
+with the closed tool name plus input and output JSON Schemas.
 
 `AgentLaunchContext.OrchestrationTools` carries that descriptor array into the
-selected `IAgentRuntimeLauncher`. Each launcher maps the five abstract tool
-descriptors to the runtime's native tool-calling surface:
+selected `IAgentRuntimeLauncher`. Each launcher then follows one or both
+attachment paths:
+
+- **LLM-driven runtimes.** The launcher injects the orchestration tool
+  definitions into the runtime's tool-call surface. For `spring-voyage`, this
+  is the env-var-keyed descriptor list. For `claude-code`, `codex`, and
+  `gemini`, this is an orchestration MCP server alongside the normal platform
+  MCP server.
+- **SDK-driven runtimes.** The launcher stamps `SPRING_CALLBACK_URL` and
+  `SPRING_CALLBACK_TOKEN` into the container environment. `Cvoya.Spring.AgentSdk`
+  reads them through `SpringAgent.FromEnvironment()` and calls the dispatcher's
+  typed HTTP callback API.
 
 | Runtime | Attachment mechanism |
 | --- | --- |
@@ -298,14 +325,39 @@ tool surface from [ADR-0039 section 3](../decisions/0039-units-are-agents.md#3-c
 
 When the runtime calls a delegation tool, the platform publishes a
 `DecisionMade` activity event. The durable payload is the Core
-`OrchestrationDecision` record. The decision body records `Kind`, `Status`,
-`Targets` (target addresses), `ResultMessageIds` (result message ids), and
-optional runtime-supplied `Reason`.
+`OrchestrationDecision` record. The normalized event shape is:
 
-The full record also carries `DecisionId`, `TenantId`, `UnitAddress`,
-`ThreadId`, `InputMessageId`, optional `Metadata`, and `CreatedAt`. `Reason` is
-plain text supplied by the runtime's tool call; it is never hidden model
-reasoning.
+```json
+{
+  "decisionId": "<uuid>",
+  "tenantId": "<uuid>",
+  "unitAddress": {
+    "scheme": "<scheme>",
+    "id": "<uuid>"
+  },
+  "threadId": "<uuid>",
+  "inputMessageId": "<uuid>",
+  "kind": "Delegate | Fanout | Inspect | NoOp",
+  "targets": [
+    {
+      "scheme": "<scheme>",
+      "id": "<uuid>"
+    }
+  ],
+  "status": "Accepted | Routed | Failed",
+  "resultMessageIds": ["<uuid>"],
+  "reason": "<optional string>",
+  "metadata": null,
+  "createdAt": "<ISO-8601>"
+}
+```
+
+`delegate_to_child` emits `Kind=Delegate`. `fanout_to_children` emits
+`Kind=Fanout`. `list_children`, `inspect_child`, and `query_child_status` are
+read-only probes and do not emit `OrchestrationDecision` events. `Kind=Inspect`
+and `Kind=NoOp` remain part of the domain enum for explicit decision evidence,
+but none of the five current handlers emit them. `Reason` is plain text supplied
+by the runtime's tool call; it is never hidden model reasoning.
 
 Subscribers consume this stream as delegation evidence. For example, the
 GitHub connector's label-roundtrip subscriber listens for routed
