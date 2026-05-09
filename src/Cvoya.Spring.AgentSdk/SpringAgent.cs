@@ -3,8 +3,6 @@
 
 namespace Cvoya.Spring.AgentSdk;
 
-using Cvoya.Spring.Core.Execution;
-
 /// <summary>
 /// Entry point for runtime images running inside Spring Voyage.
 /// </summary>
@@ -18,9 +16,9 @@ public static class SpringAgent
     public static IOrchestrationClient FromEnvironment()
     {
         var callbackUrl = ReadRequiredEnvironmentVariable(
-            AgentCallbackEnvironmentContract.CallbackUrlEnvVar);
+            AgentSdkEnvironmentContract.CallbackUrlEnvVar);
         var callbackToken = ReadRequiredEnvironmentVariable(
-            AgentCallbackEnvironmentContract.CallbackTokenEnvVar);
+            AgentSdkEnvironmentContract.CallbackTokenEnvVar);
 
         return new OrchestrationClient(callbackUrl, callbackToken);
     }

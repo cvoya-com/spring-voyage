@@ -9,21 +9,21 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using Cvoya.Spring.Core.Execution;
-
 /// <summary>
 /// HTTP implementation of <see cref="IOrchestrationClient"/>.
 /// </summary>
 public sealed class OrchestrationClient : IOrchestrationClient
 {
     private const string ResultEndpoint = "result";
-    private const string DelegateEndpoint = "delegate";
-    private const string FanoutEndpoint = "fanout";
+    private const string DelegateEndpoint = "delegate-to-child";
+    private const string FanoutEndpoint = "fanout-to-children";
+    private const string AgentAddressClaim = "sv_addr";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _httpClient;
     private readonly string _callbackToken;
+    private readonly string _callerAddress;
 
     public OrchestrationClient(string baseUrl, string callbackToken)
     {
@@ -35,6 +35,7 @@ public sealed class OrchestrationClient : IOrchestrationClient
             BaseAddress = BuildOrchestrationBaseUri(baseUrl),
         };
         _callbackToken = callbackToken;
+        _callerAddress = CallbackTokenReader.TryReadStringClaim(callbackToken, AgentAddressClaim) ?? string.Empty;
     }
 
     /// <inheritdoc />
@@ -63,10 +64,20 @@ public sealed class OrchestrationClient : IOrchestrationClient
         ArgumentException.ThrowIfNullOrWhiteSpace(targetUnitId);
         ArgumentNullException.ThrowIfNull(prompt);
 
-        return await SendAsync<DelegateRequest, DelegateResponse>(
+        var response = await SendAsync<DelegateToChildRequest, DelegateToChildResponse>(
             DelegateEndpoint,
-            new DelegateRequest(threadId, targetUnitId, prompt),
+            new DelegateToChildRequest(
+                _callerAddress,
+                BuildTargetAddress(targetUnitId),
+                ParseThreadId(threadId, nameof(threadId)),
+                MessageId: Guid.Empty,
+                prompt,
+                Reason: null),
             cancellationToken).ConfigureAwait(false);
+
+        return new DelegateResponse(
+            response.Message?.MessageId.ToString("D") ?? string.Empty,
+            response.Message?.MessageContent ?? string.Empty);
     }
 
     /// <inheritdoc />
@@ -80,10 +91,25 @@ public sealed class OrchestrationClient : IOrchestrationClient
         ArgumentNullException.ThrowIfNull(targetUnitIds);
         ArgumentNullException.ThrowIfNull(prompt);
 
-        return await SendAsync<FanoutRequest, FanoutResponse>(
+        var response = await SendAsync<FanoutToChildrenRequest, FanoutToChildrenResponse>(
             FanoutEndpoint,
-            new FanoutRequest(threadId, targetUnitIds, prompt),
+            new FanoutToChildrenRequest(
+                _callerAddress,
+                targetUnitIds.Select(BuildTargetAddress).ToArray(),
+                ParseThreadId(threadId, nameof(threadId)),
+                MessageId: Guid.Empty,
+                prompt,
+                Reason: null),
             cancellationToken).ConfigureAwait(false);
+
+        return new FanoutResponse(
+            response.Results
+                .Select(result => new FanoutResult(
+                    result.Target,
+                    result.Message?.MessageId.ToString("D"),
+                    result.Message?.MessageContent,
+                    result.ErrorMessage))
+                .ToArray());
     }
 
     private static Uri BuildOrchestrationBaseUri(string baseUrl)
@@ -100,9 +126,33 @@ public sealed class OrchestrationClient : IOrchestrationClient
         var normalizedBase = baseUri.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
             ? baseUri
             : new Uri(baseUri.AbsoluteUri + "/");
-        var relativePrefix = AgentCallbackEnvironmentContract.OrchestrationRoutePrefix.TrimStart('/');
+        var relativePrefix = AgentSdkEnvironmentContract.OrchestrationRoutePrefix.TrimStart('/');
 
         return new Uri(normalizedBase, relativePrefix + "/");
+    }
+
+    private static Guid ParseThreadId(string threadId, string parameterName)
+    {
+        if (!Guid.TryParse(threadId, out var parsed))
+        {
+            throw new ArgumentException(
+                "Thread id must be a valid Guid string.",
+                parameterName);
+        }
+
+        return parsed;
+    }
+
+    private static string BuildTargetAddress(string targetUnitId)
+    {
+        if (targetUnitId.Contains(':', StringComparison.Ordinal))
+        {
+            return targetUnitId;
+        }
+
+        return Guid.TryParse(targetUnitId, out var targetId)
+            ? $"unit:{targetId:N}"
+            : targetUnitId;
     }
 
     private async Task SendAsync<TRequest>(
@@ -173,20 +223,40 @@ public sealed class OrchestrationClient : IOrchestrationClient
         }
 
         var error = await ReadErrorBodyAsync(response, cancellationToken).ConfigureAwait(false);
-        var message = string.IsNullOrWhiteSpace(error)
+        var reason = MapDispatcherErrorReason(error?.Error);
+        var message = string.IsNullOrWhiteSpace(error?.Message)
             ? $"Spring Voyage orchestration dispatcher returned HTTP {(int)response.StatusCode}."
-            : error;
+            : error.Message;
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden ||
+            IsAuthorizationRejection(response.StatusCode, reason))
         {
-            throw new OrchestrationAuthException(message);
+            throw new OrchestrationAuthException(message, reason);
         }
 
         throw new OrchestrationTransportException(
             $"Spring Voyage orchestration dispatcher returned HTTP {(int)response.StatusCode}: {message}");
     }
 
-    private static async Task<string?> ReadErrorBodyAsync(
+    private static bool IsAuthorizationRejection(HttpStatusCode statusCode, string? reason) =>
+        reason is not null &&
+        (statusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound ||
+         (int)statusCode == StatusCodes.TooManyRequests);
+
+    private static string? MapDispatcherErrorReason(string? errorCode) =>
+        errorCode switch
+        {
+            null or "" => null,
+            "InvalidToken" => "InvalidToken",
+            "OrchestrationCallerIsNotUnit" => "CallerIsNotUnit",
+            "OrchestrationTargetNotChild" => "TargetNotChild",
+            "OrchestrationSelfDelegation" => "SelfDelegation",
+            "OrchestrationDepthExceeded" => "DepthExceeded",
+            "OrchestrationCrossTenant" => "CrossTenant",
+            _ => errorCode,
+        };
+
+    private static async Task<DispatcherError?> ReadErrorBodyAsync(
         HttpResponseMessage response,
         CancellationToken cancellationToken)
     {
@@ -201,12 +271,11 @@ public sealed class OrchestrationClient : IOrchestrationClient
 
             try
             {
-                var error = JsonSerializer.Deserialize<DispatcherError>(body, JsonOptions);
-                return error?.Message ?? error?.Error ?? body;
+                return JsonSerializer.Deserialize<DispatcherError>(body, JsonOptions);
             }
             catch (JsonException)
             {
-                return body;
+                return new DispatcherError(null, body);
             }
         }
         catch (HttpRequestException ex)
@@ -244,17 +313,87 @@ public sealed class OrchestrationClient : IOrchestrationClient
         [property: JsonPropertyName("threadId")] string ThreadId,
         [property: JsonPropertyName("result")] string Result);
 
-    private sealed record DelegateRequest(
-        [property: JsonPropertyName("threadId")] string ThreadId,
-        [property: JsonPropertyName("targetUnitId")] string TargetUnitId,
-        [property: JsonPropertyName("prompt")] string Prompt);
+    private sealed record DelegateToChildRequest(
+        [property: JsonPropertyName("callerAddress")] string CallerAddress,
+        [property: JsonPropertyName("targetAddress")] string TargetAddress,
+        [property: JsonPropertyName("threadId")] Guid ThreadId,
+        [property: JsonPropertyName("messageId")] Guid MessageId,
+        [property: JsonPropertyName("messageContent")] string MessageContent,
+        [property: JsonPropertyName("reason")] string? Reason);
 
-    private sealed record FanoutRequest(
-        [property: JsonPropertyName("threadId")] string ThreadId,
-        [property: JsonPropertyName("targetUnitIds")] IReadOnlyList<string> TargetUnitIds,
-        [property: JsonPropertyName("prompt")] string Prompt);
+    private sealed record DelegateToChildResponse(
+        [property: JsonPropertyName("message")] OrchestrationCallbackMessage? Message);
+
+    private sealed record FanoutToChildrenRequest(
+        [property: JsonPropertyName("callerAddress")] string CallerAddress,
+        [property: JsonPropertyName("targetAddresses")] string[] TargetAddresses,
+        [property: JsonPropertyName("threadId")] Guid ThreadId,
+        [property: JsonPropertyName("messageId")] Guid MessageId,
+        [property: JsonPropertyName("messageContent")] string MessageContent,
+        [property: JsonPropertyName("reason")] string? Reason);
+
+    private sealed record FanoutToChildrenResponse(
+        [property: JsonPropertyName("results")] FanoutTargetResult[] Results);
+
+    private sealed record FanoutTargetResult(
+        [property: JsonPropertyName("target")] string Target,
+        [property: JsonPropertyName("success")] bool Success,
+        [property: JsonPropertyName("errorMessage")] string? ErrorMessage,
+        [property: JsonPropertyName("message")] OrchestrationCallbackMessage? Message);
+
+    private sealed record OrchestrationCallbackMessage(
+        [property: JsonPropertyName("messageId")] Guid MessageId,
+        [property: JsonPropertyName("fromAddress")] string FromAddress,
+        [property: JsonPropertyName("toAddress")] string ToAddress,
+        [property: JsonPropertyName("threadId")] string? ThreadId,
+        [property: JsonPropertyName("messageContent")] string MessageContent);
 
     private sealed record DispatcherError(
         [property: JsonPropertyName("error")] string? Error,
         [property: JsonPropertyName("message")] string? Message);
+
+    private static class StatusCodes
+    {
+        public const int TooManyRequests = 429;
+    }
+
+    private static class CallbackTokenReader
+    {
+        public static string? TryReadStringClaim(string token, string claimName)
+        {
+            var parts = token.Split('.');
+            if (parts.Length < 2)
+            {
+                return null;
+            }
+
+            try
+            {
+                var payload = DecodeBase64Url(parts[1]);
+                using var document = JsonDocument.Parse(payload);
+                return document.RootElement.TryGetProperty(claimName, out var claim) &&
+                    claim.ValueKind == JsonValueKind.String
+                        ? claim.GetString()
+                        : null;
+            }
+            catch (Exception ex) when (ex is FormatException or JsonException)
+            {
+                return null;
+            }
+        }
+
+        private static byte[] DecodeBase64Url(string value)
+        {
+            var padded = value.Replace('-', '+').Replace('_', '/');
+            padded = (padded.Length % 4) switch
+            {
+                0 => padded,
+                2 => padded + "==",
+                3 => padded + "=",
+                _ => throw new FormatException("Invalid base64url payload length."),
+            };
+
+            return Convert.FromBase64String(padded);
+        }
+    }
 }

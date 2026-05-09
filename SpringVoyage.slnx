@@ -31,4 +31,8 @@
     <Project Path="tests/Cvoya.Spring.Integration.Tests/Cvoya.Spring.Integration.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.Manifest.Tests/Cvoya.Spring.Manifest.Tests.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgent/Cvoya.Spring.Sample.WorkflowAgent.csproj" />
+    <Project Path="samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgent.Tests/Cvoya.Spring.Sample.WorkflowAgent.Tests.csproj" />
+  </Folder>
 </Solution>

@@ -1,13 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>Cvoya.Spring.AgentSdk</RootNamespace>
     <AssemblyName>Cvoya.Spring.AgentSdk</AssemblyName>
     <PackageId>Cvoya.Spring.AgentSdk</PackageId>
   </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
-  </ItemGroup>
 
 </Project>
