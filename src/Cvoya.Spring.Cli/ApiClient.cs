@@ -1335,6 +1335,8 @@ public class SpringApiClient
         string? appInstallationId,
         IReadOnlyList<string>? events,
         string? reviewer = null,
+        IReadOnlyList<string>? addOnAssign = null,
+        IReadOnlyList<string>? removeOnAssign = null,
         CancellationToken ct = default)
     {
         var request = new UnitGitHubConfigRequest
@@ -1348,11 +1350,29 @@ public class SpringApiClient
                     : null,
             Events = events?.ToList(),
             Reviewer = string.IsNullOrWhiteSpace(reviewer) ? null : reviewer,
+            AddOnAssign = addOnAssign?.ToList(),
+            RemoveOnAssign = removeOnAssign?.ToList(),
         };
         var result = await _client.Api.V1.Tenant.Connectors.Github.Units[unitId].Config
             .PutAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty PutUnitGitHubConfig response for unit '{unitId}'.");
+    }
+
+    /// <summary>
+    /// Reads the GitHub config currently bound to a unit and lets any HTTP
+    /// error bubble as a Kiota exception. Used by update commands that need
+    /// the exact server status/body instead of the <c>null</c>-on-404
+    /// convenience behaviour of <see cref="GetUnitGitHubConfigAsync"/>.
+    /// </summary>
+    public async Task<UnitGitHubConfigResponse> GetRequiredUnitGitHubConfigAsync(
+        string unitId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Connectors.Github.Units[unitId].Config
+            .GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty GetUnitGitHubConfig response for unit '{unitId}'.");
     }
 
     /// <summary>

@@ -57,3 +57,23 @@ For bidirectional, stateful, domain-aware integrations (GitHub, Slack, Figma), c
 Connectors that require authentication expose installation / OAuth flows through their typed endpoints. The CLI surfaces binding through `spring connector bind` (for example, `spring connector bind --unit engineering-team --type github --owner my-org --repo platform --installation-id <id> --reviewer alice`) which atomically writes the connector binding plus its per-unit config. Interactive OAuth prompts are handled by the connector package that owns the auth flow; credentials are stored securely via the platform's secret management.
 
 The portal's create-unit wizard and the unit's Connector tab use a different surface than the CLI: rather than asking the operator to type `--owner`, `--repo`, and `--installation-id`, the GitHub connector aggregates the visible repositories across all installations the current user can see (via `GET /api/v1/connectors/github/actions/list-repositories`) and renders them as a single Repository dropdown. The chosen row carries its installation id along with `owner`/`repo`, so the operator never has to discover or paste an installation id. A Reviewer dropdown then sources collaborators for the selected repo from `GET /api/v1/connectors/github/actions/list-collaborators`. Cloud / multi-tenant deployments are expected to override the underlying `IGitHubInstallationsClient` with a user-scoped implementation (for example, calling `GET /user/installations` against the operator's OAuth session) so the dropdown only ever shows installations the operator owns or has been granted access to — the OSS default uses the App-level listing for single-tenant set-ups.
+
+## GitHub Label Routing
+
+GitHub label roundtrip rules are configured on each GitHub unit binding.
+`AddOnAssign` lists labels to add and `RemoveOnAssign` lists labels to remove
+after the unit routes work to a child. They are not platform-level
+`LabelRoutingPolicy` fields.
+
+Configure the lists with:
+
+```bash
+spring connector github label-rules set <binding-id> --add-on-assign triage --remove-on-assign needs-assignment
+```
+
+Both flags are repeatable. The command replaces the stored lists; passing no
+label flags clears both lists while preserving the rest of the binding config.
+
+Rules fire when the GitHub connector observes an `OrchestrationDecision` event
+for the bound unit with `Kind=Delegate` and `Status=Routed`. The event shape is
+defined in [ADR-0039 section 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence).

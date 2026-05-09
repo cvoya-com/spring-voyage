@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Cli.Commands;
 
 using System.CommandLine;
+using System.Globalization;
 
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
@@ -98,6 +99,7 @@ public static class ConnectorCommand
         // install/uninstall in #1259 (C1.2c) to clarify the authz split.
         connectorCommand.Subcommands.Add(CreateBindCommand2(outputOption));
         connectorCommand.Subcommands.Add(CreateUnbindCommand());
+        connectorCommand.Subcommands.Add(CreateGitHubCommand());
         connectorCommand.Subcommands.Add(CreateConfigCommand(outputOption));
         connectorCommand.Subcommands.Add(CreateCredentialsCommand(outputOption));
 
@@ -377,7 +379,7 @@ public static class ConnectorCommand
                     installationId,
                     events,
                     reviewer,
-                    ct);
+                    ct: ct);
 
                 if (output == "json")
                 {
@@ -779,6 +781,77 @@ public static class ConnectorCommand
             return (default, $"Failed to parse config JSON: {ex.Message}");
         }
     }
+
+    private static Command CreateGitHubCommand()
+    {
+        var root = new Command("github", "GitHub connector-specific operations.");
+        var labelRules = new Command("label-rules", "Manage per-binding GitHub label roundtrip rules.");
+        labelRules.Subcommands.Add(CreateGitHubLabelRulesSetCommand());
+        root.Subcommands.Add(labelRules);
+        return root;
+    }
+
+    private static Command CreateGitHubLabelRulesSetCommand()
+    {
+        var bindingIdArg = new Argument<string>("binding-id")
+        {
+            Description = "Unit binding id whose GitHub label rules should be replaced.",
+        };
+        var addOnAssignOption = new Option<string[]>("--add-on-assign")
+        {
+            Description = "Label to add when this unit routes work to a child. Repeat to set multiple labels.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var removeOnAssignOption = new Option<string[]>("--remove-on-assign")
+        {
+            Description = "Label to remove when this unit routes work to a child. Repeat to set multiple labels.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+
+        var command = new Command(
+            "set",
+            "Replace the GitHub label roundtrip rules for a unit binding. Passing no label flags clears both lists.");
+        command.Arguments.Add(bindingIdArg);
+        command.Options.Add(addOnAssignOption);
+        command.Options.Add(removeOnAssignOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var bindingId = parseResult.GetValue(bindingIdArg)!;
+            var addOnAssign = parseResult.GetValue(addOnAssignOption) ?? Array.Empty<string>();
+            var removeOnAssign = parseResult.GetValue(removeOnAssignOption) ?? Array.Empty<string>();
+            var client = ClientFactory.Create();
+
+            try
+            {
+                var current = await client.GetRequiredUnitGitHubConfigAsync(bindingId, ct);
+                await client.PutUnitGitHubConfigAsync(
+                    bindingId,
+                    current.Owner!,
+                    current.Repo!,
+                    current.AppInstallationId?.ToString(CultureInfo.InvariantCulture),
+                    current.EventsAreDefault == true ? null : current.Events,
+                    current.Reviewer,
+                    addOnAssign,
+                    removeOnAssign,
+                    ct);
+
+                Console.WriteLine($"Label rules updated for binding {bindingId}.");
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(FormatLabelRulesHttpError(bindingId, ex));
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    private static string FormatLabelRulesHttpError(
+        string bindingId,
+        Microsoft.Kiota.Abstractions.ApiException ex) =>
+        $"Failed to update label rules for binding {bindingId} (HTTP {ex.ResponseStatusCode}): {ProblemDetailsFormatter.Format(ex)}";
 
     private static Command CreateCredentialsCommand(Option<string> outputOption)
     {
