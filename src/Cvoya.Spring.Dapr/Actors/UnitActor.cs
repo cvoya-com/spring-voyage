@@ -42,6 +42,7 @@ public class UnitActor : Actor, IUnitActor
     private readonly IUnitPermissionCoordinator _permissionCoordinator;
     private readonly IAgentExecutionStore? _agentExecutionStore;
     private readonly IUnitExecutionStore? _unitExecutionStore;
+    private readonly IUnitHumanPermissionStore? _humanPermissionStore;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UnitActor"/> class.
@@ -86,15 +87,26 @@ public class UnitActor : Actor, IUnitActor
     /// </param>
     /// <param name="permissionCoordinator">
     /// Optional coordinator for the permission-management concern (#1311).
-    /// When present, every <see cref="SetHumanPermissionAsync"/>,
-    /// <see cref="GetHumanPermissionAsync"/>,
-    /// <see cref="RemoveHumanPermissionAsync"/>,
-    /// <see cref="GetHumanPermissionsAsync"/>,
-    /// <see cref="GetPermissionInheritanceAsync"/>, and
-    /// <see cref="SetPermissionInheritanceAsync"/> call delegates entirely
-    /// to the coordinator. When absent, a default
-    /// <see cref="UnitPermissionCoordinator"/> is constructed so legacy
-    /// test harnesses that construct the actor directly continue to work.
+    /// When present, the inheritance-flag operations
+    /// (<see cref="GetPermissionInheritanceAsync"/>,
+    /// <see cref="SetPermissionInheritanceAsync"/>) delegate to it. When
+    /// absent, a default <see cref="UnitPermissionCoordinator"/> is
+    /// constructed so legacy test harnesses that construct the actor
+    /// directly continue to work. ACL grant operations (#2044) bypass the
+    /// coordinator and write through <paramref name="humanPermissionStore"/>
+    /// directly — the coordinator's actor-state shape is no longer the
+    /// source of truth for grants.
+    /// </param>
+    /// <param name="humanPermissionStore">
+    /// Optional EF-backed store for (unit, human) ACL grants (#2044 /
+    /// ADR-0040). When <c>null</c> the actor's grant operations fail
+    /// closed: <see cref="SetHumanPermissionAsync"/> /
+    /// <see cref="RemoveHumanPermissionAsync"/> throw
+    /// <see cref="InvalidOperationException"/> and the read paths return
+    /// empty. Production DI always supplies the default store; only legacy
+    /// in-memory unit tests that construct the actor directly leave it
+    /// <c>null</c>, in which case those tests must wire the store
+    /// explicitly to exercise the ACL surface.
     /// </param>
     public UnitActor(
         ActorHost host,
@@ -111,7 +123,8 @@ public class UnitActor : Actor, IUnitActor
         IUnitMembershipCoordinator? membershipCoordinator = null,
         IUnitPermissionCoordinator? permissionCoordinator = null,
         IAgentExecutionStore? agentExecutionStore = null,
-        IUnitExecutionStore? unitExecutionStore = null)
+        IUnitExecutionStore? unitExecutionStore = null,
+        IUnitHumanPermissionStore? humanPermissionStore = null)
         : base(host)
     {
         _logger = loggerFactory.CreateLogger<UnitActor>();
@@ -133,6 +146,7 @@ public class UnitActor : Actor, IUnitActor
                 loggerFactory.CreateLogger<UnitPermissionCoordinator>());
         _agentExecutionStore = agentExecutionStore;
         _unitExecutionStore = unitExecutionStore;
+        _humanPermissionStore = humanPermissionStore;
     }
 
     private static IUnitValidationCoordinator BuildDefaultValidationCoordinator(
@@ -411,38 +425,108 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
-    public Task SetHumanPermissionAsync(Guid humanId, UnitPermissionEntry entry, CancellationToken ct = default)
-        => _permissionCoordinator.SetHumanPermissionAsync(
-            unitActorId: Id.GetId(),
-            humanId: humanId,
-            entry: entry,
-            getPermissions: GetHumanPermissionsMapAsync,
-            persistPermissions: (map, c) => StateManager.SetStateAsync(StateKeys.HumanPermissions, map, c),
-            cancellationToken: ct);
+    public async Task SetHumanPermissionAsync(Guid humanId, UnitPermissionEntry entry, CancellationToken ct = default)
+    {
+        // #2044 / ADR-0040: ACL grants are EF rows, not actor state.
+        // No actor-state read or write happens on this path — the
+        // unit_human_permissions table is the sole source of truth.
+        ArgumentNullException.ThrowIfNull(entry);
+        var store = RequireHumanPermissionStore();
+        var unitGuid = ParseSelfActorGuid();
+
+        await store.UpsertAsync(unitGuid, humanId, entry, ct);
+
+        _logger.LogInformation(
+            "Unit {ActorId} granted permission {Permission} to human {HumanId}",
+            Id.GetId(), entry.Permission, humanId);
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            $"Unit granted permission {entry.Permission} to human {humanId}",
+            ct,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "HumanPermissionGranted",
+                humanId = humanId.ToString(),
+                permission = entry.Permission.ToString(),
+                identity = entry.Identity,
+                notifications = entry.Notifications,
+            }));
+    }
 
     /// <inheritdoc />
-    public Task<PermissionLevel?> GetHumanPermissionAsync(Guid humanId, CancellationToken ct = default)
-        => _permissionCoordinator.GetHumanPermissionAsync(
-            unitActorId: Id.GetId(),
-            humanId: humanId,
-            getPermissions: GetHumanPermissionsMapAsync,
-            cancellationToken: ct);
+    public async Task<PermissionLevel?> GetHumanPermissionAsync(Guid humanId, CancellationToken ct = default)
+    {
+        if (_humanPermissionStore is null)
+        {
+            return null;
+        }
+
+        var unitGuid = ParseSelfActorGuid();
+        return await _humanPermissionStore.GetPermissionAsync(unitGuid, humanId, ct);
+    }
 
     /// <inheritdoc />
-    public Task<bool> RemoveHumanPermissionAsync(Guid humanId, CancellationToken ct = default)
-        => _permissionCoordinator.RemoveHumanPermissionAsync(
-            unitActorId: Id.GetId(),
-            humanId: humanId,
-            getPermissions: GetHumanPermissionsMapAsync,
-            persistPermissions: (map, c) => StateManager.SetStateAsync(StateKeys.HumanPermissions, map, c),
-            cancellationToken: ct);
+    public async Task<bool> RemoveHumanPermissionAsync(Guid humanId, CancellationToken ct = default)
+    {
+        var store = RequireHumanPermissionStore();
+        var unitGuid = ParseSelfActorGuid();
+
+        var removed = await store.DeleteAsync(unitGuid, humanId, ct);
+        if (!removed)
+        {
+            // Idempotent: the desired end state is "no entry for this
+            // human on this unit". The CLI / endpoint stays a one-shot
+            // and returns 204 regardless.
+            return false;
+        }
+
+        _logger.LogInformation(
+            "Unit {ActorId} removed permission for human {HumanId}",
+            Id.GetId(), humanId);
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            $"Unit removed permission for human {humanId}",
+            ct,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "HumanPermissionRevoked",
+                humanId = humanId.ToString(),
+            }));
+
+        return true;
+    }
 
     /// <inheritdoc />
-    public Task<UnitPermissionEntry[]> GetHumanPermissionsAsync(CancellationToken ct = default)
-        => _permissionCoordinator.GetHumanPermissionsAsync(
-            unitActorId: Id.GetId(),
-            getPermissions: GetHumanPermissionsMapAsync,
-            cancellationToken: ct);
+    public async Task<UnitPermissionEntry[]> GetHumanPermissionsAsync(CancellationToken ct = default)
+    {
+        if (_humanPermissionStore is null)
+        {
+            return Array.Empty<UnitPermissionEntry>();
+        }
+
+        var unitGuid = ParseSelfActorGuid();
+        return await _humanPermissionStore.ListByUnitAsync(unitGuid, ct);
+    }
+
+    /// <summary>
+    /// Returns the EF-backed permission store, throwing when the actor was
+    /// constructed without one (legacy in-memory unit tests). Production DI
+    /// always supplies the default store.
+    /// </summary>
+    private IUnitHumanPermissionStore RequireHumanPermissionStore()
+        => _humanPermissionStore
+            ?? throw new InvalidOperationException(
+                "UnitActor was constructed without an IUnitHumanPermissionStore; ACL writes require the EF-backed store (#2044).");
+
+    /// <summary>
+    /// Parses this actor's id (the unit's stable Guid in 32-char no-dash hex
+    /// form) back into a <see cref="Guid"/> for the EF row key.
+    /// </summary>
+    private Guid ParseSelfActorGuid()
+        => Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(Id.GetId(), out var guid)
+            ? guid
+            : throw new InvalidOperationException(
+                $"UnitActor activated with non-Guid id '{Id.GetId()}'; cannot key unit_human_permissions row.");
 
     /// <inheritdoc />
     public Task<UnitStatus> GetStatusAsync(CancellationToken ct = default)
@@ -929,17 +1013,6 @@ public class UnitActor : Actor, IUnitActor
 
             _ => false,
         };
-
-    /// <summary>
-    /// Retrieves the human permissions map from state, returning an empty dictionary if none exists.
-    /// </summary>
-    private async Task<Dictionary<string, UnitPermissionEntry>> GetHumanPermissionsMapAsync(CancellationToken ct)
-    {
-        var result = await StateManager
-            .TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(StateKeys.HumanPermissions, ct);
-
-        return result.HasValue ? result.Value : [];
-    }
 
     /// <summary>
     /// Handles a cancel message by logging the cancellation request.

@@ -135,6 +135,13 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<ThreadEntity> Threads => Set<ThreadEntity>();
 
+    /// <summary>
+    /// Gets the set of (unit, human) ACL grants (#2044 / ADR-0040). Replaces
+    /// the actor-state <c>Unit:HumanPermissions</c> map with a tenant-scoped
+    /// EF row so authorization reads become a single indexed SQL lookup.
+    /// </summary>
+    public DbSet<UnitHumanPermissionEntity> UnitHumanPermissions => Set<UnitHumanPermissionEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -167,6 +174,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new PackageInstallEntityConfiguration());
         modelBuilder.ApplyConfiguration(new BudgetLimitEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ThreadEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new UnitHumanPermissionEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -222,6 +230,10 @@ public class SpringDbContext : DbContext
 
         // Thread registry: tenant-scoped, no soft-delete (#2047 / ADR-0030).
         modelBuilder.Entity<ThreadEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Unit ACL grants: tenant-scoped, no soft-delete (#2044 / ADR-0040).
+        modelBuilder.Entity<UnitHumanPermissionEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 

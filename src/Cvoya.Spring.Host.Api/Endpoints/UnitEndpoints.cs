@@ -1193,12 +1193,10 @@ public static class UnitEndpoints
 
         await unitProxy.SetHumanPermissionAsync(humanGuid, permissionEntry, cancellationToken);
 
-        // Also update the human actor's unit-scoped permission map. The
-        // HumanActor is now keyed by UUID, not by username slug.
-        var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
-            new ActorId(humanGuid.ToString()), nameof(HumanActor));
-
-        await humanProxy.SetPermissionForUnitAsync(id, permissionLevel, cancellationToken);
+        // #2044 / ADR-0040: ACL grants are now EF rows. The dual write to
+        // HumanActor.SetPermissionForUnitAsync (Human:UnitPermissions actor
+        // state) was the cause of the dual-storage hazard called out in
+        // #2032 — unit_human_permissions is the single source of truth.
 
         return Results.Ok(new SetHumanPermissionResponse(humanGuid, permissionLevel));
     }
@@ -1272,12 +1270,9 @@ public static class UnitEndpoints
 
         await unitProxy.RemoveHumanPermissionAsync(humanGuid, cancellationToken);
 
-        // Keep the human actor's unit-scoped map in sync. HumanActor is now
-        // keyed by UUID, matching the write path in SetHumanPermissionAsync.
-        var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
-            new ActorId(humanGuid.ToString()), nameof(HumanActor));
-
-        await humanProxy.RemovePermissionForUnitAsync(id, cancellationToken);
+        // #2044 / ADR-0040: ACL grants are now EF rows; the dual delete
+        // against HumanActor.RemovePermissionForUnitAsync is gone.
+        // unit_human_permissions is the single source of truth.
 
         return Results.NoContent();
     }

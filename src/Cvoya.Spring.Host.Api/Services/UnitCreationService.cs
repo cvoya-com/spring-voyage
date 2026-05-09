@@ -625,26 +625,10 @@ public class UnitCreationService : IUnitCreationService
             var creatorEntry = new UnitPermissionEntry(creatorGuid.ToString(), PermissionLevel.Owner);
             await proxy.SetHumanPermissionAsync(creatorGuid, creatorEntry, cancellationToken);
 
-            // Mirror the grant onto the human actor's unit-scoped permission
-            // map so both sides stay consistent — matches what
-            // UnitEndpoints.SetHumanPermissionAsync does on direct PATCH.
-            // HumanActor is keyed by UUID after #1491.
-            try
-            {
-                var humanProxy = _actorProxyFactory.CreateActorProxy<IHumanActor>(
-                    new ActorId(creatorGuid.ToString()), nameof(HumanActor));
-                await humanProxy.SetPermissionForUnitAsync(name, PermissionLevel.Owner, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                // Non-fatal: the unit-side grant above is what the router's
-                // permission check consults; the human-side mirror is purely
-                // for symmetry with the PATCH endpoint. Log and move on so a
-                // transient human-actor hiccup does not block creation.
-                _logger.LogWarning(ex,
-                    "Failed to mirror Owner grant onto human actor {HumanId} for unit '{UnitName}'; unit-side grant is authoritative.",
-                    creatorGuid, name);
-            }
+            // #2044 / ADR-0040: the human-side mirror onto
+            // HumanActor.SetPermissionForUnitAsync is gone. The
+            // unit_human_permissions row written above is the single source
+            // of truth — there is no second view to keep in sync.
 
             // Review feedback on #744: wire the new unit as a member of each
             // resolved parent unit BEFORE the manifest members are added. The

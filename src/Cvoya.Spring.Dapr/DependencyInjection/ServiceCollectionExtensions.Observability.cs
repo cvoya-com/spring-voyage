@@ -48,6 +48,14 @@ internal static class ServiceCollectionExtensionsObservability
         // is a DI seam so the private cloud repo can swap in a materialized
         // parent index without touching the permission service.
         services.TryAddSingleton<IUnitHierarchyResolver, DirectoryUnitHierarchyResolver>();
+
+        // #2044 / ADR-0040: ACL writes go to EF, not actor state. The
+        // store is the scope-creating wrapper around the scoped EF
+        // repository — UnitActor (singleton-style) writes through it,
+        // and PermissionService reads through it. TryAddSingleton so a
+        // cloud overlay can decorate with audit logging or cross-tenant
+        // guards without forking the OSS default.
+        services.TryAddSingleton<IUnitHumanPermissionStore, UnitHumanPermissionStore>();
         services.TryAddSingleton<IPermissionService, PermissionService>();
 
         // Costs — scoped query/tracking services always registered for endpoint DI.

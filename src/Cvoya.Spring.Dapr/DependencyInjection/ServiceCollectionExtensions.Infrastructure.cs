@@ -159,6 +159,12 @@ internal static class ServiceCollectionExtensionsInfrastructure
         services.TryAddScoped<IUnitSubunitMembershipRepository, UnitSubunitMembershipRepository>();
         services.TryAddScoped<IUnitPolicyRepository, UnitPolicyRepository>();
 
+        // #2044 / ADR-0040: ACL grants live in EF, not actor state. Scoped
+        // because the underlying SpringDbContext is per-request; the
+        // singleton IUnitHumanPermissionStore wraps a scope-per-call so
+        // UnitActor (not request-scoped) can write through this seam.
+        services.TryAddScoped<IUnitHumanPermissionRepository, UnitHumanPermissionRepository>();
+
         // Singleton write-through wrapper around the scoped sub-unit
         // membership repository (#1154). UnitActor is not request-scoped
         // and cannot consume the scoped repo directly; the projector

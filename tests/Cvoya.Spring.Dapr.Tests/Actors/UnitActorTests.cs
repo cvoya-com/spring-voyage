@@ -44,6 +44,7 @@ public class UnitActorTests
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
+    private readonly IUnitHumanPermissionStore _permissionStore = Substitute.For<IUnitHumanPermissionStore>();
     private readonly UnitActor _actor;
 
     public UnitActorTests()
@@ -60,7 +61,8 @@ public class UnitActorTests
             _runtimeInvocationPath,
             _activityEventBus,
             _directoryService,
-            _actorProxyFactory);
+            _actorProxyFactory,
+            humanPermissionStore: _permissionStore);
         SetStateManager(_actor, _stateManager);
 
         // Default: no members.
@@ -312,47 +314,49 @@ public class UnitActorTests
         payload.GetProperty("Error").GetString()!.ShouldContain("Runtime path failed");
     }
 
-    // --- Human Permission Tests ---
+    // --- Human Permission Tests (#2044 / ADR-0040) ---
+    // ACL grants live in the unit_human_permissions EF table; the actor
+    // delegates to IUnitHumanPermissionStore for every read and write and
+    // never touches actor state on this path.
 
     [Fact]
-    public async Task SetHumanPermissionAsync_NewHuman_StoresPermissionEntry()
+    public async Task SetHumanPermissionAsync_NewHuman_WritesToEfStore()
     {
-        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
-            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(false, default!));
-
         var entry = new UnitPermissionEntry(Human1.ToString(), PermissionLevel.Operator, "Alice", true);
         await _actor.SetHumanPermissionAsync(Human1, entry, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.HumanPermissions,
-            Arg.Is<Dictionary<string, UnitPermissionEntry>>(d =>
-                d.ContainsKey(Human1.ToString()) && d[Human1.ToString()].Permission == PermissionLevel.Operator),
+        await _permissionStore.Received(1).UpsertAsync(
+            TestUnitGuid,
+            Human1,
+            Arg.Is<UnitPermissionEntry>(e => e.Permission == PermissionLevel.Operator && e.Identity == "Alice"),
+            Arg.Any<CancellationToken>());
+
+        // The legacy actor-state key is gone — no SetStateAsync call should
+        // ever fire for the dictionary blob the old shape used.
+        await _stateManager.DidNotReceive().SetStateAsync(
+            "Unit:HumanPermissions",
+            Arg.Any<Dictionary<string, UnitPermissionEntry>>(),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task GetHumanPermissionAsync_ExistingHuman_ReturnsPermissionLevel()
+    public async Task GetHumanPermissionAsync_ExistingHuman_ReturnsPermissionFromEf()
     {
-        var permissions = new Dictionary<string, UnitPermissionEntry>
-        {
-            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true)
-        };
-        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
-            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(true, permissions));
+        _permissionStore.GetPermissionAsync(TestUnitGuid, Human1, Arg.Any<CancellationToken>())
+            .Returns(PermissionLevel.Owner);
 
         var result = await _actor.GetHumanPermissionAsync(Human1, TestContext.Current.CancellationToken);
 
         result.ShouldBe(PermissionLevel.Owner);
+        await _stateManager.DidNotReceive().TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
+            "Unit:HumanPermissions", Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task GetHumanPermissionAsync_NonExistentHuman_ReturnsNull()
     {
-        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
-            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(false, default!));
+        _permissionStore.GetPermissionAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns((PermissionLevel?)null);
 
         var result = await _actor.GetHumanPermissionAsync(HumanUnknown, TestContext.Current.CancellationToken);
 
@@ -360,64 +364,45 @@ public class UnitActorTests
     }
 
     [Fact]
-    public async Task GetHumanPermissionsAsync_MultipleHumans_ReturnsAllEntries()
+    public async Task GetHumanPermissionsAsync_MultipleHumans_ReturnsEntriesFromEf()
     {
-        var permissions = new Dictionary<string, UnitPermissionEntry>
-        {
-            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true),
-            [Human2.ToString()] = new(Human2.ToString(), PermissionLevel.Viewer, "Bob", false)
-        };
-        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
-            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(true, permissions));
+        _permissionStore.ListByUnitAsync(TestUnitGuid, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new UnitPermissionEntry(Human1.ToString(), PermissionLevel.Owner, "Alice", true),
+                new UnitPermissionEntry(Human2.ToString(), PermissionLevel.Viewer, "Bob", false),
+            });
 
         var result = await _actor.GetHumanPermissionsAsync(TestContext.Current.CancellationToken);
 
-        result.Count().ShouldBe(2);
+        result.Length.ShouldBe(2);
     }
 
     [Fact]
-    public async Task RemoveHumanPermissionAsync_ExistingEntry_RemovesAndPersists()
+    public async Task RemoveHumanPermissionAsync_ExistingEntry_DelegatesToEfStore()
     {
-        // #454 adds RemoveHumanPermissionAsync — the CLI's `spring unit
-        // humans remove` maps to DELETE on the server which delegates here.
-        // Verify the map shrinks by one and the persistence call fires.
-        var permissions = new Dictionary<string, UnitPermissionEntry>
-        {
-            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true),
-            [Human2.ToString()] = new(Human2.ToString(), PermissionLevel.Viewer, "Bob", false)
-        };
-        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
-            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(true, permissions));
+        _permissionStore.DeleteAsync(TestUnitGuid, Human1, Arg.Any<CancellationToken>())
+            .Returns(true);
 
         var removed = await _actor.RemoveHumanPermissionAsync(Human1, TestContext.Current.CancellationToken);
 
         removed.ShouldBeTrue();
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.HumanPermissions,
-            Arg.Is<Dictionary<string, UnitPermissionEntry>>(d =>
-                !d.ContainsKey(Human1.ToString()) && d.ContainsKey(Human2.ToString())),
-            Arg.Any<CancellationToken>());
+        await _permissionStore.Received(1).DeleteAsync(
+            TestUnitGuid, Human1, Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task RemoveHumanPermissionAsync_UnknownEntry_IsNoOpAndReturnsFalse()
     {
         // Idempotence is load-bearing: the CLI must not need to branch on
-        // "already absent" vs "just removed". Verify the state write is
-        // skipped so the actor does not rewrite the blob for no reason.
-        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
-            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(false, default!));
+        // "already absent" vs "just removed". The store reports false; the
+        // actor surfaces it without touching anything else.
+        _permissionStore.DeleteAsync(TestUnitGuid, HumanUnknown, Arg.Any<CancellationToken>())
+            .Returns(false);
 
         var removed = await _actor.RemoveHumanPermissionAsync(HumanUnknown, TestContext.Current.CancellationToken);
 
         removed.ShouldBeFalse();
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.HumanPermissions,
-            Arg.Any<Dictionary<string, UnitPermissionEntry>>(),
-            Arg.Any<CancellationToken>());
     }
 
     // --- Activity Event Emission Tests ---
