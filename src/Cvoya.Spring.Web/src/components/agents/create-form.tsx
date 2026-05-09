@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { AlertTriangle, Package, Plug, Search, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Package,
+  Plug,
+  Search,
+  Sparkles,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +27,7 @@ import { api, ApiError } from "@/lib/api/client";
 import {
   useModelProviderModels,
   useModelProviders,
+  useConnectorBindings,
   usePackage,
   useUnitExecution,
 } from "@/lib/api/queries";
@@ -44,7 +52,11 @@ import {
   type HostingMode,
   type RuntimeId,
 } from "@/lib/ai-models";
-import type { PackageDetail, UnitResponse } from "@/lib/api/types";
+import type {
+  PackageConnectorBindings,
+  PackageDetail,
+  UnitResponse,
+} from "@/lib/api/types";
 import { SourcePackagePicker } from "./source-package-picker";
 
 // ---------------------------------------------------------------------------
@@ -97,11 +109,14 @@ type SubmitPhase =
   | "creating"
   | "done"
   | "failed";
+type SuccessVariant = "agent" | "unit" | "installed";
 
 interface CreateState {
   agentId: string | null;
+  installId: string | null;
   phase: SubmitPhase;
   error: string | null;
+  successVariant: SuccessVariant | null;
   /**
    * ADR-0039 §6 (I6): structured 422 from the create call. When
    * non-null, the form renders an inline conflict block listing every
@@ -114,8 +129,10 @@ interface CreateState {
 
 const INITIAL_CREATE: CreateState = {
   agentId: null,
+  installId: null,
   phase: "idle",
   error: null,
+  successVariant: null,
   multiParentConflict: null,
 };
 
@@ -130,7 +147,9 @@ const INITIAL_CREATE: CreateState = {
  * unit-name shape.
  */
 export interface AgentCreateSuccess {
-  agentId: string;
+  agentId?: string;
+  installId?: string;
+  successVariant?: SuccessVariant;
   unitIds: string[];
 }
 
@@ -281,6 +300,13 @@ export function AgentCreateForm({
   const [sourcePackageName, setSourcePackageName] = useState<string | null>(
     null,
   );
+  const [packageInputs, setPackageInputs] = useState<Record<string, string>>(
+    {},
+  );
+  const [
+    connectorBindingSelections,
+    setConnectorBindingSelections,
+  ] = useState<Record<string, string>>({});
   const [pageBranch, setPageBranch] = useState<PageBranch>(() => {
     if (context === "page") return "source";
     if (initialSource === "from-package") return "from-package";
@@ -289,6 +315,14 @@ export function AgentCreateForm({
   });
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [create, setCreate] = useState<CreateState>(INITIAL_CREATE);
+
+  const selectSourcePackage = (packageName: string | null) => {
+    if (packageName !== sourcePackageName) {
+      setPackageInputs({});
+      setConnectorBindingSelections({});
+    }
+    setSourcePackageName(packageName);
+  };
 
   useEffect(() => {
     if (!onSnapshotChange || context !== "page") return;
@@ -336,6 +370,11 @@ export function AgentCreateForm({
     () => providersQuery.data ?? [],
     [providersQuery.data],
   );
+
+  const selectedSourcePackageQuery = usePackage(sourcePackageName ?? "", {
+    enabled: Boolean(sourcePackageName),
+  });
+  const selectedPackageManifest = selectedSourcePackageQuery.data ?? null;
 
   // ADR-0039 I4: when `form.runtime === ""` the operator wants to inherit;
   // gating logic for the provider/model dropdowns still needs to resolve
@@ -563,18 +602,76 @@ export function AgentCreateForm({
     return { apiUnitIds, navigationUnitIds };
   }, [form.unitIds, unitsQuery.data]);
 
+  const buildPackageConnectorBindings = useCallback(():
+    | PackageConnectorBindings
+    | undefined => {
+    const requirements = connectorRequirements(selectedPackageManifest);
+    if (requirements.length === 0) return undefined;
+
+    const packageBindings: NonNullable<PackageConnectorBindings["package"]> =
+      {};
+    for (const connectorType of requirements) {
+      const bindingId = connectorBindingSelections[connectorType]?.trim();
+      if (!bindingId) continue;
+      packageBindings[connectorType] = {
+        config: { bindingId },
+      };
+    }
+
+    return Object.keys(packageBindings).length > 0
+      ? { package: packageBindings, units: null }
+      : undefined;
+  }, [connectorBindingSelections, selectedPackageManifest]);
+
   const runCreate = useCallback(async () => {
     const localAgentId = form.id.trim();
     const { apiUnitIds, navigationUnitIds } = resolveSelectedUnits();
 
     setCreate({
       agentId: localAgentId,
+      installId: null,
       phase: "creating",
       error: null,
+      successVariant: null,
       multiParentConflict: null,
     });
 
     try {
+      if (source === "from-package" && sourcePackageName) {
+        const connectorBindings = buildPackageConnectorBindings();
+        const response = await api.installPackages([
+          {
+            packageName: sourcePackageName,
+            inputs: packageInputs,
+            ...(connectorBindings ? { connectorBindings } : {}),
+          },
+        ]);
+        const packageManifest =
+          selectedPackageManifest ??
+          (await api.getPackage(sourcePackageName).catch(() => null));
+        const successVariant =
+          successVariantForPackage(packageManifest);
+
+        setCreate((prev) => ({
+          ...prev,
+          installId: response.installId,
+          phase: "done",
+          successVariant,
+        }));
+        invalidateAgentCaches();
+
+        toast({
+          title: successMessageForVariant(successVariant),
+          description: response.installId,
+        });
+        onSuccess?.({
+          installId: response.installId,
+          successVariant,
+          unitIds: navigationUnitIds,
+        });
+        return;
+      }
+
       // ADR-0039 I4: blank fields submit as undefined so the backend
       // resolves the parent unit's value (or tenant default) at dispatch.
       // When the operator picked a fixed-provider runtime explicitly,
@@ -607,6 +704,7 @@ export function AgentCreateForm({
         ...prev,
         agentId: createdAgentId,
         phase: "done",
+        successVariant: "agent",
       }));
       invalidateAgentCaches();
 
@@ -642,6 +740,11 @@ export function AgentCreateForm({
     }
   }, [
     form,
+    source,
+    sourcePackageName,
+    packageInputs,
+    selectedPackageManifest,
+    buildPackageConnectorBindings,
     fixedProviderId,
     resolveSelectedUnits,
     invalidateAgentCaches,
@@ -651,6 +754,28 @@ export function AgentCreateForm({
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (source === "from-package") {
+      if (!sourcePackageName) {
+        setValidationMessage("Select a package to install.");
+        return;
+      }
+      const missingConnectorBindings = selectedPackageManifest
+        ? connectorRequirements(selectedPackageManifest).filter(
+            (connectorType) =>
+              !connectorBindingSelections[connectorType]?.trim(),
+          )
+        : [];
+      if (missingConnectorBindings.length > 0) {
+        setValidationMessage(
+          `Select connector bindings for ${missingConnectorBindings.join(", ")}.`,
+        );
+        return;
+      }
+      setValidationMessage(null);
+      void runCreate();
+      return;
+    }
+
     const agentId = form.id.trim();
     if (!agentId) {
       setValidationMessage("Agent id is required.");
@@ -692,7 +817,7 @@ export function AgentCreateForm({
 
   const handleSourceBack = () => {
     setSource("scratch");
-    setSourcePackageName(null);
+    selectSourcePackage(null);
     if (context === "page") {
       setPageBranch("source");
       return;
@@ -714,11 +839,15 @@ export function AgentCreateForm({
     form.image !== "" ||
     form.hosting !== "";
 
+  const idleSubmitLabel =
+    source === "from-package" ? "Install package" : "Create agent";
+  const progressLabel =
+    source === "from-package" ? "Installing…" : "Creating…";
   const phaseLabel: Record<SubmitPhase, string> = {
-    idle: "Create agent",
-    creating: "Creating…",
-    done: "Create agent",
-    failed: "Create agent",
+    idle: idleSubmitLabel,
+    creating: progressLabel,
+    done: idleSubmitLabel,
+    failed: idleSubmitLabel,
   };
 
   if (context === "page" && pageBranch === "source") {
@@ -736,7 +865,7 @@ export function AgentCreateForm({
               selected={source === "scratch"}
               onSelect={() => {
                 setSource("scratch");
-                setSourcePackageName(null);
+                selectSourcePackage(null);
               }}
               testId="agent-source-card-scratch"
             />
@@ -757,7 +886,7 @@ export function AgentCreateForm({
               selected={source === "browse"}
               onSelect={() => {
                 setSource("browse");
-                setSourcePackageName(null);
+                selectSourcePackage(null);
               }}
               testId="agent-source-card-browse"
             />
@@ -783,15 +912,24 @@ export function AgentCreateForm({
     return (
       <SourcePackagePicker
         selectedPackageName={sourcePackageName}
-        onSelectionChange={setSourcePackageName}
+        onSelectionChange={selectSourcePackage}
         onSelect={(packageName) => {
-          setSourcePackageName(packageName);
+          selectSourcePackage(packageName);
           setPageBranch("scratch");
         }}
         onBack={handleSourceBack}
         onCancel={handleCancel}
         selectionDetail={
-          <PackageConnectorRequirementsPanel packageName={sourcePackageName} />
+          <PackageConnectorRequirementsPanel
+            packageName={sourcePackageName}
+            selectedBindings={connectorBindingSelections}
+            onBindingChange={(connectorType, bindingId) =>
+              setConnectorBindingSelections((prev) => ({
+                ...prev,
+                [connectorType]: bindingId,
+              }))
+            }
+          />
         }
       />
     );
@@ -1328,7 +1466,30 @@ export function AgentCreateForm({
           className="mt-4 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
           data-testid="agent-create-progress"
         >
-          Creating agent…
+          {source === "from-package" ? "Installing package…" : "Creating agent…"}
+        </div>
+      )}
+
+      {create.phase === "done" && (
+        <div
+          role="status"
+          className="mt-4 flex items-start gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-200"
+          data-testid="agent-create-success"
+        >
+          <CheckCircle2
+            className="mt-0.5 h-4 w-4 shrink-0"
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">
+              {successMessageForVariant(create.successVariant)}
+            </p>
+            {create.installId && (
+              <p className="truncate font-mono text-xs text-muted-foreground">
+                {create.installId}
+              </p>
+            )}
+          </div>
         </div>
       )}
 
@@ -1381,8 +1542,12 @@ export function AgentCreateForm({
 
 function PackageConnectorRequirementsPanel({
   packageName,
+  selectedBindings,
+  onBindingChange,
 }: {
   packageName: string | null;
+  selectedBindings: Record<string, string>;
+  onBindingChange: (connectorType: string, bindingId: string) => void;
 }) {
   const packageQuery = usePackage(packageName ?? "", {
     enabled: Boolean(packageName),
@@ -1445,20 +1610,100 @@ function PackageConnectorRequirementsPanel({
         <div className="min-w-0 flex-1">
           <p className="font-medium">Connector requirements</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Bind these connector types from the unit&apos;s Connector tab after
-            creation.
+            Choose an existing binding for each connector this package
+            declares.
           </p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+          <ul className="mt-2 space-y-2">
             {requirements.map((connectorType) => (
               <li key={connectorType}>
-                <span className="font-mono">{connectorType}</span>
-                {" - bind after creation from the unit's Connector tab"}
+                <PackageConnectorBindingPicker
+                  connectorType={connectorType}
+                  selectedBindingId={selectedBindings[connectorType] ?? ""}
+                  onBindingChange={(bindingId) =>
+                    onBindingChange(connectorType, bindingId)
+                  }
+                />
               </li>
             ))}
           </ul>
         </div>
       </div>
     </div>
+  );
+}
+
+function PackageConnectorBindingPicker({
+  connectorType,
+  selectedBindingId,
+  onBindingChange,
+}: {
+  connectorType: string;
+  selectedBindingId: string;
+  onBindingChange: (bindingId: string) => void;
+}) {
+  const bindingsQuery = useConnectorBindings(connectorType, {
+    staleTime: 30_000,
+  });
+
+  if (bindingsQuery.isPending) {
+    return (
+      <div className="rounded-md border border-border bg-background/50 px-3 py-2">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-mono text-xs">{connectorType}</span>
+          <Skeleton className="h-8 w-44" />
+        </div>
+      </div>
+    );
+  }
+
+  if (bindingsQuery.isError) {
+    const message =
+      bindingsQuery.error instanceof Error
+        ? bindingsQuery.error.message
+        : "Could not load bindings.";
+    return (
+      <div
+        role="alert"
+        className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-xs"
+      >
+        <span className="font-mono">{connectorType}</span>
+        <span className="ml-2 text-foreground">
+          Could not load bindings: {message}
+        </span>
+      </div>
+    );
+  }
+
+  const bindings = bindingsQuery.data ?? [];
+
+  return (
+    <label className="block rounded-md border border-border bg-background/50 px-3 py-2">
+      <span className="flex items-center justify-between gap-3">
+        <span className="font-mono text-xs">{connectorType}</span>
+        {bindings.length === 0 && (
+          <span className="text-xs text-muted-foreground">
+            No bindings available.
+          </span>
+        )}
+      </span>
+      {bindings.length > 0 && (
+        <select
+          value={selectedBindingId}
+          onChange={(e) => onBindingChange(e.target.value)}
+          aria-label={`Binding for ${connectorType}`}
+          data-testid={`package-connector-binding-${connectorType}`}
+          className="mt-2 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <option value="">Choose a binding</option>
+          {bindings.map((binding) => (
+            <option key={binding.unitId} value={binding.unitId}>
+              {binding.unitDisplayName || binding.unitName} - unit://
+              {binding.unitName}
+            </option>
+          ))}
+        </select>
+      )}
+    </label>
   );
 }
 
@@ -1473,6 +1718,39 @@ function connectorRequirements(pkg: PackageDetail | null | undefined): string[] 
     requirements.push(connectorType);
   }
   return requirements;
+}
+
+function successVariantForPackage(
+  pkg: PackageDetail | null | undefined,
+): SuccessVariant {
+  if (!pkg) return "installed";
+  return packageDeclaresUnits(pkg) ? "unit" : "agent";
+}
+
+function packageDeclaresUnits(pkg: PackageDetail): boolean {
+  const currentUnitTemplates = pkg.unitTemplates ?? [];
+  if (currentUnitTemplates.length > 0) return true;
+
+  const legacyUnits = (pkg as PackageDetail & { units?: unknown }).units;
+  if (Array.isArray(legacyUnits)) return legacyUnits.length > 0;
+  if (legacyUnits && typeof legacyUnits === "object") {
+    return Object.keys(legacyUnits).length > 0;
+  }
+  return false;
+}
+
+function successMessageForVariant(
+  variant: SuccessVariant | null,
+): string {
+  switch (variant) {
+    case "unit":
+      return "Unit installed successfully.";
+    case "installed":
+      return "Installed successfully.";
+    case "agent":
+    default:
+      return "Agent created successfully.";
+  }
 }
 
 function SourceCard({
