@@ -3,6 +3,9 @@
 
 namespace Cvoya.Spring.Dapr.Data.Configuration;
 
+using System.Text.Json;
+
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data.Entities;
 
 using Microsoft.EntityFrameworkCore;
@@ -28,6 +31,16 @@ internal class HumanEntityConfiguration : IEntityTypeConfiguration<HumanEntity>
         builder.Property(e => e.Username).HasColumnName("username").IsRequired().HasMaxLength(256);
         builder.Property(e => e.DisplayName).HasColumnName("display_name").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Email).HasColumnName("email").HasMaxLength(512);
+        builder.Property(e => e.PermissionLevel)
+            .HasColumnName("permission_level")
+            .IsRequired()
+            .HasConversion<int>();
+        builder.Property(e => e.NotificationPreferences)
+            .HasColumnName("notification_preferences")
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => v == null ? null : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => string.IsNullOrEmpty(v) ? null : JsonSerializer.Deserialize<NotificationPreferences>(v, (JsonSerializerOptions?)null));
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
 
         // Unique username per tenant — the lookup key for every JWT boundary.

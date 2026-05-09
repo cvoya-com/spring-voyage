@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Data.Entities;
 
 using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Dapr.Actors;
 
 /// <summary>
 /// Persisted record for a human user in the Spring Voyage platform.
@@ -33,6 +34,21 @@ public class HumanEntity : ITenantScopedEntity
 
     /// <summary>Gets or sets the optional e-mail address for this human.</summary>
     public string? Email { get; set; }
+
+    /// <summary>
+    /// Gets or sets the global permission level for this human. Defaults to
+    /// <see cref="PermissionLevel.Operator"/> per the OSS unblock decision
+    /// captured on <see cref="HumanEntity"/> (#1473 / #1479) — the long-term
+    /// shape moves to owner-by-creation + thread membership.
+    /// </summary>
+    public PermissionLevel PermissionLevel { get; set; } = PermissionLevel.Operator;
+
+    /// <summary>
+    /// Gets or sets the per-human notification preferences. Stored as a
+    /// <c>jsonb</c> column; <c>null</c> means "no explicit preferences set"
+    /// and downstream routing applies the platform default.
+    /// </summary>
+    public NotificationPreferences? NotificationPreferences { get; set; }
 
     /// <summary>Gets or sets the timestamp when the record was created.</summary>
     public DateTimeOffset CreatedAt { get; set; }

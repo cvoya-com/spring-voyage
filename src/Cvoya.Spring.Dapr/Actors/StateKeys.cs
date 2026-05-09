@@ -80,20 +80,10 @@ public static class StateKeys
     /// </summary>
     public const string ConnectorConfig = "Connector:Config";
 
-    /// <summary>
-    /// State key for the human actor's identity.
-    /// </summary>
-    public const string HumanIdentity = "Human:Identity";
-
-    /// <summary>
-    /// State key for the human actor's permission level.
-    /// </summary>
-    public const string HumanPermission = "Human:Permission";
-
-    /// <summary>
-    /// State key for the human actor's notification preferences.
-    /// </summary>
-    public const string HumanNotificationPreferences = "Human:NotificationPreferences";
+    // ADR-0040: Human:Identity, Human:Permission, and
+    // Human:NotificationPreferences moved to columns on the humans EF table.
+    // The HumanActor reads them from SpringDbContext on every call; no
+    // actor-state copy is maintained.
 
     /// <summary>
     /// State key for the human actor's unit-scoped permission map (unitId to PermissionLevel).
