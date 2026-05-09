@@ -298,21 +298,9 @@ tool surface from [ADR-0039 section 3](../decisions/0039-units-are-agents.md#3-c
 
 When the runtime calls a delegation tool, the platform publishes a
 `DecisionMade` activity event. The durable payload is the Core
-`OrchestrationDecision` record:
-
-```text
-ActivityEvent {
-  EventType: DecisionMade,
-  UnitId: <caller's unit id>,
-  Details: OrchestrationDecision {
-    Kind: Delegate | Fanout | Inspect | NoOp,
-    Status: Accepted | Routed | Failed,
-    Targets: [<child unit or agent addresses>],
-    ResultMessageIds: [<ids of child responses>],
-    Reason: <optional human-readable explanation>
-  }
-}
-```
+`OrchestrationDecision` record. The decision body records `Kind`, `Status`,
+`Targets` (target addresses), `ResultMessageIds` (result message ids), and
+optional runtime-supplied `Reason`.
 
 The full record also carries `DecisionId`, `TenantId`, `UnitAddress`,
 `ThreadId`, `InputMessageId`, optional `Metadata`, and `CreatedAt`. `Reason` is
