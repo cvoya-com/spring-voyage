@@ -72,6 +72,16 @@ append() {
   printf '%s=%s%s%s\n' "$key" "$quote" "$value" "$quote" >> "${ENV_FILE}"
 }
 
+resolve_container_cli() {
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    printf 'docker'
+  elif command -v podman >/dev/null 2>&1; then
+    printf 'podman'
+  else
+    return 1
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Pre-flight
 # ---------------------------------------------------------------------------
@@ -181,20 +191,31 @@ info ""
 
 # Optional step: authenticate to GHCR for pre-built image pulls
 if [[ -n "${GHCR_PAT:-}" ]]; then
-    echo "Logging into GHCR with provided PAT..."
-    echo "${GHCR_PAT}" | podman login ghcr.io -u "${GHCR_USER:-oauth2}" --password-stdin
-    echo "GHCR login succeeded. Subsequent podman pull calls will use cached credentials."
+    if [[ -z "${GHCR_USER:-}" ]]; then
+        warn "GHCR_PAT is set but GHCR_USER is not."
+        warn "Set GHCR_USER to your GitHub username so GHCR can authenticate the PAT."
+        exit 1
+    fi
+
+    if _GHCR_CLI=$(resolve_container_cli); then
+        info "Logging into GHCR with provided PAT using ${_GHCR_CLI}..."
+        if echo "${GHCR_PAT}" | "${_GHCR_CLI}" login ghcr.io -u "${GHCR_USER}" --password-stdin; then
+            ok "GHCR login succeeded. Subsequent ${_GHCR_CLI} pull calls will use cached credentials."
+        else
+            warn "GHCR login failed. Check GHCR_USER and that GHCR_PAT has read:packages scope."
+            exit 1
+        fi
+    else
+        warn "GHCR_PAT is set, but neither docker nor podman is available for GHCR login."
+        exit 1
+    fi
 fi
 
 BUILD_IMAGES=$(prompt "Build agent images now? (recommended)" "Y")
 if [[ "${BUILD_IMAGES,,}" == "y" ]]; then
     # Resolve container CLI the same way build-agent-images.sh does so the
     # summary message names the right binary.
-    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-        _BUILD_CLI=docker
-    elif command -v podman >/dev/null 2>&1; then
-        _BUILD_CLI=podman
-    else
+    if ! _BUILD_CLI=$(resolve_container_cli); then
         warn "Neither docker nor podman found — skipping image build."
         warn "Run 'deployment/build-agent-images.sh --tag latest' manually before validating units."
         _BUILD_CLI=""
