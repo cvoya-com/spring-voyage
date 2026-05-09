@@ -2,7 +2,7 @@
 # pool: fast
 # ADR-0039 sections 7 / 9: `--container-runtime` is removed from operator-facing
 # agent-create surfaces. The CLI rejects the flag at parse time with a
-# migration hint on stderr; no API call, no agent side-effect.
+# migration hint in the merged CLI output; no API call, no agent side-effect.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
