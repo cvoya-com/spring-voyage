@@ -12947,6 +12947,24 @@
               "null",
               "string"
             ]
+          },
+          "add_on_assign": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "remove_on_assign": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -12992,6 +13010,24 @@
           },
           "eventsAreDefault": {
             "type": "boolean"
+          },
+          "add_on_assign": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "remove_on_assign": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

@@ -576,7 +576,13 @@ public class GitHubConnectorType : IConnectorType
             ? null
             : request.Reviewer.Trim();
         var config = new UnitGitHubConfig(
-            request.Owner, request.Repo, request.AppInstallationId, events, reviewer);
+            request.Owner,
+            request.Repo,
+            request.AppInstallationId,
+            events,
+            reviewer,
+            request.AddOnAssign,
+            request.RemoveOnAssign);
 
         var payload = JsonSerializer.SerializeToElement(config, ConfigJson);
         await _configStore.SetAsync(actorId, GitHubTypeId, payload, cancellationToken);
@@ -939,7 +945,9 @@ public class GitHubConnectorType : IConnectorType
             config.AppInstallationId,
             eventsAreDefault ? DefaultEvents : config.Events!,
             config.Reviewer,
-            eventsAreDefault);
+            eventsAreDefault,
+            config.AddOnAssign,
+            config.RemoveOnAssign);
     }
 
     // Hand-authored schema — deriving from C# via reflection would be cleaner
@@ -966,6 +974,16 @@ public class GitHubConnectorType : IConnectorType
             "reviewer": {
               "type": ["string", "null"],
               "description": "Default GitHub login (no leading @) requested as the reviewer on pull requests opened by this unit."
+            },
+            "add_on_assign": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "Labels to add when an issue is assigned."
+            },
+            "remove_on_assign": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "Labels to remove when an issue is assigned."
             }
           }
         }

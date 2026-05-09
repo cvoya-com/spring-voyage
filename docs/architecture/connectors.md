@@ -84,6 +84,12 @@ The open-source host ships three connector types out of the box:
 | `arxiv` | `src/Cvoya.Spring.Connector.Arxiv/` | Read-only: `searchLiterature` and `fetchAbstract` skills; no auth, no webhooks. |
 | `web-search` | `src/Cvoya.Spring.Connector.WebSearch/` | Generic façade over a pluggable `IWebSearchProvider`. Default provider is Brave Search; Bing, Google Custom Search, or SearxNG can be slotted in by registering an additional `IWebSearchProvider` before the host resolves the DI graph. API keys are referenced by unit-scoped secret name and resolved through `ISecretResolver` at skill-invoke time — plaintext never lands in the stored binding. |
 
+GitHub unit bindings may also carry optional label-roundtrip rules:
+`add_on_assign` and `remove_on_assign`. When a unit emits a routed delegate
+`OrchestrationDecision`, the GitHub connector subscriber loads the unit's
+GitHub binding and applies those labels to the originating issue with the
+connector's credentials.
+
 ## Disabled-with-reason pattern
 
 A connector's credentials are environmental configuration (env vars bound

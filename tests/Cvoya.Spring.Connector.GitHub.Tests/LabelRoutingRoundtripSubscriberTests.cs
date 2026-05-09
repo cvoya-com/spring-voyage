@@ -8,8 +8,10 @@ using System.Reactive.Subjects;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Labels;
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Orchestration;
 
 using Microsoft.Extensions.Logging;
 
@@ -34,6 +36,7 @@ public class LabelRoutingRoundtripSubscriberTests
     private readonly FakeActivityEventBus _bus = new();
     private readonly IGitHubClient _client = Substitute.For<IGitHubClient>();
     private readonly IGitHubConnector _connector = Substitute.For<IGitHubConnector>();
+    private readonly IUnitConnectorConfigStore _configStore = Substitute.For<IUnitConnectorConfigStore>();
     private readonly ILogger<LabelRoutingRoundtripSubscriber> _logger;
     private readonly LabelRoutingRoundtripSubscriber _subscriber;
 
@@ -42,20 +45,21 @@ public class LabelRoutingRoundtripSubscriberTests
         _logger = Substitute.For<ILogger<LabelRoutingRoundtripSubscriber>>();
         _connector.CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>())
             .Returns(_client);
-        _subscriber = new LabelRoutingRoundtripSubscriber(_bus, _connector, _logger);
+        _subscriber = new LabelRoutingRoundtripSubscriber(_bus, _connector, _configStore, _logger);
     }
 
     [Fact]
-    public async Task Start_AppliesAddAndRemove_OnLabelRoutedGitHubEvent()
+    public async Task Start_AppliesAddAndRemove_OnRoutedDelegateDecision()
     {
+        var unit = UnitAddress();
+        RegisterConfig(unit, new UnitGitHubConfig(
+            "acme",
+            "widgets",
+            AddOnAssign: new[] { "in-progress" },
+            RemoveOnAssign: new[] { "agent:backend" }));
         await _subscriber.StartAsync(TestContext.Current.CancellationToken);
 
-        _bus.Publish(BuildEvent(
-            owner: "acme",
-            repo: "widgets",
-            number: 42,
-            addOnAssign: new[] { "in-progress" },
-            removeOnAssign: new[] { "agent:backend" }));
+        _bus.Publish(BuildEvent(unit, number: 42));
 
         // The hosted-service's OnNext is fire-and-forget; wait for the
         // per-label calls to appear rather than assuming a single drain.
@@ -72,24 +76,19 @@ public class LabelRoutingRoundtripSubscriberTests
     }
 
     [Fact]
-    public async Task Start_IgnoresEventWithoutLabelRoutedDecision()
+    public async Task Start_IgnoresNonDelegateDecision()
     {
+        var unit = UnitAddress();
+        RegisterConfig(unit, new UnitGitHubConfig(
+            "acme",
+            "widgets",
+            AddOnAssign: new[] { "in-progress" }));
         await _subscriber.StartAsync(TestContext.Current.CancellationToken);
 
-        var details = JsonSerializer.SerializeToElement(new
-        {
-            decision = "DelegateToStrategy", // not a label-routed decision
-            source = "github",
-            repository = new { owner = "acme", name = "widgets" },
-            issue = new { number = 42 },
-            addOnAssign = new[] { "in-progress" },
-            removeOnAssign = Array.Empty<string>(),
-        });
-        _bus.Publish(new ActivityEvent(
-            Guid.NewGuid(), DateTimeOffset.UtcNow,
-            Address.For("unit", TestSlugIds.HexFor("team")),
-            ActivityEventType.DecisionMade, ActivitySeverity.Info,
-            "some other decision", details));
+        _bus.Publish(BuildEvent(
+            unit,
+            number: 42,
+            kind: OrchestrationDecisionKind.Fanout));
 
         await Task.Delay(20, TestContext.Current.CancellationToken);
         _client.Issue.Labels.ReceivedCalls().ShouldBeEmpty();
@@ -98,24 +97,12 @@ public class LabelRoutingRoundtripSubscriberTests
     }
 
     [Fact]
-    public async Task Start_IgnoresNonGitHubLabelRoutedEvent()
+    public async Task Start_IgnoresUnitWithoutGitHubBinding()
     {
+        var unit = UnitAddress();
         await _subscriber.StartAsync(TestContext.Current.CancellationToken);
 
-        var details = JsonSerializer.SerializeToElement(new
-        {
-            decision = "LabelRouted",
-            source = "linear", // not github
-            repository = new { owner = "acme", name = "widgets" },
-            issue = new { number = 42 },
-            addOnAssign = new[] { "in-progress" },
-            removeOnAssign = Array.Empty<string>(),
-        });
-        _bus.Publish(new ActivityEvent(
-            Guid.NewGuid(), DateTimeOffset.UtcNow,
-            Address.For("unit", TestSlugIds.HexFor("team")),
-            ActivityEventType.DecisionMade, ActivitySeverity.Info,
-            "linear assignment", details));
+        _bus.Publish(BuildEvent(unit, number: 42));
 
         await Task.Delay(20, TestContext.Current.CancellationToken);
         _client.Issue.Labels.ReceivedCalls().ShouldBeEmpty();
@@ -185,10 +172,14 @@ public class LabelRoutingRoundtripSubscriberTests
     [Fact]
     public async Task Apply_NoLabels_NoCalls()
     {
-        await _subscriber.ApplyRoundtripAsync(BuildEvent(
-            owner: "acme", repo: "widgets", number: 42,
-            addOnAssign: Array.Empty<string>(),
-            removeOnAssign: Array.Empty<string>()),
+        var unit = UnitAddress();
+        RegisterConfig(unit, new UnitGitHubConfig(
+            "acme",
+            "widgets",
+            AddOnAssign: Array.Empty<string>(),
+            RemoveOnAssign: Array.Empty<string>()));
+
+        await _subscriber.ApplyRoundtripAsync(BuildEvent(unit, number: 42),
             TestContext.Current.CancellationToken);
 
         _client.Issue.Labels.ReceivedCalls().ShouldBeEmpty();
@@ -196,21 +187,14 @@ public class LabelRoutingRoundtripSubscriberTests
     }
 
     [Fact]
-    public async Task Apply_MissingRepositoryContext_Skipped()
+    public async Task Apply_MissingIssueContext_Skipped()
     {
-        var details = JsonSerializer.SerializeToElement(new
-        {
-            decision = "LabelRouted",
-            source = "github",
-            addOnAssign = new[] { "in-progress" },
-            removeOnAssign = Array.Empty<string>(),
-            // no repository / issue fields
-        });
-        var evt = new ActivityEvent(
-            Guid.NewGuid(), DateTimeOffset.UtcNow,
-            Address.For("unit", TestSlugIds.HexFor("team")),
-            ActivityEventType.DecisionMade, ActivitySeverity.Info,
-            "malformed label-routed event", details);
+        var unit = UnitAddress();
+        RegisterConfig(unit, new UnitGitHubConfig(
+            "acme",
+            "widgets",
+            AddOnAssign: new[] { "in-progress" }));
+        var evt = BuildEvent(unit, number: 42, includeIssueMetadata: false);
 
         await _subscriber.ApplyRoundtripAsync(evt, TestContext.Current.CancellationToken);
 
@@ -218,39 +202,51 @@ public class LabelRoutingRoundtripSubscriberTests
     }
 
     [Fact]
-    public void Filter_AcceptsOnlyLabelRoutedGitHubEvents()
+    public void Filter_AcceptsOnlyRoutedDelegateDecisionEvents()
     {
-        var good = BuildEvent("a", "b", 1, new[] { "x" }, Array.Empty<string>());
-        LabelRoutingRoundtripSubscriber.IsLabelRoutedGitHubAssignment(good)
+        var unit = UnitAddress();
+        var good = BuildEvent(unit, number: 1);
+        LabelRoutingRoundtripSubscriber.IsRoutedDelegateDecision(good)
             .ShouldBeTrue();
 
         var nonDecision = good with { EventType = ActivityEventType.MessageReceived };
-        LabelRoutingRoundtripSubscriber.IsLabelRoutedGitHubAssignment(nonDecision)
+        LabelRoutingRoundtripSubscriber.IsRoutedDelegateDecision(nonDecision)
             .ShouldBeFalse();
 
         var nullDetails = good with { Details = null };
-        LabelRoutingRoundtripSubscriber.IsLabelRoutedGitHubAssignment(nullDetails)
+        LabelRoutingRoundtripSubscriber.IsRoutedDelegateDecision(nullDetails)
+            .ShouldBeFalse();
+
+        var fanout = BuildEvent(
+            unit,
+            number: 1,
+            kind: OrchestrationDecisionKind.Fanout);
+        LabelRoutingRoundtripSubscriber.IsRoutedDelegateDecision(fanout)
+            .ShouldBeFalse();
+
+        var failed = BuildEvent(
+            unit,
+            number: 1,
+            status: OrchestrationDecisionStatus.Failed);
+        LabelRoutingRoundtripSubscriber.IsRoutedDelegateDecision(failed)
             .ShouldBeFalse();
     }
 
     [Fact]
     public void Filter_ReturnsFalse_WhenEventIsNull()
     {
-        LabelRoutingRoundtripSubscriber.IsLabelRoutedGitHubAssignment(null!)
+        LabelRoutingRoundtripSubscriber.IsRoutedDelegateDecision(null!)
             .ShouldBeFalse();
     }
 
     [Fact]
-    public void TryExtractTarget_ReturnsFalseOnMissingIssue()
+    public void TryExtractIssueNumber_ReturnsFalseOnMissingIssue()
     {
-        var details = JsonSerializer.SerializeToElement(new
+        var metadata = JsonSerializer.SerializeToElement(new
         {
-            decision = "LabelRouted",
-            source = "github",
             repository = new { owner = "acme", name = "widgets" },
         });
-        LabelRoutingRoundtripSubscriber.TryExtractTarget(
-            details, out _, out _, out _, out _, out _)
+        LabelRoutingRoundtripSubscriber.TryExtractIssueNumber(metadata, out _)
             .ShouldBeFalse();
     }
 
@@ -275,14 +271,15 @@ public class LabelRoutingRoundtripSubscriberTests
                 return _client;
             });
 
+        var unit = UnitAddress();
+        RegisterConfig(unit, new UnitGitHubConfig(
+            "acme",
+            "widgets",
+            AddOnAssign: new[] { "in-progress" }));
+
         await _subscriber.StartAsync(TestContext.Current.CancellationToken);
 
-        _bus.Publish(BuildEvent(
-            owner: "acme",
-            repo: "widgets",
-            number: 42,
-            addOnAssign: new[] { "in-progress" },
-            removeOnAssign: Array.Empty<string>()));
+        _bus.Publish(BuildEvent(unit, number: 42));
 
         // Wait for the handler to have entered the auth call — it's now in-flight.
         await WaitForAsync(() =>
@@ -303,36 +300,54 @@ public class LabelRoutingRoundtripSubscriberTests
             "StopAsync must not return before the in-flight handler completes");
     }
 
-    private static ActivityEvent BuildEvent(
-        string owner,
-        string repo,
-        int number,
-        IReadOnlyList<string> addOnAssign,
-        IReadOnlyList<string> removeOnAssign)
+    private void RegisterConfig(Address unit, UnitGitHubConfig config)
     {
-        var details = JsonSerializer.SerializeToElement(new
-        {
-            decision = "LabelRouted",
-            unitAddress = new { scheme = "unit", path = "engineering-team" },
-            matchedLabel = "agent:backend",
-            target = new { scheme = "agent", path = "backend-engineer" },
-            source = "github",
-            repository = new { owner, name = repo },
-            issue = new { number },
-            addOnAssign,
-            removeOnAssign,
-            messageId = Guid.NewGuid(),
-        });
+        var stored = JsonSerializer.SerializeToElement(
+            config,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        _configStore.GetAsync(unit.Path, Arg.Any<CancellationToken>())
+            .Returns(new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, stored));
+    }
+
+    private static ActivityEvent BuildEvent(
+        Address unit,
+        int number,
+        OrchestrationDecisionKind kind = OrchestrationDecisionKind.Delegate,
+        OrchestrationDecisionStatus status = OrchestrationDecisionStatus.Routed,
+        bool includeIssueMetadata = true)
+    {
+        JsonElement? metadata = includeIssueMetadata
+            ? JsonSerializer.SerializeToElement(new { issue = new { number } })
+            : null;
+        var decision = new OrchestrationDecision(
+            Guid.NewGuid(),
+            Guid.Empty,
+            unit,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            kind,
+            new[] { Address.For("agent", TestSlugIds.HexFor("backend-engineer")) },
+            status,
+            status == OrchestrationDecisionStatus.Routed
+                ? new[] { Guid.NewGuid() }
+                : Array.Empty<Guid>(),
+            Reason: null,
+            metadata,
+            DateTimeOffset.UtcNow);
+        var details = JsonSerializer.SerializeToElement(decision);
         return new ActivityEvent(
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
-            Address.For("unit", TestSlugIds.HexFor("engineering-team")),
+            unit,
             ActivityEventType.DecisionMade,
             ActivitySeverity.Info,
-            "label-routed assignment",
+            "delegated assignment",
             details,
             CorrelationId: Guid.NewGuid().ToString());
     }
+
+    private static Address UnitAddress() =>
+        Address.For("unit", TestSlugIds.HexFor("engineering-team"));
 
     /// <summary>
     /// Spin-wait with a ceiling so Rx's fire-and-forget handler has time to

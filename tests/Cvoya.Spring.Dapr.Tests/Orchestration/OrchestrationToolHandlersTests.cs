@@ -249,6 +249,62 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
+    public async Task HandleDelegateToChild_GitHubIssuePayload_EmitsIssueNumberMetadata()
+    {
+        var handlers = CreateHandlers();
+        var caller = Unit();
+        var target = Agent(ChildAgentId);
+        var agent = Substitute.For<IAgent>();
+
+        RegisterMembers(caller, target);
+        RegisterAgent(target, agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(CreateResponse(target, caller));
+
+        await handlers.HandleDelegateToChildAsync(
+            caller,
+            target,
+            CreateGitHubIssueMessage(number: 42),
+            null,
+            Guid.NewGuid(),
+            TestContext.Current.CancellationToken);
+
+        var decision = ReadSingleDecision(caller);
+        decision.Metadata.ShouldNotBeNull();
+        var metadata = decision.Metadata!.Value;
+        metadata.GetProperty("issue").GetProperty("number").GetInt32()
+            .ShouldBe(42);
+        metadata.GetProperty("issue").EnumerateObject()
+            .Select(p => p.Name)
+            .ShouldBe(["number"]);
+    }
+
+    [Fact]
+    public async Task HandleDelegateToChild_NonGitHubIssuePayload_DoesNotEmitIssueMetadata()
+    {
+        var handlers = CreateHandlers();
+        var caller = Unit();
+        var target = Agent(ChildAgentId);
+        var agent = Substitute.For<IAgent>();
+
+        RegisterMembers(caller, target);
+        RegisterAgent(target, agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(CreateResponse(target, caller));
+
+        await handlers.HandleDelegateToChildAsync(
+            caller,
+            target,
+            CreateNonGitHubIssueMessage(number: 42),
+            null,
+            Guid.NewGuid(),
+            TestContext.Current.CancellationToken);
+
+        var decision = ReadSingleDecision(caller);
+        decision.Metadata.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task HandleDelegateToChild_Exception_EmitsFailed()
     {
         var handlers = CreateHandlers();
@@ -631,6 +687,43 @@ public class OrchestrationToolHandlersTests
             MessageType.Domain,
             Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Content = "work" }),
+            DateTimeOffset.UtcNow);
+
+    private static Message CreateGitHubIssueMessage(int number) =>
+        new(
+            Guid.NewGuid(),
+            new Address(Address.UnitScheme, Guid.NewGuid()),
+            new Address(Address.AgentScheme, Guid.NewGuid()),
+            MessageType.Domain,
+            Guid.NewGuid().ToString(),
+            JsonSerializer.SerializeToElement(new
+            {
+                source = "github",
+                issue = new
+                {
+                    number,
+                    title = "Fix label roundtrip",
+                    body = "body should not be copied into decision metadata",
+                },
+            }),
+            DateTimeOffset.UtcNow);
+
+    private static Message CreateNonGitHubIssueMessage(int number) =>
+        new(
+            Guid.NewGuid(),
+            new Address(Address.UnitScheme, Guid.NewGuid()),
+            new Address(Address.AgentScheme, Guid.NewGuid()),
+            MessageType.Domain,
+            Guid.NewGuid().ToString(),
+            JsonSerializer.SerializeToElement(new
+            {
+                source = "jira",
+                issue = new
+                {
+                    number,
+                    title = "Different upstream",
+                },
+            }),
             DateTimeOffset.UtcNow);
 
     private static Message CreateResponse(Address from, Address to) =>

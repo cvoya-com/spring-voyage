@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Connector.GitHub;
 
+using System.Text.Json.Serialization;
+
 /// <summary>
 /// Request body for
 /// <c>PUT /api/v1/connectors/github/units/{unitId}/config</c>. Binds the
@@ -17,12 +19,16 @@ namespace Cvoya.Spring.Connector.GitHub;
 /// pull requests opened by this unit. Optional — agents that pass a
 /// reviewer explicitly still override per-call.
 /// </param>
+/// <param name="AddOnAssign">Labels to add when an issue is assigned through this unit.</param>
+/// <param name="RemoveOnAssign">Labels to remove when an issue is assigned through this unit.</param>
 public record UnitGitHubConfigRequest(
     string Owner,
     string Repo,
     long? AppInstallationId = null,
     IReadOnlyList<string>? Events = null,
-    string? Reviewer = null);
+    string? Reviewer = null,
+    [property: JsonPropertyName("add_on_assign")] IReadOnlyList<string>? AddOnAssign = null,
+    [property: JsonPropertyName("remove_on_assign")] IReadOnlyList<string>? RemoveOnAssign = null);
 
 /// <summary>
 /// Response body for
@@ -52,6 +58,8 @@ public record UnitGitHubConfigRequest(
 /// where a <c>null</c> <see cref="UnitGitHubConfigRequest.Events"/>
 /// already encodes "use defaults" intent. (#1146 / #1127)
 /// </param>
+/// <param name="AddOnAssign">Labels to add when an issue is assigned through this unit.</param>
+/// <param name="RemoveOnAssign">Labels to remove when an issue is assigned through this unit.</param>
 public record UnitGitHubConfigResponse(
     string UnitId,
     string Owner,
@@ -59,7 +67,9 @@ public record UnitGitHubConfigResponse(
     long? AppInstallationId,
     IReadOnlyList<string> Events,
     string? Reviewer,
-    bool EventsAreDefault);
+    bool EventsAreDefault,
+    [property: JsonPropertyName("add_on_assign")] IReadOnlyList<string>? AddOnAssign = null,
+    [property: JsonPropertyName("remove_on_assign")] IReadOnlyList<string>? RemoveOnAssign = null);
 
 /// <summary>
 /// Response item for

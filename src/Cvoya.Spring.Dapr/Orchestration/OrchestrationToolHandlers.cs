@@ -102,6 +102,7 @@ public class OrchestrationToolHandlers(
                 OrchestrationDecisionStatus.Failed,
                 [],
                 reason,
+                BuildDecisionMetadata(message.Payload),
                 CancellationToken.None);
 
             throw;
@@ -116,6 +117,7 @@ public class OrchestrationToolHandlers(
             OrchestrationDecisionStatus.Routed,
             response is null ? [] : [response.Id],
             reason,
+            BuildDecisionMetadata(message.Payload),
             ct);
 
         return response;
@@ -168,6 +170,7 @@ public class OrchestrationToolHandlers(
             status,
             resultMessageIds,
             reason,
+            metadata: null,
             ct);
 
         return results;
@@ -199,6 +202,7 @@ public class OrchestrationToolHandlers(
         OrchestrationDecisionStatus status,
         Guid[] resultMessageIds,
         string? reason,
+        JsonElement? metadata,
         CancellationToken ct)
     {
         // TODO #1994: replace Guid.Empty with the callback token tenant id once
@@ -214,7 +218,7 @@ public class OrchestrationToolHandlers(
             status,
             resultMessageIds,
             reason,
-            Metadata: null,
+            metadata,
             DateTimeOffset.UtcNow);
 
         var activityEvent = new ActivityEvent(
@@ -255,6 +259,44 @@ public class OrchestrationToolHandlers(
             _ =>
                 $"Orchestration decision {status}.",
         };
+    }
+
+    private static JsonElement? BuildDecisionMetadata(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (!payload.TryGetProperty("source", out var source)
+            || source.ValueKind != JsonValueKind.String
+            || !string.Equals(source.GetString(), "github", StringComparison.OrdinalIgnoreCase)
+            || !payload.TryGetProperty("issue", out var issue)
+            || issue.ValueKind != JsonValueKind.Object
+            || !TryReadPositiveInt(issue, "number", out var issueNumber))
+        {
+            return null;
+        }
+
+        return JsonSerializer.SerializeToElement(new
+        {
+            issue = new { number = issueNumber },
+        });
+    }
+
+    private static bool TryReadPositiveInt(JsonElement parent, string property, out int value)
+    {
+        value = 0;
+        if (!parent.TryGetProperty(property, out var element)
+            || element.ValueKind != JsonValueKind.Number
+            || !element.TryGetInt32(out var parsed)
+            || parsed <= 0)
+        {
+            return false;
+        }
+
+        value = parsed;
+        return true;
     }
 
     private static void EnsureUnitCaller(Address caller)

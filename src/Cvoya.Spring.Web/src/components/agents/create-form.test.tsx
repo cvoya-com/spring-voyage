@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 
 import type {
   AgentResponse,
+  InstallStatusResponse,
   InstalledModelProviderResponse,
   PackageDetail,
   PackageSummary,
@@ -22,8 +23,10 @@ const listModelProviders = vi.fn();
 const getModelProviderModels = vi.fn();
 const getUnitExecution = vi.fn();
 const createAgent = vi.fn();
+const installPackages = vi.fn();
 const listPackages = vi.fn();
 const getPackage = vi.fn();
+const listConnectorBindings = vi.fn();
 
 // Re-export the real ApiError so the production code's `instanceof
 // ApiError` check (used by the multi-parent inheritance conflict path —
@@ -42,8 +45,11 @@ vi.mock("@/lib/api/client", async () => {
       getModelProviderModels: (id: string) => getModelProviderModels(id),
       getUnitExecution: (id: string) => getUnitExecution(id),
       createAgent: (body: unknown) => createAgent(body),
+      installPackages: (targets: unknown) => installPackages(targets),
       listPackages: () => listPackages(),
       getPackage: (name: string) => getPackage(name),
+      listConnectorBindings: (slugOrId: string) =>
+        listConnectorBindings(slugOrId),
     },
   };
 });
@@ -161,6 +167,21 @@ function makePackageDetail(
   } as PackageDetail;
 }
 
+function makeInstallStatus(
+  overrides: Partial<InstallStatusResponse> = {},
+): InstallStatusResponse {
+  const now = new Date().toISOString();
+  return {
+    installId:
+      overrides.installId ?? "00000000-0000-0000-0000-000000000189",
+    status: overrides.status ?? "active",
+    packages: overrides.packages ?? [],
+    startedAt: overrides.startedAt ?? now,
+    completedAt: overrides.completedAt ?? now,
+    error: overrides.error ?? null,
+  } as InstallStatusResponse;
+}
+
 function renderForm(
   props: Partial<Parameters<typeof AgentCreateForm>[0]> = {},
 ) {
@@ -198,8 +219,10 @@ beforeEach(() => {
     model: null,
   } as UnitExecutionResponse);
   createAgent.mockResolvedValue(makeAgent());
+  installPackages.mockResolvedValue(makeInstallStatus());
   listPackages.mockResolvedValue([]);
   getPackage.mockResolvedValue(makePackageDetail());
+  listConnectorBindings.mockResolvedValue([]);
 });
 
 // ---------------------------------------------------------------------------
@@ -293,6 +316,17 @@ describe("AgentCreateForm — package connector requirements (K3)", () => {
         connectorDeclarations: [{ type: "github", required: true }],
       }),
     );
+    listConnectorBindings.mockResolvedValue([
+      {
+        unitId: "binding-123",
+        unitName: "engineering",
+        unitDisplayName: "Engineering Team",
+        typeId: "type-github",
+        typeSlug: "github",
+        configUrl: "/api/v1/tenant/connectors/github/units/engineering/config",
+        actionsBaseUrl: "/api/v1/tenant/connectors/github/actions",
+      },
+    ]);
 
     renderForm({ context: "page" });
 
@@ -306,7 +340,10 @@ describe("AgentCreateForm — package connector requirements (K3)", () => {
     const panel = screen.getByTestId("package-connector-requirements");
     expect(panel).toHaveTextContent("Connector requirements");
     expect(panel).toHaveTextContent("github");
-    expect(panel).toHaveTextContent(/unit's Connector tab/i);
+    expect(panel).toHaveTextContent(/Choose an existing binding/i);
+    expect(
+      await screen.findByTestId("package-connector-binding-github"),
+    ).toBeInTheDocument();
   });
 
   it("does not show connector requirements for a package without declarations", async () => {
@@ -336,6 +373,158 @@ describe("AgentCreateForm — package connector requirements (K3)", () => {
         screen.queryByTestId("package-connector-requirements"),
       ).not.toBeInTheDocument();
     });
+  });
+});
+
+async function chooseFromPackage(packageName = "agent-pack") {
+  fireEvent.click(screen.getByTestId("agent-source-card-from-package"));
+  fireEvent.click(screen.getByRole("button", { name: /next/i }));
+  fireEvent.click(await screen.findByTestId(`package-picker-item-${packageName}`));
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0039 K4 — from-package submit posts to package install.
+// ---------------------------------------------------------------------------
+
+describe("AgentCreateForm — from-package submit (K4)", () => {
+  it("posts the selected package, inputs, and connector binding selections to installPackages", async () => {
+    listPackages.mockResolvedValue([
+      makePackageSummary({ name: "software-agents", agentTemplateCount: 2 }),
+    ]);
+    getPackage.mockResolvedValue(
+      makePackageDetail({
+        name: "software-agents",
+        connectorDeclarations: [{ type: "github", required: true }],
+      }),
+    );
+    listConnectorBindings.mockResolvedValue([
+      {
+        unitId: "binding-123",
+        unitName: "engineering",
+        unitDisplayName: "Engineering Team",
+        typeId: "type-github",
+        typeSlug: "github",
+        configUrl: "/api/v1/tenant/connectors/github/units/engineering/config",
+        actionsBaseUrl: "/api/v1/tenant/connectors/github/actions",
+      },
+    ]);
+
+    renderForm({ context: "page" });
+    await chooseFromPackage("software-agents");
+
+    fireEvent.change(
+      await screen.findByTestId("package-connector-binding-github"),
+      { target: { value: "binding-123" } },
+    );
+    fireEvent.click(screen.getByTestId("package-picker-confirm"));
+
+    await screen.findByText("Package selected");
+    fireEvent.click(screen.getByTestId("agent-create-submit"));
+
+    await waitFor(() => {
+      expect(installPackages).toHaveBeenCalledTimes(1);
+    });
+    expect(installPackages).toHaveBeenCalledWith([
+      {
+        packageName: "software-agents",
+        inputs: {},
+        connectorBindings: {
+          package: {
+            github: {
+              config: { bindingId: "binding-123" },
+            },
+          },
+          units: null,
+        },
+      },
+    ]);
+    expect(createAgent).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0039 K5 — manifest-derived success copy.
+// ---------------------------------------------------------------------------
+
+describe("AgentCreateForm — from-package success copy (K5)", () => {
+  it("renders unit install success when the selected package declares units", async () => {
+    listPackages.mockResolvedValue([
+      makePackageSummary({ name: "unit-pack", agentTemplateCount: 1 }),
+    ]);
+    getPackage.mockResolvedValue(
+      makePackageDetail({
+        name: "unit-pack",
+        unitTemplates: [
+          {
+            package: "unit-pack",
+            name: "engineering-team",
+            description: null,
+            path: "units/engineering-team.yaml",
+          },
+        ],
+      }),
+    );
+
+    renderForm({ context: "page" });
+    await chooseFromPackage("unit-pack");
+    fireEvent.click(screen.getByTestId("package-picker-confirm"));
+
+    await screen.findByText("Package selected");
+    fireEvent.click(screen.getByTestId("agent-create-submit"));
+
+    expect(await screen.findByTestId("agent-create-success")).toHaveTextContent(
+      "Unit installed successfully.",
+    );
+  });
+
+  it("renders agent create success when the selected package has no units", async () => {
+    listPackages.mockResolvedValue([
+      makePackageSummary({ name: "agent-pack", agentTemplateCount: 1 }),
+    ]);
+    getPackage.mockResolvedValue(
+      makePackageDetail({
+        name: "agent-pack",
+        agentTemplates: [
+          {
+            package: "agent-pack",
+            name: "ada",
+            displayName: "Ada",
+            role: "reviewer",
+            description: null,
+            path: "agents/ada.yaml",
+          },
+        ],
+      }),
+    );
+
+    renderForm({ context: "page" });
+    await chooseFromPackage("agent-pack");
+    fireEvent.click(screen.getByTestId("package-picker-confirm"));
+
+    await screen.findByText("Package selected");
+    fireEvent.click(screen.getByTestId("agent-create-submit"));
+
+    expect(await screen.findByTestId("agent-create-success")).toHaveTextContent(
+      "Agent created successfully.",
+    );
+  });
+
+  it("falls back to generic install success when the manifest is unavailable", async () => {
+    listPackages.mockResolvedValue([
+      makePackageSummary({ name: "offline-pack", agentTemplateCount: 1 }),
+    ]);
+    getPackage.mockRejectedValue(new Error("manifest unavailable"));
+
+    renderForm({ context: "page" });
+    await chooseFromPackage("offline-pack");
+    fireEvent.click(screen.getByTestId("package-picker-confirm"));
+
+    await screen.findByText("Package selected");
+    fireEvent.click(screen.getByTestId("agent-create-submit"));
+
+    expect(await screen.findByTestId("agent-create-success")).toHaveTextContent(
+      "Installed successfully.",
+    );
   });
 });
 
