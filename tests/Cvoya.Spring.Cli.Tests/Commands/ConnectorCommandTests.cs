@@ -43,6 +43,7 @@ public class ConnectorCommandTests
     [InlineData("connector deprovision github --force")]
     [InlineData("connector bind-tenant github")]
     [InlineData("connector unbind github --force")]
+    [InlineData("connector github label-rules set eng-team --add-on-assign triage --remove-on-assign needs-assignment")]
     [InlineData("connector credentials status github")]
     public void ConnectorVerbs_Parse(string argLine)
     {
@@ -124,6 +125,36 @@ public class ConnectorCommandTests
         rootCommand.Subcommands.Add(connectorCommand);
 
         var parseResult = rootCommand.Parse("connector unit-binding");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void ConnectorGitHubLabelRulesSet_ParsesRepeatableLabelOptions()
+    {
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse(
+            "connector github label-rules set eng-team --add-on-assign triage ready --remove-on-assign needs-assignment");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("binding-id").ShouldBe("eng-team");
+        parseResult.GetValue<string[]>("--add-on-assign").ShouldBe(new[] { "triage", "ready" });
+        parseResult.GetValue<string[]>("--remove-on-assign").ShouldBe(new[] { "needs-assignment" });
+    }
+
+    [Fact]
+    public void ConnectorGitHubLabelRulesSet_RequiresBindingId()
+    {
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse("connector github label-rules set");
 
         parseResult.Errors.ShouldNotBeEmpty();
     }
@@ -326,6 +357,49 @@ public class ConnectorCommandTests
             ct: TestContext.Current.CancellationToken);
 
         result.Reviewer.ShouldBe("alice");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task PutUnitGitHubConfigAsync_SendsLabelRulesWhenProvided()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/connectors/github/units/eng-team/config",
+            expectedMethod: HttpMethod.Put,
+            responseBody:
+                """{"unitId":"eng-team","owner":"acme","repo":"platform","appInstallationId":12345,"events":["issues"],"reviewer":"alice","eventsAreDefault":false,"add_on_assign":["triage"],"remove_on_assign":["needs-assignment"]}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("owner").GetString().ShouldBe("acme");
+                json.GetProperty("repo").GetString().ShouldBe("platform");
+                json.GetProperty("reviewer").GetString().ShouldBe("alice");
+                json.GetProperty("add_on_assign").EnumerateArray()
+                    .Select(e => e.GetString())
+                    .ToArray()
+                    .ShouldBe(new[] { "triage" });
+                json.GetProperty("remove_on_assign").EnumerateArray()
+                    .Select(e => e.GetString())
+                    .ToArray()
+                    .ShouldBe(new[] { "needs-assignment" });
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.PutUnitGitHubConfigAsync(
+            "eng-team",
+            owner: "acme",
+            repo: "platform",
+            appInstallationId: "12345",
+            events: new[] { "issues" },
+            reviewer: "alice",
+            addOnAssign: new[] { "triage" },
+            removeOnAssign: new[] { "needs-assignment" },
+            ct: TestContext.Current.CancellationToken);
+
+        result.AddOnAssign.ShouldBe(new[] { "triage" });
+        result.RemoveOnAssign.ShouldBe(new[] { "needs-assignment" });
         handler.WasCalled.ShouldBeTrue();
     }
 
