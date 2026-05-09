@@ -70,7 +70,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
             new Address("agent", Agent_ContractSendTarget_Id),
             new Address("human", Human_LocalDevUser_Id),
             MessageType.Domain,
-            "contract-conv-1",
+            "00002713-bbbb-cccc-dddd-000000000001",
             JsonSerializer.SerializeToElement(new { ack = "received" }),
             DateTimeOffset.UtcNow);
         var agent = Substitute.For<IAgent>();
@@ -84,7 +84,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
         var request = new SendMessageRequest(
             new AddressDto("agent", Agent_ContractSendTarget_Id.ToString("N")),
             "Domain",
-            "contract-conv-1",
+            "00002713-bbbb-cccc-dddd-000000000001",
             JsonSerializer.SerializeToElement(new { Text = "hello from contract test" }));
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
@@ -153,7 +153,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
         var request = new SendMessageRequest(
             new AddressDto("agent", Agent_ContractNullPayloadTarget_Id.ToString("N")),
             "Domain",
-            "contract-conv-null",
+            "00002713-bbbb-cccc-dddd-000000000002",
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);

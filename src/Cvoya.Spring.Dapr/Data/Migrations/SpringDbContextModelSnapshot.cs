@@ -757,6 +757,51 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.ToTable("tenant_skill_bundle_bindings", "spring");
                 });
 
+            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.ThreadEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("LastActivityAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_activity_at");
+
+                    b.Property<string>("ParticipantKey")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("participant_key");
+
+                    b.Property<string>("Participants")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("participants");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ParticipantKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_threads_tenant_participant_key");
+
+                    b.ToTable("threads", "spring");
+                });
+
             modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.UnitDefinitionEntity", b =>
                 {
                     b.Property<Guid>("Id")

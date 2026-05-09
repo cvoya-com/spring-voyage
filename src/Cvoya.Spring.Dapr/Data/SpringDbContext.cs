@@ -127,6 +127,14 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<PackageInstallEntity> PackageInstalls => Set<PackageInstallEntity>();
 
+    /// <summary>
+    /// Gets the set of thread-registry rows (#2047 / ADR-0030 / ADR-0040). One
+    /// row per canonicalised participant set; the deterministic
+    /// <see cref="ThreadEntity.ParticipantKey"/> is the public-API entry point
+    /// for participant-set lookup.
+    /// </summary>
+    public DbSet<ThreadEntity> Threads => Set<ThreadEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -158,6 +166,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new HumanEntityConfiguration());
         modelBuilder.ApplyConfiguration(new PackageInstallEntityConfiguration());
         modelBuilder.ApplyConfiguration(new BudgetLimitEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new ThreadEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -209,6 +218,10 @@ public class SpringDbContext : DbContext
 
         // Budget limits: tenant-scoped, no soft-delete (ADR-0040 / #2045).
         modelBuilder.Entity<BudgetLimitEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Thread registry: tenant-scoped, no soft-delete (#2047 / ADR-0030).
+        modelBuilder.Entity<ThreadEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 

@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Host.Api.Auth;
@@ -61,6 +62,7 @@ public static class MessageEndpoints
         SendMessageRequest request,
         IMessageRouter messageRouter,
         IAuthenticatedCallerAccessor callerAccessor,
+        IThreadRegistry threadRegistry,
         CancellationToken cancellationToken)
     {
         // #339: Use the authenticated subject's identity as the From address
@@ -81,21 +83,35 @@ public static class MessageEndpoints
         var to = Address.For(request.To.Scheme, request.To.Path);
         var messageId = Guid.NewGuid();
 
-        // #985: AgentActor.HandleDomainMessageAsync hard-requires a
-        // ThreadId on Domain messages and surfaces the raw exception as
-        // a 502 when it's missing. The OpenAPI contract marks the field
-        // optional, so callers following the schema verbatim hit that
-        // footgun. Mirror what the unit-routed path effectively does and
-        // auto-generate a thread id for Domain messages bound for an
-        // agent:// target when the caller didn't supply one. The generated
-        // (or caller-supplied) id is surfaced back on MessageResponse so the
-        // caller can thread follow-up sends under the same thread.
+        // #2047 / ADR-0030: every Domain message must carry a participant-set
+        // thread id so the activity-event CorrelationId is populated and
+        // observability can stitch the timeline. Resolve the id through the
+        // thread registry — same caller / destination set in any order
+        // produces the same id, so follow-up sends thread under the same
+        // conversation without the client tracking the value. Caller-supplied
+        // ids are preserved as-is; control messages (HealthCheck / Cancel /
+        // StatusQuery) skip the auto-resolve because they don't participate
+        // in conversation.
         var threadId = request.ThreadId;
-        if (messageType == MessageType.Domain
-            && string.Equals(to.Scheme, "agent", StringComparison.OrdinalIgnoreCase)
-            && string.IsNullOrWhiteSpace(threadId))
+        if (messageType == MessageType.Domain)
         {
-            threadId = Guid.NewGuid().ToString();
+            if (string.IsNullOrWhiteSpace(threadId))
+            {
+                threadId = await threadRegistry.GetOrCreateAsync(
+                    new[] { from, to }, cancellationToken);
+            }
+            else if (!GuidFormatter.TryParse(threadId, out _))
+            {
+                // #2047 / ADR-0030: thread ids are stable Guids. Lenient
+                // parsing accepts both dashed and no-dash forms
+                // (CONVENTIONS.md § Identifiers); anything else is a client
+                // mistake — return 400 before the message is routed. Only
+                // Domain sends pin to a thread, so control / amendment
+                // messages pass through unchanged.
+                return Results.Problem(
+                    detail: $"ThreadId '{threadId}' is not a valid Guid.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
         }
 
         var message = new Message(

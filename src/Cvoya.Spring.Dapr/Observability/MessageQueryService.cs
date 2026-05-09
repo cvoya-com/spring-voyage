@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Observability;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
@@ -27,7 +28,9 @@ using Microsoft.EntityFrameworkCore;
 /// small in practice; cloud overlays with a dedicated message table can
 /// swap the implementation through DI without touching callers.
 /// </remarks>
-public class MessageQueryService(SpringDbContext dbContext) : IMessageQueryService
+public class MessageQueryService(
+    SpringDbContext dbContext,
+    IThreadRegistry? threadRegistry = null) : IMessageQueryService
 {
     private static readonly string MessageReceivedName = nameof(ActivityEventType.MessageReceived);
 
@@ -87,9 +90,16 @@ public class MessageQueryService(SpringDbContext dbContext) : IMessageQueryServi
                 payload = payloadProp.Clone();
             }
 
+            // #2047: prefer the registry's canonical id when the activity
+            // event's CorrelationId resolves to a registry row, so the
+            // message detail surfaces the authoritative thread id even if
+            // the activity row predates the registry. Fall back to the
+            // CorrelationId as-is otherwise.
+            var threadId = await ResolveThreadIdAsync(row.CorrelationId, cancellationToken);
+
             return new MessageDetail(
                 MessageId: messageId,
-                ThreadId: row.CorrelationId,
+                ThreadId: threadId,
                 From: from,
                 To: to,
                 MessageType: messageType,
@@ -99,6 +109,19 @@ public class MessageQueryService(SpringDbContext dbContext) : IMessageQueryServi
         }
 
         return null;
+    }
+
+    private async Task<string?> ResolveThreadIdAsync(
+        string? correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(correlationId) || threadRegistry is null)
+        {
+            return correlationId;
+        }
+
+        var entry = await threadRegistry.ResolveAsync(correlationId, cancellationToken);
+        return entry?.ThreadId ?? correlationId;
     }
 
     private static string? TryReadString(JsonElement element, string property)
