@@ -80,6 +80,49 @@ public class SpringAgentTests
         }
     }
 
+    // #2019: explicit first-message coverage — a freshly launched persistent
+    // container's first inbound A2A turn carries both a still-valid launch-time
+    // SPRING_CALLBACK_TOKEN and a per-message message.metadata.callbackToken.
+    // The SDK must prefer the per-message token, and the launch-time env-var
+    // must remain set so subsequent turns (or runtimes that ignore the inbound
+    // body) continue to bootstrap from it.
+    [Fact]
+    public async Task FromEnvironment_FirstMessageAfterLaunch_PrefersMessageMetadataTokenAndPreservesEnvironmentBootstrap()
+    {
+        await EnvironmentLock.WaitAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await using var server = RecordingHttpServer.Start(TestContext.Current.CancellationToken);
+            using var _ = new EnvironmentScope(
+                ("SPRING_CALLBACK_URL", server.BaseUrl),
+                ("SPRING_CALLBACK_TOKEN", "fresh-launch-token"));
+
+            var client = SpringAgent.FromEnvironment(
+                """
+                {
+                  "message": {
+                    "metadata": {
+                      "callbackToken": "fresh-message-token-turn-1"
+                    },
+                    "parts": [
+                      { "kind": "text", "text": "first turn after launch" }
+                    ]
+                  }
+                }
+                """);
+
+            await client.PostResultAsync("thread-1", "ok", TestContext.Current.CancellationToken);
+
+            server.AuthorizationHeader.ShouldBe("Bearer fresh-message-token-turn-1");
+            Environment.GetEnvironmentVariable("SPRING_CALLBACK_TOKEN").ShouldBe("fresh-launch-token");
+            Environment.GetEnvironmentVariable("SPRING_CALLBACK_URL").ShouldBe(server.BaseUrl);
+        }
+        finally
+        {
+            EnvironmentLock.Release();
+        }
+    }
+
     private sealed class RecordingHttpServer : IAsyncDisposable
     {
         private readonly TcpListener _listener;
