@@ -35,6 +35,9 @@ import { randomUUID } from "node:crypto";
 import { runAgentBridge } from "./bridge.js";
 import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "./version.js";
 
+const CALLBACK_TOKEN_FIELD = "callbackToken";
+const CALLBACK_TOKEN_ENV_VAR = "SPRING_CALLBACK_TOKEN";
+
 /**
  * A2A `TaskState` values, in the kebab-case-lower wire form required by the
  * .NET A2A V0_3 SDK's `KebabCaseLowerJsonStringEnumConverter`. These map
@@ -200,6 +203,27 @@ export class A2AHandler {
     return text;
   }
 
+  private extractCallbackToken(params: unknown): string | undefined {
+    if (!params || typeof params !== "object") {
+      return undefined;
+    }
+
+    const message = (params as Record<string, unknown>)["message"];
+    if (!message || typeof message !== "object") {
+      return undefined;
+    }
+
+    const metadata = (message as Record<string, unknown>)["metadata"];
+    if (!metadata || typeof metadata !== "object") {
+      return undefined;
+    }
+
+    const metadataToken = (metadata as Record<string, unknown>)[CALLBACK_TOKEN_FIELD];
+    return typeof metadataToken === "string" && metadataToken.length > 0
+      ? metadataToken
+      : undefined;
+  }
+
   private async handleSendMessage(
     req: JsonRpcRequest,
     id: string | number | null,
@@ -227,6 +251,10 @@ export class A2AHandler {
     this.tasks.set(taskId, task);
 
     const userText = this.extractText(req.params);
+    const callbackToken = this.extractCallbackToken(req.params);
+    const spawnEnv = callbackToken
+      ? { ...this.deps.spawnEnv, [CALLBACK_TOKEN_ENV_VAR]: callbackToken }
+      : this.deps.spawnEnv;
     const stderrLines: string[] = [];
 
     let result;
@@ -234,7 +262,7 @@ export class A2AHandler {
       result = await runAgentBridge({
         argv: this.deps.agentArgv,
         stdin: userText,
-        env: this.deps.spawnEnv,
+        env: spawnEnv,
         signal: abort.signal,
         cancelGraceMs: this.deps.cancelGraceMs,
         onStderrLine: (line) => {

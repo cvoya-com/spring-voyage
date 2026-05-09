@@ -10,9 +10,11 @@ using A2A.V0_3;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Tenancy;
 
 using Microsoft.Extensions.Logging;
@@ -64,6 +66,7 @@ public class A2AExecutionDispatcher(
     AgentVolumeManager volumeManager,
     IOptions<DaprSidecarOptions> daprSidecarOptions,
     IA2ATransportFactory transportFactory,
+    ICallbackTokenIssuer callbackTokenIssuer,
     ILoggerFactory loggerFactory) : IExecutionDispatcher
 {
     private static readonly ISerializer _yamlSerializer = new SerializerBuilder()
@@ -94,6 +97,10 @@ public class A2AExecutionDispatcher(
         launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
     private readonly IRuntimeCatalog _runtimeCatalog = runtimeCatalog
         ?? throw new ArgumentNullException(nameof(runtimeCatalog));
+    private readonly ICallbackTokenIssuer _callbackTokenIssuer = callbackTokenIssuer
+        ?? throw new ArgumentNullException(nameof(callbackTokenIssuer));
+
+    internal const string CallbackTokenPayloadField = "callbackToken";
 
     /// <summary>
     /// Default port the in-container A2A endpoint listens on. Mirrors the
@@ -320,7 +327,14 @@ public class A2AExecutionDispatcher(
                     $"Ephemeral agent '{agentId}' did not become A2A-ready within {EffectiveReadinessTimeout}.");
             }
 
-            return await SendA2AMessageAsync(endpoint, agentId, containerId, message, prompt, cancellationToken);
+            return await SendA2AMessageAsync(
+                endpoint,
+                agentId,
+                containerId,
+                message,
+                prompt,
+                callbackToken: null,
+                cancellationToken);
         }
         finally
         {
@@ -482,10 +496,18 @@ public class A2AExecutionDispatcher(
         }
 
         var prompt = await promptAssembler.AssembleAsync(message, context, cancellationToken);
+        var callbackToken = IssuePerMessageCallbackToken(message);
 
         try
         {
-            return await SendA2AMessageAsync(endpoint, agentId, containerId, message, prompt, cancellationToken);
+            return await SendA2AMessageAsync(
+                endpoint,
+                agentId,
+                containerId,
+                message,
+                prompt,
+                callbackToken,
+                cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -675,6 +697,7 @@ public class A2AExecutionDispatcher(
         string? containerId,
         SvMessage originalMessage,
         string prompt,
+        string? callbackToken,
         CancellationToken cancellationToken)
     {
         using var transport = _transportFactory.CreateTransport(containerId);
@@ -702,6 +725,7 @@ public class A2AExecutionDispatcher(
                 Parts = [new TextPart { Text = userMessage }],
                 MessageId = originalMessage.Id.ToString(),
                 ContextId = originalMessage.ThreadId,
+                Metadata = BuildA2AMessageMetadata(callbackToken),
             },
             Configuration = new MessageSendConfiguration
             {
@@ -731,6 +755,38 @@ public class A2AExecutionDispatcher(
         }
 
         return MapA2AResponseToMessage(originalMessage, response);
+    }
+
+    private string IssuePerMessageCallbackToken(SvMessage message)
+    {
+        if (string.IsNullOrWhiteSpace(message.ThreadId) ||
+            !GuidFormatter.TryParse(message.ThreadId, out var threadId))
+        {
+            throw new SpringException(
+                $"Message '{message.Id:N}' has malformed thread id '{message.ThreadId ?? "(null)"}'; " +
+                "persistent A2A dispatch cannot issue a scoped SPRING_CALLBACK_TOKEN.");
+        }
+
+        return _callbackTokenIssuer.Issue(new CallbackToken(
+            _tenantContext.CurrentTenantId,
+            message.To,
+            threadId,
+            message.Id,
+            // The issuer treats default ExpiresAt as "use the configured callback-token lifetime".
+            ExpiresAt: default));
+    }
+
+    private static Dictionary<string, JsonElement>? BuildA2AMessageMetadata(string? callbackToken)
+    {
+        if (string.IsNullOrWhiteSpace(callbackToken))
+        {
+            return null;
+        }
+
+        return new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+        {
+            [CallbackTokenPayloadField] = JsonSerializer.SerializeToElement(callbackToken),
+        };
     }
 
     /// <summary>

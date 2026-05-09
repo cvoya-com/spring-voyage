@@ -19,8 +19,8 @@ public static class Program
         Console.CancelKeyPress += cancelHandler;
         try
         {
-            var callbackClient = SpringAgent.FromEnvironment();
             var inboundMessage = await Console.In.ReadToEndAsync(cancellation.Token);
+            var callbackClient = SpringAgent.FromEnvironment(inboundMessage);
             var threadId = Environment.GetEnvironmentVariable("SPRING_THREAD_ID")
                 ?? throw new InvalidOperationException("SPRING_THREAD_ID env var is required");
 
