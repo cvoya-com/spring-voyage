@@ -271,7 +271,7 @@ Selection and active tab live in the query string:
 - `?node=<id>` — the selected node. Defaults to the tenant root.
 - `?tab=<TabName>` — the active tab (one of the kind's catalog entries; see § 9). A stale `tab` value snaps to the kind's first visible tab.
 
-The route writes both via `router.replace(?${qs}, { scroll: false })` so deep-links round-trip without a history push.
+The route writes both via `window.history.replaceState` so deep-links round-trip without a history push or an App Router server-component navigation; a small URL snapshot subscription re-renders the Explorer immediately after local query updates.
 
 ### 7.2 Shape
 
