@@ -207,19 +207,19 @@ public static class AgentCommand
 
     private static Command CreateCreateCommand(Option<string> outputOption, Func<SpringApiClient> clientFactory)
     {
-        // ADR-0039 §8 / §9: the positional <id> argument is removed from
+        // ADR-0039 §8 / §9: the positional <name> / <id> argument is removed from
         // `spring agent create`. Agent identity is assigned by the platform
         // (a server-allocated Guid); `--name` is the only display surface.
         // We keep a hidden zero-or-one positional with a validator so old
         // scripts that still pass a positional see the migration hint at
         // parse time rather than a generic "unrecognized argument" error.
-        var legacyPositionalIdArg = new Argument<string?>("id")
+        var legacyPositionalNameArg = new Argument<string?>("name")
         {
-            Description = "REJECTED — positional <id> is removed (ADR-0039 §8). Use --name.",
+            Description = "REJECTED — positional <name> is removed (ADR-0039 §8). Use --name.",
             Arity = ArgumentArity.ZeroOrOne,
             Hidden = true,
         };
-        legacyPositionalIdArg.Validators.Add(result =>
+        legacyPositionalNameArg.Validators.Add(result =>
         {
             if (result.Tokens.Count > 0)
             {
@@ -346,7 +346,7 @@ public static class AgentCommand
         });
 
         var command = new Command("create", "Create a new agent");
-        command.Arguments.Add(legacyPositionalIdArg);
+        command.Arguments.Add(legacyPositionalNameArg);
         command.Options.Add(nameOption);
         command.Options.Add(descriptionOption);
         command.Options.Add(roleOption);
@@ -575,22 +575,21 @@ public static class AgentCommand
         "time and every agent on that host uses it. See ADR-0039 §7.";
 
     /// <summary>
-    /// Stderr message used by the parse-time rejection of a positional argument
-    /// passed to <c>spring agent create</c>. Pinned by tests so a future
-    /// rename doesn't slip past CI.
+    /// Stderr message used by the parse-time rejection of a positional
+    /// <c>&lt;name&gt;</c> / <c>&lt;id&gt;</c> argument passed to
+    /// <c>spring agent create</c>. Pinned by tests so a future rename doesn't
+    /// slip past CI.
     /// </summary>
     /// <remarks>
     /// ADR-0039 §8 / §9: agent identity is assigned by the platform (a
-    /// server-allocated Guid). The previous positional <c>&lt;id&gt;</c> —
-    /// which was sent as the legacy <c>Name</c> field — is removed.
-    /// <c>--name</c> is the only display surface. The rejection lives on a
-    /// hidden <see cref="ArgumentArity.ZeroOrOne"/> positional so old scripts
-    /// see the migration path before any action runs.
+    /// server-allocated Guid). The previous positional was removed; <c>--name</c>
+    /// is the only display surface. The rejection lives on a hidden
+    /// <see cref="ArgumentArity.ZeroOrOne"/> positional so old scripts see the
+    /// migration path before any action runs.
     /// </remarks>
     public const string LegacyPositionalIdRejectionMessage =
-        "the agent id positional argument is removed in ADR-0039; agent " +
-        "identity is assigned by the platform. Use --name <display-name> " +
-        "instead. See ADR-0039 §8.";
+        "Positional <name> was removed in ADR-0039. Use --name <display-name> " +
+        "to set the agent's display name.";
 
     /// <summary>
     /// Parser diagnostic for <c>--connector</c> used outside the

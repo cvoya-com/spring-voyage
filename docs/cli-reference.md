@@ -158,7 +158,7 @@ $ spring agent execution set ada --model claude-sonnet-4-6
 $ spring agent create --name ada --unit eng --inherit
 ```
 
-Scripts and scenario tests should pass `--name` explicitly; a bare token after `spring agent create` is rejected with the ADR-0039 migration hint.
+> **Migration note.** The positional `<name>` argument was removed in v0.1. Use `--name <display-name>`.
 
 `--unit <id>` is optional and repeatable. Omitting it creates a top-level tenant-parented agent; one or more `--unit` values create unit memberships. Use Guids in scripts.
 
@@ -166,6 +166,7 @@ Scratch-create flags:
 
 | Flag | Effect |
 |---|---|
+| `--name <display-name>` | Required. Sets the agent display name; the platform assigns the stable agent id. |
 | `--description <text>` | Sends the optional description on the create request. |
 | `--role <role>` | Sends the optional agent role. |
 | `--definition <json>` / `--definition-file <path>` | Sends an explicit agent definition JSON document. |
