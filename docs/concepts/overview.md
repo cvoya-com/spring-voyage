@@ -13,7 +13,7 @@ This document series describes the core concepts and abstractions that make up t
 Concretely, when an agent has children, the runtime launcher attaches
 orchestration tools and the runtime decides whether to answer directly,
 delegate to one child, or fan out to several children -- see
-[Agents -- The five orchestration tools](agents.md#the-five-orchestration-tools).
+[Agents -- Orchestration tools](agents.md#the-five-orchestration-tools).
 External orchestrators (ADK, LangGraph, Temporal, ...) participate over A2A.
 But routing is only one slice of what happens inside a unit:
 

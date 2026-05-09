@@ -82,23 +82,13 @@ When a runtime calls a delegation tool, the platform publishes an
 `ActivityEvent` with `EventType = DecisionMade` and an
 `OrchestrationDecision` payload:
 
-```text
-OrchestrationDecision {
-  Kind,
-  Status,
-  Targets,
-  ResultMessageIds,
-  Reason
-}
-```
-
-| Field | Meaning |
-| --- | --- |
-| `Kind` | Decision kind. Delegation events use `Delegate` or `Fanout`. |
-| `Status` | Outcome. Delegation events use `Routed` or `Failed`; the domain enum also reserves `Accepted`. |
-| `Targets` | Child agent or unit addresses selected by the runtime. |
-| `ResultMessageIds` | Child response message ids produced by the delegation, in target order when applicable. |
-| `Reason` | Optional human-readable explanation supplied by the runtime tool call. |
+| Field | Type | Description |
+| --- | --- | --- |
+| `Kind` | `Delegate` \| `Fanout` \| `Inspect` \| `NoOp` | What the runtime decided to do. |
+| `Status` | `Accepted` \| `Routed` \| `Failed` | Outcome of the delegation attempt. |
+| `Targets` | `Address[]` | Child unit(s) the work was routed to. |
+| `ResultMessageIds` | `Guid[]` | IDs of the child responses. |
+| `Reason` | `string?` | Runtime-supplied explanation (failure reason or routing rationale). |
 
 Delegation events use `Kind = Delegate` for `delegate_to_child` and
 `Kind = Fanout` for `fanout_to_children`. `Status` is `Routed` when the
@@ -107,6 +97,9 @@ complete. The domain enum also reserves `Inspect`, `NoOp`, and `Accepted` for
 explicit decision sequences and accepted-but-not-yet-routed work. `Targets`
 contains the child addresses, `ResultMessageIds` contains any child response
 message ids, and `Reason` is optional runtime-supplied text.
+
+See [ADR-0039 § 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence)
+for the full record definition.
 
 ## Inheritance
 
