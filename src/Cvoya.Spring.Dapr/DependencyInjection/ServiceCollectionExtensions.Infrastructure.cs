@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.DependencyInjection;
 
 using Cvoya.Spring.Core.Configuration;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Units;
@@ -12,6 +13,7 @@ using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
+using Cvoya.Spring.Dapr.Threads;
 using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors.Client;
@@ -192,6 +194,12 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // of a single HTTP request. TryAddScoped so the cloud overlay can
         // register a tenant-aware implementation ahead of the OSS default.
         services.TryAddScoped<IHumanIdentityResolver, HumanIdentityResolver>();
+
+        // Thread registry (#2047 / ADR-0030). Scoped because it consults
+        // SpringDbContext which is scoped per request. TryAddScoped so a
+        // cloud overlay can register a tenant-aware decorator ahead of the
+        // OSS default (e.g. permission / audit-logging wrapper).
+        services.TryAddScoped<IThreadRegistry, EfThreadRegistry>();
 
         services.AddCvoyaSpringTenantPlugins(configuration);
 

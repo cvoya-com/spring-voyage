@@ -34,7 +34,8 @@ using Microsoft.EntityFrameworkCore;
 /// </remarks>
 public class ThreadQueryService(
     SpringDbContext dbContext,
-    IDirectoryService? directoryService = null) : IThreadQueryService
+    IDirectoryService? directoryService = null,
+    IThreadRegistry? threadRegistry = null) : IThreadQueryService
 {
     private static readonly string[] TerminalEventTypes =
     {
@@ -57,7 +58,7 @@ public class ThreadQueryService(
                 e.CorrelationId!, e.Id, RenderSource(e.SourceId, schemeMap), e.EventType, e.Severity, e.Summary, e.Timestamp))
             .ToList();
 
-        var summaries = BuildSummaries(rows);
+        var summaries = await BuildSummariesAsync(rows, cancellationToken);
         summaries = await ApplyFiltersAsync(summaries, filters, cancellationToken);
 
         var limit = filters.Limit is > 0 ? filters.Limit.Value : 50;
@@ -94,7 +95,7 @@ public class ThreadQueryService(
             return null;
         }
 
-        var summary = BuildSummaryForThread(threadId, rows);
+        var summary = await BuildSummaryForThreadAsync(threadId, rows, cancellationToken);
         var events = rows
             .Select(BuildThreadEvent)
             .ToList();
@@ -293,30 +294,46 @@ public class ThreadQueryService(
             .ToList();
     }
 
-    private static IReadOnlyList<ThreadSummary> BuildSummaries(List<ThreadEventRow> rows)
+    private async Task<IReadOnlyList<ThreadSummary>> BuildSummariesAsync(
+        List<ThreadEventRow> rows,
+        CancellationToken cancellationToken)
     {
         var summaries = new List<ThreadSummary>();
         foreach (var group in rows.GroupBy(r => r.ThreadId))
         {
-            summaries.Add(BuildSummaryForThread(group.Key, group.OrderBy(r => r.Timestamp).ToList()));
+            summaries.Add(await BuildSummaryForThreadAsync(
+                group.Key,
+                group.OrderBy(r => r.Timestamp).ToList(),
+                cancellationToken));
         }
         return summaries;
     }
 
-    private static ThreadSummary BuildSummaryForThread(
+    /// <summary>
+    /// Builds a thread summary, preferring the participant list from the
+    /// authoritative <see cref="IThreadRegistry"/> row when one exists for the
+    /// thread id (#2047 / ADR-0030). When the registry has no matching row —
+    /// pre-registry threads, in-memory test contexts that don't ship the
+    /// registry, or activity-only fallbacks — fall back to inferring
+    /// participants from the activity-event sources so the surface keeps
+    /// rendering.
+    /// </summary>
+    private async Task<ThreadSummary> BuildSummaryForThreadAsync(
         string threadId,
-        IReadOnlyList<ThreadEventRow> ordered)
+        IReadOnlyList<ThreadEventRow> ordered,
+        CancellationToken cancellationToken)
     {
         var first = ordered[0];
         var last = ordered[^1];
         var isCompleted = ordered.Any(r =>
             TerminalEventTypes.Contains(r.EventType));
 
-        var participants = ordered
-            .Select(r => NormaliseSource(r.Source))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        IReadOnlyList<string> participants = await ResolveParticipantsAsync(threadId, cancellationToken)
+            ?? ordered
+                .Select(r => NormaliseSource(r.Source))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
         return new ThreadSummary(
             Id: threadId,
@@ -327,6 +344,37 @@ public class ThreadQueryService(
             EventCount: ordered.Count,
             Origin: NormaliseSource(first.Source),
             Summary: first.Summary);
+    }
+
+    /// <summary>
+    /// Returns the participant list from the thread-registry row when the
+    /// registry is wired and a row exists for <paramref name="threadId"/>;
+    /// otherwise <c>null</c> so callers fall back to activity-event inference.
+    /// </summary>
+    private async Task<IReadOnlyList<string>?> ResolveParticipantsAsync(
+        string threadId,
+        CancellationToken cancellationToken)
+    {
+        if (threadRegistry is null)
+        {
+            return null;
+        }
+
+        var entry = await threadRegistry.ResolveAsync(threadId, cancellationToken);
+        if (entry is null || entry.Participants.Count == 0)
+        {
+            return null;
+        }
+
+        // Render registry participants in the same observability shape used
+        // by activity-event-derived participants (NormaliseSource emits the
+        // identity form for canonical addresses) so callers that compare
+        // participant strings across services see consistent values.
+        return entry.Participants
+            .Select(a => NormaliseSource($"{a.Scheme}:{GuidFormatter.Format(a.Id)}"))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     /// <summary>

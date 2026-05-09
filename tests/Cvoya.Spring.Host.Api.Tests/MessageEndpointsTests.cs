@@ -55,7 +55,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var request = new SendMessageRequest(
             new AddressDto("agent", UnknownAgentId.ToString("N")),
             "Domain",
-            "conv-1",
+            Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
@@ -114,7 +114,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var request = new SendMessageRequest(
             new AddressDto("agent", TestAgentId.ToString("N")),
             "Domain",
-            "conv-1",
+            Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
@@ -207,7 +207,10 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 PassthroughAgentId.ToString("N"))
             .Returns(agent);
 
-        const string suppliedId = "caller-supplied-conversation-1";
+        // #2047 / ADR-0030: thread ids are stable Guids. Lenient parsing
+        // accepts both dashed and no-dash forms — using the dashed form
+        // here exercises the canonical-Guid passthrough path.
+        var suppliedId = Guid.NewGuid().ToString();
         var request = new SendMessageRequest(
             new AddressDto("agent", PassthroughAgentId.ToString("N")),
             "Domain",
@@ -225,11 +228,12 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task SendMessage_DomainToUnitWithoutThreadId_DoesNotAutoGenerate()
+    public async Task SendMessage_DomainToUnitWithoutThreadId_AutoGeneratesViaRegistry()
     {
-        // The auto-gen is scoped to agent:// targets — unit:// routing goes
-        // through UnitActor which has its own conversation-opening behaviour
-        // and must not be short-circuited here.
+        // #2047 / ADR-0030: every Domain send (regardless of target scheme)
+        // resolves a participant-set thread id through IThreadRegistry when
+        // the caller omits one, so the activity-event CorrelationId is
+        // populated for unit-routed conversations too. Closes #2034.
         var ct = TestContext.Current.CancellationToken;
 
         var entry = new DirectoryEntry(
@@ -273,9 +277,11 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
         body.ShouldNotBeNull();
-        body!.ThreadId.ShouldBeNull();
+        body!.ThreadId.ShouldNotBeNullOrWhiteSpace();
+        Guid.TryParse(body.ThreadId, out _).ShouldBeTrue();
+
         observed.ShouldNotBeNull();
-        observed!.ThreadId.ShouldBeNull();
+        observed!.ThreadId.ShouldBe(body.ThreadId);
     }
 
     [Fact]
