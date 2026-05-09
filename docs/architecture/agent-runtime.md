@@ -278,7 +278,10 @@ Both surfaces dispatch to the same platform-side
 implementation and produce the same `OrchestrationDecision` evidence. The
 SDK surface lives in
 [`src/Cvoya.Spring.AgentSdk/`](../../src/Cvoya.Spring.AgentSdk/) and is
-documented in [Agent SDK](agent-sdk.md).
+documented in [Agent SDK](agent-sdk.md). The tool-call surface — closed
+enum, descriptor / schema shape, and per-runtime attachment mechanism — is
+documented in [Orchestration Tools](orchestration-tools.md), the
+runtime-image author contract.
 
 See [ADR-0039 section 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime).
 
