@@ -87,7 +87,10 @@ through `IUnitExecutionStore`, and runs a field-level precedence merge:
 - `hosting` is **agent-exclusive** — never inherits. A unit cannot change
   whether an agent is ephemeral or persistent.
 
-See [Orchestration — Unit execution defaults and the agent → unit → fail resolution chain](orchestration.md#unit-execution-defaults-and-the-agent--unit--fail-resolution-chain-601-b-wide) for the full contract and the HTTP / CLI / portal surfaces that edit the same persisted JSON the merge reads.
+See [ADR-0039 § 6](../decisions/0039-units-are-agents.md#6-inheritance-top-level-under-tenant-multi-parent-override-reparenting-validation)
+for the current inheritance contract, including top-level tenant defaults,
+single-parent inheritance, multi-parent conflict validation, and reparenting
+checks.
 
 ```text
 AgentActor.ExecuteTurn()
@@ -303,7 +306,7 @@ ActivityEvent {
   UnitId: <caller's unit id>,
   Details: OrchestrationDecision {
     Kind: Delegate | Fanout | Inspect | NoOp,
-    Status: Routed | Failed,
+    Status: Accepted | Routed | Failed,
     Targets: [<child unit or agent addresses>],
     ResultMessageIds: [<ids of child responses>],
     Reason: <optional human-readable explanation>
@@ -312,10 +315,9 @@ ActivityEvent {
 ```
 
 The full record also carries `DecisionId`, `TenantId`, `UnitAddress`,
-`ThreadId`, `InputMessageId`, optional `Metadata`, and `CreatedAt`. The Core
-status enum also contains `Accepted` for accepted-but-not-yet-routed work.
-`Reason` is plain text supplied by the runtime's tool call; it is never hidden
-model reasoning.
+`ThreadId`, `InputMessageId`, optional `Metadata`, and `CreatedAt`. `Reason` is
+plain text supplied by the runtime's tool call; it is never hidden model
+reasoning.
 
 Subscribers consume this stream as delegation evidence. For example, the
 GitHub connector's label-roundtrip subscriber listens for routed

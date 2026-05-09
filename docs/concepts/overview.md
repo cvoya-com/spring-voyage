@@ -10,7 +10,12 @@ This document series describes the core concepts and abstractions that make up t
 
 *Orchestration* is one mechanism a unit can use to route work across its members. Spring Voyage's bet is that **collaboration** is the bigger category -- the part that's still genuinely under-explored -- and orchestration is one piece of how the platform supports it.
 
-Concretely, every unit picks an orchestration strategy. The strategy decides which of the unit's members handles an incoming message — see [Units § Orchestration](units.md#orchestration-a-mechanism-inside-the-unit) for the catalogue. External orchestrators (ADK, LangGraph, Temporal, …) participate over A2A. But routing is only one slice of what happens inside a unit:
+Concretely, when an agent has children, the runtime launcher attaches
+orchestration tools and the runtime decides whether to answer directly,
+delegate to one child, or fan out to several children -- see
+[Agents -- The five orchestration tools](agents.md#the-five-orchestration-tools).
+External orchestrators (ADK, LangGraph, Temporal, ...) participate over A2A.
+But routing is only one slice of what happens inside a unit:
 
 - **Humans participate as first-class members**, not just as observers. Multiple humans can be Owners, Operators, or Viewers on the same unit, ask the unit clarifying questions, answer questions the unit asks back, and intervene mid-work.
 - **Engagements / collaborations** are the durable shared spaces where work happens over time -- see [Threads, Engagements, and Collaborations](threads.md). The platform records each shared space as a thread keyed by the participant set; the user works in it as a collaboration.

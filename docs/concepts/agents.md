@@ -60,7 +60,7 @@ orchestration tools to the runtime context. The runtime may call those tools to
 delegate or fan out work, and the platform records each delegation as an
 `OrchestrationDecision` activity event.
 
-## Orchestration tools
+## The five orchestration tools
 
 The tool surface is closed for v0.1:
 
@@ -91,6 +91,14 @@ OrchestrationDecision {
   Reason
 }
 ```
+
+| Field | Meaning |
+| --- | --- |
+| `Kind` | Decision kind. Delegation events use `Delegate` or `Fanout`. |
+| `Status` | Outcome. Delegation events use `Routed` or `Failed`; the domain enum also reserves `Accepted`. |
+| `Targets` | Child agent or unit addresses selected by the runtime. |
+| `ResultMessageIds` | Child response message ids produced by the delegation, in target order when applicable. |
+| `Reason` | Optional human-readable explanation supplied by the runtime tool call. |
 
 Delegation events use `Kind = Delegate` for `delegate_to_child` and
 `Kind = Fanout` for `fanout_to_children`. `Status` is `Routed` when the

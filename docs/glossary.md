@@ -121,7 +121,7 @@ The deterministic v5 UUID owning every tenant-scoped row in a fresh OSS install:
 An agent that subscribes to another agent's activity stream (with permission).
 
 **Orchestration decision**
-An `ActivityEvent` with `EventType=DecisionMade` published by the platform each time a unit's runtime calls a delegation tool. The payload is an `OrchestrationDecision` record.
+An `ActivityEvent` with `EventType=DecisionMade` published by the platform each time a unit's runtime calls a delegation tool. The payload is an `OrchestrationDecision` record with `Kind`, `Status` (`Accepted`, `Routed`, or `Failed`), `Targets`, `ResultMessageIds`, and optional `Reason`.
 
 **Orchestration tools**
 The five MCP/actor tools (`list_children`, `inspect_child`, `delegate_to_child`, `fanout_to_children`, `query_child_status`) that the runtime launcher attaches to a unit's execution context when children exist.
