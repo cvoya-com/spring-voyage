@@ -32,12 +32,17 @@ public sealed class OrchestrationTransportException : Exception
 public sealed class MissingCallbackEnvironmentException : Exception
 {
     public MissingCallbackEnvironmentException(string variableName)
-        : base($"Required Spring Voyage callback environment variable '{variableName}' is missing.")
+        : base(CreateMessage(variableName))
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(variableName);
-
         VariableName = variableName;
     }
 
     public string VariableName { get; }
+
+    private static string CreateMessage(string variableName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(variableName);
+
+        return $"Required Spring Voyage callback environment variable '{variableName}' is missing.";
+    }
 }
