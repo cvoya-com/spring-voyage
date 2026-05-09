@@ -52,6 +52,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import {
+  type ValidatedTenantTreeNode,
   useDashboardAgents,
   useDashboardCosts,
   useTenantTree,
@@ -87,18 +88,11 @@ const BREAKDOWN_HUES = [
   "bg-blossom",
 ] as const;
 
-type SourceLookupNode = {
-  id: string;
-  name: string;
-  kind: "Tenant" | "Unit" | "Agent";
-  children?: SourceLookupNode[];
-};
-
 function buildSourceNodeById(
-  tree: SourceLookupNode | null | undefined,
-): Map<string, SourceLookupNode> {
-  const byId = new Map<string, SourceLookupNode>();
-  const walk = (node: SourceLookupNode) => {
+  tree: ValidatedTenantTreeNode | null | undefined,
+): Map<string, ValidatedTenantTreeNode> {
+  const byId = new Map<string, ValidatedTenantTreeNode>();
+  const walk = (node: ValidatedTenantTreeNode) => {
     byId.set(node.id, node);
     for (const child of node.children ?? []) walk(child);
   };
@@ -108,7 +102,7 @@ function buildSourceNodeById(
 
 function resolveBreakdownSource(
   source: string,
-  nodeById: Map<string, SourceLookupNode>,
+  nodeById: Map<string, ValidatedTenantTreeNode>,
 ): { label: string; href: string | null } {
   const node = nodeById.get(source);
   if (!node) return { label: source, href: null };

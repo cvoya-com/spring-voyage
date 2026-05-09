@@ -21,9 +21,11 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  type ValidatedTenantTreeNode,
   useDashboardCosts,
   useTenantCost,
   useTenantCostTimeseries,
+  useTenantTree,
 } from "@/lib/api/queries";
 import { formatCost } from "@/lib/utils";
 
@@ -32,19 +34,12 @@ import { registerTab, type TabContentProps } from "./index";
 // Maximum number of top units to surface in the tab.
 const TOP_N = 5;
 
-type SourceLookupNode = {
-  id: string;
-  name: string;
-  kind: "Tenant" | "Unit" | "Agent";
-  children?: SourceLookupNode[];
-};
-
 /** Index tree nodes by the no-dash GUID source emitted by costs. */
 function buildSourceNodeById(
-  tree: SourceLookupNode | null | undefined,
-): Map<string, SourceLookupNode> {
-  const byId = new Map<string, SourceLookupNode>();
-  const walk = (node: SourceLookupNode) => {
+  tree: ValidatedTenantTreeNode | null | undefined,
+): Map<string, ValidatedTenantTreeNode> {
+  const byId = new Map<string, ValidatedTenantTreeNode>();
+  const walk = (node: ValidatedTenantTreeNode) => {
     byId.set(node.id, node);
     for (const child of node.children ?? []) walk(child);
   };
@@ -109,7 +104,11 @@ function TenantBudgetsTab({ node }: TabContentProps) {
   // are mounted (queryKeys.tenant.costTimeseries("7d", "1d")).
   const timeseries = useTenantCostTimeseries("7d", "1d");
   const dashboardCosts = useDashboardCosts();
-  const sourceNodeById = useMemo(() => buildSourceNodeById(node), [node]);
+  const tenantTreeQuery = useTenantTree();
+  const sourceNodeById = useMemo(
+    () => buildSourceNodeById(tenantTreeQuery.data),
+    [tenantTreeQuery.data],
+  );
 
   const sevenDaySeries = useMemo(
     () => seriesToPoints(timeseries.data),
@@ -122,10 +121,10 @@ function TenantBudgetsTab({ node }: TabContentProps) {
     const byUnit = new Map<string, { name: string; spend: number }>();
     for (const row of breakdown) {
       const sourceNode = sourceNodeById.get(row.source);
-      if (sourceNode && sourceNode.kind !== "Unit") continue;
+      if (!sourceNode || sourceNode.kind !== "Unit") continue;
       const current = byUnit.get(row.source);
       byUnit.set(row.source, {
-        name: sourceNode?.name ?? row.source,
+        name: sourceNode.name,
         spend: (current?.spend ?? 0) + row.totalCost,
       });
     }
@@ -177,7 +176,7 @@ function TenantBudgetsTab({ node }: TabContentProps) {
         )}
 
         {/* Top-N units by spend */}
-        {dashboardCosts.isPending ? (
+        {dashboardCosts.isPending || tenantTreeQuery.isPending ? (
           <Skeleton className="h-20 w-full" data-testid="tab-tenant-budgets-units-loading" />
         ) : topUnits.length > 0 ? (
           <div data-testid="tab-tenant-budgets-top-units">

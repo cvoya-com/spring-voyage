@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  type ValidatedTenantTreeNode,
   useDashboardCosts,
   useDashboardUnits,
   useTenantBudget,
@@ -41,19 +42,12 @@ import {
 import type { UnitDashboardSummary } from "@/lib/api/types";
 import { cn, formatCost } from "@/lib/utils";
 
-type SourceLookupNode = {
-  id: string;
-  name: string;
-  kind: "Tenant" | "Unit" | "Agent";
-  children?: SourceLookupNode[];
-};
-
 /** Index unit display names by the no-dash GUID source emitted by costs. */
 function buildUnitNameById(
-  tree: SourceLookupNode | null | undefined,
+  tree: ValidatedTenantTreeNode | null | undefined,
 ): Map<string, string> {
   const byId = new Map<string, string>();
-  const walk = (node: SourceLookupNode) => {
+  const walk = (node: ValidatedTenantTreeNode) => {
     if (node.kind === "Unit") byId.set(node.id, node.name);
     for (const child of node.children ?? []) walk(child);
   };
