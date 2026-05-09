@@ -113,6 +113,14 @@ public class SpringDbContext : DbContext
     public DbSet<HumanEntity> Humans => Set<HumanEntity>();
 
     /// <summary>
+    /// Gets the set of tenant-scoped daily cost budget rows (ADR-0040 / #2045).
+    /// Replaces the pre-ADR <c>Agent:CostBudget</c>, <c>Unit:CostBudget</c>,
+    /// and <c>Tenant:CostBudget</c> actor-state keys with a single relational
+    /// table keyed on <c>(tenant_id, scope_type, scope_id)</c>.
+    /// </summary>
+    public DbSet<BudgetLimitEntity> BudgetLimits => Set<BudgetLimitEntity>();
+
+    /// <summary>
     /// Gets the set of package install tracking rows (#1558 / ADR-0035 decision 11).
     /// One row per (install_id, package_name); multi-package batches share the
     /// same <c>install_id</c>.
@@ -149,6 +157,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new TenantRecordEntityConfiguration());
         modelBuilder.ApplyConfiguration(new HumanEntityConfiguration());
         modelBuilder.ApplyConfiguration(new PackageInstallEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new BudgetLimitEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -196,6 +205,10 @@ public class SpringDbContext : DbContext
 
         // Package install tracking: tenant-scoped, no soft-delete.
         modelBuilder.Entity<PackageInstallEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Budget limits: tenant-scoped, no soft-delete (ADR-0040 / #2045).
+        modelBuilder.Entity<BudgetLimitEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 

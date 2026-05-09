@@ -1624,20 +1624,18 @@ public class SpringApiClient
             $"Server returned an empty SetUnitBudget response for unit '{unitId}'.");
     }
 
-    /// <summary>Sets the daily cost budget for the tenant.</summary>
+    /// <summary>
+    /// Sets the daily cost budget for the tenant. ADR-0040 / #2045: the
+    /// tenant scope is the caller's current tenant — there is no
+    /// <c>tenantId</c> override on the wire. Multi-tenant deployments
+    /// resolve the tenant from the request principal.
+    /// </summary>
     public async Task<BudgetResponse> SetTenantBudgetAsync(
         decimal dailyBudget,
-        string? tenantId = null,
         CancellationToken ct = default)
     {
         var request = new SetBudgetRequest { DailyBudget = (double)dailyBudget };
-        var result = await _client.Api.V1.Tenant.Budget.PutAsync(
-            request,
-            config =>
-            {
-                config.QueryParameters.TenantId = tenantId;
-            },
-            cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Budget.PutAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty SetTenantBudget response.");
     }
 
@@ -1657,17 +1655,14 @@ public class SpringApiClient
             $"Server returned an empty GetUnitBudget response for unit '{unitId}'.");
     }
 
-    /// <summary>Gets the daily cost budget for the tenant.</summary>
-    public async Task<BudgetResponse> GetTenantBudgetAsync(
-        string? tenantId = null,
-        CancellationToken ct = default)
+    /// <summary>
+    /// Gets the daily cost budget for the tenant. ADR-0040 / #2045: the
+    /// tenant scope is the caller's current tenant — there is no
+    /// <c>tenantId</c> override on the wire.
+    /// </summary>
+    public async Task<BudgetResponse> GetTenantBudgetAsync(CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Tenant.Budget.GetAsync(
-            config =>
-            {
-                config.QueryParameters.TenantId = tenantId;
-            },
-            cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Budget.GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty GetTenantBudget response.");
     }
 

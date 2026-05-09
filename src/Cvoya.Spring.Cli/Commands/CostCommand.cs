@@ -66,7 +66,7 @@ public static class CostCommand
 
         var targetOption = new Option<string?>("--target")
         {
-            Description = "Target identifier (unit name, agent id, or tenant id). Omit for tenant scope to use the default tenant.",
+            Description = "Target identifier (unit id or agent id). Required for --scope unit and --scope agent; ignored for --scope tenant (the tenant is taken from the caller's context).",
         };
 
         var amountOption = new Option<decimal>("--amount")
@@ -117,7 +117,7 @@ public static class CostCommand
 
             Generated.Models.BudgetResponse result = scope switch
             {
-                "tenant" => await client.SetTenantBudgetAsync(dailyAmount, tenantId: target, ct),
+                "tenant" => await client.SetTenantBudgetAsync(dailyAmount, ct),
                 "unit" => await client.SetUnitBudgetAsync(target!, dailyAmount, ct),
                 "agent" => await client.SetAgentBudgetAsync(target!, dailyAmount, ct),
                 _ => throw new InvalidOperationException($"Unsupported scope '{scope}'."),
@@ -134,7 +134,7 @@ public static class CostCommand
                     : $"{amount.ToString("0.####", CultureInfo.InvariantCulture)} {period}";
                 var row = new BudgetRow(
                     scope,
-                    target ?? (scope == "tenant" ? "default" : string.Empty),
+                    target ?? string.Empty,
                     (result.DailyBudget ?? 0d).ToString("0.####", CultureInfo.InvariantCulture),
                     derivedFrom);
                 Console.WriteLine(OutputFormatter.FormatTable(row, BudgetColumns));

@@ -4367,15 +4367,6 @@
         ],
         "summary": "Get the cost budget for the tenant",
         "operationId": "GetTenantBudget",
-        "parameters": [
-          {
-            "name": "tenantId",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -4405,15 +4396,6 @@
         ],
         "summary": "Set the cost budget for the tenant",
         "operationId": "SetTenantBudget",
-        "parameters": [
-          {
-            "name": "tenantId",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {

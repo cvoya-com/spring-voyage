@@ -7,11 +7,17 @@ using System.Collections.Concurrent;
 using System.Reactive.Linq;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.State;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Observability;
 
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -20,17 +26,27 @@ using Microsoft.Extensions.Logging;
 /// Emits warning events at 80% of budget and error events at 100%.
 /// When an agent exceeds its budget, the enforcer pauses the agent's initiative
 /// by writing a "Paused" initiative state to the state store.
+///
+/// <para>
+/// Budget limits are read from the tenant-scoped <c>budget_limits</c> EF
+/// table per ADR-0040 — the pre-ADR <c>Agent:CostBudget</c> and
+/// <c>Tenant:CostBudget</c> state-store keys were removed in #2045.
+/// Initiative pausing remains a state-store write because the
+/// <c>Agent:InitiativeState</c> key is runtime-ephemeral scratch
+/// (matrix row "Stay").
+/// </para>
 /// </summary>
 public sealed partial class BudgetEnforcer(
     ActivityEventBus bus,
     IActivityEventBus eventBus,
+    IServiceScopeFactory scopeFactory,
     IStateStore stateStore,
     ILogger<BudgetEnforcer> logger) : IHostedService, IDisposable
 {
     private IDisposable? _subscription;
-    private readonly ConcurrentDictionary<string, decimal> _accumulatedCosts = new();
-    private readonly ConcurrentDictionary<string, bool> _warningEmitted = new();
-    private readonly ConcurrentDictionary<string, bool> _errorEmitted = new();
+    private readonly ConcurrentDictionary<Guid, decimal> _accumulatedCosts = new();
+    private readonly ConcurrentDictionary<Guid, bool> _warningEmitted = new();
+    private readonly ConcurrentDictionary<Guid, bool> _errorEmitted = new();
     private decimal _tenantAccumulatedCost;
     private bool _tenantWarningEmitted;
     private bool _tenantErrorEmitted;
@@ -71,7 +87,7 @@ public sealed partial class BudgetEnforcer(
     {
         try
         {
-            var agentId = costEvent.Source.Path;
+            var agentId = costEvent.Source.Id;
             var cost = costEvent.Cost ?? 0m;
 
             if (cost <= 0m)
@@ -88,12 +104,11 @@ public sealed partial class BudgetEnforcer(
         }
     }
 
-    private async Task CheckAgentBudgetAsync(string agentId, decimal cost, string? correlationId)
+    private async Task CheckAgentBudgetAsync(Guid agentId, decimal cost, string? correlationId)
     {
         var accumulated = _accumulatedCosts.AddOrUpdate(agentId, cost, (_, existing) => existing + cost);
 
-        var budgetKey = $"{agentId}:{StateKeys.AgentCostBudget}";
-        var budget = await stateStore.GetAsync<decimal?>(budgetKey);
+        var budget = await GetAgentBudgetAsync(agentId);
 
         if (budget is null or <= 0m)
         {
@@ -101,19 +116,20 @@ public sealed partial class BudgetEnforcer(
         }
 
         var ratio = accumulated / budget.Value;
+        var agentPath = GuidFormatter.Format(agentId);
 
         if (ratio >= ErrorThreshold && !_errorEmitted.ContainsKey(agentId))
         {
             _errorEmitted[agentId] = true;
             await EmitBudgetEventAsync(agentId, ActivitySeverity.Error, accumulated, budget.Value, correlationId);
-            await PauseAgentInitiativeAsync(agentId);
-            LogBudgetExceeded(logger, agentId, accumulated, budget.Value);
+            await PauseAgentInitiativeAsync(agentPath);
+            LogBudgetExceeded(logger, agentPath, accumulated, budget.Value);
         }
         else if (ratio >= WarningThreshold && !_warningEmitted.ContainsKey(agentId))
         {
             _warningEmitted[agentId] = true;
             await EmitBudgetEventAsync(agentId, ActivitySeverity.Warning, accumulated, budget.Value, correlationId);
-            LogBudgetWarning(logger, agentId, accumulated, budget.Value);
+            LogBudgetWarning(logger, agentPath, accumulated, budget.Value);
         }
     }
 
@@ -126,11 +142,7 @@ public sealed partial class BudgetEnforcer(
             accumulated = _tenantAccumulatedCost;
         }
 
-        // OSS hosts run with the single canonical tenant id; the cloud
-        // overlay swaps this enforcer for a tenant-aware version.
-        var tenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.DefaultNoDash;
-        var budgetKey = $"{tenantId}:{StateKeys.TenantCostBudget}";
-        var budget = await stateStore.GetAsync<decimal?>(budgetKey);
+        var budget = await GetTenantBudgetAsync();
 
         if (budget is null or <= 0m)
         {
@@ -139,52 +151,84 @@ public sealed partial class BudgetEnforcer(
 
         var ratio = accumulated / budget.Value;
 
+        // OSS hosts run with the single canonical tenant id; the cloud
+        // overlay swaps this enforcer for a tenant-aware version that
+        // partitions the accumulator per-tenant.
+        var tenantWireId = OssTenantIds.DefaultNoDash;
+
         if (ratio >= ErrorThreshold && !_tenantErrorEmitted)
         {
             _tenantErrorEmitted = true;
-            await EmitTenantBudgetEventAsync(tenantId, ActivitySeverity.Error, accumulated, budget.Value, correlationId);
-            LogTenantBudgetExceeded(logger, tenantId, accumulated, budget.Value);
+            await EmitTenantBudgetEventAsync(tenantWireId, ActivitySeverity.Error, accumulated, budget.Value, correlationId);
+            LogTenantBudgetExceeded(logger, tenantWireId, accumulated, budget.Value);
         }
         else if (ratio >= WarningThreshold && !_tenantWarningEmitted)
         {
             _tenantWarningEmitted = true;
-            await EmitTenantBudgetEventAsync(tenantId, ActivitySeverity.Warning, accumulated, budget.Value, correlationId);
-            LogTenantBudgetWarning(logger, tenantId, accumulated, budget.Value);
+            await EmitTenantBudgetEventAsync(tenantWireId, ActivitySeverity.Warning, accumulated, budget.Value, correlationId);
+            LogTenantBudgetWarning(logger, tenantWireId, accumulated, budget.Value);
         }
+    }
+
+    private async Task<decimal?> GetAgentBudgetAsync(Guid agentId)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var row = await dbContext.BudgetLimits
+            .AsNoTracking()
+            .FirstOrDefaultAsync(b =>
+                b.ScopeType == BudgetLimitScope.Agent && b.ScopeId == agentId);
+
+        return row?.DailyBudget;
+    }
+
+    private async Task<decimal?> GetTenantBudgetAsync()
+    {
+        using var scope = scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var row = await dbContext.BudgetLimits
+            .AsNoTracking()
+            .FirstOrDefaultAsync(b =>
+                b.ScopeType == BudgetLimitScope.Tenant && b.ScopeId == null);
+
+        return row?.DailyBudget;
     }
 
     /// <summary>
     /// Pauses the agent's initiative by writing a paused state to the state store.
     /// </summary>
-    private async Task PauseAgentInitiativeAsync(string agentId)
+    private async Task PauseAgentInitiativeAsync(string agentPath)
     {
         try
         {
-            var initiativeKey = $"{agentId}:{StateKeys.InitiativeState}";
+            var initiativeKey = $"{agentPath}:{StateKeys.InitiativeState}";
             await stateStore.SetAsync(initiativeKey, new InitiativePausedState("BudgetExceeded", DateTimeOffset.UtcNow));
-            LogInitiativePaused(logger, agentId);
+            LogInitiativePaused(logger, agentPath);
         }
         catch (Exception ex)
         {
-            LogInitiativePauseFailed(logger, agentId, ex);
+            LogInitiativePauseFailed(logger, agentPath, ex);
         }
     }
 
     private async Task EmitBudgetEventAsync(
-        string agentId,
+        Guid agentId,
         ActivitySeverity severity,
         decimal accumulated,
         decimal budget,
         string? correlationId)
     {
+        var agentPath = GuidFormatter.Format(agentId);
         var summary = severity == ActivitySeverity.Error
-            ? $"Agent '{agentId}' has exceeded its cost budget ({accumulated:C} / {budget:C})"
-            : $"Agent '{agentId}' is approaching its cost budget ({accumulated:C} / {budget:C})";
+            ? $"Agent '{agentPath}' has exceeded its cost budget ({accumulated:C} / {budget:C})"
+            : $"Agent '{agentPath}' is approaching its cost budget ({accumulated:C} / {budget:C})";
 
         var budgetEvent = new ActivityEvent(
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
-            Address.For("agent", agentId),
+            new Address(Address.AgentScheme, agentId),
             ActivityEventType.CostIncurred,
             severity,
             summary,
@@ -194,20 +238,20 @@ public sealed partial class BudgetEnforcer(
     }
 
     private async Task EmitTenantBudgetEventAsync(
-        string tenantId,
+        string tenantWireId,
         ActivitySeverity severity,
         decimal accumulated,
         decimal budget,
         string? correlationId)
     {
         var summary = severity == ActivitySeverity.Error
-            ? $"Tenant '{tenantId}' has exceeded its cost budget ({accumulated:C} / {budget:C})"
-            : $"Tenant '{tenantId}' is approaching its cost budget ({accumulated:C} / {budget:C})";
+            ? $"Tenant '{tenantWireId}' has exceeded its cost budget ({accumulated:C} / {budget:C})"
+            : $"Tenant '{tenantWireId}' is approaching its cost budget ({accumulated:C} / {budget:C})";
 
         var budgetEvent = new ActivityEvent(
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
-            Address.For("tenant", tenantId),
+            Address.For("tenant", tenantWireId),
             ActivityEventType.CostIncurred,
             severity,
             summary,

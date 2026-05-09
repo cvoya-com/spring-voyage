@@ -8,10 +8,16 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.State;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Costs;
+using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Observability;
+using Cvoya.Spring.Dapr.Tenancy;
 
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using NSubstitute;
@@ -28,21 +34,66 @@ public class BudgetEnforcerTests : IDisposable
     private readonly ActivityEventBus _bus = new();
     private readonly IActivityEventBus _eventBus = Substitute.For<IActivityEventBus>();
     private readonly IStateStore _stateStore = Substitute.For<IStateStore>();
+    private readonly ServiceProvider _serviceProvider;
+    private readonly string _dbName = $"BudgetEnforcerTests_{Guid.NewGuid()}";
+
+    public BudgetEnforcerTests()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<ITenantContext>(new StaticTenantContext(OssTenantIds.Default));
+        services.AddDbContext<SpringDbContext>(o => o
+            .UseInMemoryDatabase(_dbName)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning)));
+        _serviceProvider = services.BuildServiceProvider();
+    }
 
     private BudgetEnforcer CreateEnforcer()
     {
         return new BudgetEnforcer(
             _bus,
             _eventBus,
+            _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
             _stateStore,
             NullLogger<BudgetEnforcer>.Instance);
+    }
+
+    private void SeedAgentBudget(Guid agentId, decimal dailyBudget)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        db.BudgetLimits.Add(new BudgetLimitEntity
+        {
+            Id = Guid.NewGuid(),
+            TenantId = OssTenantIds.Default,
+            ScopeType = BudgetLimitScope.Agent,
+            ScopeId = agentId,
+            DailyBudget = dailyBudget,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        db.SaveChanges();
+    }
+
+    private void SeedTenantBudget(decimal dailyBudget)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        db.BudgetLimits.Add(new BudgetLimitEntity
+        {
+            Id = Guid.NewGuid(),
+            TenantId = OssTenantIds.Default,
+            ScopeType = BudgetLimitScope.Tenant,
+            ScopeId = null,
+            DailyBudget = dailyBudget,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        db.SaveChanges();
     }
 
     private static ActivityEvent CreateCostEvent(Guid agentId, decimal cost)
     {
         var details = JsonSerializer.SerializeToElement(new
         {
-            tenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.Default.ToString("N"),
+            tenantId = OssTenantIds.Default.ToString("N"),
             model = "claude-3-opus",
             inputTokens = 100,
             outputTokens = 50,
@@ -63,8 +114,7 @@ public class BudgetEnforcerTests : IDisposable
     public async Task CheckBudget_UnderThreshold_NoEventEmitted()
     {
         var ct = TestContext.Current.CancellationToken;
-        _stateStore.GetAsync<decimal?>($"{AgentAHex}:{StateKeys.AgentCostBudget}", Arg.Any<CancellationToken>())
-            .Returns(10.0m);
+        SeedAgentBudget(AgentAId, 10.0m);
 
         var enforcer = CreateEnforcer();
         await enforcer.StartAsync(ct);
@@ -84,8 +134,7 @@ public class BudgetEnforcerTests : IDisposable
     public async Task CheckBudget_AtWarningThreshold_EmitsWarning()
     {
         var ct = TestContext.Current.CancellationToken;
-        _stateStore.GetAsync<decimal?>($"{AgentAHex}:{StateKeys.AgentCostBudget}", Arg.Any<CancellationToken>())
-            .Returns(10.0m);
+        SeedAgentBudget(AgentAId, 10.0m);
 
         var enforcer = CreateEnforcer();
         await enforcer.StartAsync(ct);
@@ -105,8 +154,7 @@ public class BudgetEnforcerTests : IDisposable
     public async Task CheckBudget_AtErrorThreshold_EmitsError()
     {
         var ct = TestContext.Current.CancellationToken;
-        _stateStore.GetAsync<decimal?>($"{AgentAHex}:{StateKeys.AgentCostBudget}", Arg.Any<CancellationToken>())
-            .Returns(10.0m);
+        SeedAgentBudget(AgentAId, 10.0m);
 
         var enforcer = CreateEnforcer();
         await enforcer.StartAsync(ct);
@@ -126,8 +174,6 @@ public class BudgetEnforcerTests : IDisposable
     public async Task CheckBudget_NoBudgetSet_NoEventEmitted()
     {
         var ct = TestContext.Current.CancellationToken;
-        _stateStore.GetAsync<decimal?>($"{AgentAHex}:{StateKeys.AgentCostBudget}", Arg.Any<CancellationToken>())
-            .Returns((decimal?)null);
 
         var enforcer = CreateEnforcer();
         await enforcer.StartAsync(ct);
@@ -147,8 +193,7 @@ public class BudgetEnforcerTests : IDisposable
     public async Task CheckBudget_AccumulatesMultipleEvents()
     {
         var ct = TestContext.Current.CancellationToken;
-        _stateStore.GetAsync<decimal?>($"{AgentAHex}:{StateKeys.AgentCostBudget}", Arg.Any<CancellationToken>())
-            .Returns(10.0m);
+        SeedAgentBudget(AgentAId, 10.0m);
 
         var enforcer = CreateEnforcer();
         await enforcer.StartAsync(ct);
@@ -177,8 +222,7 @@ public class BudgetEnforcerTests : IDisposable
     public async Task CheckBudget_AtErrorThreshold_PausesInitiative()
     {
         var ct = TestContext.Current.CancellationToken;
-        _stateStore.GetAsync<decimal?>($"{AgentAHex}:{StateKeys.AgentCostBudget}", Arg.Any<CancellationToken>())
-            .Returns(10.0m);
+        SeedAgentBudget(AgentAId, 10.0m);
 
         var enforcer = CreateEnforcer();
         await enforcer.StartAsync(ct);
@@ -199,8 +243,7 @@ public class BudgetEnforcerTests : IDisposable
     public async Task CheckBudget_TenantBudgetWarning_EmitsWarning()
     {
         var ct = TestContext.Current.CancellationToken;
-        _stateStore.GetAsync<decimal?>($"{Cvoya.Spring.Core.Tenancy.OssTenantIds.DefaultNoDash}:{StateKeys.TenantCostBudget}", Arg.Any<CancellationToken>())
-            .Returns(10.0m);
+        SeedTenantBudget(10.0m);
 
         var enforcer = CreateEnforcer();
         await enforcer.StartAsync(ct);
@@ -222,8 +265,7 @@ public class BudgetEnforcerTests : IDisposable
     public async Task CheckBudget_TenantBudgetExceeded_EmitsError()
     {
         var ct = TestContext.Current.CancellationToken;
-        _stateStore.GetAsync<decimal?>($"{Cvoya.Spring.Core.Tenancy.OssTenantIds.DefaultNoDash}:{StateKeys.TenantCostBudget}", Arg.Any<CancellationToken>())
-            .Returns(10.0m);
+        SeedTenantBudget(10.0m);
 
         var enforcer = CreateEnforcer();
         await enforcer.StartAsync(ct);
@@ -245,8 +287,6 @@ public class BudgetEnforcerTests : IDisposable
     public async Task CheckBudget_NoTenantBudget_NoTenantEventEmitted()
     {
         var ct = TestContext.Current.CancellationToken;
-        _stateStore.GetAsync<decimal?>($"{Cvoya.Spring.Core.Tenancy.OssTenantIds.DefaultNoDash}:{StateKeys.TenantCostBudget}", Arg.Any<CancellationToken>())
-            .Returns((decimal?)null);
 
         var enforcer = CreateEnforcer();
         await enforcer.StartAsync(ct);
@@ -265,5 +305,6 @@ public class BudgetEnforcerTests : IDisposable
     public void Dispose()
     {
         _bus.Dispose();
+        _serviceProvider.Dispose();
     }
 }

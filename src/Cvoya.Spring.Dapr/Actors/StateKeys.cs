@@ -158,23 +158,11 @@ public static class StateKeys
     /// </summary>
     public const string AgentSkills = "Agent:Skills";
 
-    /// <summary>
-    /// State key for the agent's cost budget limit.
-    /// </summary>
-    public const string AgentCostBudget = "Agent:CostBudget";
-
-    /// <summary>
-    /// State key for the tenant-level cost budget limit.
-    /// </summary>
-    public const string TenantCostBudget = "Tenant:CostBudget";
-
-    /// <summary>
-    /// State key for the unit-level cost budget limit. Mirrors
-    /// <see cref="AgentCostBudget"/> but scoped to a unit so that
-    /// `spring cost set-budget --scope unit` and the portal's per-unit
-    /// "Edit budget" action can both target the same key.
-    /// </summary>
-    public const string UnitCostBudget = "Unit:CostBudget";
+    // ADR-0040 / #2045: the per-agent, per-unit, and tenant-level cost-
+    // budget keys (`Agent:CostBudget`, `Unit:CostBudget`,
+    // `Tenant:CostBudget`) were removed. Cost budgets now live in the
+    // tenant-scoped `budget_limits` EF table and are read / written via
+    // `BudgetEndpoints` and `BudgetEnforcer`.
 
     /// <summary>
     /// State key for the unit's lifecycle status.
