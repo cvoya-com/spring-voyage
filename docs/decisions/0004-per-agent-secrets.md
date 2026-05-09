@@ -15,7 +15,7 @@
 
 Two pieces of context constrain the decision:
 
-- **#204 / ADR 0003 (Unit → Tenant inheritance)** just landed and made the resolver the home of "which rows are visible to which caller." Adding a per-agent chain on top of the resolver is compositionally simple but materially widens the unit-test surface and the audit trail (every resolve now needs to record "this agent, passing this ACL, inheriting from tenant via policy X"). 
+- **#204 / ADR 0003 (Unit → Tenant inheritance)** just landed and made the resolver the home of "which rows are visible to which caller." Adding a per-agent chain on top of the resolver is compositionally simple but materially widens the unit-test surface and the audit trail (every resolve now needs to record "this agent, passing this ACL, inheriting from tenant via policy X").
 - **No concrete customer use case has been filed.** The issue enumerates speculative cases ("an agent-specific signing key") but the MVP multi-agent unit flows in the roadmap still use unit-level shared credentials.
 
 ## Decision

@@ -14,16 +14,25 @@ These conventions ensure code from parallel agents merges cleanly. All agents (C
 
 ### Copyright header
 
-Required on all C# source files:
+Required on normal C# source files. EF-generated `*.Designer.cs` and `*ModelSnapshot.cs` files keep their generator marker comments and are exempt:
 
 ```csharp
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 ```
 
+### Repository formatting
+
+`.editorconfig` is the source of truth for repository whitespace and formatting gates across .NET, TypeScript/JavaScript, Python, and config files.
+
+- All committed text files use UTF-8, LF line endings, spaces, trimmed trailing whitespace, and a final newline.
+- C# uses 4-space indentation. TypeScript/JavaScript, JSON, XML, and project files use 2-space indentation. Python uses 4-space indentation and a 120-character line length, mirrored in Ruff.
+- C# formatter rules enforce file-scoped namespaces, no top-level statements, and `using` directives after the namespace declaration.
+- Python formatting uses Ruff with space indentation and LF line endings. TypeScript/JavaScript formatting is governed by `.editorconfig` plus the root ESLint/Next lint configuration.
+
 ### Namespace and using order
 
-File-scoped namespaces. Namespace declaration immediately after the copyright header; `using` statements after:
+File-scoped namespaces. The first C# code declaration is always the namespace declaration; `using` statements follow it. For normal source files, the namespace declaration appears immediately after the copyright header:
 
 ```csharp
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
@@ -38,6 +47,7 @@ using Microsoft.Extensions.Logging;
 - File-scoped namespaces (no braces).
 - Namespace immediately after the copyright header.
 - `using` statements after the namespace declaration.
+- EF-generated `*.Designer.cs` and `*ModelSnapshot.cs` files may keep their generator marker comments before the namespace and are exempt from the copyright-header rule.
 
 ## 1. Project Structure
 

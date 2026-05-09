@@ -32,9 +32,9 @@ Because `IUnitActor` inherits the shared `IAgent` contract (see [Messaging](mess
 unit:
   name: engineering-team
   description: Software engineering team for the spring-voyage repo
-  
+
   structure: hierarchical            # hierarchical | peer | custom
-  
+
   # --- Unit AI (the unit IS an agent — same ai block pattern) ---
   ai:
     runtime: spring-voyage           # AgentRuntime id from platform/runtime-catalog.yaml
@@ -43,13 +43,13 @@ unit:
       id: llama3.2:3b
   execution:
     image: spring-workflows/software-dev-cycle:latest
-  
+
   members:
     - agent: ada
     - agent: kay
     - agent: hopper
     - unit: database-team            # recursive composition
-  
+
   # --- Default execution block for member agents (#601 B-wide) ---
   # Members that don't declare a given field inherit from this block
   # per the agent → unit → fail resolution chain.
@@ -59,7 +59,7 @@ unit:
     image: spring-agent:latest
     provider: anthropic              # spring-voyage runtime kind only (#598 gating)
     model: claude-sonnet             # spring-voyage runtime kind only (#598 gating)
-  
+
   connectors:
     - type: github
       config:
@@ -68,10 +68,10 @@ unit:
     - type: slack
       config:
         channel: "#engineering-team"
-  
+
   packages:
     - spring-voyage/software-engineering
-  
+
   policies:
     communication: hybrid            # through-unit | peer-to-peer | hybrid
     work_assignment: unit-assigns    # unit-assigns | self-select | capability-match
@@ -79,7 +79,7 @@ unit:
     initiative:
       max_level: proactive
       max_actions_per_hour: 20
-    
+
   humans:
     - identity: savasp
       permission: owner

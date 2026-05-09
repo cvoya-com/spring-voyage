@@ -34,6 +34,10 @@ packages = ["spring_voyage_agent_sdk"]
 target-version = "py312"
 line-length = 120
 
+[tool.ruff.format]
+indent-style = "space"
+line-ending = "lf"
+
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
 

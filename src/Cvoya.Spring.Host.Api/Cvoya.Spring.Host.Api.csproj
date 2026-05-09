@@ -39,4 +39,15 @@
     </PackageReference>
   </ItemGroup>
 
+  <Target Name="NormalizeGeneratedOpenApiFinalNewline"
+          AfterTargets="GenerateOpenApiDocuments"
+          Condition="'$(OpenApiGenerateDocuments)' == 'true' and Exists('$(MSBuildProjectDirectory)/openapi.json')">
+    <PropertyGroup>
+      <_GeneratedOpenApiJson>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/openapi.json'))</_GeneratedOpenApiJson>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(MSBuildProjectDirectory)/openapi.json"
+                      Lines="$(_GeneratedOpenApiJson)"
+                      Overwrite="true" />
+  </Target>
+
 </Project>

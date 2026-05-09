@@ -15,10 +15,10 @@ An agent definition describes *what* the agent is — not *where* or *how* it ru
 agent:
   id: ada
   name: Ada
-  
+
   role: backend-engineer
   capabilities: [csharp, python, fastapi, postgresql, testing]
-  
+
   ai:
     runtime: claude-code                # AgentRuntime id from platform/runtime-catalog.yaml
     model:
@@ -26,21 +26,21 @@ agent:
       id: claude-sonnet-4-6
   execution:
     image: spring-agent:latest          # container image; host config selects docker/podman
-    
+
   cloning:
     policy: ephemeral-with-memory
     attachment: attached
     max_clones: 3
-    
+
   instructions: |
     You are a backend engineer...
-    
+
   expertise:
     - domain: python/fastapi
       level: advanced
     - domain: postgresql
       level: intermediate
-    
+
   activations:
     - type: message                     # direct messages
     - type: subscription
