@@ -259,7 +259,7 @@ mode.
 | `inspect_child` | Returns metadata (`scheme`, `id`) for a specific child. No `OrchestrationDecision` event. |
 | `delegate_to_child` | Dispatches the inbound message to a single child and returns the child's reply. Emits `OrchestrationDecision` with `Kind=Delegate`. |
 | `fanout_to_children` | Dispatches to all children, or to a filtered set of children, and returns all replies. Emits `OrchestrationDecision` with `Kind=Fanout`. |
-| `query_child_status` | Queries in-flight status of a prior dispatch. Emits `OrchestrationDecision` with `Kind=Inspect`. |
+| `query_child_status` | Queries in-flight status of a prior dispatch. No `OrchestrationDecision` event. |
 
 The runtime decides whether to answer directly, inspect children, delegate to
 one child, or fan out to several children. The platform supplies the tools,
@@ -329,25 +329,35 @@ When the runtime calls a delegation tool, the platform publishes a
 
 ```json
 {
-  "id": "<uuid>",
+  "decisionId": "<uuid>",
   "tenantId": "<uuid>",
-  "caller": "<scheme>://<id>",
+  "unitAddress": {
+    "scheme": "<scheme>",
+    "id": "<uuid>"
+  },
   "threadId": "<uuid>",
   "inputMessageId": "<uuid>",
   "kind": "Delegate | Fanout | Inspect | NoOp",
-  "targets": ["<scheme>://<id>"],
+  "targets": [
+    {
+      "scheme": "<scheme>",
+      "id": "<uuid>"
+    }
+  ],
   "status": "Accepted | Routed | Failed",
   "resultMessageIds": ["<uuid>"],
   "reason": "<optional string>",
+  "metadata": null,
   "createdAt": "<ISO-8601>"
 }
 ```
 
 `delegate_to_child` emits `Kind=Delegate`. `fanout_to_children` emits
-`Kind=Fanout`. `query_child_status` emits `Kind=Inspect`. `list_children` and
-`inspect_child` are read-only probes and do not emit `OrchestrationDecision`
-events. `Reason` is plain text supplied by the runtime's tool call; it is never
-hidden model reasoning.
+`Kind=Fanout`. `list_children`, `inspect_child`, and `query_child_status` are
+read-only probes and do not emit `OrchestrationDecision` events. `Kind=Inspect`
+and `Kind=NoOp` remain part of the domain enum for explicit decision evidence,
+but none of the five current handlers emit them. `Reason` is plain text supplied
+by the runtime's tool call; it is never hidden model reasoning.
 
 Subscribers consume this stream as delegation evidence. For example, the
 GitHub connector's label-roundtrip subscriber listens for routed
