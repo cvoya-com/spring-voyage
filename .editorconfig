@@ -47,10 +47,25 @@ insert_final_newline = true
 #### .NET Coding Conventions ####
 [*.{cs,vb}]
 
+# File headers
+file_header_template = Copyright CVOYA LLC. Licensed under the Business Source License 1.1.\nSee LICENSE.md in the project root for full license terms.
+dotnet_diagnostic.IDE0073.severity = warning
+
 # Organize usings
 dotnet_separate_import_directive_groups = true
 dotnet_sort_system_directives_first = true
+
+[*.Designer.cs]
+generated_code = true
 file_header_template = unset
+dotnet_diagnostic.IDE0073.severity = none
+
+[*ModelSnapshot.cs]
+generated_code = true
+file_header_template = unset
+dotnet_diagnostic.IDE0073.severity = none
+
+[*.{cs,vb}]
 
 # this. and Me. preferences
 dotnet_style_qualification_for_event = false:silent
