@@ -25,5 +25,13 @@ spec:
       secretKeyRef:
         name: SPRING_POSTGRES_CONNECTION_STRING
         key: SPRING_POSTGRES_CONNECTION_STRING
+    # Qualify Dapr's tables explicitly. The Postgres default search_path is
+    # "$user",public; because the deployment connects as user "spring" and EF
+    # creates a "spring" schema, unqualified table names can drift between
+    # public.state on first boot and spring.state after migrations run.
+    - name: tableName
+      value: "public.state"
+    - name: metadataTableName
+      value: "public.dapr_metadata"
     - name: actorStateStore
       value: "true"
