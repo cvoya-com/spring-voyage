@@ -167,7 +167,36 @@ public class LegacyContainerRuntimeFieldTests : IClassFixture<CustomWebApplicati
             .SetAsync(Arg.Any<string>(), Arg.Any<AgentExecutionShape>(), Arg.Any<CancellationToken>());
     }
 
-    // ---- POST /api/v1/tenant/agents (DefinitionJson) ------------------------
+    // ---- POST /api/v1/tenant/agents ----------------------------------------
+
+    [Fact]
+    public async Task CreateAgent_BodyWithContainerRuntime_Returns400LegacyContainerRuntimeField()
+    {
+        // Arrange
+        var ct = TestContext.Current.CancellationToken;
+        var unitGuid = Guid.NewGuid();
+        var body = $$"""
+            {
+              "displayName": "Ada",
+              "description": "Test agent",
+              "role": null,
+              "unitIds": ["{{unitGuid}}"],
+              "containerRuntime": "docker"
+            }
+            """;
+
+        using var content = new StringContent(body, Encoding.UTF8, "application/json");
+
+        // Act
+        var response = await _client.PostAsync("/api/v1/tenant/agents", content, ct);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        await AssertLegacyContainerRuntimeProblem(response, ct);
+
+        await _factory.DirectoryService.DidNotReceive()
+            .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>());
+    }
 
     [Fact]
     public async Task CreateAgent_DefinitionJsonWithLegacyContainerRuntime_Returns400LegacyContainerRuntimeField()

@@ -15,34 +15,34 @@ public class Adr0039Tests
     [Fact]
     public void Parse_RootContainerRuntime_ThrowsLegacyContainerRuntimeField()
     {
+        // Arrange
         var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Unit
-            name: research
-            description: Research unit
-            containerRuntime: podman
+            name: my-unit
+            containerRuntime: docker
             """;
 
+        // Act
         var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
 
+        // Assert
         ex.Message.ShouldContain("LegacyContainerRuntimeField");
     }
 
     [Fact]
     public void Parse_ExecutionContainerRuntime_ThrowsLegacyContainerRuntimeField()
     {
+        // Arrange
         var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Unit
-            name: research
-            description: Research unit
+            name: my-unit
             execution:
-              image: ghcr.io/example/agent:latest
               containerRuntime: podman
+              runtime: claude-code
             """;
 
+        // Act
         var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
 
+        // Assert
         ex.Message.ShouldContain("LegacyContainerRuntimeField");
     }
 }
