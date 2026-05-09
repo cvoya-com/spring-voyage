@@ -61,7 +61,7 @@ using Microsoft.Extensions.Logging;
 | Element | Convention | Example |
 |---|---|---|
 | Files | PascalCase, match type name | `AgentActor.cs`, `IMessageReceiver.cs` |
-| Interfaces | `I`-prefixed | `IAddressable`, `IOrchestrationStrategy` |
+| Interfaces | `I`-prefixed | `IAddressable`, `IAgentRuntimeLauncher` |
 | Abstract classes | No prefix | `ActorBase`, `ConnectorBase` |
 | Records (immutable data) | PascalCase noun | `Message`, `Address`, `ActivityEvent` |
 | Enums | PascalCase, singular | `MessageType`, `ExecutionMode` |
@@ -149,8 +149,8 @@ public static class ServiceCollectionExtensions
 - Keyed services for strategy patterns:
 
   ```csharp
-  services.AddKeyedSingleton<IOrchestrationStrategy, AiOrchestrationStrategy>("ai");
-  services.AddKeyedSingleton<IOrchestrationStrategy, WorkflowOrchestrationStrategy>("workflow");
+  services.TryAddKeyedSingleton<ICognitionProvider, Tier1CognitionProvider>("tier1");
+  services.TryAddKeyedSingleton<ICognitionProvider, Tier2CognitionProvider>("tier2");
   ```
 
 - **Use `TryAdd*` for all service registrations** so downstream consumers can override implementations by registering their own before calling `AddCvoyaSpring*()`:

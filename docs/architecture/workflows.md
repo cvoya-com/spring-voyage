@@ -1,12 +1,14 @@
 # Workflows
 
-> **[Architecture Index](README.md)** | Related: [Units](units.md), [Orchestration](orchestration.md), [Agents](agents.md), [Infrastructure](infrastructure.md), [Connectors](connectors.md), [Deployment](deployment.md)
+> **[Architecture Index](README.md)** | Related: [Units](units.md), [Agents](agents.md), [Agent SDK](agent-sdk.md), [Infrastructure](infrastructure.md), [Connectors](connectors.md), [Deployment](deployment.md)
 
 ---
 
 ## Workflows & External Orchestration
 
-The orchestration strategies defined in the [Orchestration](orchestration.md) document determine *how* a unit routes messages to members. This document covers:
+A unit is an agent ([ADR-0039](../decisions/0039-units-are-agents.md)) — when its mailbox receives a message, the unit's own runtime runs and decides how to use the orchestration tools the launcher attaches. A *workflow-driven* unit is just a unit whose runtime image embeds a workflow engine: instead of relying on an LLM tool-call loop, the image runs a deterministic state machine that consumes the orchestration tools through `Cvoya.Spring.AgentSdk`'s typed `IOrchestrationClient`.
+
+This document covers:
 
 - The two workflow models (container-based and platform-internal)
 - External workflow engine integration via A2A
@@ -16,21 +18,23 @@ The orchestration strategies defined in the [Orchestration](orchestration.md) do
 
 ### Workflow-as-Container (Primary Model)
 
-Domain workflows are deployed as **containers** — the same deployment model used for delegated agent execution environments. A workflow container runs its own Dapr sidecar and orchestrates by sending messages to agents in the unit. This decouples workflow evolution from platform releases: updating a workflow means deploying a new container image, not recompiling the host.
+Domain workflows are deployed as **containers** — the same deployment model used for any agent runtime image. A workflow container is the runtime image for a unit whose `ai.runtime` resolves to a workflow-driven launcher; it runs alongside the unit, consumes orchestration tools through the SDK, and drives a deterministic plan to completion. This decouples workflow evolution from platform releases: updating a workflow means deploying a new container image, not recompiling the host.
 
 **How it works:**
 
-1. The unit's `WorkflowOrchestrationStrategy` receives an incoming message.
-2. The strategy launches the workflow container (optionally with a co-launched Dapr sidecar — see `ContainerLifecycleManager`).
-3. The workflow container orchestrates the work — calling agents as activities, waiting for events, managing state.
-4. The workflow communicates with agents via the Dapr sidecar (messages, pub/sub, state).
-5. On completion, the workflow writes its decision to stdout; the strategy parses it and returns the routed message.
+1. The unit's mailbox receives an incoming message; `UnitActor.ReceiveAsync` invokes the same runtime-launcher path that `AgentActor.ReceiveAsync` uses.
+2. The launcher attaches the closed orchestration-tool set ([ADR-0039 § 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime)) and injects `SPRING_CALLBACK_URL` plus a per-invocation `SPRING_CALLBACK_TOKEN`.
+3. The workflow container starts and bootstraps `IOrchestrationClient.FromEnvironment()` from `Cvoya.Spring.AgentSdk` (see [Agent SDK](agent-sdk.md)).
+4. The workflow drives the plan, calling `ListChildrenAsync`, `DelegateToChildAsync`, `FanoutToChildrenAsync`, etc. as method calls. Each delegation records an `OrchestrationDecision` event ([ADR-0039 § 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence)).
+5. On completion, the runtime returns its response to the launcher, which publishes it back through the unit's mailbox the same way an LLM-driven runtime would.
+
+Workflow durability is the image author's concern — the platform delivers messages and records decisions, it is not a workflow engine. The image picks its own state store (Postgres, SQLite, S3, Dapr workflow state) inside its own process boundary.
 
 **Workflow containers can use any workflow engine:**
 
 - **Dapr Workflows** (C# or Python) — durable orchestration with the Dapr Workflow SDK
 - **Temporal** — if the team prefers Temporal's model
-- **Custom** — any process that can speak to the Dapr sidecar
+- **Custom** — any process that can speak to the Spring Voyage agent SDK or the underlying HTTP callback API
 
 **Example Dapr Workflow in a container** (C#):
 
@@ -74,7 +78,7 @@ public class SoftwareDevCycleWorkflow : Workflow<DevCycleInput, DevCycleOutput>
 }
 ```
 
-The unit definition references the workflow container through its `ai` block — see [Units & Agents](units.md) for the full unit definition example.
+The unit's `ai` block points at the workflow container image and selects the workflow-driven launcher; activities inside the workflow call `IOrchestrationClient` to delegate to children, fan out, and inspect status. See [Units & Agents](units.md) for the unit-definition example and [Agent SDK](agent-sdk.md) for the SDK contract.
 
 ### Platform-Internal Workflows (Dapr Workflows in Host)
 

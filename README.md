@@ -10,7 +10,7 @@ An open-source collaboration platform for teams of AI agents — and the humans 
 | Concept       | Description                                                                      |
 | ------------- | -------------------------------------------------------------------------------- |
 | **Agent**     | A single AI entity (Dapr virtual actor) with a mailbox and execution environment |
-| **Unit**      | A composite agent -- a group of agents with an orchestration strategy             |
+| **Unit**      | An agent that has children (other agents or units); orchestration is runtime behaviour, not platform configuration |
 | **Connector** | Bridges an external system (GitHub, Slack, etc.) into a unit                     |
 | **Message**   | Typed communication between addressable entities                                 |
 | **Skill**     | A prompt fragment + optional tool definitions that an agent can use              |
@@ -293,7 +293,7 @@ For the full architecture, start at [`docs/architecture/README.md`](docs/archite
 
 ## Open Core Model
 
-Spring Voyage follows an open core model. This repository contains the complete, fully functional platform: agents, messaging, routing, orchestration (AI + Workflow strategies), execution, connectors, CLI, basic auth (API key), ephemeral cloning, observability, basic cost tracking, A2A, unit nesting, package system, and dashboard.
+Spring Voyage follows an open core model. This repository contains the complete, fully functional platform: agents (units are agents that have children), messaging, routing, runtime-decided orchestration with the closed orchestration-tool surface, execution, connectors, CLI, basic auth (API key), ephemeral cloning, observability, basic cost tracking, A2A, unit nesting, package system, and dashboard.
 
 Commercial extensions (multi-tenancy, OAuth/SSO/SAML, billing, and advanced features) are developed separately and are not part of this repository.
 

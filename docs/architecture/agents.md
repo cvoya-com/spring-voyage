@@ -1,8 +1,8 @@
 # Agents
 
-> **[Architecture Index](README.md)** | Related: [Units](units.md), [Orchestration](orchestration.md), [Policies](policies.md), [Expertise](expertise.md), [Messaging](messaging.md), [Initiative](initiative.md), [Workflows](workflows.md), [Agent Runtime](agent-runtime.md)
+> **[Architecture Index](README.md)** | Related: [Units](units.md), [Policies](policies.md), [Expertise](expertise.md), [Messaging](messaging.md), [Initiative](initiative.md), [Workflows](workflows.md), [Agent Runtime](agent-runtime.md), [Agent SDK](agent-sdk.md)
 
-This document describes the **agent** as an individual entity: its definition, execution pattern, cloning model, role, and how its prompt is assembled at activation time. For how agents compose into units, see [Units](units.md). For how units route work to agents, see [Orchestration](orchestration.md).
+This document describes the **agent** as an individual entity: its definition, execution pattern, cloning model, role, and how its prompt is assembled at activation time. For how agents compose into units, see [Units](units.md) — a unit is an agent that has children, and routing inside the unit is decided by the unit's own runtime ([ADR-0039](../decisions/0039-units-are-agents.md)).
 
 ---
 
@@ -67,9 +67,9 @@ execution:
   image: ghcr.io/cvoya-com/claude-code-base:latest          # container image
 ```
 
-Agents that don't specify `execution.<field>` inherit the default from their parent unit's `execution` block (see [Unit execution defaults](orchestration.md#unit-execution-defaults-and-the-agent--unit--fail-resolution-chain-601-b-wide) in the Orchestration doc). This is implemented end-to-end per the resolution chain described there — the `IAgentDefinitionProvider` merges the unit-level block onto the agent-declared block at dispatch time, and both HTTP / CLI surfaces edit the same persisted JSON document the resolver reads.
+Agents that don't specify `execution.<field>` inherit the default from their parent unit's `execution` block via the agent → unit → fail resolution chain (see [Units & Agents](units.md)). The `IAgentDefinitionProvider` merges the unit-level block onto the agent-declared block at dispatch time, and both HTTP / CLI surfaces edit the same persisted JSON document the resolver reads. Multi-parent agents must define their own field whenever the selected parents disagree — `IExecutionConfigInheritanceResolver` enforces this and returns a structured 422 with the diverging fields ([ADR-0039 § 6](../decisions/0039-units-are-agents.md#6-inheritance-top-level-under-tenant-multi-parent-override-reparenting-validation)).
 
-**Lightweight LLM calls** (routing decisions, classification, summarisation) remain in-platform via `IAiProvider.CompleteAsync` / `StreamCompleteAsync`. These are utility calls — no multi-turn loop, no tool use — and do not constitute agent execution.
+**Lightweight LLM calls** (classification, summarisation, the Tier 1 cognition screener) remain in-platform via `IAiProvider.CompleteAsync` / `StreamCompleteAsync`. These are utility calls — no multi-turn loop, no tool use — and do not constitute agent execution.
 
 ### Agent Cloning
 
@@ -91,8 +91,8 @@ In v1, handling concurrent work of the same type required manually defining mult
 
 | Mode       | Effect                                                                                                                                                                                                                                                                                                                                                               |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `detached` | Clones become direct members of the parent's unit — peers of the parent. The unit's orchestration strategy routes work across the parent and its clones.                                                                                                                                                                                                             |
-| `attached` | The parent agent promotes itself to a unit. Clones become its members. From the enclosing unit's perspective, the parent remains a single entity (a unit IS an agent). The parent becomes the orchestrator — it stops taking work itself and only routes to its clones. If all clones are destroyed and no active cloning is needed, the parent reverts to an agent. |
+| `detached` | Clones become direct members of the parent's unit — peers of the parent. The parent unit's runtime decides how to spread work across the parent and its clones via the orchestration tools.                                                                                                                                                                                                             |
+| `attached` | The parent agent promotes itself to a unit. Clones become its children. From the enclosing unit's perspective, the parent remains a single entity (a unit is an agent that has children). The parent's runtime now decides whether to answer directly or delegate to its clones; if all clones are destroyed and no active cloning is needed, the parent reverts to a leaf agent. |
 
 
 **Constraints:**
@@ -110,7 +110,7 @@ In v1, handling concurrent work of the same type required manually defining mult
 - `ephemeral-no-memory` — Stateless workers: formatters, linters, validators, anything where the clone's experience has no lasting value.
 - `ephemeral-with-memory` — Skilled workers: the parent is a senior engineer who spawns temporary helpers. Each helper's learnings (patterns discovered, pitfalls encountered) feed back to the parent, making it better over time.
 - `persistent` — Scale-out: the agent needs genuinely independent instances that build their own expertise. Each clone diverges and specializes.
-- `detached` — Simple scaling within an existing unit. The unit's orchestration strategy manages routing.
+- `detached` — Simple scaling within an existing unit. The parent unit's runtime decides how to route work across the parent and its clones via the orchestration tools.
 - `attached` — Encapsulated scaling. The parent hides its clones behind a unit boundary. Clean abstraction for the enclosing unit.
 
 #### Persistent Cloning Policy (#416)
@@ -325,8 +325,8 @@ Additional tools are injected based on the agent's tool manifest and the unit's 
 
 ## See Also
 
-- [Units](units.md) — unit entity model; how agents compose into groups
-- [Orchestration](orchestration.md) — how units route work to agents; execution defaults; unit boundary
+- [Units](units.md) — unit entity model; how agents compose into groups; orchestration tools and decisions
+- [Agent SDK](agent-sdk.md) — `Cvoya.Spring.AgentSdk` for runtime images that consume orchestration tools as method calls
 - [Policies](policies.md) — unit policy framework constraining agent behaviour
 - [Expertise](expertise.md) — expertise profiles and directory
 - [Unit Lifecycle](unit-lifecycle.md) — validation, status, paths to creation

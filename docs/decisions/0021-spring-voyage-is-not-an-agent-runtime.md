@@ -14,7 +14,7 @@ Three concrete pressures pushed the question:
 
 1. **Agent tools evolve fast.** Skills, slash commands, MCP integrations, permission models, streaming shapes, and session/checkpoint formats are moving targets. Every Claude Code release ships changes that a hosted loop would have to chase.
 2. **MCP became the cross-tool contract.** Once Claude Code, Cursor, and several others standardised on MCP for tool surfaces, "platform skills exposed as MCP" became the universal way to reach every agent runtime — no per-tool work needed.
-3. **Lightweight LLM calls are different.** Routing decisions ([`AiOrchestrationStrategy`](../architecture/units.md)), classification, summarisation, the Tier 1 screener ([ADR 0020](0020-tiered-cognition-for-initiative.md)) — none of those need an agent loop. They want a single completion call.
+3. **Lightweight LLM calls are different.** Classification, summarisation, the Tier 1 screener ([ADR 0020](0020-tiered-cognition-for-initiative.md)) — none of those need an agent loop. They want a single completion call. (Routing was originally listed here too as a lightweight-call use case; [ADR 0039](0039-units-are-agents.md) reshaped routing into runtime behaviour, removing the platform's lightweight-routing path.)
 
 ## Decision
 

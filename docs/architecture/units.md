@@ -1,13 +1,12 @@
 # Units & Agents
 
-> **[Architecture Index](README.md)** | Related: [Agents](agents.md), [Orchestration](orchestration.md), [Policies](policies.md), [Expertise](expertise.md), [Unit Lifecycle](unit-lifecycle.md), [Messaging](messaging.md), [Infrastructure](infrastructure.md), [Initiative](initiative.md), [Workflows](workflows.md)
+> **[Architecture Index](README.md)** | Related: [Agents](agents.md), [Policies](policies.md), [Expertise](expertise.md), [Unit Lifecycle](unit-lifecycle.md), [Messaging](messaging.md), [Infrastructure](infrastructure.md), [Initiative](initiative.md), [Workflows](workflows.md)
 
 This document is the **entry point** for the units-and-agents cluster. It covers what a unit *is* as an entity — its identity, membership model, and how units nest recursively. Deeper topics live in focused sub-documents:
 
 | Sub-document | Contents |
 |---|---|
 | [Agents](agents.md) | Agent model, execution pattern, cloning, role, prompt assembly & platform tools |
-| [Orchestration](orchestration.md) | Orchestration strategies, unit boundary, execution-defaults resolution chain |
 | [Policies](policies.md) | Unit policy framework, root unit |
 | [Expertise](expertise.md) | Expertise profiles, directory, recursive aggregation, directory search, YAML seeding |
 | [Unit Lifecycle](unit-lifecycle.md) | Status DAG, validation workflow, imperative and declarative creation paths |
@@ -16,17 +15,18 @@ This document is the **entry point** for the units-and-agents cluster. It covers
 
 ## Unit Model
 
-A unit is a **composite agent** — a group of agents that appears as a single `IMessageReceiver` to the outside world. The unit owns **identity** (address, membership, boundary, activity stream) and delegates **orchestration** (how incoming messages are routed to members) to a pluggable strategy.
+**A unit is an agent that has children.** It shares the agent's mailbox, address shape, and execution configuration; the only structural difference is the children list. When a unit's mailbox receives a message, the unit's own runtime runs — the same launcher path that runs a leaf agent — and the runtime's instructions decide whether to answer directly or delegate to a child. There is no separate orchestration-strategy layer ([ADR-0039](../decisions/0039-units-are-agents.md)).
 
 The unit actor is responsible for:
 
-- **Identity:** address, membership list, boundary configuration
-- **Membership:** managing which agents and sub-units belong to the unit
+- **Identity:** `unit://<id>` address, membership list, boundary configuration
+- **Membership:** managing which agents and sub-units are children of the unit
 - **Boundary:** controlling what is visible to the parent unit
 - **Activity stream:** aggregating member activity for observation
 - **Expertise directory:** maintaining the aggregated expertise of all members
+- **Mailbox:** delivering inbound messages to the unit's own runtime via the shared launcher contract
 
-Because `IUnitActor` inherits the shared `IAgent` contract (see [Messaging](messaging.md)), a unit plugged into a parent's member list receives messages through exactly the same mailbox seam that an agent member would. This is the **composite pattern**: a unit IS an agent from the parent's perspective.
+Because `IUnitActor` inherits the shared `IAgent` contract (see [Messaging](messaging.md)), a unit plugged into a parent's member list receives messages through exactly the same mailbox seam that an agent member would. The address scheme distinction (`unit://` vs `agent://`) stays for routing and identity continuity; it does not gate behaviour.
 
 ```yaml
 unit:
@@ -92,39 +92,57 @@ unit:
       notifications: [email]
 ```
 
-**Unit AI:**
+**Unit runtime:**
 
-A unit's `ai` block describes how the unit orchestrates its members. Two flavours:
+A unit's `ai` block (`runtime`, `model`, `image`) describes the runtime that runs when the unit's mailbox receives a message — exactly the same shape as a leaf agent's per [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md). The launcher reads it, spawns the runtime container, and delivers the inbound message. The runtime answers, delegates to a child, or fans out — its instructions decide.
 
-- **AI-orchestrated** — the unit uses a lightweight LLM call to decide routing (see `AiOrchestrationStrategy` and [ADR 0021](../decisions/0021-spring-voyage-is-not-an-agent-runtime.md)). Requires `agent`, `model`, `prompt`, and optionally `skills`. No multi-turn tool loop in the platform; this is a single prompt that returns a routing decision.
-- **Workflow** — the unit delegates orchestration to a workflow container. Requires `tool` and `environment`. The workflow container drives the sequence — it may invoke agents as activities.
+**Orchestration tools.** When the unit has at least one child, the launcher attaches a fixed set of orchestration tools to the runtime ([ADR-0039 § 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime)):
 
-**Example: AI-orchestrated unit:**
+| Tool | Purpose |
+|---|---|
+| `list_children` | Enumerate direct children with addresses, kinds, and resolved execution config. |
+| `inspect_child <address>` | Return a single child's metadata (role, declared expertise, status). |
+| `delegate_to_child <address> <message>` | Forward the inbound message to one child and await its response. Records an `OrchestrationDecision` with `kind: delegate`. |
+| `fanout_to_children <addresses[]> <message>` | Forward to multiple children in parallel. Records an `OrchestrationDecision` with `kind: fanout`. |
+| `query_child_status <address>` | Cheap status check for a child without a full inspect. |
+
+The set is closed for v0.1 — adding a tool requires a new ADR. Tools are reachable through two parallel surfaces that share the same handlers and emit the same `OrchestrationDecision` events:
+
+- **Tool-call surface** — for LLM-driven runtime images (`spring-voyage`, `claude-code`, `codex`, `gemini`). Per-runtime mechanism (MCP server, env-var-keyed registry).
+- **SDK surface** — `Cvoya.Spring.AgentSdk`'s typed `IOrchestrationClient` over an HTTP callback API, for workflow-driven runtime images that consume the orchestration tools as method calls. See [Agent SDK](agent-sdk.md).
+
+The image author chooses which fits; the platform does not branch.
+
+**Example: a unit that delegates by expertise:**
 
 ```yaml
 unit:
   name: research-cell
   ai:
-    agent: claude
-    model: claude-sonnet-4-6
-    prompt: |
-      You coordinate a research team. Route papers
-      to the most relevant researcher by expertise.
-    skills:
-      - package: spring-voyage/research
-        skill: paper-triage
+    runtime: claude-code              # AgentRuntime id from runtime-catalog.yaml
+    model:
+      provider: anthropic
+      id: claude-sonnet-4-6
+  execution:
+    image: ghcr.io/cvoya-com/claude-code-base:latest
+  instructions: |
+    You coordinate a research team. Use `list_children` to see who's
+    available, `inspect_child` to read declared expertise, and
+    `delegate_to_child` to route a paper to the best fit. Provide a
+    one-line `reason` on every delegation — it is recorded as
+    OrchestrationDecision evidence.
   members:
     - agent: researcher-ml
     - agent: researcher-systems
 ```
 
-For the three concrete orchestration strategies (`ai`, `workflow`, `label-routed`) and the strategy resolution protocol, see [Orchestration](orchestration.md).
+A unit with zero children still receives messages and runs its runtime; the orchestration tools are simply absent from the launch.
 
 ---
 
 ## Nested Units (Units as Members of Units)
 
-Members of a unit may be either agents (scheme `agent`) or sub-units (scheme `unit`). Nesting lets you compose larger organizations from smaller ones — a platform team contains a database team, which contains individual agents — without teaching the routing layer anything special about depth. A parent's orchestration strategy treats both agents and sub-units uniformly: it picks one member, dispatches via `IUnitContext.SendAsync`, and the `IAgentProxyResolver` maps the address scheme to the right actor type.
+Members of a unit may be either agents (scheme `agent`) or sub-units (scheme `unit`). Nesting lets you compose larger organizations from smaller ones — a platform team contains a database team, which contains individual agents — without teaching the routing layer anything special about depth. A parent unit's runtime treats both agents and sub-units uniformly through the orchestration tools: `list_children` enumerates either kind, `delegate_to_child` forwards to either, and `IAgentProxyResolver` maps the address scheme to the right actor type at delivery time.
 
 Membership has two invariants:
 
@@ -171,7 +189,7 @@ The projection is best-effort by design: a write-through failure logs and contin
 | **Ad-hoc Task Force** | Temporary unit for a specific problem                       | Incident response, sprint goal        |
 
 
-This list is illustrative, not exhaustive. Any organizational pattern can be modeled through unit composition, boundary configuration, and orchestration strategy selection. The primitives — recursive units, configurable boundaries, three orchestration strategies — are the building blocks; the patterns emerge from how you compose them.
+This list is illustrative, not exhaustive. Any organizational pattern can be modeled through unit composition, boundary configuration, and the runtime image / instructions a unit picks for itself. The primitives — recursive units, configurable boundaries, runtime-decided delegation through the orchestration tools — are the building blocks; the patterns emerge from how you compose them.
 
 ---
 
@@ -201,18 +219,19 @@ This list is illustrative, not exhaustive. Any organizational pattern can be mod
         },
         "ai": {
           "type": "object",
+          "description": "Execution config for the unit's own runtime — same shape as an agent's per ADR-0038. The runtime decides how to use the orchestration tools attached when the unit has children.",
           "properties": {
-            "agent": {
+            "runtime": {
               "type": "string",
-              "description": "Registered AI agent provider for lightweight orchestration decisions."
+              "description": "AgentRuntime id from runtime-catalog.yaml (e.g. spring-voyage, claude-code, codex, gemini)."
             },
             "model": {
-              "type": "string",
-              "description": "Model identifier for lightweight orchestration decisions."
-            },
-            "prompt": {
-              "type": "string",
-              "description": "Orchestration prompt used when the unit's routing strategy is AI-orchestrated."
+              "type": "object",
+              "description": "Model selection. Provider is intrinsic to the model entry in the catalogue.",
+              "properties": {
+                "provider": { "type": "string" },
+                "id": { "type": "string" }
+              }
             },
             "skills": {
               "type": "array",
@@ -224,21 +243,13 @@ This list is illustrative, not exhaustive. Any organizational pattern can be mod
                   "skill": { "type": "string" }
                 }
               },
-              "description": "Skill references exposed in the orchestration prompt."
-            },
-            "tool": {
-              "type": "string",
-              "description": "Registered workflow tool name when the unit delegates orchestration to a workflow container."
-            },
-            "environment": {
-              "type": "object",
-              "properties": {
-                "image": { "type": "string", "description": "Container image." },
-                "runtime": { "type": "string", "enum": ["podman", "docker", "kubernetes"] }
-              },
-              "description": "Container definition for the workflow tool (when used)."
+              "description": "Skill references attached to the unit's runtime, alongside the orchestration tools."
             }
           }
+        },
+        "instructions": {
+          "type": "string",
+          "description": "Runtime-facing instructions composed into the unit's prompt. Decides whether the unit answers directly or delegates via the orchestration tools."
         },
         "members": {
           "type": "array",
@@ -373,10 +384,11 @@ or the new-unit wizard's **From catalog** mode (portal), both of which route thr
 ## See Also
 
 - [Agents](agents.md) — agent model, execution pattern, cloning, prompt assembly
-- [Orchestration](orchestration.md) — orchestration strategies, unit boundary, execution defaults
+- [Agent SDK](agent-sdk.md) — `Cvoya.Spring.AgentSdk`, `IOrchestrationClient`, env-var contract for workflow-driven runtimes
 - [Policies](policies.md) — unit policy framework, root unit
 - [Expertise](expertise.md) — expertise profiles, directory, aggregation, search
 - [Unit Lifecycle](unit-lifecycle.md) — validation workflow, status DAG, creation paths
 - [Messaging](messaging.md) — mailbox, thread model, `AgentMemory`, `ThreadMemoryPolicy`
 - [Infrastructure](infrastructure.md) — Dapr actor model, `IAddressable`
 - [Initiative](initiative.md) — initiative levels, tiered cognition, initiative policies
+- [ADR-0039](../decisions/0039-units-are-agents.md) — units-are-agents; orchestration as runtime behaviour

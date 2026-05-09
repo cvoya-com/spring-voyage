@@ -95,7 +95,7 @@ A user opens a **collaboration** to work; the system records it under the releva
 
 - ADR-0029's "per-agent persistent volume" gains an explicit per-thread sub-structure expectation. The platform stays opaque to volume contents, but the SDK contract (Bucket 1) needs to standardise the thread-id field on `on_message(message)` so the agent's per-thread memory hydration is keyed consistently. The exact field shape is a D1 deliverable.
 - We confirm (not change) ADR-0026 and ADR-0029. F3's new ADR cites both rather than re-litigating either.
-- The **multi-party** case (a unit `U` with many member agents in a thread `{user, U}`) is not affected: the unit is itself an agent in container terms, and U's orchestration strategy decides which member processes which message — exactly as today.
+- The **multi-party** case (a unit `U` with many member agents in a thread `{user, U}`) is not affected: the unit is itself an agent (per [ADR-0039](../decisions/0039-units-are-agents.md)), and U's runtime decides — via the orchestration tools the launcher attaches — which member processes which message.
 - **Web Portal continuity:** unchanged. The portal already does not address containers.
 - **Hosted-service foundation:** unchanged — per-agent is the cheaper hosted model.
 

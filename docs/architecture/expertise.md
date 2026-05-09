@@ -1,6 +1,6 @@
 # Expertise
 
-> **[Architecture Index](README.md)** | Related: [Units](units.md), [Agents](agents.md), [Orchestration](orchestration.md), [Agent Runtime](agent-runtime.md)
+> **[Architecture Index](README.md)** | Related: [Units](units.md), [Agents](agents.md), [Agent Runtime](agent-runtime.md)
 
 This document covers expertise profiles, the unit directory, recursive aggregation, directory search, and seeding from YAML. Expertise is how the platform answers "who can do this?" — it powers peer discovery (`discoverPeers` platform tool), boundary projection, and the `directory/search` meta-skill.
 
@@ -106,8 +106,7 @@ agent:
 
 ## See Also
 
-- [Units](units.md) — unit entity model; unit directory as a property of the unit
+- [Units](units.md) — unit entity model; unit directory as a property of the unit; boundary configuration that filters expertise
 - [Agents](agents.md) — agent model; `discoverPeers` platform tool
-- [Orchestration](orchestration.md) — boundary configuration; how opacity/projection/synthesis rules filter expertise
 - [Agent Runtime](agent-runtime.md) — skill registries; how `expertise/{slug}` skills are invoked
 - [Open Questions](open-questions.md) — cognitive backbone for expertise evolution (future work)

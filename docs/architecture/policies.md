@@ -1,8 +1,8 @@
 # Unit Policies
 
-> **[Architecture Index](README.md)** | Related: [Units](units.md), [Agents](agents.md), [Orchestration](orchestration.md), [Initiative](initiative.md), [Security](security.md)
+> **[Architecture Index](README.md)** | Related: [Units](units.md), [Agents](agents.md), [Initiative](initiative.md), [Security](security.md)
 
-This document describes the **unit policy framework** — the governance layer that constrains what agents inside a unit may do. Policies are distinct from orchestration strategies (which control routing) and from unit boundary rules (which control visibility). A unit is a trust boundary: policies on it cannot be escaped by per-agent overrides.
+This document describes the **unit policy framework** — the governance layer that constrains what agents inside a unit may do. Policies are distinct from unit boundary rules (which control visibility); orchestration is runtime behaviour decided by the unit's own runtime per [ADR-0039](../decisions/0039-units-are-agents.md), not a platform-level slot policies need to coordinate with. A unit is a trust boundary: policies on it cannot be escaped by per-agent overrides.
 
 For the root unit (the deployment-wide container), see [Root Unit](#root-unit) below.
 
@@ -106,6 +106,5 @@ The root unit provides the platform-wide directory, addressing, cross-unit routi
 
 - [Units](units.md) — unit entity model, membership, nested units
 - [Agents](agents.md) — agent model; agent-level cloning policy
-- [Orchestration](orchestration.md) — unit boundary; execution defaults resolution chain
 - [Initiative](initiative.md) — agent initiative levels; how initiative policy interacts with unit policy
 - [Security](security.md) — permissions, RBAC, secrets stack; how policies compose with authorization

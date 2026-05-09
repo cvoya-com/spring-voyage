@@ -1,6 +1,6 @@
 # Unit Lifecycle
 
-> **[Architecture Index](README.md)** | Related: [Units](units.md), [Agents](agents.md), [Orchestration](orchestration.md), [Workflows](workflows.md), [CLI & Web](cli-and-web.md)
+> **[Architecture Index](README.md)** | Related: [Units](units.md), [Agents](agents.md), [Workflows](workflows.md), [CLI & Web](cli-and-web.md)
 
 This document covers how units move from definition to operation: the status DAG, the validation workflow, and the two creation paths (imperative CLI and declarative YAML). For the unit entity model (membership, nesting, identity), see [Units](units.md). For the agent lifecycle, the same patterns apply — replace `spring unit` with `spring agent` in the CLI commands.
 
@@ -212,9 +212,8 @@ Stops all agents, deactivates actors, cleans up subscriptions and execution envi
 
 ## See Also
 
-- [Units](units.md) — unit entity model, membership, nested units, sub-unit creation surfaces
+- [Units](units.md) — unit entity model, membership, nested units, sub-unit creation surfaces, orchestration tools
 - [Agents](agents.md) — agent model, cloning, prompt assembly
-- [Orchestration](orchestration.md) — orchestration strategies; execution defaults; boundary
 - [Workflows](workflows.md) — Dapr Workflow integration; `UnitValidationWorkflow` rationale
 - [CLI & Web](cli-and-web.md) — full CLI reference
 - [ADR-0024](../decisions/0024-unit-validation-as-dapr-workflow.md) — why validation runs as a Dapr Workflow
