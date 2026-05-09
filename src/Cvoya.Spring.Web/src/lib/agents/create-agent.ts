@@ -113,9 +113,8 @@ export function describeAgentCreateError(
  *
  * ADR-0038 / ADR-0039 K6: `runtime` and the structured `model` selector
  * live at the definition root; `image` and `hosting` stay under
- * `execution`. A model with both halves blank is treated as "not supplied"
- * and is omitted entirely; supplying only one half emits just that field
- * on the nested object.
+ * `execution`. A model is emitted only when both `provider` and `id` are
+ * present; a half-filled model remains inherited.
  *
  * ADR-0039 (I2): `hosting` is the agent-owned hosting mode. `null` (or
  * `undefined`) means "inherit from parent" and the field is omitted from
@@ -139,11 +138,8 @@ export function buildAgentDefinitionJson(input: {
   const provider = input.model?.provider?.trim();
   const modelId = input.model?.id?.trim();
   if (runtime) payload.runtime = runtime;
-  if (provider || modelId) {
-    const model: { provider?: string; id?: string } = {};
-    if (provider) model.provider = provider;
-    if (modelId) model.id = modelId;
-    payload.model = model;
+  if (provider && modelId) {
+    payload.model = { provider, id: modelId };
   }
   if (image) execution.image = image;
   if (input.hosting === "ephemeral" || input.hosting === "persistent") {

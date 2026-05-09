@@ -640,7 +640,6 @@ describe("AgentCreateForm — direct create submit (K6)", () => {
       unitIds: ["unit-id-alpha"],
       definitionJson: JSON.stringify({
         runtime: "claude-code",
-        model: { provider: "anthropic" },
         execution: {
           image: "ghcr.io/example/agent:latest",
           hosting: "persistent",
@@ -749,6 +748,27 @@ describe("AgentCreateForm — inherit affordance (I4)", () => {
     });
   });
 
+  it("uses generic inherited-from-parent copy for multiple selected units", async () => {
+    listUnits.mockResolvedValue([
+      makeUnit({ id: "unit-id-alpha", name: "alpha", displayName: "Alpha" }),
+      makeUnit({ id: "unit-id-beta", name: "beta", displayName: "Beta" }),
+    ]);
+
+    renderForm();
+
+    fireEvent.click(await screen.findByLabelText(/assign to alpha/i));
+    fireEvent.click(await screen.findByLabelText(/assign to beta/i));
+
+    await waitFor(() => {
+      const texts = screen
+        .getAllByTestId("inherit-indicator")
+        .map((el) => el.textContent ?? "");
+      expect(texts.some((text) => text === "inherited from parent")).toBe(true);
+      expect(texts.every((text) => !text.includes("Alpha:"))).toBe(true);
+      expect(texts.every((text) => !text.includes("Beta:"))).toBe(true);
+    });
+  });
+
   it("flips the Execution card badge from `Inherits` to `Configured` when any field is set", async () => {
     renderForm();
 
@@ -853,6 +873,9 @@ describe("AgentCreateForm — multi-parent inheritance conflict (ADR-0039 I6)", 
     // Each parent-attributed value appears.
     expect(block).toHaveTextContent(/claude-code/);
     expect(block).toHaveTextContent(/spring-voyage/);
+    expect(toastMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Create failed" }),
+    );
   });
 
   it("renders one row per diverging field, ordered as the wire body lists them", async () => {

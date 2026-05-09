@@ -19,9 +19,17 @@ export interface AgentCreateOptions {
   model?: string;
 }
 
-/** Submit the form. Resolves when the page navigates away (typically to /agents). */
-export async function createAgent(page: Page, opts: AgentCreateOptions): Promise<void> {
+/** Open `/agents/create` and advance the page-only Source step to Scratch. */
+export async function openScratchAgentCreate(page: Page): Promise<void> {
   await page.goto("/agents/create");
+  await page.getByTestId("agent-source-card-scratch").click();
+  await page.getByRole("button", { name: /^next$/i }).click();
+  await page.getByLabel("Agent id").waitFor();
+}
+
+/** Submit the form. Resolves when the page navigates away from `/agents/create`. */
+export async function createAgent(page: Page, opts: AgentCreateOptions): Promise<void> {
+  await openScratchAgentCreate(page);
 
   await page.getByLabel("Agent id").fill(opts.id);
   await page.getByLabel("Display name").fill(opts.displayName);
