@@ -265,7 +265,8 @@ public class OrchestrationDelegationDecisionIntegrationTests
             agentProxyResolver,
             new OrchestrationDepthCounter(),
             Substitute.For<ILogger<OrchestrationToolHandlers>>(),
-            activityEventBus);
+            activityEventBus,
+            new SingleTenantOrchestrationTenantResolver());
 
         return new HandlerHarness(handlers, agents, publishedEvents);
     }

@@ -192,6 +192,8 @@ public class SdkWorkflowDispatch
             builder.Services.AddSingleton(CreateAgentProxyResolver(agents));
             builder.Services.AddSingleton(new OrchestrationDepthCounter());
             builder.Services.AddSingleton<IActivityEventBus>(activityEventBus);
+            // ADR-0039 §3 gate 6 — single-tenant resolver is the OSS default.
+            builder.Services.AddSingleton<IOrchestrationTenantResolver, SingleTenantOrchestrationTenantResolver>();
             builder.Services.AddSingleton<OrchestrationToolHandlers>();
 
             var app = builder.Build();
