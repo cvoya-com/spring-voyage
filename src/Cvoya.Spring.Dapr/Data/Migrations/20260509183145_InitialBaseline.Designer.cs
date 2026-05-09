@@ -13,8 +13,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 #nullable disable
 
 [DbContext(typeof(SpringDbContext))]
-[Migration("20260508224735_DropOrchestrationStrategyAndLabelRouting")]
-partial class DropOrchestrationStrategyAndLabelRouting
+[Migration("20260509183145_InitialBaseline")]
+partial class InitialBaseline
 {
     /// <inheritdoc />
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
