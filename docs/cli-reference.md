@@ -143,17 +143,13 @@ Inline credentials are still supplied via `--api-key` / `--api-key-from-file`, p
 ### `spring agent create` / `spring agent execution set`
 
 ```
-# Author a new agent on a fixed-provider runtime
-# (ADR-0039 §8: --name is the only display surface; identity is platform-allocated.)
-$ spring agent create --name ada --unit eng --runtime claude-code --model claude-opus-4-7
-$ spring agent create --name ada --description "Reviews backend PRs"
+# Create a scratch agent with a model override
+$ spring agent create --name ada --unit eng --model claude-opus-4-7
 
-# Install an agent from a catalog package
-$ spring agent create --name ada --from-package software-engineering
-
-# Spring Voyage Agent agent → must name the provider explicitly
-$ spring agent create --name ada --unit eng \
-    --runtime spring-voyage --model-provider anthropic --model claude-opus-4-7
+# Install from a package with inputs and a connector binding
+$ spring agent create --name ada --from-package software-engineering \
+    --input github_owner=cvoya-com \
+    --connector github=binding-123
 
 # Override only the model id later — provider is preserved
 $ spring agent execution set ada --model claude-sonnet-4-6
@@ -164,11 +160,32 @@ $ spring agent create --name ada --unit eng --inherit
 
 Scripts and scenario tests should pass `--name` explicitly; a bare token after `spring agent create` is rejected with the ADR-0039 migration hint.
 
-`--unit` is optional; omitting it creates a top-level tenant-parented agent that inherits from tenant defaults. `--from-package <name>` starts package installation through the catalog install endpoint and is mutually exclusive with inline definition and execution shorthand flags.
+`--unit <id>` is optional and repeatable. Omitting it creates a top-level tenant-parented agent; one or more `--unit` values create unit memberships. Use Guids in scripts.
 
-Passing `--inherit` makes `spring agent create` omit the create-time execution shorthand overlay (`--runtime`, `--model-provider`, `--model`, `--image`) so the request body carries no execution block unless one was already supplied through `--definition` or `--definition-file`. The platform then resolves runtime, model, image, and hosting from the agent's parent unit set.
+Scratch-create flags:
 
-Per-field clear targets the new field-key surface: `image`, `container-runtime`, `runtime`, `model-provider`, `model`, `hosting` (agent only). Clearing `model-provider` wipes only the provider half of the structured `execution.model`; clearing `model` wipes the whole `{provider, id}` pair.
+| Flag | Effect |
+|---|---|
+| `--description <text>` | Sends the optional description on the create request. |
+| `--role <role>` | Sends the optional agent role. |
+| `--definition <json>` / `--definition-file <path>` | Sends an explicit agent definition JSON document. |
+| `--inherit` | Sends no create-time execution shorthand fields; execution resolves from the parent unit set or tenant defaults. |
+| `--image <ref>` | Sets `definitionJson.execution.image`. |
+| `--runtime <id>` | Sets `definitionJson.execution.runtime`. |
+| `--model-provider <id>` | Sets `definitionJson.execution.model.provider`. |
+| `--model <id>` | Sets `definitionJson.execution.model.id`. |
+
+Package-create flags:
+
+| Flag | Effect |
+|---|---|
+| `--from-package <name>` | Starts package installation through `POST /api/v1/packages/install`. |
+| `--input <key=value>` | Repeatable package input value. Only valid with `--from-package`. |
+| `--connector <slug=binding-id>` | Repeatable connector binding override. Only valid with `--from-package`. |
+
+Mutual exclusions are enforced at parse time: `--inherit` cannot be combined with execution shorthands, `--from-package` cannot be combined with `--definition` / `--definition-file` or execution shorthands, and `--input` / `--connector` require `--from-package`.
+
+Per-field clear targets the new field-key surface: `image`, `runtime`, `model-provider`, `model`, `hosting` (agent only). Clearing `model-provider` wipes only the provider half of the structured `execution.model`; clearing `model` wipes the whole `{provider, id}` pair.
 
 ## `spring unit` (validation surface)
 
