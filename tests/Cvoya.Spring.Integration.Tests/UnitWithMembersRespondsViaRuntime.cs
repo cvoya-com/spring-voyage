@@ -17,7 +17,7 @@ using Xunit;
 /// Smoke test: a unit with members still dispatches through the runtime
 /// invocation path in the C2-D2 window (ADR-0039 C6). After D2 lands,
 /// the runtime may delegate via delegate_to_child; that behaviour is
-/// covered by D10.
+/// covered by OrchestrationDelegationDecisionIntegrationTests.
 /// </summary>
 public class UnitWithMembersRespondsViaRuntime
 {
