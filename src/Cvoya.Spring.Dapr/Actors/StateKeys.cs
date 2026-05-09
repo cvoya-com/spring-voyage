@@ -85,15 +85,10 @@ public static class StateKeys
     // The HumanActor reads them from SpringDbContext on every call; no
     // actor-state copy is maintained.
 
-    /// <summary>
-    /// State key for the human actor's unit-scoped permission map (unitId to PermissionLevel).
-    /// </summary>
-    public const string HumanUnitPermissions = "Human:UnitPermissions";
-
-    /// <summary>
-    /// State key for the unit actor's human permission entries (humanId to UnitPermissionEntry).
-    /// </summary>
-    public const string HumanPermissions = "Unit:HumanPermissions";
+    // #2044 / ADR-0040: HumanUnitPermissions ("Human:UnitPermissions") and
+    // HumanPermissions ("Unit:HumanPermissions") were dropped. Unit ACL
+    // grants live in the unit_human_permissions EF table; the
+    // PermissionService and UnitActor read/write that table directly.
 
     /// <summary>
     /// State key for the clone identity record, stored on clone agents.

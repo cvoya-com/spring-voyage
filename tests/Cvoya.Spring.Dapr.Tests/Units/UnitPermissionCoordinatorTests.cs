@@ -3,7 +3,6 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Units;
 
-using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Units;
 
@@ -17,17 +16,21 @@ using Xunit;
 
 /// <summary>
 /// Tests for <see cref="UnitPermissionCoordinator"/> exercised directly
-/// (without going through <c>UnitActor</c>) to validate grant, revocation,
-/// query, and inheritance-flag management in isolation.
+/// (without going through <c>UnitActor</c>) to validate inheritance-flag
+/// management in isolation.
 /// </summary>
+/// <remarks>
+/// Pre-#2044 this suite also exercised the per-unit (humanId → entry) map.
+/// After #2044 / ADR-0040 the grant surface lives on
+/// <c>IUnitHumanPermissionRepository</c> + <c>UnitHumanPermissionStore</c>;
+/// coverage for those pieces lives in
+/// <c>UnitHumanPermissionRepositoryTests</c> and
+/// <c>PermissionServiceTests</c>. This file shrinks to the inheritance-flag
+/// tests that remain on the coordinator.
+/// </remarks>
 public class UnitPermissionCoordinatorTests
 {
     private const string UnitActorId = "test-unit";
-
-    // Stable UUID constants for deterministic tests.
-    private static readonly Guid Human1 = new("aaaaaaaa-0000-0000-0000-000000000001");
-    private static readonly Guid Human2 = new("aaaaaaaa-0000-0000-0000-000000000002");
-    private static readonly Guid HumanUnknown = Guid.NewGuid();
 
     private readonly ILogger<UnitPermissionCoordinator> _logger =
         Substitute.For<ILogger<UnitPermissionCoordinator>>();
@@ -37,159 +40,6 @@ public class UnitPermissionCoordinatorTests
     public UnitPermissionCoordinatorTests()
     {
         _coordinator = new UnitPermissionCoordinator(logger: _logger);
-    }
-
-    // --- SetHumanPermissionAsync ---
-
-    [Fact]
-    public async Task SetHumanPermissionAsync_NewEntry_AddsToDictionaryAndPersists()
-    {
-        var permissions = new Dictionary<string, UnitPermissionEntry>();
-        Dictionary<string, UnitPermissionEntry>? persisted = null;
-        var entry = new UnitPermissionEntry(Human1.ToString(), PermissionLevel.Operator, "Alice", true);
-
-        await _coordinator.SetHumanPermissionAsync(
-            unitActorId: UnitActorId,
-            humanId: Human1,
-            entry: entry,
-            getPermissions: _ => Task.FromResult(permissions),
-            persistPermissions: (d, _) => { persisted = d; return Task.CompletedTask; },
-            cancellationToken: TestContext.Current.CancellationToken);
-
-        persisted.ShouldNotBeNull();
-        persisted!.ContainsKey(Human1.ToString()).ShouldBeTrue();
-        persisted[Human1.ToString()].Permission.ShouldBe(PermissionLevel.Operator);
-    }
-
-    [Fact]
-    public async Task SetHumanPermissionAsync_ExistingEntry_ReplacesAndPersists()
-    {
-        var permissions = new Dictionary<string, UnitPermissionEntry>
-        {
-            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Viewer, "Alice", true)
-        };
-        var newEntry = new UnitPermissionEntry(Human1.ToString(), PermissionLevel.Owner, "Alice", true);
-        Dictionary<string, UnitPermissionEntry>? persisted = null;
-
-        await _coordinator.SetHumanPermissionAsync(
-            unitActorId: UnitActorId,
-            humanId: Human1,
-            entry: newEntry,
-            getPermissions: _ => Task.FromResult(permissions),
-            persistPermissions: (d, _) => { persisted = d; return Task.CompletedTask; },
-            cancellationToken: TestContext.Current.CancellationToken);
-
-        persisted.ShouldNotBeNull();
-        persisted![Human1.ToString()].Permission.ShouldBe(PermissionLevel.Owner);
-    }
-
-    // --- GetHumanPermissionAsync ---
-
-    [Fact]
-    public async Task GetHumanPermissionAsync_ExistingHuman_ReturnsPermissionLevel()
-    {
-        var permissions = new Dictionary<string, UnitPermissionEntry>
-        {
-            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true)
-        };
-
-        var result = await _coordinator.GetHumanPermissionAsync(
-            unitActorId: UnitActorId,
-            humanId: Human1,
-            getPermissions: _ => Task.FromResult(permissions),
-            cancellationToken: TestContext.Current.CancellationToken);
-
-        result.ShouldBe(PermissionLevel.Owner);
-    }
-
-    [Fact]
-    public async Task GetHumanPermissionAsync_UnknownHuman_ReturnsNull()
-    {
-        var permissions = new Dictionary<string, UnitPermissionEntry>();
-
-        var result = await _coordinator.GetHumanPermissionAsync(
-            unitActorId: UnitActorId,
-            humanId: HumanUnknown,
-            getPermissions: _ => Task.FromResult(permissions),
-            cancellationToken: TestContext.Current.CancellationToken);
-
-        result.ShouldBeNull();
-    }
-
-    // --- RemoveHumanPermissionAsync ---
-
-    [Fact]
-    public async Task RemoveHumanPermissionAsync_ExistingEntry_RemovesAndReturnsTrueAndPersists()
-    {
-        var permissions = new Dictionary<string, UnitPermissionEntry>
-        {
-            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true),
-            [Human2.ToString()] = new(Human2.ToString(), PermissionLevel.Viewer, "Bob", false)
-        };
-        Dictionary<string, UnitPermissionEntry>? persisted = null;
-
-        var result = await _coordinator.RemoveHumanPermissionAsync(
-            unitActorId: UnitActorId,
-            humanId: Human1,
-            getPermissions: _ => Task.FromResult(permissions),
-            persistPermissions: (d, _) => { persisted = d; return Task.CompletedTask; },
-            cancellationToken: TestContext.Current.CancellationToken);
-
-        result.ShouldBeTrue();
-        persisted.ShouldNotBeNull();
-        persisted!.ContainsKey(Human1.ToString()).ShouldBeFalse();
-        persisted.ContainsKey(Human2.ToString()).ShouldBeTrue();
-    }
-
-    [Fact]
-    public async Task RemoveHumanPermissionAsync_UnknownEntry_ReturnsFalseAndDoesNotPersist()
-    {
-        var permissions = new Dictionary<string, UnitPermissionEntry>();
-        var persistCalled = false;
-
-        var result = await _coordinator.RemoveHumanPermissionAsync(
-            unitActorId: UnitActorId,
-            humanId: HumanUnknown,
-            getPermissions: _ => Task.FromResult(permissions),
-            persistPermissions: (_, _) => { persistCalled = true; return Task.CompletedTask; },
-            cancellationToken: TestContext.Current.CancellationToken);
-
-        result.ShouldBeFalse();
-        persistCalled.ShouldBeFalse();
-    }
-
-    // --- GetHumanPermissionsAsync ---
-
-    [Fact]
-    public async Task GetHumanPermissionsAsync_MultipleEntries_ReturnsAllValues()
-    {
-        var permissions = new Dictionary<string, UnitPermissionEntry>
-        {
-            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true),
-            [Human2.ToString()] = new(Human2.ToString(), PermissionLevel.Viewer, "Bob", false)
-        };
-
-        var result = await _coordinator.GetHumanPermissionsAsync(
-            unitActorId: UnitActorId,
-            getPermissions: _ => Task.FromResult(permissions),
-            cancellationToken: TestContext.Current.CancellationToken);
-
-        result.Length.ShouldBe(2);
-        result.ShouldContain(e => e.HumanId == Human1.ToString() && e.Permission == PermissionLevel.Owner);
-        result.ShouldContain(e => e.HumanId == Human2.ToString() && e.Permission == PermissionLevel.Viewer);
-    }
-
-    [Fact]
-    public async Task GetHumanPermissionsAsync_EmptyDictionary_ReturnsEmptyArray()
-    {
-        var permissions = new Dictionary<string, UnitPermissionEntry>();
-
-        var result = await _coordinator.GetHumanPermissionsAsync(
-            unitActorId: UnitActorId,
-            getPermissions: _ => Task.FromResult(permissions),
-            cancellationToken: TestContext.Current.CancellationToken);
-
-        result.ShouldBeEmpty();
     }
 
     // --- GetPermissionInheritanceAsync ---

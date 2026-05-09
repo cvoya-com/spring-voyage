@@ -3,7 +3,6 @@
 
 namespace Cvoya.Spring.Dapr.Auth;
 
-using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Units;
@@ -18,30 +17,28 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default <see cref="IPermissionService"/>. Resolves (humanId, unitId) pairs
-/// by querying the unit actor's human-permission state. Implements the
-/// hierarchy-aware resolver behind <see cref="ResolveEffectivePermissionAsync"/>
-/// (#414) by walking parent units via <see cref="IUnitHierarchyResolver"/>
-/// and consulting each unit's
+/// by querying the <c>unit_human_permissions</c> EF table directly (#2044 /
+/// ADR-0040). Implements the hierarchy-aware resolver behind
+/// <see cref="ResolveEffectivePermissionAsync"/> (#414) by walking parent
+/// units via <see cref="IUnitHierarchyResolver"/> and consulting each unit's
 /// <see cref="UnitPermissionInheritance"/> setting so opaque sub-units block
 /// ancestor authority from cascading through them.
 /// </summary>
 /// <remarks>
-/// The <paramref name="directoryService"/> dependency resolves each unit's
-/// route-level id (the unit name / path) to its Dapr actor id before the
-/// proxy is created. Without this step the proxy would talk to a freshly
-/// activated actor keyed on the unit name, bypassing the authoritative
-/// permission state persisted under the GUID actor id
-/// <see cref="Services.UnitCreationService"/> assigns at creation time —
-/// which is what caused <c>humans</c> endpoints to 403 in LocalDev
-/// (issue #976). Every other unit-scoped endpoint path resolves the
-/// directory entry first; the permission evaluator now does the same so the
-/// two views agree.
+/// Pre-#2044 the service held an <see cref="IActorProxyFactory"/> and read
+/// every grant through a unit-actor proxy, cold-activating each ancestor on
+/// the walk. Post-#2044 grants are EF rows, so the resolution is a single
+/// indexed SQL read per hop and the actor proxy is no longer required for
+/// the grant itself. The proxy is still consulted for the
+/// <see cref="UnitPermissionInheritance"/> flag — that key remains in actor
+/// state for v0.1 and moves to <c>unit_live_config</c> in
+/// <see href="https://github.com/cvoya-com/spring-voyage/issues/2049">#2049</see>.
 ///
 /// <para>
 /// #1491: The <paramref name="scopeFactory"/> resolves a scoped
 /// <see cref="IHumanIdentityResolver"/> per call to convert the incoming
 /// username string (from <see cref="System.Security.Claims.ClaimTypes.NameIdentifier"/>)
-/// into a stable UUID before querying the unit actor's permission map.
+/// into a stable UUID before querying the unit's permission row.
 /// When <c>null</c> (legacy test harnesses that construct
 /// <see cref="PermissionService"/> directly), the service falls back to
 /// treating the humanId string as a UUID-string directly — calls that pass
@@ -50,9 +47,9 @@ using Microsoft.Extensions.Logging;
 /// </para>
 /// </remarks>
 public class PermissionService(
-    IActorProxyFactory actorProxyFactory,
+    IUnitHumanPermissionStore permissionStore,
     IUnitHierarchyResolver hierarchyResolver,
-    IDirectoryService directoryService,
+    IActorProxyFactory inheritanceActorProxyFactory,
     ILoggerFactory loggerFactory,
     IServiceScopeFactory? scopeFactory = null) : IPermissionService
 {
@@ -80,16 +77,12 @@ public class PermissionService(
                 return null;
             }
 
-            var actorId = await ResolveActorIdAsync(unitId, cancellationToken);
-            if (actorId is null)
+            if (!TryParseUnitGuid(unitId, out var unitGuid))
             {
                 return null;
             }
 
-            var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(actorId), nameof(UnitActor));
-
-            return await unitProxy.GetHumanPermissionAsync(humanGuid, cancellationToken);
+            return await permissionStore.GetPermissionAsync(unitGuid, humanGuid, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -117,23 +110,22 @@ public class PermissionService(
             return null;
         }
 
+        if (!TryParseUnitGuid(unitId, out var unitGuid))
+        {
+            // The route-level id did not parse as a Guid — the unit does
+            // not exist in this deployment. Match the pre-#2044 directory-
+            // miss behaviour: surface as "no permission" rather than
+            // throwing, so a stale URL never leaks a 500 to the caller.
+            return null;
+        }
+
         // Step 1: explicit grant on the target unit always wins. A direct
         // grant is authoritative — including a deliberate downgrade. The
         // #414 design rule is "direct beats inherited."
         PermissionLevel? direct;
         try
         {
-            var actorId = await ResolveActorIdAsync(unitId, cancellationToken);
-            if (actorId is null)
-            {
-                // Target unit is not in the directory — nothing to inherit
-                // from either, since ancestor walks read the directory too.
-                return null;
-            }
-
-            var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(actorId), nameof(UnitActor));
-            direct = await proxy.GetHumanPermissionAsync(humanGuid, cancellationToken);
+            direct = await permissionStore.GetPermissionAsync(unitGuid, humanGuid, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -159,7 +151,7 @@ public class PermissionService(
         //   * a cycle is detected (defensive — membership should reject cycles
         //     on insertion, but a state-store anomaly must never loop us).
         var visited = new HashSet<string>(StringComparer.Ordinal) { unitId };
-        var current = Address.For("unit", unitId);
+        var current = new Address("unit", unitGuid);
         var depth = 0;
 
         while (true)
@@ -221,17 +213,7 @@ public class PermissionService(
                 PermissionLevel? grant;
                 try
                 {
-                    var parentActorId = await ResolveActorIdAsync(parent.Path, cancellationToken);
-                    if (parentActorId is null)
-                    {
-                        // Ancestor not in the directory (stale hierarchy
-                        // row). Skip it — a missing row is never authority.
-                        continue;
-                    }
-
-                    var parentProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                        new ActorId(parentActorId), nameof(UnitActor));
-                    grant = await parentProxy.GetHumanPermissionAsync(humanGuid, cancellationToken);
+                    grant = await permissionStore.GetPermissionAsync(parent.Id, humanGuid, cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -317,32 +299,30 @@ public class PermissionService(
         return Guid.TryParse(humanId, out var guid) ? guid : Guid.Empty;
     }
 
+    /// <summary>
+    /// Reads the unit's <see cref="UnitPermissionInheritance"/> flag through
+    /// the unit-actor proxy. v0.1 keeps this read on actor state per ADR-0040;
+    /// <see href="https://github.com/cvoya-com/spring-voyage/issues/2049">#2049</see>
+    /// moves it to <c>unit_live_config</c> so the inheritance flag joins the
+    /// SQL read path with the grant.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="UnitPermissionInheritance.Isolated"/> on every
+    /// failure — the safe choice is to DENY inheritance when we cannot
+    /// confirm the boundary is permissive. A permission service that silently
+    /// assumed Inherit on failure would be a confused-deputy risk.
+    /// </remarks>
     private async Task<UnitPermissionInheritance> GetInheritanceAsync(Address unit, CancellationToken ct)
     {
         try
         {
-            var actorId = await ResolveActorIdAsync(unit.Path, ct);
-            if (actorId is null)
-            {
-                // Missing directory entry: treat as Isolated for the same
-                // "confused-deputy safe default" reason the exception
-                // branch below uses.
-                _logger.LogWarning(
-                    "Effective-permission walk: directory entry missing for {Unit}; treating as Isolated for safety.",
-                    unit);
-                return UnitPermissionInheritance.Isolated;
-            }
-
-            var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(actorId), nameof(UnitActor));
+            var actorIdString = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id);
+            var proxy = inheritanceActorProxyFactory.CreateActorProxy<IUnitActor>(
+                new ActorId(actorIdString), nameof(UnitActor));
             return await proxy.GetPermissionInheritanceAsync(ct);
         }
         catch (Exception ex)
         {
-            // If we cannot determine the flag, default to Isolated — the
-            // safe choice is to DENY inheritance when we cannot confirm the
-            // boundary is permissive. A permission service that silently
-            // assumed Inherit on failure would be a confused-deputy risk.
             _logger.LogWarning(ex,
                 "Effective-permission walk: could not read inheritance mode for {Unit}; treating as Isolated for safety.",
                 unit);
@@ -350,32 +330,8 @@ public class PermissionService(
         }
     }
 
-    /// <summary>
-    /// Resolves the route-level unit id (the unit name / path that appears
-    /// in <c>/api/v1/units/{id}</c>) to the Dapr actor id that the unit's
-    /// state is keyed under. Returns <c>null</c> when the directory has no
-    /// entry for the unit — callers treat that as "no permission" rather
-    /// than surfacing an error, which mirrors the pre-fix behaviour when
-    /// the proxy silently talked to an unseeded actor.
-    /// </summary>
-    private async Task<string?> ResolveActorIdAsync(string unitId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var entry = await directoryService.ResolveAsync(
-                Address.For("unit", unitId), cancellationToken);
-            return entry is null
-                ? null
-                : Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to resolve directory entry for unit {UnitId}; treating as unknown.",
-                unitId);
-            return null;
-        }
-    }
+    private static bool TryParseUnitGuid(string unitId, out Guid unitGuid)
+        => Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitId, out unitGuid);
 
     private static string ToKey(Address address) => $"{address.Scheme}://{address.Path}";
 }

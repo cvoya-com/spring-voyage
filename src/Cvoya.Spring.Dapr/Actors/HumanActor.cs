@@ -214,42 +214,6 @@ public class HumanActor(
     }
 
     /// <inheritdoc />
-    public async Task<PermissionLevel?> GetPermissionForUnitAsync(string unitId, CancellationToken cancellationToken = default)
-    {
-        var unitPermissions = await GetUnitPermissionsMapAsync(cancellationToken);
-        return unitPermissions.TryGetValue(unitId, out var level) ? level : null;
-    }
-
-    /// <inheritdoc />
-    public async Task SetPermissionForUnitAsync(string unitId, PermissionLevel level, CancellationToken cancellationToken = default)
-    {
-        var unitPermissions = await GetUnitPermissionsMapAsync(cancellationToken);
-        unitPermissions[unitId] = level;
-        await StateManager.SetStateAsync(StateKeys.HumanUnitPermissions, unitPermissions, cancellationToken);
-
-        _logger.LogInformation(
-            "Human actor {ActorId} permission for unit {UnitId} changed to {Permission}",
-            Id.GetId(), unitId, level);
-    }
-
-    /// <inheritdoc />
-    public async Task RemovePermissionForUnitAsync(string unitId, CancellationToken cancellationToken = default)
-    {
-        var unitPermissions = await GetUnitPermissionsMapAsync(cancellationToken);
-        if (!unitPermissions.Remove(unitId))
-        {
-            // Idempotent: nothing to remove is not an error.
-            return;
-        }
-
-        await StateManager.SetStateAsync(StateKeys.HumanUnitPermissions, unitPermissions, cancellationToken);
-
-        _logger.LogInformation(
-            "Human actor {ActorId} permission for unit {UnitId} cleared",
-            Id.GetId(), unitId);
-    }
-
-    /// <inheritdoc />
     public async Task MarkReadAsync(string threadId, DateTimeOffset readAt, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(threadId))
@@ -288,17 +252,6 @@ public class HumanActor(
     {
         var result = await StateManager
             .TryGetStateAsync<Dictionary<string, DateTimeOffset>>(StateKeys.HumanLastReadAt, cancellationToken);
-
-        return result.HasValue ? result.Value : [];
-    }
-
-    /// <summary>
-    /// Retrieves the unit-scoped permissions map from state.
-    /// </summary>
-    private async Task<Dictionary<string, PermissionLevel>> GetUnitPermissionsMapAsync(CancellationToken cancellationToken)
-    {
-        var result = await StateManager
-            .TryGetStateAsync<Dictionary<string, PermissionLevel>>(StateKeys.HumanUnitPermissions, cancellationToken);
 
         return result.HasValue ? result.Value : [];
     }

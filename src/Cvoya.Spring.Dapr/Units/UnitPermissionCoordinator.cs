@@ -3,101 +3,28 @@
 
 namespace Cvoya.Spring.Dapr.Units;
 
-using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 
 using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default singleton implementation of <see cref="IUnitPermissionCoordinator"/>.
-/// Owns the permission-management concern extracted from <c>UnitActor</c>:
-/// granting, revoking, and querying direct human permission entries, and
-/// reading / writing the <see cref="UnitPermissionInheritance"/> flag that
-/// controls ADR-0013's hierarchy-aware resolution behaviour.
+/// Owns the unit's permission-inheritance flag — the per-unit
+/// <see cref="UnitPermissionInheritance"/> value that decides whether
+/// ancestor grants cascade through this unit.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The coordinator is stateless with respect to any individual unit — it
-/// operates entirely through the per-call delegates and the injected logger.
-/// This makes it safe to register as a singleton and share across all
-/// <c>UnitActor</c> instances.
-/// </para>
-/// <para>
-/// ADR-0013 establishes the inheritance model (nearest-grant-wins,
-/// ancestor-cascade-by-default, fail-closed). The actual hierarchy walk lives
-/// in <c>IPermissionService.ResolveEffectivePermissionAsync</c>; this
-/// coordinator owns only the per-unit state mutations that feed that walk.
-/// </para>
+/// Pre-#2044 this coordinator also owned the per-unit (humanId → entry) map.
+/// After #2044 / ADR-0040 those grants moved to the
+/// <c>unit_human_permissions</c> EF table; the coordinator's role is now
+/// limited to the inheritance flag (which stays on actor state for v0.1 and
+/// moves to <c>unit_live_config</c> in #2049). The coordinator is stateless
+/// with respect to any individual unit and is safe to register as a
+/// singleton.
 /// </remarks>
 public class UnitPermissionCoordinator(
     ILogger<UnitPermissionCoordinator> logger) : IUnitPermissionCoordinator
 {
-    /// <inheritdoc />
-    public async Task SetHumanPermissionAsync(
-        string unitActorId,
-        Guid humanId,
-        UnitPermissionEntry entry,
-        Func<CancellationToken, Task<Dictionary<string, UnitPermissionEntry>>> getPermissions,
-        Func<Dictionary<string, UnitPermissionEntry>, CancellationToken, Task> persistPermissions,
-        CancellationToken cancellationToken = default)
-    {
-        var permissions = await getPermissions(cancellationToken);
-        permissions[humanId.ToString()] = entry;
-        await persistPermissions(permissions, cancellationToken);
-
-        logger.LogInformation(
-            "Unit {ActorId} set permission for human {HumanId} to {Permission}",
-            unitActorId, humanId, entry.Permission);
-    }
-
-    /// <inheritdoc />
-    public async Task<PermissionLevel?> GetHumanPermissionAsync(
-        string unitActorId,
-        Guid humanId,
-        Func<CancellationToken, Task<Dictionary<string, UnitPermissionEntry>>> getPermissions,
-        CancellationToken cancellationToken = default)
-    {
-        var permissions = await getPermissions(cancellationToken);
-        return permissions.TryGetValue(humanId.ToString(), out var entry) ? entry.Permission : null;
-    }
-
-    /// <inheritdoc />
-    public async Task<bool> RemoveHumanPermissionAsync(
-        string unitActorId,
-        Guid humanId,
-        Func<CancellationToken, Task<Dictionary<string, UnitPermissionEntry>>> getPermissions,
-        Func<Dictionary<string, UnitPermissionEntry>, CancellationToken, Task> persistPermissions,
-        CancellationToken cancellationToken = default)
-    {
-        var permissions = await getPermissions(cancellationToken);
-        if (!permissions.Remove(humanId.ToString()))
-        {
-            // Idempotent: removing an entry that does not exist is a no-op.
-            // The DELETE endpoint still returns 204 to match `spring unit
-            // humans remove` ergonomics — the CLI should not have to branch
-            // on 404 vs 204 when the desired end state is "no such entry".
-            return false;
-        }
-
-        await persistPermissions(permissions, cancellationToken);
-
-        logger.LogInformation(
-            "Unit {ActorId} removed permission for human {HumanId}",
-            unitActorId, humanId);
-
-        return true;
-    }
-
-    /// <inheritdoc />
-    public async Task<UnitPermissionEntry[]> GetHumanPermissionsAsync(
-        string unitActorId,
-        Func<CancellationToken, Task<Dictionary<string, UnitPermissionEntry>>> getPermissions,
-        CancellationToken cancellationToken = default)
-    {
-        var permissions = await getPermissions(cancellationToken);
-        return permissions.Values.ToArray();
-    }
-
     /// <inheritdoc />
     public async Task<UnitPermissionInheritance> GetPermissionInheritanceAsync(
         string unitActorId,

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Cvoya.Spring.Dapr.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Cvoya.Spring.Dapr.Data.Migrations
 {
     [DbContext(typeof(SpringDbContext))]
-    partial class SpringDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260509205640_AddUnitHumanPermissions")]
+    partial class AddUnitHumanPermissions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -266,51 +269,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.ToTable("api_tokens", "spring");
                 });
 
-            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.BudgetLimitEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<decimal>("DailyBudget")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)")
-                        .HasColumnName("daily_budget");
-
-                    b.Property<Guid?>("ScopeId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("scope_id");
-
-                    b.Property<string>("ScopeType")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("scope_type");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "ScopeType")
-                        .IsUnique()
-                        .HasDatabaseName("ix_budget_limits_tenant_scope_null")
-                        .HasFilter("scope_id IS NULL");
-
-                    b.HasIndex("TenantId", "ScopeType", "ScopeId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_budget_limits_tenant_scope")
-                        .HasFilter("scope_id IS NOT NULL");
-
-                    b.ToTable("budget_limits", "spring");
-                });
-
             modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.ConnectorDefinitionEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -432,14 +390,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)")
                         .HasColumnName("email");
-
-                    b.Property<string>("NotificationPreferences")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("notification_preferences");
-
-                    b.Property<int>("PermissionLevel")
-                        .HasColumnType("integer")
-                        .HasColumnName("permission_level");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
@@ -755,51 +705,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("tenant_skill_bundle_bindings", "spring");
-                });
-
-            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.ThreadEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<DateTimeOffset>("LastActivityAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_activity_at");
-
-                    b.Property<string>("ParticipantKey")
-                        .IsRequired()
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)")
-                        .HasColumnName("participant_key");
-
-                    b.Property<string>("Participants")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("participants");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("status");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "ParticipantKey")
-                        .IsUnique()
-                        .HasDatabaseName("ux_threads_tenant_participant_key");
-
-                    b.ToTable("threads", "spring");
                 });
 
             modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.UnitDefinitionEntity", b =>
