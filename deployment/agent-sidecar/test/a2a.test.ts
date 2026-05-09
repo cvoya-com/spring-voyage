@@ -9,13 +9,13 @@ import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "../src/version.ts";
 
 const PROCESS_NODE = process.execPath;
 
-function makeHandler(argv: string[]) {
+function makeHandler(argv: string[], spawnEnv: NodeJS.ProcessEnv = process.env) {
   return new A2AHandler({
     agentName: "test-agent",
     agentArgv: argv,
     port: 8999,
     cancelGraceMs: 200,
-    spawnEnv: process.env,
+    spawnEnv,
   });
 }
 
@@ -101,6 +101,47 @@ describe("A2AHandler.handle", () => {
     assert.equal(artifacts[0]?.parts[0]?.kind, "text");
     assert.equal(artifacts[0]?.parts[0]?.text, "echo:ping");
     assert.equal(task["x-spring-voyage-bridge-version"], BRIDGE_VERSION);
+  });
+
+  it("overrides SPRING_CALLBACK_TOKEN for a per-message callback token", async () => {
+    const handler = makeHandler(
+      [PROCESS_NODE, "-e", "process.stdout.write(process.env.SPRING_CALLBACK_TOKEN ?? '')"],
+      { PATH: process.env.PATH, SPRING_CALLBACK_TOKEN: "launch-token" },
+    );
+
+    const res = await handler.handle({
+      jsonrpc: "2.0",
+      method: "message/send",
+      params: {
+        message: {
+          metadata: { callbackToken: "fresh-message-token" },
+          parts: [{ text: "ping" }],
+        },
+      },
+      id: "callback-token",
+    });
+
+    const task = res.result as Record<string, unknown>;
+    const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+    assert.equal(artifacts[0]?.parts[0]?.text, "fresh-message-token");
+  });
+
+  it("keeps launch-time SPRING_CALLBACK_TOKEN when a message has no callback token", async () => {
+    const handler = makeHandler(
+      [PROCESS_NODE, "-e", "process.stdout.write(process.env.SPRING_CALLBACK_TOKEN ?? '')"],
+      { PATH: process.env.PATH, SPRING_CALLBACK_TOKEN: "launch-token" },
+    );
+
+    const res = await handler.handle({
+      jsonrpc: "2.0",
+      method: "message/send",
+      params: { message: { parts: [{ text: "ping" }] } },
+      id: "callback-token-fallback",
+    });
+
+    const task = res.result as Record<string, unknown>;
+    const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+    assert.equal(artifacts[0]?.parts[0]?.text, "launch-token");
   });
 
   it("reports failed state with stderr text on non-zero CLI exit (A2A v0.3 wire shape)", async () => {

@@ -3,21 +3,45 @@
 
 namespace Cvoya.Spring.AgentSdk;
 
+using System.Text.Json;
+
 /// <summary>
 /// Entry point for runtime images running inside Spring Voyage.
 /// </summary>
 public static class SpringAgent
 {
+    private const string CallbackTokenPayloadField = "callbackToken";
+
     /// <summary>
     /// Creates an OrchestrationClient configured from the standard environment variables.
     /// Throws MissingCallbackEnvironmentException if SPRING_CALLBACK_URL or
     /// SPRING_CALLBACK_TOKEN are absent.
     /// </summary>
-    public static IOrchestrationClient FromEnvironment()
+    public static IOrchestrationClient FromEnvironment() => FromEnvironment(inboundMessageBody: null);
+
+    /// <summary>
+    /// Creates an OrchestrationClient configured from the standard environment variables,
+    /// preferring a per-message <c>callbackToken</c> from the inbound message body when present.
+    /// </summary>
+    public static IOrchestrationClient FromEnvironment(string? inboundMessageBody)
     {
         var callbackUrl = ReadRequiredEnvironmentVariable(
             AgentSdkEnvironmentContract.CallbackUrlEnvVar);
-        var callbackToken = ReadRequiredEnvironmentVariable(
+        var callbackToken = TryReadCallbackToken(inboundMessageBody) ?? ReadRequiredEnvironmentVariable(
+            AgentSdkEnvironmentContract.CallbackTokenEnvVar);
+
+        return new OrchestrationClient(callbackUrl, callbackToken);
+    }
+
+    /// <summary>
+    /// Creates an OrchestrationClient configured from the standard environment variables,
+    /// preferring a per-message <c>callbackToken</c> from the inbound message body when present.
+    /// </summary>
+    public static IOrchestrationClient FromEnvironment(JsonElement inboundMessageBody)
+    {
+        var callbackUrl = ReadRequiredEnvironmentVariable(
+            AgentSdkEnvironmentContract.CallbackUrlEnvVar);
+        var callbackToken = TryReadCallbackToken(inboundMessageBody) ?? ReadRequiredEnvironmentVariable(
             AgentSdkEnvironmentContract.CallbackTokenEnvVar);
 
         return new OrchestrationClient(callbackUrl, callbackToken);
@@ -32,5 +56,84 @@ public static class SpringAgent
         }
 
         return value;
+    }
+
+    private static string? TryReadCallbackToken(string? inboundMessageBody)
+    {
+        if (string.IsNullOrWhiteSpace(inboundMessageBody))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(inboundMessageBody);
+            return TryReadCallbackToken(document.RootElement);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? TryReadCallbackToken(JsonElement inboundMessageBody)
+    {
+        if (TryReadCallbackTokenFromObject(inboundMessageBody, out var token))
+        {
+            return token;
+        }
+
+        if (inboundMessageBody.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (inboundMessageBody.TryGetProperty("message", out var message) &&
+            TryReadCallbackTokenFromObject(message, out token))
+        {
+            return token;
+        }
+
+        if (!inboundMessageBody.TryGetProperty("params", out var parameters))
+        {
+            return null;
+        }
+
+        if (TryReadCallbackTokenFromObject(parameters, out token))
+        {
+            return token;
+        }
+
+        return parameters.TryGetProperty("message", out message) &&
+            TryReadCallbackTokenFromObject(message, out token)
+                ? token
+                : null;
+    }
+
+    private static bool TryReadCallbackTokenFromObject(JsonElement element, out string? token)
+    {
+        token = null;
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (element.TryGetProperty(CallbackTokenPayloadField, out var directToken) &&
+            directToken.ValueKind == JsonValueKind.String)
+        {
+            token = directToken.GetString();
+            return !string.IsNullOrWhiteSpace(token);
+        }
+
+        if (!element.TryGetProperty("metadata", out var metadata) ||
+            metadata.ValueKind != JsonValueKind.Object ||
+            !metadata.TryGetProperty(CallbackTokenPayloadField, out var metadataToken) ||
+            metadataToken.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        token = metadataToken.GetString();
+        return !string.IsNullOrWhiteSpace(token);
     }
 }

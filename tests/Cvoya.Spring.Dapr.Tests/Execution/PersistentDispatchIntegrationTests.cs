@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -42,6 +43,7 @@ public class PersistentDispatchIntegrationTests
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly IOrchestrationToolProvider _orchestrationToolProvider = Substitute.For<IOrchestrationToolProvider>();
+    private readonly ICallbackTokenIssuer _callbackTokenIssuer = Substitute.For<ICallbackTokenIssuer>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
     private readonly PersistentAgentRegistry _persistentRegistry;
@@ -97,6 +99,8 @@ public class PersistentDispatchIntegrationTests
         // ADR-0039 D3: default to "no orchestration tools" — leaf-agent shape.
         _orchestrationToolProvider.GetOrchestrationTools(Arg.Any<Address>(), Arg.Any<Guid>())
             .Returns(Array.Empty<OrchestrationToolDescriptor>());
+        _callbackTokenIssuer.Issue(Arg.Any<CallbackToken>())
+            .Returns(call => $"token-{call.Arg<CallbackToken>().MessageId:N}");
 
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
@@ -154,6 +158,7 @@ public class PersistentDispatchIntegrationTests
             volumeManager,
             Options.Create(daprOptions),
             transportFactory,
+            _callbackTokenIssuer,
             _loggerFactory);
     }
 

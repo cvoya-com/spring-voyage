@@ -13,6 +13,8 @@ The dispatcher injects these variables into launched agent processes:
 
 `SpringAgent.FromEnvironment()` reads those two variables and throws `MissingCallbackEnvironmentException` when either is absent. The launcher also injects `SPRING_THREAD_ID` for message-bound invocations; callers pass that thread id into SDK methods.
 
+Persistent containers are launched once and receive multiple A2A turns. Their launch-time `SPRING_CALLBACK_TOKEN` is valid only for the first turn, so the dispatcher also includes a fresh per-turn token in the inbound A2A message metadata as `callbackToken`. Runtime images that receive the raw inbound message can call `SpringAgent.FromEnvironment(inboundMessageBody)` or `SpringAgent.FromEnvironment(JsonElement)`; the SDK prefers that per-message `callbackToken` when present and falls back to the launch-time env var for ephemeral agents and first-message bootstrap.
+
 ## Authorization Model
 
 The orchestration SDK is structurally callable only by unit processes: processes launched as the runtime for a unit. Leaf agents can reply through their normal runtime output path, and A2A messaging remains available through the existing A2A protocol, but leaf agents are rejected when they call orchestration methods.
@@ -28,7 +30,7 @@ Dispatcher authorization gates:
 | Delegation depth budget is exhausted | `DepthExceeded` |
 | Target crosses the tenant boundary | `CrossTenant` |
 
-Targets must be direct children of the calling unit. Cross-level delegation is not supported in v0.1. The token is scoped to the current tenant, caller, thread, and inbound message.
+Targets must be direct children of the calling unit. Cross-level delegation is not supported in v0.1. The token is scoped to the current tenant, caller, thread, and inbound message. For persistent containers, use the per-message `callbackToken` from the inbound A2A metadata for the current turn and discard it when the turn completes.
 
 ## Typed Client Surface
 

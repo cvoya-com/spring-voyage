@@ -17,6 +17,7 @@ using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -67,6 +68,7 @@ public class A2AExecutionDispatcherTests
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly IOrchestrationToolProvider _orchestrationToolProvider = Substitute.For<IOrchestrationToolProvider>();
+    private readonly ICallbackTokenIssuer _callbackTokenIssuer = Substitute.For<ICallbackTokenIssuer>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
     private readonly IContainerRuntime _persistentContainerRuntime = Substitute.For<IContainerRuntime>();
@@ -157,6 +159,8 @@ public class A2AExecutionDispatcherTests
         // Tests that exercise unit-shaped dispatch can override via Returns.
         _orchestrationToolProvider.GetOrchestrationTools(Arg.Any<Address>(), Arg.Any<Guid>())
             .Returns(Array.Empty<OrchestrationToolDescriptor>());
+        _callbackTokenIssuer.Issue(Arg.Any<CallbackToken>())
+            .Returns(call => $"token-{call.Arg<CallbackToken>().MessageId:N}");
 
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
@@ -200,6 +204,7 @@ public class A2AExecutionDispatcherTests
             volumeManagerForDispatcher,
             Options.Create(daprOptions),
             transportFactory,
+            _callbackTokenIssuer,
             _loggerFactory);
     }
 
@@ -242,6 +247,52 @@ public class A2AExecutionDispatcherTests
                 call.ArgAt<byte[]>(2),
                 call.ArgAt<CancellationToken>(3)));
         return recorder;
+    }
+
+    private static string? ReadCallbackTokenFromA2ARequest(byte[] body)
+    {
+        using var document = JsonDocument.Parse(body);
+        if (!document.RootElement.TryGetProperty("params", out var parameters))
+        {
+            return null;
+        }
+
+        if (TryReadCallbackToken(parameters, out var token))
+        {
+            return token;
+        }
+
+        return parameters.TryGetProperty("message", out var message) &&
+            TryReadCallbackToken(message, out token)
+                ? token
+                : null;
+    }
+
+    private static bool TryReadCallbackToken(JsonElement element, out string? token)
+    {
+        token = null;
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (element.TryGetProperty(A2AExecutionDispatcher.CallbackTokenPayloadField, out var directToken) &&
+            directToken.ValueKind == JsonValueKind.String)
+        {
+            token = directToken.GetString();
+            return token is not null;
+        }
+
+        if (!element.TryGetProperty("metadata", out var metadata) ||
+            metadata.ValueKind != JsonValueKind.Object ||
+            !metadata.TryGetProperty(A2AExecutionDispatcher.CallbackTokenPayloadField, out var metadataToken) ||
+            metadataToken.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        token = metadataToken.GetString();
+        return token is not null;
     }
 
     [Fact]
@@ -457,6 +508,65 @@ public class A2AExecutionDispatcherTests
         var payload = result.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Output").GetString().ShouldBe("hello from agent");
         payload.GetProperty("ExitCode").GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EphemeralAgent_DoesNotAttachPerMessageCallbackToken()
+    {
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("the prompt");
+        var recorder = InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        recorder.Calls.Count.ShouldBe(1);
+        ReadCallbackTokenFromA2ARequest(recorder.Calls[0].Body).ShouldBeNull();
+        _callbackTokenIssuer.DidNotReceive().Issue(Arg.Any<CallbackToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_PersistentAgent_SecondMessage_AttachesFreshCallbackToken()
+    {
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId,
+                "My Agent",
+                "instructions",
+                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        _persistentRegistry.Register(
+            AgentId,
+            new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/"),
+            "existing-container");
+
+        var firstThreadId = Guid.Parse("eeeeeeee-0000-0000-0000-000000001943");
+        var secondThreadId = Guid.Parse("eeeeeeee-0000-0000-0000-000000001944");
+        var firstMessage = CreateMessage(threadId: firstThreadId.ToString("D"));
+        var secondMessage = CreateMessage(threadId: secondThreadId.ToString("D"));
+        var recorder = InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(firstMessage, context: null, TestContext.Current.CancellationToken);
+        await _dispatcher.DispatchAsync(secondMessage, context: null, TestContext.Current.CancellationToken);
+
+        recorder.Calls.Count.ShouldBe(2);
+        ReadCallbackTokenFromA2ARequest(recorder.Calls[0].Body)
+            .ShouldBe($"token-{firstMessage.Id:N}");
+        ReadCallbackTokenFromA2ARequest(recorder.Calls[1].Body)
+            .ShouldBe($"token-{secondMessage.Id:N}");
+
+        _callbackTokenIssuer.Received(1).Issue(Arg.Is<CallbackToken>(claims =>
+            claims.TenantId == TenantGuid &&
+            claims.AgentAddress == firstMessage.To &&
+            claims.ThreadId == firstThreadId &&
+            claims.MessageId == firstMessage.Id));
+        _callbackTokenIssuer.Received(1).Issue(Arg.Is<CallbackToken>(claims =>
+            claims.TenantId == TenantGuid &&
+            claims.AgentAddress == secondMessage.To &&
+            claims.ThreadId == secondThreadId &&
+            claims.MessageId == secondMessage.Id));
     }
 
     [Fact]
