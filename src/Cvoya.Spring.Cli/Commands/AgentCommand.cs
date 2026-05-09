@@ -258,8 +258,8 @@ public static class AgentCommand
         var fromPackageOption = new Option<string?>("--from-package")
         {
             Description = "Install an agent from a package in the catalog. " +
-                "Provide the package name. Mutually exclusive with --definition, --definition-file, " +
-                "and execution shorthand flags (full validation in L6).",
+                "Provide the package name. Mutually exclusive with --inherit, --definition, " +
+                "--definition-file, and execution shorthand flags (full validation in L6).",
         };
         var connectorOption = new Option<string[]>("--connector")
         {
@@ -397,11 +397,25 @@ public static class AgentCommand
                 return;
             }
 
+            if (!string.IsNullOrWhiteSpace(fromPackage) && inherit)
+            {
+                result.AddError(FromPackageInheritFlagMutexMessage);
+                return;
+            }
+
             if (!string.IsNullOrWhiteSpace(fromPackage)
                 && (!string.IsNullOrWhiteSpace(definitionInline)
                     || !string.IsNullOrWhiteSpace(definitionFile)))
             {
                 result.AddError(FromPackageDefinitionFlagMutexMessage);
+                return;
+            }
+
+            if (inherit
+                && (!string.IsNullOrWhiteSpace(definitionInline)
+                    || !string.IsNullOrWhiteSpace(definitionFile)))
+            {
+                result.AddError(InheritDefinitionFlagMutexMessage);
                 return;
             }
 
@@ -620,6 +634,18 @@ public static class AgentCommand
     /// </summary>
     public const string FromPackageDefinitionFlagMutexMessage =
         "error: --from-package is mutually exclusive with --definition and --definition-file";
+
+    /// <summary>
+    /// Parser diagnostic for package installs mixed with inherited execution mode.
+    /// </summary>
+    public const string FromPackageInheritFlagMutexMessage =
+        "error: --from-package is mutually exclusive with --inherit";
+
+    /// <summary>
+    /// Parser diagnostic for inherited execution mixed with inline definition input.
+    /// </summary>
+    public const string InheritDefinitionFlagMutexMessage =
+        "error: --inherit is mutually exclusive with --definition and --definition-file";
 
     /// <summary>
     /// Parser diagnostic for package installs mixed with execution shorthand flags.

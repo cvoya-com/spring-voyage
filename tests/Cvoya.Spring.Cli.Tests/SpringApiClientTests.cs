@@ -212,6 +212,40 @@ public class SpringApiClientTests
     }
 
     [Fact]
+    public async Task CreateAgentAsync_WithoutDescription_DoesNotSendEmptyDescriptionInBody()
+    {
+        var agentGuid = Guid.NewGuid();
+        var unitGuid = Guid.NewGuid();
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents",
+            expectedMethod: HttpMethod.Post,
+            responseBody: $"{{\"id\":\"{agentGuid}\",\"name\":\"ada\",\"displayName\":\"Ada\",\"role\":\"coder\"}}",
+            returnStatusCode: HttpStatusCode.Created,
+            validateRequestBody: body =>
+            {
+                body.ShouldNotContain("\"description\":\"\"");
+
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                if (json.TryGetProperty("description", out var description))
+                {
+                    description.ValueKind.ShouldBe(JsonValueKind.Null);
+                }
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.CreateAgentAsync(
+            "Ada",
+            "coder",
+            new[] { unitGuid },
+            ct: TestContext.Current.CancellationToken);
+
+        result.Id.ShouldBe(agentGuid);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task CreateAgentAsync_InheritFlag_OmitsExecutionFields()
     {
         var agentGuid = Guid.NewGuid();

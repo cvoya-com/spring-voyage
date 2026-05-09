@@ -101,16 +101,38 @@ code="${response##*$'\n'}"
 
 e2e::expect_status "0" "${code}" "agent create with inherit succeeds"
 
-if grep -Fq "POST /api/v1/tenant/agents" "${request_log}"; then
-    e2e::ok "stub API received the agent create request"
-else
-    e2e::fail "stub API did not receive the agent create request"
-fi
+if validation_error="$(python3 - "${request_log}" <<'PY' 2>&1
+import json
+import pathlib
+import sys
 
-if grep -Fq '"execution"' "${request_log}"; then
-    e2e::fail "agent create inherit request included execution: $(<"${request_log}")"
+request_log = pathlib.Path(sys.argv[1])
+lines = request_log.read_text(encoding="utf-8").splitlines()
+posts = []
+for idx, line in enumerate(lines):
+    if line.startswith("POST ") and idx + 1 < len(lines):
+        posts.append((line.removeprefix("POST "), lines[idx + 1]))
+
+if len(posts) != 1:
+    raise SystemExit(f"expected exactly one POST request, got {len(posts)}: {request_log.read_text(encoding='utf-8')}")
+
+path, body = posts[0]
+if path != "/api/v1/tenant/agents":
+    raise SystemExit(f"expected POST /api/v1/tenant/agents, got POST {path}")
+
+payload = json.loads(body)
+definition_json = payload.get("definitionJson")
+if definition_json in (None, ""):
+    raise SystemExit(0)
+
+definition = json.loads(definition_json)
+if isinstance(definition, dict) and "execution" in definition:
+    raise SystemExit(f"definitionJson contains execution: {definition_json}")
+PY
+)"; then
+    e2e::ok "stub API received the agent create request without execution config"
 else
-    e2e::ok "agent create inherit request omits execution"
+    e2e::fail "agent create inherit request validation failed: ${validation_error}"
 fi
 
 e2e::summary

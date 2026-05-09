@@ -244,6 +244,22 @@ public class CommandParsingTests
     }
 
     [Fact]
+    public void AgentCreate_FromPackageWithInherit_RejectedAtParseTime()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name Foo --from-package my-package --inherit");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e =>
+            e.Message == AgentCommand.FromPackageInheritFlagMutexMessage);
+    }
+
+    [Fact]
     public void AgentCreate_FromPackageWithRuntime_RejectedAtParseTime()
     {
         var outputOption = CreateOutputOption();
@@ -336,6 +352,42 @@ public class CommandParsingTests
         parseResult.Errors.ShouldContain(e =>
             e.Message == AgentCommand.LegacyContainerRuntimeFlagRejectionMessage);
         AgentCommand.LegacyContainerRuntimeFlagRejectionMessage.ShouldContain("ADR-0039");
+    }
+
+    [Fact]
+    public void AgentCreate_InheritWithDefinition_RejectedAtParseTime()
+    {
+        // #1901 / #1902: inherited execution means no explicit create-time
+        // definition document should be sent.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name ada --unit aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa " +
+            "--inherit --definition {}");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e =>
+            e.Message == AgentCommand.InheritDefinitionFlagMutexMessage);
+    }
+
+    [Fact]
+    public void AgentCreate_InheritWithDefinitionFile_RejectedAtParseTime()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name ada --unit aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa " +
+            "--inherit --definition-file agent.json");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e =>
+            e.Message == AgentCommand.InheritDefinitionFlagMutexMessage);
     }
 
     [Fact]
