@@ -108,6 +108,10 @@ public partial class Program
         builder.Services.TryAddSingleton<OrchestrationDepthCounter>();
         builder.Services.TryAddSingleton<ActivityEventBus>();
         builder.Services.TryAddSingleton<IActivityEventBus>(sp => sp.GetRequiredService<ActivityEventBus>());
+        // ADR-0039 §3 gate 6 — single-tenant resolver is the OSS default;
+        // a cloud overlay can substitute a tenant-aware variant via the
+        // standard TryAdd seam without touching this registration.
+        builder.Services.TryAddSingleton<IOrchestrationTenantResolver, SingleTenantOrchestrationTenantResolver>();
         builder.Services.TryAddSingleton<OrchestrationToolHandlers>();
 
         // Named HttpClient used by /v1/llm/forward and /v1/llm/forward/stream

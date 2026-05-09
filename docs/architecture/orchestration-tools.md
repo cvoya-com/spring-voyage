@@ -155,7 +155,7 @@ Output:
 }
 ```
 
-Only `status` is required. The platform's current handler returns `"unknown"` for v0.1 (tracked under the ADR-0039 plan); runtime images should treat `"unknown"` as a probe-not-yet-implemented signal rather than a child-state assertion.
+Only `status` is required. The platform-side handler probes the child via the existing actor mailbox `StatusQuery` path and maps the response onto the closed enum (`ready` for an idle agent, `busy` for an agent on an active thread, `stopped` / `error` for the unit lifecycle equivalents, `unknown` when the probe fails or the actor is unreachable). `lastActivityAt` is currently emitted as `null` — the dispatcher process does not have the activity-event store wired and the schema explicitly tolerates `null` rather than fabricating a timestamp.
 
 ---
 

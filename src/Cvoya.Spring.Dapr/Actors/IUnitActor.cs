@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Orchestration;
 
 /// <summary>
 /// Dapr actor interface for unit actors. A unit is an agent — it shares the
@@ -54,6 +55,28 @@ public interface IUnitActor : IAgent
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>An array of member addresses.</returns>
     Task<Address[]> GetMembersAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns rich descriptors for this unit's direct children — address,
+    /// directory-resolved display name, structural kind, and the persisted
+    /// execution block. Backs the <c>list_children</c> orchestration tool
+    /// per ADR-0039 §3 and matches the
+    /// <c>list_children.output.schema.json</c> wire shape advertised to
+    /// runtime images.
+    /// </summary>
+    /// <remarks>
+    /// Returned as a concrete array for the same reason as
+    /// <see cref="GetMembersAsync"/> (#319 — actor-remoting
+    /// <c>DataContractSerializer</c> requires natively-marshallable types).
+    /// Display name and execution config resolve through the
+    /// directory and the per-kind execution stores; missing or unresolvable
+    /// values surface as empty string and <c>null</c> respectively rather
+    /// than throwing, so a transient directory glitch does not break the
+    /// orchestration probe.
+    /// </remarks>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>An array of child descriptors in member-list order.</returns>
+    Task<OrchestrationChildDescriptor[]> GetChildDescriptorsAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Sets the permission level for a human within this unit.

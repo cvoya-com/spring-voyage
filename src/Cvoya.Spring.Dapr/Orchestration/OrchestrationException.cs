@@ -29,5 +29,11 @@ public sealed class OrchestrationException : Exception
         public const string OrchestrationTargetNotChild = nameof(OrchestrationTargetNotChild);
         public const string OrchestrationSelfDelegation = nameof(OrchestrationSelfDelegation);
         public const string OrchestrationDepthExceeded = nameof(OrchestrationDepthExceeded);
+
+        // ADR-0039 §3 gate 6 — cross-tenant containment. The token's
+        // tenantId claim must match the resolved tenant of the caller (and,
+        // when applicable, the target). Any mismatch surfaces with this
+        // reject code and an HTTP 403 from the dispatcher endpoint.
+        public const string OrchestrationCrossTenant = nameof(OrchestrationCrossTenant);
     }
 }

@@ -50,11 +50,16 @@ public static class OrchestrationCallbackEndpoints
         {
             var children = await handlers.HandleListChildrenAsync(
                 claims.AgentAddress,
+                claims.TenantId,
                 claims.ThreadId,
                 cancellationToken);
 
             return Results.Ok(new ListChildrenResponse(
-                children.Select(child => child.ToString()).ToArray()));
+                children.Select(child => new OrchestrationChildDescriptorPayload(
+                    child.Address.ToString(),
+                    child.DisplayName,
+                    child.Kind,
+                    child.ExecutionConfig)).ToArray()));
         }
         catch (OrchestrationException ex)
         {
@@ -80,6 +85,7 @@ public static class OrchestrationCallbackEndpoints
         {
             var metadata = await handlers.HandleInspectChildAsync(
                 claims.AgentAddress,
+                claims.TenantId,
                 target,
                 claims.ThreadId,
                 cancellationToken);
@@ -203,11 +209,15 @@ public static class OrchestrationCallbackEndpoints
         {
             var status = await handlers.HandleQueryChildStatusAsync(
                 claims.AgentAddress,
+                claims.TenantId,
                 target,
                 claims.ThreadId,
                 cancellationToken);
 
-            return Results.Ok(new QueryChildStatusResponse(status));
+            return Results.Ok(new QueryChildStatusResponse(
+                status.Status,
+                status.LastActivityAt,
+                status.BusyOnThread));
         }
         catch (OrchestrationException ex)
         {
@@ -255,10 +265,12 @@ public static class OrchestrationCallbackEndpoints
             return false;
         }
 
-        // Cross-tenant containment is enforced by the token's tenant-scoped
-        // signing key from D12: a caller cannot mint a token for another
-        // tenant without that tenant's key. The dispatcher callback surface
-        // therefore uses the validated token claims as the tenant boundary.
+        // Cross-tenant containment (ADR-0039 §3 gate 6) is enforced inside
+        // each handler via IOrchestrationTenantResolver — the per-tenant
+        // signing key from D12 makes a forged token for another tenant
+        // structurally implausible, but the handler-side gate is explicit so
+        // any future authentication shape (mTLS, OIDC) inherits the same
+        // containment without re-deriving it from the signing-key story.
         return true;
     }
 
@@ -410,6 +422,12 @@ public static class OrchestrationCallbackEndpoints
                 StatusCodes.Status400BadRequest,
             OrchestrationException.RejectCodes.OrchestrationDepthExceeded =>
                 StatusCodes.Status429TooManyRequests,
+            // ADR-0039 §3 gate 6 — cross-tenant containment maps to 403,
+            // matching every other "you are not authorised on this surface"
+            // gate the dispatcher applies. The SDK already maps this code
+            // onto OrchestrationAuthException(Reason="CrossTenant").
+            OrchestrationException.RejectCodes.OrchestrationCrossTenant =>
+                StatusCodes.Status403Forbidden,
             _ => StatusCodes.Status400BadRequest,
         };
 

@@ -180,6 +180,10 @@ public class OrchestrationCallbackEndpointsTests
     {
         using var factory = new OrchestrationDispatcherFactory();
         factory.RegisterMembers(UnitAddress, ChildAddress);
+        var statusAgent = Substitute.For<IAgent>();
+        statusAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(CreateStatusResponse(ChildAddress, status: "Idle"));
+        factory.RegisterAgent(ChildAddress, statusAgent);
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
@@ -194,7 +198,10 @@ public class OrchestrationCallbackEndpointsTests
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var json = await ReadJsonAsync(response);
-        json.GetProperty("metadata").GetProperty("scheme").GetString().ShouldBe(Address.AgentScheme);
+        var metadata = json.GetProperty("metadata");
+        metadata.GetProperty("address").GetString().ShouldBe(ChildAddress.ToString());
+        metadata.GetProperty("kind").GetString().ShouldBe("agent");
+        metadata.GetProperty("status").GetString().ShouldBe("ready");
     }
 
     [Fact]
@@ -235,10 +242,14 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task QueryChildStatus_HappyPath_Returns200()
+    public async Task QueryChildStatus_IdleAgent_ReturnsReady()
     {
         using var factory = new OrchestrationDispatcherFactory();
         factory.RegisterMembers(UnitAddress, ChildAddress);
+        var statusAgent = Substitute.For<IAgent>();
+        statusAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(CreateStatusResponse(ChildAddress, status: "Idle"));
+        factory.RegisterAgent(ChildAddress, statusAgent);
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
@@ -253,7 +264,36 @@ public class OrchestrationCallbackEndpointsTests
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var json = await ReadJsonAsync(response);
-        json.GetProperty("status").GetString().ShouldBe("unknown");
+        json.GetProperty("status").GetString().ShouldBe("ready");
+        // lastActivityAt and busyOnThread are omitted (null) when not known.
+        json.TryGetProperty("busyOnThread", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task QueryChildStatus_ActiveAgent_ReturnsBusyWithThread()
+    {
+        using var factory = new OrchestrationDispatcherFactory();
+        factory.RegisterMembers(UnitAddress, ChildAddress);
+        var statusAgent = Substitute.For<IAgent>();
+        statusAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(CreateStatusResponse(ChildAddress, status: "Active", activeThreadId: "thread-cafe"));
+        factory.RegisterAgent(ChildAddress, statusAgent);
+        var client = factory.CreateCallbackClient(UnitAddress);
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/runtime/orchestration/query-child-status",
+            new
+            {
+                callerAddress = UnitAddress.ToString(),
+                targetAddress = ChildAddress.ToString(),
+                threadId = factory.ThreadId,
+            },
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var json = await ReadJsonAsync(response);
+        json.GetProperty("status").GetString().ShouldBe("busy");
+        json.GetProperty("busyOnThread").GetString().ShouldBe("thread-cafe");
     }
 
     [Fact]
@@ -352,6 +392,21 @@ public class OrchestrationCallbackEndpointsTests
             JsonSerializer.SerializeToElement(new { content }),
             DateTimeOffset.UtcNow);
 
+    private static Message CreateStatusResponse(Address from, string status, string? activeThreadId = null) =>
+        new(
+            Guid.NewGuid(),
+            from,
+            from,
+            MessageType.StatusQuery,
+            null,
+            JsonSerializer.SerializeToElement(new
+            {
+                Status = status,
+                ActiveThreadId = activeThreadId,
+                PendingConversationCount = 0,
+            }),
+            DateTimeOffset.UtcNow);
+
     private sealed class OrchestrationDispatcherFactory : DispatcherWebApplicationFactory
     {
         private static readonly byte[] SigningKey =
@@ -436,6 +491,12 @@ public class OrchestrationCallbackEndpointsTests
                         ? registeredMembers
                         : Array.Empty<Address>();
                     actor.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(members);
+                    var descriptors = members.Select(member => new OrchestrationChildDescriptor(
+                        member,
+                        DisplayName: string.Empty,
+                        Kind: string.Equals(member.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase) ? "unit" : "agent",
+                        ExecutionConfig: null)).ToArray();
+                    actor.GetChildDescriptorsAsync(Arg.Any<CancellationToken>()).Returns(descriptors);
                     return actor;
                 });
 

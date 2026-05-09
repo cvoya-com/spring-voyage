@@ -9,9 +9,12 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors;
@@ -37,6 +40,8 @@ public class UnitActor : Actor, IUnitActor
     private readonly IUnitValidationCoordinator? _validationCoordinator;
     private readonly IUnitMembershipCoordinator _membershipCoordinator;
     private readonly IUnitPermissionCoordinator _permissionCoordinator;
+    private readonly IAgentExecutionStore? _agentExecutionStore;
+    private readonly IUnitExecutionStore? _unitExecutionStore;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UnitActor"/> class.
@@ -104,7 +109,9 @@ public class UnitActor : Actor, IUnitActor
         IUnitSubunitMembershipProjector? subunitProjector = null,
         IUnitValidationCoordinator? validationCoordinator = null,
         IUnitMembershipCoordinator? membershipCoordinator = null,
-        IUnitPermissionCoordinator? permissionCoordinator = null)
+        IUnitPermissionCoordinator? permissionCoordinator = null,
+        IAgentExecutionStore? agentExecutionStore = null,
+        IUnitExecutionStore? unitExecutionStore = null)
         : base(host)
     {
         _logger = loggerFactory.CreateLogger<UnitActor>();
@@ -124,6 +131,8 @@ public class UnitActor : Actor, IUnitActor
         _permissionCoordinator = permissionCoordinator
             ?? new UnitPermissionCoordinator(
                 loggerFactory.CreateLogger<UnitPermissionCoordinator>());
+        _agentExecutionStore = agentExecutionStore;
+        _unitExecutionStore = unitExecutionStore;
     }
 
     private static IUnitValidationCoordinator BuildDefaultValidationCoordinator(
@@ -307,6 +316,98 @@ public class UnitActor : Actor, IUnitActor
     {
         var members = await GetMembersListAsync(ct);
         return members.ToArray();
+    }
+
+    /// <inheritdoc />
+    public async Task<OrchestrationChildDescriptor[]> GetChildDescriptorsAsync(CancellationToken ct = default)
+    {
+        var members = await GetMembersListAsync(ct);
+        if (members.Count == 0)
+        {
+            return Array.Empty<OrchestrationChildDescriptor>();
+        }
+
+        var descriptors = new OrchestrationChildDescriptor[members.Count];
+        for (var i = 0; i < members.Count; i++)
+        {
+            var member = members[i];
+            descriptors[i] = new OrchestrationChildDescriptor(
+                Address: member,
+                DisplayName: await ResolveChildDisplayNameAsync(member, ct),
+                Kind: ResolveChildKind(member),
+                ExecutionConfig: await ResolveChildExecutionConfigAsync(member, ct));
+        }
+
+        return descriptors;
+    }
+
+    private async Task<string> ResolveChildDisplayNameAsync(Address member, CancellationToken ct)
+    {
+        try
+        {
+            var entry = await _directoryService.ResolveAsync(member, ct);
+            return entry?.DisplayName ?? string.Empty;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to resolve display name for child {Member} of unit {ActorId}; returning empty.",
+                member,
+                Id.GetId());
+            return string.Empty;
+        }
+    }
+
+    private static string ResolveChildKind(Address member)
+    {
+        // ADR-0039 §1: address scheme is the structural property —
+        // unit:// has children, agent:// is a leaf. The schema's
+        // closed enum is exactly these two values; any other scheme
+        // would be a directory bug, but we degrade to "agent" rather
+        // than throwing inside the orchestration probe.
+        return string.Equals(member.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
+            ? "unit"
+            : "agent";
+    }
+
+    private async Task<JsonElement?> ResolveChildExecutionConfigAsync(Address member, CancellationToken ct)
+    {
+        // ExecutionConfig is "opaque to callers" per the schema and the
+        // orchestration-tools doc; we return the persisted on-disk
+        // execution block as a JSON object. Callers that want the
+        // typed, post-inheritance view call inspect_child instead.
+        try
+        {
+            var memberId = GuidFormatter.Format(member.Id);
+            if (string.Equals(member.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
+            {
+                if (_unitExecutionStore is null)
+                {
+                    return null;
+                }
+
+                var defaults = await _unitExecutionStore.GetAsync(memberId, ct);
+                return defaults is null ? null : JsonSerializer.SerializeToElement(defaults);
+            }
+
+            if (_agentExecutionStore is null)
+            {
+                return null;
+            }
+
+            var shape = await _agentExecutionStore.GetAsync(memberId, ct);
+            return shape is null ? null : JsonSerializer.SerializeToElement(shape);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to resolve execution config for child {Member} of unit {ActorId}; returning null.",
+                member,
+                Id.GetId());
+            return null;
+        }
     }
 
     /// <inheritdoc />

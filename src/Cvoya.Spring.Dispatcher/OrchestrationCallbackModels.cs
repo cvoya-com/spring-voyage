@@ -3,14 +3,26 @@
 
 namespace Cvoya.Spring.Dispatcher;
 
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 public sealed record ListChildrenRequest(
     [property: JsonPropertyName("callerAddress")] string CallerAddress,
     [property: JsonPropertyName("threadId")] Guid ThreadId);
 
+/// <summary>
+/// Wire envelope returned by <c>list_children</c>. Matches the descriptor
+/// shape advertised by <c>list_children.output.schema.json</c> per
+/// ADR-0039 §3.
+/// </summary>
 public sealed record ListChildrenResponse(
-    [property: JsonPropertyName("children")] string[] Children);
+    [property: JsonPropertyName("children")] OrchestrationChildDescriptorPayload[] Children);
+
+public sealed record OrchestrationChildDescriptorPayload(
+    [property: JsonPropertyName("address")] string Address,
+    [property: JsonPropertyName("displayName")] string DisplayName,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("executionConfig")] JsonElement? ExecutionConfig);
 
 public sealed record InspectChildRequest(
     [property: JsonPropertyName("callerAddress")] string CallerAddress,
@@ -53,8 +65,16 @@ public sealed record QueryChildStatusRequest(
     [property: JsonPropertyName("targetAddress")] string TargetAddress,
     [property: JsonPropertyName("threadId")] Guid ThreadId);
 
+/// <summary>
+/// Wire envelope returned by <c>query_child_status</c>. Matches
+/// <c>query_child_status.output.schema.json</c> per ADR-0039 §3:
+/// <c>status</c> is required, <c>lastActivityAt</c> and <c>busyOnThread</c>
+/// are optional and are emitted only when known.
+/// </summary>
 public sealed record QueryChildStatusResponse(
-    [property: JsonPropertyName("status")] string Status);
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("lastActivityAt"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? LastActivityAt = null,
+    [property: JsonPropertyName("busyOnThread"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? BusyOnThread = null);
 
 public sealed record OrchestrationCallbackMessage(
     [property: JsonPropertyName("messageId")] Guid MessageId,

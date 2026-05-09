@@ -78,6 +78,13 @@ internal static class ServiceCollectionExtensionsOrchestration
         services.TryAddSingleton<OrchestrationDepthCounter>();
         services.TryAddSingleton<OrchestrationToolHandlers>();
 
+        // ADR-0039 §3 gate 6 — cross-tenant containment. The OSS overlay
+        // ships single-tenant; every address resolves to OssTenantIds.Default,
+        // so the gate is a structural impossibility to violate. The cloud
+        // overlay registers a tenant-aware resolver that consults the
+        // persisted entity rows to reject foreign-tenant calls.
+        services.TryAddSingleton<IOrchestrationTenantResolver, SingleTenantOrchestrationTenantResolver>();
+
         // ADR-0039 C1: runtime-invocation pipeline extracted from
         // AgentActor's activate-and-dispatch closure. Singleton: stateless
         // across subjects; per-call delegates carry per-actor state. C2
