@@ -6,7 +6,13 @@
 # Designed to run alongside a Dapr sidecar that provides the Conversation
 # building block (Ollama, OpenAI, Anthropic, etc.).
 
-FROM docker.io/library/python:3.12-slim
+# Pinned to an exact patch and aligned to Python 3.13 to match
+# deployment/Dockerfile.agent-base — every Python-bearing platform image
+# now tracks the same interpreter line. The SDK declares
+# `requires-python = ">=3.12"` (agents/spring-voyage-agent-sdk/pyproject.toml),
+# so 3.13 satisfies the floor; CI still validates on 3.12 to keep the
+# lower-bound honest (.github/workflows/ci.yml, python-test job).
+FROM docker.io/library/python:3.13.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

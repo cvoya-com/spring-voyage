@@ -19,8 +19,9 @@
 # deployment/agent-sidecar/package.json. Alpine keeps the image small
 # and is intentionally a different base than the path-1 agent-base
 # image — the whole point of path 2 is to prove the bridge can be
-# dropped into an arbitrary Node-bearing distro.
-FROM node:22-alpine
+# dropped into an arbitrary Node-bearing distro. Pinned to an exact
+# patch so smoke runs are reproducible.
+FROM docker.io/library/node:22.22.2-alpine
 
 # The npm-pack tarball name is `<scope-flattened>-<version>.tgz`
 # (npm's algorithm, not ours), so for @cvoya/spring-voyage-agent-sidecar

@@ -3,9 +3,17 @@ name: Release
 # Fires when a v*.*.*[-prerelease] tag is pushed to the repository.
 # Jobs:
 #   1. resolve          — validate the tag shape and emit version components.
-#   2. test             — run the full .NET test suite against the tagged commit.
+#   2. ci-gate          — verify the tagged commit's CI run on main was green
+#                         (Checks API lookup against the resolved SHA).
 #   3. publish-images   — build and push all agent container images to GHCR.
 #   4. github-release   — create the GitHub Release from CHANGELOG.md.
+#
+# Why ci-gate instead of re-running build/test (#2027): tags must point at a
+# commit that is already on main, and main is gated by ci.yml's "Required
+# checks" umbrella. Re-running the full .NET build + test suite on the
+# tagged commit duplicates ~10 minutes of work that branch protection has
+# already validated. Instead we look up the umbrella check's conclusion on
+# the tag SHA and refuse to release if it isn't `success`.
 #
 # NuGet packaging is explicitly out of scope until the publishing target is
 # decided; see issue #1395.
@@ -106,70 +114,128 @@ jobs:
 
           echo "Resolved: tag=$release_tag version=$release_version major_minor=$major_minor is_prerelease=$is_prerelease"
 
-  # ── 2. Test ────────────────────────────────────────────────────────────────
+  # ── 2. CI gate ─────────────────────────────────────────────────────────────
   #
-  # Re-runs the full .NET test suite against the tagged commit to gate the
-  # release on green tests. Mirrors the `test` job in ci.yml exactly so the
-  # release is subject to the same bar as every PR merge.
-  test:
-    name: Test (release gate)
+  # Verifies that ci.yml's "Required checks" umbrella check ran and concluded
+  # `success` against the tagged commit's SHA. Tags must already be on main
+  # and main is branch-protected on that umbrella, so this is a belt-and-
+  # braces check that the operator did not bypass branch protection (e.g. by
+  # tagging a commit that landed via an admin override).
+  #
+  # Replaces the previous full .NET build + test re-run (~10 min) with a
+  # GitHub API lookup that completes in seconds (#2027). If branch protection
+  # ever drops the umbrella requirement, this gate is the second line of
+  # defence — keep it.
+  ci-gate:
+    name: CI gate (verify tag SHA passed CI)
     runs-on: ubuntu-latest
     needs: resolve
-    timeout-minutes: 30
+    timeout-minutes: 15
+    env:
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+      REPO: ${{ github.repository }}
+      # Name of the umbrella check defined in ci.yml's `required-checks` job
+      # (`name:` field, line ~1285). If you rename that job, update this
+      # value or the gate will report "no matching check-run found".
+      REQUIRED_CHECK_NAME: Required checks
 
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: "10.0.x"
-          cache: true
-          cache-dependency-path: |
-            **/*.csproj
-            Directory.Packages.props
-            global.json
-            NuGet.config
-
-      - name: Install Dapr CLI
+      - name: Resolve tag to commit SHA
+        id: sha
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash -s 1.14.1
-          dapr --version
+          set -euo pipefail
+          # `gh api` resolves the annotated/lightweight tag to its commit SHA.
+          # For lightweight tags `object.sha` is the commit; for annotated
+          # tags we follow object.type=='tag' through to the underlying
+          # commit one extra hop.
+          tag_obj="$(gh api "repos/${REPO}/git/refs/tags/${RELEASE_TAG}")"
+          obj_type="$(jq -r '.object.type' <<<"$tag_obj")"
+          obj_sha="$(jq -r '.object.sha'  <<<"$tag_obj")"
 
-      - name: Cache Dapr runtime (~/.dapr)
-        id: dapr-cache
-        uses: actions/cache@v5
-        with:
-          path: ~/.dapr
-          key: dapr-slim-${{ runner.os }}-1.14.1-v1
+          if [[ "$obj_type" == "tag" ]]; then
+            commit_sha="$(gh api "repos/${REPO}/git/tags/${obj_sha}" | jq -r '.object.sha')"
+          else
+            commit_sha="$obj_sha"
+          fi
 
-      - name: Initialize Dapr
-        if: steps.dapr-cache.outputs.cache-hit != 'true'
+          if ! [[ "$commit_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::could not resolve commit SHA for tag '${RELEASE_TAG}'"
+            exit 1
+          fi
+
+          echo "commit=$commit_sha" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag ${RELEASE_TAG} -> ${commit_sha}"
+
+      - name: Verify Required checks umbrella was green for tag SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ steps.sha.outputs.commit }}
         shell: bash
         run: |
-          for attempt in 1 2 3 4 5 6; do
-            if dapr init --slim; then
-              echo "dapr init succeeded on attempt $attempt"
-              exit 0
+          set -euo pipefail
+
+          # Poll for up to ~10 minutes (60 attempts × 10 s) so a tag pushed
+          # immediately after the merge to main can wait for CI to wrap up
+          # without failing the release. Once the umbrella check-run reaches
+          # a terminal status we evaluate and exit; we never sleep past
+          # completion.
+          attempt=0
+          max_attempts=60
+          conclusion=""
+          status=""
+
+          while (( attempt < max_attempts )); do
+            attempt=$(( attempt + 1 ))
+
+            # /commits/{sha}/check-runs returns up to 100 check-runs by
+            # default; we filter by name client-side. `--paginate` would
+            # walk further if the repo ever exceeds that, but the umbrella
+            # is a single run per workflow execution so the first page is
+            # always sufficient.
+            payload="$(gh api \
+              "repos/${REPO}/commits/${COMMIT_SHA}/check-runs?per_page=100" \
+              -H "Accept: application/vnd.github+json")"
+
+            # Pick the most recent check-run with the configured name.
+            # `started_at` is ISO-8601 so lexicographic sort is correct.
+            match="$(jq --arg name "$REQUIRED_CHECK_NAME" '
+              [.check_runs[] | select(.name == $name)]
+              | sort_by(.started_at)
+              | last
+            ' <<<"$payload")"
+
+            if [[ "$match" == "null" || -z "$match" ]]; then
+              echo "attempt ${attempt}: no '${REQUIRED_CHECK_NAME}' check-run found yet for ${COMMIT_SHA}; sleeping 10s"
+              sleep 10
+              continue
             fi
-            echo "dapr init attempt $attempt failed; sleeping 30s before retry"
-            sleep 30
-            dapr uninstall --all || true
+
+            status="$(jq -r '.status'     <<<"$match")"
+            conclusion="$(jq -r '.conclusion' <<<"$match")"
+
+            if [[ "$status" == "completed" ]]; then
+              echo "attempt ${attempt}: '${REQUIRED_CHECK_NAME}' completed with conclusion=${conclusion}"
+              break
+            fi
+
+            echo "attempt ${attempt}: '${REQUIRED_CHECK_NAME}' status=${status}; sleeping 10s"
+            sleep 10
           done
-          echo "::error::dapr init failed after 6 attempts over ~4 minutes"
-          exit 1
 
-      - name: Restore dependencies
-        run: dotnet restore SpringVoyage.slnx
+          if [[ "$status" != "completed" ]]; then
+            echo "::error::'${REQUIRED_CHECK_NAME}' did not reach a terminal status within the polling window for ${COMMIT_SHA} (last status=${status})"
+            exit 1
+          fi
 
-      - name: Restore dotnet tools (Kiota)
-        run: dotnet tool restore
+          if [[ "$conclusion" != "success" ]]; then
+            echo "::error::'${REQUIRED_CHECK_NAME}' on ${COMMIT_SHA} concluded '${conclusion}', not 'success' — refusing to release"
+            exit 1
+          fi
 
-      - name: Build
-        run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
-
-      - name: Test
-        run: dotnet test --solution SpringVoyage.slnx --no-restore --no-build --configuration Release
+          echo "CI gate passed: ${REQUIRED_CHECK_NAME} == success on ${COMMIT_SHA}"
 
   # ── 3. Publish container images ────────────────────────────────────────────
   #
@@ -185,7 +251,7 @@ jobs:
   publish-images:
     name: Build and push agent images
     runs-on: ubuntu-latest
-    needs: [resolve, test]
+    needs: [resolve, ci-gate]
     timeout-minutes: 30
     env:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
@@ -343,7 +409,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [resolve, test, publish-images]
+    needs: [resolve, ci-gate, publish-images]
     timeout-minutes: 10
     env:
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
