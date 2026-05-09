@@ -375,6 +375,47 @@ export function AgentCreateForm({
     [providersQuery.data],
   );
 
+  // ── Inherit-from-parent context (ADR-0039 I4) ──────────────────────────
+  //
+  // The "inherited value" we surface in the per-field placeholder + help
+  // copy depends on the selected unit set:
+  //   * 0 units → tenant defaults; we don't have a tenant-defaults endpoint
+  //     yet so fall back to platform defaults (claude-code, etc.) and
+  //     name the parent "tenant defaults".
+  //   * 1 unit → that unit's own resolved execution block.
+  //   * >1 units → the selected parents may diverge; show the generic
+  //     "parent" source without a concrete value and let backend
+  //     validation return the structured conflict if needed.
+  //
+  // We load `useUnitExecution` only for the single-parent case so the
+  // values surface as soon as the operator ticks exactly one unit.
+  const hasMultipleSelectedUnits = form.unitIds.length > 1;
+  const selectedUnitKey =
+    form.unitIds.length === 1 ? form.unitIds[0] : null;
+  const selectedUnit = useMemo(
+    () =>
+      (unitsQuery.data ?? []).find(
+        (u) => u.name === selectedUnitKey || u.id === selectedUnitKey,
+      ) ?? null,
+    [unitsQuery.data, selectedUnitKey],
+  );
+  const selectedUnitName = selectedUnit?.name ?? selectedUnitKey;
+  const selectedUnitExecutionQuery = useUnitExecution(
+    selectedUnitName ?? "",
+    { enabled: Boolean(selectedUnitName) },
+  );
+
+  /** Display name for the inherit-source — unit name, or "tenant defaults". */
+  const inheritSourceLabel: string = hasMultipleSelectedUnits
+    ? "parent"
+    : selectedUnit?.displayName?.trim() ||
+      selectedUnit?.name ||
+      "tenant defaults";
+
+  const inheritedRuntimeForPicker =
+    normalizeRuntime(selectedUnitExecutionQuery.data?.runtime ?? undefined) ||
+    DEFAULT_RUNTIME_ID;
+
   const selectedSourcePackageQuery = usePackage(sourcePackageName ?? "", {
     enabled: Boolean(sourcePackageName),
   });
@@ -384,9 +425,8 @@ export function AgentCreateForm({
   // gating logic for the provider/model dropdowns still needs to resolve
   // against *some* runtime. Use the inherited (or platform default)
   // runtime as the effective key for those decisions.
-  const inheritedRuntimeFallback: RuntimeId = DEFAULT_RUNTIME_ID;
   const effectiveRuntime: RuntimeId =
-    (form.runtime || inheritedRuntimeFallback) as RuntimeId;
+    (form.runtime || inheritedRuntimeForPicker) as RuntimeId;
 
   // ADR-0038 §1: the runtime descriptor decides whether the provider
   // is fixed or operator-picked.
@@ -468,43 +508,6 @@ export function AgentCreateForm({
   const modelsQuery = useModelProviderModels(activeProviderId, {
     enabled: Boolean(activeProviderId),
   });
-
-  // ── Inherit-from-parent context (ADR-0039 I4) ──────────────────────────
-  //
-  // The "inherited value" we surface in the per-field placeholder + help
-  // copy depends on the selected unit set:
-  //   * 0 units → tenant defaults; we don't have a tenant-defaults endpoint
-  //     yet so fall back to platform defaults (claude-code, etc.) and
-  //     name the parent "tenant defaults".
-  //   * 1 unit → that unit's own resolved execution block.
-  //   * >1 units → the selected parents may diverge; show the generic
-  //     "parent" source without a concrete value and let backend
-  //     validation return the structured conflict if needed.
-  //
-  // We load `useUnitExecution` only for the single-parent case so the
-  // values surface as soon as the operator ticks exactly one unit.
-  const hasMultipleSelectedUnits = form.unitIds.length > 1;
-  const selectedUnitKey =
-    form.unitIds.length === 1 ? form.unitIds[0] : null;
-  const selectedUnit = useMemo(
-    () =>
-      (unitsQuery.data ?? []).find(
-        (u) => u.name === selectedUnitKey || u.id === selectedUnitKey,
-      ) ?? null,
-    [unitsQuery.data, selectedUnitKey],
-  );
-  const selectedUnitName = selectedUnit?.name ?? selectedUnitKey;
-  const selectedUnitExecutionQuery = useUnitExecution(
-    selectedUnitName ?? "",
-    { enabled: Boolean(selectedUnitName) },
-  );
-
-  /** Display name for the inherit-source — unit name, or "tenant defaults". */
-  const inheritSourceLabel: string = hasMultipleSelectedUnits
-    ? "parent"
-    : selectedUnit?.displayName?.trim() ||
-      selectedUnit?.name ||
-      "tenant defaults";
 
   /**
    * Resolve the inherited value for one execution slot. Returns `null`

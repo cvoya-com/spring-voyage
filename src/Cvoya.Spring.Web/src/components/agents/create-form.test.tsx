@@ -655,16 +655,39 @@ describe("AgentCreateForm — direct create submit (K6)", () => {
 // ---------------------------------------------------------------------------
 
 describe("AgentCreateForm — inherit affordance (I4)", () => {
-  it("renders `inherit-indicator` for every Execution field while in inherit mode", async () => {
+  it("renders `inherit-indicator` for every visible Execution field while defaulting to the fixed-provider runtime", async () => {
     renderForm();
 
-    // The form lands with all five execution fields blank by default.
-    // Every field surfaces an `inherit-indicator` — runtime, model
-    // provider (multi-provider until a runtime is picked), model id,
-    // image, hosting.
+    // The default inherited runtime is `claude-code`, whose provider is fixed
+    // to Anthropic. The model-provider field is legitimately hidden in this
+    // state, leaving four visible inheritable controls.
     await waitFor(() => {
       const indicators = screen.getAllByTestId("inherit-indicator");
-      expect(indicators.length).toBeGreaterThanOrEqual(4);
+      expect(indicators).toHaveLength(4);
+    });
+    expect(screen.queryByLabelText(/model provider/i)).not.toBeInTheDocument();
+  });
+
+  it("renders all five inherit indicators when the inherited runtime is multi-provider", async () => {
+    listUnits.mockResolvedValue([
+      makeUnit({ name: "engineering", displayName: "Engineering Team" }),
+    ]);
+    getUnitExecution.mockResolvedValue({
+      image: null,
+      runtime: "spring-voyage",
+      model: null,
+    } as UnitExecutionResponse);
+
+    renderForm();
+
+    fireEvent.click(await screen.findByLabelText(/assign to engineering team/i));
+
+    await waitFor(() => {
+      expect(getUnitExecution).toHaveBeenCalledWith("engineering");
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText(/model provider/i)).toBeInTheDocument();
+      expect(screen.getAllByTestId("inherit-indicator")).toHaveLength(5);
     });
   });
 
@@ -873,9 +896,7 @@ describe("AgentCreateForm — multi-parent inheritance conflict (ADR-0039 I6)", 
     // Each parent-attributed value appears.
     expect(block).toHaveTextContent(/claude-code/);
     expect(block).toHaveTextContent(/spring-voyage/);
-    expect(toastMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Create failed" }),
-    );
+    expect(toastMock).not.toHaveBeenCalled();
   });
 
   it("renders one row per diverging field, ordered as the wire body lists them", async () => {
