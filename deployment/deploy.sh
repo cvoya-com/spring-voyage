@@ -297,6 +297,55 @@ start_postgres() {
         "${POSTGRES_IMAGE:-docker.io/library/postgres:17}"
 }
 
+repair_dapr_state_schema_drift() {
+    # Dapr's Postgres component defaults tableName/metadataTableName to
+    # unqualified names. Because this deployment connects as user "spring",
+    # Postgres resolves unqualified names through "$user",public; before EF
+    # creates the spring schema that means public.state, after EF creates it
+    # that means spring.state. The component is now pinned to public.*, and
+    # this repair merges any rows accidentally written under spring.* back
+    # into the canonical tables before sidecars start.
+    local db="${POSTGRES_DB:-spring}"
+    local user="${POSTGRES_USER:-spring}"
+
+    log "checking Dapr Postgres state table placement"
+    podman exec -i spring-postgres psql -v ON_ERROR_STOP=1 -U "${user}" -d "${db}" <<'SQL'
+DO $$
+BEGIN
+    IF to_regclass('spring.state') IS NOT NULL THEN
+        IF to_regclass('public.state') IS NULL THEN
+            EXECUTE 'CREATE TABLE public.state (LIKE spring.state INCLUDING ALL)';
+        END IF;
+
+        INSERT INTO public.state (key, value, isbinary, insertdate, updatedate, expiredate)
+        SELECT key, value, isbinary, insertdate, updatedate, expiredate
+        FROM spring.state
+        ON CONFLICT (key) DO UPDATE
+        SET value = EXCLUDED.value,
+            isbinary = EXCLUDED.isbinary,
+            insertdate = LEAST(public.state.insertdate, EXCLUDED.insertdate),
+            updatedate = GREATEST(
+                COALESCE(public.state.updatedate, public.state.insertdate),
+                COALESCE(EXCLUDED.updatedate, EXCLUDED.insertdate)),
+            expiredate = EXCLUDED.expiredate
+        WHERE COALESCE(EXCLUDED.updatedate, EXCLUDED.insertdate)
+            >= COALESCE(public.state.updatedate, public.state.insertdate);
+    END IF;
+
+    IF to_regclass('spring.dapr_metadata') IS NOT NULL THEN
+        IF to_regclass('public.dapr_metadata') IS NULL THEN
+            EXECUTE 'CREATE TABLE public.dapr_metadata (LIKE spring.dapr_metadata INCLUDING ALL)';
+        END IF;
+
+        INSERT INTO public.dapr_metadata (key, value)
+        SELECT key, value
+        FROM spring.dapr_metadata
+        ON CONFLICT (key) DO NOTHING;
+    END IF;
+END $$;
+SQL
+}
+
 start_redis() {
     local cmd=(redis-server --appendonly yes)
     if [[ -n "${REDIS_PASSWORD:-}" ]]; then
@@ -678,6 +727,7 @@ cmd_up() {
 
     start_postgres
     wait_healthy spring-postgres 60
+    repair_dapr_state_schema_drift
     start_redis
     wait_healthy spring-redis 30
 

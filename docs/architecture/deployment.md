@@ -260,6 +260,20 @@ flowchart LR
 | Host MCP server                            | TBD (currently host-level; reached via `host.containers.internal` from agent containers) | Tracked in #1167 (`needs-thinking`); decision needed before tenant-specific MCP tools land |
 | Connectors                                 | platform (in-process today; if ever containerized, would join the tenant network)      | No change today; rule recorded for future                                                 |
 
+### Dapr Postgres State Tables
+
+The production Dapr state-store component pins `tableName` to `public.state`
+and `metadataTableName` to `public.dapr_metadata`. This is deliberate even
+though EF Core business tables live under the `spring` schema: the Postgres
+default `search_path` is `"$user",public`, and the reference deployment connects
+as user `spring`. Leaving Dapr's table names unqualified lets first boot create
+actor state in `public.state`, then later restarts read/write `spring.state`
+after EF has created the `spring` schema. The result is split actor state; for
+example, a unit can show `Running` while its `Unit:HumanPermissions` row remains
+in the other table and message sends 403. `deploy.sh up` runs a non-destructive
+repair before sidecars start, merging accidental `spring.state` rows back into
+`public.state` by newest row timestamp.
+
 ---
 
 ## Release and Image Publishing
