@@ -137,7 +137,7 @@ public class SpringApiClient
         var request = new CreateAgentRequest
         {
             DisplayName = displayName,
-            Description = description ?? string.Empty,
+            Description = string.IsNullOrWhiteSpace(description) ? null : description,
             Role = role,
             // Kiota models the array element as nullable Guid (the OpenAPI
             // items schema can't express "non-null entries inside a

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # pool: fast
-# `spring agent create --inherit` sends no execution block on the public API
-# request body, allowing the platform to resolve execution from parent units.
+# `spring agent create` without `--unit` sends an empty unitIds array.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -15,8 +14,8 @@ fi
 
 tmpdir="$(mktemp -d)"
 port_file="${tmpdir}/port"
-stub_log="${tmpdir}/stub.log"
 request_log="${tmpdir}/requests.log"
+stub_log="${tmpdir}/stub.log"
 stub="${tmpdir}/stub_api.py"
 
 cat > "${stub}" <<'PY'
@@ -27,8 +26,6 @@ import sys
 
 PORT_FILE = pathlib.Path(sys.argv[1])
 REQUEST_LOG = pathlib.Path(sys.argv[2])
-
-UNIT_D = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -52,10 +49,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/v1/tenant/agents":
             self.write_json(201, {
                 "id": "11111111-1111-1111-1111-111111111111",
-                "name": "ada-test",
-                "displayName": "ada-test",
+                "name": "top-level-agent",
+                "displayName": "top-level-agent",
+                "description": "",
                 "role": None,
-                "unitIds": [UNIT_D],
             })
             return
 
@@ -93,46 +90,32 @@ if [[ ! -s "${port_file}" ]]; then
 fi
 
 export SPRING_API_URL="http://127.0.0.1:$(<"${port_file}")"
-unit_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
-e2e::log "spring agent create --name ada-test --unit ${unit_id} --inherit"
-response="$(e2e::cli_agent_create --name ada-test --unit "${unit_id}" --inherit)"
+response="$(e2e::cli_agent_create --name top-level-agent)"
 code="${response##*$'\n'}"
 
-e2e::expect_status "0" "${code}" "agent create with inherit succeeds"
+e2e::expect_status "0" "${code}" "agent create without unit succeeds"
 
 if validation_error="$(python3 - "${request_log}" <<'PY' 2>&1
 import json
 import pathlib
 import sys
 
-request_log = pathlib.Path(sys.argv[1])
-lines = request_log.read_text(encoding="utf-8").splitlines()
-posts = []
-for idx, line in enumerate(lines):
-    if line.startswith("POST ") and idx + 1 < len(lines):
-        posts.append((line.removeprefix("POST "), lines[idx + 1]))
-
+lines = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+posts = [(lines[i].split(" ", 1)[1], lines[i + 1]) for i in range(len(lines) - 1) if lines[i].startswith("POST ")]
 if len(posts) != 1:
-    raise SystemExit(f"expected exactly one POST request, got {len(posts)}: {request_log.read_text(encoding='utf-8')}")
-
+    raise SystemExit(f"expected exactly one POST, got {len(posts)}")
 path, body = posts[0]
 if path != "/api/v1/tenant/agents":
-    raise SystemExit(f"expected POST /api/v1/tenant/agents, got POST {path}")
-
+    raise SystemExit(f"unexpected path: {path}")
 payload = json.loads(body)
-definition_json = payload.get("definitionJson")
-if definition_json in (None, ""):
-    raise SystemExit(0)
-
-definition = json.loads(definition_json)
-if isinstance(definition, dict) and "execution" in definition:
-    raise SystemExit(f"definitionJson contains execution: {definition_json}")
+if payload.get("unitIds") != []:
+    raise SystemExit(f"unexpected unitIds: {payload.get('unitIds')}")
 PY
 )"; then
-    e2e::ok "stub API received the agent create request without execution config"
+    e2e::ok "create request carries empty unitIds"
 else
-    e2e::fail "agent create inherit request validation failed: ${validation_error}"
+    e2e::fail "create request mismatch: ${validation_error}"
 fi
 
 e2e::summary

@@ -110,20 +110,33 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task CreateAgent_EmptyUnitIds_Returns400()
+    public async Task CreateAgent_EmptyUnitIds_RegistersTopLevelAgent()
     {
         var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
         _factory.DirectoryService.ClearReceivedCalls();
+        ArrangeAgentActorProxy();
 
         var request = new CreateAgentRequest(
-            "Orphan", "A would-be orphan", "frontend",
+            "Orphan", "A top-level agent", "frontend",
             UnitIds: Array.Empty<Guid>());
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        await _factory.DirectoryService.DidNotReceive().RegisterAsync(
-            Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>());
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var body = await response.Content.ReadFromJsonAsync<AgentResponse>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+
+        await _factory.DirectoryService.Received(1).RegisterAsync(
+            Arg.Is<DirectoryEntry>(e =>
+                e.Address.Scheme == "agent" &&
+                e.DisplayName == "Orphan"),
+            Arg.Any<CancellationToken>());
+
+        using var scope = _factory.Services.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
+        var memberships = await repo.ListByAgentAsync(body.Id, ct);
+        memberships.ShouldBeEmpty();
     }
 
     [Fact]

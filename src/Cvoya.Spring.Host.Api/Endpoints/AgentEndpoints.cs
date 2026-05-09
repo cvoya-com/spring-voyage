@@ -982,21 +982,13 @@ public static class AgentEndpoints
             return displayNameProblem;
         }
 
-        // Per #744: every agent must carry at least one unit membership
-        // at creation time. An empty / null UnitIds list is a hard
-        // 400 — the "unit-less agent" state is no longer representable.
+        // ADR-0039 L7: UnitIds is optional. An empty list creates a top-level
+        // tenant-parented agent; one or more ids create unit memberships.
         // Post-#1629 every entry is a Guid (the unit's stable actor id).
         var unitIds = (request.UnitIds ?? Array.Empty<Guid>())
             .Where(id => id != Guid.Empty)
             .Distinct()
             .ToList();
-        if (unitIds.Count == 0)
-        {
-            return Results.Problem(
-                title: "Agent requires at least one unit membership",
-                detail: "Agent creation must include at least one non-empty 'unitIds' entry. An agent must always belong to a unit.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
 
         // Resolve every referenced unit BEFORE we touch any server-side
         // state so the caller sees a clean 404 with no partial-register
@@ -1103,7 +1095,7 @@ public static class AgentEndpoints
 
         await directoryService.RegisterAsync(entry, cancellationToken);
 
-        // Establish the mandatory unit memberships. Each write mirrors
+        // Establish the requested unit memberships. Each write mirrors
         // what AssignUnitAgent does (membership row + unit-actor member
         // add + legacy cached pointer on the agent actor). The first unit
         // in the ordered list acts as the derived "primary" for wire-
@@ -1132,19 +1124,24 @@ public static class AgentEndpoints
             await unitProxy.AddMemberAsync(address, cancellationToken);
         }
 
-        // Mirror the primary unit onto the legacy cached pointer on the
-        // agent actor so any reader still consulting it sees a consistent
-        // value. Authoritative source is the membership table. The
-        // ParentUnit field carries the unit's display name (slug-shaped
-        // navigation label) so existing readers continue to render it
-        // unchanged; the canonical Guid identity lives on the membership
-        // row.
-        var primaryUnit = resolvedUnits[0].Entry.DisplayName;
-        var agentProxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-            new ActorId(actorId), nameof(AgentActor));
-        await agentProxy.SetMetadataAsync(
-            new AgentMetadata(ParentUnit: primaryUnit),
-            cancellationToken);
+        string? primaryUnit = null;
+        if (resolvedUnits.Count > 0)
+        {
+            // Mirror the primary unit onto the legacy cached pointer on the
+            // agent actor so any reader still consulting it sees a consistent
+            // value. Authoritative source is the membership table. The
+            // ParentUnit field carries the unit's display name (slug-shaped
+            // navigation label) so existing readers continue to render it
+            // unchanged; the canonical Guid identity lives on the membership
+            // row. Top-level agents have no unit parent and leave this slot
+            // unset.
+            primaryUnit = resolvedUnits[0].Entry.DisplayName;
+            var agentProxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+                new ActorId(actorId), nameof(AgentActor));
+            await agentProxy.SetMetadataAsync(
+                new AgentMetadata(ParentUnit: primaryUnit),
+                cancellationToken);
+        }
 
         // If the caller supplied a definition JSON document, persist it on
         // the AgentDefinitionEntity so IAgentDefinitionProvider can
