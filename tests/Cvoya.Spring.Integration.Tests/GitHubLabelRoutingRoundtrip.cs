@@ -12,6 +12,7 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
@@ -78,6 +79,7 @@ public class GitHubLabelRoutingRoundtrip
         {
             await harness.Handlers.HandleDelegateToChildAsync(
                 Unit,
+                OssTenantIds.Default,
                 Child,
                 message,
                 reason: "route issue to implementation agent",
@@ -97,7 +99,9 @@ public class GitHubLabelRoutingRoundtrip
         var decision = JsonSerializer.Deserialize<OrchestrationDecision>(
             activityEvent.Details!.Value.GetRawText());
         decision.ShouldNotBeNull();
-        decision!.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
+        decision!.TenantId.ShouldBe(OssTenantIds.Default);
+        decision.TenantId.ShouldNotBe(Guid.Empty);
+        decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
         decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
 
         client.Issue.Labels.ReceivedCalls().Count().ShouldBe(2);

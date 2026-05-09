@@ -112,6 +112,7 @@ public static class OrchestrationCallbackEndpoints
         {
             var response = await handlers.HandleDelegateToChildAsync(
                 claims.AgentAddress,
+                claims.TenantId,
                 target,
                 message,
                 request.Reason,
@@ -164,6 +165,7 @@ public static class OrchestrationCallbackEndpoints
         {
             var results = await handlers.HandleFanoutToChildrenAsync(
                 claims.AgentAddress,
+                claims.TenantId,
                 targets,
                 message,
                 request.Reason,
@@ -201,6 +203,7 @@ public static class OrchestrationCallbackEndpoints
         {
             var status = await handlers.HandleQueryChildStatusAsync(
                 claims.AgentAddress,
+                claims.TenantId,
                 target,
                 claims.ThreadId,
                 cancellationToken);

@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
@@ -27,6 +28,7 @@ using Xunit;
 public class OrchestrationToolHandlersTests
 {
     private static readonly Guid UnitId = new("bbbbbbbb-0000-0000-0000-000000000001");
+    private static readonly Guid TenantId = OssTenantIds.Default;
     private static readonly Guid ChildAgentId = new("aaaaaaaa-0000-0000-0000-000000000001");
     private static readonly Guid OtherChildAgentId = new("aaaaaaaa-0000-0000-0000-000000000002");
     private static readonly Guid NonChildAgentId = new("aaaaaaaa-0000-0000-0000-000000000099");
@@ -106,6 +108,7 @@ public class OrchestrationToolHandlersTests
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleDelegateToChildAsync(
                 Agent(NonChildAgentId),
+                TenantId,
                 Agent(ChildAgentId),
                 CreateMessage(),
                 null,
@@ -124,6 +127,7 @@ public class OrchestrationToolHandlersTests
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleDelegateToChildAsync(
                 Unit(),
+                TenantId,
                 Agent(NonChildAgentId),
                 CreateMessage(),
                 null,
@@ -142,6 +146,7 @@ public class OrchestrationToolHandlersTests
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleDelegateToChildAsync(
                 Unit(),
+                TenantId,
                 Unit(),
                 CreateMessage(),
                 null,
@@ -174,6 +179,7 @@ public class OrchestrationToolHandlersTests
 
         var firstCall = handlers.HandleDelegateToChildAsync(
             caller,
+            TenantId,
             target,
             CreateMessage(),
             null,
@@ -184,6 +190,7 @@ public class OrchestrationToolHandlersTests
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleDelegateToChildAsync(
                 caller,
+                TenantId,
                 target,
                 CreateMessage(),
                 null,
@@ -215,6 +222,7 @@ public class OrchestrationToolHandlersTests
 
         var result = await handlers.HandleDelegateToChildAsync(
             caller,
+            TenantId,
             target,
             message,
             null,
@@ -234,7 +242,7 @@ public class OrchestrationToolHandlersTests
             Arg.Any<CancellationToken>());
 
         var decision = ReadSingleDecision(caller);
-        decision.TenantId.ShouldBe(Guid.Empty);
+        decision.TenantId.ShouldBe(TenantId);
         decision.UnitAddress.ShouldBe(caller);
         decision.ThreadId.ShouldBe(threadId);
         decision.InputMessageId.ShouldBe(message.Id);
@@ -263,6 +271,7 @@ public class OrchestrationToolHandlersTests
 
         await handlers.HandleDelegateToChildAsync(
             caller,
+            TenantId,
             target,
             CreateGitHubIssueMessage(number: 42),
             null,
@@ -294,6 +303,7 @@ public class OrchestrationToolHandlersTests
 
         await handlers.HandleDelegateToChildAsync(
             caller,
+            TenantId,
             target,
             CreateNonGitHubIssueMessage(number: 42),
             null,
@@ -321,6 +331,7 @@ public class OrchestrationToolHandlersTests
         await Should.ThrowAsync<InvalidOperationException>(() =>
             handlers.HandleDelegateToChildAsync(
                 caller,
+                TenantId,
                 target,
                 message,
                 reason,
@@ -335,6 +346,7 @@ public class OrchestrationToolHandlersTests
             Arg.Any<CancellationToken>());
 
         var decision = ReadSingleDecision(caller);
+        decision.TenantId.ShouldBe(TenantId);
         decision.UnitAddress.ShouldBe(caller);
         decision.ThreadId.ShouldBe(threadId);
         decision.InputMessageId.ShouldBe(message.Id);
@@ -361,6 +373,7 @@ public class OrchestrationToolHandlersTests
 
         await handlers.HandleDelegateToChildAsync(
             caller,
+            TenantId,
             target,
             CreateMessage(),
             reason,
@@ -383,6 +396,7 @@ public class OrchestrationToolHandlersTests
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleFanoutToChildrenAsync(
                 Agent(NonChildAgentId),
+                TenantId,
                 [Agent(ChildAgentId)],
                 CreateMessage(),
                 null,
@@ -402,6 +416,7 @@ public class OrchestrationToolHandlersTests
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleFanoutToChildrenAsync(
                 caller,
+                TenantId,
                 [Agent(NonChildAgentId)],
                 CreateMessage(),
                 null,
@@ -436,6 +451,7 @@ public class OrchestrationToolHandlersTests
 
         var results = await handlers.HandleFanoutToChildrenAsync(
             caller,
+            TenantId,
             [targetOne, targetTwo],
             message,
             reason,
@@ -458,6 +474,7 @@ public class OrchestrationToolHandlersTests
             Arg.Any<CancellationToken>());
 
         var decision = ReadSingleDecision(caller);
+        decision.TenantId.ShouldBe(TenantId);
         decision.ThreadId.ShouldBe(threadId);
         decision.InputMessageId.ShouldBe(message.Id);
         decision.Kind.ShouldBe(OrchestrationDecisionKind.Fanout);
@@ -490,6 +507,7 @@ public class OrchestrationToolHandlersTests
 
         var results = await handlers.HandleFanoutToChildrenAsync(
             caller,
+            TenantId,
             [targetOne, targetTwo],
             message,
             null,
@@ -512,6 +530,7 @@ public class OrchestrationToolHandlersTests
             Arg.Any<CancellationToken>());
 
         var decision = ReadSingleDecision(caller);
+        decision.TenantId.ShouldBe(TenantId);
         decision.ThreadId.ShouldBe(threadId);
         decision.InputMessageId.ShouldBe(message.Id);
         decision.Kind.ShouldBe(OrchestrationDecisionKind.Fanout);
@@ -578,6 +597,7 @@ public class OrchestrationToolHandlersTests
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleQueryChildStatusAsync(
                 Agent(NonChildAgentId),
+                TenantId,
                 Agent(ChildAgentId),
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
@@ -594,6 +614,7 @@ public class OrchestrationToolHandlersTests
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleQueryChildStatusAsync(
                 Unit(),
+                TenantId,
                 Agent(NonChildAgentId),
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
@@ -611,6 +632,7 @@ public class OrchestrationToolHandlersTests
 
         var status = await handlers.HandleQueryChildStatusAsync(
             caller,
+            TenantId,
             target,
             Guid.NewGuid(),
             TestContext.Current.CancellationToken);

@@ -9,6 +9,7 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
@@ -36,6 +37,8 @@ public class OrchestrationDelegationDecisionIntegrationTests
     private static readonly Address ParentUnit =
         new(Address.UnitScheme, new Guid("bbbbbbbb-0000-0000-0000-000000001828"));
 
+    private static readonly Guid TenantId = OssTenantIds.Default;
+
     private static readonly Address ChildOne =
         new(Address.AgentScheme, new Guid("aaaaaaaa-0000-0000-0000-000000001828"));
 
@@ -62,6 +65,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         // Act
         var result = await harness.Handlers.HandleDelegateToChildAsync(
             ParentUnit,
+            TenantId,
             ChildOne,
             message,
             reason: "route to the specialist",
@@ -71,6 +75,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         // Assert
         result.ShouldBe(response);
         var decision = harness.ReadSingleDecision();
+        AssertDecisionTenant(decision);
         decision.UnitAddress.ShouldBe(ParentUnit);
         decision.ThreadId.ShouldBe(threadId);
         decision.InputMessageId.ShouldBe(message.Id);
@@ -78,6 +83,44 @@ public class OrchestrationDelegationDecisionIntegrationTests
         decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
         decision.Targets.ShouldBe([ChildOne]);
         decision.ResultMessageIds.ShouldBe([response.Id]);
+    }
+
+    [Fact]
+    public async Task HandleDelegateToChild_ChildErrors_EmitsFailedDecisionEventWithTenant()
+    {
+        // Arrange
+        var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo);
+        var child = Substitute.For<IAgent>();
+        var message = CreateMessage(ParentUnit);
+        var threadId = Guid.NewGuid();
+        const string failureDescription = "child failed";
+
+        harness.RegisterAgent(ChildOne, child);
+        child.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException(failureDescription));
+
+        // Act
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            harness.Handlers.HandleDelegateToChildAsync(
+                ParentUnit,
+                TenantId,
+                ChildOne,
+                message,
+                reason: failureDescription,
+                threadId,
+                TestContext.Current.CancellationToken));
+
+        // Assert
+        var decision = harness.ReadSingleDecision();
+        AssertDecisionTenant(decision);
+        decision.UnitAddress.ShouldBe(ParentUnit);
+        decision.ThreadId.ShouldBe(threadId);
+        decision.InputMessageId.ShouldBe(message.Id);
+        decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
+        decision.Status.ShouldBe(OrchestrationDecisionStatus.Failed);
+        decision.Targets.ShouldBe([ChildOne]);
+        decision.ResultMessageIds.ShouldBeEmpty();
+        decision.Reason.ShouldBe(failureDescription);
     }
 
     [Fact]
@@ -107,6 +150,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         // Act
         var results = await harness.Handlers.HandleFanoutToChildrenAsync(
             ParentUnit,
+            TenantId,
             [ChildOne, ChildTwo, ChildThree],
             message,
             reason: "ask all children",
@@ -118,6 +162,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
             .ShouldBe([responseOne.Id, responseTwo.Id, responseThree.Id]);
 
         var decision = harness.ReadSingleDecision();
+        AssertDecisionTenant(decision);
         decision.UnitAddress.ShouldBe(ParentUnit);
         decision.ThreadId.ShouldBe(threadId);
         decision.InputMessageId.ShouldBe(message.Id);
@@ -154,6 +199,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         // Act
         var results = await harness.Handlers.HandleFanoutToChildrenAsync(
             ParentUnit,
+            TenantId,
             [ChildOne, ChildTwo, ChildThree],
             message,
             reason: failureDescription,
@@ -167,6 +213,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         results[1].Error.ShouldBeOfType<InvalidOperationException>();
 
         var decision = harness.ReadSingleDecision();
+        AssertDecisionTenant(decision);
         decision.UnitAddress.ShouldBe(ParentUnit);
         decision.ThreadId.ShouldBe(threadId);
         decision.InputMessageId.ShouldBe(message.Id);
@@ -221,6 +268,12 @@ public class OrchestrationDelegationDecisionIntegrationTests
             activityEventBus);
 
         return new HandlerHarness(handlers, agents, publishedEvents);
+    }
+
+    private static void AssertDecisionTenant(OrchestrationDecision decision)
+    {
+        decision.TenantId.ShouldBe(TenantId);
+        decision.TenantId.ShouldNotBe(Guid.Empty);
     }
 
     private static string Key(Address address) => Key(address.Scheme, GuidFormatter.Format(address.Id));

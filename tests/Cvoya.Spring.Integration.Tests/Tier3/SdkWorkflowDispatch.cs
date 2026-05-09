@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
@@ -95,7 +96,9 @@ public class SdkWorkflowDispatch
             activityEvent.Details!.Value.GetRawText());
 
         decision.ShouldNotBeNull();
-        decision!.UnitAddress.ShouldBe(UnitAddress);
+        decision!.TenantId.ShouldBe(OssTenantIds.Default);
+        decision.TenantId.ShouldNotBe(Guid.Empty);
+        decision.UnitAddress.ShouldBe(UnitAddress);
         decision.ThreadId.ShouldBe(threadId);
         decision.InputMessageId.ShouldBe(inputMessageId);
         decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
@@ -210,7 +213,7 @@ public class SdkWorkflowDispatch
                 Options.Create(new CallbackTokenOptions()));
 
             return issuer.Issue(new CallbackToken(
-                Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+                OssTenantIds.Default,
                 caller,
                 threadId,
                 messageId,
