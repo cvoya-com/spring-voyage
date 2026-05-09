@@ -59,6 +59,7 @@ public class OrchestrationToolHandlers(
 
     public async Task<Message?> HandleDelegateToChildAsync(
         Address caller,
+        Guid tenantId,
         Address target,
         Message message,
         string? reason,
@@ -95,6 +96,7 @@ public class OrchestrationToolHandlers(
         {
             await PublishDecisionAsync(
                 caller,
+                tenantId,
                 threadId,
                 message.Id,
                 OrchestrationDecisionKind.Delegate,
@@ -110,6 +112,7 @@ public class OrchestrationToolHandlers(
 
         await PublishDecisionAsync(
             caller,
+            tenantId,
             threadId,
             message.Id,
             OrchestrationDecisionKind.Delegate,
@@ -125,6 +128,7 @@ public class OrchestrationToolHandlers(
 
     public async Task<(Address Target, Message? Response, Exception? Error)[]> HandleFanoutToChildrenAsync(
         Address caller,
+        Guid tenantId,
         IReadOnlyList<Address> targets,
         Message message,
         string? reason,
@@ -163,6 +167,7 @@ public class OrchestrationToolHandlers(
 
         await PublishDecisionAsync(
             caller,
+            tenantId,
             threadId,
             message.Id,
             OrchestrationDecisionKind.Fanout,
@@ -195,6 +200,7 @@ public class OrchestrationToolHandlers(
 
     private async Task PublishDecisionAsync(
         Address caller,
+        Guid tenantId,
         Guid threadId,
         Guid inputMessageId,
         OrchestrationDecisionKind kind,
@@ -205,11 +211,9 @@ public class OrchestrationToolHandlers(
         JsonElement? metadata,
         CancellationToken ct)
     {
-        // TODO #1994: replace Guid.Empty with the callback token tenant id once
-        // the orchestration handler receives the invocation scope.
         var decision = new OrchestrationDecision(
             Guid.NewGuid(),
-            Guid.Empty,
+            tenantId,
             caller,
             threadId,
             inputMessageId,
