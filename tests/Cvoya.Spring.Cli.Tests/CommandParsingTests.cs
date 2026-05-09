@@ -313,48 +313,6 @@ public class CommandParsingTests
     }
 
     [Fact]
-    public void AgentCreate_LegacyPositionalName_RejectedAtParseTime()
-    {
-        // ADR-0039 §8 / §9: the positional <name> / <id> argument is removed from
-        // `spring agent create`. Agent identity is assigned by the platform
-        // (a server-allocated Guid). Old scripts that still pass a positional
-        // must see the migration hint at parse time, before any action runs.
-        var outputOption = CreateOutputOption();
-        var agentCommand = AgentCommand.Create(outputOption);
-        var rootCommand = new RootCommand { Options = { outputOption } };
-        rootCommand.Subcommands.Add(agentCommand);
-
-        var parseResult = rootCommand.Parse("agent create my-agent");
-
-        parseResult.Errors.ShouldNotBeEmpty();
-        parseResult.Errors.ShouldContain(
-            e => e.Message == AgentCommand.LegacyPositionalIdRejectionMessage);
-        AgentCommand.LegacyPositionalIdRejectionMessage.ShouldContain("ADR-0039");
-    }
-
-    [Fact]
-    public void AgentCreate_LegacyContainerRuntimeFlag_RejectedAtParseTime()
-    {
-        // ADR-0039 §7 / §9: `--container-runtime` was removed from
-        // `spring agent create`. The container runtime is platform
-        // configuration; the host process picks one runtime at deploy
-        // time. Old scripts that still pass the flag must see the
-        // migration hint at parse time, before any action runs.
-        var outputOption = CreateOutputOption();
-        var agentCommand = AgentCommand.Create(outputOption);
-        var rootCommand = new RootCommand { Options = { outputOption } };
-        rootCommand.Subcommands.Add(agentCommand);
-
-        var parseResult = rootCommand.Parse(
-            "agent create --name ada --unit engineering --container-runtime podman");
-
-        parseResult.Errors.ShouldNotBeEmpty();
-        parseResult.Errors.ShouldContain(e =>
-            e.Message == AgentCommand.LegacyContainerRuntimeFlagRejectionMessage);
-        AgentCommand.LegacyContainerRuntimeFlagRejectionMessage.ShouldContain("ADR-0039");
-    }
-
-    [Fact]
     public void AgentCreate_InheritWithDefinition_RejectedAtParseTime()
     {
         // #1901 / #1902: inherited execution means no explicit create-time
@@ -501,25 +459,6 @@ public class CommandParsingTests
         parseResult.GetValue<string>("--description").ShouldBe("Builds the product");
     }
 
-
-    [Fact]
-    public void UnitCreate_LegacyContainerRuntimeFlag_RejectedAtParseTime()
-    {
-        // ADR-0039 §7 / §9: --container-runtime is removed from operator-
-        // facing surfaces. The flag is rejected at parse time with the
-        // migration hint pinned on UnitCommand.LegacyContainerRuntimeFlagRejectionMessage.
-        var outputOption = CreateOutputOption();
-        var unitCommand = UnitCommand.Create(outputOption);
-        var rootCommand = new RootCommand { Options = { outputOption } };
-        rootCommand.Subcommands.Add(unitCommand);
-
-        var parseResult = rootCommand.Parse(
-            "unit create my-unit --top-level --container-runtime podman");
-
-        parseResult.Errors.ShouldNotBeEmpty();
-        parseResult.Errors.ShouldContain(
-            e => e.Message == UnitCommand.LegacyContainerRuntimeFlagRejectionMessage);
-    }
 
     [Fact]
     public void OutputOption_AcceptsJson()

@@ -16,23 +16,6 @@ using Microsoft.Kiota.Abstractions;
 /// </summary>
 public static class UnitCommand
 {
-    /// <summary>
-    /// Stderr message used by the legacy <c>--container-runtime</c> flag's
-    /// parser rejection on <c>spring unit create</c> (ADR-0039 §7 / §9).
-    /// Pinned by tests so a future flag rename doesn't slip past CI.
-    /// </summary>
-    /// <remarks>
-    /// ADR-0039 §7 makes the container runtime platform configuration: the
-    /// host process picks one runtime at deploy time and every agent on
-    /// that host uses it. The rejection is parser-level only — there is no
-    /// stub command, no aliased handler. Operators see the migration path
-    /// before any action runs.
-    /// </remarks>
-    public const string LegacyContainerRuntimeFlagRejectionMessage =
-        "--container-runtime was removed in ADR-0039. The container runtime is platform " +
-        "configuration: the host picks one runtime at deploy time and every agent on that " +
-        "host uses it. Drop the flag — there is no per-unit override.";
-
     private static readonly OutputFormatter.Column<UnitResponse>[] UnitColumns =
     {
         new("id", u => GuidDisplay.Format(u.Id)),
@@ -172,15 +155,11 @@ public static class UnitCommand
 
     private static Command CreateCreateCommand(Option<string> outputOption)
     {
-        // ADR-0039 §8 audit (task H2, issue #1870): `spring unit create`
-        // does not have an analogous legacy positional <id>. It does have
-        // the current public create name, which maps to CreateUnitRequest.Name
-        // and the existing unit API/CLI shape. Removing that would be a
-        // separate API-contract migration, so H2 records the audit and leaves
-        // unit create behaviour unchanged.
+        // ADR-0039 §8: the positional is the unit's display name. Identity
+        // is the server-allocated Guid returned in the response.
         var nameArg = new Argument<string?>("name")
         {
-            Description = "The unit name (address path; also used as the identifier).",
+            Description = "The unit display name. The unit's stable address is the server-allocated Guid; this is the human-readable label.",
             Arity = System.CommandLine.ArgumentArity.ZeroOrOne,
         };
         var displayNameOption = new Option<string?>("--display-name") { Description = "Human-readable display name (defaults to name)" };
@@ -216,48 +195,6 @@ public static class UnitCommand
                 "Required for multi-provider runtimes (spring-voyage); optional for fixed-provider runtimes.",
         };
 
-        // ADR-0038 §7: legacy --agent flag is rejected at parse time.
-        var legacyAgentOption = new Option<string?>("--agent")
-        {
-            Description = "REJECTED — use --runtime instead (ADR-0038).",
-            Hidden = true,
-        };
-        legacyAgentOption.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(AgentCommand.LegacyAgentFlagRejectionMessage);
-            }
-        });
-        // ADR-0038: legacy flat --provider is rejected.
-        var legacyProviderOption = new Option<string?>("--provider")
-        {
-            Description = "REJECTED — use --model-provider instead (ADR-0038).",
-            Hidden = true,
-        };
-        legacyProviderOption.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(UnitExecutionCommand.LegacyProviderFlagRejectionMessage);
-            }
-        });
-        // ADR-0039 §7: container runtime is platform configuration, not an
-        // operator-facing unit-create choice. The flag is rejected at parse
-        // time with the §9 migration hint so callers see the change before
-        // any action runs.
-        var legacyContainerRuntimeOption = new Option<string?>("--container-runtime")
-        {
-            Description = "REJECTED — container runtime is platform configuration in ADR-0039.",
-            Hidden = true,
-        };
-        legacyContainerRuntimeOption.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(LegacyContainerRuntimeFlagRejectionMessage);
-            }
-        });
         var hostingOption = new Option<string?>("--hosting")
         {
             Description = "Agent hosting mode (ephemeral, persistent).",
@@ -328,9 +265,6 @@ public static class UnitCommand
         command.Options.Add(colorOption);
         command.Options.Add(runtimeOption);
         command.Options.Add(modelProviderOption);
-        command.Options.Add(legacyAgentOption);
-        command.Options.Add(legacyProviderOption);
-        command.Options.Add(legacyContainerRuntimeOption);
         command.Options.Add(hostingOption);
         command.Options.Add(apiKeyOption);
         command.Options.Add(apiKeyFromFileOption);
@@ -522,17 +456,17 @@ public static class UnitCommand
     }
 
     /// <summary>
-    /// T-08 / #950: new <c>spring unit revalidate &lt;name&gt;</c> verb.
-    /// Posts <c>POST /api/v1/units/{name}/revalidate</c>, surfaces 409 as a
+    /// T-08 / #950: new <c>spring unit revalidate &lt;id&gt;</c> verb.
+    /// Posts <c>POST /api/v1/units/{id}/revalidate</c>, surfaces 409 as a
     /// usage error (exit 2) with the server's current-status message, and
     /// otherwise reuses the shared wait loop so the UX matches
     /// <c>spring unit create</c>.
     /// </summary>
     private static Command CreateRevalidateCommand()
     {
-        var nameArg = new Argument<string>("name")
+        var idArg = new Argument<string>("id")
         {
-            Description = "The unit name to revalidate. Must currently be in Error or Stopped.",
+            Description = "The unit identifier (Guid). Must currently be in Error or Stopped.",
         };
         var noWaitOption = new Option<bool>("--no-wait")
         {
@@ -543,25 +477,25 @@ public static class UnitCommand
         var command = new Command(
             "revalidate",
             "Re-run backend validation for a unit currently in Error or Stopped.\n\n"
-            + "By default waits for validation to finish (polls GET /api/v1/units/{name} once per "
+            + "By default waits for validation to finish (polls GET /api/v1/units/{id} once per "
             + "second until the unit reaches Stopped or Error). Pass --no-wait to return immediately "
             + "after the 202 Accepted. Progress in the CLI is coarse — a single \"Validating...\" "
             + "indicator until terminal; the web portal renders per-step progress via the SSE channel. "
             + "Rejected with exit code 2 when the unit is in any other state (Running, Starting, ...).\n\n"
             + UnitValidationExitCodes.HelpTable);
-        command.Arguments.Add(nameArg);
+        command.Arguments.Add(idArg);
         command.Options.Add(noWaitOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var name = parseResult.GetValue(nameArg)!;
+            var id = parseResult.GetValue(idArg)!;
             var noWait = parseResult.GetValue(noWaitOption);
             var client = ClientFactory.Create();
 
             UnitResponse accepted;
             try
             {
-                accepted = await client.RevalidateUnitAsync(name, ct);
+                accepted = await client.RevalidateUnitAsync(id, ct);
             }
             catch (ApiException ex) when (ex.ResponseStatusCode == 409)
             {
@@ -570,14 +504,14 @@ public static class UnitCommand
                 // Starting, Validating, etc.). Exit 2 (usage error) per
                 // the T-08 code table.
                 await Console.Error.WriteLineAsync(
-                    $"Cannot revalidate unit '{name}': {ExtractServerDetail(ex)}");
+                    $"Cannot revalidate unit '{id}': {ExtractServerDetail(ex)}");
                 Environment.Exit(UnitValidationExitCodes.UsageError);
                 return;
             }
             catch (ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to revalidate unit '{name}': {ExtractServerDetail(ex)}");
+                    $"Failed to revalidate unit '{id}': {ExtractServerDetail(ex)}");
                 // #990: route through ForCode so scripts can branch on the
                 // specific validation failure (20-27) rather than the generic
                 // UnknownError (1). ForCode returns UnknownError when the code
@@ -589,12 +523,12 @@ public static class UnitCommand
             if (noWait)
             {
                 Console.WriteLine(
-                    $"Unit '{name}' revalidation accepted. Status: {accepted.Status}. "
-                    + "Use 'spring unit get <name>' to check progress.");
+                    $"Unit '{id}' revalidation accepted. Status: {accepted.Status}. "
+                    + "Use 'spring unit show <id>' to check progress.");
                 return;
             }
 
-            var exitCode = await RunUnitValidationWaitAsync(client, name, accepted, ct);
+            var exitCode = await RunUnitValidationWaitAsync(client, id, accepted, ct);
             if (exitCode != 0)
             {
                 Environment.Exit(exitCode);
@@ -1001,24 +935,24 @@ public static class UnitCommand
 
     private static Command CreateStartCommand()
     {
-        var nameArg = new Argument<string>("name") { Description = "The unit name" };
+        var idArg = new Argument<string>("id") { Description = "The unit identifier (Guid)." };
         var command = new Command("start", "Start a unit (transitions Draft->Starting or Stopped->Starting)");
-        command.Arguments.Add(nameArg);
+        command.Arguments.Add(idArg);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var name = parseResult.GetValue(nameArg)!;
+            var id = parseResult.GetValue(idArg)!;
             var client = ClientFactory.Create();
 
             try
             {
-                var result = await client.StartUnitAsync(name, ct);
-                Console.WriteLine($"Unit '{name}' is now {result.Status}.");
+                var result = await client.StartUnitAsync(id, ct);
+                Console.WriteLine($"Unit '{id}' is now {result.Status}.");
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to start unit '{name}': {ExtractServerDetail(ex)}");
+                    $"Failed to start unit '{id}': {ExtractServerDetail(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -1028,24 +962,24 @@ public static class UnitCommand
 
     private static Command CreateStopCommand()
     {
-        var nameArg = new Argument<string>("name") { Description = "The unit name" };
+        var idArg = new Argument<string>("id") { Description = "The unit identifier (Guid)." };
         var command = new Command("stop", "Stop a running unit");
-        command.Arguments.Add(nameArg);
+        command.Arguments.Add(idArg);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var name = parseResult.GetValue(nameArg)!;
+            var id = parseResult.GetValue(idArg)!;
             var client = ClientFactory.Create();
 
             try
             {
-                var result = await client.StopUnitAsync(name, ct);
-                Console.WriteLine($"Unit '{name}' is now {result.Status}.");
+                var result = await client.StopUnitAsync(id, ct);
+                Console.WriteLine($"Unit '{id}' is now {result.Status}.");
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to stop unit '{name}': {ExtractServerDetail(ex)}");
+                    $"Failed to stop unit '{id}': {ExtractServerDetail(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -1055,20 +989,20 @@ public static class UnitCommand
 
     private static Command CreateStatusCommand(Option<string> outputOption)
     {
-        var nameArg = new Argument<string>("name") { Description = "The unit name" };
+        var idArg = new Argument<string>("id") { Description = "The unit identifier (Guid)." };
         var command = new Command("status", "Show the current status and readiness of a unit");
-        command.Arguments.Add(nameArg);
+        command.Arguments.Add(idArg);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var name = parseResult.GetValue(nameArg)!;
+            var id = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
 
             try
             {
-                var unitTask = client.GetUnitAsync(name, ct);
-                var readinessTask = client.GetUnitReadinessAsync(name, ct);
+                var unitTask = client.GetUnitAsync(id, ct);
+                var readinessTask = client.GetUnitReadinessAsync(id, ct);
                 await Task.WhenAll(unitTask, readinessTask);
 
                 var unit = unitTask.Result;
@@ -1078,7 +1012,7 @@ public static class UnitCommand
                 {
                     Console.WriteLine(OutputFormatter.FormatJsonPlain(new
                     {
-                        name,
+                        id,
                         status = unit.Unit?.Status?.ToString(),
                         isReady = readiness.IsReady,
                         missingRequirements = readiness.MissingRequirements,
@@ -1086,7 +1020,7 @@ public static class UnitCommand
                 }
                 else
                 {
-                    Console.WriteLine($"Unit:     {name}");
+                    Console.WriteLine($"Unit:     {id}");
                     Console.WriteLine($"Status:   {unit.Unit?.Status}");
                     Console.WriteLine($"Ready:    {(readiness.IsReady == true ? "yes" : "no")}");
                     if (readiness.MissingRequirements is { Count: > 0 } missing)
@@ -1098,7 +1032,7 @@ public static class UnitCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to get status for unit '{name}': {ExtractServerDetail(ex)}");
+                    $"Failed to get status for unit '{id}': {ExtractServerDetail(ex)}");
                 Environment.Exit(1);
             }
         });

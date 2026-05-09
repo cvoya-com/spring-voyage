@@ -89,20 +89,6 @@ public static class AgentExecutionCommand
             Description = "Container image reference.",
         };
 
-        // ADR-0039 §7: legacy `--container-runtime` rejected at parse time.
-        var legacyContainerRuntimeOption = new Option<string?>("--container-runtime")
-        {
-            Description = "REJECTED — the container runtime is platform configuration (ADR-0039 §7).",
-            Hidden = true,
-        };
-        legacyContainerRuntimeOption.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(UnitExecutionCommand.LegacyContainerRuntimeFlagRejectionMessage);
-            }
-        });
-
         var runtimeOption = new Option<string?>("--runtime")
         {
             Description = "Agent runtime id (e.g. claude-code, codex, gemini, spring-voyage). " +
@@ -124,46 +110,16 @@ public static class AgentExecutionCommand
         };
         hostingOption.AcceptOnlyFromAmong(HostingKeys);
 
-        // ADR-0038 §7: legacy `--agent` rejected at parse time.
-        var legacyAgentOption = new Option<string?>("--agent")
-        {
-            Description = "REJECTED — use --runtime instead (ADR-0038).",
-            Hidden = true,
-        };
-        legacyAgentOption.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(AgentCommand.LegacyAgentFlagRejectionMessage);
-            }
-        });
-        // ADR-0038: flat `--provider` is gone; use --model-provider.
-        var legacyProviderOption = new Option<string?>("--provider")
-        {
-            Description = "REJECTED — use --model-provider instead (ADR-0038).",
-            Hidden = true,
-        };
-        legacyProviderOption.Validators.Add(result =>
-        {
-            if (result.Tokens.Count > 0)
-            {
-                result.AddError(UnitExecutionCommand.LegacyProviderFlagRejectionMessage);
-            }
-        });
-
         var command = new Command(
             "set",
             "Upsert one or more fields on the agent's execution block. Partial update — " +
             "pass only the flags you want to change.");
         command.Arguments.Add(agentArg);
         command.Options.Add(imageOption);
-        command.Options.Add(legacyContainerRuntimeOption);
         command.Options.Add(runtimeOption);
         command.Options.Add(modelProviderOption);
         command.Options.Add(modelOption);
         command.Options.Add(hostingOption);
-        command.Options.Add(legacyAgentOption);
-        command.Options.Add(legacyProviderOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {

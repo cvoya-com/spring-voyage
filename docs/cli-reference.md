@@ -204,14 +204,14 @@ $ spring unit execution set my-unit --image ghcr.io/example/claude:1 --no-wait
 
 On success the CLI returns 201 and then **polls** the unit's terminal state. `--wait` is the **default**; the command blocks until the `UnitValidationWorkflow` finishes and exits with a validation-code-derived exit code (see the table below). `--no-wait` returns immediately after the 201, leaving the unit in `Validating`.
 
-### `revalidate <name> [--wait | --no-wait]`
+### `revalidate <id> [--wait | --no-wait]`
 
 ```
-$ spring unit revalidate my-unit
-$ spring unit revalidate my-unit --no-wait
+$ spring unit revalidate 8c5fab2a8e7e4b8da3e7d18c1a9f0b3c
+$ spring unit revalidate 8c5fab2a8e7e4b8da3e7d18c1a9f0b3c --no-wait
 ```
 
-Calls `POST /api/v1/units/{name}/revalidate`, which is allowed only from `Error` or `Stopped`. The handler flips the unit into `Validating` and dispatches a fresh `UnitValidationWorkflow` run; the CLI polls the same way `create` does.
+Calls `POST /api/v1/units/{id}/revalidate`, which is allowed only from `Error` or `Stopped`. The handler flips the unit into `Validating` and dispatches a fresh `UnitValidationWorkflow` run; the CLI polls the same way `create` does.
 
 Exits `2` (usage error) when the unit is not in an allowed state — the server returns 409 with the current status in the problem-details `extensions.currentStatus`.
 
@@ -288,8 +288,8 @@ Reads the shared credential-health store. For connectors without auth (Arxiv, We
 
 Orthogonal to the tenant-install surface:
 
-- `spring connector unit-binding --unit <name>` — show a unit's active binding.
-- `spring connector bind --unit <name> --type <slug> ...` — bind a unit (and set typed config).
+- `spring connector unit-binding --unit <guid>` — show a unit's active binding.
+- `spring connector bind --unit <guid> --type <slug> ...` — bind a unit (and set typed config).
 - `spring connector bindings <slug>` — units bound to a connector type.
 
 These predate the tenant-install surface and work for units whose tenant has the connector installed. (`spring connector catalog`, despite its historical name, also lives here only as a tenant-install listing — see `list` above.)
@@ -300,7 +300,7 @@ These predate the tenant-install surface and work for units whose tenant has the
 2. **Pin a model list on install.** `spring model-provider install anthropic --model claude-opus-4-7 --model claude-sonnet-4-6`.
 3. **Reconcile the tenant's list with what the provider currently publishes.** `spring model-provider refresh-models openai --credential sk-proj-…`.
 4. **Retire a model from the catalogue.** `spring model-provider config set openai models=gpt-4o` (existing units keep their pinned id per the pass-through rule).
-5. **Re-run backend validation on a failed unit.** `spring unit revalidate my-unit` — dispatches a fresh `UnitValidationWorkflow` run; exits 20–27 map onto the underlying `UnitValidationCodes`.
+5. **Re-run backend validation on a failed unit.** `spring unit revalidate <unit-guid>` — dispatches a fresh `UnitValidationWorkflow` run; exits 20–27 map onto the underlying `UnitValidationCodes`.
 6. **Install Ollama with a custom node URL.** `spring model-provider install ollama --base-url http://ollama.internal:11434`.
 7. **Hide OpenAI from a tenant.** `spring model-provider uninstall openai --force`.
 8. **Re-enable OpenAI later.** `spring model-provider install openai` — install is upsert-shaped; prior config is preserved where possible.

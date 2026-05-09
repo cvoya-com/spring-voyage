@@ -49,7 +49,7 @@ public class UnitRevalidateCommandTests
     }
 
     [Fact]
-    public void UnitRevalidate_RequiresPositionalName()
+    public void UnitRevalidate_RequiresPositionalId()
     {
         var outputOption = CreateOutputOption();
         var unitCommand = UnitCommand.Create(outputOption);
@@ -62,17 +62,17 @@ public class UnitRevalidateCommandTests
     }
 
     [Fact]
-    public void UnitRevalidate_AcceptsNameArgument()
+    public void UnitRevalidate_AcceptsIdArgument()
     {
         var outputOption = CreateOutputOption();
         var unitCommand = UnitCommand.Create(outputOption);
         var rootCommand = new RootCommand { Options = { outputOption } };
         rootCommand.Subcommands.Add(unitCommand);
 
-        var parseResult = rootCommand.Parse("unit revalidate eng-team");
+        var parseResult = rootCommand.Parse("unit revalidate 8c5fab2a8e7e4b8da3e7d18c1a9f0b3c");
 
         parseResult.Errors.ShouldBeEmpty();
-        parseResult.GetValue<string>("name").ShouldBe("eng-team");
+        parseResult.GetValue<string>("id").ShouldBe("8c5fab2a8e7e4b8da3e7d18c1a9f0b3c");
     }
 
     [Fact]
