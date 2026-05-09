@@ -121,10 +121,10 @@ The deterministic v5 UUID owning every tenant-scoped row in a fresh OSS install:
 An agent that subscribes to another agent's activity stream (with permission).
 
 **Orchestration decision**
-An `ActivityEvent` with `EventType=DecisionMade` published by the platform each time a unit's runtime calls a delegation tool. Shape: `Kind` (`Delegate`, `Fanout`, `Inspect`, or `NoOp`), `Status` (`Accepted`, `Routed`, or `Failed`), `Targets` (array of child unit addresses), `ResultMessageIds` (array of result message Guids), `Reason` (optional runtime-supplied string).
+An `ActivityEvent` with `EventType=DecisionMade` published by the platform as orchestration decision evidence. Shape: `Kind` (`Delegate`, `Fanout`, `Inspect`, or `NoOp`), `Status` (`Accepted`, `Routed`, or `Failed`), `Targets` (array of child addresses), `ResultMessageIds` (array of result message Guids), and `Reason` (optional runtime-supplied string).
 
 **Orchestration tools**
-The five MCP/actor tools (`list_children`, `inspect_child`, `delegate_to_child`, `fanout_to_children`, `query_child_status`) that the runtime launcher attaches to a unit's execution context when children exist.
+The five platform-injected tools (`list_children`, `inspect_child`, `delegate_to_child`, `fanout_to_children`, `query_child_status`) available to a unit's runtime when that unit has children. LLM-driven runtimes use an MCP/env-var-keyed surface; workflow-driven runtimes use the `Cvoya.Spring.AgentSdk` `IOrchestrationClient` callback surface.
 
 **Package**
 An installable bundle of domain-specific content: agent templates, unit templates, skills, workflows, connectors, and execution environments. How the platform remains domain-agnostic while supporting specific domains.
@@ -160,7 +160,7 @@ A group of agents -- and the humans who work with them -- performing together. A
 The Dapr virtual actor implementing a unit. Manages membership, policies, the expertise directory, boundaries, connector bindings, and the unit-specific lifecycle while dispatching domain messages through the runtime-launcher path shared with agents.
 
 **Unit-as-agent**
-The framing from ADR-0039: a unit is an agent that has children. There is no structural difference; the presence or absence of children determines whether orchestration tools are attached.
+The framing from ADR-0039: a unit is structurally identical to an agent; the only operational difference is the presence of children. When a unit has children, the platform attaches orchestration tools; when it has none, it dispatches directly through its runtime. There is no creation-time mode toggle.
 
 **Workflow**
 A durable, structured execution plan. Domain workflows run in containers; platform-internal workflows run in the host process.
