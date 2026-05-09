@@ -277,9 +277,9 @@ public class CommandParsingTests
     }
 
     [Fact]
-    public void AgentCreate_LegacyPositionalId_RejectedAtParseTime()
+    public void AgentCreate_LegacyPositionalName_RejectedAtParseTime()
     {
-        // ADR-0039 §8 / §9: the positional <id> argument is removed from
+        // ADR-0039 §8 / §9: the positional <name> / <id> argument is removed from
         // `spring agent create`. Agent identity is assigned by the platform
         // (a server-allocated Guid). Old scripts that still pass a positional
         // must see the migration hint at parse time, before any action runs.
@@ -288,8 +288,7 @@ public class CommandParsingTests
         var rootCommand = new RootCommand { Options = { outputOption } };
         rootCommand.Subcommands.Add(agentCommand);
 
-        var parseResult = rootCommand.Parse(
-            "agent create my-agent --name \"My Agent\" --unit engineering");
+        var parseResult = rootCommand.Parse("agent create my-agent");
 
         parseResult.Errors.ShouldNotBeEmpty();
         parseResult.Errors.ShouldContain(
@@ -378,9 +377,8 @@ public class CommandParsingTests
     [Fact]
     public void UnitCreate_ParsesNameAndMetadataOptions()
     {
-        // After #117 the CLI mirrors the server CreateUnitRequest contract:
-        // a positional `name` (unit address + identifier) plus optional
-        // --display-name and --description metadata.
+        // H2 / #1870 audit: this is not the legacy agent-create positional
+        // <id>; it is the current public CreateUnitRequest.Name input.
         var outputOption = CreateOutputOption();
         var unitCommand = UnitCommand.Create(outputOption);
         var rootCommand = new RootCommand { Options = { outputOption } };

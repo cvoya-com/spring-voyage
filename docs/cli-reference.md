@@ -116,9 +116,11 @@ ADR-0038 reshapes the per-agent / per-unit execution shorthands into three flags
 | `--model-provider <id>` | `execution.model.provider` (the structured-model provider half) | required for multi-provider runtimes (`spring-voyage`, `custom`); optional for fixed-provider runtimes — must match the implied provider when supplied |
 | `--model <id>` | `execution.model.id` (the structured-model id half) | whenever you want to pin a specific model |
 
-Container shorthands are unchanged: `--image <ref>`, `--container-runtime <docker|podman>`. The agent-only `--hosting <ephemeral|persistent>` flag also remains.
+The container image shorthand remains: `--image <ref>`. The agent-only `--hosting <ephemeral|persistent>` flag also remains.
 
 The legacy `--agent` and flat `--provider` flags are **rejected at parse time** with a clear migration hint — there is no compatibility alias.
+
+The legacy `--container-runtime` flag is also **rejected at parse time** under ADR-0039 because container runtime is platform configuration.
 
 ### `spring unit create` / `spring unit execution set`
 
@@ -158,7 +160,7 @@ $ spring agent execution set ada --model claude-sonnet-4-6
 $ spring agent create --name ada --unit eng --inherit
 ```
 
-Scripts and scenario tests should pass `--name` explicitly; a bare token after `spring agent create` is rejected with the ADR-0039 migration hint.
+> **Migration note.** The positional `<name>` argument was removed in v0.1. Use `--name <display-name>`.
 
 `--unit <id>` is optional and repeatable. Omitting it creates a top-level tenant-parented agent; one or more `--unit` values create unit memberships. Use Guids in scripts.
 
@@ -166,6 +168,7 @@ Scratch-create flags:
 
 | Flag | Effect |
 |---|---|
+| `--name <display-name>` | Required. Sets the agent display name; the platform assigns the stable agent id. |
 | `--description <text>` | Sends the optional description on the create request. |
 | `--role <role>` | Sends the optional agent role. |
 | `--definition <json>` / `--definition-file <path>` | Sends an explicit agent definition JSON document. |

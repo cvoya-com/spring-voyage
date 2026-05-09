@@ -172,20 +172,12 @@ public static class UnitCommand
 
     private static Command CreateCreateCommand(Option<string> outputOption)
     {
-        // "name" is the unit's address path and unique identifier; the server
-        // generates the actor id.
-        //
-        // ADR-0039 §8 audit (task H2, issue #1870): `spring agent create`'s
-        // positional `<id>` was removed in H1 because it was a legacy `Name`
-        // string the server replaced with an allocated Guid. The unit
-        // command's positional `name` is *not* analogous in semantics — it
-        // is the unit's persistent address path consumed by every other
-        // `spring unit *` verb (`unit start <name>`, `unit show <name>`,
-        // `unit members list <name>`, …) and by the `/api/v1/units/{name}`
-        // route shape. Removing it requires a coordinated redesign across
-        // every unit verb and API route (Guid-only addressing per ADR-0036
-        // / ADR-0039 §1). That redesign is out of H2's scope; the
-        // positional is intentionally retained here.
+        // ADR-0039 §8 audit (task H2, issue #1870): `spring unit create`
+        // does not have an analogous legacy positional <id>. It does have
+        // the current public create name, which maps to CreateUnitRequest.Name
+        // and the existing unit API/CLI shape. Removing that would be a
+        // separate API-contract migration, so H2 records the audit and leaves
+        // unit create behaviour unchanged.
         var nameArg = new Argument<string?>("name")
         {
             Description = "The unit name (address path; also used as the identifier).",
