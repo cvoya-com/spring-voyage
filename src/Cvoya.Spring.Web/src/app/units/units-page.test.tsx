@@ -10,9 +10,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import UnitsPage from "./page";
 import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
 
-// Stable router mocks — router.replace is spied so we can assert URL
-// updates when selection or tab changes.
-const replaceMock = vi.fn();
+// Stable router mocks. Explorer node/tab changes now use native
+// history.replaceState so tab clicks don't route through the App Router;
+// router.replace stays spied to prove those local URL writes remain local.
+const routerReplaceMock = vi.fn();
+const historyReplaceStateMock = vi.fn();
 let currentSearchParams = new URLSearchParams();
 
 vi.mock("next/navigation", async () => {
@@ -20,16 +22,7 @@ vi.mock("next/navigation", async () => {
   return {
     useRouter: () => ({
       push: vi.fn(),
-      replace: (url: string) => {
-        replaceMock(url);
-        // Accept both `?foo=bar` and `/path?foo=bar` — the route now passes
-        // the pathname alongside the query (#1039) because Next.js 16's
-        // `router.replace("?…")` dropped the canonical-URL update.
-        const qIdx = url.indexOf("?");
-        const qs = qIdx >= 0 ? url.slice(qIdx + 1) : "";
-        currentSearchParams = new URLSearchParams(qs);
-        subscribers.forEach((fn) => fn());
-      },
+      replace: routerReplaceMock,
       refresh: vi.fn(),
       back: vi.fn(),
       prefetch: vi.fn(),
@@ -135,12 +128,24 @@ const sampleTree: ValidatedTenantTreeNode = {
 
 describe("UnitsPage — Explorer route (EXP-route)", () => {
   beforeEach(() => {
-    replaceMock.mockClear();
+    routerReplaceMock.mockClear();
+    historyReplaceStateMock.mockClear();
     currentSearchParams = new URLSearchParams();
     useTenantTreeMock.mockReset();
+    vi.spyOn(window.history, "replaceState").mockImplementation(
+      (state, title, url) => {
+        historyReplaceStateMock(state, title, url);
+        const target = url?.toString() ?? window.location.href;
+        const qIdx = target.indexOf("?");
+        const qs = qIdx >= 0 ? target.slice(qIdx + 1) : "";
+        currentSearchParams = new URLSearchParams(qs);
+        subscribers.forEach((fn) => fn());
+      },
+    );
   });
   afterEach(() => {
     subscribers.clear();
+    vi.restoreAllMocks();
   });
 
   it("renders the loading state while the tree is fetching", () => {
@@ -211,8 +216,11 @@ describe("UnitsPage — Explorer route (EXP-route)", () => {
     await screen.findByTestId("unit-explorer");
 
     fireEvent.click(screen.getByTestId("tree-row-engineering"));
-    await waitFor(() => expect(replaceMock).toHaveBeenCalled());
-    expect(replaceMock.mock.calls.at(-1)?.[0]).toMatch(/node=engineering/);
+    await waitFor(() => expect(historyReplaceStateMock).toHaveBeenCalled());
+    const urlAfterSelect =
+      historyReplaceStateMock.mock.calls.at(-1)?.[2]?.toString() ?? "";
+    expect(urlAfterSelect).toMatch(/node=engineering/);
+    expect(routerReplaceMock).not.toHaveBeenCalled();
   });
 
   it("#1704: clears a stale ?tab when switching to a different node kind", async () => {
@@ -229,16 +237,17 @@ describe("UnitsPage — Explorer route (EXP-route)", () => {
     render(wrap(<UnitsPage />));
     await screen.findByTestId("unit-explorer");
 
-    // Click the Engineering unit. The stale ?tab=Agents is valid for a Unit,
-    // so it carries over (correct). Then click Marketing — we just need the
-    // first write to confirm the node switches without re-carrying the tab.
-    replaceMock.mockClear();
+    // Click a Unit row. The stale root-level `?tab=Agents` must not ride
+    // along; switching nodes without an explicit tab clears the old value.
+    historyReplaceStateMock.mockClear();
     fireEvent.click(screen.getByTestId("tree-row-marketing"));
-    await waitFor(() => expect(replaceMock).toHaveBeenCalled());
-    const urlAfterSwitch = replaceMock.mock.calls.at(-1)?.[0] ?? "";
+    await waitFor(() => expect(historyReplaceStateMock).toHaveBeenCalled());
+    const urlAfterSwitch =
+      historyReplaceStateMock.mock.calls.at(-1)?.[2]?.toString() ?? "";
     // Node must update and the stale cross-kind tab must be cleared.
     expect(urlAfterSwitch).toMatch(/node=marketing/);
     expect(urlAfterSwitch).not.toMatch(/tab=/);
+    expect(routerReplaceMock).not.toHaveBeenCalled();
   });
 
   it("renders a 'New unit' link in the page header pointing to /units/create (#1069)", async () => {
@@ -266,8 +275,10 @@ describe("UnitsPage — Explorer route (EXP-route)", () => {
     await screen.findByTestId("unit-explorer");
 
     fireEvent.click(screen.getByTestId("detail-tab-activity"));
-    await waitFor(() => expect(replaceMock).toHaveBeenCalled());
-    const last = replaceMock.mock.calls.at(-1)?.[0] ?? "";
+    await waitFor(() => expect(historyReplaceStateMock).toHaveBeenCalled());
+    const last =
+      historyReplaceStateMock.mock.calls.at(-1)?.[2]?.toString() ?? "";
     expect(last).toMatch(/tab=Activity/);
+    expect(routerReplaceMock).not.toHaveBeenCalled();
   });
 });

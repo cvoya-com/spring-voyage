@@ -10,10 +10,10 @@
 // route stays until `DEL-units-id` lands because its tabs still host
 // content the EXP-tab-unit-* issues are migrating into the Explorer.
 
-import { Suspense, useCallback } from "react";
+import { Suspense, useCallback, useMemo, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { AlertCircle, Loader2, Plus } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { UnitExplorer } from "@/components/units/unit-explorer";
@@ -29,10 +29,38 @@ import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
 // until a user actually browses to `/units`.
 import "@/components/units/tabs/register-all";
 
+const EXPLORER_URL_CHANGE_EVENT = "spring-voyage:explorer-url-change";
+
+function subscribeExplorerUrl(onStoreChange: () => void): () => void {
+  window.addEventListener("popstate", onStoreChange);
+  window.addEventListener(EXPLORER_URL_CHANGE_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener("popstate", onStoreChange);
+    window.removeEventListener(EXPLORER_URL_CHANGE_EVENT, onStoreChange);
+  };
+}
+
+function getExplorerUrlSnapshot(): string {
+  return window.location.search;
+}
+
+function getServerExplorerUrlSnapshot(): string {
+  return "";
+}
+
 function UnitExplorerRoute() {
-  const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const routerSearchParams = useSearchParams();
+  const historySearch = useSyncExternalStore(
+    subscribeExplorerUrl,
+    getExplorerUrlSnapshot,
+    getServerExplorerUrlSnapshot,
+  );
+  const routerSearch = routerSearchParams.toString();
+  const searchParams = useMemo(
+    () => new URLSearchParams(historySearch || routerSearch),
+    [historySearch, routerSearch],
+  );
 
   const selectedId = searchParams.get("node") ?? undefined;
   const tab = (searchParams.get("tab") as TabName | null) ?? undefined;
@@ -55,15 +83,15 @@ function UnitExplorerRoute() {
       }
       if (next.tab !== undefined) params.set("tab", next.tab);
       const qs = params.toString();
-      // #1039: Next.js 16's `router.replace("?foo=bar")` with a bare
-      // query-only relative URL doesn't update the canonical URL — the
-      // reconciler's `replaceState` call fires with the stale query, so
-      // the URL (and controlled `tab`/`node` props derived from it) snap
-      // back to the prior value the moment React commits. Passing the
-      // full pathname alongside the query restores the intended navigation.
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      const target = qs ? `${pathname}?${qs}` : pathname;
+      // The Explorer's node/tab state is fully client-owned. Using the
+      // App Router here creates an RSC navigation for every tab click;
+      // native history keeps the URL contract without letting a pending
+      // route transition pin the visible tab.
+      window.history.replaceState(null, "", target);
+      window.dispatchEvent(new Event(EXPLORER_URL_CHANGE_EVENT));
     },
-    [searchParams, pathname, router],
+    [searchParams, pathname],
   );
 
   const handleSelectNode = useCallback(
@@ -130,7 +158,7 @@ function UnitExplorerRoute() {
           tree={tree}
           selectedId={selectedId}
           onSelectNode={handleSelectNode}
-          tab={tab ?? undefined}
+          tab={tab}
           onTabChange={handleTabChange}
         />
       </div>
