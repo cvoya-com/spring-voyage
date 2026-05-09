@@ -161,6 +161,42 @@ public class GitHubConnectorEndpointsTests
     }
 
     [Fact]
+    public async Task PutConfig_PersistsLabelRules()
+    {
+        var captured = default(JsonElement?);
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        configStore.SetAsync(
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Do<JsonElement>(j => captured = j.Clone()),
+            Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest(
+            "acme",
+            "platform",
+            AddOnAssign: new[] { "in-progress" },
+            RemoveOnAssign: new[] { "agent:backend" });
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        captured.ShouldNotBeNull();
+        captured!.Value.GetProperty("add_on_assign").EnumerateArray()
+            .Select(e => e.GetString()).ShouldBe(new[] { "in-progress" });
+        captured.Value.GetProperty("remove_on_assign").EnumerateArray()
+            .Select(e => e.GetString()).ShouldBe(new[] { "agent:backend" });
+
+        var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.AddOnAssign.ShouldBe(new[] { "in-progress" });
+        body.RemoveOnAssign.ShouldBe(new[] { "agent:backend" });
+    }
+
+    [Fact]
     public async Task PutConfig_BlankReviewer_StoresNull()
     {
         // Whitespace-only reviewer must persist as null. Otherwise a stray
@@ -207,7 +243,13 @@ public class GitHubConnectorEndpointsTests
     {
         var configStore = Substitute.For<IUnitConnectorConfigStore>();
         var stored = JsonSerializer.SerializeToElement(
-            new UnitGitHubConfig("acme", "platform", 1001, new[] { "issues" }));
+            new UnitGitHubConfig(
+                "acme",
+                "platform",
+                1001,
+                new[] { "issues" },
+                AddOnAssign: new[] { "in-progress" },
+                RemoveOnAssign: new[] { "agent:backend" }));
         configStore.GetAsync("u1", Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, stored));
 
@@ -223,6 +265,8 @@ public class GitHubConnectorEndpointsTests
         body.Repo.ShouldBe("platform");
         body.AppInstallationId.ShouldBe(1001);
         body.Events.ShouldContain("issues");
+        body.AddOnAssign.ShouldBe(new[] { "in-progress" });
+        body.RemoveOnAssign.ShouldBe(new[] { "agent:backend" });
         // #1146: an explicit Events list must surface as eventsAreDefault: false
         // so the portal tab renders the per-event row enabled (not the
         // informational "use defaults" mode).
@@ -623,6 +667,9 @@ public class GitHubConnectorEndpointsTests
         type.GetString().ShouldBe("object");
         body.GetProperty("required").EnumerateArray().Select(e => e.GetString())
             .ShouldContain("owner");
+        var properties = body.GetProperty("properties");
+        properties.TryGetProperty("add_on_assign", out _).ShouldBeTrue();
+        properties.TryGetProperty("remove_on_assign", out _).ShouldBeTrue();
     }
 
     // -----------------------------------------------------------------------

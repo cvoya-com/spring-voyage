@@ -7,8 +7,12 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Reactive.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Orchestration;
 
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -16,11 +20,9 @@ using Microsoft.Extensions.Logging;
 using Octokit;
 
 /// <summary>
-/// Hosted service that observes the platform activity bus for label-routed
-/// assignment events (<see cref="ActivityEventType.DecisionMade"/> with
-/// <c>details.decision = "LabelRouted"</c> and <c>details.source = "github"</c>)
-/// and applies the configured label roundtrip (<c>AddOnAssign</c> /
-/// <c>RemoveOnAssign</c>) on the originating GitHub issue — closes #492.
+/// Hosted service that observes the platform activity bus for delegated
+/// orchestration decisions and applies the configured GitHub label roundtrip
+/// (<c>AddOnAssign</c> / <c>RemoveOnAssign</c>) on the originating issue.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,8 +42,12 @@ using Octokit;
 /// </remarks>
 public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposable
 {
+    private static readonly JsonSerializerOptions ConfigJson = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions DecisionJson = CreateDecisionJsonOptions();
+
     private readonly IActivityEventBus _bus;
     private readonly IGitHubConnector _connector;
+    private readonly IUnitConnectorConfigStore _configStore;
     private readonly ILogger<LabelRoutingRoundtripSubscriber> _logger;
     private readonly CancellationTokenSource _shutdownCts = new();
     // Used as a concurrent set; the byte value is ignored. Tracks in-flight
@@ -61,10 +67,12 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
     public LabelRoutingRoundtripSubscriber(
         IActivityEventBus bus,
         IGitHubConnector connector,
+        IUnitConnectorConfigStore configStore,
         ILogger<LabelRoutingRoundtripSubscriber> logger)
     {
         _bus = bus;
         _connector = connector;
+        _configStore = configStore;
         _logger = logger;
     }
 
@@ -72,13 +80,13 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _subscription = _bus.ActivityStream
-            .Where(IsLabelRoutedGitHubAssignment)
+            .Where(IsRoutedDelegateDecision)
             .Subscribe(
                 evt => TrackHandler(HandleEventAsync(evt, _shutdownCts.Token)),
                 ex => _logger.LogError(
                     ex, "LabelRoutingRoundtripSubscriber stream faulted"));
         _logger.LogInformation(
-            "LabelRoutingRoundtripSubscriber started — observing label-routed GitHub assignments");
+            "LabelRoutingRoundtripSubscriber started — observing routed delegate decisions");
         return Task.CompletedTask;
     }
 
@@ -188,18 +196,45 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
     /// </summary>
     internal async Task ApplyRoundtripAsync(ActivityEvent evt, CancellationToken cancellationToken)
     {
-        if (!TryExtractTarget(evt.Details, out var owner, out var repo, out var number,
-            out var addList, out var removeList))
+        if (!TryReadDecision(evt.Details, out var decision))
         {
             _logger.LogDebug(
-                "Label-routed event {EventId} did not carry enough roundtrip context; skipping", evt.Id);
+                "Decision event {EventId} did not carry an orchestration decision; skipping", evt.Id);
             return;
         }
 
+        if (decision.Kind != OrchestrationDecisionKind.Delegate
+            || decision.Status != OrchestrationDecisionStatus.Routed)
+        {
+            _logger.LogDebug(
+                "Decision event {EventId} is not a routed delegate decision; skipping", evt.Id);
+            return;
+        }
+
+        if (!TryExtractIssueNumber(decision.Metadata, out var number))
+        {
+            _logger.LogDebug(
+                "Decision event {EventId} did not carry an issue number; skipping", evt.Id);
+            return;
+        }
+
+        var config = await LoadConfigAsync(decision.UnitAddress, cancellationToken)
+            .ConfigureAwait(false);
+        if (config is null)
+        {
+            _logger.LogDebug(
+                "Decision event {EventId} did not resolve to a GitHub connector binding; skipping", evt.Id);
+            return;
+        }
+
+        var owner = config.Owner;
+        var repo = config.Repo;
+        var addList = config.AddOnAssign ?? Array.Empty<string>();
+        var removeList = config.RemoveOnAssign ?? Array.Empty<string>();
         if (addList.Count == 0 && removeList.Count == 0)
         {
             _logger.LogDebug(
-                "Label-routed event {EventId} has no AddOnAssign / RemoveOnAssign labels; nothing to roundtrip",
+                "Decision event {EventId} has no AddOnAssign / RemoveOnAssign labels; nothing to roundtrip",
                 evt.Id);
             return;
         }
@@ -342,10 +377,9 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
     }
 
     /// <summary>
-    /// Rx filter: only the <c>DecisionMade</c> events produced by the
-    /// label-routing strategy for a GitHub-sourced message qualify.
+    /// Rx filter: only routed delegate orchestration decisions qualify.
     /// </summary>
-    internal static bool IsLabelRoutedGitHubAssignment(ActivityEvent evt)
+    internal static bool IsRoutedDelegateDecision(ActivityEvent evt)
     {
         if (evt is null)
         {
@@ -359,112 +393,122 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
         {
             return false;
         }
-        var details = evt.Details.Value;
-        if (details.ValueKind != JsonValueKind.Object)
+
+        return TryReadDecision(evt.Details, out var decision)
+            && decision.Kind == OrchestrationDecisionKind.Delegate
+            && decision.Status == OrchestrationDecisionStatus.Routed;
+    }
+
+    private async Task<UnitGitHubConfig?> LoadConfigAsync(
+        Address unitAddress,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(unitAddress.Scheme, Address.UnitScheme, StringComparison.Ordinal))
         {
-            return false;
+            return null;
         }
 
-        if (!details.TryGetProperty("decision", out var decisionEl)
-            || decisionEl.ValueKind != JsonValueKind.String
-            || decisionEl.GetString() != "LabelRouted")
+        var binding = await _configStore.GetAsync(unitAddress.Path, cancellationToken)
+            .ConfigureAwait(false);
+        if (binding is null || binding.TypeId != GitHubConnectorType.GitHubTypeId)
         {
-            return false;
+            return null;
         }
 
-        if (!details.TryGetProperty("source", out var sourceEl)
-            || sourceEl.ValueKind != JsonValueKind.String
-            || !string.Equals(sourceEl.GetString(), "github", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            return false;
+            return binding.Config.Deserialize<UnitGitHubConfig>(ConfigJson);
         }
-
-        return true;
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Unit {UnitAddress} is bound to GitHub but the stored config could not be deserialized.",
+                unitAddress);
+            return null;
+        }
     }
 
     /// <summary>
-    /// Pulls the roundtrip coordinates out of the event details. Returns
+    /// Pulls the target issue number out of decision metadata. Returns
     /// <c>false</c> when anything critical is missing so the subscriber
     /// can log-and-skip rather than crash on malformed payloads.
     /// </summary>
-    internal static bool TryExtractTarget(
-        JsonElement? details,
-        out string owner,
-        out string repo,
-        out int number,
-        out IReadOnlyList<string> addList,
-        out IReadOnlyList<string> removeList)
+    internal static bool TryExtractIssueNumber(JsonElement? metadata, out int number)
     {
-        owner = string.Empty;
-        repo = string.Empty;
         number = 0;
-        addList = Array.Empty<string>();
-        removeList = Array.Empty<string>();
 
+        if (metadata is null || metadata.Value.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+        var root = metadata.Value;
+
+        if (TryReadPositiveInt(root, "issueNumber", out number))
+        {
+            return true;
+        }
+        if (TryReadPositiveInt(root, "number", out number))
+        {
+            return true;
+        }
+
+        if (!root.TryGetProperty("issue", out var issueEl)
+            || issueEl.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        return TryReadPositiveInt(issueEl, "number", out number);
+    }
+
+    private static bool TryReadDecision(
+        JsonElement? details,
+        out OrchestrationDecision decision)
+    {
+        decision = null!;
         if (details is null || details.Value.ValueKind != JsonValueKind.Object)
         {
             return false;
         }
-        var root = details.Value;
 
-        if (!root.TryGetProperty("repository", out var repoEl)
-            || repoEl.ValueKind != JsonValueKind.Object)
+        try
+        {
+            var parsed = details.Value.Deserialize<OrchestrationDecision>(DecisionJson);
+            if (parsed is null)
+            {
+                return false;
+            }
+
+            decision = parsed;
+            return true;
+        }
+        catch (JsonException)
         {
             return false;
         }
-        var ownerVal = TryGetString(repoEl, "owner");
-        var repoVal = TryGetString(repoEl, "name");
-        if (string.IsNullOrWhiteSpace(ownerVal) || string.IsNullOrWhiteSpace(repoVal))
+    }
+
+    private static bool TryReadPositiveInt(JsonElement parent, string property, out int value)
+    {
+        value = 0;
+        if (!parent.TryGetProperty(property, out var element)
+            || element.ValueKind != JsonValueKind.Number
+            || !element.TryGetInt32(out var parsed)
+            || parsed <= 0)
         {
             return false;
         }
 
-        if (!root.TryGetProperty("issue", out var issueEl)
-            || issueEl.ValueKind != JsonValueKind.Object
-            || !issueEl.TryGetProperty("number", out var numEl)
-            || numEl.ValueKind != JsonValueKind.Number
-            || !numEl.TryGetInt32(out var numVal)
-            || numVal <= 0)
-        {
-            return false;
-        }
-
-        owner = ownerVal!;
-        repo = repoVal!;
-        number = numVal;
-        addList = ReadStringArray(root, "addOnAssign");
-        removeList = ReadStringArray(root, "removeOnAssign");
+        value = parsed;
         return true;
     }
 
-    private static string? TryGetString(JsonElement parent, string property)
+    private static JsonSerializerOptions CreateDecisionJsonOptions()
     {
-        if (!parent.TryGetProperty(property, out var el))
-        {
-            return null;
-        }
-        return el.ValueKind == JsonValueKind.String ? el.GetString() : null;
-    }
-
-    private static IReadOnlyList<string> ReadStringArray(JsonElement parent, string property)
-    {
-        if (!parent.TryGetProperty(property, out var arr) || arr.ValueKind != JsonValueKind.Array)
-        {
-            return Array.Empty<string>();
-        }
-        var result = new List<string>(arr.GetArrayLength());
-        foreach (var entry in arr.EnumerateArray())
-        {
-            if (entry.ValueKind == JsonValueKind.String)
-            {
-                var s = entry.GetString();
-                if (!string.IsNullOrWhiteSpace(s))
-                {
-                    result.Add(s);
-                }
-            }
-        }
-        return result;
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: true));
+        return options;
     }
 
     private static bool IsPermissionLike(ApiException ex) =>
