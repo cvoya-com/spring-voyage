@@ -3,12 +3,23 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
-using Cvoya.Spring.Core.State;
-using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Host.Api.Models;
+
+using Microsoft.EntityFrameworkCore;
 
 /// <summary>
 /// Maps budget management API endpoints for agents, units, and tenants.
+/// All reads / writes route through the tenant-scoped <c>budget_limits</c>
+/// EF table (ADR-0040 / #2045) — the pre-ADR actor-state keys
+/// <c>Agent:CostBudget</c>, <c>Unit:CostBudget</c>, and
+/// <c>Tenant:CostBudget</c> were removed in the same change. The current
+/// tenant is taken from <see cref="ITenantContext.CurrentTenantId"/>; the
+/// previous <c>tenantId ?? "default"</c> fallback (the multi-tenancy bug
+/// closed by #2045) is gone — the EF query filter is now the only gate.
 /// </summary>
 public static class BudgetEndpoints
 {
@@ -72,102 +83,205 @@ public static class BudgetEndpoints
 
     private static async Task<IResult> GetAgentBudgetAsync(
         string agentId,
-        IStateStore stateStore,
+        SpringDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var key = $"{agentId}:{StateKeys.AgentCostBudget}";
-        var budget = await stateStore.GetAsync<decimal?>(key, cancellationToken);
-
-        if (budget is null)
+        if (!GuidFormatter.TryParse(agentId, out var agentGuid))
         {
-            return Results.Problem(detail: $"No budget set for agent '{agentId}'", statusCode: StatusCodes.Status404NotFound);
+            return Results.Problem(
+                detail: $"Agent id '{agentId}' is not a valid Guid.",
+                statusCode: StatusCodes.Status400BadRequest);
         }
 
-        return Results.Ok(new BudgetResponse(budget.Value));
+        var row = await dbContext.BudgetLimits
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                b => b.ScopeType == BudgetLimitScope.Agent && b.ScopeId == agentGuid,
+                cancellationToken);
+
+        if (row is null)
+        {
+            return Results.Problem(
+                detail: $"No budget set for agent '{agentId}'",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Ok(new BudgetResponse(row.DailyBudget));
     }
 
     private static async Task<IResult> SetAgentBudgetAsync(
         string agentId,
         SetBudgetRequest request,
-        IStateStore stateStore,
+        SpringDbContext dbContext,
+        ITenantContext tenantContext,
         CancellationToken cancellationToken)
     {
         if (request.DailyBudget <= 0)
         {
-            return Results.Problem(detail: "DailyBudget must be greater than zero", statusCode: StatusCodes.Status400BadRequest);
+            return Results.Problem(
+                detail: "DailyBudget must be greater than zero",
+                statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var key = $"{agentId}:{StateKeys.AgentCostBudget}";
-        await stateStore.SetAsync(key, request.DailyBudget, cancellationToken);
+        if (!GuidFormatter.TryParse(agentId, out var agentGuid))
+        {
+            return Results.Problem(
+                detail: $"Agent id '{agentId}' is not a valid Guid.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        await UpsertAsync(
+            dbContext,
+            tenantContext,
+            BudgetLimitScope.Agent,
+            agentGuid,
+            request.DailyBudget,
+            cancellationToken);
 
         return Results.Ok(new BudgetResponse(request.DailyBudget));
     }
 
     private static async Task<IResult> GetTenantBudgetAsync(
-        IStateStore stateStore,
-        string? tenantId,
+        SpringDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var tenant = tenantId ?? "default";
-        var key = $"{tenant}:{StateKeys.TenantCostBudget}";
-        var budget = await stateStore.GetAsync<decimal?>(key, cancellationToken);
+        var row = await dbContext.BudgetLimits
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                b => b.ScopeType == BudgetLimitScope.Tenant && b.ScopeId == null,
+                cancellationToken);
 
-        if (budget is null)
+        if (row is null)
         {
-            return Results.Problem(detail: $"No budget set for tenant '{tenant}'", statusCode: StatusCodes.Status404NotFound);
+            return Results.Problem(
+                detail: "No budget set for tenant",
+                statusCode: StatusCodes.Status404NotFound);
         }
 
-        return Results.Ok(new BudgetResponse(budget.Value));
+        return Results.Ok(new BudgetResponse(row.DailyBudget));
     }
 
     private static async Task<IResult> SetTenantBudgetAsync(
         SetBudgetRequest request,
-        IStateStore stateStore,
-        string? tenantId,
+        SpringDbContext dbContext,
+        ITenantContext tenantContext,
         CancellationToken cancellationToken)
     {
         if (request.DailyBudget <= 0)
         {
-            return Results.Problem(detail: "DailyBudget must be greater than zero", statusCode: StatusCodes.Status400BadRequest);
+            return Results.Problem(
+                detail: "DailyBudget must be greater than zero",
+                statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var tenant = tenantId ?? "default";
-        var key = $"{tenant}:{StateKeys.TenantCostBudget}";
-        await stateStore.SetAsync(key, request.DailyBudget, cancellationToken);
+        await UpsertAsync(
+            dbContext,
+            tenantContext,
+            BudgetLimitScope.Tenant,
+            scopeId: null,
+            request.DailyBudget,
+            cancellationToken);
 
         return Results.Ok(new BudgetResponse(request.DailyBudget));
     }
 
     private static async Task<IResult> GetUnitBudgetAsync(
         string unitId,
-        IStateStore stateStore,
+        SpringDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var key = $"{unitId}:{StateKeys.UnitCostBudget}";
-        var budget = await stateStore.GetAsync<decimal?>(key, cancellationToken);
-
-        if (budget is null)
+        if (!GuidFormatter.TryParse(unitId, out var unitGuid))
         {
-            return Results.Problem(detail: $"No budget set for unit '{unitId}'", statusCode: StatusCodes.Status404NotFound);
+            return Results.Problem(
+                detail: $"Unit id '{unitId}' is not a valid Guid.",
+                statusCode: StatusCodes.Status400BadRequest);
         }
 
-        return Results.Ok(new BudgetResponse(budget.Value));
+        var row = await dbContext.BudgetLimits
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                b => b.ScopeType == BudgetLimitScope.Unit && b.ScopeId == unitGuid,
+                cancellationToken);
+
+        if (row is null)
+        {
+            return Results.Problem(
+                detail: $"No budget set for unit '{unitId}'",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Ok(new BudgetResponse(row.DailyBudget));
     }
 
     private static async Task<IResult> SetUnitBudgetAsync(
         string unitId,
         SetBudgetRequest request,
-        IStateStore stateStore,
+        SpringDbContext dbContext,
+        ITenantContext tenantContext,
         CancellationToken cancellationToken)
     {
         if (request.DailyBudget <= 0)
         {
-            return Results.Problem(detail: "DailyBudget must be greater than zero", statusCode: StatusCodes.Status400BadRequest);
+            return Results.Problem(
+                detail: "DailyBudget must be greater than zero",
+                statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var key = $"{unitId}:{StateKeys.UnitCostBudget}";
-        await stateStore.SetAsync(key, request.DailyBudget, cancellationToken);
+        if (!GuidFormatter.TryParse(unitId, out var unitGuid))
+        {
+            return Results.Problem(
+                detail: $"Unit id '{unitId}' is not a valid Guid.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        await UpsertAsync(
+            dbContext,
+            tenantContext,
+            BudgetLimitScope.Unit,
+            unitGuid,
+            request.DailyBudget,
+            cancellationToken);
 
         return Results.Ok(new BudgetResponse(request.DailyBudget));
+    }
+
+    private static async Task UpsertAsync(
+        SpringDbContext dbContext,
+        ITenantContext tenantContext,
+        string scopeType,
+        Guid? scopeId,
+        decimal dailyBudget,
+        CancellationToken cancellationToken)
+    {
+        // Find the existing row inside the tenant query filter — there is at
+        // most one because of the partial unique indexes on
+        // (tenant_id, scope_type, scope_id) for non-null scope_id and
+        // (tenant_id, scope_type) where scope_id IS NULL for the tenant case.
+        var existing = await dbContext.BudgetLimits
+            .FirstOrDefaultAsync(
+                b => b.ScopeType == scopeType && b.ScopeId == scopeId,
+                cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+
+        if (existing is null)
+        {
+            dbContext.BudgetLimits.Add(new BudgetLimitEntity
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantContext.CurrentTenantId,
+                ScopeType = scopeType,
+                ScopeId = scopeId,
+                DailyBudget = dailyBudget,
+                UpdatedAt = now,
+            });
+        }
+        else
+        {
+            existing.DailyBudget = dailyBudget;
+            existing.UpdatedAt = now;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 }
