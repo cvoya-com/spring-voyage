@@ -254,9 +254,29 @@ public class CommandParsingTests
         var parseResult = rootCommand.Parse(
             "agent create --name Foo --from-package my-package --runtime codex");
 
+        var expectedMessage = AgentCommand.FormatFromPackageExecutionShorthandFlagMutexMessage(
+            new[] { "--runtime" });
         parseResult.Errors.ShouldNotBeEmpty();
         parseResult.Errors.ShouldContain(e =>
-            e.Message == AgentCommand.FromPackageExecutionShorthandFlagMutexMessage);
+            e.Message == expectedMessage);
+    }
+
+    [Fact]
+    public void AgentCreate_FromPackageWithHosting_RejectedAtParseTime()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name Foo --from-package my-package --hosting persistent");
+
+        var expectedMessage = AgentCommand.FormatFromPackageExecutionShorthandFlagMutexMessage(
+            new[] { "--hosting" });
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e =>
+            e.Message == expectedMessage);
     }
 
     [Fact]
@@ -332,9 +352,45 @@ public class CommandParsingTests
             "agent create --name ada --unit aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa " +
             "--inherit --model gpt-4o");
 
+        var expectedMessage = AgentCommand.FormatInheritExecutionShorthandFlagMutexMessage(
+            new[] { "--model" });
         parseResult.Errors.ShouldNotBeEmpty();
         parseResult.Errors.ShouldContain(e =>
-            e.Message == AgentCommand.InheritExecutionShorthandFlagMutexMessage);
+            e.Message == expectedMessage);
+    }
+
+    [Fact]
+    public void AgentCreate_InheritWithHosting_RejectedAtParseTime()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name ada --unit aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa " +
+            "--inherit --hosting persistent");
+
+        var expectedMessage = AgentCommand.FormatInheritExecutionShorthandFlagMutexMessage(
+            new[] { "--hosting" });
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e =>
+            e.Message == expectedMessage);
+    }
+
+    [Fact]
+    public void AgentCreate_ParsesHostingCreateShorthand()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent create --name ada --unit aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa --hosting persistent");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--hosting").ShouldBe("persistent");
     }
 
     [Fact]

@@ -34,7 +34,7 @@ else
     e2e::fail "from-package plus model should fail before HTTP"
 fi
 e2e::expect_contains \
-    "error: --from-package is mutually exclusive with execution shorthands (--image, --runtime, --model-provider, --model)" \
+    "error: --from-package is mutually exclusive with execution shorthands (--model)" \
     "${body}" \
     "from-package/model conflict message names the conflicting flags"
 

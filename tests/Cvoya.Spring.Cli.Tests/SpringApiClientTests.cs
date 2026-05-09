@@ -264,6 +264,23 @@ public class SpringApiClientTests
     }
 
     [Fact]
+    public void ApplyCreateExecutionShorthand_WithHosting_AddsExecutionHosting()
+    {
+        var definitionJson = AgentCommand.ApplyCreateExecutionShorthand(
+            definitionJson: null,
+            inherit: false,
+            image: null,
+            runtime: null,
+            modelProvider: null,
+            model: null,
+            hosting: "persistent");
+
+        definitionJson.ShouldNotBeNull();
+        var json = JsonSerializer.Deserialize<JsonElement>(definitionJson!);
+        json.GetProperty("execution").GetProperty("hosting").GetString().ShouldBe("persistent");
+    }
+
+    [Fact]
     public async Task CreateAgentAsync_422Conflict_PreservesStructuredBody()
     {
         var unitA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");

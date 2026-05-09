@@ -323,6 +323,12 @@ public static class AgentCommand
         {
             Description = "Model id (shorthand for execution.model.id; e.g. claude-opus-4-7).",
         };
+        var hostingOption = new Option<string?>("--hosting")
+        {
+            Description = "Hosting mode (shorthand for execution.hosting). Allowed values: " +
+                string.Join(", ", AgentExecutionCommand.HostingKeys) + ".",
+        };
+        hostingOption.AcceptOnlyFromAmong(AgentExecutionCommand.HostingKeys);
         var inheritOption = new Option<bool>("--inherit")
         {
             Description = "Omit all execution fields; the agent inherits its runtime, model, image, and hosting from its parent unit(s).",
@@ -361,6 +367,7 @@ public static class AgentCommand
         command.Options.Add(runtimeOption);
         command.Options.Add(modelProviderOption);
         command.Options.Add(modelOption);
+        command.Options.Add(hostingOption);
         command.Options.Add(inheritOption);
         command.Options.Add(legacyAgentOption);
 
@@ -375,6 +382,7 @@ public static class AgentCommand
             var runtime = result.GetValue(runtimeOption);
             var modelProvider = result.GetValue(modelProviderOption);
             var model = result.GetValue(modelOption);
+            var hosting = result.GetValue(hostingOption);
             var inherit = result.GetValue(inheritOption);
 
             if (connectors.Length > 0 && string.IsNullOrWhiteSpace(fromPackage))
@@ -397,16 +405,17 @@ public static class AgentCommand
                 return;
             }
 
+            var executionShorthandFlags = GetExecutionShorthandFlags(image, runtime, modelProvider, model, hosting);
             if (!string.IsNullOrWhiteSpace(fromPackage)
-                && HasAnyExecutionShorthand(image, runtime, modelProvider, model))
+                && executionShorthandFlags.Count > 0)
             {
-                result.AddError(FromPackageExecutionShorthandFlagMutexMessage);
+                result.AddError(FormatFromPackageExecutionShorthandFlagMutexMessage(executionShorthandFlags));
                 return;
             }
 
-            if (inherit && HasAnyExecutionShorthand(image, runtime, modelProvider, model))
+            if (inherit && executionShorthandFlags.Count > 0)
             {
-                result.AddError(InheritExecutionShorthandFlagMutexMessage);
+                result.AddError(FormatInheritExecutionShorthandFlagMutexMessage(executionShorthandFlags));
             }
         });
 
@@ -428,6 +437,7 @@ public static class AgentCommand
             var runtime = parseResult.GetValue(runtimeOption);
             var modelProvider = parseResult.GetValue(modelProviderOption);
             var model = parseResult.GetValue(modelOption);
+            var hosting = parseResult.GetValue(hostingOption);
             var inherit = parseResult.GetValue(inheritOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
@@ -494,7 +504,7 @@ public static class AgentCommand
             }
 
             definitionJson = ApplyCreateExecutionShorthand(
-                definitionJson, inherit, image, runtime, modelProvider, model);
+                definitionJson, inherit, image, runtime, modelProvider, model, hosting);
 
             var client = clientFactory();
 
@@ -615,7 +625,7 @@ public static class AgentCommand
     /// Parser diagnostic for package installs mixed with execution shorthand flags.
     /// </summary>
     public const string FromPackageExecutionShorthandFlagMutexMessage =
-        "error: --from-package is mutually exclusive with execution shorthands (--image, --runtime, --model-provider, --model)";
+        "error: --from-package is mutually exclusive with execution shorthands";
 
     /// <summary>
     /// Parser diagnostic for inherited execution mixed with execution shorthand flags.
@@ -623,15 +633,47 @@ public static class AgentCommand
     public const string InheritExecutionShorthandFlagMutexMessage =
         "error: --inherit is mutually exclusive with execution shorthands";
 
-    private static bool HasAnyExecutionShorthand(
+    private static IReadOnlyList<string> GetExecutionShorthandFlags(
         string? image,
         string? runtime,
         string? modelProvider,
-        string? model)
-        => !string.IsNullOrWhiteSpace(image)
-            || !string.IsNullOrWhiteSpace(runtime)
-            || !string.IsNullOrWhiteSpace(modelProvider)
-            || !string.IsNullOrWhiteSpace(model);
+        string? model,
+        string? hosting)
+    {
+        var flags = new List<string>();
+        if (!string.IsNullOrWhiteSpace(image)) flags.Add("--image");
+        if (!string.IsNullOrWhiteSpace(runtime)) flags.Add("--runtime");
+        if (!string.IsNullOrWhiteSpace(modelProvider)) flags.Add("--model-provider");
+        if (!string.IsNullOrWhiteSpace(model)) flags.Add("--model");
+        if (!string.IsNullOrWhiteSpace(hosting)) flags.Add("--hosting");
+        return flags;
+    }
+
+    internal static string FormatFromPackageExecutionShorthandFlagMutexMessage(IReadOnlyList<string> flags)
+        => $"{FromPackageExecutionShorthandFlagMutexMessage} ({FormatFlagList(flags)})";
+
+    internal static string FormatInheritExecutionShorthandFlagMutexMessage(IReadOnlyList<string> flags)
+        => $"{InheritExecutionShorthandFlagMutexMessage} ({FormatFlagList(flags)})";
+
+    private static string FormatFlagList(IReadOnlyList<string> flags)
+    {
+        if (flags.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        if (flags.Count == 1)
+        {
+            return flags[0];
+        }
+
+        if (flags.Count == 2)
+        {
+            return $"{flags[0]} and {flags[1]}";
+        }
+
+        return string.Join(", ", flags.Take(flags.Count - 1)) + ", and " + flags[^1];
+    }
 
     private static IReadOnlyDictionary<string, string>? ParsePackageInputs(IReadOnlyList<string> inputs)
     {
@@ -693,7 +735,8 @@ public static class AgentCommand
     /// <summary>
     /// Merges the ADR-0038 execution-shorthand flags
     /// (<c>--image</c> / <c>--runtime</c> / <c>--model-provider</c> /
-    /// <c>--model</c>) into an optional agent-definition JSON string. When
+    /// <c>--model</c> / <c>--hosting</c>) into an optional
+    /// agent-definition JSON string. When
     /// <paramref name="definitionJson"/> is null / empty, a fresh document
     /// carrying just the shorthand fields is produced. The structured model
     /// pair lands as <c>execution.model = {provider, id}</c>.
@@ -708,7 +751,8 @@ public static class AgentCommand
         string? image,
         string? runtime,
         string? modelProvider,
-        string? model)
+        string? model,
+        string? hosting = null)
     {
         using var document = string.IsNullOrWhiteSpace(definitionJson)
             ? System.Text.Json.JsonDocument.Parse("{}")
@@ -735,6 +779,7 @@ public static class AgentCommand
         }
         if (!string.IsNullOrWhiteSpace(image)) exec["image"] = image;
         if (!string.IsNullOrWhiteSpace(runtime)) exec["runtime"] = runtime;
+        if (!string.IsNullOrWhiteSpace(hosting)) exec["hosting"] = hosting;
 
         // ADR-0038 structured model: { provider, id }. We carry forward
         // any existing model object the caller's --definition file
@@ -781,7 +826,8 @@ public static class AgentCommand
         string? image,
         string? runtime,
         string? modelProvider,
-        string? model)
+        string? model,
+        string? hosting = null)
     {
         // #1901 / ADR-0039 L5: --inherit is intentionally permissive in this
         // PR. If callers also pass shorthand flags, skip the merge and let the
@@ -797,14 +843,14 @@ public static class AgentCommand
         // passed a --definition / --definition-file, the shorthand flags
         // overlay on top.
         // ADR-0038 + ADR-0039 §7: the shorthand surface is (image, runtime,
-        // model-provider, model). `containerRuntime` was removed in ADR-0039
-        // — see LegacyContainerRuntimeFlagRejectionMessage.
+        // model-provider, model, hosting). `containerRuntime` was removed in
+        // ADR-0039 — see LegacyContainerRuntimeFlagRejectionMessage.
         if (!string.IsNullOrWhiteSpace(image)
             || !string.IsNullOrWhiteSpace(runtime) || !string.IsNullOrWhiteSpace(modelProvider)
-            || !string.IsNullOrWhiteSpace(model))
+            || !string.IsNullOrWhiteSpace(model) || !string.IsNullOrWhiteSpace(hosting))
         {
             return MergeExecutionShorthand(
-                definitionJson, image, runtime, modelProvider, model);
+                definitionJson, image, runtime, modelProvider, model, hosting);
         }
 
         return definitionJson;

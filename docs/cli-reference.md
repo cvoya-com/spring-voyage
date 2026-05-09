@@ -177,6 +177,7 @@ Scratch-create flags:
 | `--runtime <id>` | Sets `definitionJson.execution.runtime`. |
 | `--model-provider <id>` | Sets `definitionJson.execution.model.provider`. |
 | `--model <id>` | Sets `definitionJson.execution.model.id`. |
+| `--hosting <ephemeral|persistent>` | Sets `definitionJson.execution.hosting`. |
 
 Package-create flags:
 
@@ -186,7 +187,7 @@ Package-create flags:
 | `--input <key=value>` | Repeatable package input value. Only valid with `--from-package`. |
 | `--connector <slug=binding-id>` | Repeatable connector binding override. Only valid with `--from-package`. |
 
-Mutual exclusions are enforced at parse time: `--inherit` cannot be combined with execution shorthands, `--from-package` cannot be combined with `--definition` / `--definition-file` or execution shorthands, and `--input` / `--connector` require `--from-package`.
+Mutual exclusions are enforced at parse time: `--inherit` cannot be combined with execution shorthands (`--image`, `--runtime`, `--model-provider`, `--model`, `--hosting`), `--from-package` cannot be combined with `--definition` / `--definition-file` or execution shorthands, and `--input` / `--connector` require `--from-package`.
 
 Per-field clear targets the new field-key surface: `image`, `runtime`, `model-provider`, `model`, `hosting` (agent only). Clearing `model-provider` wipes only the provider half of the structured `execution.model`; clearing `model` wipes the whole `{provider, id}` pair.
 
