@@ -11,14 +11,14 @@ public interface IOrchestrationClient
     /// <summary>Posts a result back to the dispatcher thread.</summary>
     Task PostResultAsync(string threadId, string result, CancellationToken cancellationToken = default);
 
-    /// <summary>Delegates a sub-task to a child unit.</summary>
+    /// <summary>Delegates a sub-task to a direct child.</summary>
     Task<DelegateResponse> DelegateAsync(
         string threadId,
         string targetUnitId,
         string prompt,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Fans out a prompt to multiple children and collects responses.</summary>
+    /// <summary>Fans out a prompt to multiple direct children and collects responses.</summary>
     Task<FanoutResponse> FanoutAsync(
         string threadId,
         IReadOnlyList<string> targetUnitIds,
