@@ -7,13 +7,17 @@ import type {
   AgentDashboardSummary,
   BudgetResponse,
   CostDashboardSummary,
+  CostSummaryResponse,
   TenantCostTimeseriesResponse,
+  TenantTreeResponse,
 } from "@/lib/api/types";
 
 const getTenantBudget = vi.fn<() => Promise<BudgetResponse>>();
 const getDashboardCosts = vi.fn<() => Promise<CostDashboardSummary>>();
 const getDashboardAgents = vi.fn<() => Promise<AgentDashboardSummary[]>>();
 const getAgentBudget = vi.fn<(id: string) => Promise<BudgetResponse>>();
+const getUnitCost = vi.fn<(id: string) => Promise<CostSummaryResponse>>();
+const getTenantTree = vi.fn<() => Promise<TenantTreeResponse>>();
 const setTenantBudget = vi.fn();
 const getTenantCostTimeseries = vi.fn<() => Promise<TenantCostTimeseriesResponse>>();
 
@@ -23,6 +27,8 @@ vi.mock("@/lib/api/client", () => ({
     getDashboardCosts: () => getDashboardCosts(),
     getDashboardAgents: () => getDashboardAgents(),
     getAgentBudget: (id: string) => getAgentBudget(id),
+    getUnitCost: (id: string) => getUnitCost(id),
+    getTenantTree: () => getTenantTree(),
     setTenantBudget: (...args: unknown[]) => setTenantBudget(...args),
     getTenantCostTimeseries: () => getTenantCostTimeseries(),
   },
@@ -36,12 +42,13 @@ vi.mock("@/components/ui/toast", () => ({
 // The page now reads scope + window from the URL via next/navigation.
 // Stub both so the test runs in a jsdom environment that has no
 // App Router mounted.
+const searchParamsState = { value: "" };
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   // #1053: `useAnalyticsFilters` now reads `usePathname()` so it can
   // pass a `/path?query` URL to `router.replace`.
   usePathname: () => "/analytics/costs",
-  useSearchParams: () => new URLSearchParams(""),
+  useSearchParams: () => new URLSearchParams(searchParamsState.value),
 }));
 
 vi.mock("next/link", () => ({
@@ -75,6 +82,8 @@ function renderPage() {
 }
 
 describe("AnalyticsCostsPage", () => {
+  const unitId = "8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7";
+  const otherUnitId = "dd55c4ea8d725e43a9df88d07af02b69";
   const defaultTimeseries: TenantCostTimeseriesResponse = {
     from: "2026-03-29T00:00:00Z",
     to: "2026-04-29T00:00:00Z",
@@ -91,12 +100,24 @@ describe("AnalyticsCostsPage", () => {
     getDashboardCosts.mockReset();
     getDashboardAgents.mockReset();
     getAgentBudget.mockReset();
+    getUnitCost.mockReset();
+    getTenantTree.mockReset();
     setTenantBudget.mockReset();
     toastMock.mockReset();
     getTenantCostTimeseries.mockReset();
+    searchParamsState.value = "";
     // Timeseries defaults to a small resolved response so most tests
     // don't need to set it up explicitly.
     getTenantCostTimeseries.mockResolvedValue(defaultTimeseries);
+    getTenantTree.mockResolvedValue({
+      tree: {
+        id: "tenant",
+        name: "Tenant",
+        kind: "Tenant",
+        status: "running",
+        children: [],
+      },
+    });
   });
 
   it("renders tenant budget summary and the per-agent budgets grid", async () => {
@@ -184,5 +205,62 @@ describe("AnalyticsCostsPage", () => {
     await waitFor(() => {
       expect(screen.getByText("No agents registered.")).toBeInTheDocument();
     });
+  });
+
+  it("filters scoped breakdown rows by raw unit id and renders the tree display name", async () => {
+    searchParamsState.value = `scope=unit&name=${unitId}`;
+    getTenantBudget.mockResolvedValue({ dailyBudget: 10 } as BudgetResponse);
+    getDashboardCosts.mockResolvedValue({
+      totalCost: 9,
+      costsBySource: [
+        { source: unitId, totalCost: 7 },
+        { source: otherUnitId, totalCost: 2 },
+      ],
+      periodStart: null,
+      periodEnd: null,
+    });
+    getDashboardAgents.mockResolvedValue([]);
+    getUnitCost.mockResolvedValue({
+      totalCost: 7,
+      workCost: 5,
+      initiativeCost: 2,
+      recordCount: 1,
+    } as CostSummaryResponse);
+    getTenantTree.mockResolvedValue({
+      tree: {
+        id: "tenant",
+        name: "Tenant",
+        kind: "Tenant",
+        status: "running",
+        children: [
+          {
+            id: unitId,
+            name: "Engineering",
+            kind: "Unit",
+            status: "running",
+            children: [],
+          },
+          {
+            id: otherUnitId,
+            name: "Finance",
+            kind: "Unit",
+            status: "running",
+            children: [],
+          },
+        ],
+      },
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("link", { name: "Engineering" }),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("link", { name: unitId }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Finance" })).not.toBeInTheDocument();
   });
 });

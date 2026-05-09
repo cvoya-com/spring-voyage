@@ -52,8 +52,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import {
+  type ValidatedTenantTreeNode,
   useDashboardAgents,
   useDashboardCosts,
+  useTenantTree,
   useTenantBudget,
   useTenantCostTimeseries,
 } from "@/lib/api/queries";
@@ -85,6 +87,39 @@ const BREAKDOWN_HUES = [
   "bg-voyage-soft",
   "bg-blossom",
 ] as const;
+
+function buildSourceNodeById(
+  tree: ValidatedTenantTreeNode | null | undefined,
+): Map<string, ValidatedTenantTreeNode> {
+  const byId = new Map<string, ValidatedTenantTreeNode>();
+  const walk = (node: ValidatedTenantTreeNode) => {
+    byId.set(node.id, node);
+    for (const child of node.children ?? []) walk(child);
+  };
+  if (tree) walk(tree);
+  return byId;
+}
+
+function resolveBreakdownSource(
+  source: string,
+  nodeById: Map<string, ValidatedTenantTreeNode>,
+): { label: string; href: string | null } {
+  const node = nodeById.get(source);
+  if (!node) return { label: source, href: null };
+  if (node.kind === "Unit") {
+    return {
+      label: node.name,
+      href: `/units?node=${encodeURIComponent(node.id)}&tab=Overview`,
+    };
+  }
+  if (node.kind === "Agent") {
+    return {
+      label: node.name,
+      href: `/agents/${encodeURIComponent(node.id)}`,
+    };
+  }
+  return { label: node.name, href: null };
+}
 
 // ---------------------------------------------------------------------------
 // #911 — Per-agent budget virtualised table
@@ -156,6 +191,7 @@ function AnalyticsCostsContent() {
   // portal's Costs surface more expressive without blocking PR-S2.
   const dashboardCostsQuery = useDashboardCosts();
   const agentsQuery = useDashboardAgents();
+  const tenantTreeQuery = useTenantTree();
   // #910: tenant cost timeseries for the area chart. Window maps to the
   // filter bar window; bucket auto-selects: 1h for 24h, 1d for 7d/30d.
   const tsBucket = filters.window === "24h" ? "1h" : "1d";
@@ -199,6 +235,10 @@ function AnalyticsCostsContent() {
     () => agentsQuery.data ?? [],
     [agentsQuery.data],
   );
+  const sourceNodeById = useMemo(
+    () => buildSourceNodeById(tenantTreeQuery.data),
+    [tenantTreeQuery.data],
+  );
 
   const agentBudgetQueries = useQueries({
     queries: agents.map((agent) => ({
@@ -226,6 +266,7 @@ function AnalyticsCostsContent() {
     tenantQuery.isPending ||
     dashboardCostsQuery.isPending ||
     agentsQuery.isPending ||
+    tenantTreeQuery.isPending ||
     agentBudgetQueries.some((q) => q.isPending);
 
   // Resolved timeseries points for the area chart. The series is
@@ -276,18 +317,17 @@ function AnalyticsCostsContent() {
 
   const savingTenant = saveTenantBudget.isPending;
 
-  // Breakdown rows rendered as "bySource" bars. When the scope is
-  // narrowed to a unit or agent we filter the dashboard breakdown so
-  // only the matching rows remain — that matches the CLI-style "zoom
-  // to this entity" story without a separate endpoint.
+  // Breakdown rows rendered as "bySource" bars. Cost sources are the
+  // same no-dash GUID ids the tenant tree carries, so scoped views match
+  // the raw source id and labels resolve through the tree below.
   const breakdownRows = useMemo(() => {
     const raw = dashboardCosts?.costsBySource ?? [];
     const scope = filters.scope;
     const filtered =
       scope.kind === "unit"
-        ? raw.filter((r) => r.source === `unit://${scope.name}`)
+        ? raw.filter((r) => r.source === scope.name)
         : scope.kind === "agent"
-          ? raw.filter((r) => r.source === `agent://${scope.name}`)
+          ? raw.filter((r) => r.source === scope.name)
           : raw;
     return [...filtered].sort((a, b) => b.totalCost - a.totalCost);
   }, [dashboardCosts, filters.scope]);
@@ -325,6 +365,10 @@ function AnalyticsCostsContent() {
   })();
 
   const scopedSummary = scopedCostsQuery.data ?? null;
+  const scopeDisplayName =
+    filters.scope.kind === "all"
+      ? ""
+      : sourceNodeById.get(filters.scope.name)?.name ?? filters.scope.name;
 
   return (
     <div className="space-y-6">
@@ -376,7 +420,7 @@ function AnalyticsCostsContent() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <TrendingUp className="h-4 w-4" /> Scoped total ({filters.scope.kind}:{" "}
-              <span className="font-mono">{filters.scope.name}</span>)
+              <span>{scopeDisplayName}</span>)
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
@@ -422,9 +466,7 @@ function AnalyticsCostsContent() {
             ) : (
               <p className="text-muted-foreground">
                 No cost records for{" "}
-                <span className="font-mono">
-                  {filters.scope.kind}://{filters.scope.name}
-                </span>{" "}
+                <span>{scopeDisplayName}</span>{" "}
                 in this window.
               </p>
             )}
@@ -471,15 +513,10 @@ function AnalyticsCostsContent() {
           ) : (
             <ul className="space-y-2 text-sm">
               {breakdownRows.map((row, i) => {
-                const idx = row.source.indexOf("://");
-                const scheme = idx >= 0 ? row.source.slice(0, idx) : null;
-                const name = idx >= 0 ? row.source.slice(idx + 3) : row.source;
-                const href =
-                  scheme === "unit"
-                    ? `/units?node=${encodeURIComponent(name)}&tab=Overview`
-                    : scheme === "agent"
-                      ? `/agents/${encodeURIComponent(name)}`
-                      : null;
+                const resolved = resolveBreakdownSource(
+                  row.source,
+                  sourceNodeById,
+                );
                 const width =
                   breakdownMax > 0 ? (row.totalCost / breakdownMax) * 100 : 0;
                 const hue = BREAKDOWN_HUES[i % BREAKDOWN_HUES.length];
@@ -487,15 +524,16 @@ function AnalyticsCostsContent() {
                   <li key={row.source} className="space-y-1">
                     <div className="flex items-center justify-between gap-3">
                       <span className="truncate font-mono text-xs">
-                        {href ? (
+                        {resolved.href ? (
                           <Link
-                            href={href}
+                            href={resolved.href}
                             className="text-primary hover:underline"
+                            title={row.source}
                           >
-                            {row.source}
+                            {resolved.label}
                           </Link>
                         ) : (
-                          row.source
+                          <span title={row.source}>{resolved.label}</span>
                         )}
                       </span>
                       <span className="tabular-nums">

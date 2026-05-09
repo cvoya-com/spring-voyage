@@ -27,6 +27,7 @@ import {
   validateTenantTreeResponse,
   type ValidatedTenantTreeNode,
 } from "./validate-tenant-tree";
+export type { ValidatedTenantTreeNode } from "./validate-tenant-tree";
 import type {
   ActivityQueryResult,
   AgentCloningPolicyResponse,
