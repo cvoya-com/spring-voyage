@@ -6,12 +6,19 @@ namespace Cvoya.Spring.Dapr.Tests.Actors;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
+using Cvoya.Spring.Dapr.Tenancy;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Runtime;
 
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using NSubstitute;
@@ -22,13 +29,16 @@ using Xunit;
 
 /// <summary>
 /// Unit tests for <see cref="HumanActor"/> covering message routing,
-/// status queries, health checks, permission enforcement, and state management.
+/// status queries, health checks, permission enforcement, and EF-backed
+/// state management per ADR-0040.
 /// </summary>
-public class HumanActorTests
+public class HumanActorTests : IDisposable
 {
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
+    private readonly ServiceProvider _serviceProvider;
+    private readonly Guid _humanId = Guid.NewGuid();
     private readonly HumanActor _actor;
 
     public HumanActorTests()
@@ -36,22 +46,64 @@ public class HumanActorTests
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _activityEventBus.PublishAsync(Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
+
+        var services = new ServiceCollection();
+        var dbName = $"HumanActorTest-{Guid.NewGuid()}";
+        services.AddSingleton<ITenantContext>(new StaticTenantContext(OssTenantIds.Default));
+        services.AddDbContext<SpringDbContext>(options =>
+            options.UseInMemoryDatabase(dbName));
+        _serviceProvider = services.BuildServiceProvider();
+
         var host = ActorHost.CreateForTest<HumanActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(TestSlugIds.HexFor("test-human"))
+            ActorId = new ActorId(GuidFormatter.Format(_humanId))
         });
-        _actor = new HumanActor(host, _activityEventBus, _loggerFactory);
+        _actor = new HumanActor(
+            host,
+            _activityEventBus,
+            _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+            _loggerFactory);
         SetStateManager(_actor, _stateManager);
-
-        // Default: no state stored (HumanActor.GetPermissionAsync now
-        // defaults to Operator — see #1479 / #1473).
-        _stateManager.TryGetStateAsync<PermissionLevel>(StateKeys.HumanPermission, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<PermissionLevel>(false, default));
-        _stateManager.TryGetStateAsync<string>(StateKeys.HumanIdentity, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
     }
 
-    private static Message CreateMessage(
+    public void Dispose()
+    {
+        _serviceProvider.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    private async Task<HumanEntity> SeedHumanAsync(
+        PermissionLevel? permission = null,
+        NotificationPreferences? preferences = null,
+        Guid? tenantId = null,
+        string username = "test-human")
+    {
+        await using var scope = _serviceProvider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var entity = new HumanEntity
+        {
+            Id = _humanId,
+            TenantId = tenantId ?? OssTenantIds.Default,
+            Username = username,
+            DisplayName = username,
+            PermissionLevel = permission ?? PermissionLevel.Operator,
+            NotificationPreferences = preferences,
+        };
+        db.Humans.Add(entity);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return entity;
+    }
+
+    private async Task<HumanEntity?> ReadHumanAsync()
+    {
+        await using var scope = _serviceProvider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        return await db.Humans
+            .AsNoTracking()
+            .FirstOrDefaultAsync(h => h.Id == _humanId, TestContext.Current.CancellationToken);
+    }
+
+    private Message CreateMessage(
         MessageType type = MessageType.Domain,
         string? threadId = null,
         JsonElement? payload = null)
@@ -59,7 +111,7 @@ public class HumanActorTests
         return new Message(
             Guid.NewGuid(),
             Address.For("agent", TestSlugIds.HexFor("test-sender")),
-            Address.For("human", TestSlugIds.HexFor("test-human")),
+            Address.For("human", GuidFormatter.Format(_humanId)),
             type,
             threadId ?? Guid.NewGuid().ToString(),
             payload ?? JsonSerializer.SerializeToElement(new { }),
@@ -83,10 +135,9 @@ public class HumanActorTests
     }
 
     [Fact]
-    public async Task ReceiveAsync_StatusQuery_ReturnsPermissionLevel()
+    public async Task ReceiveAsync_StatusQuery_ReturnsPermissionLevelAndIdentity()
     {
-        _stateManager.TryGetStateAsync<PermissionLevel>(StateKeys.HumanPermission, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<PermissionLevel>(true, PermissionLevel.Operator));
+        await SeedHumanAsync(permission: PermissionLevel.Operator, username: "ada");
 
         var message = CreateMessage(type: MessageType.StatusQuery);
 
@@ -94,11 +145,27 @@ public class HumanActorTests
 
         result.ShouldNotBeNull();
         result!.Type.ShouldBe(MessageType.StatusQuery);
-        result.From.ShouldBe(Address.For("human", TestSlugIds.HexFor("test-human")));
+        result.From.ShouldBe(Address.For("human", GuidFormatter.Format(_humanId)));
         result.To.ShouldBe(Address.For("agent", TestSlugIds.HexFor("test-sender")));
 
         var payload = result.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Permission").GetString().ShouldBe("Operator");
+        // ADR-0040: identity is read from HumanEntity.Username, not actor state.
+        payload.GetProperty("Identity").GetString().ShouldBe("ada");
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_StatusQuery_NoEfRow_ReturnsUnknownIdentity()
+    {
+        // No HumanEntity row for the actor id — the actor falls back to
+        // the OSS interim default (Operator) and an "unknown" identity.
+        var message = CreateMessage(type: MessageType.StatusQuery);
+
+        var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        var payload = result!.Payload.Deserialize<JsonElement>();
+        payload.GetProperty("Permission").GetString().ShouldBe("Operator");
+        payload.GetProperty("Identity").GetString().ShouldBe("unknown");
     }
 
     [Fact]
@@ -117,8 +184,7 @@ public class HumanActorTests
     [Fact]
     public async Task ReceiveAsync_DomainMessageAsOwner_ReturnsAck()
     {
-        _stateManager.TryGetStateAsync<PermissionLevel>(StateKeys.HumanPermission, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<PermissionLevel>(true, PermissionLevel.Owner));
+        await SeedHumanAsync(permission: PermissionLevel.Owner);
 
         var message = CreateMessage(type: MessageType.Domain);
 
@@ -132,8 +198,7 @@ public class HumanActorTests
     [Fact]
     public async Task ReceiveAsync_DomainMessageAsOperator_ReturnsAck()
     {
-        _stateManager.TryGetStateAsync<PermissionLevel>(StateKeys.HumanPermission, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<PermissionLevel>(true, PermissionLevel.Operator));
+        await SeedHumanAsync(permission: PermissionLevel.Operator);
 
         var message = CreateMessage(type: MessageType.Domain);
 
@@ -147,10 +212,8 @@ public class HumanActorTests
     [Fact]
     public async Task ReceiveAsync_DomainMessageAsViewer_ReturnsError()
     {
-        // The default is now Operator (#1479 interim) — explicitly set
-        // Viewer here so this test still exercises the rejection path.
-        _stateManager.TryGetStateAsync<PermissionLevel>(StateKeys.HumanPermission, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<PermissionLevel>(true, PermissionLevel.Viewer));
+        await SeedHumanAsync(permission: PermissionLevel.Viewer);
+
         var message = CreateMessage(type: MessageType.Domain);
 
         var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
@@ -161,37 +224,112 @@ public class HumanActorTests
     }
 
     [Fact]
-    public async Task PermissionLevel_RoundTrips_ThroughState()
+    public async Task PermissionLevel_RoundTripsThroughEf()
     {
-        // Set permission to Owner.
+        // First write — no row exists yet; actor materialises one.
         await _actor.SetPermissionAsync(PermissionLevel.Owner, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.HumanPermission,
-            PermissionLevel.Owner,
-            Arg.Any<CancellationToken>());
+        var stored = await ReadHumanAsync();
+        stored.ShouldNotBeNull();
+        stored!.PermissionLevel.ShouldBe(PermissionLevel.Owner);
 
-        // Simulate the state manager returning the stored value.
-        _stateManager.TryGetStateAsync<PermissionLevel>(StateKeys.HumanPermission, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<PermissionLevel>(true, PermissionLevel.Owner));
-
+        // Read back through the actor — survives across "actor restart"
+        // because there is no actor-state copy; every read hits EF.
         var permission = await _actor.GetPermissionAsync(TestContext.Current.CancellationToken);
         permission.ShouldBe(PermissionLevel.Owner);
     }
 
     [Fact]
-    public async Task GetPermissionAsync_NoState_ReturnsOperator()
+    public async Task SetPermissionAsync_UpdatesExistingRow()
     {
-        // #1479 interim: HumanActor defaults to Operator (not Viewer) so the
-        // OSS new-conversation round-trip works without a separate promotion
-        // step. Long-term shape (owner-by-creation + thread membership) is
-        // tracked in #1479; this test will change again when that lands.
+        await SeedHumanAsync(permission: PermissionLevel.Viewer, username: "ada");
+
+        await _actor.SetPermissionAsync(PermissionLevel.Owner, TestContext.Current.CancellationToken);
+
+        var stored = await ReadHumanAsync();
+        stored.ShouldNotBeNull();
+        stored!.PermissionLevel.ShouldBe(PermissionLevel.Owner);
+        // Username untouched — only the permission column changed.
+        stored.Username.ShouldBe("ada");
+    }
+
+    [Fact]
+    public async Task SetPermissionAsync_NeverWritesActorState()
+    {
+        await _actor.SetPermissionAsync(PermissionLevel.Owner, TestContext.Current.CancellationToken);
+
+        // ADR-0040: the actor must not maintain a Human:Permission key.
+        await _stateManager.DidNotReceive().SetStateAsync(
+            "Human:Permission",
+            Arg.Any<PermissionLevel>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetPermissionAsync_NoEfRow_ReturnsOperator()
+    {
+        // #1479 interim: defaulting to Operator unblocks the new-conversation
+        // round-trip without a separate promotion step.
         var permission = await _actor.GetPermissionAsync(TestContext.Current.CancellationToken);
 
         permission.ShouldBe(PermissionLevel.Operator);
     }
 
-    // --- Unit-Scoped Permission Tests ---
+    [Fact]
+    public async Task NotificationPreferences_RoundTripThroughEf()
+    {
+        var prefs = new NotificationPreferences(EmailEnabled: true, InAppEnabled: false);
+
+        await _actor.SetNotificationPreferencesAsync(prefs, TestContext.Current.CancellationToken);
+
+        var read = await _actor.GetNotificationPreferencesAsync(TestContext.Current.CancellationToken);
+        read.ShouldNotBeNull();
+        read!.EmailEnabled.ShouldBeTrue();
+        read.InAppEnabled.ShouldBeFalse();
+
+        var stored = await ReadHumanAsync();
+        stored!.NotificationPreferences.ShouldNotBeNull();
+        stored.NotificationPreferences!.EmailEnabled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetNotificationPreferencesAsync_NoRow_ReturnsNull()
+    {
+        var prefs = await _actor.GetNotificationPreferencesAsync(TestContext.Current.CancellationToken);
+        prefs.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task SetNotificationPreferencesAsync_NeverWritesActorState()
+    {
+        await _actor.SetNotificationPreferencesAsync(
+            new NotificationPreferences(true, true),
+            TestContext.Current.CancellationToken);
+
+        // ADR-0040: the actor must not maintain a Human:NotificationPreferences key.
+        await _stateManager.DidNotReceive().SetStateAsync(
+            "Human:NotificationPreferences",
+            Arg.Any<NotificationPreferences?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TenantIsolation_PermissionSetOnOneTenantNotVisibleToAnother()
+    {
+        // Seed a row under a different tenant id.
+        var otherTenant = Guid.NewGuid();
+        await SeedHumanAsync(
+            permission: PermissionLevel.Owner,
+            tenantId: otherTenant,
+            username: "ada");
+
+        // The actor's DbContext is bound to OssTenantIds.Default; the row
+        // under the other tenant is filtered out.
+        var permission = await _actor.GetPermissionAsync(TestContext.Current.CancellationToken);
+        permission.ShouldBe(PermissionLevel.Operator);
+    }
+
+    // --- Unit-Scoped Permission Tests (still actor-state per ADR-0040) ---
 
     [Fact]
     public async Task SetPermissionForUnitAsync_StoresUnitPermission()

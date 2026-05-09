@@ -8,10 +8,15 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
 
 using global::Dapr.Actors.Runtime;
 
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -20,9 +25,20 @@ using Microsoft.Extensions.Logging;
 /// Domain messages are rejected for viewers; all other permission levels receive
 /// an acknowledgment (notification routing is future work).
 /// </summary>
+/// <remarks>
+/// Per <a href="../../../docs/decisions/0040-actor-state-ownership-matrix.md">ADR-0040</a>,
+/// the human's identity, global permission level, and notification preferences
+/// are EF-authoritative on <see cref="HumanEntity"/>. The actor reads from
+/// <see cref="SpringDbContext"/> on every call (one read; no warm cache in v0.1)
+/// and never persists those facts to <see cref="IActorStateManager"/>.
+/// Per-thread read cursors and unit-scoped permission entries remain in
+/// actor state — those are runtime-ephemeral / not yet migrated and are
+/// covered by separate Wave 1 issues.
+/// </remarks>
 public class HumanActor(
     ActorHost host,
     IActivityEventBus activityEventBus,
+    IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory) : Actor(host), IHumanActor
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<HumanActor>();
@@ -127,13 +143,13 @@ public class HumanActor(
 
     /// <inheritdoc />
     /// <remarks>
-    /// Defaults to <see cref="PermissionLevel.Operator"/> when no explicit
-    /// state has been written for this human actor. The previous default
-    /// (<see cref="PermissionLevel.Viewer"/>) caused inbound Domain messages
-    /// — including the agent's reply to a thread the user themselves
-    /// started — to be rejected with "insufficient permission (Viewer)",
-    /// breaking the new-conversation round-trip in the OSS deployment
-    /// (#1473, #1476).
+    /// Defaults to <see cref="PermissionLevel.Operator"/> when the row
+    /// has no explicit permission level set (or the row is missing).
+    /// The previous default (<see cref="PermissionLevel.Viewer"/>) caused
+    /// inbound Domain messages — including the agent's reply to a thread
+    /// the user themselves started — to be rejected with "insufficient
+    /// permission (Viewer)", breaking the new-conversation round-trip in
+    /// the OSS deployment (#1473, #1476).
     ///
     /// Defaulting to Operator is an interim OSS unblocker, NOT the
     /// long-term shape of the permission model. Tracked under #1479,
@@ -144,26 +160,57 @@ public class HumanActor(
     /// </remarks>
     public async Task<PermissionLevel> GetPermissionAsync(CancellationToken cancellationToken = default)
     {
-        var result = await StateManager
-            .TryGetStateAsync<PermissionLevel>(StateKeys.HumanPermission, cancellationToken)
-            ;
-
-        return result.HasValue ? result.Value : PermissionLevel.Operator;
+        var entity = await LoadHumanEntityAsync(cancellationToken);
+        return entity?.PermissionLevel ?? PermissionLevel.Operator;
     }
 
     /// <summary>
-    /// Sets the permission level for this human actor.
+    /// Sets the permission level for this human actor on the EF-authoritative
+    /// <see cref="HumanEntity"/> row. Creates the row if it does not yet exist
+    /// (the actor may be addressed by id before any other write site has
+    /// materialised the row).
     /// </summary>
     /// <param name="level">The new permission level.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task SetPermissionAsync(PermissionLevel level, CancellationToken cancellationToken = default)
     {
-        await StateManager
-            .SetStateAsync(StateKeys.HumanPermission, level, cancellationToken)
-            ;
+        await UpsertHumanEntityAsync(
+            entity => entity.PermissionLevel = level,
+            cancellationToken);
 
         _logger.LogInformation("Human actor {ActorId} permission changed to {Permission}", Id.GetId(), level);
+    }
+
+    /// <summary>
+    /// Returns the human's current notification preferences, or <c>null</c>
+    /// when no explicit preferences have been written. Routing layers apply
+    /// the platform default in the <c>null</c> case.
+    /// </summary>
+    public async Task<NotificationPreferences?> GetNotificationPreferencesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await LoadHumanEntityAsync(cancellationToken);
+        return entity?.NotificationPreferences;
+    }
+
+    /// <summary>
+    /// Persists <paramref name="preferences"/> as the human's notification
+    /// preferences on the EF-authoritative <see cref="HumanEntity"/> row.
+    /// Pass <c>null</c> to clear preferences (routing falls back to the
+    /// platform default).
+    /// </summary>
+    public async Task SetNotificationPreferencesAsync(
+        NotificationPreferences? preferences,
+        CancellationToken cancellationToken = default)
+    {
+        await UpsertHumanEntityAsync(
+            entity => entity.NotificationPreferences = preferences,
+            cancellationToken);
+
+        _logger.LogInformation(
+            "Human actor {ActorId} notification preferences updated",
+            Id.GetId());
     }
 
     /// <inheritdoc />
@@ -257,19 +304,86 @@ public class HumanActor(
     }
 
     /// <summary>
+    /// Loads the EF row keyed by this actor's id, or <c>null</c> when the
+    /// actor id does not parse as a Guid (legacy username-keyed actors) or
+    /// no row has been materialised yet for that id.
+    /// </summary>
+    private async Task<HumanEntity?> LoadHumanEntityAsync(CancellationToken cancellationToken)
+    {
+        if (!GuidFormatter.TryParse(Id.GetId(), out var humanId))
+        {
+            // Legacy username-keyed actor — the EF row is keyed by Guid;
+            // there's nothing to read. Callers fall back to defaults.
+            return null;
+        }
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        return await db.Humans
+            .AsNoTracking()
+            .FirstOrDefaultAsync(h => h.Id == humanId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads the row keyed by this actor's id (if any), applies
+    /// <paramref name="mutate"/>, and saves. When no row exists yet, an
+    /// upsert creates one — the actor may be addressed by id before any
+    /// other write site has materialised the row.
+    /// </summary>
+    private async Task UpsertHumanEntityAsync(
+        Action<HumanEntity> mutate,
+        CancellationToken cancellationToken)
+    {
+        if (!GuidFormatter.TryParse(Id.GetId(), out var humanId))
+        {
+            throw new InvalidOperationException(
+                $"Human actor id '{Id.GetId()}' is not a valid Guid; cannot persist EF state.");
+        }
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var entity = await db.Humans
+            .FirstOrDefaultAsync(h => h.Id == humanId, cancellationToken);
+
+        if (entity is null)
+        {
+            entity = new HumanEntity
+            {
+                Id = humanId,
+                // Username is required (NOT NULL); the resolver normally
+                // owns first-row creation. When the actor materialises the
+                // row first (e.g. SetPermission before any login), seed
+                // Username with the canonical id form so the unique index
+                // is satisfied. The HumanIdentityResolver will overwrite
+                // this with the real JWT username on the next login.
+                Username = GuidFormatter.Format(humanId),
+                DisplayName = GuidFormatter.Format(humanId),
+            };
+            mutate(entity);
+            db.Humans.Add(entity);
+        }
+        else
+        {
+            mutate(entity);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// Handles a status query message by returning the current permission level and identity.
     /// </summary>
     private async Task<Message?> HandleStatusQueryAsync(Message message, CancellationToken cancellationToken)
     {
-        var permission = await GetPermissionAsync(cancellationToken);
-        var identity = await StateManager
-            .TryGetStateAsync<string>(StateKeys.HumanIdentity, cancellationToken)
-            ;
+        var entity = await LoadHumanEntityAsync(cancellationToken);
+        var permission = entity?.PermissionLevel ?? PermissionLevel.Operator;
+        var identity = entity?.Username ?? "unknown";
 
         var statusPayload = JsonSerializer.SerializeToElement(new
         {
             Permission = permission.ToString(),
-            Identity = identity.HasValue ? identity.Value : "unknown"
+            Identity = identity
         });
 
         return new Message(
