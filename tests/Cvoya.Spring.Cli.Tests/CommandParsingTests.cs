@@ -1035,27 +1035,13 @@ public class CommandParsingTests
         // Canonical participant address per ADR-0036.
         const string participant = "agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7";
         var parseResult = rootCommand.Parse(
-            $"thread list --unit eng-team --agent ada --status active --participant {participant} --limit 25");
+            $"thread list --unit eng-team --agent ada --participant {participant} --limit 25");
 
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue<string>("--unit").ShouldBe("eng-team");
         parseResult.GetValue<string>("--agent").ShouldBe("ada");
-        parseResult.GetValue<string>("--status").ShouldBe("active");
         parseResult.GetValue<string>("--participant").ShouldBe(participant);
         parseResult.GetValue<int?>("--limit").ShouldBe(25);
-    }
-
-    [Fact]
-    public void ThreadList_RejectsUnknownStatus()
-    {
-        var outputOption = CreateOutputOption();
-        var threadCommand = ThreadCommand.Create(outputOption);
-        var rootCommand = new RootCommand { Options = { outputOption } };
-        rootCommand.Subcommands.Add(threadCommand);
-
-        var parseResult = rootCommand.Parse("thread list --status pending");
-
-        parseResult.Errors.ShouldNotBeEmpty();
     }
 
     [Fact]
@@ -1105,36 +1091,6 @@ public class CommandParsingTests
 
         parseResult.Errors.ShouldNotBeEmpty();
         parseResult.Errors.ShouldContain(e => e.Message.Contains("--thread"));
-    }
-
-    [Fact]
-    public void ThreadClose_ParsesIdArgument()
-    {
-        var outputOption = CreateOutputOption();
-        var threadCommand = ThreadCommand.Create(outputOption);
-        var rootCommand = new RootCommand { Options = { outputOption } };
-        rootCommand.Subcommands.Add(threadCommand);
-
-        var parseResult = rootCommand.Parse("thread close t-42");
-
-        parseResult.Errors.ShouldBeEmpty();
-        parseResult.GetValue<string>("id").ShouldBe("t-42");
-    }
-
-    [Fact]
-    public void ThreadClose_ParsesReasonOption()
-    {
-        var outputOption = CreateOutputOption();
-        var threadCommand = ThreadCommand.Create(outputOption);
-        var rootCommand = new RootCommand { Options = { outputOption } };
-        rootCommand.Subcommands.Add(threadCommand);
-
-        var parseResult = rootCommand.Parse(
-            "thread close t-42 --reason \"Container exited 125\"");
-
-        parseResult.Errors.ShouldBeEmpty();
-        parseResult.GetValue<string>("id").ShouldBe("t-42");
-        parseResult.GetValue<string>("--reason").ShouldBe("Container exited 125");
     }
 
     // #636: rotate-key + rotate-webhook-secret verb parsing.

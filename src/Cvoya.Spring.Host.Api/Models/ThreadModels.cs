@@ -14,13 +14,11 @@ using Cvoya.Spring.Core.Observability;
 /// </summary>
 /// <param name="Unit">Optional unit-name filter.</param>
 /// <param name="Agent">Optional agent-name filter.</param>
-/// <param name="Status">Optional status filter (<c>active</c> / <c>completed</c>).</param>
 /// <param name="Participant">Optional <c>scheme://path</c> participant filter.</param>
 /// <param name="Limit">Optional row cap (default 50).</param>
 public record ThreadListQuery(
     string? Unit,
     string? Agent,
-    string? Status,
     string? Participant,
     int? Limit);
 
@@ -96,15 +94,3 @@ public record ThreadMessageResponse(
     string ThreadId,
     JsonElement? ResponsePayload,
     string Kind = MessageKind.Information);
-
-/// <summary>
-/// Request body for <c>POST /api/v1/threads/{id}/close</c> (#1038). The
-/// reason is optional — when supplied it surfaces on the
-/// <c>ThreadClosed</c> activity event the actor emits, so operators can
-/// see <em>why</em> a thread was aborted (operator request, runaway tool,
-/// upstream incident, etc.). Present as a body rather than a query string so
-/// long reasons aren't truncated by URL length limits and aren't logged in
-/// server access logs.
-/// </summary>
-/// <param name="Reason">Optional human-readable reason for closing.</param>
-public record CloseThreadRequest(string? Reason);

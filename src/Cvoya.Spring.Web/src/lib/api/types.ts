@@ -307,7 +307,6 @@ export type InboxItem = Schemas["InboxItemResponse"];
 export interface ThreadListFilters {
   unit?: string;
   agent?: string;
-  status?: "active" | "completed";
   participant?: string;
   limit?: number;
 }

@@ -50,7 +50,6 @@ public static class EngagementCommand
     private static readonly OutputFormatter.Column<ThreadSummaryResponse>[] ListColumns =
     {
         new("id", c => c.Id),
-        new("status", c => c.Status),
         new("participants", c => FormatParticipants(c.Participants)),
         new("events", c => c.EventCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty),
         new("lastActivity", c => FormatTimestamp(c.LastActivity)),
@@ -97,11 +96,6 @@ public static class EngagementCommand
         {
             Description = "Filter by participant address in canonical scheme:<guid> form (e.g. human:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7)",
         };
-        var statusOption = new Option<string?>("--status")
-        {
-            Description = "Filter by status (active | completed)",
-        };
-        statusOption.AcceptOnlyFromAmong("active", "completed");
         var limitOption = new Option<int?>("--limit")
         {
             Description = "Maximum rows to return (default 50)",
@@ -111,7 +105,6 @@ public static class EngagementCommand
         command.Options.Add(unitOption);
         command.Options.Add(agentOption);
         command.Options.Add(participantOption);
-        command.Options.Add(statusOption);
         command.Options.Add(limitOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
@@ -124,7 +117,6 @@ public static class EngagementCommand
                 var result = await client.ListThreadsAsync(
                     unit: parseResult.GetValue(unitOption),
                     agent: parseResult.GetValue(agentOption),
-                    status: parseResult.GetValue(statusOption),
                     participant: parseResult.GetValue(participantOption),
                     limit: parseResult.GetValue(limitOption),
                     ct: ct);

@@ -1308,23 +1308,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tenant/threads/{id}/close": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Close (abort) an in-flight or pending thread across all participating agents */
-        post: operations["CloseThread"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/tenant/inbox": {
         parameters: {
             query?: never;
@@ -2590,9 +2573,6 @@ export interface components {
         };
         /** @enum {unknown} */
         CloningPolicy: "none" | "ephemeral-no-memory" | "ephemeral-with-memory";
-        CloseThreadRequest: {
-            reason: null | string;
-        };
         ConfigurationReport: {
             status: components["schemas"]["ConfigurationReportStatus"];
             /** Format: date-time */
@@ -3381,7 +3361,6 @@ export interface components {
         ThreadSummaryResponse: {
             id: string;
             participants: components["schemas"]["ParticipantRef"][];
-            status: string;
             /** Format: date-time */
             lastActivity: string;
             /** Format: date-time */
@@ -6960,9 +6939,7 @@ export interface operations {
     };
     GetTenantBudget: {
         parameters: {
-            query?: {
-                tenantId?: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -6991,9 +6968,7 @@ export interface operations {
     };
     SetTenantBudget: {
         parameters: {
-            query?: {
-                tenantId?: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -7260,7 +7235,6 @@ export interface operations {
             query?: {
                 Unit?: string;
                 Agent?: string;
-                Status?: string;
                 Participant?: string;
                 Limit?: null | number;
             };
@@ -7356,41 +7330,6 @@ export interface operations {
             };
             /** @description Bad Gateway */
             502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-        };
-    };
-    CloseThread: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CloseThreadRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ThreadDetailResponse"];
-                };
-            };
-            /** @description Not Found */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };

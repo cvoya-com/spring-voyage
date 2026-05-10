@@ -187,7 +187,6 @@ public class MessageQueryServiceTests : IDisposable
             Participants = "[]",
             CreatedAt = DateTimeOffset.UtcNow,
             LastActivityAt = DateTimeOffset.UtcNow,
-            Status = "active",
         });
     }
 

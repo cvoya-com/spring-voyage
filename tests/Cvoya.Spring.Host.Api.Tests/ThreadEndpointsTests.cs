@@ -5,18 +5,13 @@ namespace Cvoya.Spring.Host.Api.Tests;
 
 using System.Net;
 using System.Net.Http.Json;
-using System.Text.Json;
 
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
-using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Host.Api.Models;
-
-using global::Dapr.Actors;
 
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -56,7 +51,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
             .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
             .Returns(new List<ThreadSummary>
             {
-                new("c-1", new[] { "agent://ada" }, "active", now, now, 1, "agent://ada", "Started"),
+                new("c-1", new[] { "agent://ada" }, now, now, 1, "agent://ada", "Started"),
             });
 
         var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
@@ -77,7 +72,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
             .Returns(new List<ThreadSummary>());
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/threads?unit=eng-team&agent=ada&status=active&participant=human%3A%2F%2Fsavasp&limit=25",
+            "/api/v1/tenant/threads?unit=eng-team&agent=ada&participant=human%3A%2F%2Fsavasp&limit=25",
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -86,7 +81,6 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
                 Arg.Is<ThreadQueryFilters>(f =>
                     f.Unit == "eng-team" &&
                     f.Agent == "ada" &&
-                    f.Status == "active" &&
                     f.Participant == "human://savasp" &&
                     f.Limit == 25),
                 Arg.Any<CancellationToken>());
@@ -139,7 +133,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
             .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
             .Returns(new List<ThreadSummary>
             {
-                new("c-id-form", new[] { participantAddress }, "active", now, now, 1, participantAddress, "Started"),
+                new("c-id-form", new[] { participantAddress }, now, now, 1, participantAddress, "Started"),
             });
 
         var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
@@ -180,7 +174,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
             .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
             .Returns(new List<ThreadSummary>
             {
-                new("c-unit-id", new[] { participantAddress }, "active", now, now, 1, participantAddress, "Started"),
+                new("c-unit-id", new[] { participantAddress }, now, now, 1, participantAddress, "Started"),
             });
 
         var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
@@ -201,7 +195,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         _factory.ThreadQueryService
             .GetAsync("c-1", Arg.Any<CancellationToken>())
             .Returns(new ThreadDetail(
-                new ThreadSummary("c-1", new[] { "agent://ada" }, "active", now, now, 1, "agent://ada", "s"),
+                new ThreadSummary("c-1", new[] { "agent://ada" }, now, now, 1, "agent://ada", "s"),
                 new List<ThreadEvent>
                 {
                     new(Guid.NewGuid(), now, "agent://ada", "ThreadStarted", "Info", "Started conversation c-1"),
@@ -317,116 +311,6 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-1/messages", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
-    }
-
-    // --- #1038 + #1207 — POST /api/v1/threads/{id}/close ---
-    // #1207 regression guard: the close path MUST invoke AgentActor.CloseThreadAsync
-    // so the actor clears its ActiveThread slot. Without this call the actor stays
-    // "bricked" — every subsequent message send queues forever until worker restart.
-
-    [Fact]
-    public async Task CloseThread_Existing_CallsAgentActorAndReturnsRefreshedDetail()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var now = DateTimeOffset.UtcNow;
-
-        var adaParticipant = $"agent://{Agent_Ada_Id:N}";
-        var beforeSummary = new ThreadSummary(
-            "c-close", new[] { adaParticipant, "human://savasp" },
-            "active", now, now, 1, adaParticipant, "Started");
-        var beforeDetail = new ThreadDetail(beforeSummary, new List<ThreadEvent>());
-
-        var afterSummary = beforeSummary with { Status = "closed" };
-        var afterDetail = new ThreadDetail(
-            afterSummary,
-            new List<ThreadEvent>
-            {
-                new(Guid.NewGuid(), now, adaParticipant, "ThreadClosed", "Info", "Thread closed (operator request)"),
-            });
-
-        // First GetAsync returns the live conversation; second (post-close) returns
-        // the projected detail with the ThreadClosed event included.
-        _factory.ThreadQueryService.ClearSubstitute();
-        _factory.ThreadQueryService.GetAsync("c-close", Arg.Any<CancellationToken>())
-            .Returns(beforeDetail, afterDetail);
-
-        var entry = new DirectoryEntry(
-            new Address("agent", Agent_Ada_Id),
-            ActorId: Agent_Ada_Id,
-            DisplayName: "Ada",
-            Description: "Test agent",
-            Role: null,
-            RegisteredAt: now);
-        _factory.DirectoryService.ClearSubstitute();
-        _factory.DirectoryService.ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == Agent_Ada_Id),
-                Arg.Any<CancellationToken>())
-            .Returns(entry);
-
-        var adaActorIdStr = Agent_Ada_Id.ToString("N");
-        var agentProxy = Substitute.For<IAgentActor>();
-        _factory.ActorProxyFactory.ClearSubstitute();
-        _factory.ActorProxyFactory
-            .CreateActorProxy<IAgentActor>(Arg.Is<ActorId>(id => id.GetId() == adaActorIdStr), nameof(AgentActor))
-            .Returns(agentProxy);
-
-        var body = new CloseThreadRequest("operator request");
-        var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-close/close", body, ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var detail = await response.Content.ReadFromJsonAsync<ThreadDetailResponse>(ct);
-        detail.ShouldNotBeNull();
-        detail!.Summary.ShouldNotBeNull();
-        detail.Summary!.Status.ShouldBe("closed");
-        detail.Events.ShouldNotBeNull();
-        detail.Events!.Count.ShouldBe(1);
-        detail.Events[0].EventType.ShouldBe("ThreadClosed");
-
-        await agentProxy.Received(1).CloseThreadAsync(
-            "c-close", "operator request", Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task CloseThread_Missing_Returns404()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        _factory.ThreadQueryService.ClearSubstitute();
-        _factory.ThreadQueryService.GetAsync("c-missing", Arg.Any<CancellationToken>())
-            .Returns((ThreadDetail?)null);
-
-        var body = new CloseThreadRequest("oops");
-        var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-missing/close", body, ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
-    }
-
-    [Fact]
-    public async Task CloseThread_NoAgentParticipants_StillReturnsOk()
-    {
-        // Conversations with only human participants have no actor proxies to
-        // call — the endpoint must still succeed (and return the unchanged
-        // detail) so operator UX doesn't break for human-only threads.
-        var ct = TestContext.Current.CancellationToken;
-        var now = DateTimeOffset.UtcNow;
-        var summary = new ThreadSummary(
-            "c-human-only", new[] { "human://savasp" },
-            "active", now, now, 0, "human://savasp", "Pending input");
-        var detail = new ThreadDetail(summary, new List<ThreadEvent>());
-
-        _factory.ThreadQueryService.ClearSubstitute();
-        _factory.ThreadQueryService.GetAsync("c-human-only", Arg.Any<CancellationToken>())
-            .Returns(detail);
-        // ClearSubstitute on the shared ActorProxyFactory so the
-        // DidNotReceive assertion below isn't polluted by other tests in
-        // this class fixture that exercise the close endpoint.
-        _factory.ActorProxyFactory.ClearSubstitute();
-
-        var body = new CloseThreadRequest(null);
-        var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-human-only/close", body, ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        _factory.ActorProxyFactory.DidNotReceive()
-            .CreateActorProxy<IAgentActor>(Arg.Any<ActorId>(), Arg.Any<string>());
     }
 
     [Fact]

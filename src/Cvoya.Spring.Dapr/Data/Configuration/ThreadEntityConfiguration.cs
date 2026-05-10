@@ -30,7 +30,6 @@ internal class ThreadEntityConfiguration : IEntityTypeConfiguration<ThreadEntity
         builder.Property(e => e.Participants).HasColumnName("participants").IsRequired().HasColumnType("jsonb");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.LastActivityAt).HasColumnName("last_activity_at").IsRequired();
-        builder.Property(e => e.Status).HasColumnName("status").IsRequired().HasMaxLength(32);
 
         builder.HasIndex(e => new { e.TenantId, e.ParticipantKey })
             .IsUnique()

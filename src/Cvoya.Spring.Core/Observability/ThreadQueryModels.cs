@@ -6,14 +6,14 @@ namespace Cvoya.Spring.Core.Observability;
 /// <summary>
 /// Summary row for the thread list surface (<c>GET /api/v1/threads</c>).
 /// Derived from the EF-authoritative <c>threads</c> + <c>messages</c> tables
-/// (ADR-0030 / ADR-0040): the thread row carries identity, participants,
-/// timestamps, and lifecycle status; the message rows for that thread feed
-/// the per-thread aggregates (<see cref="EventCount"/>, <see cref="Origin"/>,
-/// <see cref="Summary"/>).
+/// (ADR-0030 / ADR-0040): the thread row carries identity, participants, and
+/// timestamps; the message rows for that thread feed the per-thread aggregates
+/// (<see cref="EventCount"/>, <see cref="Origin"/>, <see cref="Summary"/>).
+/// Per ADR-0030 a thread is a lifelong record with no thread-level lifecycle
+/// state — the only state machine in the model is per-(thread, participant).
 /// </summary>
 /// <param name="Id">The thread identifier (no-dash 32-char hex Guid).</param>
 /// <param name="Participants">Canonical participant addresses (<c>scheme:id:&lt;hex&gt;</c>) for the thread.</param>
-/// <param name="Status">Lifecycle state from the <c>threads.status</c> column — defaults to <c>active</c>.</param>
 /// <param name="LastActivity">Timestamp of the most recent message on this thread (<c>threads.last_activity_at</c>).</param>
 /// <param name="CreatedAt">Timestamp the thread row was first inserted (<c>threads.created_at</c>).</param>
 /// <param name="EventCount">Number of persisted messages on this thread.</param>
@@ -22,7 +22,6 @@ namespace Cvoya.Spring.Core.Observability;
 public record ThreadSummary(
     string Id,
     IReadOnlyList<string> Participants,
-    string Status,
     DateTimeOffset LastActivity,
     DateTimeOffset CreatedAt,
     int EventCount,
@@ -106,12 +105,10 @@ public record InboxItem(
 /// </summary>
 /// <param name="Unit">Restrict to threads whose origin source is the named unit (matches unit-scheme events).</param>
 /// <param name="Agent">Restrict to threads whose origin source is the named agent.</param>
-/// <param name="Status"><c>active</c> or <c>completed</c>.</param>
 /// <param name="Participant">Restrict to threads where <c>scheme://path</c> appears as a participant.</param>
 /// <param name="Limit">Maximum number of rows to return (default 50).</param>
 public record ThreadQueryFilters(
     string? Unit = null,
     string? Agent = null,
-    string? Status = null,
     string? Participant = null,
     int? Limit = null);

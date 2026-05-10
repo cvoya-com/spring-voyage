@@ -105,7 +105,6 @@ public static class InboxCommand
                 {
                     Console.WriteLine($"Inbox item:   {summary.Id}");
                     Console.WriteLine($"Origin:       {summary.Origin?.DisplayName ?? summary.Origin?.Address ?? string.Empty}");
-                    Console.WriteLine($"Status:       {summary.Status}");
                     Console.WriteLine($"Last activity: {FormatTimestamp(summary.LastActivity)}");
                     Console.WriteLine();
                 }

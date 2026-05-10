@@ -345,7 +345,6 @@ public class MessageRouterTests
                 Participants = "[]",
                 CreatedAt = DateTimeOffset.UtcNow,
                 LastActivityAt = DateTimeOffset.UtcNow,
-                Status = "active",
             });
             await seedDb.SaveChangesAsync(ct);
         }

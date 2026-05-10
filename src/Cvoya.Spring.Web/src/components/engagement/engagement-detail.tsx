@@ -229,9 +229,6 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
         >
           {headerNames}
         </span>
-        {thread.summary?.status && (
-          <Badge variant="outline">{thread.summary.status}</Badge>
-        )}
         {!isParticipant && (
           <Badge variant="secondary" className="ml-auto shrink-0">
             Observer

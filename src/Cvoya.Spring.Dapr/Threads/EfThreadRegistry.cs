@@ -87,7 +87,6 @@ public class EfThreadRegistry : IThreadRegistry
             Participants = JsonSerializer.Serialize(canonical, ParticipantsJson),
             CreatedAt = now,
             LastActivityAt = now,
-            Status = "active",
         };
 
         try

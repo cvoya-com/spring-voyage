@@ -90,22 +90,6 @@ public class EngagementCommandTests
         result.GetValue<string>("--participant").ShouldBe(participant);
     }
 
-    [Fact]
-    public void EngagementList_StatusFlag_ParsesStatus()
-    {
-        var (root, _) = BuildCommandTree();
-        var result = root.Parse("engagement list --status active");
-        result.Errors.ShouldBeEmpty();
-        result.GetValue<string>("--status").ShouldBe("active");
-    }
-
-    [Fact]
-    public void EngagementList_InvalidStatus_ProducesError()
-    {
-        var (root, _) = BuildCommandTree();
-        var result = root.Parse("engagement list --status invalid");
-        result.Errors.ShouldNotBeEmpty();
-    }
 
     [Fact]
     public void EngagementList_LimitFlag_ParsesLimit()

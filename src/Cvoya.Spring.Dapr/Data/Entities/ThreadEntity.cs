@@ -45,11 +45,4 @@ public class ThreadEntity : ITenantScopedEntity
     /// messages arrive.
     /// </summary>
     public DateTimeOffset LastActivityAt { get; set; }
-
-    /// <summary>
-    /// Lifecycle status — <c>active</c> on insert; transitions to
-    /// <c>completed</c> when a terminal event is observed. Stored as a string
-    /// so the column is forwards-compatible with future statuses without DDL.
-    /// </summary>
-    public string Status { get; set; } = "active";
 }

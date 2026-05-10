@@ -4826,13 +4826,6 @@
             }
           },
           {
-            "name": "Status",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
             "name": "Participant",
             "in": "query",
             "schema": {
@@ -4969,57 +4962,6 @@
           },
           "502": {
             "description": "Bad Gateway",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tenant/threads/{id}/close": {
-      "post": {
-        "tags": [
-          "Threads"
-        ],
-        "summary": "Close (abort) an in-flight or pending thread across all participating agents",
-        "operationId": "CloseThread",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CloseThreadRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ThreadDetailResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -9430,20 +9372,6 @@
           "ephemeral-with-memory"
         ]
       },
-      "CloseThreadRequest": {
-        "required": [
-          "reason"
-        ],
-        "type": "object",
-        "properties": {
-          "reason": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
       "ConfigurationReport": {
         "required": [
           "status",
@@ -12548,7 +12476,6 @@
         "required": [
           "id",
           "participants",
-          "status",
           "lastActivity",
           "createdAt",
           "eventCount",
@@ -12565,9 +12492,6 @@
             "items": {
               "$ref": "#/components/schemas/ParticipantRef"
             }
-          },
-          "status": {
-            "type": "string"
           },
           "lastActivity": {
             "type": "string",

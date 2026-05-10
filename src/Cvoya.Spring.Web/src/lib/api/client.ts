@@ -712,12 +712,11 @@ export const api = {
   // CONVENTIONS.md § ui-cli-parity.
   listThreads: async (filters?: ThreadListFilters) => {
     // The OpenAPI binder uses TitleCase property names (Unit, Agent,
-    // Status, Participant, Limit) for [AsParameters] queries. Translate
+    // Participant, Limit) for [AsParameters] queries. Translate
     // the camelCase shape we expose to call sites.
     const query: Record<string, string | number> = {};
     if (filters?.unit) query.Unit = filters.unit;
     if (filters?.agent) query.Agent = filters.agent;
-    if (filters?.status) query.Status = filters.status;
     if (filters?.participant) query.Participant = filters.participant;
     if (filters?.limit !== undefined) query.Limit = filters.limit;
     return unwrap(

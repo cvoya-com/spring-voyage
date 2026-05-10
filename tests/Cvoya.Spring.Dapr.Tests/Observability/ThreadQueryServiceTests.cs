@@ -135,38 +135,9 @@ public class ThreadQueryServiceTests : IDisposable
         t1.EventCount.ShouldBe(2);
         t1.Origin.ShouldBe($"agent:id:{ada.Id:N}");
         t1.Summary.ShouldBe("Hello, savasp.");
-        t1.Status.ShouldBe("active");
 
         var t2 = result.Single(s => s.Id == GuidFormatter.Format(thread2));
         t2.EventCount.ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task ListAsync_StatusFilter_ReturnsOnlyMatchingThreads()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var ada = NewActor("agent", "ada");
-        var savasp = NewActor("human", "savasp");
-
-        await SeedThreadAsync(
-            new[] { ada, savasp },
-            DateTimeOffset.UtcNow.AddMinutes(-10),
-            new[] { NewMessage(ada, savasp, "Active thread", DateTimeOffset.UtcNow.AddMinutes(-9)) });
-
-        // Threads transition to "completed" via a separate writer (#2066);
-        // tests stamp the column directly to exercise the filter.
-        var (completedId, _) = await SeedThreadAsync(
-            new[] { ada, savasp },
-            DateTimeOffset.UtcNow.AddMinutes(-30),
-            new[] { NewMessage(ada, savasp, "Closed thread", DateTimeOffset.UtcNow.AddMinutes(-25)) },
-            participantKeyOverride: "completed-key",
-            status: "completed");
-
-        var svc = BuildService();
-
-        var completed = await svc.ListAsync(new ThreadQueryFilters(Status: "completed"), ct);
-        completed.Count.ShouldBe(1);
-        completed[0].Id.ShouldBe(GuidFormatter.Format(completedId));
     }
 
     [Fact]
@@ -598,7 +569,6 @@ public class ThreadQueryServiceTests : IDisposable
         DateTimeOffset createdAt,
         (Address From, Address To, string? Body, DateTimeOffset SentAt)[] messages,
         string? participantKeyOverride = null,
-        string status = "active",
         bool retract = false)
     {
         var threadId = Guid.NewGuid();
@@ -618,7 +588,6 @@ public class ThreadQueryServiceTests : IDisposable
             LastActivityAt = messages.Length > 0
                 ? messages.Max(m => m.SentAt)
                 : createdAt,
-            Status = status,
         };
         _db.Threads.Add(thread);
 

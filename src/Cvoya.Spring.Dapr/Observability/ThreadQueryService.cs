@@ -312,16 +312,12 @@ public class ThreadQueryService(
         var summary = firstMessage?.Body
             ?? (firstMessage is not null ? string.Empty : string.Empty);
 
-        // The thread's lifecycle status is owned by the threads row itself
-        // (ADR-0040). Pre-rewrite the projection inferred completion from a
-        // ThreadCompleted activity event; with the EF-authoritative model the
-        // column is the source of truth. A separate writer must transition
-        // this column when an agent emits ThreadCompleted/ThreadClosed; see
-        // https://github.com/cvoya-com/spring-voyage/issues/2066.
+        // Per ADR-0030 a thread is a lifelong record — there is no thread-level
+        // lifecycle status; the only state machine in the model is
+        // per-(thread, participant). #2074 removed the legacy `status` column.
         return new ThreadSummary(
             Id: GuidFormatter.Format(thread.Id),
             Participants: participants,
-            Status: thread.Status,
             LastActivity: thread.LastActivityAt,
             CreatedAt: thread.CreatedAt,
             EventCount: messageCount,
@@ -355,12 +351,6 @@ public class ThreadQueryService(
         CancellationToken cancellationToken)
     {
         IEnumerable<ThreadSummary> query = summaries;
-
-        if (!string.IsNullOrWhiteSpace(filters.Status))
-        {
-            query = query.Where(s =>
-                string.Equals(s.Status, filters.Status, StringComparison.OrdinalIgnoreCase));
-        }
 
         if (!string.IsNullOrWhiteSpace(filters.Unit))
         {
