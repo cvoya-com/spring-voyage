@@ -24,10 +24,9 @@ public static class StateKeys
     /// </summary>
     public const string ObservationChannel = "Agent:ObservationChannel";
 
-    /// <summary>
-    /// State key for the agent definition.
-    /// </summary>
-    public const string AgentDefinition = "Agent:Definition";
+    // ADR-0040 / #2048: AgentDefinition ("Agent:Definition") was dropped.
+    // Cloning re-reads the parent's row from agent_definitions in EF
+    // directly; there is no actor-state copy of the YAML template.
 
     /// <summary>
     /// State key prefix for agent checkpoints, suffixed with the thread ID.
@@ -110,48 +109,21 @@ public static class StateKeys
     /// </summary>
     public const string StreamConfig = "Agent:StreamConfig";
 
-    /// <summary>
-    /// State key for the agent's accumulated cost total.
-    /// </summary>
-    public const string AgentCostTotal = "Agent:CostTotal";
+    // ADR-0040 / #2048: AgentCostTotal ("Agent:CostTotal") was dropped.
+    // The accumulated agent cost is computed at read time as
+    // SUM(cost) FROM cost_records; the cost endpoints query
+    // CostRecord aggregations directly, so the actor-state running
+    // total had no live consumers and was a known-stale duplicate.
 
-    /// <summary>
-    /// State key for the agent's preferred LLM model identifier (<c>AgentMetadata.Model</c>).
-    /// </summary>
-    public const string AgentModel = "Agent:Model";
-
-    /// <summary>
-    /// State key for the agent's specialty label (<c>AgentMetadata.Specialty</c>).
-    /// </summary>
-    public const string AgentSpecialty = "Agent:Specialty";
-
-    /// <summary>
-    /// State key for the agent's enabled flag (<c>AgentMetadata.Enabled</c>).
-    /// Unset defaults to <c>true</c>; explicit <c>false</c> causes
-    /// orchestration strategies to skip the agent.
-    /// </summary>
-    public const string AgentEnabled = "Agent:Enabled";
-
-    /// <summary>
-    /// State key for the agent's execution mode (<c>AgentMetadata.ExecutionMode</c>).
-    /// </summary>
-    public const string AgentExecutionMode = "Agent:ExecutionMode";
-
-    /// <summary>
-    /// State key for the agent's parent-unit pointer (<c>AgentMetadata.ParentUnit</c>).
-    /// Maintained by the unit's assign / unassign endpoints alongside the
-    /// unit's <see cref="Members"/> list.
-    /// </summary>
-    public const string AgentParentUnit = "Agent:ParentUnit";
-
-    /// <summary>
-    /// State key for the agent's configured skill list (tool names the agent
-    /// is allowed to invoke). Stored as <c>List&lt;string&gt;</c>. Replaced
-    /// in full by <c>SetSkillsAsync</c>; no partial-merge semantics because
-    /// an empty list is a legitimate "disable everything" state and should
-    /// not be indistinguishable from "leave alone."
-    /// </summary>
-    public const string AgentSkills = "Agent:Skills";
+    // ADR-0040 / #2048: the agent live-config keys (Agent:Model,
+    // Agent:Specialty, Agent:Enabled, Agent:ExecutionMode, Agent:Skills,
+    // Agent:Expertise) and the legacy parent-unit pointer
+    // (Agent:ParentUnit) were moved to EF. The first four live on the
+    // agent_live_config row; skills and expertise live on
+    // agent_skill_grants and agent_expertise rows; ParentUnit is
+    // derived from unit_memberships and no longer mirrored on the
+    // agent. AgentActor reads / writes via IAgentStateCoordinator,
+    // which routes through IAgentLiveConfigStore.
 
     // ADR-0040 / #2045: the per-agent, per-unit, and tenant-level cost-
     // budget keys (`Agent:CostBudget`, `Unit:CostBudget`,
@@ -209,13 +181,8 @@ public static class StateKeys
     /// </summary>
     public const string AgentPaused = "Agent:Paused";
 
-    /// <summary>
-    /// State key for the agent's configured expertise domains. Stored as a
-    /// <c>List&lt;ExpertiseDomain&gt;</c>. Replaced in full by
-    /// <c>SetExpertiseAsync</c>; empty list is a legitimate "no expertise"
-    /// state. See #412.
-    /// </summary>
-    public const string AgentExpertise = "Agent:Expertise";
+    // ADR-0040 / #2048: Agent:Expertise was moved to the
+    // agent_expertise EF table — see the comment block above.
 
     /// <summary>
     /// State key for the unit's own (non-aggregated) expertise domains —

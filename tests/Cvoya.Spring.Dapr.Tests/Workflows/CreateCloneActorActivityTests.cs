@@ -121,22 +121,24 @@ public class CreateCloneActorActivityTests
     }
 
     [Fact]
-    public async Task RunAsync_CopiesParentDefinition()
+    public async Task RunAsync_DoesNotMirrorAgentDefinitionInStateStore()
     {
+        // ADR-0040 / #2048: Agent:Definition is no longer mirrored in the
+        // state store. Cloning reads the parent's definition from the
+        // agent_definitions EF table on activation; the create-clone
+        // activity must not write an "{cloneId}:Agent:Definition" key.
         var input = new CloningInput(
             "parent-agent", "clone-1",
             CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
 
-        var definition = new object();
-        _stateStore.GetAsync<object>(
-            $"parent-agent:{StateKeys.AgentDefinition}", Arg.Any<CancellationToken>())
-            .Returns(definition);
-
         await _activity.RunAsync(_context, input);
 
-        await _stateStore.Received(1).SetAsync(
-            $"clone-1:{StateKeys.AgentDefinition}",
-            definition,
+        await _stateStore.DidNotReceive().GetAsync<object>(
+            Arg.Is<string>(k => k.EndsWith(":Agent:Definition", StringComparison.Ordinal)),
+            Arg.Any<CancellationToken>());
+        await _stateStore.DidNotReceive().SetAsync(
+            Arg.Is<string>(k => k.EndsWith(":Agent:Definition", StringComparison.Ordinal)),
+            Arg.Any<object>(),
             Arg.Any<CancellationToken>());
     }
 

@@ -71,8 +71,13 @@ public class DestroyCloneActivityTests
 
         await _stateStore.Received(1).DeleteAsync(
             $"{Clone1Hex}:{StateKeys.CloneIdentity}", Arg.Any<CancellationToken>());
-        await _stateStore.Received(1).DeleteAsync(
-            $"{Clone1Hex}:{StateKeys.AgentDefinition}", Arg.Any<CancellationToken>());
+
+        // ADR-0040 / #2048: Agent:Definition is no longer mirrored in the
+        // state store, so the destroy activity must NOT delete an
+        // "{cloneId}:Agent:Definition" key. Guard the regression.
+        await _stateStore.DidNotReceive().DeleteAsync(
+            Arg.Is<string>(k => k.EndsWith(":Agent:Definition", StringComparison.Ordinal)),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

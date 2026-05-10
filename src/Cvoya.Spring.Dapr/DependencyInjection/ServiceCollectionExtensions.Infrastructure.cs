@@ -165,6 +165,12 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // UnitActor (not request-scoped) can write through this seam.
         services.TryAddScoped<IUnitHumanPermissionRepository, UnitHumanPermissionRepository>();
 
+        // #2048 / ADR-0040: agent live config (model / specialty / enabled
+        // / execution_mode), skill grants, and expertise live in EF, not
+        // actor state. Scoped repository wrapped by a singleton store so
+        // AgentActor (not request-scoped) can write through it.
+        services.TryAddScoped<IAgentLiveConfigRepository, AgentLiveConfigRepository>();
+
         // Singleton write-through wrapper around the scoped sub-unit
         // membership repository (#1154). UnitActor is not request-scoped
         // and cannot consume the scoped repo directly; the projector

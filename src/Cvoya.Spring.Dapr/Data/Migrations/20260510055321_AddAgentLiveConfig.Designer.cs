@@ -4,6 +4,7 @@ using System.Text.Json;
 using Cvoya.Spring.Dapr.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Cvoya.Spring.Dapr.Data.Migrations
 {
     [DbContext(typeof(SpringDbContext))]
-    partial class SpringDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260510055321_AddAgentLiveConfig")]
+    partial class AddAgentLiveConfig
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -594,74 +597,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("humans", "spring");
-                });
-
-            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.MessageEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("Body")
-                        .HasColumnType("text")
-                        .HasColumnName("body");
-
-                    b.Property<string>("MessageType")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("message_type");
-
-                    b.Property<string>("Payload")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("payload");
-
-                    b.Property<Guid>("RecipientId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("recipient_id");
-
-                    b.Property<string>("RecipientScheme")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("recipient_scheme");
-
-                    b.Property<DateTimeOffset?>("RetractedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("retracted_at");
-
-                    b.Property<Guid>("SenderId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("sender_id");
-
-                    b.Property<string>("SenderScheme")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("sender_scheme");
-
-                    b.Property<DateTimeOffset>("SentAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("sent_at");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<Guid>("ThreadId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("thread_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ThreadId");
-
-                    b.HasIndex("TenantId", "ThreadId", "SentAt")
-                        .HasDatabaseName("ix_messages_tenant_thread_sent_at");
-
-                    b.ToTable("messages", "spring");
                 });
 
             modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.PackageInstallEntity", b =>
@@ -1244,16 +1179,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasDatabaseName("ix_unit_subunit_memberships_tenant_child");
 
                     b.ToTable("unit_subunit_memberships", "spring");
-                });
-
-            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.MessageEntity", b =>
-                {
-                    b.HasOne("Cvoya.Spring.Dapr.Data.Entities.ThreadEntity", null)
-                        .WithMany()
-                        .HasForeignKey("ThreadId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_messages_thread_id");
                 });
 #pragma warning restore 612, 618
         }

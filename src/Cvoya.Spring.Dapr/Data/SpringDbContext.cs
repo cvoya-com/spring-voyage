@@ -150,6 +150,28 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<MessageEntity> Messages => Set<MessageEntity>();
 
+    /// <summary>
+    /// Gets the set of agent live-config rows (#2048 / ADR-0040). One row
+    /// per agent; replaces the actor-state <c>Agent:Model</c>,
+    /// <c>Agent:Specialty</c>, <c>Agent:Enabled</c>, and
+    /// <c>Agent:ExecutionMode</c> keys.
+    /// </summary>
+    public DbSet<AgentLiveConfigEntity> AgentLiveConfigs => Set<AgentLiveConfigEntity>();
+
+    /// <summary>
+    /// Gets the set of agent skill-grant rows (#2048 / ADR-0040). One row
+    /// per (agent, skill); replaces the actor-state <c>Agent:Skills</c>
+    /// list.
+    /// </summary>
+    public DbSet<AgentSkillGrantEntity> AgentSkillGrants => Set<AgentSkillGrantEntity>();
+
+    /// <summary>
+    /// Gets the set of agent expertise rows (#2048 / ADR-0040). One row
+    /// per (agent, expertise-name); replaces the actor-state
+    /// <c>Agent:Expertise</c> list.
+    /// </summary>
+    public DbSet<AgentExpertiseEntity> AgentExpertise => Set<AgentExpertiseEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -184,6 +206,9 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ThreadEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitHumanPermissionEntityConfiguration());
         modelBuilder.ApplyConfiguration(new MessageEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new AgentLiveConfigEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new AgentSkillGrantEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new AgentExpertiseEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -249,6 +274,18 @@ public class SpringDbContext : DbContext
         // Retraction is modelled as a populated <c>retracted_at</c> column;
         // the row stays for audit and surfaces with a "retracted" badge.
         modelBuilder.Entity<MessageEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Agent live config: tenant-scoped, no soft-delete (#2048 / ADR-0040).
+        modelBuilder.Entity<AgentLiveConfigEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Agent skill grants: tenant-scoped, no soft-delete (#2048 / ADR-0040).
+        modelBuilder.Entity<AgentSkillGrantEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Agent expertise: tenant-scoped, no soft-delete (#2048 / ADR-0040).
+        modelBuilder.Entity<AgentExpertiseEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 
