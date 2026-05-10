@@ -8,10 +8,16 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Dapr.Tenancy;
+using Cvoya.Spring.Dapr.Threads;
 
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using NSubstitute;
@@ -297,6 +303,127 @@ public class MessageRouterTests
         // Permission service should NOT have been called for agent-to-unit routing.
         await _permissionService.DidNotReceive().ResolveEffectivePermissionAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RouteAsync_DomainMessage_PersistsToMessagesTableViaWriter()
+    {
+        // #2053: every Domain message must produce a row in the messages
+        // table at dispatch time. The router opens a scope per dispatch and
+        // resolves IMessageWriter from it; this test wires a real DI
+        // container with the EF writer and an in-memory DbContext to
+        // verify the dispatch-time write path end-to-end.
+        var ct = TestContext.Current.CancellationToken;
+        var tenantId = new Guid("11111111-2222-3333-4444-000000000099");
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var dbName = $"router-{Guid.NewGuid()}";
+        services.AddDbContext<SpringDbContext>(opts => opts.UseInMemoryDatabase(dbName));
+        services.AddSingleton<ITenantContext>(new StaticTenantContext(tenantId));
+        services.AddScoped<IMessageWriter, EfMessageWriter>();
+        var provider = services.BuildServiceProvider();
+        var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
+
+        // Pre-allocate a thread row so the FK insert in EfMessageWriter has
+        // a valid principal — same pre-condition the API path establishes
+        // through IThreadRegistry.GetOrCreateAsync.
+        var threadId = Guid.NewGuid();
+        using (var seedScope = scopeFactory.CreateScope())
+        {
+            var seedDb = seedScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            seedDb.Threads.Add(new Cvoya.Spring.Dapr.Data.Entities.ThreadEntity
+            {
+                Id = threadId,
+                TenantId = tenantId,
+                ParticipantKey = "agent:" + Hex(SenderId) + "|agent:" + Hex(AdaId),
+                Participants = "[]",
+                CreatedAt = DateTimeOffset.UtcNow,
+                LastActivityAt = DateTimeOffset.UtcNow,
+                Status = "active",
+            });
+            await seedDb.SaveChangesAsync(ct);
+        }
+
+        var destination = new Address("agent", AdaId);
+        var entry = new DirectoryEntry(destination, AdaId, "Ada", "Engineer", null, DateTimeOffset.UtcNow);
+        var message = new Message(
+            Guid.NewGuid(),
+            new Address("agent", SenderId),
+            destination,
+            MessageType.Domain,
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(threadId),
+            JsonSerializer.SerializeToElement("hello via dispatch"),
+            DateTimeOffset.UtcNow);
+
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        var actorProxy = Substitute.For<IAgent>();
+        actorProxy.ReceiveAsync(message, Arg.Any<CancellationToken>())
+            .Returns(CreateResponse(message));
+        _agentProxyResolver.Resolve("agent", Hex(AdaId)).Returns(actorProxy);
+
+        var routerWithScope = new MessageRouter(
+            _directoryService, _agentProxyResolver, _permissionService, _loggerFactory, scopeFactory);
+
+        var result = await routerWithScope.RouteAsync(message, ct);
+        result.IsSuccess.ShouldBeTrue();
+
+        using var verifyScope = scopeFactory.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await verifyDb.Messages.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == message.Id, ct);
+        row.ShouldNotBeNull();
+        row!.ThreadId.ShouldBe(threadId);
+        row.SenderId.ShouldBe(SenderId);
+        row.RecipientId.ShouldBe(AdaId);
+        row.Body.ShouldBe("hello via dispatch");
+    }
+
+    [Fact]
+    public async Task RouteAsync_NonDomainMessage_DoesNotPersistToMessagesTable()
+    {
+        // Control messages (HealthCheck / Cancel / StatusQuery) are runtime-
+        // only and never make it to the messages table.
+        var ct = TestContext.Current.CancellationToken;
+        var tenantId = new Guid("11111111-2222-3333-4444-000000000098");
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var dbName = $"router-{Guid.NewGuid()}";
+        services.AddDbContext<SpringDbContext>(opts => opts.UseInMemoryDatabase(dbName));
+        services.AddSingleton<ITenantContext>(new StaticTenantContext(tenantId));
+        services.AddScoped<IMessageWriter, EfMessageWriter>();
+        var provider = services.BuildServiceProvider();
+        var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
+
+        var destination = new Address("agent", AdaId);
+        var entry = new DirectoryEntry(destination, AdaId, "Ada", "Engineer", null, DateTimeOffset.UtcNow);
+        var control = new Message(
+            Guid.NewGuid(),
+            new Address("agent", SenderId),
+            destination,
+            MessageType.HealthCheck,
+            null,
+            default,
+            DateTimeOffset.UtcNow);
+
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>())
+            .Returns(entry);
+        var actorProxy = Substitute.For<IAgent>();
+        actorProxy.ReceiveAsync(control, Arg.Any<CancellationToken>()).Returns(CreateResponse(control));
+        _agentProxyResolver.Resolve("agent", Hex(AdaId)).Returns(actorProxy);
+
+        var routerWithScope = new MessageRouter(
+            _directoryService, _agentProxyResolver, _permissionService, _loggerFactory, scopeFactory);
+
+        var result = await routerWithScope.RouteAsync(control, ct);
+        result.IsSuccess.ShouldBeTrue();
+
+        using var verifyScope = scopeFactory.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        (await verifyDb.Messages.AsNoTracking().AnyAsync(ct)).ShouldBeFalse();
     }
 
     private static Message CreateMessageFromHuman(Address to, Guid humanId) =>

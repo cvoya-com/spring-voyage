@@ -207,6 +207,15 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // OSS default (e.g. permission / audit-logging wrapper).
         services.TryAddScoped<IThreadRegistry, EfThreadRegistry>();
 
+        // Message writer (#2053 / ADR-0030). Scoped for the same reason as
+        // the thread registry — consumes SpringDbContext + ITenantContext
+        // via constructor injection. The MessageRouter (singleton) opens a
+        // scope per dispatch via IServiceScopeFactory rather than holding a
+        // long-lived DbContext. TryAddScoped so the cloud overlay can layer
+        // an outbox-pattern decorator ahead of the OSS default if a stricter
+        // dispatch-vs-persistence transactional boundary becomes necessary.
+        services.TryAddScoped<IMessageWriter, EfMessageWriter>();
+
         services.AddCvoyaSpringTenantPlugins(configuration);
 
         return services;

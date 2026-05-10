@@ -10,7 +10,9 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Threads;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -25,13 +27,49 @@ using Microsoft.Extensions.Logging;
 /// <c>connector://</c> to dispatch <c>ReceiveAsync</c>.
 /// </para>
 /// </summary>
-public class MessageRouter(
-    IDirectoryService directoryService,
-    IAgentProxyResolver agentProxyResolver,
-    IPermissionService permissionService,
-    ILoggerFactory loggerFactory) : IMessageRouter
+public class MessageRouter : IMessageRouter
 {
-    private readonly ILogger _logger = loggerFactory.CreateLogger<MessageRouter>();
+    private readonly IDirectoryService _directoryService;
+    private readonly IAgentProxyResolver _agentProxyResolver;
+    private readonly IPermissionService _permissionService;
+    private readonly ILogger _logger;
+    private readonly IServiceScopeFactory? _scopeFactory;
+
+    /// <summary>
+    /// Pre-#2053 constructor preserved for legacy NSubstitute test harnesses
+    /// that build a <see cref="MessageRouter"/> proxy via the four-argument
+    /// shape. Equivalent to the five-argument overload with
+    /// <paramref name="loggerFactory"/> only — message persistence is a
+    /// no-op when no <see cref="IServiceScopeFactory"/> is supplied.
+    /// </summary>
+    public MessageRouter(
+        IDirectoryService directoryService,
+        IAgentProxyResolver agentProxyResolver,
+        IPermissionService permissionService,
+        ILoggerFactory loggerFactory)
+        : this(directoryService, agentProxyResolver, permissionService, loggerFactory, scopeFactory: null)
+    {
+    }
+
+    /// <summary>
+    /// Production constructor. The <paramref name="scopeFactory"/> opens a
+    /// scoped DI container per dispatch so the singleton router can resolve
+    /// the scoped <see cref="Threads.IMessageWriter"/> for the EF-backed
+    /// <c>messages</c> table write (#2053 / ADR-0030).
+    /// </summary>
+    public MessageRouter(
+        IDirectoryService directoryService,
+        IAgentProxyResolver agentProxyResolver,
+        IPermissionService permissionService,
+        ILoggerFactory loggerFactory,
+        IServiceScopeFactory? scopeFactory)
+    {
+        _directoryService = directoryService;
+        _agentProxyResolver = agentProxyResolver;
+        _permissionService = permissionService;
+        _logger = loggerFactory.CreateLogger<MessageRouter>();
+        _scopeFactory = scopeFactory;
+    }
 
     /// <summary>
     /// Routes a message to its destination actor and returns the response.
@@ -42,6 +80,19 @@ public class MessageRouter(
     public virtual async Task<Result<Message?, RoutingError>> RouteAsync(Message message, CancellationToken cancellationToken = default)
     {
         var destination = message.To;
+
+        // #2053 / ADR-0030: persist the message envelope before delivery so the
+        // Thread Timeline has a durable row even if the downstream recipient
+        // throws. The write is keyed on Message.Id and idempotent — re-dispatch
+        // (manual retry, multicast fanout) hits the existence check inside the
+        // writer rather than duplicating history. Skipped for control /
+        // non-Domain messages (HealthCheck, Cancel, …) and for messages that
+        // arrive without a Guid-shaped thread id; the API path validates the
+        // shape before calling, so the skip is a defensive guard.
+        if (IMessageWriter.ShouldWrite(message))
+        {
+            await PersistMessageAsync(message, cancellationToken);
+        }
 
         // Multicast: role:// addresses fan out to all actors with that role.
         if (string.Equals(destination.Scheme, "role", StringComparison.OrdinalIgnoreCase))
@@ -117,7 +168,7 @@ public class MessageRouter(
         }
 
         // Path address: look up in directory service.
-        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+        var entry = await _directoryService.ResolveAsync(address, cancellationToken);
         if (entry is null)
         {
             _logger.LogWarning("Address not found: {Scheme}://{Path}", address.Scheme, address.Path);
@@ -139,7 +190,7 @@ public class MessageRouter(
     private async Task<Result<Message?, RoutingError>> DeliverAsync(
         Message message, string actorId, string scheme, CancellationToken cancellationToken)
     {
-        var proxy = agentProxyResolver.Resolve(scheme, actorId);
+        var proxy = _agentProxyResolver.Resolve(scheme, actorId);
         if (proxy is null)
         {
             return Result<Message?, RoutingError>.Failure(
@@ -197,7 +248,7 @@ public class MessageRouter(
         // direct grant on each one, subject to per-unit
         // UnitPermissionInheritance. Direct grants on the target unit still
         // take precedence.
-        var permission = await permissionService.ResolveEffectivePermissionAsync(humanId, unitId, cancellationToken);
+        var permission = await _permissionService.ResolveEffectivePermissionAsync(humanId, unitId, cancellationToken);
 
         if (permission is null || permission.Value < minimumLevel)
         {
@@ -219,7 +270,7 @@ public class MessageRouter(
         Message message, CancellationToken cancellationToken)
     {
         var role = message.To.Path;
-        var entries = await directoryService.ResolveByRoleAsync(role, cancellationToken);
+        var entries = await _directoryService.ResolveByRoleAsync(role, cancellationToken);
 
         if (entries.Count == 0)
         {
@@ -272,5 +323,53 @@ public class MessageRouter(
             DateTimeOffset.UtcNow);
 
         return Result<Message?, RoutingError>.Success(aggregatedResponse);
+    }
+
+    /// <summary>
+    /// Resolves an <see cref="IMessageWriter"/> for the current request scope
+    /// and writes the message envelope. The router is registered as a
+    /// singleton so it cannot inject the scoped <c>SpringDbContext</c>
+    /// directly; an <see cref="IServiceScopeFactory"/> opens a scope per
+    /// dispatch (matching the pattern used by
+    /// <see cref="PermissionService"/>). When the factory is not
+    /// registered (legacy unit-test harnesses that construct
+    /// <see cref="MessageRouter"/> directly), the call is a no-op so those
+    /// tests keep working without a database.
+    /// </summary>
+    private async Task PersistMessageAsync(Message message, CancellationToken cancellationToken)
+    {
+        if (_scopeFactory is null)
+        {
+            return;
+        }
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var writer = scope.ServiceProvider.GetService<IMessageWriter>();
+            if (writer is null)
+            {
+                return;
+            }
+
+            await writer.WriteAsync(message, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Persistence failure does not abort the dispatch — the activity
+            // event chain still records what the platform observed, and the
+            // operator-facing error surfaces in logs. The narrower alternative
+            // — failing the send — would tie liveness of the entire dispatch
+            // path to the Postgres write and is out of scope for #2053; the
+            // logging here is enough to flag the gap. A follow-up issue can
+            // promote this to a hard failure once the dispatch error path is
+            // re-shaped end-to-end.
+            _logger.LogError(
+                ex,
+                "Failed to persist message {MessageId} for thread {ThreadId} from {FromScheme}://{FromPath} to {ToScheme}://{ToPath}.",
+                message.Id, message.ThreadId,
+                message.From.Scheme, message.From.Path,
+                message.To.Scheme, message.To.Path);
+        }
     }
 }
