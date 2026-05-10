@@ -71,7 +71,23 @@ public class DbAgentDefinitionProvider(
 
         if (entity is null)
         {
-            _logger.LogDebug("No agent definition found for id {AgentId}", agentId);
+            // ADR-0039: units are agents. The dispatcher resolves a message
+            // recipient by id without knowing whether it's an `agent://` or
+            // a `unit://`. When the id does not match an agent definition
+            // row, fall through to the unit-definitions table and project
+            // the unit's own execution block as an AgentDefinition so the
+            // dispatcher can launch the unit's runtime container directly.
+            // Issue #2081 follow-up: before the reentrancy fix the dispatch
+            // never reached this point (the actor-self-call deadlocked
+            // first); now it does, and the unit-as-agent path needs an
+            // actual implementation.
+            var unitDefinition = await TryProjectUnitAsync(db, agentUuid, cancellationToken);
+            if (unitDefinition is not null)
+            {
+                return unitDefinition;
+            }
+
+            _logger.LogDebug("No agent or unit definition found for id {Id}", agentId);
             return null;
         }
 
@@ -137,6 +153,67 @@ public class DbAgentDefinitionProvider(
         return new AgentDefinition(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entity.Id),
             entity.DisplayName,
+            instructions,
+            execution);
+    }
+
+    /// <summary>
+    /// Projects a <c>UnitDefinitionEntity</c> as an <see cref="AgentDefinition"/>
+    /// so the dispatcher can launch the unit's own runtime container (per
+    /// ADR-0039 — units are agents). Returns <c>null</c> when no unit row
+    /// exists for <paramref name="unitId"/>, when the row was soft-deleted,
+    /// or when the unit's definition JSON does not carry an executable
+    /// runtime slot (<c>execution.agent</c>) — the dispatcher requires
+    /// an agent-runtime id to know which launcher to invoke.
+    /// </summary>
+    /// <remarks>
+    /// Hosting mode is forced to <see cref="AgentHostingMode.Ephemeral"/>:
+    /// units launch a fresh container per inbound message, the same shape
+    /// the validation workflow already uses for unit probes. The unit's
+    /// <c>execution</c> JSON shape is identical to the agent's, so
+    /// <see cref="ExtractExecution"/> handles both — we just reuse it.
+    /// Instructions come from the unit's top-level <c>instructions</c>
+    /// field when present (mirrors agent definitions).
+    /// </remarks>
+    private async Task<AgentDefinition?> TryProjectUnitAsync(
+        SpringDbContext db,
+        Guid unitId,
+        CancellationToken cancellationToken)
+    {
+        var unit = await db.UnitDefinitions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == unitId && u.DeletedAt == null, cancellationToken);
+
+        if (unit is null)
+        {
+            return null;
+        }
+
+        string? instructions = null;
+        AgentExecutionConfig? execution = null;
+
+        if (unit.Definition is { ValueKind: JsonValueKind.Object } definition)
+        {
+            if (definition.TryGetProperty("instructions", out var instructionsProp) &&
+                instructionsProp.ValueKind == JsonValueKind.String)
+            {
+                instructions = instructionsProp.GetString();
+            }
+
+            execution = ExtractExecution(definition);
+        }
+
+        if (execution is null)
+        {
+            _logger.LogWarning(
+                "Unit {UnitId} matched by id but has no execution.agent slot; cannot dispatch as runtime.",
+                unitId);
+            return null;
+        }
+
+        return new AgentDefinition(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id),
+            unit.DisplayName,
             instructions,
             execution);
     }
