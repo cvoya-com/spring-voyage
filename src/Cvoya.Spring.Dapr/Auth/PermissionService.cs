@@ -39,11 +39,6 @@ using Microsoft.Extensions.Logging;
 /// <see cref="IHumanIdentityResolver"/> per call to convert the incoming
 /// username string (from <see cref="System.Security.Claims.ClaimTypes.NameIdentifier"/>)
 /// into a stable UUID before querying the unit's permission row.
-/// When <c>null</c> (legacy test harnesses that construct
-/// <see cref="PermissionService"/> directly), the service falls back to
-/// treating the humanId string as a UUID-string directly — calls that pass
-/// an actual UUID string continue to work unchanged, and the test harness
-/// can continue to exercise the service without a database.
 /// </para>
 /// </remarks>
 public class PermissionService(
@@ -51,7 +46,7 @@ public class PermissionService(
     IUnitHierarchyResolver hierarchyResolver,
     IActorProxyFactory inheritanceActorProxyFactory,
     ILoggerFactory loggerFactory,
-    IServiceScopeFactory? scopeFactory = null) : IPermissionService
+    IServiceScopeFactory scopeFactory) : IPermissionService
 {
     /// <summary>
     /// Matches <c>UnitMembershipCoordinator.MaxCycleDetectionDepth</c> so the
@@ -252,13 +247,12 @@ public class PermissionService(
     }
 
     /// <summary>
-    /// Converts the incoming human identity string to a UUID.
-    /// When a <see cref="IServiceScopeFactory"/> is available, creates a
+    /// Converts the incoming human identity string to a UUID. Creates a
     /// short-lived scope to resolve a scoped <see cref="IHumanIdentityResolver"/>
     /// and calls <c>ResolveByUsernameAsync</c> (upsert on first-contact).
-    /// Without the factory (legacy test harnesses), falls back to parsing the
-    /// string directly as a UUID; returns <see cref="Guid.Empty"/> when neither
-    /// path succeeds.
+    /// Returns <see cref="Guid.Empty"/> when the resolver cannot map the
+    /// caller — surface as "no permission" rather than throw, matching the
+    /// pre-#2044 directory-miss behaviour.
     /// </summary>
     private async Task<Guid> ResolveHumanGuidAsync(
         string humanId,
@@ -278,25 +272,19 @@ public class PermissionService(
             return identityFormGuid;
         }
 
-        if (scopeFactory is not null)
+        try
         {
-            try
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var resolver = scope.ServiceProvider.GetRequiredService<IHumanIdentityResolver>();
-                return await resolver.ResolveByUsernameAsync(humanId, null, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "Could not resolve human UUID for username {HumanId}; treating as no permission.",
-                    humanId);
-                return Guid.Empty;
-            }
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var resolver = scope.ServiceProvider.GetRequiredService<IHumanIdentityResolver>();
+            return await resolver.ResolveByUsernameAsync(humanId, null, cancellationToken);
         }
-
-        // Fallback for test harnesses that pass a UUID string directly.
-        return Guid.TryParse(humanId, out var guid) ? guid : Guid.Empty;
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Could not resolve human UUID for username {HumanId}; treating as no permission.",
+                humanId);
+            return Guid.Empty;
+        }
     }
 
     /// <summary>

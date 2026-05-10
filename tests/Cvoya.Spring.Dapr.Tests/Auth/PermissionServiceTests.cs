@@ -52,6 +52,7 @@ public class PermissionServiceTests
     private readonly IUnitHierarchyResolver _hierarchyResolver = Substitute.For<IUnitHierarchyResolver>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
+    private readonly IServiceScopeFactory _scopeFactory = EmptyScopeFactory();
     private readonly Dictionary<Guid, IUnitActor> _inheritanceActors = new();
     private readonly PermissionService _service;
 
@@ -82,7 +83,24 @@ public class PermissionServiceTests
             });
 
         _service = new PermissionService(
-            _permissionStore, _hierarchyResolver, _actorProxyFactory, _loggerFactory);
+            _permissionStore, _hierarchyResolver, _actorProxyFactory, _loggerFactory, _scopeFactory);
+    }
+
+    /// <summary>
+    /// Returns an <see cref="IServiceScopeFactory"/> with no
+    /// <see cref="IHumanIdentityResolver"/> registered. Tests that pass a
+    /// GUID-shaped human id never reach the resolver (the
+    /// <c>GuidFormatter.TryParse</c> short-circuit fires first); tests that
+    /// pass a non-GUID id rely on the catch path inside
+    /// <c>ResolveHumanGuidAsync</c> to swallow the missing-service exception
+    /// and surface as <c>Guid.Empty</c> → "no permission". Tests that need
+    /// a real resolver build their own scope factory via
+    /// <see cref="BuildServiceWithResolver"/>.
+    /// </summary>
+    private static IServiceScopeFactory EmptyScopeFactory()
+    {
+        var services = new ServiceCollection();
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
 
     private IUnitActor InheritanceActor(Guid id)
@@ -286,7 +304,9 @@ public class PermissionServiceTests
         var ct = TestContext.Current.CancellationToken;
 
         (await _service.ResolveEffectivePermissionAsync("", Id(UnitOneId), ct)).ShouldBeNull();
-        // "h" is not a valid UUID string — falls back to Guid.Empty → null.
+        // "h" is not a valid UUID; the empty scope has no IHumanIdentityResolver
+        // registered, the resolver lookup throws inside ResolveHumanGuidAsync,
+        // the catch surfaces Guid.Empty, and the empty unitId never parses → null.
         (await _service.ResolveEffectivePermissionAsync("h", "", ct)).ShouldBeNull();
     }
 
