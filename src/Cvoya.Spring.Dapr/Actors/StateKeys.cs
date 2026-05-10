@@ -177,26 +177,12 @@ public static class StateKeys
     // Unit:PermissionInheritance were moved to EF — see the
     // unit_live_config / unit_expertise comment block above.
 
-    /// <summary>
-    /// State-key prefix for the persistent cloning policy recorded against
-    /// a specific agent — the
-    /// <see cref="Cvoya.Spring.Core.Cloning.AgentCloningPolicy"/> value
-    /// <c>IAgentCloningPolicyEnforcer</c> evaluates on every clone request.
-    /// Full key format: <c>Agent:CloningPolicy:{agentId}</c>. Empty /
-    /// never-set means "no agent-scoped constraint" — the enforcer falls
-    /// through to <see cref="TenantCloningPolicy"/>. See #416.
-    /// </summary>
-    public const string AgentCloningPolicy = "Agent:CloningPolicy";
-
-    /// <summary>
-    /// State-key prefix for the tenant-wide persistent cloning policy —
-    /// the default <see cref="Cvoya.Spring.Core.Cloning.AgentCloningPolicy"/>
-    /// applied to every agent that has no agent-scoped policy. Full key
-    /// format: <c>Tenant:CloningPolicy:{tenantId}</c>. Numeric caps
-    /// collapse to the tightest non-null value across scopes so a tenant
-    /// ceiling cannot be relaxed by an agent-scoped override. See #416.
-    /// </summary>
-    public const string TenantCloningPolicy = "Tenant:CloningPolicy";
+    // ADR-0040 / #2051: Agent:CloningPolicy and Tenant:CloningPolicy were
+    // moved to the cloning_policies EF table. Agent and tenant-wide
+    // cloning policies now live on a single tenant-scoped relational
+    // table keyed by (tenant_id, scope_type, scope_id) so the policy
+    // payload survives actor restarts and so resolution becomes a single
+    // SQL read in the enforcer. See EfAgentCloningPolicyRepository.
 
     // #1732: The pre-existing UnitTool key (`Unit:Tool`) was removed —
     // the execution tool is now derived from the runtime registry via the
