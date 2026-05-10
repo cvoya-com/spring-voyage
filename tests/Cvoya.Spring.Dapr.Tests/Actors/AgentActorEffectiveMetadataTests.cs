@@ -68,7 +68,8 @@ public class AgentActorEffectiveMetadataTests
             Substitute.For<IDirectoryService>(),
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
-            loggerFactory);
+            loggerFactory,
+            NullMessageWriterScopeFactory.Create());
 
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns((Message?)null);

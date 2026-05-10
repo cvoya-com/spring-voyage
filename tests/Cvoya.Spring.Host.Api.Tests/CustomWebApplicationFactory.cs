@@ -477,7 +477,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             {
                 var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
                 var permSvc = sp.GetRequiredService<IPermissionService>();
-                return new MessageRouter(DirectoryService, AgentProxyResolver, permSvc, loggerFactory);
+                var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+                return new MessageRouter(DirectoryService, AgentProxyResolver, permSvc, loggerFactory, scopeFactory);
             });
         });
     }

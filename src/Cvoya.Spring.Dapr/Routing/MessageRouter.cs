@@ -10,7 +10,9 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Threads;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -25,13 +27,35 @@ using Microsoft.Extensions.Logging;
 /// <c>connector://</c> to dispatch <c>ReceiveAsync</c>.
 /// </para>
 /// </summary>
-public class MessageRouter(
-    IDirectoryService directoryService,
-    IAgentProxyResolver agentProxyResolver,
-    IPermissionService permissionService,
-    ILoggerFactory loggerFactory) : IMessageRouter
+public class MessageRouter : IMessageRouter
 {
-    private readonly ILogger _logger = loggerFactory.CreateLogger<MessageRouter>();
+    private readonly IDirectoryService _directoryService;
+    private readonly IAgentProxyResolver _agentProxyResolver;
+    private readonly IPermissionService _permissionService;
+    private readonly ILogger _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
+
+    /// <summary>
+    /// Constructs a router. The <paramref name="scopeFactory"/> opens a
+    /// scoped DI container per dispatch so the singleton router can resolve
+    /// the scoped <see cref="Threads.IMessageWriter"/> for the EF-backed
+    /// <c>messages</c> table write (#2053 / ADR-0030).
+    /// </summary>
+    public MessageRouter(
+        IDirectoryService directoryService,
+        IAgentProxyResolver agentProxyResolver,
+        IPermissionService permissionService,
+        ILoggerFactory loggerFactory,
+        IServiceScopeFactory scopeFactory)
+    {
+        ArgumentNullException.ThrowIfNull(scopeFactory);
+
+        _directoryService = directoryService;
+        _agentProxyResolver = agentProxyResolver;
+        _permissionService = permissionService;
+        _logger = loggerFactory.CreateLogger<MessageRouter>();
+        _scopeFactory = scopeFactory;
+    }
 
     /// <summary>
     /// Routes a message to its destination actor and returns the response.
@@ -42,6 +66,19 @@ public class MessageRouter(
     public virtual async Task<Result<Message?, RoutingError>> RouteAsync(Message message, CancellationToken cancellationToken = default)
     {
         var destination = message.To;
+
+        // #2053 / ADR-0030: persist the message envelope before delivery so the
+        // Thread Timeline has a durable row even if the downstream recipient
+        // throws. The write is keyed on Message.Id and idempotent — re-dispatch
+        // (manual retry, multicast fanout) hits the existence check inside the
+        // writer rather than duplicating history. Skipped for control /
+        // non-Domain messages (HealthCheck, Cancel, …) and for messages that
+        // arrive without a Guid-shaped thread id; the API path validates the
+        // shape before calling, so the skip is a defensive guard.
+        if (IMessageWriter.ShouldWrite(message))
+        {
+            await PersistMessageAsync(message, cancellationToken);
+        }
 
         // Multicast: role:// addresses fan out to all actors with that role.
         if (string.Equals(destination.Scheme, "role", StringComparison.OrdinalIgnoreCase))
@@ -117,7 +154,7 @@ public class MessageRouter(
         }
 
         // Path address: look up in directory service.
-        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+        var entry = await _directoryService.ResolveAsync(address, cancellationToken);
         if (entry is null)
         {
             _logger.LogWarning("Address not found: {Scheme}://{Path}", address.Scheme, address.Path);
@@ -139,7 +176,7 @@ public class MessageRouter(
     private async Task<Result<Message?, RoutingError>> DeliverAsync(
         Message message, string actorId, string scheme, CancellationToken cancellationToken)
     {
-        var proxy = agentProxyResolver.Resolve(scheme, actorId);
+        var proxy = _agentProxyResolver.Resolve(scheme, actorId);
         if (proxy is null)
         {
             return Result<Message?, RoutingError>.Failure(
@@ -197,7 +234,7 @@ public class MessageRouter(
         // direct grant on each one, subject to per-unit
         // UnitPermissionInheritance. Direct grants on the target unit still
         // take precedence.
-        var permission = await permissionService.ResolveEffectivePermissionAsync(humanId, unitId, cancellationToken);
+        var permission = await _permissionService.ResolveEffectivePermissionAsync(humanId, unitId, cancellationToken);
 
         if (permission is null || permission.Value < minimumLevel)
         {
@@ -219,7 +256,7 @@ public class MessageRouter(
         Message message, CancellationToken cancellationToken)
     {
         var role = message.To.Path;
-        var entries = await directoryService.ResolveByRoleAsync(role, cancellationToken);
+        var entries = await _directoryService.ResolveByRoleAsync(role, cancellationToken);
 
         if (entries.Count == 0)
         {
@@ -272,5 +309,27 @@ public class MessageRouter(
             DateTimeOffset.UtcNow);
 
         return Result<Message?, RoutingError>.Success(aggregatedResponse);
+    }
+
+    /// <summary>
+    /// Resolves an <see cref="IMessageWriter"/> for the current request scope
+    /// and writes the message envelope. The router is registered as a
+    /// singleton so it cannot inject the scoped <c>SpringDbContext</c>
+    /// directly; an <see cref="IServiceScopeFactory"/> opens a scope per
+    /// dispatch (matching the pattern used by
+    /// <see cref="PermissionService"/>).
+    /// <para>
+    /// Persistence is fail-fast: ADR-0040 makes the EF <c>messages</c> table
+    /// authoritative for thread history, so a write failure must abort the
+    /// dispatch rather than silently deliver an unrecorded message.
+    /// Exceptions propagate to the caller; endpoints surface them as 5xx,
+    /// dispatch coordinators clear the active thread on the way out.
+    /// </para>
+    /// </summary>
+    private async Task PersistMessageAsync(Message message, CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var writer = scope.ServiceProvider.GetRequiredService<IMessageWriter>();
+        await writer.WriteAsync(message, cancellationToken);
     }
 }

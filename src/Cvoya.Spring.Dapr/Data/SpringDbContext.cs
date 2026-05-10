@@ -142,6 +142,14 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<UnitHumanPermissionEntity> UnitHumanPermissions => Set<UnitHumanPermissionEntity>();
 
+    /// <summary>
+    /// Gets the set of persisted message-history rows (#2053 / ADR-0030 /
+    /// ADR-0040). The dispatcher writes one row per accepted Domain
+    /// message; readers query this table directly instead of scanning
+    /// <c>activity_events.Details</c> JSON.
+    /// </summary>
+    public DbSet<MessageEntity> Messages => Set<MessageEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -175,6 +183,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new BudgetLimitEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ThreadEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitHumanPermissionEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new MessageEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -234,6 +243,12 @@ public class SpringDbContext : DbContext
 
         // Unit ACL grants: tenant-scoped, no soft-delete (#2044 / ADR-0040).
         modelBuilder.Entity<UnitHumanPermissionEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Message history: tenant-scoped, no soft-delete (#2053 / ADR-0030).
+        // Retraction is modelled as a populated <c>retracted_at</c> column;
+        // the row stays for audit and surfaces with a "retracted" badge.
+        modelBuilder.Entity<MessageEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 

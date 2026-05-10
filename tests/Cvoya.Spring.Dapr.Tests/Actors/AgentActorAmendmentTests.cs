@@ -65,7 +65,8 @@ public class AgentActorAmendmentTests
             Substitute.For<IDirectoryService>(),
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
-            loggerFactory);
+            loggerFactory,
+            NullMessageWriterScopeFactory.Create());
 
         // Wire directory service: unit address → its directory entry.
         _directoryService

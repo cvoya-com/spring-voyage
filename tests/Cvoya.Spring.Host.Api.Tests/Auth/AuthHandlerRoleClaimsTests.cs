@@ -267,7 +267,8 @@ public class AuthHandlerRoleClaimsTests : IDisposable
                     {
                         var permSvc = Substitute.For<IPermissionService>();
                         var loggerFactory = sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
-                        return new MessageRouter(directoryService, agentProxyResolver, permSvc, loggerFactory);
+                        var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+                        return new MessageRouter(directoryService, agentProxyResolver, permSvc, loggerFactory, scopeFactory);
                     });
                 });
             });
