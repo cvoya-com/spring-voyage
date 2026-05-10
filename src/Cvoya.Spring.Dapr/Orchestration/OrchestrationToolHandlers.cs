@@ -537,18 +537,24 @@ public class OrchestrationToolHandlers(
         string? busyOnThread = null;
         if (status == "busy")
         {
-            // AgentActor's StatusQuery payload carries ActiveThreadId
-            // (a string when present, null when idle); UnitActor does
-            // not advertise an active thread on its status payload (its
-            // mailbox is not request-scoped), so the field stays null
-            // there. Reading defensively keeps both shapes safe.
-            if (payload.TryGetProperty("ActiveThreadId", out var threadElement) &&
-                threadElement.ValueKind == JsonValueKind.String)
+            // #2076 / ADR-0030 §3 §44: AgentActor's StatusQuery payload
+            // carries a per-thread ThreadDepths map under concurrent
+            // threads (one entry per active thread, value = queue depth).
+            // The orchestration probe surfaces a single representative
+            // thread id for "busy on what?"; we pick the first entry,
+            // which is sufficient for the closed schema's BusyOnThread
+            // field. UnitActor does not advertise per-thread depth on
+            // its status payload, so the field stays null there.
+            if (payload.TryGetProperty("ThreadDepths", out var depthsElement) &&
+                depthsElement.ValueKind == JsonValueKind.Object)
             {
-                var threadValue = threadElement.GetString();
-                if (!string.IsNullOrWhiteSpace(threadValue))
+                foreach (var entry in depthsElement.EnumerateObject())
                 {
-                    busyOnThread = threadValue;
+                    if (!string.IsNullOrWhiteSpace(entry.Name))
+                    {
+                        busyOnThread = entry.Name;
+                        break;
+                    }
                 }
             }
         }
@@ -560,7 +566,6 @@ public class OrchestrationToolHandlers(
     {
         "Idle" => "ready",
         "Active" => "busy",
-        "Suspended" => "busy",
         _ => "unknown",
     };
 

@@ -59,17 +59,32 @@ public class CreateCloneActorActivity(
     }
 
     /// <summary>
-    /// Copies checkpoint and conversation state from the parent to the clone.
+    /// Copies the parent's per-thread channels and initiative state to
+    /// the clone. Per #2076 / ADR-0030 §3 §44 the per-thread channel map
+    /// (<c>Agent:Channel:{ThreadId}</c>) replaces the single
+    /// <c>Agent:ActiveThread</c> slot.
     /// </summary>
     private async Task CopyMemoryStateAsync(string parentId, string cloneId)
     {
-        // Copy active thread state.
-        var parentActiveKey = $"{parentId}:{StateKeys.ActiveThread}";
-        var activeThread = await stateStore.GetAsync<object>(parentActiveKey);
-        if (activeThread is not null)
+        // Copy every per-thread channel listed in the parent's channel
+        // index, plus the index itself.
+        var parentIndexKey = $"{parentId}:{StateKeys.ChannelIndex}";
+        var index = await stateStore.GetAsync<List<string>>(parentIndexKey);
+        if (index is { Count: > 0 })
         {
-            var cloneActiveKey = $"{cloneId}:{StateKeys.ActiveThread}";
-            await stateStore.SetAsync(cloneActiveKey, activeThread);
+            var cloneIndexKey = $"{cloneId}:{StateKeys.ChannelIndex}";
+            await stateStore.SetAsync(cloneIndexKey, index);
+
+            foreach (var threadId in index)
+            {
+                var parentChannelKey = $"{parentId}:{StateKeys.ChannelPrefix}{threadId}";
+                var channel = await stateStore.GetAsync<object>(parentChannelKey);
+                if (channel is not null)
+                {
+                    var cloneChannelKey = $"{cloneId}:{StateKeys.ChannelPrefix}{threadId}";
+                    await stateStore.SetAsync(cloneChannelKey, channel);
+                }
+            }
         }
 
         // Copy initiative state.

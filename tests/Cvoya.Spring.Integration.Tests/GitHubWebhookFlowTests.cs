@@ -105,7 +105,7 @@ public class GitHubWebhookFlowTests
 
         result.ShouldNotBeNull();
         await agentStateManager.Received().SetStateAsync(
-            StateKeys.ActiveThread,
+            StateKeys.ChannelPrefix + "webhook-conv-1",
             Arg.Is<ThreadChannel>(c =>
                 c.ThreadId == "webhook-conv-1" &&
                 c.Messages.Count == 1 &&

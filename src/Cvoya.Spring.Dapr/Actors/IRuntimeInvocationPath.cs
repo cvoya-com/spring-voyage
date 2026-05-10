@@ -97,8 +97,12 @@ public interface IRuntimeInvocationPath
     /// <param name="emitActivity">
     /// Per-caller activity-emission delegate.
     /// </param>
-    /// <param name="clearActiveThread">
-    /// Per-caller active-thread clear delegate.
+    /// <param name="onDispatchExit">
+    /// Per-caller per-thread dispatch-exit delegate. The pipeline forwards
+    /// this verbatim to <see cref="IAgentDispatchCoordinator.RunDispatchAsync"/>
+    /// so the actor's mailbox can drain remaining queued messages on the
+    /// thread or mark the channel idle when the dispatcher returns
+    /// (#2076 / ADR-0030 §3 §44).
     /// </param>
     /// <param name="ct">A token to cancel the pipeline.</param>
     Task InvokeAsync(
@@ -106,6 +110,6 @@ public interface IRuntimeInvocationPath
         Message inbound,
         PromptAssemblyContext context,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
-        Func<string, Task> clearActiveThread,
+        Func<string, Task> onDispatchExit,
         CancellationToken ct);
 }

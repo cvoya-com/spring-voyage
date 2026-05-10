@@ -35,8 +35,9 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for <see cref="AgentActor"/> covering message routing,
-/// control priority, conversation lifecycle, suspension/resume, and cancel handling.
+/// Unit tests for <see cref="AgentActor"/> covering per-thread channel
+/// routing, control priority, dispatch lifecycle, and cancel handling
+/// (#2076 / ADR-0030 §3 §44).
 /// </summary>
 public class AgentActorTests
 {
@@ -89,11 +90,9 @@ public class AgentActorTests
             new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()));
         SetStateManager(_actor, _stateManager);
 
-        // Default: no active conversation, no pending conversations.
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
-        _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
+        // Default: no per-thread channels, no channel index.
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(false, default!));
     }
 
     private static Message CreateMessage(
@@ -127,34 +126,34 @@ public class AgentActorTests
         }
     }
 
-    // --- Message Routing Tests ---
+    // --- Per-thread channel routing (#2076 / ADR-0030 §3 §44) ---
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessageNewConversation_CreatesThreadChannel()
+    public async Task ReceiveAsync_FirstDomainMessage_CreatesPerThreadChannel()
     {
-        var threadId = "conv-1";
+        var threadId = "conv-first";
         var message = CreateMessage(threadId: threadId);
 
-        var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        result.ShouldNotBeNull();
         await _stateManager.Received(1).SetStateAsync(
-            StateKeys.ActiveThread,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId),
+            StateKeys.ChannelPrefix + threadId,
+            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessageExistingConversation_RoutesToChannel()
+    public async Task ReceiveAsync_SameThreadIdWhileDispatching_AppendsToChannel()
     {
         var threadId = "conv-existing";
         var existingChannel = new ThreadChannel
         {
             ThreadId = threadId,
-            Messages = [CreateMessage(threadId: threadId)]
+            Messages = [CreateMessage(threadId: threadId)],
+            Dispatching = true,
         };
 
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, existingChannel));
 
         var newMessage = CreateMessage(threadId: threadId);
@@ -162,43 +161,45 @@ public class AgentActorTests
 
         result.ShouldNotBeNull();
         await _stateManager.Received().SetStateAsync(
-            StateKeys.ActiveThread,
+            StateKeys.ChannelPrefix + threadId,
             Arg.Is<ThreadChannel>(c =>
                 c.ThreadId == threadId &&
-                c.Messages.Count == 2),
+                c.Messages.Count == 2 &&
+                c.Dispatching),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessageDifferentConversation_QueuedAsPending()
+    public async Task ReceiveAsync_DifferentThreadId_CreatesIndependentChannel()
     {
-        var activeThreadId = "conv-active";
-        var pendingThreadId = "conv-pending";
-        var activeChannel = new ThreadChannel
+        // ADR-0030 §44: an in-flight dispatch on thread A must not block
+        // a fresh inbound on thread B.
+        var threadA = "thread-a";
+        var threadB = "thread-b";
+        var channelA = new ThreadChannel
         {
-            ThreadId = activeThreadId,
-            Messages = [CreateMessage(threadId: activeThreadId)]
+            ThreadId = threadA,
+            Messages = [CreateMessage(threadId: threadA)],
+            Dispatching = true,
         };
 
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadA, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channelA));
 
-        var message = CreateMessage(threadId: pendingThreadId);
-        var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        var inboundB = CreateMessage(threadId: threadB);
+        await _actor.ReceiveAsync(inboundB, TestContext.Current.CancellationToken);
 
-        result.ShouldNotBeNull();
+        // A new channel for B exists.
         await _stateManager.Received().SetStateAsync(
-            StateKeys.PendingConversations,
-            Arg.Is<List<ThreadChannel>>(list =>
-                list.Count == 1 &&
-                list[0].ThreadId == pendingThreadId),
+            StateKeys.ChannelPrefix + threadB,
+            Arg.Is<ThreadChannel>(c => c.ThreadId == threadB && c.Dispatching),
             Arg.Any<CancellationToken>());
     }
 
-    // --- Control Priority Tests ---
+    // --- Control / status / lifecycle ---
 
     [Fact]
-    public async Task ReceiveAsync_StatusQueryMessage_ReturnsCurrentStatus()
+    public async Task ReceiveAsync_StatusQueryWhenIdle_ReturnsIdleAndEmptyDepths()
     {
         var message = CreateMessage(type: MessageType.StatusQuery);
 
@@ -206,24 +207,26 @@ public class AgentActorTests
 
         result.ShouldNotBeNull();
         result!.Type.ShouldBe(MessageType.StatusQuery);
-        result.From.ShouldBe(Address.For("agent", TestSlugIds.HexFor("test-agent")));
-        result.To.ShouldBe(Address.For("agent", TestSlugIds.HexFor("test-sender")));
 
         var payload = result.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Status").GetString().ShouldBe("Idle");
-        payload.GetProperty("PendingConversationCount").GetInt32().ShouldBe(0);
+        payload.GetProperty("ThreadDepths").EnumerateObject().Count().ShouldBe(0);
     }
 
     [Fact]
-    public async Task ReceiveAsync_StatusQueryWithActiveThread_ReturnsActiveStatus()
+    public async Task ReceiveAsync_StatusQueryWithActiveThreads_ReportsPerThreadDepth()
     {
-        var activeChannel = new ThreadChannel
+        var t1 = new ThreadChannel
         {
             ThreadId = "conv-active",
-            Messages = []
+            Messages = [CreateMessage(threadId: "conv-active"), CreateMessage(threadId: "conv-active")],
+            Dispatching = true,
         };
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
+
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, ["conv-active"]));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + "conv-active", Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, t1));
 
         var message = CreateMessage(type: MessageType.StatusQuery);
 
@@ -232,7 +235,7 @@ public class AgentActorTests
         result.ShouldNotBeNull();
         var payload = result!.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Status").GetString().ShouldBe("Active");
-        payload.GetProperty("ActiveThreadId").GetString().ShouldBe("conv-active");
+        payload.GetProperty("ThreadDepths").GetProperty("conv-active").GetInt32().ShouldBe(2);
     }
 
     [Fact]
@@ -263,129 +266,7 @@ public class AgentActorTests
             Arg.Any<CancellationToken>());
     }
 
-    // --- Conversation Lifecycle Tests ---
-
-    [Fact]
-    public async Task ReceiveAsync_FirstDomainMessage_BecomesActiveThread()
-    {
-        var threadId = "conv-first";
-        var message = CreateMessage(threadId: threadId);
-
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.ActiveThread,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId),
-            Arg.Any<CancellationToken>());
-
-        // Should NOT have set pending conversations.
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.PendingConversations,
-            Arg.Any<List<ThreadChannel>>(),
-            Arg.Any<CancellationToken>());
-    }
-
-    // --- Suspension/Resume Tests ---
-
-    [Fact]
-    public async Task SuspendActiveThread_MovesActiveToPending()
-    {
-        var activeChannel = new ThreadChannel
-        {
-            ThreadId = "conv-active",
-            Messages = []
-        };
-
-        // First activate a conversation to set up the CancellationTokenSource.
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(
-                new ConditionalValue<ThreadChannel>(false, default!),
-                new ConditionalValue<ThreadChannel>(true, activeChannel));
-
-        var message = CreateMessage(threadId: "conv-active");
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-
-        // Now reconfigure state to have the active conversation for suspend.
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
-
-        await _actor.SuspendActiveThreadAsync(TestContext.Current.CancellationToken);
-
-        await _stateManager.Received().TryRemoveStateAsync(StateKeys.ActiveThread, Arg.Any<CancellationToken>());
-        await _stateManager.Received().SetStateAsync(
-            StateKeys.PendingConversations,
-            Arg.Is<List<ThreadChannel>>(list =>
-                list.Count == 1 &&
-                list[0].ThreadId == "conv-active"),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task PromoteNextPending_PromotesFirstPendingToActive()
-    {
-        var pendingChannel = new ThreadChannel
-        {
-            ThreadId = "conv-pending-1",
-            Messages = []
-        };
-        _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ThreadChannel>>(true, [pendingChannel]));
-
-        await _actor.PromoteNextPendingAsync(TestContext.Current.CancellationToken);
-
-        await _stateManager.Received().SetStateAsync(
-            StateKeys.ActiveThread,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == "conv-pending-1"),
-            Arg.Any<CancellationToken>());
-        await _stateManager.Received().TryRemoveStateAsync(StateKeys.PendingConversations, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task PromoteNextPending_MultiplePending_KeepsRemainingInList()
-    {
-        var pending1 = new ThreadChannel { ThreadId = "conv-p1", Messages = [] };
-        var pending2 = new ThreadChannel { ThreadId = "conv-p2", Messages = [] };
-        _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ThreadChannel>>(true, [pending1, pending2]));
-
-        await _actor.PromoteNextPendingAsync(TestContext.Current.CancellationToken);
-
-        await _stateManager.Received().SetStateAsync(
-            StateKeys.ActiveThread,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == "conv-p1"),
-            Arg.Any<CancellationToken>());
-        await _stateManager.Received().SetStateAsync(
-            StateKeys.PendingConversations,
-            Arg.Is<List<ThreadChannel>>(list =>
-                list.Count == 1 &&
-                list[0].ThreadId == "conv-p2"),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task SuspendActiveThread_NoActiveThread_DoesNothing()
-    {
-        await _actor.SuspendActiveThreadAsync(TestContext.Current.CancellationToken);
-
-        await _stateManager.DidNotReceive().TryRemoveStateAsync(StateKeys.ActiveThread, Arg.Any<CancellationToken>());
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.PendingConversations,
-            Arg.Any<List<ThreadChannel>>(),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task PromoteNextPending_NoPending_DoesNothing()
-    {
-        await _actor.PromoteNextPendingAsync(TestContext.Current.CancellationToken);
-
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.ActiveThread,
-            Arg.Any<ThreadChannel>(),
-            Arg.Any<CancellationToken>());
-    }
-
-    // --- Cancel Handling Tests ---
+    // --- Per-thread cancel (#2076 / ADR-0030 §44) ---
 
     [Fact]
     public async Task ReceiveAsync_CancelMessage_ReturnsAcknowledgment()
@@ -399,68 +280,32 @@ public class AgentActorTests
     }
 
     [Fact]
-    public async Task ReceiveAsync_CancelActiveThread_RemovesActiveAndPromotesPending()
+    public async Task ReceiveAsync_CancelOneThread_LeavesOtherThreadAlone()
     {
-        var activeChannel = new ThreadChannel
-        {
-            ThreadId = "conv-to-cancel",
-            Messages = []
-        };
-        var pendingChannel = new ThreadChannel
-        {
-            ThreadId = "conv-pending",
-            Messages = []
-        };
+        // ADR-0030 §44: cancel is per-thread. The cancelled thread's
+        // channel is removed; other threads' channels are untouched.
+        var threadA = "thread-a";
+        var threadB = "thread-b";
+        var channelA = new ThreadChannel { ThreadId = threadA, Messages = [], Dispatching = true };
+        var channelB = new ThreadChannel { ThreadId = threadB, Messages = [], Dispatching = true };
 
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
-        _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ThreadChannel>>(true, [pendingChannel]));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadA, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channelA));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadB, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channelB));
 
-        var cancelMessage = CreateMessage(type: MessageType.Cancel, threadId: "conv-to-cancel");
-        await _actor.ReceiveAsync(cancelMessage, TestContext.Current.CancellationToken);
+        var cancelA = CreateMessage(type: MessageType.Cancel, threadId: threadA);
+        await _actor.ReceiveAsync(cancelA, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received().TryRemoveStateAsync(StateKeys.ActiveThread, Arg.Any<CancellationToken>());
-        await _stateManager.Received().SetStateAsync(
-            StateKeys.ActiveThread,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == "conv-pending"),
-            Arg.Any<CancellationToken>());
+        // A's channel removed.
+        await _stateManager.Received().TryRemoveStateAsync(
+            StateKeys.ChannelPrefix + threadA, Arg.Any<CancellationToken>());
+        // B's channel untouched.
+        await _stateManager.DidNotReceive().TryRemoveStateAsync(
+            StateKeys.ChannelPrefix + threadB, Arg.Any<CancellationToken>());
     }
 
-    // --- Domain Message Validation ---
-
-    [Fact]
-    public async Task ReceiveAsync_DomainMessageWithExistingPendingConversation_AppendsToExistingPending()
-    {
-        var activeChannel = new ThreadChannel
-        {
-            ThreadId = "conv-active",
-            Messages = []
-        };
-        var existingPending = new ThreadChannel
-        {
-            ThreadId = "conv-pending",
-            Messages = [CreateMessage(threadId: "conv-pending")]
-        };
-
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
-        _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ThreadChannel>>(true, [existingPending]));
-
-        var message = CreateMessage(threadId: "conv-pending");
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-
-        await _stateManager.Received().SetStateAsync(
-            StateKeys.PendingConversations,
-            Arg.Is<List<ThreadChannel>>(list =>
-                list.Count == 1 &&
-                list[0].ThreadId == "conv-pending" &&
-                list[0].Messages.Count == 2),
-            Arg.Any<CancellationToken>());
-    }
-
-    // --- Clone Awareness Tests ---
+    // --- Clone awareness ---
 
     [Fact]
     public async Task IsCloneAsync_NoCloneIdentity_ReturnsFalse()
@@ -538,7 +383,7 @@ public class AgentActorTests
         result.ShouldBeNull();
     }
 
-    // --- Activity Event Emission Tests ---
+    // --- Activity event emission ---
 
     [Fact]
     public async Task ReceiveAsync_DomainMessage_EmitsMessageReceivedActivityEvent()
@@ -567,11 +412,6 @@ public class AgentActorTests
     [Fact]
     public async Task ReceiveAsync_MessageReceived_StampsEnvelopeAndBodyOnDetails()
     {
-        // #1209: the conversation projection / `spring message show` rely
-        // on the MessageReceived event's Details JSON to carry the
-        // sender / recipient / body. Regression-guard the shape so a
-        // future refactor doesn't quietly drop fields the surfaces depend
-        // on.
         var threadId = "conv-1209";
         var payload = JsonSerializer.SerializeToElement("hello world");
         var message = CreateMessage(threadId: threadId, payload: payload);
@@ -592,11 +432,6 @@ public class AgentActorTests
     [Fact]
     public async Task ReceiveAsync_DomainMessageWithStringPayload_SummaryIsBodyText()
     {
-        // #1636: production must NEVER write the legacy "Received Domain
-        // message <uuid> from <address>" envelope as the activity-event
-        // summary. The summary is the actual message text (truncated for the
-        // one-liner) when extractable — the portal renders it directly as a
-        // chat bubble line without templating.
         var threadId = "conv-1636-string";
         var payload = JsonSerializer.SerializeToElement("Approve merge?");
         var message = CreateMessage(threadId: threadId, payload: payload);
@@ -613,8 +448,6 @@ public class AgentActorTests
     [Fact]
     public async Task ReceiveAsync_DomainMessageWithAgentReplyShape_SummaryIsOutputText()
     {
-        // #1636 / #1547: agent replies arrive as { Output, ExitCode } objects;
-        // the summary is the Output string (truncated), not the leaky envelope.
         var threadId = "conv-1636-output";
         var payload = JsonSerializer.SerializeToElement(new
         {
@@ -635,10 +468,6 @@ public class AgentActorTests
     [Fact]
     public async Task ReceiveAsync_MessageReceived_SummaryNeverContainsLegacyEnvelopeTemplate()
     {
-        // #1636: hard regression guard — every message-class projected event
-        // must NEVER carry the "Received {Type} message <uuid> from …"
-        // envelope on its summary. Filing it here pins the contract for any
-        // future refactor that touches the emit path.
         var threadId = "conv-1636-no-envelope";
         var payload = JsonSerializer.SerializeToElement(new { Acknowledged = true });
         var message = CreateMessage(threadId: threadId, payload: payload);
@@ -655,34 +484,6 @@ public class AgentActorTests
     }
 
     [Fact]
-    public async Task ReceiveAsync_NonMessageEvent_HasNoBodyOnDetails()
-    {
-        // #1636: events that genuinely represent non-message activity
-        // (state changes, thread lifecycle) leave the body field absent;
-        // the portal renders them as cards. Spot-check the StateChanged
-        // emission for a freshly-routed message — Details either has no
-        // `body` key or carries a non-message payload (e.g. transition map).
-        var message = CreateMessage(threadId: "conv-1636-non-msg");
-
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.StateChanged
-                && !DetailsCarryBody(e.Details)),
-            Arg.Any<CancellationToken>());
-    }
-
-    private static bool DetailsCarryBody(JsonElement? details)
-    {
-        if (details is not JsonElement el || el.ValueKind != JsonValueKind.Object)
-        {
-            return false;
-        }
-        return el.TryGetProperty("body", out var prop) && prop.ValueKind == JsonValueKind.String;
-    }
-
-    [Fact]
     public async Task ReceiveAsync_ActivityEventBusFailure_DoesNotBreakActor()
     {
         _activityEventBus.PublishAsync(Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>())
@@ -690,7 +491,6 @@ public class AgentActorTests
 
         var message = CreateMessage(threadId: "conv-bus-fail");
 
-        // Should not throw even though the bus fails.
         var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
@@ -710,120 +510,7 @@ public class AgentActorTests
             Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task ReceiveAsync_NewConversation_EmitsStateChangedIdleToActive()
-    {
-        var message = CreateMessage(threadId: "conv-state-change");
-
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("Idle") &&
-                e.Summary.Contains("Active")),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task ReceiveAsync_DifferentConversationQueued_EmitsDecisionMadeEvent()
-    {
-        var activeChannel = new ThreadChannel
-        {
-            ThreadId = "conv-active",
-            Messages = []
-        };
-
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
-
-        var message = CreateMessage(threadId: "conv-new");
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.DecisionMade &&
-                e.Summary.Contains("Queued") &&
-                e.CorrelationId == "conv-new"),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task ReceiveAsync_CancelActiveThread_EmitsThreadCompletedEvent()
-    {
-        var activeChannel = new ThreadChannel
-        {
-            ThreadId = "conv-to-complete",
-            Messages = []
-        };
-
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
-
-        var cancelMessage = CreateMessage(type: MessageType.Cancel, threadId: "conv-to-complete");
-        await _actor.ReceiveAsync(cancelMessage, TestContext.Current.CancellationToken);
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.ThreadCompleted &&
-                e.CorrelationId == "conv-to-complete"),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task ReceiveAsync_CancelWithNoPending_EmitsStateChangedActiveToIdle()
-    {
-        var activeChannel = new ThreadChannel
-        {
-            ThreadId = "conv-cancel-idle",
-            Messages = []
-        };
-
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(
-                new ConditionalValue<ThreadChannel>(true, activeChannel),
-                new ConditionalValue<ThreadChannel>(false, default!));
-
-        var cancelMessage = CreateMessage(type: MessageType.Cancel, threadId: "conv-cancel-idle");
-        await _actor.ReceiveAsync(cancelMessage, TestContext.Current.CancellationToken);
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("Active") &&
-                e.Summary.Contains("Idle")),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task SuspendActiveThread_EmitsStateChangedActiveToSuspended()
-    {
-        var activeChannel = new ThreadChannel
-        {
-            ThreadId = "conv-suspend",
-            Messages = []
-        };
-
-        // First activate a conversation to set up the CancellationTokenSource.
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(
-                new ConditionalValue<ThreadChannel>(false, default!),
-                new ConditionalValue<ThreadChannel>(true, activeChannel));
-
-        var message = CreateMessage(threadId: "conv-suspend");
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
-
-        await _actor.SuspendActiveThreadAsync(TestContext.Current.CancellationToken);
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("Suspended")),
-            Arg.Any<CancellationToken>());
-    }
+    // --- Cost-incurred ---
 
     [Fact]
     public async Task EmitCostIncurredAsync_EmitsCostEvent()
@@ -868,29 +555,12 @@ public class AgentActorTests
             Arg.Any<CancellationToken>());
     }
 
-    // --- #1036 / #1038 — non-zero dispatch exit + close API ---
+    // --- Dispatch lifecycle ---
 
     [Fact]
-    public async Task RunDispatchAsync_NonZeroExitCode_EmitsErrorAndClearsActiveThread()
+    public async Task RunDispatchAsync_NonZeroExitCode_EmitsErrorAndRoutesResponse()
     {
-        // Arrange — dispatcher returns a response payload that mirrors the
-        // shape A2AExecutionDispatcher.BuildResponseMessage emits when the
-        // container exits non-zero. The first state read (during ReceiveAsync)
-        // must report "no active conversation" so the actor takes the dispatch
-        // path; subsequent reads (after dispatch returns) must report the
-        // active conversation so ClearActiveThreadAsync has something to
-        // clear.
         var threadId = "conv-exit-125";
-        var activeChannel = new ThreadChannel
-        {
-            ThreadId = threadId,
-            Messages = []
-        };
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(
-                new ConditionalValue<ThreadChannel>(false, default!),
-                new ConditionalValue<ThreadChannel>(true, activeChannel));
-
         var inbound = CreateMessage(threadId: threadId);
         var failurePayload = JsonSerializer.SerializeToElement(new
         {
@@ -912,14 +582,23 @@ public class AgentActorTests
         _router.RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(Cvoya.Spring.Core.Result<Message?, RoutingError>.Success(null));
 
-        // Act — the test harness omits IActorProxyFactory, so the dispatch
-        // task falls through to calling ClearActiveThreadAsync
-        // directly (mocked StateManager == no real concurrency to race).
+        // First read returns no channel so the actor takes the create-and-dispatch
+        // path. Subsequent reads (during OnDispatchExitAsync) return the
+        // channel marked dispatching so the drain can run.
+        var channel = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages = [inbound],
+            Dispatching = true,
+        };
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(
+                new ConditionalValue<ThreadChannel>(false, default!),
+                new ConditionalValue<ThreadChannel>(true, channel));
+
         await _actor.ReceiveAsync(inbound, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
-        // Assert — ErrorOccurred event with structured details + active
-        // conversation cleared + StateChanged Active→Idle event emitted.
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ErrorOccurred &&
@@ -929,61 +608,16 @@ public class AgentActorTests
                 e.Details.Value.GetProperty("exitCode").GetInt32() == 125),
             Arg.Any<CancellationToken>());
 
-        await _stateManager.Received().TryRemoveStateAsync(
-            StateKeys.ActiveThread, Arg.Any<CancellationToken>());
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("Active") &&
-                e.Summary.Contains("Idle")),
-            Arg.Any<CancellationToken>());
-
-        // Original sender still gets the failure response routed back
-        // (so the human / upstream agent can see it).
+        // Original sender still gets the failure response routed back.
         await _router.Received(1).RouteAsync(
             Arg.Is<Message>(m => m.Id == failureResponse.Id),
             Arg.Any<CancellationToken>());
     }
 
-    // --- post-Stage-2 (#1063 / #522) follow-ups: dispatch lifecycle ---
-
-    /// <summary>
-    /// Regression for the OCE branch in <c>RunDispatchAsync</c>: a cancelled
-    /// dispatch (e.g. worker-side HttpClient timeout firing while the
-    /// dispatcher is mid-run) MUST clear the active-thread slot,
-    /// otherwise every subsequent message in any other conversation gets
-    /// queued as pending forever and the agent looks bricked. Discovered
-    /// when the post-Stage-2 cutover surfaced the dispatcher-client's
-    /// 100 s default timeout — the actor logged "Dispatch cancelled" and
-    /// then refused every follow-up message.
-    /// </summary>
-    /// <summary>
-    /// Regression for the success path in <c>RunDispatchAsync</c>: a
-    /// dispatch that returns a non-null response with a zero (or absent)
-    /// exit code MUST also clear the active-thread slot, otherwise
-    /// the actor sits permanently in Active state after replying — every
-    /// subsequent message in another thread queues as pending forever
-    /// (Case 3 in HandleDomainMessageAsync) and every reply to the same
-    /// thread silently appends to a dead channel (Case 2). Discovered while
-    /// debugging the agent Messages tab: a single successful turn left
-    /// Status=Active, PendingConversationCount=0, and the agent
-    /// stopped responding to anyone.
-    /// </summary>
     [Fact]
-    public async Task RunDispatchAsync_SuccessfulDispatch_ClearsActiveThread()
+    public async Task RunDispatchAsync_SuccessfulDispatch_DrainsChannel()
     {
         var threadId = "conv-success";
-        var activeChannel = new ThreadChannel
-        {
-            ThreadId = threadId,
-            Messages = []
-        };
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(
-                new ConditionalValue<ThreadChannel>(false, default!),
-                new ConditionalValue<ThreadChannel>(true, activeChannel));
-
         var inbound = CreateMessage(threadId: threadId);
         var successPayload = JsonSerializer.SerializeToElement(new { Output = "ok" });
         var successResponse = new Message(
@@ -1000,23 +634,25 @@ public class AgentActorTests
         _router.RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(Cvoya.Spring.Core.Result<Message?, RoutingError>.Success(null));
 
+        var channel = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages = [inbound],
+            Dispatching = true,
+        };
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(
+                new ConditionalValue<ThreadChannel>(false, default!),
+                new ConditionalValue<ThreadChannel>(true, channel));
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, [threadId]));
+
         await _actor.ReceiveAsync(inbound, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
-        // Active conversation must be cleared after a successful turn.
+        // Per-thread channel removed after the queue drained to empty.
         await _stateManager.Received().TryRemoveStateAsync(
-            StateKeys.ActiveThread, Arg.Any<CancellationToken>());
-
-        // The Active→Idle StateChanged event must be emitted with the
-        // success-path reason so operators can correlate "turn finished
-        // cleanly" against "turn aborted due to <X>".
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("Active") &&
-                e.Summary.Contains("Idle") &&
-                e.Summary.Contains("dispatch completed")),
-            Arg.Any<CancellationToken>());
+            StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>());
 
         // Original sender still gets the reply routed back.
         await _router.Received(1).RouteAsync(
@@ -1025,37 +661,31 @@ public class AgentActorTests
     }
 
     [Fact]
-    public async Task RunDispatchAsync_CancelledDispatch_ClearsActiveThread()
+    public async Task RunDispatchAsync_CancelledDispatch_DrainsChannel()
     {
         var threadId = "conv-cancelled";
-        var activeChannel = new ThreadChannel
-        {
-            ThreadId = threadId,
-            Messages = []
-        };
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(
-                new ConditionalValue<ThreadChannel>(false, default!),
-                new ConditionalValue<ThreadChannel>(true, activeChannel));
-
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns<Message?>(_ => throw new OperationCanceledException("simulated worker timeout"));
 
         var inbound = CreateMessage(threadId: threadId);
+        var channel = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages = [inbound],
+            Dispatching = true,
+        };
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(
+                new ConditionalValue<ThreadChannel>(false, default!),
+                new ConditionalValue<ThreadChannel>(true, channel));
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, [threadId]));
 
         await _actor.ReceiveAsync(inbound, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
         await _stateManager.Received().TryRemoveStateAsync(
-            StateKeys.ActiveThread, Arg.Any<CancellationToken>());
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("Active") &&
-                e.Summary.Contains("Idle") &&
-                e.Summary.Contains("dispatch cancelled")),
-            Arg.Any<CancellationToken>());
+            StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>());
     }
 
 }

@@ -84,9 +84,10 @@ public class CreateCloneActorActivityTests
 
         await _activity.RunAsync(_context, input);
 
-        // Should not read active conversation or initiative state for copy.
-        await _stateStore.DidNotReceive().GetAsync<object>(
-            $"parent-agent:{StateKeys.ActiveThread}", Arg.Any<CancellationToken>());
+        // Should not read per-thread channel index, channel keys, or
+        // initiative state for copy.
+        await _stateStore.DidNotReceive().GetAsync<List<string>>(
+            $"parent-agent:{StateKeys.ChannelIndex}", Arg.Any<CancellationToken>());
         await _stateStore.DidNotReceive().GetAsync<object>(
             $"parent-agent:{StateKeys.InitiativeState}", Arg.Any<CancellationToken>());
     }
@@ -98,12 +99,15 @@ public class CreateCloneActorActivityTests
             "parent-agent", "clone-1",
             CloningPolicy.EphemeralWithMemory, AttachmentMode.Attached);
 
-        var activeThread = new object();
+        var channelData = new object();
         var initiativeState = new object();
 
+        _stateStore.GetAsync<List<string>>(
+            $"parent-agent:{StateKeys.ChannelIndex}", Arg.Any<CancellationToken>())
+            .Returns(["thread-a"]);
         _stateStore.GetAsync<object>(
-            $"parent-agent:{StateKeys.ActiveThread}", Arg.Any<CancellationToken>())
-            .Returns(activeThread);
+            $"parent-agent:{StateKeys.ChannelPrefix}thread-a", Arg.Any<CancellationToken>())
+            .Returns(channelData);
         _stateStore.GetAsync<object>(
             $"parent-agent:{StateKeys.InitiativeState}", Arg.Any<CancellationToken>())
             .Returns(initiativeState);
@@ -111,8 +115,12 @@ public class CreateCloneActorActivityTests
         await _activity.RunAsync(_context, input);
 
         await _stateStore.Received(1).SetAsync(
-            $"clone-1:{StateKeys.ActiveThread}",
-            activeThread,
+            $"clone-1:{StateKeys.ChannelIndex}",
+            Arg.Any<List<string>>(),
+            Arg.Any<CancellationToken>());
+        await _stateStore.Received(1).SetAsync(
+            $"clone-1:{StateKeys.ChannelPrefix}thread-a",
+            channelData,
             Arg.Any<CancellationToken>());
         await _stateStore.Received(1).SetAsync(
             $"clone-1:{StateKeys.InitiativeState}",

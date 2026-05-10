@@ -402,8 +402,9 @@ public class OrchestrationCallbackEndpointsTests
             JsonSerializer.SerializeToElement(new
             {
                 Status = status,
-                ActiveThreadId = activeThreadId,
-                PendingConversationCount = 0,
+                ThreadDepths = activeThreadId is null
+                    ? new Dictionary<string, int>()
+                    : new Dictionary<string, int> { [activeThreadId] = 1 },
             }),
             DateTimeOffset.UtcNow);
 

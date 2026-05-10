@@ -1022,18 +1022,21 @@ public class OrchestrationToolHandlersTests
 
     private static Message CreateStatusResponse(Address from, string status, string? activeThreadId)
     {
+        // #2076 / ADR-0030 §3 §44: AgentActor's StatusQuery payload now
+        // exposes a per-thread ThreadDepths map instead of the binary
+        // ActiveThreadId / PendingConversationCount shape. The
+        // orchestration probe surfaces a representative thread id from
+        // the depth map.
         var payload = activeThreadId is null
             ? JsonSerializer.SerializeToElement(new
             {
                 Status = status,
-                ActiveThreadId = (string?)null,
-                PendingConversationCount = 0,
+                ThreadDepths = new Dictionary<string, int>(),
             })
             : JsonSerializer.SerializeToElement(new
             {
                 Status = status,
-                ActiveThreadId = activeThreadId,
-                PendingConversationCount = 0,
+                ThreadDepths = new Dictionary<string, int> { [activeThreadId] = 1 },
             });
 
         return new Message(

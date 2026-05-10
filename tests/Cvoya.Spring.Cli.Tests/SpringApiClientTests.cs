@@ -410,10 +410,10 @@ public class SpringApiClientTests
     {
         // Post-#1629 the agent id rides the wire as a Guid (uuid format).
         var agentId = Guid.NewGuid();
-        var responseBody = $$"""
+        var responseBody = $$$"""
         {
           "agent": {
-            "id": "{{agentId}}",
+            "id": "{{{agentId}}}",
             "name": "ada",
             "displayName": "Ada",
             "description": "",
@@ -425,7 +425,7 @@ public class SpringApiClientTests
             "executionMode": "Auto",
             "parentUnit": "eng-team"
           },
-          "status": "{\"Status\":\"Idle\",\"ActiveThreadId\":null,\"PendingConversationCount\":0}",
+          "status": "{\"Status\":\"Idle\",\"ThreadDepths\":{}}",
           "deployment": null
         }
         """;

@@ -164,11 +164,13 @@ public static class ActorTestHost
             directoryService: directoryService);
         SetStateManager(actor, stateManager);
 
-        // Default: no active conversation, no pending conversations, no pending amendments.
-        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
-        stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
+        // Default: no per-thread channels, no pending amendments. The
+        // per-thread channel keys are <c>Agent:Channel:{ThreadId}</c>;
+        // tests that exercise the routing path either let the substitute
+        // return its default ConditionalValue (HasValue=false) for any
+        // such key, or arrange specific thread ids explicitly.
+        stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(false, default!));
         stateManager.TryGetStateAsync<List<PendingAmendment>>(StateKeys.AgentPendingAmendments, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<PendingAmendment>>(false, default!));
 

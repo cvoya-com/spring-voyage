@@ -80,7 +80,7 @@ public class RuntimeInvocationPath(
             message: inbound,
             context: context,
             emitActivity: (_, _) => Task.CompletedTask,
-            clearActiveThread: _ => Task.CompletedTask,
+            onDispatchExit: _ => Task.CompletedTask,
             cancellationToken: ct);
     }
 
@@ -112,10 +112,11 @@ public class RuntimeInvocationPath(
     /// coordinator so error events surface through the actor's
     /// publishing pipeline.
     /// </param>
-    /// <param name="clearActiveThread">
-    /// Per-actor active-thread clear delegate. Forwarded so abnormal
-    /// dispatch terminations (cancel, exception, non-zero exit) release
-    /// the actor's <c>ActiveThread</c> slot.
+    /// <param name="onDispatchExit">
+    /// Per-actor per-thread dispatch-exit delegate. Forwarded so the
+    /// actor's mailbox can drain remaining queued messages on the thread
+    /// or mark the channel idle when the dispatcher returns
+    /// (#2076 / ADR-0030 §3 §44).
     /// </param>
     /// <param name="ct">A token to cancel the pipeline.</param>
     public Task InvokeAsync(
@@ -123,7 +124,7 @@ public class RuntimeInvocationPath(
         Message inbound,
         PromptAssemblyContext context,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
-        Func<string, Task> clearActiveThread,
+        Func<string, Task> onDispatchExit,
         CancellationToken ct)
     {
         return dispatchCoordinator.RunDispatchAsync(
@@ -131,7 +132,7 @@ public class RuntimeInvocationPath(
             message: inbound,
             context: context,
             emitActivity: emitActivity,
-            clearActiveThread: clearActiveThread,
+            onDispatchExit: onDispatchExit,
             cancellationToken: ct);
     }
 

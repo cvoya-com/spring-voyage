@@ -99,10 +99,8 @@ public class AgentActorDispatchTests
             new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()));
         SetStateManager(_actor, _stateManager);
 
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
-        _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(false, default!));
     }
 
     private static Message CreateDomainMessage(string threadId = "conv-1")
@@ -207,10 +205,13 @@ public class AgentActorDispatchTests
         await _actor.ReceiveAsync(message1, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
-        // After the first message the active conversation exists.
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        // After the first message a per-thread channel exists for conv-1
+        // and is mid-drain. Per #2076 / ADR-0030 §3 §44 the second
+        // message appends to the existing channel without launching a
+        // parallel dispatcher.
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + "conv-1", Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true,
-                new ThreadChannel { ThreadId = "conv-1", Messages = [message1] }));
+                new ThreadChannel { ThreadId = "conv-1", Messages = [message1], Dispatching = true }));
 
         await _actor.ReceiveAsync(message2, TestContext.Current.CancellationToken);
 

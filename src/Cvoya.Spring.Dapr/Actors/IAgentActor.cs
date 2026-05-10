@@ -93,18 +93,22 @@ public interface IAgentActor : IAgent
 
     /// <summary>
     /// Off-turn helper that the actor's own dispatch task self-invokes
-    /// (via Dapr remoting) when a dispatch terminates abnormally — either a
-    /// non-zero container exit (#1036) or an exception in the dispatcher
-    /// itself. Mutates persistent actor state — removes
-    /// <c>StateKeys.ActiveThread</c>, emits a <c>StateChanged</c>
-    /// (Active → Idle) event, and promotes the next pending thread —
-    /// so it must run on an actor turn. Surfaced on <see cref="IAgentActor"/>
-    /// (rather than left as an internal helper) precisely so the off-turn
-    /// dispatch task can call it through the actor proxy.
+    /// (via Dapr remoting) when a per-thread dispatch terminates
+    /// (success, cancel, exception, or non-zero container exit). Mutates
+    /// persistent actor state on the per-thread channel — drains any
+    /// messages appended for the thread while the dispatch was running
+    /// (per-thread FIFO is preserved), or marks the channel idle when
+    /// the queue is empty — so it must run on an actor turn. Surfaced on
+    /// <see cref="IAgentActor"/> (rather than left as an internal helper)
+    /// precisely so the off-turn dispatch task can call it through the
+    /// actor proxy. Per-ADR-0030 §44: only this thread's channel is
+    /// affected; other threads on the same agent run independently.
     /// </summary>
-    /// <param name="reason">Human-readable reason for clearing the active slot.</param>
+    /// <param name="threadId">The thread whose dispatcher just exited.</param>
+    /// <param name="reason">Human-readable reason for the exit.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    Task ClearActiveThreadAsync(
+    Task OnDispatchExitAsync(
+        string threadId,
         string? reason,
         CancellationToken cancellationToken = default);
 }
