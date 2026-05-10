@@ -56,7 +56,8 @@ public class AgentActorTests
             Substitute.For<IDirectoryService>(),
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
-            _loggerFactory);
+            _loggerFactory,
+            NullMessageWriterScopeFactory.Create());
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
 

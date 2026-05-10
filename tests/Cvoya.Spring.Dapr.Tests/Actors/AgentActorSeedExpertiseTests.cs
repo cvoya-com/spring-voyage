@@ -165,7 +165,8 @@ public class AgentActorSeedExpertiseTests
             Substitute.For<IDirectoryService>(),
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
-            loggerFactory);
+            loggerFactory,
+            NullMessageWriterScopeFactory.Create());
 
         var membership = Substitute.For<IUnitMembershipRepository>();
         membership

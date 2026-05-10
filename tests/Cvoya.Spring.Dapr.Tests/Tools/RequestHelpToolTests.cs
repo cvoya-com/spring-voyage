@@ -38,7 +38,12 @@ public class RequestHelpToolTests
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         var permissionService = Substitute.For<IPermissionService>();
-        var messageRouter = new MessageRouter(_directoryService, _agentProxyResolver, permissionService, _loggerFactory);
+        var messageRouter = new MessageRouter(
+            _directoryService,
+            _agentProxyResolver,
+            permissionService,
+            _loggerFactory,
+            NullMessageWriterScopeFactory.Create());
         _tool = new RequestHelpTool(messageRouter, _contextAccessor, _loggerFactory);
         _contextAccessor.Current = new ToolExecutionContext(
             Address.For("agent", TestSlugIds.HexFor("test-agent")),

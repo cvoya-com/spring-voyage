@@ -83,7 +83,8 @@ public static class ActorTestHost
             Substitute.For<IDirectoryService>(),
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
-            loggerFactory);
+            loggerFactory,
+            NullMessageWriterScopeFactory.Create());
         var definitionProvider = Substitute.For<IAgentDefinitionProvider>();
         var membershipRepository = Substitute.For<IUnitMembershipRepository>();
         membershipRepository

@@ -362,7 +362,8 @@ public class UnitHumansEndpointsUnauthenticatedTests : IDisposable
                     {
                         var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
                         var permSvc = Substitute.For<IPermissionService>();
-                        return new MessageRouter(directoryService, agentProxyResolver, permSvc, loggerFactory);
+                        var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+                        return new MessageRouter(directoryService, agentProxyResolver, permSvc, loggerFactory, scopeFactory);
                     });
                 });
             });

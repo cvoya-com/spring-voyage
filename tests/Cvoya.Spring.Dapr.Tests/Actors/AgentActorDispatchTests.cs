@@ -58,7 +58,8 @@ public class AgentActorDispatchTests
             Substitute.For<IDirectoryService>(),
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
-            loggerFactory);
+            loggerFactory,
+            NullMessageWriterScopeFactory.Create());
 
         _skillRegistry.Name.Returns("github");
         _skillRegistry.GetToolDefinitions().Returns([

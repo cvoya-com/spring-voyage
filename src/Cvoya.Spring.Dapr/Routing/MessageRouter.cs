@@ -33,26 +33,10 @@ public class MessageRouter : IMessageRouter
     private readonly IAgentProxyResolver _agentProxyResolver;
     private readonly IPermissionService _permissionService;
     private readonly ILogger _logger;
-    private readonly IServiceScopeFactory? _scopeFactory;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     /// <summary>
-    /// Pre-#2053 constructor preserved for legacy NSubstitute test harnesses
-    /// that build a <see cref="MessageRouter"/> proxy via the four-argument
-    /// shape. Equivalent to the five-argument overload with
-    /// <paramref name="loggerFactory"/> only — message persistence is a
-    /// no-op when no <see cref="IServiceScopeFactory"/> is supplied.
-    /// </summary>
-    public MessageRouter(
-        IDirectoryService directoryService,
-        IAgentProxyResolver agentProxyResolver,
-        IPermissionService permissionService,
-        ILoggerFactory loggerFactory)
-        : this(directoryService, agentProxyResolver, permissionService, loggerFactory, scopeFactory: null)
-    {
-    }
-
-    /// <summary>
-    /// Production constructor. The <paramref name="scopeFactory"/> opens a
+    /// Constructs a router. The <paramref name="scopeFactory"/> opens a
     /// scoped DI container per dispatch so the singleton router can resolve
     /// the scoped <see cref="Threads.IMessageWriter"/> for the EF-backed
     /// <c>messages</c> table write (#2053 / ADR-0030).
@@ -62,8 +46,10 @@ public class MessageRouter : IMessageRouter
         IAgentProxyResolver agentProxyResolver,
         IPermissionService permissionService,
         ILoggerFactory loggerFactory,
-        IServiceScopeFactory? scopeFactory)
+        IServiceScopeFactory scopeFactory)
     {
+        ArgumentNullException.ThrowIfNull(scopeFactory);
+
         _directoryService = directoryService;
         _agentProxyResolver = agentProxyResolver;
         _permissionService = permissionService;
@@ -331,45 +317,19 @@ public class MessageRouter : IMessageRouter
     /// singleton so it cannot inject the scoped <c>SpringDbContext</c>
     /// directly; an <see cref="IServiceScopeFactory"/> opens a scope per
     /// dispatch (matching the pattern used by
-    /// <see cref="PermissionService"/>). When the factory is not
-    /// registered (legacy unit-test harnesses that construct
-    /// <see cref="MessageRouter"/> directly), the call is a no-op so those
-    /// tests keep working without a database.
+    /// <see cref="PermissionService"/>).
+    /// <para>
+    /// Persistence is fail-fast: ADR-0040 makes the EF <c>messages</c> table
+    /// authoritative for thread history, so a write failure must abort the
+    /// dispatch rather than silently deliver an unrecorded message.
+    /// Exceptions propagate to the caller; endpoints surface them as 5xx,
+    /// dispatch coordinators clear the active thread on the way out.
+    /// </para>
     /// </summary>
     private async Task PersistMessageAsync(Message message, CancellationToken cancellationToken)
     {
-        if (_scopeFactory is null)
-        {
-            return;
-        }
-
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var writer = scope.ServiceProvider.GetService<IMessageWriter>();
-            if (writer is null)
-            {
-                return;
-            }
-
-            await writer.WriteAsync(message, cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Persistence failure does not abort the dispatch — the activity
-            // event chain still records what the platform observed, and the
-            // operator-facing error surfaces in logs. The narrower alternative
-            // — failing the send — would tie liveness of the entire dispatch
-            // path to the Postgres write and is out of scope for #2053; the
-            // logging here is enough to flag the gap. A follow-up issue can
-            // promote this to a hard failure once the dispatch error path is
-            // re-shaped end-to-end.
-            _logger.LogError(
-                ex,
-                "Failed to persist message {MessageId} for thread {ThreadId} from {FromScheme}://{FromPath} to {ToScheme}://{ToPath}.",
-                message.Id, message.ThreadId,
-                message.From.Scheme, message.From.Path,
-                message.To.Scheme, message.To.Path);
-        }
+        using var scope = _scopeFactory.CreateScope();
+        var writer = scope.ServiceProvider.GetRequiredService<IMessageWriter>();
+        await writer.WriteAsync(message, cancellationToken);
     }
 }

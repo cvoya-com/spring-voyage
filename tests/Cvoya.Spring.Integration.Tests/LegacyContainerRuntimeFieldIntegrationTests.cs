@@ -168,11 +168,13 @@ public class LegacyContainerRuntimeFieldIntegrationTests
                 services.AddSingleton(sp =>
                 {
                     var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+                    var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
                     return new MessageRouter(
                         DirectoryService,
                         agentProxyResolver,
                         permissionService,
-                        loggerFactory);
+                        loggerFactory,
+                        scopeFactory);
                 });
             });
         }

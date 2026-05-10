@@ -33,9 +33,11 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// <b>Failure model.</b> A persistence failure here is intentionally
 /// surfaced — the dispatcher must see it so the API surface returns 5xx
-/// rather than silently delivering an unrecorded message. The
-/// <see cref="MessageRouter"/> wraps the call and turns it into a
-/// <c>RoutingError.DeliveryFailed</c> on the way out.
+/// rather than silently delivering an unrecorded message. ADR-0040 makes
+/// the <c>messages</c> table authoritative for thread history; treating
+/// the write as best-effort would let dispatch silently diverge from the
+/// timeline. <see cref="Cvoya.Spring.Dapr.Routing.MessageRouter"/>
+/// propagates the exception unchanged.
 /// </para>
 /// </remarks>
 public class EfMessageWriter(

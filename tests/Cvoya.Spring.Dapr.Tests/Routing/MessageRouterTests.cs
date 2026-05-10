@@ -55,7 +55,12 @@ public class MessageRouterTests
     {
         _loggerFactory = Substitute.For<ILoggerFactory>();
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _router = new MessageRouter(_directoryService, _agentProxyResolver, _permissionService, _loggerFactory);
+        _router = new MessageRouter(
+            _directoryService,
+            _agentProxyResolver,
+            _permissionService,
+            _loggerFactory,
+            NullMessageWriterScopeFactory.Create());
     }
 
     [Fact]
