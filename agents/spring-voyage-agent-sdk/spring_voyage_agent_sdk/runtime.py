@@ -40,10 +40,12 @@ vars before container start, so this path is never exercised.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import signal
 import sys
+import threading
 from typing import Any, Callable
 
 import uvicorn
@@ -257,6 +259,35 @@ class _SdkAgentExecutor(AgentExecutor):
         await updater.cancel(updater.new_agent_message([Part(text="Task canceled.")]))
 
 
+class _SdkUvicornServer(uvicorn.Server):
+    """Uvicorn server with the SDK's signal-ownership contract.
+
+    Uvicorn's ``Server.serve()`` wraps the run in ``capture_signals()`` which
+    reinstalls SIGTERM/SIGINT handlers via ``signal.signal()`` — silently
+    overriding any handler the SDK installed earlier with
+    ``loop.add_signal_handler``.  In production that meant a stray SIGTERM
+    (whether from the orchestrator, the sidecar, or a transient
+    container-runtime hiccup) flipped uvicorn's ``should_exit`` directly,
+    bypassed the SDK's :meth:`AgentRuntime._run_shutdown` path, and tore the
+    A2A server down after the very first message — defeating
+    ``hosting: persistent`` (issue #2088).
+
+    Suppressing ``capture_signals`` keeps the SDK as the sole authority on
+    shutdown.  When the SDK observes shutdown it explicitly sets
+    ``server.should_exit = True`` from :meth:`AgentRuntime._serve`, which is
+    the documented uvicorn extension point for "external code drives the
+    lifecycle".
+    """
+
+    @contextlib.contextmanager
+    def capture_signals(self):  # type: ignore[override]
+        # No-op: the SDK installs its own SIGTERM handler in
+        # AgentRuntime._install_sigterm_handler. Yield once so the
+        # ``with self.capture_signals(): ...`` contract from
+        # ``Server.serve`` is satisfied.
+        yield
+
+
 def _build_agent_card(port: int) -> AgentCard:
     """Build a minimal A2A Agent Card from IAgentContext env vars."""
     agent_id = os.environ.get("SPRING_AGENT_ID", "agent")
@@ -339,7 +370,18 @@ class AgentRuntime:
         """Install a SIGTERM handler that sets the shutdown event.
 
         Spec §1.3: the SDK MUST trap SIGTERM.
+
+        ``loop.add_signal_handler`` only works from the main thread of the
+        main interpreter (it calls ``signal.set_wakeup_fd`` under the hood).
+        When the runtime is driven from a background thread — as the unit
+        tests do to exercise the live HTTP server — we silently skip the
+        installation rather than crash. In production the runtime always
+        runs on the main thread (``AgentRuntime.run`` calls ``asyncio.run``
+        directly), so the handler is always installed.
         """
+        if threading.current_thread() is not threading.main_thread():
+            logger.debug("Skipping SIGTERM handler install — runtime is on a non-main thread")
+            return
 
         def _handle_sigterm() -> None:
             logger.info("SIGTERM received — initiating graceful shutdown")
@@ -452,18 +494,43 @@ class AgentRuntime:
         app = Starlette(routes=routes)
 
         # Run uvicorn until SIGTERM arrives.
+        #
+        # ``lifespan="off"`` is intentional: the SDK owns the agent lifecycle
+        # (initialize/on_message/on_shutdown) and never registers Starlette
+        # ``on_startup``/``on_shutdown`` handlers, so the ASGI lifespan
+        # protocol carries no signal we care about. Leaving it on
+        # ("auto"/"on") adds a long-lived background task whose death — for
+        # any reason, including spurious cancellations — propagates to
+        # ``server.should_exit`` via uvicorn's lifespan-error handling and
+        # would tear the A2A server down between turns (issue #2088).
         config = uvicorn.Config(
             app=app,
             host="0.0.0.0",
             port=self._port,
             log_config=None,
+            lifespan="off",
         )
-        server = uvicorn.Server(config)
+        server = _SdkUvicornServer(config)
 
         # Run server, shutdown watcher, and context-loading concurrently.
-        server_task = asyncio.create_task(server.serve())
-        shutdown_task = asyncio.create_task(self._run_shutdown())
-        init_task = asyncio.create_task(self._load_and_initialize(executor))
+        server_task = asyncio.create_task(server.serve(), name="agent-runtime-uvicorn")
+        shutdown_task = asyncio.create_task(self._run_shutdown(), name="agent-runtime-shutdown")
+        init_task = asyncio.create_task(self._load_and_initialize(executor), name="agent-runtime-init")
+
+        # Surface initialize() failures eagerly. Without this an exception in
+        # the initialize hook (or in the IAgentContext loader) would sit
+        # silently on the future until the runtime tore down — agents would
+        # accept message/send calls (the gate opens via the finally clause
+        # in _run_initialize) and surface the error per-message rather than
+        # at startup.
+        def _log_init_failure(task: asyncio.Task) -> None:
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                logger.error("initialize() failed: %s", exc, exc_info=exc)
+
+        init_task.add_done_callback(_log_init_failure)
 
         done, pending = await asyncio.wait(
             {server_task, shutdown_task},
@@ -474,6 +541,30 @@ class AgentRuntime:
         if shutdown_task in done:
             server.should_exit = True
             await server_task
+        elif server_task in done:
+            # Uvicorn returned without the SDK requesting shutdown. This is
+            # the failure mode #2088 reported in production: something flipped
+            # ``server.should_exit`` (a captured signal, a fatal error in
+            # ``startup()``, etc.) and uvicorn exited on its own.  Surface
+            # the cause loudly so operators can see it in the agent
+            # container logs instead of a silent process exit.
+            try:
+                exc = server_task.exception()
+            except asyncio.CancelledError:
+                exc = None
+            if exc is not None:
+                logger.error(
+                    "uvicorn server task exited with an exception before shutdown was requested: %s",
+                    exc,
+                    exc_info=exc,
+                )
+            else:
+                logger.error(
+                    "uvicorn server task returned cleanly before shutdown was requested — "
+                    "the A2A server is no longer listening and the container will exit. "
+                    "This usually means a SIGTERM was delivered and captured outside the SDK, "
+                    "or an ASGI lifespan error flipped should_exit (issue #2088)."
+                )
 
         # Cancel remaining tasks.
         for t in pending | {init_task}:
