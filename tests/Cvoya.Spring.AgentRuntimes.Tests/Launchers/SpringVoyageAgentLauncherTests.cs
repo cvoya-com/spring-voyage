@@ -403,6 +403,24 @@ public class SpringVoyageAgentLauncherTests
         ex.Message.ShouldContain("anthropic-api-key");
     }
 
+    [Fact]
+    public async Task PrepareAsync_ConcurrentThreadsTrue_DoesNotPrependLauncherGuard()
+    {
+        // #2096 / ADR-0041: the system-prompt guard fragment is a
+        // CLI-runtime construct (Claude Code, Codex, Gemini). The Spring
+        // Voyage Agent runtime is the Python SDK path — the SDK author
+        // writes their own code and the prompt-guard idea does not apply.
+        // Regression-pin so the guard never accidentally leaks into this
+        // launcher's prompt forwarding.
+        var context = CreateContext() with { ConcurrentThreads = true };
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"]
+            .ShouldNotContain("Spring Voyage runtime guard");
+    }
+
     private static AgentLaunchContext MakeContext(string provider, string model) =>
         LauncherCallbackTestSupport.CreateContext(
             prompt: "## System\nYou are a helpful assistant.",

@@ -680,3 +680,103 @@ Checklist for a fresh `IAgentRuntimeLauncher`:
 
 The dispatcher auto-discovers launchers via DI and routes by the runtime
 entry's `launcher` id.
+
+---
+
+## 10. `concurrent_threads: true` author contract
+
+> **Authoritative source:** [ADR-0041 — Actor-runtime contract for agent containers](../decisions/0041-actor-runtime-contract.md). This section is the author-facing summary; the ADR is the durable record. The same contract applies to Python SDK agents (see [Agent SDK § "concurrent_threads: true author contract"](agent-sdk.md#concurrent_threads-true-author-contract) for SDK-flavoured guidance).
+
+The agent's `concurrent_threads` flag (sourced from the manifest's
+`execution.concurrent_threads` slot) decides what runs concurrently inside the
+agent's per-invocation container surface:
+
+| Mode                      | Mailbox behaviour                          | In-container concurrency                 |
+| ------------------------- | ------------------------------------------ | ---------------------------------------- |
+| `concurrent_threads: false` (default-safe) | Per-agent serialization across all threads. | One runtime invocation in flight at a time. |
+| `concurrent_threads: true` (opt-in)        | Per-thread channels dispatch independently. | N concurrent runtime invocations, one per active thread. |
+
+The `false` mode is safe for any agent. The `true` mode is an explicit opt-in
+that ships work to N concurrent runtime invocations inside the same container.
+Session files don't fight (each turn gets `--resume <thread.id>`), but
+**everything else in the container is shared and the author owns it**.
+
+### The contract
+
+An agent that sets `concurrent_threads: true`:
+
+- **MAY** hold per-thread state in-process keyed by `thread.id`.
+- **MUST NOT** bind fixed ports. Every per-thread port allocation must be
+  ephemeral / dynamic — two concurrent turns binding `:8080` will collide.
+- **MUST NOT** write outside `$SPRING_WORKSPACE_PATH/threads/<thread.id>/` for
+  thread-local state. Files outside that subtree are visible to every
+  concurrent turn and will race.
+- **MUST NOT** assume any tool's child processes are uniquely theirs. No
+  `pkill -f pytest` patterns — that pattern kills the test runner of every
+  other concurrent turn in the same container.
+- **MUST NOT** mutate shared global state — env vars, working directory,
+  signal handlers. These propagate across every concurrent turn in the
+  process.
+- For CLI runtimes specifically: the system prompt MUST forbid the model from
+  invoking long-running watchers (`pytest --watch`, `npm run dev`,
+  `cargo watch`, `tail -f`, etc.). These never exit on their own and pin the
+  container indefinitely under concurrency. The CLI launchers prepend a short
+  guard fragment to the assembled system prompt automatically when this mode
+  is on (see `LauncherPromptFragments.ConcurrentThreadsGuard`); the fragment
+  is composed with — not a replacement for — the user's prompt.
+
+Agents that cannot meet the contract stay on `concurrent_threads: false` and
+accept head-of-line blocking on their mailbox. The trade-off is intentional;
+see ADR-0041 § "Why HoL on `false` is acceptable for v0.1".
+
+### Safe vs. unsafe patterns
+
+**Safe — ephemeral port binding inside a per-thread workspace:**
+
+```bash
+# inside the runtime image, per turn
+PORT=$(python -c 'import socket; s = socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
+mkdir -p "$SPRING_WORKSPACE_PATH/threads/$SPRING_THREAD_ID/build"
+cd "$SPRING_WORKSPACE_PATH/threads/$SPRING_THREAD_ID"
+node server.js --port "$PORT" >build/server.log 2>&1 &
+SERVER_PID=$!
+trap "kill $SERVER_PID 2>/dev/null" EXIT
+# … hit http://127.0.0.1:$PORT …
+```
+
+**Unsafe — fixed port + global cache + broad pkill:**
+
+```bash
+# DO NOT do this under concurrent_threads: true
+node server.js --port 3000 &     # collides with every other turn
+npm cache clean --force          # stomps a parallel turn's install
+pkill -f node                    # kills every turn's server, not just yours
+```
+
+**Safe — thread-scoped temp dir:**
+
+```bash
+# isolate scratch state under the per-thread subtree the platform owns
+SCRATCH="$SPRING_WORKSPACE_PATH/threads/$SPRING_THREAD_ID/.scratch"
+mkdir -p "$SCRATCH"
+# … work under $SCRATCH …
+```
+
+**Unsafe — shared global cache directories:**
+
+```bash
+# DO NOT do this under concurrent_threads: true
+mkdir -p ~/.cache/myagent           # shared across every concurrent turn
+echo "$RESULT" > /tmp/last-output   # likewise — /tmp is shared
+export AGENT_STATE_FILE=/var/state  # mutates a global
+```
+
+### Surfacing
+
+`spring agent validate <agent-id>` emits a `WARN` line whenever an agent's
+persisted definition declares `execution.concurrent_threads: true`, with a
+pointer to ADR-0041 and this section. The warning is not a blocker — opt-in
+is allowed — but it is visible so authors do not flip the flag without seeing
+the contract. An agent with no `concurrent_threads` slot in its definition
+inherits the runtime's record default and the validator does not warn —
+explicit opt-in is the trigger.

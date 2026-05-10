@@ -84,6 +84,12 @@ internal sealed class LauncherCallbackTestSupport
             McpToken: mcpToken,
             TenantId: tenantId ?? Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
             UnitId: unitId,
+            // #2096 / ADR-0041: the safe-default mode is
+            // `concurrent_threads: false` — tests that need to assert the
+            // CLI launcher's prompt-guard composition must opt in
+            // explicitly via `with { ConcurrentThreads = true }`. Keeps
+            // existing prompt-equality assertions valid.
+            ConcurrentThreads: false,
             Provider: provider,
             Model: model,
             AgentAddress: resolvedAddress,

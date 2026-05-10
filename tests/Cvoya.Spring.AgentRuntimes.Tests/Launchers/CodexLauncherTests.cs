@@ -187,6 +187,44 @@ public class CodexLauncherTests
         ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
     }
 
+    [Fact]
+    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsGuardToAGENTSmd_AndSystemPromptEnv()
+    {
+        // #2096 / ADR-0041: when concurrent_threads is on, the assembled
+        // prompt the model sees (AGENTS.md, SPRING_SYSTEM_PROMPT) MUST
+        // start with the shared launcher guard. The user's prompt body
+        // is preserved in full — the guard composes, it does not replace.
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "## Platform Instructions\nWrite clean code.",
+            mcpToken: "codex-secret-token") with
+        { ConcurrentThreads = true };
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.WorkspaceFiles["AGENTS.md"].ShouldStartWith("## Spring Voyage runtime guard");
+        prep.WorkspaceFiles["AGENTS.md"].ShouldContain(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_ConcurrentThreadsFalse_LeavesPromptVerbatim()
+    {
+        // The guard MUST NOT fire when the agent stays on the safe-default
+        // mode — we don't want to bias every agent away from valid
+        // patterns just because the launcher has a guard available.
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "## Platform Instructions\nWrite clean code.",
+            mcpToken: "codex-secret-token") with
+        { ConcurrentThreads = false };
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.WorkspaceFiles["AGENTS.md"].ShouldBe(context.Prompt);
+        prep.WorkspaceFiles["AGENTS.md"].ShouldNotContain("Spring Voyage runtime guard");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+    }
+
     private static void ShouldNotContainSpringOrchestrationServer(AgentLaunchSpec prep)
     {
         var mcpServers = GetMcpServers(prep);

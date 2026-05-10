@@ -90,6 +90,8 @@ The SDK does not provide workflow durability. If an image needs restart survival
 
 This section governs **per-thread** state held by an agent process — both on disk and in memory — and applies to the Python SDK (`agents/spring-voyage-agent-sdk/`) and to runtime images that hold their own per-thread state. The contract derives from [ADR-0041 — Actor-runtime contract](../decisions/0041-actor-runtime-contract.md).
 
+> **Operational summary with safe-vs-unsafe examples** (shared with CLI-runtime authors): [Agent Runtime § "concurrent_threads: true author contract"](agent-runtime.md#10-concurrent_threads-true-author-contract). The current section is the SDK-flavoured guidance; the linked section is the canonical contract narrative.
+
 ### `thread.id` is delivered on every turn
 
 Every inbound message carries the platform-assigned thread id. In the Python SDK it is `Message.thread_id` (sourced from the A2A SDK's `Message.context_id`). The id is stable across the thread's lifetime and globally unique (a `Guid`, per ADR-0036), so it can be used directly as a session / file-key without hashing.
@@ -117,7 +119,18 @@ Whether in-memory per-thread state is safe depends on the agent's `concurrent_th
 
 - **`concurrent_threads: true`** (opt-in) — the platform dispatches per-thread channels concurrently; N `on_message` invocations may run in parallel. In-memory per-thread state is allowed but the agent author signs up for the full [ADR-0041 `concurrent_threads: true` contract](../decisions/0041-actor-runtime-contract.md): no fixed ports, no shared global mutation, no `pkill`-style child-process assumptions, and all thread-local files under `$SPRING_WORKSPACE_PATH/threads/<thread.id>/`. Agents that cannot meet the contract should stay on `false` and accept HoL.
 
-`spring agent validate` surfaces a warning when an agent declares `concurrent_threads: true` so the author opts in deliberately.
+For Python SDK agents, the contract surfaces in code as additional re-entrancy
+discipline:
+
+- Avoid module-level `os.chdir()`, signal-handler installation, and env-var
+  mutation inside `on_message`. These are process-global and will surprise
+  every other concurrent turn.
+- Module-level dicts keyed by `thread_id` are safe only when every read / write
+  path is re-entrant — the SDK invokes `on_message` from many concurrent tasks
+  under `concurrent_threads: true`.
+- The CLI-runtime system-prompt guard fragment (see [Agent Runtime § 10](agent-runtime.md#10-concurrent_threads-true-author-contract)) does not apply to the SDK — the SDK author writes the code directly and is responsible for honouring the contract in code.
+
+`spring agent validate <agent-id>` surfaces a `WARN` line when an agent declares `concurrent_threads: true` so the author opts in deliberately and sees the contract.
 
 ## Security Model
 

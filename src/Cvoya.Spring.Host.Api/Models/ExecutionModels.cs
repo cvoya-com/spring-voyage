@@ -88,11 +88,24 @@ public record UnitExecutionResponse(
 /// <param name="Runtime">Agent-runtime catalogue id (ADR-0038).</param>
 /// <param name="Model">Structured <c>{provider, id}</c> model selector.</param>
 /// <param name="Hosting">Hosting mode (<c>ephemeral</c> or <c>persistent</c>).</param>
+/// <param name="ConcurrentThreads">
+/// Read-only projection of the agent's <c>execution.concurrent_threads</c>
+/// slot from the persisted definition JSON (#2096 / ADR-0041). Surfaces
+/// as <c>true</c> when the agent has explicitly opted in to per-thread
+/// in-container concurrency (with the published author contract), and as
+/// <c>false</c> when the agent uses the safe-default serialised mailbox.
+/// <c>null</c> when the agent has no execution block at all on disk —
+/// the dispatcher uses the runtime's record default in that case.
+/// PUT does not currently consume this field; clients persist it through
+/// the <c>--definition</c> / <c>--definition-file</c> paths on agent
+/// create. Tracked for first-class wire-write support under #2090.
+/// </param>
 public record AgentExecutionResponse(
     string? Image = null,
     string? Runtime = null,
     AiModelDto? Model = null,
-    string? Hosting = null);
+    string? Hosting = null,
+    bool? ConcurrentThreads = null);
 
 /// <summary>
 /// Structured <c>{provider, id}</c> model selector under ADR-0038.

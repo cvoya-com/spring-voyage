@@ -147,9 +147,16 @@ public class ClaudeCodeLauncher(
             mcpServers
         };
 
+        // ADR-0041 / #2096: when concurrent_threads is on, prepend the
+        // shared launcher guard to the assembled prompt so the model is
+        // told (in the system prompt) not to invoke long-running watchers,
+        // bind fixed ports, or mutate shared global state. Composes with
+        // the user's prompt — never replaces it.
+        var prompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
+
         var workspaceFiles = new Dictionary<string, string>
         {
-            ["CLAUDE.md"] = context.Prompt,
+            ["CLAUDE.md"] = prompt,
             [".mcp.json"] = SerializeMcpConfig(mcpConfig)
         };
 
@@ -165,7 +172,7 @@ public class ClaudeCodeLauncher(
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
-            ["SPRING_SYSTEM_PROMPT"] = context.Prompt,
+            ["SPRING_SYSTEM_PROMPT"] = prompt,
             // The bridge parses this back into argv via JSON.parse — see
             // deployment/agent-sidecar/src/config.ts. Hand-rolling the
             // encoding is forbidden (see issue text); JsonSerializer
@@ -214,8 +221,9 @@ public class ClaudeCodeLauncher(
             // Same content as CLAUDE.md / SPRING_SYSTEM_PROMPT — the bridge
             // (PR 5) will pipe this to `claude`'s stdin alongside the per-
             // message user text. Populated here so PR 5 can wire it up
-            // without touching the launcher contract again.
-            StdinPayload: context.Prompt);
+            // without touching the launcher contract again. Carries the
+            // concurrent-threads guard prepend (#2096 / ADR-0041) when on.
+            StdinPayload: prompt);
     }
 
     private static string SerializeMcpConfig(object mcpConfig) =>
