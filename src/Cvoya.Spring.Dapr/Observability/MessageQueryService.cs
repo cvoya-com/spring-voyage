@@ -5,35 +5,26 @@ namespace Cvoya.Spring.Dapr.Observability;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Core.Capabilities;
-using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Observability;
-using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
-/// Default <see cref="IMessageQueryService"/>. Looks up the most recent
-/// <c>MessageReceived</c> activity event whose <c>Details</c> JSON carries
-/// the requested <c>messageId</c> (the envelope written by
-/// <see cref="MessageReceivedDetails.Build"/>) and projects it into a
-/// <see cref="MessageDetail"/> so the CLI / portal can render the body.
+/// Default <see cref="IMessageQueryService"/>. Reads from the EF-authoritative
+/// <c>messages</c> table landed by ADR-0030 / ADR-0040; the legacy
+/// <c>activity_events.Details</c> JSON-scan path is gone.
 /// </summary>
 /// <remarks>
-/// We scan every recorded MessageReceived event because the activity table
-/// stores <c>Details</c> as opaque JSON in the OSS surface — a JSON-aware
-/// implementation can be added later. The platform emits a single
-/// <c>MessageReceived</c> per recipient per message, so the result set is
-/// small in practice; cloud overlays with a dedicated message table can
-/// swap the implementation through DI without touching callers.
+/// Single indexed lookup on the primary key (<c>messages.id</c>); tenant
+/// scoping flows from the <see cref="SpringDbContext"/> query filter on
+/// <see cref="Cvoya.Spring.Dapr.Data.Entities.MessageEntity"/>. The wire shape
+/// (<see cref="MessageDetail"/>) is unchanged, so callers do not move when
+/// the read source does.
 /// </remarks>
-public class MessageQueryService(
-    SpringDbContext dbContext,
-    IThreadRegistry? threadRegistry = null) : IMessageQueryService
+public class MessageQueryService(SpringDbContext dbContext) : IMessageQueryService
 {
-    private static readonly string MessageReceivedName = nameof(ActivityEventType.MessageReceived);
-
     /// <inheritdoc />
     public async Task<MessageDetail?> GetAsync(Guid messageId, CancellationToken cancellationToken)
     {
@@ -42,94 +33,55 @@ public class MessageQueryService(
             return null;
         }
 
-        // Pull every MessageReceived event with a non-null Details column —
-        // the JSON-side filter happens client-side because EF's JSON path
-        // operators are provider-specific (Postgres vs. in-memory tests).
-        var rows = await dbContext.ActivityEvents
-            .Where(e => e.EventType == MessageReceivedName && e.Details != null)
-            .OrderByDescending(e => e.Timestamp)
-            .Select(e => new
-            {
-                e.Id,
-                e.Timestamp,
-                e.CorrelationId,
-                e.Details,
-            })
-            .ToListAsync(cancellationToken);
+        var row = await dbContext.Messages
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == messageId, cancellationToken);
 
-        var idText = messageId.ToString();
-        foreach (var row in rows)
-        {
-            if (row.Details is not JsonElement details || details.ValueKind != JsonValueKind.Object)
-            {
-                continue;
-            }
-            if (!details.TryGetProperty(MessageReceivedDetails.MessageIdProperty, out var idProp))
-            {
-                continue;
-            }
-            if (idProp.ValueKind != JsonValueKind.String)
-            {
-                continue;
-            }
-            if (!string.Equals(idProp.GetString(), idText, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var from = TryReadString(details, MessageReceivedDetails.FromProperty) ?? string.Empty;
-            var to = TryReadString(details, MessageReceivedDetails.ToProperty) ?? string.Empty;
-            var messageType = TryReadString(details, MessageReceivedDetails.MessageTypeProperty) ?? string.Empty;
-            var body = TryReadString(details, MessageReceivedDetails.BodyProperty);
-
-            JsonElement? payload = null;
-            if (details.TryGetProperty(MessageReceivedDetails.PayloadProperty, out var payloadProp)
-                && payloadProp.ValueKind != JsonValueKind.Undefined
-                && payloadProp.ValueKind != JsonValueKind.Null)
-            {
-                payload = payloadProp.Clone();
-            }
-
-            // #2047: prefer the registry's canonical id when the activity
-            // event's CorrelationId resolves to a registry row, so the
-            // message detail surfaces the authoritative thread id even if
-            // the activity row predates the registry. Fall back to the
-            // CorrelationId as-is otherwise.
-            var threadId = await ResolveThreadIdAsync(row.CorrelationId, cancellationToken);
-
-            return new MessageDetail(
-                MessageId: messageId,
-                ThreadId: threadId,
-                From: from,
-                To: to,
-                MessageType: messageType,
-                Body: body,
-                Payload: payload,
-                Timestamp: row.Timestamp);
-        }
-
-        return null;
-    }
-
-    private async Task<string?> ResolveThreadIdAsync(
-        string? correlationId,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(correlationId) || threadRegistry is null)
-        {
-            return correlationId;
-        }
-
-        var entry = await threadRegistry.ResolveAsync(correlationId, cancellationToken);
-        return entry?.ThreadId ?? correlationId;
-    }
-
-    private static string? TryReadString(JsonElement element, string property)
-    {
-        if (!element.TryGetProperty(property, out var prop))
+        if (row is null)
         {
             return null;
         }
-        return prop.ValueKind == JsonValueKind.String ? prop.GetString() : null;
+
+        var payload = TryParsePayload(row.Payload);
+
+        return new MessageDetail(
+            MessageId: row.Id,
+            ThreadId: GuidFormatter.Format(row.ThreadId),
+            From: $"{row.SenderScheme}://{GuidFormatter.Format(row.SenderId)}",
+            To: $"{row.RecipientScheme}://{GuidFormatter.Format(row.RecipientId)}",
+            MessageType: row.MessageType,
+            Body: row.Body,
+            Payload: payload,
+            Timestamp: row.SentAt);
+    }
+
+    /// <summary>
+    /// Parses the persisted JSON payload back into a <see cref="JsonElement"/>.
+    /// Stored values are always valid JSON (the writer serialises with
+    /// <see cref="JsonSerializer"/> and writes <c>"null"</c> for undefined
+    /// payloads), but a defensive try/catch keeps the read path resilient if
+    /// a future writer or hand-edit produces something off-shape.
+    /// </summary>
+    private static JsonElement? TryParsePayload(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.ValueKind == JsonValueKind.Null)
+            {
+                return null;
+            }
+
+            return doc.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }

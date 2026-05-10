@@ -5,64 +5,102 @@ namespace Cvoya.Spring.Dapr.Observability;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
-using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
-/// Default <see cref="IThreadQueryService"/>. Threads are
-/// materialised from the existing <see cref="SpringDbContext.ActivityEvents"/>
-/// table: each activity event persisted with a non-null
-/// <see cref="ActivityEventRecord.CorrelationId"/> carries the thread id
-/// assigned by the messaging layer. Grouping those events by correlation id
-/// reconstructs the thread without a separate message store.
+/// Default <see cref="IThreadQueryService"/>. Reads from the EF-authoritative
+/// <c>threads</c> and <c>messages</c> tables landed by ADR-0030 and ADR-0040;
+/// the legacy <c>activity_events.Details</c> JSON-scan path is gone.
 /// </summary>
 /// <remarks>
-/// This is an observability projection — it intentionally reads only from the
-/// activity table, which is the single place the platform already persists
-/// thread-correlated events. A future PR can add a dedicated message
-/// table (see #410) and swap this service out; every call site depends on the
-/// interface only.
+/// <para>
+/// Thread identity comes from <see cref="ThreadEntity"/> (participant set,
+/// <c>created_at</c>, <c>last_activity_at</c>, <c>status</c>) and the
+/// timeline comes from <see cref="MessageEntity"/> ordered by
+/// <c>sent_at</c>. The composite index <c>(tenant_id, thread_id, sent_at)</c>
+/// on <c>messages</c> covers the per-thread message read; the registry's
+/// <c>(tenant_id, participant_key)</c> unique index keeps the thread lookup
+/// cheap.
+/// </para>
+/// <para>
+/// The directory service is consulted only to render an actor id back to its
+/// scheme when a message references a recipient/sender that doesn't appear
+/// in the thread's participant set (defensive — the dispatcher's invariants
+/// keep these aligned in practice). Tenant scoping flows from
+/// <see cref="SpringDbContext"/>'s <c>HasQueryFilter</c> on each entity, so
+/// the service itself never references <c>OssTenantIds.Default</c> or
+/// hardcodes a tenant string.
+/// </para>
 /// </remarks>
 public class ThreadQueryService(
     SpringDbContext dbContext,
-    IDirectoryService? directoryService = null,
-    IThreadRegistry? threadRegistry = null) : IThreadQueryService
+    IDirectoryService? directoryService = null) : IThreadQueryService
 {
-    private static readonly string[] TerminalEventTypes =
-    {
-        nameof(ActivityEventType.ThreadCompleted),
-    };
+    private const int DefaultLimit = 50;
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<ThreadSummary>> ListAsync(
         ThreadQueryFilters filters,
         CancellationToken cancellationToken)
     {
-        var raw = await dbContext.ActivityEvents
-            .Where(e => e.CorrelationId != null)
-            .Select(e => new { e.CorrelationId, e.Id, e.SourceId, e.EventType, e.Severity, e.Summary, e.Timestamp })
+        ArgumentNullException.ThrowIfNull(filters);
+
+        var threads = await dbContext.Threads
+            .AsNoTracking()
+            .OrderByDescending(t => t.LastActivityAt)
             .ToListAsync(cancellationToken);
 
-        var schemeMap = await BuildSourceSchemeMapAsync(cancellationToken);
-        var rows = raw
-            .Select(e => new ThreadEventRow(
-                e.CorrelationId!, e.Id, RenderSource(e.SourceId, schemeMap), e.EventType, e.Severity, e.Summary, e.Timestamp))
-            .ToList();
+        if (threads.Count == 0)
+        {
+            return Array.Empty<ThreadSummary>();
+        }
 
-        var summaries = await BuildSummariesAsync(rows, cancellationToken);
-        summaries = await ApplyFiltersAsync(summaries, filters, cancellationToken);
+        var threadIds = threads.Select(t => t.Id).ToList();
 
-        var limit = filters.Limit is > 0 ? filters.Limit.Value : 50;
-        return summaries
+        // Pull per-thread aggregates in two indexed queries: (count, first
+        // sender id, first sender scheme, first body) for origin/summary and
+        // (count) for the EventCount column. Both use the
+        // (tenant_id, thread_id, sent_at) composite index.
+        var counts = await dbContext.Messages
+            .AsNoTracking()
+            .Where(m => threadIds.Contains(m.ThreadId))
+            .GroupBy(m => m.ThreadId)
+            .Select(g => new { ThreadId = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+
+        var firstMessages = await dbContext.Messages
+            .AsNoTracking()
+            .Where(m => threadIds.Contains(m.ThreadId))
+            .GroupBy(m => m.ThreadId)
+            .Select(g => g.OrderBy(m => m.SentAt).FirstOrDefault())
+            .ToListAsync(cancellationToken);
+
+        var countByThread = counts.ToDictionary(c => c.ThreadId, c => c.Count);
+        var firstByThread = firstMessages
+            .Where(m => m is not null)
+            .Cast<MessageEntity>()
+            .ToDictionary(m => m.ThreadId);
+
+        var summaries = new List<ThreadSummary>(threads.Count);
+        foreach (var thread in threads)
+        {
+            var summary = BuildSummary(
+                thread,
+                firstByThread.GetValueOrDefault(thread.Id),
+                countByThread.GetValueOrDefault(thread.Id));
+            summaries.Add(summary);
+        }
+
+        var filtered = await ApplyFiltersAsync(summaries, filters, cancellationToken);
+        var limit = filters.Limit is > 0 ? filters.Limit.Value : DefaultLimit;
+        return filtered
             .OrderByDescending(s => s.LastActivity)
             .Take(limit)
             .ToList();
@@ -73,109 +111,33 @@ public class ThreadQueryService(
         string threadId,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(threadId))
+        if (!GuidFormatter.TryParse(threadId, out var threadGuid))
         {
             return null;
         }
 
-        var raw = await dbContext.ActivityEvents
-            .Where(e => e.CorrelationId == threadId)
-            .OrderBy(e => e.Timestamp)
-            .Select(e => new { e.CorrelationId, e.Id, e.SourceId, e.EventType, e.Severity, e.Summary, e.Timestamp, e.Details })
+        var thread = await dbContext.Threads
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == threadGuid, cancellationToken);
+
+        if (thread is null)
+        {
+            return null;
+        }
+
+        var messages = await dbContext.Messages
+            .AsNoTracking()
+            .Where(m => m.ThreadId == threadGuid)
+            .OrderBy(m => m.SentAt)
             .ToListAsync(cancellationToken);
 
-        var schemeMap = await BuildSourceSchemeMapAsync(cancellationToken);
-        var rows = raw
-            .Select(e => new ThreadEventRow(
-                e.CorrelationId!, e.Id, RenderSource(e.SourceId, schemeMap), e.EventType, e.Severity, e.Summary, e.Timestamp, e.Details))
-            .ToList();
+        var summary = BuildSummary(
+            thread,
+            messages.Count > 0 ? messages[0] : null,
+            messages.Count);
 
-        if (rows.Count == 0)
-        {
-            return null;
-        }
-
-        var summary = await BuildSummaryForThreadAsync(threadId, rows, cancellationToken);
-        var events = rows
-            .Select(BuildThreadEvent)
-            .ToList();
-
+        var events = messages.Select(BuildThreadEvent).ToList();
         return new ThreadDetail(summary, events);
-    }
-
-    /// <summary>
-    /// Projects a single activity-event row into a <see cref="ThreadEvent"/>,
-    /// pulling the message envelope (id / from / to / body) out of the
-    /// <c>Details</c> JSON for <c>MessageReceived</c> events (#1209) so the
-    /// thread surfaces can render the body inline. Non-message events
-    /// surface with the body fields null and the rest of the projection
-    /// unchanged.
-    /// </summary>
-    private static ThreadEvent BuildThreadEvent(ThreadEventRow row)
-    {
-        var (messageId, from, to, body) = ExtractMessageEnvelope(row.Details);
-        return new ThreadEvent(
-            Id: row.Id,
-            Timestamp: row.Timestamp,
-            Source: NormaliseSource(row.Source),
-            EventType: row.EventType,
-            Severity: row.Severity,
-            Summary: row.Summary,
-            MessageId: messageId,
-            From: from,
-            To: to,
-            Body: body);
-    }
-
-    /// <summary>
-    /// Reads the message envelope fields written by
-    /// <see cref="MessageReceivedDetails.Build"/>. Best-effort — a missing
-    /// or malformed <c>Details</c> blob just leaves the projection fields
-    /// null so older events (pre-#1209) still render correctly.
-    /// <para>
-    /// When the <c>body</c> field is absent (events persisted before #1551
-    /// extended <see cref="MessageReceivedDetails.TryExtractText"/> to
-    /// recognise the dispatcher's <c>{ Output, ExitCode }</c> reply shape),
-    /// fall back to extracting the body directly from the persisted
-    /// <c>payload</c> element so the surfaces render the agent's reply text
-    /// rather than the envelope summary line for already-stored events.
-    /// </para>
-    /// </summary>
-    private static (Guid? MessageId, string? From, string? To, string? Body) ExtractMessageEnvelope(JsonElement? details)
-    {
-        if (details is not JsonElement element || element.ValueKind != JsonValueKind.Object)
-        {
-            return (null, null, null, null);
-        }
-
-        Guid? messageId = null;
-        if (element.TryGetProperty(MessageReceivedDetails.MessageIdProperty, out var idProp)
-            && idProp.ValueKind == JsonValueKind.String
-            && Guid.TryParse(idProp.GetString(), out var parsedId))
-        {
-            messageId = parsedId;
-        }
-
-        var from = TryReadString(element, MessageReceivedDetails.FromProperty);
-        var to = TryReadString(element, MessageReceivedDetails.ToProperty);
-        var body = TryReadString(element, MessageReceivedDetails.BodyProperty);
-
-        if (string.IsNullOrEmpty(body)
-            && element.TryGetProperty(MessageReceivedDetails.PayloadProperty, out var payload))
-        {
-            body = MessageReceivedDetails.TryExtractText(payload);
-        }
-
-        return (messageId, from, to, body);
-    }
-
-    private static string? TryReadString(JsonElement element, string property)
-    {
-        if (!element.TryGetProperty(property, out var prop))
-        {
-            return null;
-        }
-        return prop.ValueKind == JsonValueKind.String ? prop.GetString() : null;
     }
 
     /// <inheritdoc />
@@ -189,103 +151,115 @@ public class ThreadQueryService(
             return [];
         }
 
-        // Normalise the caller's address — accept either "human://savasp" or
-        // the persistence-layer shape "human:savasp" that activity events use.
-        var humanSourceCanonical = ToPersistenceSource(humanAddress);
-        var humanSourceDisplay = NormaliseSource(humanSourceCanonical);
+        if (!Address.TryParse(ToParseable(humanAddress), out var parsed) || parsed is null)
+        {
+            return [];
+        }
 
-        var raw = await dbContext.ActivityEvents
-            .Where(e => e.CorrelationId != null)
-            .Select(e => new { e.CorrelationId, e.Id, e.SourceId, e.EventType, e.Severity, e.Summary, e.Timestamp })
+        var humanScheme = parsed.Scheme;
+        var humanId = parsed.Id;
+
+        // The inbox row predicate: a thread shows up when the human has
+        // received at least one message on the thread and has not replied
+        // since. Reduces to "MAX(sent_at WHERE recipient = me) >
+        // MAX(sent_at WHERE sender = me)" per (tenant, thread). Any thread
+        // where the human is not a recipient is excluded by the WHERE.
+        var humanReceivedRows = await dbContext.Messages
+            .AsNoTracking()
+            .Where(m =>
+                m.RecipientScheme == humanScheme
+                && m.RecipientId == humanId)
+            .GroupBy(m => m.ThreadId)
+            .Select(g => new
+            {
+                ThreadId = g.Key,
+                LastReceived = g.Max(m => m.SentAt),
+            })
             .ToListAsync(cancellationToken);
 
-        var schemeMap = await BuildSourceSchemeMapAsync(cancellationToken);
-        var rows = raw
-            .Select(e => new ThreadEventRow(
-                e.CorrelationId!, e.Id, RenderSource(e.SourceId, schemeMap), e.EventType, e.Severity, e.Summary, e.Timestamp))
-            .ToList();
-
-        var inbox = new List<InboxItem>();
-
-        foreach (var group in rows.GroupBy(r => r.ThreadId))
+        if (humanReceivedRows.Count == 0)
         {
-            // A thread is "in my inbox" when the human has received a
-            // domain message on it and has not replied since. The reply
-            // signal is "another actor (non-human) emitted a MessageReceived
-            // on the same thread AFTER the human's last
-            // MessageReceived" — that's the only path through which an
-            // agent / unit observes the human's follow-up. #1210: keying
-            // off "the LAST event must be the human's MessageReceived" was
-            // too narrow — trailing observability events on the same
-            // thread (StateChanged on dispatch teardown, CostIncurred
-            // from a budget enforcer, future event types added by extension
-            // plugins) hid fresh agent replies even though the human had
-            // genuinely not responded. Keying off the most recent
-            // MessageReceived per side instead is robust to those tails.
-            var ordered = group.OrderBy(r => r.Timestamp).ToList();
+            return [];
+        }
 
-            ThreadEventRow? humanReceive = null;
-            ThreadEventRow? laterAgentReceive = null;
+        var threadIds = humanReceivedRows.Select(r => r.ThreadId).ToList();
 
-            for (var i = ordered.Count - 1; i >= 0; i--)
+        var humanSentRows = await dbContext.Messages
+            .AsNoTracking()
+            .Where(m =>
+                threadIds.Contains(m.ThreadId)
+                && m.SenderScheme == humanScheme
+                && m.SenderId == humanId)
+            .GroupBy(m => m.ThreadId)
+            .Select(g => new
             {
-                var row = ordered[i];
-                if (!string.Equals(row.EventType, nameof(ActivityEventType.MessageReceived), StringComparison.Ordinal))
-                {
-                    continue;
-                }
+                ThreadId = g.Key,
+                LastSent = g.Max(m => m.SentAt),
+            })
+            .ToListAsync(cancellationToken);
 
-                if (string.Equals(row.Source, humanSourceCanonical, StringComparison.OrdinalIgnoreCase))
-                {
-                    humanReceive = row;
-                    break;
-                }
+        var humanSentByThread = humanSentRows.ToDictionary(r => r.ThreadId, r => r.LastSent);
 
-                if (laterAgentReceive is null
-                    && !row.Source.StartsWith("human:", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Track the latest non-human MessageReceived; if it
-                    // comes after the human's, the human has already
-                    // replied and the thread is no longer pending.
-                    laterAgentReceive = row;
-                }
-            }
+        // Pending-since rows: the latest "to-the-human" message on each
+        // thread, with its summary + sender. Single query covers the page.
+        var pendingMessages = await dbContext.Messages
+            .AsNoTracking()
+            .Where(m =>
+                threadIds.Contains(m.ThreadId)
+                && m.RecipientScheme == humanScheme
+                && m.RecipientId == humanId)
+            .GroupBy(m => m.ThreadId)
+            .Select(g => g.OrderByDescending(m => m.SentAt).First())
+            .ToListAsync(cancellationToken);
 
-            if (humanReceive is null)
+        // Per-thread message count for unread computation when no read
+        // cursor is supplied — the legacy projection counted activity events,
+        // we count messages.
+        var messageCounts = await dbContext.Messages
+            .AsNoTracking()
+            .Where(m => threadIds.Contains(m.ThreadId))
+            .GroupBy(m => m.ThreadId)
+            .Select(g => new
+            {
+                ThreadId = g.Key,
+                Count = g.Count(),
+            })
+            .ToListAsync(cancellationToken);
+
+        var countByThread = messageCounts.ToDictionary(r => r.ThreadId, r => r.Count);
+
+        var humanRendered = RenderAddress(humanScheme, humanId);
+        var inbox = new List<InboxItem>(humanReceivedRows.Count);
+
+        foreach (var received in humanReceivedRows)
+        {
+            // Drop threads the human has already replied to.
+            if (humanSentByThread.TryGetValue(received.ThreadId, out var lastSent)
+                && lastSent >= received.LastReceived)
             {
                 continue;
             }
 
-            if (laterAgentReceive is not null && laterAgentReceive.Timestamp > humanReceive.Timestamp)
+            var pending = pendingMessages.FirstOrDefault(m => m.ThreadId == received.ThreadId);
+            if (pending is null)
             {
                 continue;
             }
 
-            // Find the "from" — the most recent non-human source before the
-            // human's ask. Falls back to the human's own source when no
-            // upstream actor is present (a synthetic thread seeded
-            // directly against the human address).
-            var humanIndex = ordered.IndexOf(humanReceive);
-            var from = ordered
-                .Take(humanIndex)
-                .Where(r => !r.Source.StartsWith("human:", StringComparison.OrdinalIgnoreCase))
-                .Select(r => NormaliseSource(r.Source))
-                .LastOrDefault() ?? NormaliseSource(humanReceive.Source);
-
-            // Compute unread count: count events with timestamp strictly greater
-            // than the human's lastReadAt for this thread. Absent entry means
-            // "never read" (DateTimeOffset.MinValue) so all events are unread.
-            var cursor = lastReadAt is not null && lastReadAt.TryGetValue(group.Key, out var storedAt)
-                ? storedAt
-                : DateTimeOffset.MinValue;
-            var unreadCount = ordered.Count(r => r.Timestamp > cursor);
+            var threadIdString = GuidFormatter.Format(received.ThreadId);
+            var unreadCount = ComputeUnreadCount(
+                received.ThreadId,
+                threadIdString,
+                countByThread.GetValueOrDefault(received.ThreadId),
+                lastReadAt,
+                cancellationToken);
 
             inbox.Add(new InboxItem(
-                ThreadId: group.Key,
-                From: from,
-                Human: humanSourceDisplay,
-                PendingSince: humanReceive.Timestamp,
-                Summary: humanReceive.Summary,
+                ThreadId: threadIdString,
+                From: RenderAddress(pending.SenderScheme, pending.SenderId),
+                Human: humanRendered,
+                PendingSince: pending.SentAt,
+                Summary: pending.Body ?? string.Empty,
                 UnreadCount: unreadCount));
         }
 
@@ -294,101 +268,87 @@ public class ThreadQueryService(
             .ToList();
     }
 
-    private async Task<IReadOnlyList<ThreadSummary>> BuildSummariesAsync(
-        List<ThreadEventRow> rows,
+    private int ComputeUnreadCount(
+        Guid threadGuid,
+        string threadIdString,
+        int totalMessages,
+        IReadOnlyDictionary<string, DateTimeOffset>? lastReadAt,
         CancellationToken cancellationToken)
     {
-        var summaries = new List<ThreadSummary>();
-        foreach (var group in rows.GroupBy(r => r.ThreadId))
+        // No cursor → every message is unread; the existing surface treated
+        // this as "count all events", and counting messages preserves the
+        // semantics within the new shape.
+        if (lastReadAt is null)
         {
-            summaries.Add(await BuildSummaryForThreadAsync(
-                group.Key,
-                group.OrderBy(r => r.Timestamp).ToList(),
-                cancellationToken));
+            return totalMessages;
         }
-        return summaries;
+
+        if (!lastReadAt.TryGetValue(threadIdString, out var cursor))
+        {
+            return totalMessages;
+        }
+
+        return dbContext.Messages
+            .AsNoTracking()
+            .Where(m => m.ThreadId == threadGuid && m.SentAt > cursor)
+            .Count();
     }
 
-    /// <summary>
-    /// Builds a thread summary, preferring the participant list from the
-    /// authoritative <see cref="IThreadRegistry"/> row when one exists for the
-    /// thread id (#2047 / ADR-0030). When the registry has no matching row —
-    /// pre-registry threads, in-memory test contexts that don't ship the
-    /// registry, or activity-only fallbacks — fall back to inferring
-    /// participants from the activity-event sources so the surface keeps
-    /// rendering.
-    /// </summary>
-    private async Task<ThreadSummary> BuildSummaryForThreadAsync(
-        string threadId,
-        IReadOnlyList<ThreadEventRow> ordered,
-        CancellationToken cancellationToken)
+    private ThreadSummary BuildSummary(
+        ThreadEntity thread,
+        MessageEntity? firstMessage,
+        int messageCount)
     {
-        var first = ordered[0];
-        var last = ordered[^1];
-        var isCompleted = ordered.Any(r =>
-            TerminalEventTypes.Contains(r.EventType));
-
-        IReadOnlyList<string> participants = await ResolveParticipantsAsync(threadId, cancellationToken)
-            ?? ordered
-                .Select(r => NormaliseSource(r.Source))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-        return new ThreadSummary(
-            Id: threadId,
-            Participants: participants,
-            Status: isCompleted ? "completed" : "active",
-            LastActivity: last.Timestamp,
-            CreatedAt: first.Timestamp,
-            EventCount: ordered.Count,
-            Origin: NormaliseSource(first.Source),
-            Summary: first.Summary);
-    }
-
-    /// <summary>
-    /// Returns the participant list from the thread-registry row when the
-    /// registry is wired and a row exists for <paramref name="threadId"/>;
-    /// otherwise <c>null</c> so callers fall back to activity-event inference.
-    /// </summary>
-    private async Task<IReadOnlyList<string>?> ResolveParticipantsAsync(
-        string threadId,
-        CancellationToken cancellationToken)
-    {
-        if (threadRegistry is null)
-        {
-            return null;
-        }
-
-        var entry = await threadRegistry.ResolveAsync(threadId, cancellationToken);
-        if (entry is null || entry.Participants.Count == 0)
-        {
-            return null;
-        }
-
-        // Render registry participants in the same observability shape used
-        // by activity-event-derived participants (NormaliseSource emits the
-        // identity form for canonical addresses) so callers that compare
-        // participant strings across services see consistent values.
-        return entry.Participants
-            .Select(a => NormaliseSource($"{a.Scheme}:{GuidFormatter.Format(a.Id)}"))
+        IReadOnlyList<string> participants = ParseParticipants(thread.Participants)
+            .Select(a => RenderAddress(a.Scheme, a.Id))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        var origin = firstMessage is not null
+            ? RenderAddress(firstMessage.SenderScheme, firstMessage.SenderId)
+            : participants.FirstOrDefault() ?? string.Empty;
+
+        var summary = firstMessage?.Body
+            ?? (firstMessage is not null ? string.Empty : string.Empty);
+
+        // The thread's lifecycle status is owned by the threads row itself
+        // (ADR-0040). Pre-rewrite the projection inferred completion from a
+        // ThreadCompleted activity event; with the EF-authoritative model the
+        // column is the source of truth. A separate writer must transition
+        // this column when an agent emits ThreadCompleted/ThreadClosed; see
+        // https://github.com/cvoya-com/spring-voyage/issues/2066.
+        return new ThreadSummary(
+            Id: GuidFormatter.Format(thread.Id),
+            Participants: participants,
+            Status: thread.Status,
+            LastActivity: thread.LastActivityAt,
+            CreatedAt: thread.CreatedAt,
+            EventCount: messageCount,
+            Origin: origin,
+            Summary: summary);
     }
 
-    /// <summary>
-    /// Filters thread summaries by status / unit / agent / participant. Agent
-    /// and unit needles are resolved through <see cref="IDirectoryService"/> so
-    /// that callers passing a slug (e.g. <c>"qa-engineer"</c>) match threads
-    /// whose participant strings carry the actor id (<c>agent://&lt;uuid&gt;</c>) —
-    /// activity events are written with the actor id as the source, so a
-    /// slug-only filter would otherwise return zero matches even when the
-    /// thread clearly involves the named agent. The literal slug form is kept
-    /// in the needle list as a fallback so direct-uuid lookups, tests with
-    /// slug-shaped actor ids, and any future call site addressing by the
-    /// canonical wire form continue to work unchanged.
-    /// </summary>
+    private ThreadEvent BuildThreadEvent(MessageEntity message)
+    {
+        var source = RenderAddress(message.SenderScheme, message.SenderId);
+        var to = RenderAddress(message.RecipientScheme, message.RecipientId);
+        // Activity events surfaced "MessageReceived" to the timeline; we keep
+        // the same event-type label so the wire shape downstream consumers
+        // already render against (CLI rows, portal bubbles) is unchanged.
+        return new ThreadEvent(
+            Id: message.Id,
+            Timestamp: message.SentAt,
+            Source: source,
+            EventType: "MessageReceived",
+            Severity: "Info",
+            Summary: message.Body ?? string.Empty,
+            MessageId: message.Id,
+            From: source,
+            To: to,
+            Body: message.Body);
+    }
+
     private async Task<IReadOnlyList<ThreadSummary>> ApplyFiltersAsync(
         IReadOnlyList<ThreadSummary> summaries,
         ThreadQueryFilters filters,
@@ -404,7 +364,7 @@ public class ThreadQueryService(
 
         if (!string.IsNullOrWhiteSpace(filters.Unit))
         {
-            var needles = await BuildAddressNeedlesAsync("unit", filters.Unit, cancellationToken);
+            var needles = await BuildAddressNeedlesAsync("unit", filters.Unit!, cancellationToken);
             query = query.Where(s =>
                 s.Participants.Any(p => needles.Contains(p, StringComparer.OrdinalIgnoreCase))
                 || needles.Contains(s.Origin, StringComparer.OrdinalIgnoreCase));
@@ -412,7 +372,7 @@ public class ThreadQueryService(
 
         if (!string.IsNullOrWhiteSpace(filters.Agent))
         {
-            var needles = await BuildAddressNeedlesAsync("agent", filters.Agent, cancellationToken);
+            var needles = await BuildAddressNeedlesAsync("agent", filters.Agent!, cancellationToken);
             query = query.Where(s =>
                 s.Participants.Any(p => needles.Contains(p, StringComparer.OrdinalIgnoreCase))
                 || needles.Contains(s.Origin, StringComparer.OrdinalIgnoreCase));
@@ -420,7 +380,7 @@ public class ThreadQueryService(
 
         if (!string.IsNullOrWhiteSpace(filters.Participant))
         {
-            var needle = filters.Participant;
+            var needle = filters.Participant!;
             query = query.Where(s =>
                 s.Participants.Any(p => string.Equals(p, needle, StringComparison.OrdinalIgnoreCase)));
         }
@@ -429,38 +389,30 @@ public class ThreadQueryService(
     }
 
     /// <summary>
-    /// Builds the candidate participant strings for a slug-or-id filter.
-    /// When the directory service resolves the value to a UUID, only the
-    /// identity form (<c>scheme:id:&lt;uuid&gt;</c>) is returned so that
+    /// Builds the candidate participant strings for an agent / unit slug-or-id
+    /// filter. When the directory service resolves the value to a UUID, only
+    /// the identity form (<c>scheme:id:&lt;uuid&gt;</c>) is returned so that
     /// threads from previous instances of an entity with the same slug name
-    /// are not incorrectly included in the filter results (#1488). The literal
-    /// navigation form is returned as a fallback when: (a) no directory
-    /// service is available, (b) the value already is the UUID, or
-    /// (c) resolution fails.
+    /// are not incorrectly included (#1488). The literal navigation form is
+    /// returned as a fallback when: (a) no directory service is wired,
+    /// (b) the value is already a UUID, or (c) resolution fails.
     /// </summary>
     private async Task<IReadOnlyList<string>> BuildAddressNeedlesAsync(
         string scheme,
         string value,
         CancellationToken cancellationToken)
     {
-        // Build the fallback needle. If the caller already passed a UUID we
-        // use the identity form; otherwise we use the navigation form.
         var isUuidValue = Guid.TryParse(value, out _);
         var literal = isUuidValue
             ? $"{scheme}:id:{value}"
             : $"{scheme}://{value}";
 
-        if (directoryService is null)
+        if (directoryService is null || !isUuidValue)
         {
-            return new[] { literal };
-        }
-
-        if (!isUuidValue)
-        {
-            // The post-#1629 directory service is keyed by Guid only; a
-            // slug needle that isn't already a Guid cannot resolve. Return
-            // the literal so direct-UUID filters and dev scenarios still
-            // work, and slug filters fall through with no match.
+            // The post-#1629 directory service is keyed by Guid only; a slug
+            // needle that isn't already a Guid cannot resolve. Returning the
+            // literal keeps direct-UUID filters working and lets slug filters
+            // fall through with no match.
             return new[] { literal };
         }
 
@@ -473,7 +425,6 @@ public class ThreadQueryService(
                 return new[] { literal };
             }
 
-            // Identity form keyed off the entry's stable Guid id.
             return new[] { $"{scheme}:id:{GuidFormatter.Format(entry.ActorId)}" };
         }
         catch
@@ -483,161 +434,78 @@ public class ThreadQueryService(
     }
 
     /// <summary>
-    /// Renders the persistence-layer SourceId Guid into the string form
-    /// used by activity-derived projections in this service. Scheme is
-    /// resolved through the directory map keyed by actor id (#1629); rows
-    /// whose source id no longer maps to a directory entry render as
-    /// <c>unknown:&lt;hex&gt;</c> so callers retain a stable, comparable
-    /// projection even after the originating entity has been deleted.
+    /// Renders an actor (scheme + Guid id) as <c>scheme:id:&lt;hex&gt;</c> —
+    /// the identity form the existing wire surface uses. The format matches
+    /// what previously came out of <c>NormaliseSource</c> on
+    /// <c>scheme:&lt;hex&gt;</c> activity rows.
     /// </summary>
-    private static string RenderSource(
-        Guid sourceId,
-        IReadOnlyDictionary<Guid, string> schemeMap)
+    internal static string RenderAddress(string scheme, Guid id) =>
+        $"{scheme}:id:{GuidFormatter.Format(id)}";
+
+    /// <summary>
+    /// Parses the JSON array of canonical addresses written by
+    /// <see cref="Cvoya.Spring.Dapr.Threads.EfThreadRegistry"/>. A malformed
+    /// payload (should never happen in normal operation, since the registry
+    /// is the only writer) yields an empty list rather than an exception.
+    /// </summary>
+    private static IReadOnlyList<Address> ParseParticipants(string json)
     {
-        var hex = GuidFormatter.Format(sourceId);
-        return schemeMap.TryGetValue(sourceId, out var scheme)
-            ? $"{scheme}:{hex}"
-            : $"unknown:{hex}";
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return Array.Empty<Address>();
+        }
+
+        try
+        {
+            var raw = JsonSerializer.Deserialize<string[]>(json);
+            if (raw is null)
+            {
+                return Array.Empty<Address>();
+            }
+
+            var addresses = new List<Address>(raw.Length);
+            foreach (var entry in raw)
+            {
+                if (Address.TryParse(entry, out var address) && address is not null)
+                {
+                    addresses.Add(address);
+                }
+            }
+
+            return addresses;
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<Address>();
+        }
     }
 
     /// <summary>
-    /// Builds a one-shot <c>actorId → scheme</c> projection by listing the
-    /// directory once. Used inside <see cref="ListAsync"/>,
-    /// <see cref="GetAsync"/>, and <see cref="ListInboxAsync"/> so the
-    /// per-row <see cref="RenderSource"/> calls stay synchronous and
-    /// allocation-light. When no directory service is wired, returns an
-    /// empty map and every <see cref="RenderSource"/> call falls back to
-    /// the <c>unknown:</c> scheme.
+    /// Accepts <c>scheme://path</c>, <c>scheme:id:&lt;hex&gt;</c>, or
+    /// <c>scheme:&lt;hex&gt;</c> and reduces to the
+    /// <c>scheme:&lt;hex&gt;</c> form <see cref="Address.TryParse"/> accepts.
     /// </summary>
-    private async Task<IReadOnlyDictionary<Guid, string>> BuildSourceSchemeMapAsync(
-        CancellationToken cancellationToken)
-    {
-        if (directoryService is null)
-        {
-            return new Dictionary<Guid, string>();
-        }
-
-        var entries = await directoryService.ListAllAsync(cancellationToken);
-        var map = new Dictionary<Guid, string>(entries.Count);
-        foreach (var entry in entries)
-        {
-            // First registered scheme wins — duplicates across schemes for
-            // the same actor id should not happen under #1629's identity model.
-            map.TryAdd(entry.ActorId, entry.Address.Scheme);
-        }
-        return map;
-    }
-
-    /// <summary>
-    /// Turns the persistence-layer source format (<c>scheme:path</c>) into the
-    /// appropriate wire form.
-    /// <list type="bullet">
-    ///   <item><description>
-    ///     <c>agent:&lt;uuid&gt;</c> / <c>unit:&lt;uuid&gt;</c> / <c>human:&lt;uuid&gt;</c>
-    ///     → <c>scheme:id:&lt;uuid&gt;</c> (identity form). Activity events for
-    ///     agents, units, and post-#1491 humans are persisted with the actor
-    ///     UUID as the path. The <c>id:</c> discriminator makes the form
-    ///     unambiguous versus a slug that happens to look like a UUID.
-    ///   </description></item>
-    ///   <item><description>
-    ///     <c>human:&lt;username&gt;</c> (legacy, non-UUID path) and all other
-    ///     schemes → <c>scheme://path</c> (navigation form). Pre-#1491 activity
-    ///     events carry the username slug; they are normalised to navigation
-    ///     form for backward compatibility.
-    ///   </description></item>
-    ///   <item><description>
-    ///     Anything already in <c>scheme://path</c> or <c>scheme:id:&lt;uuid&gt;</c>
-    ///     form is returned unchanged.
-    ///   </description></item>
-    /// </list>
-    /// </summary>
-    internal static string NormaliseSource(string source)
-    {
-        if (string.IsNullOrEmpty(source))
-        {
-            return source;
-        }
-
-        var colon = source.IndexOf(':');
-        if (colon < 0)
-        {
-            return source;
-        }
-
-        var afterColon = source.AsSpan(colon + 1);
-
-        // Already in "scheme://path" form — return unchanged.
-        if (afterColon.StartsWith("//"))
-        {
-            return source;
-        }
-
-        // Already in identity form "scheme:id:<uuid>" — return unchanged.
-        if (afterColon.StartsWith("id:"))
-        {
-            return source;
-        }
-
-        var scheme = source[..colon];
-        var path = source[(colon + 1)..];
-
-        // For agent, unit, and human schemes, if the path is a valid UUID the
-        // event was written with the actor id as the source — emit the stable
-        // identity form. Human actors are UUID-keyed after #1491; legacy events
-        // with a username slug fall through to the navigation-form branch.
-        if ((string.Equals(scheme, "agent", StringComparison.OrdinalIgnoreCase)
-             || string.Equals(scheme, "unit", StringComparison.OrdinalIgnoreCase)
-             || string.Equals(scheme, "human", StringComparison.OrdinalIgnoreCase))
-            && Guid.TryParse(path, out var actorId))
-        {
-            return $"{scheme}:id:{GuidFormatter.Format(actorId)}";
-        }
-
-        return $"{scheme}://{path}";
-    }
-
-    /// <summary>
-    /// Accepts <c>scheme://path</c>, <c>scheme:id:&lt;uuid&gt;</c>, or
-    /// <c>scheme:path</c> and returns the persistence-layer form
-    /// (<c>scheme:path</c>) so we can compare against
-    /// <see cref="ActivityEventRecord.Source"/> values.
-    /// The identity form (<c>scheme:id:&lt;uuid&gt;</c>) is reduced to
-    /// <c>scheme:&lt;uuid&gt;</c> (the compact persistence form stored by
-    /// the activity mapper).
-    /// </summary>
-    internal static string ToPersistenceSource(string address)
+    internal static string ToParseable(string address)
     {
         if (string.IsNullOrEmpty(address))
         {
             return address;
         }
 
-        // Handle identity form: "scheme:id:<uuid>" → "scheme:<uuid>"
         var idIdx = address.IndexOf(":id:", StringComparison.Ordinal);
         if (idIdx > 0)
         {
             var scheme = address[..idIdx];
-            var uuid = address[(idIdx + 4)..];
-            return $"{scheme}:{uuid}";
+            var idPart = address[(idIdx + 4)..];
+            return $"{scheme}:{idPart}";
         }
 
-        // Handle navigation form: "scheme://path" → "scheme:path"
         var split = address.IndexOf("://", StringComparison.Ordinal);
-        if (split < 0)
+        if (split > 0)
         {
-            return address;
+            return string.Concat(address.AsSpan(0, split), ":", address.AsSpan(split + 3));
         }
 
-        return string.Concat(address.AsSpan(0, split), ":", address.AsSpan(split + 3));
+        return address;
     }
-
-    private sealed record ThreadEventRow(
-        string ThreadId,
-        Guid Id,
-        string Source,
-        string EventType,
-        string Severity,
-        string Summary,
-        DateTimeOffset Timestamp,
-        JsonElement? Details = null);
 }

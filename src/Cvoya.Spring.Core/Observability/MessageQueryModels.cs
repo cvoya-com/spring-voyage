@@ -7,12 +7,11 @@ using System.Text.Json;
 
 /// <summary>
 /// Detail view for a single message — the body, envelope, and the
-/// conversation it belongs to. Backs <c>GET /api/v1/messages/{id}</c>
-/// (#1209) and the CLI's <c>spring message show &lt;id&gt;</c>. Sourced from
-/// the activity-event projection: every <c>MessageReceived</c> event the
-/// platform emits stamps the envelope on its <c>Details</c> JSON, so a
-/// dedicated message store is not yet required (mirrors the conversation
-/// projection in <see cref="IThreadQueryService"/>).
+/// thread it belongs to. Backs <c>GET /api/v1/messages/{id}</c>
+/// (#1209) and the CLI's <c>spring message show &lt;id&gt;</c>. Sourced
+/// from the EF-authoritative <c>messages</c> table (ADR-0030 / ADR-0040);
+/// the activity-event JSON-scan path the v0.1-pre rewrite shipped with is
+/// gone (#2054).
 /// </summary>
 /// <param name="MessageId">The message identifier.</param>
 /// <param name="ThreadId">The thread the message was threaded into, when present.</param>

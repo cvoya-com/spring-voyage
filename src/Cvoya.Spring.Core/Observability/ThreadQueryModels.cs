@@ -5,20 +5,20 @@ namespace Cvoya.Spring.Core.Observability;
 
 /// <summary>
 /// Summary row for the thread list surface (<c>GET /api/v1/threads</c>).
-/// Derived from the activity-event stream — no separate thread table exists:
-/// a thread is materialised from every event that carries the same
-/// <see cref="ActivityQueryResult.Item.CorrelationId"/> (the platform persists the
-/// <c>ThreadId</c> of each message as the correlation id on observability
-/// events, per the messaging architecture).
+/// Derived from the EF-authoritative <c>threads</c> + <c>messages</c> tables
+/// (ADR-0030 / ADR-0040): the thread row carries identity, participants,
+/// timestamps, and lifecycle status; the message rows for that thread feed
+/// the per-thread aggregates (<see cref="EventCount"/>, <see cref="Origin"/>,
+/// <see cref="Summary"/>).
 /// </summary>
-/// <param name="Id">The thread identifier (the correlation id on the activity events).</param>
-/// <param name="Participants">Distinct source addresses (<c>scheme://path</c>) that emitted events on this thread.</param>
-/// <param name="Status">Lifecycle state — <c>active</c> until a terminal <c>ThreadCompleted</c> event arrives, otherwise <c>completed</c>.</param>
-/// <param name="LastActivity">Timestamp of the most recent event on this thread.</param>
-/// <param name="CreatedAt">Timestamp of the first event on this thread.</param>
-/// <param name="EventCount">Number of activity events observed for this thread.</param>
-/// <param name="Origin">The address (<c>scheme://path</c>) that emitted the first event on this thread — where the thread started.</param>
-/// <param name="Summary">Human-readable summary — the first message's summary text, truncated.</param>
+/// <param name="Id">The thread identifier (no-dash 32-char hex Guid).</param>
+/// <param name="Participants">Canonical participant addresses (<c>scheme:id:&lt;hex&gt;</c>) for the thread.</param>
+/// <param name="Status">Lifecycle state from the <c>threads.status</c> column — defaults to <c>active</c>.</param>
+/// <param name="LastActivity">Timestamp of the most recent message on this thread (<c>threads.last_activity_at</c>).</param>
+/// <param name="CreatedAt">Timestamp the thread row was first inserted (<c>threads.created_at</c>).</param>
+/// <param name="EventCount">Number of persisted messages on this thread.</param>
+/// <param name="Origin">The address (<c>scheme:id:&lt;hex&gt;</c>) that sent the first message on this thread.</param>
+/// <param name="Summary">Human-readable summary — the first message's body text, when extractable.</param>
 public record ThreadSummary(
     string Id,
     IReadOnlyList<string> Participants,
@@ -31,11 +31,11 @@ public record ThreadSummary(
 
 /// <summary>
 /// Detailed thread payload for <c>GET /api/v1/threads/{id}</c>.
-/// Carries the summary row plus the ordered event timeline so the CLI (and later
-/// the portal) can render the thread with role attribution.
+/// Carries the summary row plus the ordered message timeline so the CLI (and
+/// later the portal) can render the thread with role attribution.
 /// </summary>
 /// <param name="Summary">The list-level summary row for this thread.</param>
-/// <param name="Events">The ordered activity events that form the thread.</param>
+/// <param name="Events">The ordered messages that form the thread timeline.</param>
 public record ThreadDetail(
     ThreadSummary Summary,
     IReadOnlyList<ThreadEvent> Events);

@@ -68,17 +68,17 @@ internal static class ServiceCollectionExtensionsObservability
         // decorate with tenant-scoped filters without forking the OSS default.
         services.TryAddScoped<IAnalyticsQueryService, AnalyticsQueryService>();
 
-        // Thread projection (#452 / #456). Materialises threads
-        // and inbox rows from the activity-event table — no separate message
-        // store yet. TryAdd so the private cloud host can swap in a tenant-
-        // scoped implementation without touching the endpoints.
+        // Thread projection (#452 / #456 / #2054). Reads from the
+        // EF-authoritative `threads` and `messages` tables (ADR-0030 /
+        // ADR-0040); the legacy activity-event JSON scan is gone. TryAdd so
+        // the private cloud host can swap in a tenant-scoped implementation
+        // without touching the endpoints.
         services.TryAddScoped<IThreadQueryService, ThreadQueryService>();
 
-        // Single-message lookup (#1209). Backs `GET /api/v1/messages/{id}`
-        // and `spring message show <id>`. Like the thread service
-        // above this is a projection over the activity-event table; cloud
-        // overlays can swap the implementation through DI without touching
-        // call sites.
+        // Single-message lookup (#1209 / #2054). Backs
+        // `GET /api/v1/messages/{id}` and `spring message show <id>`. Reads
+        // from the `messages` table directly; cloud overlays can swap the
+        // implementation through DI without touching call sites.
         services.TryAddScoped<IMessageQueryService, MessageQueryService>();
 
         // Hosted services that depend on runtime infrastructure (Dapr state store,
