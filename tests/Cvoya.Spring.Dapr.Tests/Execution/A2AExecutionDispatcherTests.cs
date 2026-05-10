@@ -167,7 +167,8 @@ public class A2AExecutionDispatcherTests
                 AgentId: AgentId,
                 Name: "My Agent",
                 Instructions: "do things",
-                Execution: new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image)));
+                Execution: new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image,
+                    Hosting: AgentHostingMode.Ephemeral)));
 
         // Default: container starts and the readiness probe will fail (no real
         // server) so the dispatch fails cleanly with a SpringException. Tests
@@ -888,11 +889,20 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_DefaultHostingMode_IsEphemeral()
+    public async Task DispatchAsync_DefaultHostingMode_IsPersistent()
     {
-        // Ensure that AgentExecutionConfig with no explicit hosting defaults to Ephemeral
+        // Ensure that AgentExecutionConfig with no explicit hosting defaults to Persistent (#2085)
         var config = new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image);
-        config.Hosting.ShouldBe(AgentHostingMode.Ephemeral);
+        config.Hosting.ShouldBe(AgentHostingMode.Persistent);
+
+        // Override the default agent provider to return an agent with no explicit hosting
+        // so the dispatch path exercises the new Persistent default.
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId: AgentId,
+                Name: "My Agent",
+                Instructions: "do things",
+                Execution: new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image)));
 
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())

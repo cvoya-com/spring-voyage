@@ -127,7 +127,7 @@ public class DbAgentDefinitionProviderTests
     }
 
     [Fact]
-    public void Project_MissingHosting_DefaultsToEphemeral()
+    public void Project_MissingHosting_DefaultsToPersistent()
     {
         var entity = new AgentDefinitionEntity
         {
@@ -142,7 +142,7 @@ public class DbAgentDefinitionProviderTests
         var def = DbAgentDefinitionProvider.Project(entity);
 
         def.Execution.ShouldNotBeNull();
-        def.Execution!.Hosting.ShouldBe(AgentHostingMode.Ephemeral);
+        def.Execution!.Hosting.ShouldBe(AgentHostingMode.Persistent);
     }
 
     [Fact]

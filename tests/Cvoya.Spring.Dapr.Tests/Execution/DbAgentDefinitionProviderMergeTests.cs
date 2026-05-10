@@ -85,7 +85,7 @@ public class DbAgentDefinitionProviderMergeTests
         merged.ShouldNotBeNull();
         merged!.AgentRuntimeId.ShouldBe("claude");
         merged.Image.ShouldBe("unit-img");
-        merged.Hosting.ShouldBe(AgentHostingMode.Ephemeral);
+        merged.Hosting.ShouldBe(AgentHostingMode.Persistent);
     }
 
     [Fact]

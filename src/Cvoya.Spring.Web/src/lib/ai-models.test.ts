@@ -44,8 +44,8 @@ describe("RUNTIMES", () => {
 });
 
 describe("hosting modes", () => {
-  it("has ephemeral as the default hosting mode", () => {
-    expect(DEFAULT_HOSTING_MODE).toBe("ephemeral");
+  it("has persistent as the default hosting mode", () => {
+    expect(DEFAULT_HOSTING_MODE).toBe("persistent");
   });
 
   it("includes ephemeral and persistent", () => {

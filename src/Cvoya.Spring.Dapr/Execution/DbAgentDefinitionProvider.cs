@@ -168,13 +168,13 @@ public class DbAgentDefinitionProvider(
     /// an agent-runtime id to know which launcher to invoke.
     /// </summary>
     /// <remarks>
-    /// Hosting mode is forced to <see cref="AgentHostingMode.Ephemeral"/>:
-    /// units launch a fresh container per inbound message, the same shape
-    /// the validation workflow already uses for unit probes. The unit's
-    /// <c>execution</c> JSON shape is identical to the agent's, so
-    /// <see cref="ExtractExecution"/> handles both — we just reuse it.
-    /// Instructions come from the unit's top-level <c>instructions</c>
-    /// field when present (mirrors agent definitions).
+    /// Hosting is read from <c>unit_live_config</c> via the
+    /// <see cref="IUnitStateCoordinator"/> overlay block below (#2086 approach
+    /// b). The JSON snapshot does not carry hosting; the live store is
+    /// authoritative. The unit's <c>execution</c> JSON shape is identical to
+    /// the agent's, so <see cref="ExtractExecution"/> handles both — we just
+    /// reuse it. Instructions come from the unit's top-level
+    /// <c>instructions</c> field when present (mirrors agent definitions).
     /// </remarks>
     private async Task<AgentDefinition?> TryProjectUnitAsync(
         SpringDbContext db,
@@ -285,9 +285,9 @@ public class DbAgentDefinitionProvider(
         return new AgentExecutionConfig(
             AgentRuntimeId: agentRuntimeId,
             Image: FirstNonBlank(agent?.Image, unit.Image),
-            // Hosting mode is agent-owned. Default (Ephemeral) when the
-            // agent has no execution block at all.
-            Hosting: agent?.Hosting ?? AgentHostingMode.Ephemeral,
+            // Hosting mode is agent-owned. Default (Persistent) when the
+            // agent has no execution block at all (#2085).
+            Hosting: agent?.Hosting ?? AgentHostingMode.Persistent,
             Provider: FirstNonBlank(agent?.Provider, unit.Provider),
             Model: FirstNonBlank(agent?.Model, unit.Model));
     }
@@ -343,12 +343,17 @@ public class DbAgentDefinitionProvider(
     {
         if (value is null)
         {
-            return AgentHostingMode.Ephemeral;
+            return AgentHostingMode.Persistent;
         }
 
         if (value.Equals("persistent", StringComparison.OrdinalIgnoreCase))
         {
             return AgentHostingMode.Persistent;
+        }
+
+        if (value.Equals("ephemeral", StringComparison.OrdinalIgnoreCase))
+        {
+            return AgentHostingMode.Ephemeral;
         }
 
         // "pooled" is reserved on the enum (PR 1 of #1087) for #362's
@@ -361,7 +366,7 @@ public class DbAgentDefinitionProvider(
             return AgentHostingMode.Pooled;
         }
 
-        return AgentHostingMode.Ephemeral;
+        return AgentHostingMode.Persistent;
     }
 
     private static string? GetStringOrNull(JsonElement obj, string name)
