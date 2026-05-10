@@ -8,9 +8,8 @@ using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
-
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
+using Cvoya.Spring.Dapr.Units;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -29,11 +28,13 @@ using Xunit;
 /// (<see cref="IPermissionService.ResolveEffectivePermissionAsync"/>).
 ///
 /// Post-#2044 the service queries the EF-backed
-/// <see cref="IUnitHumanPermissionStore"/> for grants instead of the unit
-/// actor's state map; the unit-actor proxy is consulted only for the
-/// inheritance flag (which moves to <c>unit_live_config</c> in #2049).
-/// The tests therefore stub the store directly and only stub the actor
-/// proxy where inheritance reads matter.
+/// <see cref="IUnitHumanPermissionStore"/> for grants. Per ADR-0040 /
+/// #2049 the inheritance flag also lives in EF
+/// (<c>unit_live_config.permission_inheritance</c>), so the resolver
+/// consults <see cref="IUnitLiveConfigStore"/> for the inheritance
+/// lookup — no actor proxy is required anywhere in the walk. The
+/// tests therefore stub both stores directly through
+/// <see cref="InMemoryUnitLiveConfigStore"/>.
 /// </summary>
 public class PermissionServiceTests
 {
@@ -50,10 +51,9 @@ public class PermissionServiceTests
 
     private readonly IUnitHumanPermissionStore _permissionStore = Substitute.For<IUnitHumanPermissionStore>();
     private readonly IUnitHierarchyResolver _hierarchyResolver = Substitute.For<IUnitHierarchyResolver>();
-    private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
+    private readonly InMemoryUnitLiveConfigStore _liveConfigStore = new();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IServiceScopeFactory _scopeFactory = EmptyScopeFactory();
-    private readonly Dictionary<Guid, IUnitActor> _inheritanceActors = new();
     private readonly PermissionService _service;
 
     public PermissionServiceTests()
@@ -68,22 +68,8 @@ public class PermissionServiceTests
         _hierarchyResolver.GetParentsAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Address>());
 
-        // The actor proxy now serves the inheritance flag only — the grant
-        // is read from the EF-backed store. The substitute returns an
-        // IUnitActor whose GetPermissionInheritanceAsync defaults to
-        // Inherit unless a test overrides it.
-        _actorProxyFactory
-            .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), nameof(UnitActor))
-            .Returns(ci =>
-            {
-                var idStr = ci.ArgAt<ActorId>(0).GetId();
-                return Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(idStr, out var guid)
-                    ? InheritanceActor(guid)
-                    : InheritanceActor(Guid.Empty);
-            });
-
         _service = new PermissionService(
-            _permissionStore, _hierarchyResolver, _actorProxyFactory, _loggerFactory, _scopeFactory);
+            _permissionStore, _hierarchyResolver, _liveConfigStore, _loggerFactory, _scopeFactory);
     }
 
     /// <summary>
@@ -101,18 +87,6 @@ public class PermissionServiceTests
     {
         var services = new ServiceCollection();
         return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
-    }
-
-    private IUnitActor InheritanceActor(Guid id)
-    {
-        if (!_inheritanceActors.TryGetValue(id, out var actor))
-        {
-            actor = Substitute.For<IUnitActor>();
-            actor.GetPermissionInheritanceAsync(Arg.Any<CancellationToken>())
-                .Returns(UnitPermissionInheritance.Inherit);
-            _inheritanceActors[id] = actor;
-        }
-        return actor;
     }
 
     private void GrantPermission(Guid unitId, Guid humanId, PermissionLevel level)
@@ -209,8 +183,7 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_IsolatedChild_DoesNotInheritFromAncestor()
     {
         var ct = TestContext.Current.CancellationToken;
-        InheritanceActor(UnitChildId).GetPermissionInheritanceAsync(Arg.Any<CancellationToken>())
-            .Returns(UnitPermissionInheritance.Isolated);
+        _liveConfigStore.SeedInheritance(UnitChildId, UnitPermissionInheritance.Isolated);
         GrantPermission(UnitParentId, HumanGuid, PermissionLevel.Owner);
 
         _hierarchyResolver.GetParentsAsync(new Address("unit", UnitChildId), Arg.Any<CancellationToken>())
@@ -251,8 +224,7 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_IntermediateIsolated_BlocksGrandparent()
     {
         var ct = TestContext.Current.CancellationToken;
-        InheritanceActor(UnitChildId).GetPermissionInheritanceAsync(Arg.Any<CancellationToken>())
-            .Returns(UnitPermissionInheritance.Isolated);
+        _liveConfigStore.SeedInheritance(UnitChildId, UnitPermissionInheritance.Isolated);
         GrantPermission(UnitRootId, HumanGuid, PermissionLevel.Owner);
 
         _hierarchyResolver.GetParentsAsync(new Address("unit", UnitGrandchildId), Arg.Any<CancellationToken>())
@@ -285,15 +257,24 @@ public class PermissionServiceTests
     [Fact]
     public async Task ResolveEffectivePermissionAsync_InheritanceReadFailure_BlocksAncestorWalk()
     {
+        // Wire a throwing substitute store so the inheritance lookup
+        // for the child fails. The walk must default to Isolated and
+        // not promote the caller via the parent's grant.
         var ct = TestContext.Current.CancellationToken;
-        InheritanceActor(UnitChildId).GetPermissionInheritanceAsync(Arg.Any<CancellationToken>())
-            .ThrowsAsync(new InvalidOperationException("state store down"));
+        var failingStore = Substitute.For<IUnitLiveConfigStore>();
+        failingStore
+            .GetPermissionInheritanceAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("EF down"));
+
+        var failingService = new PermissionService(
+            _permissionStore, _hierarchyResolver, failingStore, _loggerFactory, _scopeFactory);
+
         GrantPermission(UnitParentId, HumanGuid, PermissionLevel.Owner);
 
         _hierarchyResolver.GetParentsAsync(new Address("unit", UnitChildId), Arg.Any<CancellationToken>())
             .Returns(new Address[] { new("unit", UnitParentId) });
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitChildId), ct);
+        var result = await failingService.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitChildId), ct);
 
         result.ShouldBeNull();
     }
@@ -436,7 +417,7 @@ public class PermissionServiceTests
         return new PermissionService(
             _permissionStore,
             _hierarchyResolver,
-            _actorProxyFactory,
+            _liveConfigStore,
             _loggerFactory,
             scopeFactory);
     }

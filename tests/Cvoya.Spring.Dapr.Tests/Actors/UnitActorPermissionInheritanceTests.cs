@@ -7,6 +7,8 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
+using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -22,13 +24,17 @@ using Xunit;
 
 /// <summary>
 /// Tests for <see cref="UnitActor.GetPermissionInheritanceAsync"/> and
-/// <see cref="UnitActor.SetPermissionInheritanceAsync"/> (#414). Covers the
-/// state-absent default, upsert-then-read, and the "Inherit clears state"
-/// semantics that mirrors the boundary actor's row-deletion pattern.
+/// <see cref="UnitActor.SetPermissionInheritanceAsync"/> (#414). Per
+/// ADR-0040 / #2049 the inheritance flag lives on
+/// <c>unit_live_config.permission_inheritance</c>; the tests drive the
+/// EF surface through <see cref="InMemoryUnitLiveConfigStore"/>.
 /// </summary>
 public class UnitActorPermissionInheritanceTests
 {
-    private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
+    private static readonly Guid TestUnitGuid = new("aaaaaaaa-0000-0000-0000-00000000cccc");
+    private static readonly string TestUnitActorId = TestUnitGuid.ToString("N");
+
+    private readonly InMemoryUnitLiveConfigStore _liveConfigStore = new();
     private readonly UnitActor _actor;
 
     public UnitActorPermissionInheritanceTests()
@@ -38,6 +44,7 @@ public class UnitActorPermissionInheritanceTests
 
         var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
         {
+            ActorId = new ActorId(TestUnitActorId),
         });
         _actor = new UnitActor(
             host,
@@ -45,17 +52,8 @@ public class UnitActorPermissionInheritanceTests
             Substitute.For<IRuntimeInvocationPath>(),
             Substitute.For<IActivityEventBus>(),
             Substitute.For<IDirectoryService>(),
-            Substitute.For<IActorProxyFactory>());
-
-        var field = typeof(Actor).GetField("<StateManager>k__BackingField",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        field?.SetValue(_actor, _stateManager);
-
-        _stateManager
-            .TryGetStateAsync<UnitPermissionInheritance>(
-                StateKeys.UnitPermissionInheritance,
-                Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitPermissionInheritance>(false, default));
+            Substitute.For<IActorProxyFactory>(),
+            new UnitStateCoordinator(_liveConfigStore, Substitute.For<ILogger<UnitStateCoordinator>>()));
     }
 
     [Fact]
@@ -67,34 +65,33 @@ public class UnitActorPermissionInheritanceTests
     }
 
     [Fact]
-    public async Task SetPermissionInheritanceAsync_Isolated_PersistsToState()
+    public async Task SetPermissionInheritanceAsync_Isolated_PersistsToEf()
     {
-        UnitPermissionInheritance? captured = null;
-        _stateManager
-            .SetStateAsync(
-                StateKeys.UnitPermissionInheritance,
-                Arg.Do<UnitPermissionInheritance>(v => captured = v),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.CompletedTask);
-
         await _actor.SetPermissionInheritanceAsync(
             UnitPermissionInheritance.Isolated,
             TestContext.Current.CancellationToken);
 
-        captured.ShouldBe(UnitPermissionInheritance.Isolated);
+        var fetched = await _liveConfigStore.GetPermissionInheritanceAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        fetched.ShouldBe(UnitPermissionInheritance.Isolated);
     }
 
     [Fact]
-    public async Task SetPermissionInheritanceAsync_Inherit_RemovesState()
+    public async Task SetPermissionInheritanceAsync_Inherit_PersistsInherit()
     {
-        // Writing the default clears state so the next read returns the
-        // default via the absent-state path — symmetric with the boundary
-        // actor's "empty = row deletion" pattern.
+        // Per ADR-0040 / #2049 the row is materialised on every set so
+        // the inheritance walk has a single SQL read regardless of the
+        // operator's choice. The pre-#2049 "Inherit removes the row"
+        // optimisation no longer applies — Inherit is now an explicit
+        // value on the row.
+        _liveConfigStore.SeedInheritance(TestUnitGuid, UnitPermissionInheritance.Isolated);
+
         await _actor.SetPermissionInheritanceAsync(
             UnitPermissionInheritance.Inherit,
             TestContext.Current.CancellationToken);
 
-        await _stateManager.Received()
-            .RemoveStateAsync(StateKeys.UnitPermissionInheritance, Arg.Any<CancellationToken>());
+        var fetched = await _liveConfigStore.GetPermissionInheritanceAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        fetched.ShouldBe(UnitPermissionInheritance.Inherit);
     }
 }

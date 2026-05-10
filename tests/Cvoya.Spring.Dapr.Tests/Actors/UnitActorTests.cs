@@ -11,6 +11,8 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
+using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -26,7 +28,11 @@ using Xunit;
 
 /// <summary>
 /// Unit tests for <see cref="UnitActor"/> covering runtime dispatch,
-/// control message handling, and member management.
+/// control message handling, and member management. Per ADR-0040 /
+/// #2049 unit live config (model / color / provider / hosting),
+/// boundary, permission inheritance, and own-expertise live in EF; the
+/// tests drive that surface through
+/// <see cref="InMemoryUnitLiveConfigStore"/>.
 /// </summary>
 public class UnitActorTests
 {
@@ -45,6 +51,7 @@ public class UnitActorTests
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly IUnitHumanPermissionStore _permissionStore = Substitute.For<IUnitHumanPermissionStore>();
+    private readonly InMemoryUnitLiveConfigStore _liveConfigStore = new();
     private readonly UnitActor _actor;
 
     public UnitActorTests()
@@ -62,6 +69,7 @@ public class UnitActorTests
             _activityEventBus,
             _directoryService,
             _actorProxyFactory,
+            new UnitStateCoordinator(_liveConfigStore, Substitute.For<ILogger<UnitStateCoordinator>>()),
             humanPermissionStore: _permissionStore);
         SetStateManager(_actor, _stateManager);
 
@@ -191,16 +199,21 @@ public class UnitActorTests
     }
 
     [Fact]
-    public async Task ReceiveAsync_PolicyUpdate_StoresPolicyAndAcknowledges()
+    public async Task ReceiveAsync_PolicyUpdate_AcknowledgesWithoutActorStateWrite()
     {
+        // ADR-0040 / #2049: PolicyUpdate is now a notification. The
+        // actor must not write any actor-state copy of the policy
+        // payload (that mirror was dropped); UnitPolicyEntity is the
+        // single write path. The message handler still acknowledges
+        // and emits an audit event.
         var policyPayload = JsonSerializer.SerializeToElement(new { MaxConcurrency = 3 });
         var message = CreateMessage(type: MessageType.PolicyUpdate, payload: policyPayload);
 
         var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.Policies,
+        await _stateManager.DidNotReceive().SetStateAsync(
+            "Unit:Policies",
             Arg.Any<JsonElement>(),
             Arg.Any<CancellationToken>());
     }
@@ -707,22 +720,11 @@ public class UnitActorTests
         payload.GetProperty("Status").GetString().ShouldBe("Running");
     }
 
-    // --- Metadata Tests ---
+    // --- Metadata Tests (ADR-0040 / #2049: EF-backed) ---
 
     [Fact]
-    public async Task GetMetadataAsync_ReturnsDefaults_WhenNoStateSet()
+    public async Task GetMetadataAsync_ReturnsDefaults_WhenNoEfRow()
     {
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitColor, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
-        // #1732: UnitTool was removed from the actor-state surface — Tool is
-        // derived from execution.agent at dispatch.
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitProvider, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitHosting, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
-
         var metadata = await _actor.GetMetadataAsync(TestContext.Current.CancellationToken);
 
         metadata.ShouldNotBeNull();
@@ -737,14 +739,9 @@ public class UnitActorTests
     [Fact]
     public async Task GetMetadataAsync_ReturnsPersistedModelAndColor()
     {
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(true, "gpt-4o"));
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitColor, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(true, "#ff8800"));
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitProvider, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitHosting, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
+        _liveConfigStore.SeedMetadata(
+            TestUnitGuid,
+            new UnitMetadata(null, null, "gpt-4o", "#ff8800"));
 
         var metadata = await _actor.GetMetadataAsync(TestContext.Current.CancellationToken);
 
@@ -755,22 +752,12 @@ public class UnitActorTests
         metadata.Description.ShouldBeNull();
     }
 
-    // #1065 side-note: Provider / Hosting are actor-owned and must round-trip
-    // through SetMetadataAsync / GetMetadataAsync.
-    // #1732: Tool was dropped from the unit-actor metadata — derived from
-    // execution.agent via the runtime registry at dispatch.
-
     [Fact]
     public async Task GetMetadataAsync_ReturnsPersistedProviderHosting()
     {
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitColor, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitProvider, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(true, "ollama"));
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitHosting, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(true, "ephemeral"));
+        _liveConfigStore.SeedMetadata(
+            TestUnitGuid,
+            new UnitMetadata(null, null, null, null, "ollama", "ephemeral"));
 
         var metadata = await _actor.GetMetadataAsync(TestContext.Current.CancellationToken);
 
@@ -791,15 +778,21 @@ public class UnitActorTests
 
         await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.UnitProvider, "ollama", Arg.Any<CancellationToken>());
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.UnitHosting, "ephemeral", Arg.Any<CancellationToken>());
+        var fetched = await _liveConfigStore.GetMetadataAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        fetched.Provider.ShouldBe("ollama");
+        fetched.Hosting.ShouldBe("ephemeral");
     }
 
     [Fact]
-    public async Task SetMetadataAsync_NullProviderHosting_DoesNotTouchState()
+    public async Task SetMetadataAsync_NullProviderHosting_DoesNotTouchEf()
     {
+        // A patch that only sets Model must leave Provider / Hosting alone.
+        // Seed Provider / Hosting first, then PATCH Model only.
+        _liveConfigStore.SeedMetadata(
+            TestUnitGuid,
+            new UnitMetadata(null, null, null, null, "ollama", "ephemeral"));
+
         var metadata = new UnitMetadata(
             DisplayName: null,
             Description: null,
@@ -808,10 +801,11 @@ public class UnitActorTests
 
         await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
 
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitProvider, Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitHosting, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        var fetched = await _liveConfigStore.GetMetadataAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        fetched.Model.ShouldBe("claude-opus-4");
+        fetched.Provider.ShouldBe("ollama");
+        fetched.Hosting.ShouldBe("ephemeral");
     }
 
     [Fact]
@@ -825,17 +819,11 @@ public class UnitActorTests
 
         await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
 
-        // Model was provided -> written.
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.UnitModel,
-            "claude-opus-4",
-            Arg.Any<CancellationToken>());
-
-        // Color was null -> must not touch that state key.
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitColor,
-            Arg.Any<string>(),
-            Arg.Any<CancellationToken>());
+        var fetched = await _liveConfigStore.GetMetadataAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        fetched.Model.ShouldBe("claude-opus-4");
+        // Color was null -> must remain unset.
+        fetched.Color.ShouldBeNull();
     }
 
     [Fact]
@@ -847,14 +835,10 @@ public class UnitActorTests
 
         await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
 
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitModel,
-            Arg.Any<string>(),
-            Arg.Any<CancellationToken>());
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitColor,
-            Arg.Any<string>(),
-            Arg.Any<CancellationToken>());
+        var fetched = await _liveConfigStore.GetMetadataAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        fetched.Model.ShouldBeNull();
+        fetched.Color.ShouldBeNull();
 
         await _activityEventBus.DidNotReceive().PublishAsync(
             Arg.Any<ActivityEvent>(),
@@ -888,16 +872,13 @@ public class UnitActorTests
 
         await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
 
-        // DisplayName/Description live on the directory entity; the actor
-        // must not write them to state.
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitModel,
-            Arg.Any<string>(),
-            Arg.Any<CancellationToken>());
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitColor,
-            Arg.Any<string>(),
-            Arg.Any<CancellationToken>());
+        // DisplayName/Description live on the directory entity; the
+        // actor must not write any actor-owned fields to EF on this
+        // path. The unit_live_config row should remain untouched.
+        var fetched = await _liveConfigStore.GetMetadataAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        fetched.Model.ShouldBeNull();
+        fetched.Color.ShouldBeNull();
     }
 
     // --- Nested Unit Membership / Cycle Detection Tests (#98) ---
@@ -1223,13 +1204,14 @@ public class UnitActorTests
         result.RejectionReason.ShouldContain("Starting");
     }
 
-    // #368 — Readiness check
+    // #368 — Readiness check (ADR-0040 / #2049: Model lives on EF row)
 
     [Fact]
     public async Task CheckReadinessAsync_WithModel_ReturnsReady()
     {
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(true, "claude-sonnet-4-6"));
+        _liveConfigStore.SeedMetadata(
+            TestUnitGuid,
+            new UnitMetadata(null, null, "claude-sonnet-4-6", null));
 
         var result = await _actor.CheckReadinessAsync(TestContext.Current.CancellationToken);
 
@@ -1240,9 +1222,6 @@ public class UnitActorTests
     [Fact]
     public async Task CheckReadinessAsync_WithoutModel_ReturnsNotReady()
     {
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
-
         var result = await _actor.CheckReadinessAsync(TestContext.Current.CancellationToken);
 
         result.IsReady.ShouldBeFalse();

@@ -9,6 +9,8 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
+using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -80,13 +82,18 @@ public class UnitActorStrategyResolverTests
             ActorId = new ActorId(actorId),
         });
 
+        var stateCoordinator = new UnitStateCoordinator(
+            new InMemoryUnitLiveConfigStore(),
+            Substitute.For<ILogger<UnitStateCoordinator>>());
+
         var actor = new UnitActor(
             host,
             loggerFactory,
             runtimeInvocationPath,
             Substitute.For<IActivityEventBus>(),
             Substitute.For<IDirectoryService>(),
-            Substitute.For<IActorProxyFactory>());
+            Substitute.For<IActorProxyFactory>(),
+            stateCoordinator);
 
         var stateManager = Substitute.For<IActorStateManager>();
         typeof(Actor)

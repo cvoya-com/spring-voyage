@@ -19,6 +19,7 @@ using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Initiative;
 using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -219,13 +220,37 @@ public static class ActorTestHost
         });
 
         var activityEventBus = Substitute.For<Core.Capabilities.IActivityEventBus>();
+
+        // ADR-0040 / #2049: UnitStateCoordinator routes through the EF
+        // store. Configure the substitute to return defaults that mirror
+        // a "no row yet" unit — otherwise NSubstitute returns
+        // default(Task<UnitMetadata>) (i.e. null) which crashes the
+        // actor's metadata read.
+        var stateCoordinator = Substitute.For<IUnitStateCoordinator>();
+        stateCoordinator
+            .GetMetadataAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new UnitMetadata(null, null, null, null));
+        stateCoordinator
+            .GetBoundaryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Cvoya.Spring.Core.Capabilities.UnitBoundary.Empty);
+        stateCoordinator
+            .GetPermissionInheritanceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(0);
+        stateCoordinator
+            .GetOwnExpertiseAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<Cvoya.Spring.Core.Capabilities.ExpertiseDomain>());
+        stateCoordinator
+            .HasOwnExpertiseSetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
         var actor = new UnitActor(
             host,
             loggerFactory,
             runtimeInvocationPath,
             activityEventBus,
             directoryService,
-            actorProxyFactory);
+            actorProxyFactory,
+            stateCoordinator);
         SetStateManager(actor, stateManager);
 
         // Default: no members.

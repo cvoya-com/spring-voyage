@@ -9,9 +9,6 @@ using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Units;
 
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
-
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -25,14 +22,14 @@ using Microsoft.Extensions.Logging;
 /// ancestor authority from cascading through them.
 /// </summary>
 /// <remarks>
-/// Pre-#2044 the service held an <see cref="IActorProxyFactory"/> and read
-/// every grant through a unit-actor proxy, cold-activating each ancestor on
-/// the walk. Post-#2044 grants are EF rows, so the resolution is a single
-/// indexed SQL read per hop and the actor proxy is no longer required for
-/// the grant itself. The proxy is still consulted for the
-/// <see cref="UnitPermissionInheritance"/> flag — that key remains in actor
-/// state for v0.1 and moves to <c>unit_live_config</c> in
-/// <see href="https://github.com/cvoya-com/spring-voyage/issues/2049">#2049</see>.
+/// Pre-#2044 the service held an <see cref="Dapr.Actors.Client.IActorProxyFactory"/>
+/// and read every grant through a unit-actor proxy, cold-activating each
+/// ancestor on the walk. Post-#2044 grants are EF rows, so the resolution
+/// is a single indexed SQL read per hop. Per ADR-0040 / #2049 the
+/// <see cref="UnitPermissionInheritance"/> flag also lives on the
+/// <c>unit_live_config</c> EF row, so the inheritance lookup is a SQL
+/// read through <see cref="IUnitLiveConfigStore"/> — no actor proxy is
+/// required anywhere in the resolver.
 ///
 /// <para>
 /// #1491: The <paramref name="scopeFactory"/> resolves a scoped
@@ -44,7 +41,7 @@ using Microsoft.Extensions.Logging;
 public class PermissionService(
     IUnitHumanPermissionStore permissionStore,
     IUnitHierarchyResolver hierarchyResolver,
-    IActorProxyFactory inheritanceActorProxyFactory,
+    IUnitLiveConfigStore liveConfigStore,
     ILoggerFactory loggerFactory,
     IServiceScopeFactory scopeFactory) : IPermissionService
 {
@@ -288,11 +285,11 @@ public class PermissionService(
     }
 
     /// <summary>
-    /// Reads the unit's <see cref="UnitPermissionInheritance"/> flag through
-    /// the unit-actor proxy. v0.1 keeps this read on actor state per ADR-0040;
-    /// <see href="https://github.com/cvoya-com/spring-voyage/issues/2049">#2049</see>
-    /// moves it to <c>unit_live_config</c> so the inheritance flag joins the
-    /// SQL read path with the grant.
+    /// Reads the unit's <see cref="UnitPermissionInheritance"/> flag from
+    /// the <c>unit_live_config</c> EF row via
+    /// <see cref="IUnitLiveConfigStore"/>. ADR-0040 / #2049 places the
+    /// flag in EF so the inheritance lookup is a SQL read with no
+    /// cold-activation hop through the unit actor.
     /// </summary>
     /// <remarks>
     /// Defaults to <see cref="UnitPermissionInheritance.Isolated"/> on every
@@ -304,10 +301,7 @@ public class PermissionService(
     {
         try
         {
-            var actorIdString = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id);
-            var proxy = inheritanceActorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(actorIdString), nameof(UnitActor));
-            return await proxy.GetPermissionInheritanceAsync(ct);
+            return await liveConfigStore.GetPermissionInheritanceAsync(unit.Id, ct);
         }
         catch (Exception ex)
         {

@@ -56,13 +56,25 @@ internal static class ServiceCollectionExtensionsOrchestration
         services.TryAddSingleton<IUnitValidationCoordinator, UnitValidationCoordinator>();
         services.TryAddSingleton<IUnitMembershipCoordinator, UnitMembershipCoordinator>();
 
-        // #1311: permission-management collaborator extracted from UnitActor.
-        // Owns the human-permission grant/revocation logic and the
-        // UnitPermissionInheritance flag management (ADR-0013). TryAdd so the
-        // cloud overlay can substitute a tenant-aware coordinator (e.g. one
-        // that enforces cross-tenant permission guards or adds audit logging on
-        // every grant / revocation) without touching the actor.
-        services.TryAddSingleton<IUnitPermissionCoordinator, UnitPermissionCoordinator>();
+        // #2049 / ADR-0040: unit live-config (model, color, provider,
+        // hosting), boundary, permission-inheritance flag, and
+        // own-expertise live in EF, not actor state. The singleton
+        // store wraps the scoped EF repository so UnitActor (not
+        // request-scoped) can read / write through it. TryAddSingleton
+        // so the cloud overlay can layer audit / cross-tenant guards
+        // on top.
+        services.TryAddSingleton<IUnitLiveConfigStore, UnitLiveConfigStore>();
+
+        // #2049 / ADR-0040: unit metadata / boundary / permission-
+        // inheritance / own-expertise CRUD seam. Singleton: stateless
+        // across units; the metadata / boundary / inheritance /
+        // expertise reads + writes flow through IUnitLiveConfigStore.
+        // TryAdd so the private cloud repo can substitute a
+        // tenant-aware implementation without touching this
+        // registration. Replaces the pre-#2049 IUnitPermissionCoordinator
+        // (which only owned the inheritance flag) with the unified
+        // EF-backed surface.
+        services.TryAddSingleton<IUnitStateCoordinator, UnitStateCoordinator>();
 
         // #601 B-wide: companion read/write seam for the agent's own
         // execution block on AgentDefinitions.Definition. Shared between

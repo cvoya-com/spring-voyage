@@ -39,7 +39,7 @@ public class UnitActor : Actor, IUnitActor
     private readonly IExpertiseSeedProvider? _expertiseSeedProvider;
     private readonly IUnitValidationCoordinator? _validationCoordinator;
     private readonly IUnitMembershipCoordinator _membershipCoordinator;
-    private readonly IUnitPermissionCoordinator _permissionCoordinator;
+    private readonly IUnitStateCoordinator _stateCoordinator;
     private readonly IAgentExecutionStore? _agentExecutionStore;
     private readonly IUnitExecutionStore? _unitExecutionStore;
     private readonly IUnitHumanPermissionStore? _humanPermissionStore;
@@ -85,17 +85,14 @@ public class UnitActor : Actor, IUnitActor
     /// from the remaining optional parameters so legacy test harnesses
     /// that construct the actor directly continue to work.
     /// </param>
-    /// <param name="permissionCoordinator">
-    /// Optional coordinator for the permission-management concern (#1311).
-    /// When present, the inheritance-flag operations
-    /// (<see cref="GetPermissionInheritanceAsync"/>,
-    /// <see cref="SetPermissionInheritanceAsync"/>) delegate to it. When
-    /// absent, a default <see cref="UnitPermissionCoordinator"/> is
-    /// constructed so legacy test harnesses that construct the actor
-    /// directly continue to work. ACL grant operations (#2044) bypass the
-    /// coordinator and write through <paramref name="humanPermissionStore"/>
-    /// directly — the coordinator's actor-state shape is no longer the
-    /// source of truth for grants.
+    /// <param name="stateCoordinator">
+    /// EF-backed coordinator for unit metadata, boundary, permission-
+    /// inheritance, and own-expertise (#2049 / ADR-0040). Replaces the
+    /// pre-#2049 <c>IUnitPermissionCoordinator</c>; the actor reads and
+    /// writes through this seam on every metadata / boundary /
+    /// inheritance / expertise call. Production DI always supplies the
+    /// default; tests that construct the actor directly pass an
+    /// in-memory test double (<c>InMemoryUnitLiveConfigStore</c>).
     /// </param>
     /// <param name="humanPermissionStore">
     /// Optional EF-backed store for (unit, human) ACL grants (#2044 /
@@ -115,23 +112,26 @@ public class UnitActor : Actor, IUnitActor
         IActivityEventBus activityEventBus,
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
+        IUnitStateCoordinator stateCoordinator,
         IExpertiseSeedProvider? expertiseSeedProvider = null,
         IUnitValidationWorkflowScheduler? validationWorkflowScheduler = null,
         IUnitValidationTracker? validationTracker = null,
         IUnitSubunitMembershipProjector? subunitProjector = null,
         IUnitValidationCoordinator? validationCoordinator = null,
         IUnitMembershipCoordinator? membershipCoordinator = null,
-        IUnitPermissionCoordinator? permissionCoordinator = null,
         IAgentExecutionStore? agentExecutionStore = null,
         IUnitExecutionStore? unitExecutionStore = null,
         IUnitHumanPermissionStore? humanPermissionStore = null)
         : base(host)
     {
+        ArgumentNullException.ThrowIfNull(stateCoordinator);
+
         _logger = loggerFactory.CreateLogger<UnitActor>();
         _runtimeInvocationPath = runtimeInvocationPath;
         _activityEventBus = activityEventBus;
         _directoryService = directoryService;
         _actorProxyFactory = actorProxyFactory;
+        _stateCoordinator = stateCoordinator;
         _expertiseSeedProvider = expertiseSeedProvider;
         _validationCoordinator = validationCoordinator
             ?? (validationWorkflowScheduler is not null || validationTracker is not null
@@ -141,9 +141,6 @@ public class UnitActor : Actor, IUnitActor
             ?? new UnitMembershipCoordinator(
                 subunitProjector,
                 loggerFactory.CreateLogger<UnitMembershipCoordinator>());
-        _permissionCoordinator = permissionCoordinator
-            ?? new UnitPermissionCoordinator(
-                loggerFactory.CreateLogger<UnitPermissionCoordinator>());
         _agentExecutionStore = agentExecutionStore;
         _unitExecutionStore = unitExecutionStore;
         _humanPermissionStore = humanPermissionStore;
@@ -165,12 +162,14 @@ public class UnitActor : Actor, IUnitActor
 
     /// <summary>
     /// Seeds the unit's own expertise from its <c>UnitDefinition</c> YAML on
-    /// first activation (#488). Precedence rule: actor state is authoritative
-    /// — the seed only applies when no own-expertise has been persisted to
-    /// actor state yet (<see cref="StateKeys.UnitOwnExpertise"/> unset). Once
-    /// an operator has PUT an expertise list (even an empty one), the unit
-    /// never re-seeds from YAML so runtime edits survive process restarts.
-    /// See <c>docs/architecture/units.md § Seeding from YAML</c>.
+    /// first activation (#488). Precedence rule: operator-state wins — the
+    /// seed only applies when no own-expertise has been persisted to EF yet
+    /// (<c>unit_live_config.expertise_initialised</c> still <c>false</c>).
+    /// Once an operator has PUT an expertise list (even an empty one), the
+    /// flag flips to <c>true</c> and the unit never re-seeds from YAML so
+    /// runtime edits survive process restarts. Per ADR-0040 / #2049 the
+    /// flag lives on the <c>unit_live_config</c> EF row, not in actor
+    /// state. See <c>docs/architecture/units.md § Seeding from YAML</c>.
     /// </summary>
     /// <remarks>
     /// Failures in seeding are non-fatal: the actor still activates and the
@@ -193,13 +192,13 @@ public class UnitActor : Actor, IUnitActor
 
         try
         {
-            var existing = await StateManager
-                .TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.UnitOwnExpertise, ct);
+            // ADR-0040 / #2049: the precedence flag lives on
+            // unit_live_config.expertise_initialised. The activation-path
+            // read is instrumented with a timing metric inside the store
+            // so the v0.2 cache decision is data-driven (ADR-0040 § 3).
+            var alreadyInitialised = await _stateCoordinator.HasOwnExpertiseSetAsync(Id.GetId(), ct);
 
-            // Actor state wins — if ANY value (including an empty list) was
-            // persisted through SetOwnExpertiseAsync, the operator's runtime
-            // edit is preserved across activations.
-            if (existing.HasValue)
+            if (alreadyInitialised)
             {
                 return;
             }
@@ -619,139 +618,78 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
-    public async Task<ExpertiseDomain[]> GetOwnExpertiseAsync(CancellationToken ct = default)
+    public Task<ExpertiseDomain[]> GetOwnExpertiseAsync(CancellationToken ct = default)
     {
-        var result = await StateManager
-            .TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.UnitOwnExpertise, ct);
-        return result.HasValue ? result.Value.ToArray() : Array.Empty<ExpertiseDomain>();
+        // ADR-0040 / #2049: own expertise reads come straight from the
+        // unit_expertise EF table through the coordinator. The actor no
+        // longer maintains an actor-state mirror.
+        return _stateCoordinator.GetOwnExpertiseAsync(Id.GetId(), ct);
     }
 
     /// <inheritdoc />
-    public async Task SetOwnExpertiseAsync(ExpertiseDomain[] domains, CancellationToken ct = default)
+    public Task SetOwnExpertiseAsync(ExpertiseDomain[] domains, CancellationToken ct = default)
     {
-        ArgumentNullException.ThrowIfNull(domains);
-
-        // Store normalized copy — dedup by (Name, Level) so a caller that
-        // PUTs duplicate domains does not bloat state.
-        var normalised = domains
-            .Where(d => !string.IsNullOrWhiteSpace(d.Name))
-            .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
-            .ToList();
-
-        await StateManager.SetStateAsync(StateKeys.UnitOwnExpertise, normalised, ct);
-
-        _logger.LogInformation(
-            "Unit {ActorId} own expertise updated. Domain count: {Count}",
-            Id.GetId(), normalised.Count);
-
-        await EmitActivityEventAsync(ActivityEventType.StateChanged,
-            $"Unit expertise updated. Domains: {normalised.Count}",
-            ct,
-            details: JsonSerializer.SerializeToElement(new
-            {
-                action = "UnitExpertiseUpdated",
-                domains = normalised.Select(d => new { d.Name, d.Description, Level = d.Level?.ToString() }),
-            }));
-    }
-
-    /// <inheritdoc />
-    public async Task<UnitBoundary> GetBoundaryAsync(CancellationToken ct = default)
-    {
-        var result = await StateManager
-            .TryGetStateAsync<UnitBoundary>(StateKeys.UnitBoundary, ct);
-        return result.HasValue ? result.Value : UnitBoundary.Empty;
-    }
-
-    /// <inheritdoc />
-    public async Task SetBoundaryAsync(UnitBoundary boundary, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(boundary);
-
-        if (boundary.IsEmpty)
-        {
-            // Represent "no rules" as an absent row — the next read returns
-            // UnitBoundary.Empty via the state-absent path, which is
-            // semantically identical to an explicit empty boundary.
-            await StateManager.RemoveStateAsync(StateKeys.UnitBoundary, ct);
-        }
-        else
-        {
-            await StateManager.SetStateAsync(StateKeys.UnitBoundary, boundary, ct);
-        }
-
-        _logger.LogInformation(
-            "Unit {ActorId} boundary updated. Opacities: {OpacityCount}, Projections: {ProjectionCount}, Syntheses: {SynthesisCount}",
+        // ADR-0040 / #2049: writes go to the unit_expertise EF table and
+        // flip unit_live_config.expertise_initialised. The coordinator
+        // emits a single StateChanged activity event after the write
+        // commits.
+        return _stateCoordinator.SetOwnExpertiseAsync(
             Id.GetId(),
-            boundary.Opacities?.Count ?? 0,
-            boundary.Projections?.Count ?? 0,
-            boundary.Syntheses?.Count ?? 0);
-
-        await EmitActivityEventAsync(ActivityEventType.StateChanged,
-            $"Unit boundary updated. Opacities={boundary.Opacities?.Count ?? 0}, Projections={boundary.Projections?.Count ?? 0}, Syntheses={boundary.Syntheses?.Count ?? 0}",
-            ct,
-            details: JsonSerializer.SerializeToElement(new
-            {
-                action = "UnitBoundaryUpdated",
-                opacities = boundary.Opacities?.Count ?? 0,
-                projections = boundary.Projections?.Count ?? 0,
-                syntheses = boundary.Syntheses?.Count ?? 0,
-            }));
+            domains,
+            EmitActivityEventAsync,
+            ct);
     }
 
     /// <inheritdoc />
-    public Task<UnitPermissionInheritance> GetPermissionInheritanceAsync(CancellationToken ct = default)
-        => _permissionCoordinator.GetPermissionInheritanceAsync(
-            unitActorId: Id.GetId(),
-            getInheritance: async c =>
-            {
-                var result = await StateManager
-                    .TryGetStateAsync<UnitPermissionInheritance>(StateKeys.UnitPermissionInheritance, c);
-                return result.HasValue ? result.Value : null;
-            },
-            cancellationToken: ct);
-
-    /// <inheritdoc />
-    public async Task SetPermissionInheritanceAsync(UnitPermissionInheritance inheritance, CancellationToken ct = default)
+    public Task<UnitBoundary> GetBoundaryAsync(CancellationToken ct = default)
     {
-        await _permissionCoordinator.SetPermissionInheritanceAsync(
-            unitActorId: Id.GetId(),
-            inheritance: inheritance,
-            persistInheritance: (value, c) => StateManager.SetStateAsync(StateKeys.UnitPermissionInheritance, value, c),
-            removeInheritance: c => StateManager.RemoveStateAsync(StateKeys.UnitPermissionInheritance, c),
-            cancellationToken: ct);
-
-        await EmitActivityEventAsync(ActivityEventType.StateChanged,
-            $"Unit permission inheritance updated to {inheritance}",
-            ct,
-            details: JsonSerializer.SerializeToElement(new
-            {
-                action = "UnitPermissionInheritanceUpdated",
-                inheritance = inheritance.ToString(),
-            }));
+        // ADR-0040 / #2049: boundary lives on the unit_live_config EF row.
+        return _stateCoordinator.GetBoundaryAsync(Id.GetId(), ct);
     }
 
     /// <inheritdoc />
-    public async Task<UnitMetadata> GetMetadataAsync(CancellationToken ct = default)
+    public Task SetBoundaryAsync(UnitBoundary boundary, CancellationToken ct = default)
     {
-        var modelResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitModel, ct);
-        var colorResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitColor, ct);
-        var providerResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitProvider, ct);
-        var hostingResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitHosting, ct);
+        // ADR-0040 / #2049: write to the unit_live_config EF row.
+        return _stateCoordinator.SetBoundaryAsync(
+            Id.GetId(),
+            boundary,
+            EmitActivityEventAsync,
+            ct);
+    }
 
-        // DisplayName and Description are persisted on the directory entity,
-        // not on the actor. See IUnitActor.GetMetadataAsync for the contract.
-        // #1065: Provider / Hosting are actor-owned. Without these reads the
-        // unit-detail GET returned them as null even when set on create.
-        // #1732: Tool was dropped — the execution tool is derived from the
-        // unit's execution.agent slot via the runtime registry.
-        return new UnitMetadata(
-            DisplayName: null,
-            Description: null,
-            Model: modelResult.HasValue ? modelResult.Value : null,
-            Color: colorResult.HasValue ? colorResult.Value : null,
-            Provider: providerResult.HasValue ? providerResult.Value : null,
-            Hosting: hostingResult.HasValue ? hostingResult.Value : null);
+    /// <inheritdoc />
+    public async Task<UnitPermissionInheritance> GetPermissionInheritanceAsync(CancellationToken ct = default)
+    {
+        // ADR-0040 / #2049: inheritance flag lives on the
+        // unit_live_config EF row. Default of Inherit is applied inside
+        // the repository.
+        var ordinal = await _stateCoordinator.GetPermissionInheritanceAsync(Id.GetId(), ct);
+        return (UnitPermissionInheritance)ordinal;
+    }
+
+    /// <inheritdoc />
+    public Task SetPermissionInheritanceAsync(UnitPermissionInheritance inheritance, CancellationToken ct = default)
+    {
+        // ADR-0040 / #2049: write to the unit_live_config EF row. The
+        // coordinator emits a StateChanged activity event after the
+        // write commits.
+        return _stateCoordinator.SetPermissionInheritanceAsync(
+            Id.GetId(),
+            (int)inheritance,
+            EmitActivityEventAsync,
+            ct);
+    }
+
+    /// <inheritdoc />
+    public Task<UnitMetadata> GetMetadataAsync(CancellationToken ct = default)
+    {
+        // ADR-0040 / #2049: metadata reads come straight from the
+        // unit_live_config EF row through the coordinator. The actor
+        // no longer maintains an actor-state mirror. DisplayName /
+        // Description live on the directory entity and are stitched in
+        // by the API layer.
+        return _stateCoordinator.GetMetadataAsync(Id.GetId(), ct);
     }
 
     /// <inheritdoc />
@@ -759,82 +697,46 @@ public class UnitActor : Actor, IUnitActor
     {
         ArgumentNullException.ThrowIfNull(metadata);
 
-        var writtenFields = new List<string>();
-        var directoryFields = new List<string>();
-
-        if (metadata.Model is not null)
-        {
-            await StateManager.SetStateAsync(StateKeys.UnitModel, metadata.Model, ct);
-            writtenFields.Add(nameof(metadata.Model));
-        }
-
-        if (metadata.Color is not null)
-        {
-            await StateManager.SetStateAsync(StateKeys.UnitColor, metadata.Color, ct);
-            writtenFields.Add(nameof(metadata.Color));
-        }
-
-        // #1065: persist Provider / Hosting so the unit-detail GET
-        // round-trips them. #1732: Tool was dropped from this surface.
-        if (metadata.Provider is not null)
-        {
-            await StateManager.SetStateAsync(StateKeys.UnitProvider, metadata.Provider, ct);
-            writtenFields.Add(nameof(metadata.Provider));
-        }
-
-        if (metadata.Hosting is not null)
-        {
-            await StateManager.SetStateAsync(StateKeys.UnitHosting, metadata.Hosting, ct);
-            writtenFields.Add(nameof(metadata.Hosting));
-        }
-
-        // DisplayName and Description are deliberately not persisted here; the
-        // directory entity is the source of truth (#123). We still emit a
-        // StateChanged activity event for audit consistency so the API layer
-        // does not need to duplicate the emission when only directory-side
-        // fields change.
-        if (metadata.DisplayName is not null)
-        {
-            directoryFields.Add(nameof(metadata.DisplayName));
-        }
-
-        if (metadata.Description is not null)
-        {
-            directoryFields.Add(nameof(metadata.Description));
-        }
-
-        if (writtenFields.Count == 0 && directoryFields.Count == 0)
-        {
-            _logger.LogDebug(
-                "Unit {ActorId} SetMetadataAsync called with no fields; nothing to emit.",
-                Id.GetId());
-            return;
-        }
-
-        var allFields = writtenFields.Concat(directoryFields).ToList();
-
-        _logger.LogInformation(
-            "Unit {ActorId} metadata updated. Actor-owned fields: {ActorFields}; directory-owned fields: {DirectoryFields}",
+        // ADR-0040 / #2049: writes go to the unit_live_config EF row.
+        // The coordinator emits a StateChanged event for actor-owned
+        // fields (Model / Color / Provider / Hosting). DisplayName /
+        // Description live on the directory entity; we still emit a
+        // separate audit event for them when they're the only fields
+        // present, so the API layer's directory-only path retains a
+        // visible activity row.
+        await _stateCoordinator.SetMetadataAsync(
             Id.GetId(),
-            string.Join(",", writtenFields),
-            string.Join(",", directoryFields));
+            metadata,
+            EmitActivityEventAsync,
+            ct);
 
-        await EmitActivityEventAsync(ActivityEventType.StateChanged,
-            $"Unit metadata updated: {string.Join(", ", allFields)}",
-            ct,
-            details: JsonSerializer.SerializeToElement(new
-            {
-                action = "MetadataUpdated",
-                fields = allFields,
-                actorFields = writtenFields,
-                directoryFields,
-                model = metadata.Model,
-                color = metadata.Color,
-                provider = metadata.Provider,
-                hosting = metadata.Hosting,
-                displayName = metadata.DisplayName,
-                description = metadata.Description
-            }));
+        var directoryFields = new List<string>();
+        if (metadata.DisplayName is not null) directoryFields.Add(nameof(metadata.DisplayName));
+        if (metadata.Description is not null) directoryFields.Add(nameof(metadata.Description));
+
+        var actorOwnedPresent =
+            metadata.Model is not null
+            || metadata.Color is not null
+            || metadata.Provider is not null
+            || metadata.Hosting is not null;
+
+        // The coordinator emits the StateChanged event when at least one
+        // actor-owned field was patched. Emit a directory-only audit
+        // event when ONLY directory fields are present so the API layer
+        // does not need to duplicate the emission.
+        if (!actorOwnedPresent && directoryFields.Count > 0)
+        {
+            await EmitActivityEventAsync(ActivityEventType.StateChanged,
+                $"Unit metadata updated: {string.Join(", ", directoryFields)}",
+                ct,
+                details: JsonSerializer.SerializeToElement(new
+                {
+                    action = "UnitDirectoryMetadataUpdated",
+                    directoryFields,
+                    displayName = metadata.DisplayName,
+                    description = metadata.Description,
+                }));
+        }
     }
 
     /// <inheritdoc />
@@ -956,12 +858,18 @@ public class UnitActor : Actor, IUnitActor
     /// to leave Draft. Future requirements (members, connector) are
     /// documented but not yet enforced.
     /// </summary>
+    /// <remarks>
+    /// ADR-0040 / #2049: <c>Model</c> lives on <c>unit_live_config</c>;
+    /// the readiness probe consults the same coordinator the metadata
+    /// surface uses so the answer is consistent with what
+    /// <c>GetMetadataAsync</c> would return.
+    /// </remarks>
     private async Task<(bool IsReady, string[] Missing)> EvaluateReadinessAsync(CancellationToken ct)
     {
         var missing = new List<string>();
 
-        var modelResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitModel, ct);
-        if (!modelResult.HasValue || string.IsNullOrWhiteSpace(modelResult.Value))
+        var metadata = await _stateCoordinator.GetMetadataAsync(Id.GetId(), ct);
+        if (string.IsNullOrWhiteSpace(metadata.Model))
         {
             missing.Add("model");
         }
@@ -1074,12 +982,28 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <summary>
-    /// Handles a policy update by storing the updated policy payload.
+    /// Handles a control-plane policy-update notification by emitting an
+    /// audit event. ADR-0040 / #2049 collapses the actor-state
+    /// <c>Unit:Policies</c> copy: the canonical
+    /// <see cref="Cvoya.Spring.Dapr.Data.Entities.UnitPolicyEntity"/> row
+    /// is the only write path. The notification carries no actor-state
+    /// payload — it is the upstream signal that the EF policy row
+    /// changed, so the actor just acknowledges and logs.
     /// </summary>
     private async Task<Message?> HandlePolicyUpdateAsync(Message message, CancellationToken ct)
     {
-        _logger.LogInformation("Unit {ActorId} received policy update", Id.GetId());
-        await StateManager.SetStateAsync(StateKeys.Policies, message.Payload, ct);
+        _logger.LogInformation(
+            "Unit {ActorId} received policy update notification (canonical row in unit_policies; no actor-state mirror)",
+            Id.GetId());
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            "Unit policy update notification received",
+            ct,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "UnitPolicyUpdateNotified",
+            }));
+
         return CreateAckResponse(message);
     }
 
@@ -1106,6 +1030,28 @@ public class UnitActor : Actor, IUnitActor
             .TryGetStateAsync<List<Address>>(StateKeys.Members, ct);
 
         return result.HasValue ? result.Value : [];
+    }
+
+    /// <summary>
+    /// Publishes a pre-built <see cref="ActivityEvent"/> to the activity
+    /// bus. Failures are logged but never allowed to escape the actor
+    /// turn. This overload matches the
+    /// <c>Func&lt;ActivityEvent, CancellationToken, Task&gt;</c> delegate
+    /// shape coordinator seams (e.g. <see cref="IUnitStateCoordinator"/>)
+    /// expect, so the actor can pass it as a method group without an
+    /// adapter.
+    /// </summary>
+    private async Task EmitActivityEventAsync(ActivityEvent activityEvent, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _activityEventBus.PublishAsync(activityEvent, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to emit activity event {EventType} for unit actor {ActorId}.",
+                activityEvent.EventType, Id.GetId());
+        }
     }
 
     /// <summary>
