@@ -39,13 +39,13 @@ function makeThread(overrides: Partial<ThreadSummary> = {}): ThreadSummary {
   return {
     id: "thread-abc",
     participants: [
-      { address: "human://savas", displayName: "savas" },
-      { address: "agent://ada", displayName: "ada" },
+      { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+      { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
     ],
     lastActivity: new Date().toISOString(),
     createdAt: new Date().toISOString(),
     eventCount: 5,
-    origin: { address: "human://savas", displayName: "savas" },
+    origin: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
     summary: "Working on the feature",
     ...overrides,
   };
@@ -58,6 +58,10 @@ function idleQuery() {
 const CURRENT_USER = {
   userId: "savas",
   displayName: "savas",
+  // #2082: identity comparisons go via Guid `id`. The textual `address`
+  // stays for display / "from" routing but is no longer compared as a
+  // primitive.
+  id: "11111111-1111-1111-1111-111111111111",
   address: "human://savas",
 };
 
@@ -176,9 +180,9 @@ describe("EngagementList", () => {
         data: [
           makeThread({
             participants: [
-              { address: "human://savas", displayName: "savas" },
-              { address: "agent://ada", displayName: "ada" },
-              { address: "agent://bob", displayName: "bob" },
+              { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+              { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
+              { id: "33333333-3333-3333-3333-333333333333", address: "agent://bob", displayName: "bob" },
             ],
           }),
         ],
@@ -202,11 +206,11 @@ describe("EngagementList", () => {
           makeThread({
             id: "thread-guidy",
             participants: [
-              { address: "human://savas", displayName: "savas" },
+              { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
               // identity form, no displayName from the server — exactly
               // the wire shape that produced the GUID-titled cards in
               // the issue screenshot.
-              { address: `agent:id:${id}`, displayName: "" },
+              { id, address: `agent:id:${id}`, displayName: "" },
             ],
           }),
         ],
@@ -232,8 +236,8 @@ describe("EngagementList", () => {
             // observing, not a participant. The title should list every
             // participant rather than hiding behind "Just you".
             participants: [
-              { address: "agent://ada", displayName: "ada" },
-              { address: "agent://bob", displayName: "bob" },
+              { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
+              { id: "33333333-3333-3333-3333-333333333333", address: "agent://bob", displayName: "bob" },
             ],
           }),
         ],
@@ -252,11 +256,11 @@ describe("EngagementList", () => {
         data: [
           makeThread({
             participants: [
-              { address: "human://savas", displayName: "savas" },
-              { address: "agent://ada", displayName: "ada" },
-              { address: "agent://bob", displayName: "bob" },
-              { address: "agent://carl", displayName: "carl" },
-              { address: "agent://dot", displayName: "dot" },
+              { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+              { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
+              { id: "33333333-3333-3333-3333-333333333333", address: "agent://bob", displayName: "bob" },
+              { id: "44444444-4444-4444-4444-444444444444", address: "agent://carl", displayName: "carl" },
+              { id: "55555555-5555-5555-5555-555555555555", address: "agent://dot", displayName: "dot" },
             ],
           }),
         ],
@@ -343,8 +347,8 @@ describe("EngagementList", () => {
         data: [
           {
             threadId: "thread-q",
-            from: { address: "agent://ada", displayName: "ada" },
-            human: { address: "human://savas", displayName: "savas" },
+            from: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
+            human: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
             pendingSince: new Date().toISOString(),
             summary: "Which branch?",
             unreadCount: 1,
@@ -412,15 +416,15 @@ describe("EngagementList", () => {
       const participantThread = makeThread({
         id: "thread-mine",
         participants: [
-          { address: "human://savas", displayName: "savas" },
-          { address: "agent://ada", displayName: "ada" },
+          { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+          { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
         ],
       });
       const observerThread = makeThread({
         id: "thread-a2a",
         participants: [
-          { address: "agent://ada", displayName: "ada" },
-          { address: "agent://bob", displayName: "bob" },
+          { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
+          { id: "33333333-3333-3333-3333-333333333333", address: "agent://bob", displayName: "bob" },
         ],
       });
       mockUseThreads.mockReturnValue({
@@ -456,15 +460,15 @@ describe("EngagementList", () => {
       const participantThread = makeThread({
         id: "thread-mine",
         participants: [
-          { address: "human://savas", displayName: "savas" },
-          { address: "agent://ada", displayName: "ada" },
+          { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+          { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
         ],
       });
       const observerThread = makeThread({
         id: "thread-a2a",
         participants: [
-          { address: "agent://ada", displayName: "ada" },
-          { address: "agent://bob", displayName: "bob" },
+          { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
+          { id: "33333333-3333-3333-3333-333333333333", address: "agent://bob", displayName: "bob" },
         ],
       });
       mockUseThreads.mockReturnValue({

@@ -177,7 +177,12 @@ public static class ThreadEndpoints
         CancellationToken ct)
     {
         var displayName = await resolver.ResolveAsync(address, ct);
-        return new ParticipantRef(address, displayName);
+        // #2082: emit the typed Guid identity alongside the textual
+        // address. Callers do identity comparisons on Id, not Address.
+        // Slug-shaped legacy addresses (no Guid) surface Guid.Empty —
+        // those rows can't participate in identity equality anyway.
+        _ = AddressIdentity.TryGetActorId(address, out var id);
+        return new ParticipantRef(id, address, displayName);
     }
 
     internal static async Task<IReadOnlyList<ThreadSummaryResponse>> EnrichSummariesAsync(

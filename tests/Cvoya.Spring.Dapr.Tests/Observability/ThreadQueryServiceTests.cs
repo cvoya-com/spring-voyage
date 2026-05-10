@@ -5,7 +5,6 @@ namespace Cvoya.Spring.Dapr.Tests.Observability;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
@@ -16,8 +15,6 @@ using Cvoya.Spring.Dapr.Observability;
 using Cvoya.Spring.Dapr.Tenancy;
 
 using Microsoft.EntityFrameworkCore;
-
-using NSubstitute;
 
 using Shouldly;
 
@@ -41,11 +38,10 @@ public class ThreadQueryServiceTests : IDisposable
     private readonly ITenantContext _tenantContext;
 
     /// <summary>
-    /// Tracks the seed-time scheme + display value for every actor id so
-    /// <see cref="BuildDirectory"/> can hand the projection a real
-    /// <c>actorId → DirectoryEntry</c> map. Empty when no actors have been
-    /// registered (the projection then falls back to literal-only filter
-    /// matching, mirroring production behaviour without a directory).
+    /// Tracks the seed-time scheme + display value for every actor id.
+    /// Retained for the <c>NewActor</c> helper to build addresses with a
+    /// readable label; post-#2082 the projection no longer consults a
+    /// directory for filter resolution.
     /// </summary>
     private readonly Dictionary<Guid, (string Scheme, string Slug)> _seededActors = new();
 
@@ -64,32 +60,7 @@ public class ThreadQueryServiceTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private ThreadQueryService BuildService() => new(_db, BuildDirectory());
-
-    private IDirectoryService BuildDirectory()
-    {
-        var dir = Substitute.For<IDirectoryService>();
-        var entries = _seededActors
-            .Select(kvp => new DirectoryEntry(
-                Address: new Address(kvp.Value.Scheme, kvp.Key),
-                ActorId: kvp.Key,
-                DisplayName: kvp.Value.Slug,
-                Description: string.Empty,
-                Role: null,
-                RegisteredAt: DateTimeOffset.UtcNow))
-            .ToList();
-        dir.ListAllAsync(Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<DirectoryEntry>>(entries));
-        dir.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
-            .Returns(ci =>
-            {
-                var addr = ci.Arg<Address>();
-                var match = entries.FirstOrDefault(
-                    e => e.Address.Scheme == addr.Scheme && e.ActorId == addr.Id);
-                return Task.FromResult<DirectoryEntry?>(match);
-            });
-        return dir;
-    }
+    private ThreadQueryService BuildService() => new(_db);
 
     [Fact]
     public async Task ListAsync_NoThreads_ReturnsEmpty()
@@ -130,10 +101,10 @@ public class ThreadQueryServiceTests : IDisposable
         result.Count.ShouldBe(2);
 
         var t1 = result.Single(s => s.Id == GuidFormatter.Format(thread1));
-        t1.Participants.ShouldContain($"agent:id:{ada.Id:N}");
-        t1.Participants.ShouldContain($"human:id:{savasp.Id:N}");
+        t1.Participants.ShouldContain($"agent:{ada.Id:N}");
+        t1.Participants.ShouldContain($"human:{savasp.Id:N}");
         t1.EventCount.ShouldBe(2);
-        t1.Origin.ShouldBe($"agent:id:{ada.Id:N}");
+        t1.Origin.ShouldBe($"agent:{ada.Id:N}");
         t1.Summary.ShouldBe("Hello, savasp.");
 
         var t2 = result.Single(s => s.Id == GuidFormatter.Format(thread2));
@@ -141,7 +112,7 @@ public class ThreadQueryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ListAsync_AgentFilter_ResolvesThroughDirectory()
+    public async Task ListAsync_AgentFilter_MatchesByActorIdentity()
     {
         var ct = TestContext.Current.CancellationToken;
         var ada = NewActor("agent", "ada");
@@ -265,8 +236,8 @@ public class ThreadQueryServiceTests : IDisposable
         detail.ShouldNotBeNull();
         var evt = detail!.Events.Single();
         evt.MessageId.ShouldBe(msgIds[0]);
-        evt.From.ShouldBe($"human:id:{savasp.Id:N}");
-        evt.To.ShouldBe($"agent:id:{ada.Id:N}");
+        evt.From.ShouldBe($"human:{savasp.Id:N}");
+        evt.To.ShouldBe($"agent:{ada.Id:N}");
         evt.Body.ShouldBe("Approve merge?");
     }
 
@@ -313,11 +284,11 @@ public class ThreadQueryServiceTests : IDisposable
             });
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:id:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
 
         inbox.Count.ShouldBe(1);
-        inbox[0].Human.ShouldBe($"human:id:{savasp.Id:N}");
-        inbox[0].From.ShouldBe($"agent:id:{ada.Id:N}");
+        inbox[0].Human.ShouldBe($"human:{savasp.Id:N}");
+        inbox[0].From.ShouldBe($"agent:{ada.Id:N}");
         inbox[0].Summary.ShouldBe("Approve merge?");
     }
 
@@ -338,7 +309,7 @@ public class ThreadQueryServiceTests : IDisposable
             });
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:id:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
 
         inbox.ShouldBeEmpty();
     }
@@ -357,7 +328,7 @@ public class ThreadQueryServiceTests : IDisposable
             new[] { NewMessage(ada, alice, "For alice", DateTimeOffset.UtcNow.AddMinutes(-1)) });
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:id:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
 
         inbox.ShouldBeEmpty();
     }
@@ -382,10 +353,10 @@ public class ThreadQueryServiceTests : IDisposable
             });
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:id:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
 
         inbox.Count.ShouldBe(1);
-        inbox[0].From.ShouldBe($"agent:id:{ada.Id:N}");
+        inbox[0].From.ShouldBe($"agent:{ada.Id:N}");
         inbox[0].Summary.ShouldBe("On it.");
     }
 
@@ -412,7 +383,7 @@ public class ThreadQueryServiceTests : IDisposable
             participantKeyOverride: "fresh");
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:id:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
 
         inbox.Count.ShouldBe(2);
         inbox[0].ThreadId.ShouldBe(GuidFormatter.Format(freshId));
@@ -438,7 +409,7 @@ public class ThreadQueryServiceTests : IDisposable
             });
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:id:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
 
         inbox.Count.ShouldBe(1);
         inbox[0].UnreadCount.ShouldBe(3);
@@ -469,7 +440,7 @@ public class ThreadQueryServiceTests : IDisposable
         };
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:id:{savasp.Id:N}", lastReadAt, ct);
+        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", lastReadAt, ct);
 
         inbox.Count.ShouldBe(1);
         inbox[0].UnreadCount.ShouldBe(1);
@@ -498,7 +469,7 @@ public class ThreadQueryServiceTests : IDisposable
         };
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:id:{savasp.Id:N}", lastReadAt, ct);
+        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", lastReadAt, ct);
 
         inbox.Count.ShouldBe(1);
         inbox[0].UnreadCount.ShouldBe(0);
@@ -517,7 +488,7 @@ public class ThreadQueryServiceTests : IDisposable
 
         using var otherDb = new SpringDbContext(_dbOptions, new StaticTenantContext(OtherTenantId));
         var svc = new ThreadQueryService(otherDb);
-        var inbox = await svc.ListInboxAsync($"human:id:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
 
         inbox.ShouldBeEmpty();
     }

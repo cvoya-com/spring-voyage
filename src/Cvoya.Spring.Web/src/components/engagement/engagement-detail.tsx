@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { useThread, useCurrentUser, useInbox } from "@/lib/api/queries";
 import {
   addressOf,
+  idOf,
   participantDisplayName,
 } from "@/components/thread/role";
 import { EngagementTimeline } from "./engagement-timeline";
@@ -152,13 +153,17 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
   );
 
   // Determine whether the current authenticated human is a participant.
-  // The user profile returns an `address` field (human:// scheme://path).
-  // Handles both ParticipantRef objects and plain address strings.
-  const currentUserAddress = userQuery.data?.address;
+  // #2082: identity is a typed Guid concept. The user profile exposes
+  // `id` (the actor's stable Guid); we compare against each participant's
+  // `id`, which the API guarantees alongside the display address. The
+  // pre-#2082 code compared `addressOf(p) === currentUser.address`, which
+  // silently misclassified the creator as an observer whenever the two
+  // rendering paths emitted different address shapes.
+  const currentUserId = userQuery.data?.id?.toLowerCase() ?? null;
   const isParticipant = useMemo(() => {
-    if (!currentUserAddress) return false;
-    return participants.some((p) => addressOf(p) === currentUserAddress);
-  }, [participants, currentUserAddress]);
+    if (!currentUserId) return false;
+    return participants.some((p) => idOf(p) === currentUserId);
+  }, [participants, currentUserId]);
 
   // Detect whether there's a pending question for this engagement in the inbox.
   // The inbox items carry `threadId` so we can match.
@@ -202,10 +207,11 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
   // the header is meaningful. Names that fail to resolve to anything
   // human-readable are dropped quietly rather than leaked as raw GUIDs
   // — the previous fallback emitted strings like "agent:id:<uuid>",
-  // which is the bug tracked in #1630.
+  // which is the bug tracked in #1630. #2082: filter by Guid identity
+  // rather than address string.
   const headerNames = (() => {
-    const others = currentUserAddress
-      ? participants.filter((p) => addressOf(p) !== currentUserAddress)
+    const others = currentUserId
+      ? participants.filter((p) => idOf(p) !== currentUserId)
       : participants;
     if (others.length === 0) return "Just you";
     const names = others

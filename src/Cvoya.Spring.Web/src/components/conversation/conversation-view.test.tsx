@@ -40,13 +40,13 @@ function makeDetail(events: ThreadDetail["events"]): ThreadDetail {
     summary: {
       id: "t-1",
       participants: [
-        { address: "human://savas", displayName: "savas" },
-        { address: "agent://ada", displayName: "ada" },
+        { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+        { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
       ],
       lastActivity: "2026-04-30T10:00:00Z",
       createdAt: "2026-04-30T09:00:00Z",
       eventCount: events.length,
-      origin: { address: "human://savas", displayName: "savas" },
+      origin: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
       summary: "Test thread",
     },
     events,
@@ -56,7 +56,7 @@ function makeDetail(events: ThreadDetail["events"]): ThreadDetail {
 const messageEvent = {
   id: "e-msg",
   eventType: "MessageReceived",
-  source: { address: "agent://ada", displayName: "ada" },
+  source: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
   timestamp: "2026-04-30T10:00:00Z",
   severity: "Info",
   summary: "envelope summary",
@@ -66,7 +66,7 @@ const messageEvent = {
 const lifecycleEvent = {
   id: "e-state",
   eventType: "StateChanged",
-  source: { address: "agent://ada", displayName: "ada" },
+  source: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
   timestamp: "2026-04-30T10:01:00Z",
   severity: "Info",
   summary: "state changed",
@@ -336,7 +336,7 @@ describe("ConversationView — message-vs-card dispatch in dialog mode", () => {
     const bodylessMessage = {
       id: "e-bare",
       eventType: "MessageReceived",
-      source: { address: "agent://ada", displayName: "ada" },
+      source: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
       timestamp: "2026-04-30T10:02:00Z",
       severity: "Info",
       summary: "agent reply placeholder",

@@ -5,11 +5,8 @@ namespace Cvoya.Spring.Dapr.Tests.Orchestration;
 
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
-using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Orchestration;
-
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
 
 using Microsoft.Extensions.Logging;
 
@@ -24,34 +21,40 @@ using Xunit;
 /// "leaf agents get no tools, units with at least one child get the closed
 /// five-tool set" contract from ADR-0039 §3.
 /// </summary>
+/// <remarks>
+/// #2081: the provider now reads members directly from
+/// <see cref="IUnitMemberGraphStore"/> rather than calling
+/// <c>IUnitActor.GetMembersAsync</c> through a Dapr actor proxy — the
+/// pre-fix path deadlocked when the provider was invoked from inside a
+/// <c>UnitActor</c> turn. The tests substitute the store directly.
+/// </remarks>
 public class DirectoryOrchestrationToolProviderTests
 {
     private static readonly Guid LeafAgentId = new("aaaaaaaa-0000-0000-0000-000000000001");
     private static readonly Guid OneChildUnitId = new("bbbbbbbb-0000-0000-0000-000000000001");
     private static readonly Guid ThreeChildrenUnitId = new("bbbbbbbb-0000-0000-0000-000000000002");
 
-    private readonly IActorProxyFactory _proxyFactory = Substitute.For<IActorProxyFactory>();
+    private readonly IUnitMemberGraphStore _memberGraphStore = Substitute.For<IUnitMemberGraphStore>();
     private readonly ILogger<DirectoryOrchestrationToolProvider> _logger =
         Substitute.For<ILogger<DirectoryOrchestrationToolProvider>>();
 
-    private readonly Dictionary<string, Address[]> _members = new();
+    private readonly Dictionary<Guid, IReadOnlyList<Address>> _members = new();
 
     public DirectoryOrchestrationToolProviderTests()
     {
-        _proxyFactory
-            .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), nameof(UnitActor))
+        _memberGraphStore
+            .GetMembersAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
-                var actorId = ci.ArgAt<ActorId>(0).GetId();
-                var actor = Substitute.For<IUnitActor>();
-                var members = _members.TryGetValue(actorId, out var m) ? m : Array.Empty<Address>();
-                actor.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(members);
-                return actor;
+                var unitId = ci.ArgAt<Guid>(0);
+                return _members.TryGetValue(unitId, out var m)
+                    ? m
+                    : (IReadOnlyList<Address>)Array.Empty<Address>();
             });
     }
 
     private DirectoryOrchestrationToolProvider CreateProvider() =>
-        new(_proxyFactory, _logger);
+        new(_memberGraphStore, _logger);
 
     [Fact]
     public void GetOrchestrationTools_LeafAgent_ReturnsEmpty()
@@ -67,7 +70,7 @@ public class DirectoryOrchestrationToolProviderTests
     [Fact]
     public void GetOrchestrationTools_UnitWithOneChild_ReturnsFiveDescriptors()
     {
-        _members[OneChildUnitId.ToString("N")] = new[]
+        _members[OneChildUnitId] = new[]
         {
             new Address(Address.AgentScheme, Guid.NewGuid()),
         };
@@ -98,7 +101,7 @@ public class DirectoryOrchestrationToolProviderTests
     [Fact]
     public void GetOrchestrationTools_UnitWithThreeChildren_ReturnsSameFiveDescriptors()
     {
-        _members[ThreeChildrenUnitId.ToString("N")] = new[]
+        _members[ThreeChildrenUnitId] = new[]
         {
             new Address(Address.AgentScheme, Guid.NewGuid()),
             new Address(Address.AgentScheme, Guid.NewGuid()),

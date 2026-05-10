@@ -20,8 +20,8 @@ vi.mock("next/link", () => ({
 
 const baseItem = {
   threadId: "conv-42",
-  from: { address: "agent://engineering-team/ada", displayName: "engineering-team/ada" },
-  human: { address: "human://savas", displayName: "savas" },
+  from: { id: "22222222-2222-2222-2222-222222222222", address: "agent://engineering-team/ada", displayName: "engineering-team/ada" },
+  human: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
   pendingSince: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
   summary: "Need your call on the migration plan",
   unreadCount: 0,
@@ -57,7 +57,7 @@ describe("InboxCard", () => {
   it("links unit:// senders to the Explorer node", () => {
     render(
       <InboxCard
-        item={{ ...baseItem, from: { address: "unit://engineering-team", displayName: "engineering-team" } }}
+        item={{ ...baseItem, from: { id: "44444444-4444-4444-4444-444444444444", address: "unit://engineering-team", displayName: "engineering-team" } }}
       />,
     );
     const link = screen.getByTestId("inbox-from-link-conv-42");
@@ -66,7 +66,7 @@ describe("InboxCard", () => {
 
   it("does not link human:// senders (no portal detail page)", () => {
     render(
-      <InboxCard item={{ ...baseItem, from: { address: "human://another-user", displayName: "another-user" } }} />,
+      <InboxCard item={{ ...baseItem, from: { id: "99999999-9999-9999-9999-999999999999", address: "human://another-user", displayName: "another-user" } }} />,
     );
     expect(
       screen.queryByTestId("inbox-from-link-conv-42"),

@@ -74,13 +74,15 @@ public static class AuthEndpoints
 
         var displayName = user.FindFirstValue(ClaimTypes.Name) ?? userIdClaim;
 
-        // Resolve the stable UUID so the portal can use the identity-form
-        // address human:id:<uuid> to identify "self" in participant lists
-        // without relying on display-name matching (#1485, #1491).
+        // Resolve the stable Guid so the portal can compare identity
+        // (Id == Id) when deciding "is this me on this thread?" without
+        // depending on address-string shape (#2082). The textual Address
+        // is kept alongside Id for display + routing; it must never be
+        // used for identity equality.
         var id = await identityResolver.ResolveByUsernameAsync(userIdClaim, displayName, cancellationToken);
         var address = Address.ForIdentity("human", id).ToString();
 
-        return Results.Ok(new UserProfileResponse(userIdClaim, displayName, address));
+        return Results.Ok(new UserProfileResponse(userIdClaim, displayName, id, address));
     }
 
     private static async Task<IResult> CreateTokenAsync(

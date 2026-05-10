@@ -13,11 +13,11 @@ namespace Cvoya.Spring.Core.Observability;
 /// state — the only state machine in the model is per-(thread, participant).
 /// </summary>
 /// <param name="Id">The thread identifier (no-dash 32-char hex Guid).</param>
-/// <param name="Participants">Canonical participant addresses (<c>scheme:id:&lt;hex&gt;</c>) for the thread.</param>
+/// <param name="Participants">Canonical participant addresses (<c>scheme:&lt;32-hex&gt;</c>, matching <see cref="Cvoya.Spring.Core.Messaging.Address.ToString"/>) for the thread. Identity comparisons should parse the Guid via <see cref="Cvoya.Spring.Core.Messaging.AddressIdentity.TryGetActorId"/> rather than string-comparing.</param>
 /// <param name="LastActivity">Timestamp of the most recent message on this thread (<c>threads.last_activity_at</c>).</param>
 /// <param name="CreatedAt">Timestamp the thread row was first inserted (<c>threads.created_at</c>).</param>
 /// <param name="EventCount">Number of persisted messages on this thread.</param>
-/// <param name="Origin">The address (<c>scheme:id:&lt;hex&gt;</c>) that sent the first message on this thread.</param>
+/// <param name="Origin">The canonical address (<c>scheme:&lt;32-hex&gt;</c>) that sent the first message on this thread.</param>
 /// <param name="Summary">Human-readable summary — the first message's body text, when extractable.</param>
 public record ThreadSummary(
     string Id,
