@@ -1,14 +1,14 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
+#nullable disable
+
 namespace Cvoya.Spring.Dapr.Data.Migrations;
 
 using System;
 using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore.Migrations;
-
-#nullable disable
 
 /// <inheritdoc />
 public partial class InitialBaseline : Migration
@@ -62,6 +62,60 @@ public partial class InitialBaseline : Migration
             });
 
         migrationBuilder.CreateTable(
+            name: "agent_expertise",
+            schema: "spring",
+            columns: table => new
+            {
+                id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                agent_id = table.Column<Guid>(type: "uuid", nullable: false),
+                name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                description = table.Column<string>(type: "text", nullable: false),
+                level = table.Column<int>(type: "integer", nullable: true),
+                input_schema_json = table.Column<string>(type: "text", nullable: true),
+                created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_agent_expertise", x => x.id);
+            });
+
+        migrationBuilder.CreateTable(
+            name: "agent_live_config",
+            schema: "spring",
+            columns: table => new
+            {
+                agent_id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                model = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                specialty = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                enabled = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                execution_mode = table.Column<int>(type: "integer", nullable: false),
+                expertise_initialised = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_agent_live_config", x => x.agent_id);
+            });
+
+        migrationBuilder.CreateTable(
+            name: "agent_skill_grants",
+            schema: "spring",
+            columns: table => new
+            {
+                id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                agent_id = table.Column<Guid>(type: "uuid", nullable: false),
+                skill_name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                granted_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_agent_skill_grants", x => x.id);
+            });
+
+        migrationBuilder.CreateTable(
             name: "api_tokens",
             schema: "spring",
             columns: table => new
@@ -79,6 +133,40 @@ public partial class InitialBaseline : Migration
             constraints: table =>
             {
                 table.PrimaryKey("PK_api_tokens", x => x.id);
+            });
+
+        migrationBuilder.CreateTable(
+            name: "budget_limits",
+            schema: "spring",
+            columns: table => new
+            {
+                id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                scope_type = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
+                scope_id = table.Column<Guid>(type: "uuid", nullable: true),
+                daily_budget = table.Column<decimal>(type: "numeric(18,6)", precision: 18, scale: 6, nullable: false),
+                updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_budget_limits", x => x.id);
+            });
+
+        migrationBuilder.CreateTable(
+            name: "cloning_policies",
+            schema: "spring",
+            columns: table => new
+            {
+                id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                scope_type = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
+                scope_id = table.Column<Guid>(type: "uuid", nullable: true),
+                policy = table.Column<JsonElement>(type: "jsonb", nullable: false),
+                updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_cloning_policies", x => x.id);
             });
 
         migrationBuilder.CreateTable(
@@ -153,6 +241,8 @@ public partial class InitialBaseline : Migration
                 username = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                 display_name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                 email = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: true),
+                permission_level = table.Column<int>(type: "integer", nullable: false),
+                notification_preferences = table.Column<string>(type: "jsonb", nullable: true),
                 created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
             },
             constraints: table =>
@@ -276,6 +366,41 @@ public partial class InitialBaseline : Migration
             });
 
         migrationBuilder.CreateTable(
+            name: "threads",
+            schema: "spring",
+            columns: table => new
+            {
+                id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                participant_key = table.Column<string>(type: "character varying(2048)", maxLength: 2048, nullable: false),
+                participants = table.Column<string>(type: "jsonb", nullable: false),
+                created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                last_activity_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_threads", x => x.id);
+            });
+
+        migrationBuilder.CreateTable(
+            name: "unit_connector_bindings",
+            schema: "spring",
+            columns: table => new
+            {
+                id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                unit_id = table.Column<Guid>(type: "uuid", nullable: false),
+                connector_type = table.Column<Guid>(type: "uuid", nullable: false),
+                config = table.Column<JsonElement>(type: "jsonb", nullable: false),
+                metadata = table.Column<JsonElement>(type: "jsonb", nullable: true),
+                bound_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_unit_connector_bindings", x => x.id);
+            });
+
+        migrationBuilder.CreateTable(
             name: "unit_definitions",
             schema: "spring",
             columns: table => new
@@ -296,6 +421,65 @@ public partial class InitialBaseline : Migration
             constraints: table =>
             {
                 table.PrimaryKey("PK_unit_definitions", x => x.id);
+            });
+
+        migrationBuilder.CreateTable(
+            name: "unit_expertise",
+            schema: "spring",
+            columns: table => new
+            {
+                id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                unit_id = table.Column<Guid>(type: "uuid", nullable: false),
+                name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                description = table.Column<string>(type: "text", nullable: false),
+                level = table.Column<int>(type: "integer", nullable: true),
+                input_schema_json = table.Column<string>(type: "text", nullable: true),
+                created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_unit_expertise", x => x.id);
+            });
+
+        migrationBuilder.CreateTable(
+            name: "unit_human_permissions",
+            schema: "spring",
+            columns: table => new
+            {
+                id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                unit_id = table.Column<Guid>(type: "uuid", nullable: false),
+                human_id = table.Column<Guid>(type: "uuid", nullable: false),
+                permission_level = table.Column<int>(type: "integer", nullable: false),
+                identity = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                notifications = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                granted_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_unit_human_permissions", x => x.id);
+            });
+
+        migrationBuilder.CreateTable(
+            name: "unit_live_config",
+            schema: "spring",
+            columns: table => new
+            {
+                unit_id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                model = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                color = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                provider = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
+                hosting = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                permission_inheritance = table.Column<int>(type: "integer", nullable: false),
+                boundary = table.Column<JsonElement>(type: "jsonb", nullable: true),
+                expertise_initialised = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_unit_live_config", x => x.unit_id);
             });
 
         migrationBuilder.CreateTable(
@@ -355,6 +539,36 @@ public partial class InitialBaseline : Migration
                 table.PrimaryKey("PK_unit_subunit_memberships", x => new { x.tenant_id, x.parent_id, x.child_id });
             });
 
+        migrationBuilder.CreateTable(
+            name: "messages",
+            schema: "spring",
+            columns: table => new
+            {
+                id = table.Column<Guid>(type: "uuid", nullable: false),
+                tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                thread_id = table.Column<Guid>(type: "uuid", nullable: false),
+                sender_scheme = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                sender_id = table.Column<Guid>(type: "uuid", nullable: false),
+                recipient_scheme = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                recipient_id = table.Column<Guid>(type: "uuid", nullable: false),
+                message_type = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                body = table.Column<string>(type: "text", nullable: true),
+                payload = table.Column<string>(type: "jsonb", nullable: false),
+                sent_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                retracted_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_messages", x => x.id);
+                table.ForeignKey(
+                    name: "fk_messages_thread_id",
+                    column: x => x.thread_id,
+                    principalSchema: "spring",
+                    principalTable: "threads",
+                    principalColumn: "id",
+                    onDelete: ReferentialAction.Cascade);
+            });
+
         migrationBuilder.CreateIndex(
             name: "IX_activity_events_correlation_id",
             schema: "spring",
@@ -380,6 +594,38 @@ public partial class InitialBaseline : Migration
             column: "tenant_id");
 
         migrationBuilder.CreateIndex(
+            name: "ix_agent_expertise_tenant_agent",
+            schema: "spring",
+            table: "agent_expertise",
+            columns: new[] { "tenant_id", "agent_id" });
+
+        migrationBuilder.CreateIndex(
+            name: "ux_agent_expertise_tenant_agent_name",
+            schema: "spring",
+            table: "agent_expertise",
+            columns: new[] { "tenant_id", "agent_id", "name" },
+            unique: true);
+
+        migrationBuilder.CreateIndex(
+            name: "IX_agent_live_config_tenant_id",
+            schema: "spring",
+            table: "agent_live_config",
+            column: "tenant_id");
+
+        migrationBuilder.CreateIndex(
+            name: "ix_agent_skill_grants_tenant_agent",
+            schema: "spring",
+            table: "agent_skill_grants",
+            columns: new[] { "tenant_id", "agent_id" });
+
+        migrationBuilder.CreateIndex(
+            name: "ux_agent_skill_grants_tenant_agent_skill",
+            schema: "spring",
+            table: "agent_skill_grants",
+            columns: new[] { "tenant_id", "agent_id", "skill_name" },
+            unique: true);
+
+        migrationBuilder.CreateIndex(
             name: "IX_api_tokens_tenant_id",
             schema: "spring",
             table: "api_tokens",
@@ -391,6 +637,38 @@ public partial class InitialBaseline : Migration
             table: "api_tokens",
             column: "token_hash",
             unique: true);
+
+        migrationBuilder.CreateIndex(
+            name: "ix_budget_limits_tenant_scope",
+            schema: "spring",
+            table: "budget_limits",
+            columns: new[] { "tenant_id", "scope_type", "scope_id" },
+            unique: true,
+            filter: "scope_id IS NOT NULL");
+
+        migrationBuilder.CreateIndex(
+            name: "ix_budget_limits_tenant_scope_null",
+            schema: "spring",
+            table: "budget_limits",
+            columns: new[] { "tenant_id", "scope_type" },
+            unique: true,
+            filter: "scope_id IS NULL");
+
+        migrationBuilder.CreateIndex(
+            name: "ix_cloning_policies_tenant_scope",
+            schema: "spring",
+            table: "cloning_policies",
+            columns: new[] { "tenant_id", "scope_type", "scope_id" },
+            unique: true,
+            filter: "scope_id IS NOT NULL");
+
+        migrationBuilder.CreateIndex(
+            name: "ix_cloning_policies_tenant_scope_null",
+            schema: "spring",
+            table: "cloning_policies",
+            columns: new[] { "tenant_id", "scope_type" },
+            unique: true,
+            filter: "scope_id IS NULL");
 
         migrationBuilder.CreateIndex(
             name: "IX_connector_definitions_tenant_id",
@@ -446,6 +724,18 @@ public partial class InitialBaseline : Migration
             table: "humans",
             columns: new[] { "tenant_id", "username" },
             unique: true);
+
+        migrationBuilder.CreateIndex(
+            name: "ix_messages_tenant_thread_sent_at",
+            schema: "spring",
+            table: "messages",
+            columns: new[] { "tenant_id", "thread_id", "sent_at" });
+
+        migrationBuilder.CreateIndex(
+            name: "IX_messages_thread_id",
+            schema: "spring",
+            table: "messages",
+            column: "thread_id");
 
         migrationBuilder.CreateIndex(
             name: "IX_package_installs_tenant_id",
@@ -515,9 +805,55 @@ public partial class InitialBaseline : Migration
             column: "tenant_id");
 
         migrationBuilder.CreateIndex(
+            name: "ux_threads_tenant_participant_key",
+            schema: "spring",
+            table: "threads",
+            columns: new[] { "tenant_id", "participant_key" },
+            unique: true);
+
+        migrationBuilder.CreateIndex(
+            name: "ix_unit_connector_bindings_tenant_type",
+            schema: "spring",
+            table: "unit_connector_bindings",
+            columns: new[] { "tenant_id", "connector_type" });
+
+        migrationBuilder.CreateIndex(
+            name: "ux_unit_connector_bindings_tenant_unit",
+            schema: "spring",
+            table: "unit_connector_bindings",
+            columns: new[] { "tenant_id", "unit_id" },
+            unique: true);
+
+        migrationBuilder.CreateIndex(
             name: "IX_unit_definitions_tenant_id",
             schema: "spring",
             table: "unit_definitions",
+            column: "tenant_id");
+
+        migrationBuilder.CreateIndex(
+            name: "ix_unit_expertise_tenant_unit",
+            schema: "spring",
+            table: "unit_expertise",
+            columns: new[] { "tenant_id", "unit_id" });
+
+        migrationBuilder.CreateIndex(
+            name: "ux_unit_expertise_tenant_unit_name",
+            schema: "spring",
+            table: "unit_expertise",
+            columns: new[] { "tenant_id", "unit_id", "name" },
+            unique: true);
+
+        migrationBuilder.CreateIndex(
+            name: "ux_unit_human_permissions_tenant_unit_human",
+            schema: "spring",
+            table: "unit_human_permissions",
+            columns: new[] { "tenant_id", "unit_id", "human_id" },
+            unique: true);
+
+        migrationBuilder.CreateIndex(
+            name: "IX_unit_live_config_tenant_id",
+            schema: "spring",
+            table: "unit_live_config",
             column: "tenant_id");
 
         migrationBuilder.CreateIndex(
@@ -545,7 +881,27 @@ public partial class InitialBaseline : Migration
             schema: "spring");
 
         migrationBuilder.DropTable(
+            name: "agent_expertise",
+            schema: "spring");
+
+        migrationBuilder.DropTable(
+            name: "agent_live_config",
+            schema: "spring");
+
+        migrationBuilder.DropTable(
+            name: "agent_skill_grants",
+            schema: "spring");
+
+        migrationBuilder.DropTable(
             name: "api_tokens",
+            schema: "spring");
+
+        migrationBuilder.DropTable(
+            name: "budget_limits",
+            schema: "spring");
+
+        migrationBuilder.DropTable(
+            name: "cloning_policies",
             schema: "spring");
 
         migrationBuilder.DropTable(
@@ -562,6 +918,10 @@ public partial class InitialBaseline : Migration
 
         migrationBuilder.DropTable(
             name: "humans",
+            schema: "spring");
+
+        migrationBuilder.DropTable(
+            name: "messages",
             schema: "spring");
 
         migrationBuilder.DropTable(
@@ -589,7 +949,23 @@ public partial class InitialBaseline : Migration
             schema: "spring");
 
         migrationBuilder.DropTable(
+            name: "unit_connector_bindings",
+            schema: "spring");
+
+        migrationBuilder.DropTable(
             name: "unit_definitions",
+            schema: "spring");
+
+        migrationBuilder.DropTable(
+            name: "unit_expertise",
+            schema: "spring");
+
+        migrationBuilder.DropTable(
+            name: "unit_human_permissions",
+            schema: "spring");
+
+        migrationBuilder.DropTable(
+            name: "unit_live_config",
             schema: "spring");
 
         migrationBuilder.DropTable(
@@ -602,6 +978,10 @@ public partial class InitialBaseline : Migration
 
         migrationBuilder.DropTable(
             name: "unit_subunit_memberships",
+            schema: "spring");
+
+        migrationBuilder.DropTable(
+            name: "threads",
             schema: "spring");
     }
 }
