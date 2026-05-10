@@ -93,7 +93,8 @@ public class UnitActorStrategyResolverTests
             Substitute.For<IActivityEventBus>(),
             Substitute.For<IDirectoryService>(),
             Substitute.For<IActorProxyFactory>(),
-            stateCoordinator);
+            stateCoordinator,
+            new InMemoryUnitMemberGraphStore());
 
         var stateManager = Substitute.For<IActorStateManager>();
         typeof(Actor)

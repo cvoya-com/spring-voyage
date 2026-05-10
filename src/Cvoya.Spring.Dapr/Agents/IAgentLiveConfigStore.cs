@@ -13,7 +13,7 @@ using Cvoya.Spring.Core.Capabilities;
 /// per call, resolves the repository, and forwards the operation.
 /// Mirrors the scope-creating pattern already in use for
 /// <c>IUnitHumanPermissionStore</c> and
-/// <c>IUnitSubunitMembershipProjector</c>.
+/// <c>IUnitMemberGraphStore</c>.
 /// </summary>
 /// <remarks>
 /// Registered as <c>TryAddSingleton</c> so cloud overlays can layer

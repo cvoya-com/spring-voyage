@@ -4,10 +4,7 @@
 namespace Cvoya.Spring.Integration.Tests;
 
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Integration.Tests.TestHelpers;
-
-using global::Dapr.Actors.Runtime;
 
 using NSubstitute;
 
@@ -24,14 +21,13 @@ public class UnitWithMembersRespondsViaRuntime
     [Fact]
     public async Task ReceiveAsync_UnitWithTwoMembers_InvokesRuntimeInvocationPath()
     {
-        var (actor, stateManager, runtimeInvocationPath) =
+        var (actor, _, runtimeInvocationPath, graph) =
             ActorTestHost.CreateUnitActor(actorId: "members-unit");
 
-        var member1 = Address.For("agent", TestSlugIds.HexFor("child-agent-1"));
-        var member2 = Address.For("agent", TestSlugIds.HexFor("child-agent-2"));
-
-        stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [member1, member2]));
+        graph.SeedAgentMembers(
+            TestSlugIds.For("members-unit"),
+            TestSlugIds.For("child-agent-1"),
+            TestSlugIds.For("child-agent-2"));
 
         var message = MessageFactory.CreateDomainMessage(toId: "members-unit", toType: "unit");
 

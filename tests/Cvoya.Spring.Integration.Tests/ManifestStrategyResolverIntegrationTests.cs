@@ -21,7 +21,7 @@ public class ManifestStrategyResolverIntegrationTests
     [Fact]
     public async Task ReceiveAsync_DomainMessage_UsesRuntimePath()
     {
-        var (actor, _, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "triage-team");
+        var (actor, _, runtimeInvocationPath, _) = ActorTestHost.CreateUnitActor(actorId: "triage-team");
         var message = MessageFactory.CreateDomainMessage(toId: "triage-team", toType: "unit");
 
         await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);

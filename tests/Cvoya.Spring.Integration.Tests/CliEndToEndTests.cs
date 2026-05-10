@@ -26,28 +26,19 @@ public class CliEndToEndTests
     [Fact]
     public async Task FullLifecycle_CreateUnit_AddAgents_SendMessage_CheckStatus()
     {
-        // Step 1: Create a unit actor.
-        var (unitActor, unitStateManager, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "cli-unit");
+        // Step 1: Create a unit actor (#2052: EF-backed member graph).
+        var (unitActor, _, runtimeInvocationPath, _) = ActorTestHost.CreateUnitActor(actorId: "cli-unit");
 
         // Step 2: Add agent members to the unit.
-        var agent1 = Address.For("agent", TestSlugIds.HexFor("cli-agent-1"));
-        var agent2 = Address.For("agent", TestSlugIds.HexFor("cli-agent-2"));
+        var agent1 = new Address("agent", TestSlugIds.For("cli-agent-1"));
+        var agent2 = new Address("agent", TestSlugIds.For("cli-agent-2"));
 
         await unitActor.AddMemberAsync(agent1, TestContext.Current.CancellationToken);
-
-        // Simulate state after first add.
-        unitStateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [agent1]));
-
         await unitActor.AddMemberAsync(agent2, TestContext.Current.CancellationToken);
-
-        // Simulate state after second add.
-        unitStateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [agent1, agent2]));
 
         // Verify members.
         var members = await unitActor.GetMembersAsync(TestContext.Current.CancellationToken);
-        members.Count().ShouldBe(2);
+        members.Length.ShouldBe(2);
 
         // Step 3: Send a domain message to the unit.
         var message = MessageFactory.CreateDomainMessage(toId: "cli-unit", toType: "unit");
@@ -103,25 +94,14 @@ public class CliEndToEndTests
     [Fact]
     public async Task FullLifecycle_RemoveMember_MemberNoLongerInList()
     {
-        var (unitActor, unitStateManager, _) = ActorTestHost.CreateUnitActor(actorId: "rm-unit");
-        var agent1 = Address.For("agent", TestSlugIds.HexFor("rm-agent-1"));
-        var agent2 = Address.For("agent", TestSlugIds.HexFor("rm-agent-2"));
+        var (unitActor, _, _, _) = ActorTestHost.CreateUnitActor(actorId: "rm-unit");
+        var agent1 = new Address("agent", TestSlugIds.For("rm-agent-1"));
+        var agent2 = new Address("agent", TestSlugIds.For("rm-agent-2"));
 
-        // Add both agents.
         await unitActor.AddMemberAsync(agent1, TestContext.Current.CancellationToken);
-        unitStateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [agent1]));
-
         await unitActor.AddMemberAsync(agent2, TestContext.Current.CancellationToken);
-        unitStateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [agent1, agent2]));
 
-        // Remove first agent.
         await unitActor.RemoveMemberAsync(agent1, TestContext.Current.CancellationToken);
-
-        // Simulate state after removal.
-        unitStateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [agent2]));
 
         var members = await unitActor.GetMembersAsync(TestContext.Current.CancellationToken);
         members.ShouldHaveSingleItem().ShouldBe(agent2);

@@ -39,6 +39,7 @@ public class UnitActor : Actor, IUnitActor
     private readonly IUnitValidationCoordinator? _validationCoordinator;
     private readonly IUnitMembershipCoordinator _membershipCoordinator;
     private readonly IUnitStateCoordinator _stateCoordinator;
+    private readonly IUnitMemberGraphStore _memberGraphStore;
     private readonly IAgentExecutionStore? _agentExecutionStore;
     private readonly IUnitExecutionStore? _unitExecutionStore;
     private readonly IUnitHumanPermissionStore? _humanPermissionStore;
@@ -66,14 +67,11 @@ public class UnitActor : Actor, IUnitActor
     /// test harnesses that construct the actor directly — the transition still
     /// succeeds but no workflow is scheduled and no tracker writes occur.
     /// </param>
-    /// <param name="subunitProjector">
-    /// Optional write-through projector for the parent → child unit
-    /// edge (#1154). Passed to <see cref="IUnitMembershipCoordinator"/>
-    /// when constructing the default coordinator. When
-    /// <paramref name="membershipCoordinator"/> is provided, this
-    /// parameter is ignored and the caller-supplied coordinator governs
-    /// projection. Null in legacy test harnesses; the actor-state list
-    /// remains authoritative either way.
+    /// <param name="memberGraphStore">
+    /// EF-backed singleton store over <c>unit_memberships</c> /
+    /// <c>unit_subunit_memberships</c> (#2052 / ADR-0040). Required —
+    /// the actor reads / writes the member graph through this seam on
+    /// every call; there is no actor-state mirror.
     /// </param>
     /// <param name="membershipCoordinator">
     /// Optional coordinator for the membership-management and
@@ -81,8 +79,8 @@ public class UnitActor : Actor, IUnitActor
     /// <see cref="AddMemberAsync"/> and <see cref="RemoveMemberAsync"/>
     /// call delegates entirely to the coordinator. When absent, a
     /// default <see cref="UnitMembershipCoordinator"/> is constructed
-    /// from the remaining optional parameters so legacy test harnesses
-    /// that construct the actor directly continue to work.
+    /// over <paramref name="memberGraphStore"/> so legacy test
+    /// harnesses that construct the actor directly continue to work.
     /// </param>
     /// <param name="stateCoordinator">
     /// EF-backed coordinator for unit metadata, boundary, permission-
@@ -112,10 +110,10 @@ public class UnitActor : Actor, IUnitActor
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         IUnitStateCoordinator stateCoordinator,
+        IUnitMemberGraphStore memberGraphStore,
         IExpertiseSeedProvider? expertiseSeedProvider = null,
         IUnitValidationWorkflowScheduler? validationWorkflowScheduler = null,
         IUnitValidationTracker? validationTracker = null,
-        IUnitSubunitMembershipProjector? subunitProjector = null,
         IUnitValidationCoordinator? validationCoordinator = null,
         IUnitMembershipCoordinator? membershipCoordinator = null,
         IAgentExecutionStore? agentExecutionStore = null,
@@ -124,6 +122,7 @@ public class UnitActor : Actor, IUnitActor
         : base(host)
     {
         ArgumentNullException.ThrowIfNull(stateCoordinator);
+        ArgumentNullException.ThrowIfNull(memberGraphStore);
 
         _logger = loggerFactory.CreateLogger<UnitActor>();
         _runtimeInvocationPath = runtimeInvocationPath;
@@ -131,6 +130,7 @@ public class UnitActor : Actor, IUnitActor
         _directoryService = directoryService;
         _actorProxyFactory = actorProxyFactory;
         _stateCoordinator = stateCoordinator;
+        _memberGraphStore = memberGraphStore;
         _expertiseSeedProvider = expertiseSeedProvider;
         _validationCoordinator = validationCoordinator
             ?? (validationWorkflowScheduler is not null || validationTracker is not null
@@ -138,7 +138,7 @@ public class UnitActor : Actor, IUnitActor
                 : null);
         _membershipCoordinator = membershipCoordinator
             ?? new UnitMembershipCoordinator(
-                subunitProjector,
+                memberGraphStore,
                 loggerFactory.CreateLogger<UnitMembershipCoordinator>());
         _agentExecutionStore = agentExecutionStore;
         _unitExecutionStore = unitExecutionStore;
@@ -270,56 +270,48 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
-    public async Task AddMemberAsync(Address member, CancellationToken ct = default)
+    public Task AddMemberAsync(Address member, CancellationToken ct = default)
     {
-        await _membershipCoordinator.AddMemberAsync(
-            unitActorId: Id.GetId(),
+        // ADR-0040 / #2052: the member graph lives in EF
+        // (unit_memberships + unit_subunit_memberships); the coordinator
+        // routes through IUnitMemberGraphStore. There is no actor-state
+        // mirror — every read is a fresh EF query.
+        var unitGuid = ParseSelfActorGuid();
+        return _membershipCoordinator.AddMemberAsync(
+            unitId: unitGuid,
             unitAddress: Address,
             member: member,
-            getMembers: GetMembersListAsync,
-            persistMembers: async (list, c) =>
-            {
-                await StateManager.SetStateAsync(StateKeys.Members, list, c);
-                await EmitActivityEventAsync(ActivityEventType.StateChanged,
-                    $"Member {member} added to unit. Total members: {list.Count}",
+            emitStateChanged: (m, total, c) =>
+                EmitActivityEventAsync(ActivityEventType.StateChanged,
+                    $"Member {m} added to unit. Total members: {total}",
                     c,
                     details: JsonSerializer.SerializeToElement(new
                     {
                         action = "MemberAdded",
-                        member = $"{member.Scheme}://{member.Path}",
-                        totalMembers = list.Count
-                    }));
-            },
-            resolveAddress: (addr, c) => _directoryService.ResolveAsync(addr, c),
-            getSubUnitMembers: async (actorId, c) =>
-            {
-                var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                    new ActorId(actorId), nameof(UnitActor));
-                return await proxy.GetMembersAsync(c);
-            },
+                        member = $"{m.Scheme}://{m.Path}",
+                        totalMembers = total,
+                    })),
             cancellationToken: ct);
     }
 
     /// <inheritdoc />
-    public async Task RemoveMemberAsync(Address member, CancellationToken ct = default)
+    public Task RemoveMemberAsync(Address member, CancellationToken ct = default)
     {
-        await _membershipCoordinator.RemoveMemberAsync(
-            unitActorId: Id.GetId(),
+        // ADR-0040 / #2052: see AddMemberAsync — EF is the single store.
+        var unitGuid = ParseSelfActorGuid();
+        return _membershipCoordinator.RemoveMemberAsync(
+            unitId: unitGuid,
             member: member,
-            getMembers: GetMembersListAsync,
-            persistMembers: async (list, c) =>
-            {
-                await StateManager.SetStateAsync(StateKeys.Members, list, c);
-                await EmitActivityEventAsync(ActivityEventType.StateChanged,
-                    $"Member {member} removed from unit. Total members: {list.Count}",
+            emitStateChanged: (m, total, c) =>
+                EmitActivityEventAsync(ActivityEventType.StateChanged,
+                    $"Member {m} removed from unit. Total members: {total}",
                     c,
                     details: JsonSerializer.SerializeToElement(new
                     {
                         action = "MemberRemoved",
-                        member = $"{member.Scheme}://{member.Path}",
-                        totalMembers = list.Count
-                    }));
-            },
+                        member = $"{m.Scheme}://{m.Path}",
+                        totalMembers = total,
+                    })),
             cancellationToken: ct);
     }
 
@@ -327,7 +319,7 @@ public class UnitActor : Actor, IUnitActor
     public async Task<Address[]> GetMembersAsync(CancellationToken ct = default)
     {
         var members = await GetMembersListAsync(ct);
-        return members.ToArray();
+        return [.. members];
     }
 
     /// <inheritdoc />
@@ -979,14 +971,15 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <summary>
-    /// Retrieves the current member list from state, returning an empty list if none exists.
+    /// Retrieves the current member graph from EF
+    /// (<c>unit_memberships</c> + <c>unit_subunit_memberships</c>). ADR-0040
+    /// / #2052: there is no actor-state mirror; every read goes through
+    /// <see cref="IUnitMemberGraphStore"/>.
     /// </summary>
-    private async Task<List<Address>> GetMembersListAsync(CancellationToken ct)
+    private async Task<IReadOnlyList<Address>> GetMembersListAsync(CancellationToken ct)
     {
-        var result = await StateManager
-            .TryGetStateAsync<List<Address>>(StateKeys.Members, ct);
-
-        return result.HasValue ? result.Value : [];
+        var unitGuid = ParseSelfActorGuid();
+        return await _memberGraphStore.GetMembersAsync(unitGuid, ct);
     }
 
     /// <summary>

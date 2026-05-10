@@ -9,6 +9,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -288,6 +289,10 @@ public class UnitCreationServiceBoundaryTests
 
         var boundaryStore = Substitute.For<IUnitBoundaryStore>();
 
+        var memberGraphStore = Substitute.For<IUnitMemberGraphStore>();
+        var tenantContext = Substitute.For<ITenantContext>();
+        tenantContext.CurrentTenantId.Returns(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+
         var service = new UnitCreationService(
             directory,
             actorProxyFactory,
@@ -298,6 +303,8 @@ public class UnitCreationServiceBoundaryTests
             Substitute.For<ISkillBundleValidator>(),
             Substitute.For<IUnitSkillBundleStore>(),
             Substitute.For<IUnitMembershipRepository>(),
+            memberGraphStore,
+            tenantContext,
             scopeFactory,
             NullLoggerFactory.Instance,
             boundaryStore);

@@ -4,22 +4,31 @@
 namespace Cvoya.Spring.Dapr.Data;
 
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
 /// Default <see cref="IUnitParentInvariantGuard"/> backed by
-/// <see cref="SpringDbContext"/> (for the IsTopLevel lookup) and
-/// <see cref="IUnitHierarchyResolver"/> (for the current parent-edge
-/// count). Consults the two together so "the last parent" and "is the
-/// child marked top-level" are evaluated in the same scope — a
-/// non-top-level unit with a single remaining parent edge is the
-/// 409-worthy case this guard rejects.
+/// <see cref="SpringDbContext"/> and
+/// <see cref="IUnitSubunitMembershipRepository"/>. Reads the child unit's
+/// existing edges directly from <c>unit_subunit_memberships</c> so the
+/// guard agrees with the EF projection that drives the rest of the
+/// hierarchy (#2052 / ADR-0040).
 /// </summary>
+/// <remarks>
+/// <para>
+/// Top-level signal: a unit is top-level iff <c>unit_subunit_memberships</c>
+/// has at least one row with <c>parent_id == tenantId</c> for that
+/// child. This is the explicit tenant-root edge introduced in #2052;
+/// previously top-level was inferred from "no parent edges at all".
+/// </para>
+/// </remarks>
 public class UnitParentInvariantGuard(
     SpringDbContext db,
-    IUnitHierarchyResolver hierarchyResolver) : IUnitParentInvariantGuard
+    IUnitSubunitMembershipRepository subunitRepository,
+    ITenantContext tenantContext) : IUnitParentInvariantGuard
 {
     /// <inheritdoc />
     public async Task EnsureParentRemainsAsync(
@@ -33,16 +42,11 @@ public class UnitParentInvariantGuard(
         // Only unit children carry the parent-required invariant — agents
         // are covered by AgentMembershipRequiredException / the
         // unit-membership repository's last-row guard.
-        if (!string.Equals(child.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(child.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        // The unit's identity is its Guid; existence in this tenant's scope
-        // is enough to indicate "registered". Top-level units (no parent
-        // edges) are now expressed implicitly: a unit with zero parent
-        // memberships is top-level. Skip the guard when the child carries
-        // no parents at all — the resolver's empty result IS the signal.
         var unitEntity = await db.UnitDefinitions
             .FirstOrDefaultAsync(u => u.Id == child.Id, cancellationToken);
         if (unitEntity is null)
@@ -53,22 +57,28 @@ public class UnitParentInvariantGuard(
             return;
         }
 
-        var currentParents = await hierarchyResolver.GetParentsAsync(
-            child, cancellationToken);
+        // Read every parent edge for the child. Includes the tenant-root
+        // edge (#2052), which we treat as the top-level marker — an
+        // edge whose parent is the tenant id signals "this unit is
+        // deliberately tenant-parented" and exempts the child from the
+        // last-parent invariant.
+        var allEdges = await subunitRepository.ListByChildAsync(child.Id, cancellationToken);
+        var tenantId = tenantContext.CurrentTenantId;
 
-        // No parent edges at all → top-level unit; removing an edge that does
-        // not exist is a no-op (idempotent RemoveMember contract). Treat this
-        // as the implicit top-level signal post-#1629.
-        if (currentParents.Count == 0)
+        var hasTenantRootEdge = allEdges.Any(e => e.ParentId == tenantId);
+        if (hasTenantRootEdge)
         {
             return;
         }
 
-        // The edge under review is from `parent` to `child`. After removal,
-        // the child keeps every other parent. If the only remaining parent
-        // is `parent` itself, we're about to strip the last one.
-        var remaining = currentParents.Count(p => p != parent);
-        if (remaining == 0)
+        // No tenant-root edge ⇒ child must have at least one unit
+        // parent. Compute the remaining unit parents after removing the
+        // edge under review.
+        var remainingUnitParents = allEdges
+            .Where(e => e.ParentId != tenantId)
+            .Count(e => e.ParentId != parent.Id);
+
+        if (remainingUnitParents == 0)
         {
             throw new UnitParentRequiredException(
                 child.Path,

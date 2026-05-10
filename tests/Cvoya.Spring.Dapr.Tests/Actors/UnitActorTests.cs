@@ -52,6 +52,7 @@ public class UnitActorTests
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly IUnitHumanPermissionStore _permissionStore = Substitute.For<IUnitHumanPermissionStore>();
     private readonly InMemoryUnitLiveConfigStore _liveConfigStore = new();
+    private readonly InMemoryUnitMemberGraphStore _memberGraphStore = new();
     private readonly UnitActor _actor;
 
     public UnitActorTests()
@@ -70,12 +71,9 @@ public class UnitActorTests
             _directoryService,
             _actorProxyFactory,
             new UnitStateCoordinator(_liveConfigStore, Substitute.For<ILogger<UnitStateCoordinator>>()),
+            _memberGraphStore,
             humanPermissionStore: _permissionStore);
         SetStateManager(_actor, _stateManager);
-
-        // Default: no members.
-        _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(false, default!));
 
         // Default: no persisted status -> Draft.
         _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
@@ -144,9 +142,11 @@ public class UnitActorTests
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        await _stateManager.DidNotReceive().TryGetStateAsync<List<Address>>(
-            StateKeys.Members,
-            Arg.Any<CancellationToken>());
+        // ADR-0040 / #2052: domain dispatch goes straight into the
+        // runtime path; the actor must not preload the EF member graph
+        // for a Domain message that does not need it.
+        await _runtimeInvocationPath.Received(1).InvokeAsync(
+            Arg.Any<Address>(), message, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -167,10 +167,13 @@ public class UnitActorTests
     [Fact]
     public async Task ReceiveAsync_StatusQuery_ReturnsUnitStatusWithMemberCount()
     {
-        var member1 = Address.For("agent", TestSlugIds.HexFor("agent-1"));
-        var member2 = Address.For("agent", TestSlugIds.HexFor("agent-2"));
-        _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [member1, member2]));
+        // ADR-0040 / #2052: members come from the EF graph store, not
+        // actor state. Seed two agent edges and verify the status-query
+        // payload reflects them.
+        _memberGraphStore.SeedAgentMembers(
+            TestUnitGuid,
+            TestSlugIds.For("agent-1"),
+            TestSlugIds.For("agent-2"));
 
         var message = CreateMessage(type: MessageType.StatusQuery);
 
@@ -228,61 +231,68 @@ public class UnitActorTests
         result.ShouldNotBeNull();
     }
 
-    // --- Member Management Tests ---
+    // --- Member Management Tests (ADR-0040 / #2052: EF-backed) ---
 
     [Fact]
-    public async Task AddMemberAsync_NewMember_AddsMemberToState()
+    public async Task AddMemberAsync_NewAgentMember_WritesEdgeToGraphStore()
     {
-        var member = Address.For("agent", TestSlugIds.HexFor("new-agent"));
+        var agentId = TestSlugIds.For("new-agent");
+        var member = new Address("agent", agentId);
 
         await _actor.AddMemberAsync(member, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.Members,
-            Arg.Is<List<Address>>(list => list.Count == 1 && list[0] == member),
-            Arg.Any<CancellationToken>());
+        var members = await _memberGraphStore.GetMembersAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        members.ShouldContain(member);
+
+        // The actor must NEVER touch the legacy Unit:Members state key.
+        await _stateManager.DidNotReceive().SetStateAsync(
+            "Unit:Members", Arg.Any<object>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task AddMemberAsync_DuplicateMember_DoesNotAddAgain()
+    public async Task AddMemberAsync_DuplicateMember_DoesNotEmitStateChanged()
     {
-        var member = Address.For("agent", TestSlugIds.HexFor("existing-agent"));
-        _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [member]));
+        var agentId = TestSlugIds.For("existing-agent");
+        var member = new Address("agent", agentId);
+        _memberGraphStore.SeedAgentMembers(TestUnitGuid, agentId);
+        _activityEventBus.ClearReceivedCalls();
 
         await _actor.AddMemberAsync(member, TestContext.Current.CancellationToken);
 
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.Members,
-            Arg.Any<List<Address>>(),
+        await _activityEventBus.DidNotReceive().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.StateChanged
+                && e.Summary.Contains("added")),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task RemoveMemberAsync_ExistingMember_RemovesMemberFromState()
+    public async Task RemoveMemberAsync_ExistingMember_RemovesEdgeFromGraphStore()
     {
-        var member = Address.For("agent", TestSlugIds.HexFor("agent-to-remove"));
-        _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [member]));
+        var agentId = TestSlugIds.For("agent-to-remove");
+        var member = new Address("agent", agentId);
+        _memberGraphStore.SeedAgentMembers(TestUnitGuid, agentId);
 
         await _actor.RemoveMemberAsync(member, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.Members,
-            Arg.Is<List<Address>>(list => list.Count == 0),
-            Arg.Any<CancellationToken>());
+        var members = await _memberGraphStore.GetMembersAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        members.ShouldNotContain(member);
     }
 
     [Fact]
-    public async Task RemoveMemberAsync_NonExistentMember_DoesNotModifyState()
+    public async Task RemoveMemberAsync_NonExistentMember_DoesNotEmitStateChanged()
     {
-        var member = Address.For("agent", TestSlugIds.HexFor("non-existent"));
+        var member = new Address("agent", TestSlugIds.For("non-existent"));
+        _activityEventBus.ClearReceivedCalls();
 
         await _actor.RemoveMemberAsync(member, TestContext.Current.CancellationToken);
 
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.Members,
-            Arg.Any<List<Address>>(),
+        await _activityEventBus.DidNotReceive().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.StateChanged
+                && e.Summary.Contains("removed")),
             Arg.Any<CancellationToken>());
     }
 
@@ -296,18 +306,48 @@ public class UnitActorTests
     }
 
     [Fact]
-    public async Task GetMembersAsync_WithMembers_ReturnsAllMembers()
+    public async Task GetMembersAsync_WithMembers_ReturnsAgentAndSubunitMembers()
     {
-        var member1 = Address.For("agent", TestSlugIds.HexFor("agent-1"));
-        var member2 = Address.For("unit", TestSlugIds.HexFor("sub-unit-1"));
-        _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [member1, member2]));
+        var agentId = TestSlugIds.For("agent-1");
+        var subunitId = TestSlugIds.For("sub-unit-1");
+        _memberGraphStore.SeedAgentMembers(TestUnitGuid, agentId);
+        _memberGraphStore.SeedSubunitChildren(TestUnitGuid, subunitId);
 
         var result = await _actor.GetMembersAsync(TestContext.Current.CancellationToken);
 
-        result.Count().ShouldBe(2);
-        result.ShouldContain(member1);
-        result.ShouldContain(member2);
+        result.Length.ShouldBe(2);
+        result.ShouldContain(new Address("agent", agentId));
+        result.ShouldContain(new Address("unit", subunitId));
+    }
+
+    [Fact]
+    public async Task GetMembersAsync_AfterFreshActivation_ReadsDirectlyFromEf()
+    {
+        // ADR-0040 / #2052: simulate an actor restart by seeding the
+        // graph store and constructing a fresh actor over the SAME
+        // store. The new actor must surface the seeded members on the
+        // very first call without any actor-state preload — proving EF
+        // is the single source of truth across activations.
+        var agentId = TestSlugIds.For("ef-only");
+        _memberGraphStore.SeedAgentMembers(TestUnitGuid, agentId);
+
+        var freshActor = new UnitActor(
+            ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
+            {
+                ActorId = new ActorId(TestUnitActorId),
+            }),
+            _loggerFactory,
+            _runtimeInvocationPath,
+            _activityEventBus,
+            _directoryService,
+            _actorProxyFactory,
+            new UnitStateCoordinator(_liveConfigStore, Substitute.For<ILogger<UnitStateCoordinator>>()),
+            _memberGraphStore,
+            humanPermissionStore: _permissionStore);
+        SetStateManager(freshActor, Substitute.For<IActorStateManager>());
+
+        var members = await freshActor.GetMembersAsync(TestContext.Current.CancellationToken);
+        members.ShouldContain(new Address("agent", agentId));
     }
 
     // --- Error Handling Tests ---
@@ -500,9 +540,9 @@ public class UnitActorTests
     [Fact]
     public async Task RemoveMemberAsync_ExistingMember_EmitsStateChangedEvent()
     {
-        var member = Address.For("agent", TestSlugIds.HexFor("agent-to-remove"));
-        _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [member]));
+        var agentId = TestSlugIds.For("agent-to-remove");
+        var member = new Address("agent", agentId);
+        _memberGraphStore.SeedAgentMembers(TestUnitGuid, agentId);
 
         await _actor.RemoveMemberAsync(member, TestContext.Current.CancellationToken);
 
@@ -881,111 +921,49 @@ public class UnitActorTests
         fetched.Color.ShouldBeNull();
     }
 
-    // --- Nested Unit Membership / Cycle Detection Tests (#98) ---
-
-    private static DirectoryEntry MakeUnitEntry(string unitPath, Guid actorId) =>
-        new(
-            new Address("unit", actorId),
-            actorId,
-            unitPath,
-            $"Unit {unitPath}",
-            null,
-            DateTimeOffset.UtcNow);
+    // --- Nested Unit Membership / Cycle Detection Tests (#98 + #2052) ---
 
     [Fact]
-    public async Task AddMemberAsync_UnitMember_NoCycle_PersistsMember()
+    public async Task AddMemberAsync_UnitMember_NoCycle_PersistsEdge()
     {
         // Sub-unit "team-b" has no unit-members of its own, so adding it is safe.
-        var teamBId = Guid.NewGuid();
+        var teamBId = TestSlugIds.For("team-b");
         var subAddress = new Address("unit", teamBId);
-        _directoryService.ResolveAsync(subAddress, Arg.Any<CancellationToken>())
-            .Returns(MakeUnitEntry("team-b", teamBId));
-
-        var subProxy = Substitute.For<IUnitActor>();
-        subProxy.GetMembersAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<Address>());
-        _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == teamBId.ToString("N")),
-                nameof(UnitActor))
-            .Returns(subProxy);
 
         await _actor.AddMemberAsync(subAddress, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.Members,
-            Arg.Is<List<Address>>(list => list.Count == 1 && list[0] == subAddress),
-            Arg.Any<CancellationToken>());
+        var children = await _memberGraphStore.ListDirectSubunitChildrenAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        children.ShouldContain(teamBId);
     }
 
     [Fact]
-    public async Task AddMemberAsync_SelfLoop_ByActorAddress_Throws()
+    public async Task AddMemberAsync_SelfLoop_ByGuidIdentity_Throws()
     {
-        // The actor's own Address is unit://{actorId} since Id.GetId() == TestUnitActorId.
+        // The actor's own Address is unit://{actorId}.
         var selfAddress = new Address("unit", TestUnitGuid);
 
         var ex = await Should.ThrowAsync<CyclicMembershipException>(() =>
             _actor.AddMemberAsync(selfAddress, TestContext.Current.CancellationToken));
 
         ex.CandidateMember.ShouldBe(selfAddress);
-        ex.ParentUnit.ShouldBe(new Address("unit", TestUnitGuid));
+        ex.ParentUnit.ShouldBe(selfAddress);
         ex.CyclePath.ShouldNotBeEmpty();
 
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.Members,
-            Arg.Any<List<Address>>(),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task AddMemberAsync_SelfLoop_ByPathAddress_Throws()
-    {
-        // Caller uses a different unit address but it resolves to this same
-        // actor id — the directory is the tiebreaker, so we must still reject.
-        var aliasId = Guid.NewGuid();
-        var pathAddress = new Address("unit", aliasId);
-        _directoryService.ResolveAsync(pathAddress, Arg.Any<CancellationToken>())
-            .Returns(MakeUnitEntry("my-team", TestUnitGuid));
-
-        var selfProxy = Substitute.For<IUnitActor>();
-        selfProxy.GetMembersAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<Address>());
-        _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Any<ActorId>(),
-                nameof(UnitActor))
-            .Returns(selfProxy);
-
-        await Should.ThrowAsync<CyclicMembershipException>(() =>
-            _actor.AddMemberAsync(pathAddress, TestContext.Current.CancellationToken));
-
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.Members,
-            Arg.Any<List<Address>>(),
-            Arg.Any<CancellationToken>());
+        var children = await _memberGraphStore.ListDirectSubunitChildrenAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        children.ShouldBeEmpty();
     }
 
     [Fact]
     public async Task AddMemberAsync_TwoCycle_Throws()
     {
-        // Scenario: B already contains A. Adding B to A must be rejected
+        // B already contains A. Adding B to A must be rejected
         // because the resulting graph would close A -> B -> A.
-        // This actor is "A" (actor TestUnitActorId).
-        var teamBId = Guid.NewGuid();
-        var teamAId = TestUnitGuid;
+        var teamBId = TestSlugIds.For("team-b");
+        _memberGraphStore.SeedSubunitChildren(teamBId, TestUnitGuid);
+
         var bAddress = new Address("unit", teamBId);
-        _directoryService.ResolveAsync(bAddress, Arg.Any<CancellationToken>())
-            .Returns(MakeUnitEntry("team-b", teamBId));
-
-        var bProxy = Substitute.For<IUnitActor>();
-        bProxy.GetMembersAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { new Address("unit", teamAId) });
-        _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == teamBId.ToString("N")),
-                nameof(UnitActor))
-            .Returns(bProxy);
-
-        var aAddress = new Address("unit", teamAId);
-        _directoryService.ResolveAsync(aAddress, Arg.Any<CancellationToken>())
-            .Returns(MakeUnitEntry("team-a", TestUnitGuid));
 
         var ex = await Should.ThrowAsync<CyclicMembershipException>(() =>
             _actor.AddMemberAsync(bAddress, TestContext.Current.CancellationToken));
@@ -994,189 +972,82 @@ public class UnitActorTests
         ex.Message.ShouldContain("cycle");
         ex.CyclePath.Count.ShouldBeGreaterThanOrEqualTo(2);
 
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.Members,
-            Arg.Any<List<Address>>(),
-            Arg.Any<CancellationToken>());
+        var children = await _memberGraphStore.ListDirectSubunitChildrenAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        children.ShouldBeEmpty();
     }
 
     [Fact]
     public async Task AddMemberAsync_DeepCycle_Throws()
     {
-        // Scenario: C -> B -> A. Adding C to A must be rejected.
-        var teamCId = Guid.NewGuid();
-        var teamBId = Guid.NewGuid();
-        var teamAId = TestUnitGuid;
+        // C -> B -> A. Adding C to A must be rejected.
+        var teamCId = TestSlugIds.For("team-c");
+        var teamBId = TestSlugIds.For("team-b");
+        _memberGraphStore.SeedSubunitChildren(teamCId, teamBId);
+        _memberGraphStore.SeedSubunitChildren(teamBId, TestUnitGuid);
+
         var cAddress = new Address("unit", teamCId);
-        _directoryService.ResolveAsync(cAddress, Arg.Any<CancellationToken>())
-            .Returns(MakeUnitEntry("team-c", teamCId));
-
-        var cProxy = Substitute.For<IUnitActor>();
-        cProxy.GetMembersAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { new Address("unit", teamBId) });
-        _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == teamCId.ToString("N")),
-                nameof(UnitActor))
-            .Returns(cProxy);
-
-        var bAddress = new Address("unit", teamBId);
-        _directoryService.ResolveAsync(bAddress, Arg.Any<CancellationToken>())
-            .Returns(MakeUnitEntry("team-b", teamBId));
-
-        var bProxy = Substitute.For<IUnitActor>();
-        bProxy.GetMembersAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { new Address("unit", teamAId) });
-        _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == teamBId.ToString("N")),
-                nameof(UnitActor))
-            .Returns(bProxy);
-
-        var aAddress = new Address("unit", teamAId);
-        _directoryService.ResolveAsync(aAddress, Arg.Any<CancellationToken>())
-            .Returns(MakeUnitEntry("team-a", TestUnitGuid));
 
         var ex = await Should.ThrowAsync<CyclicMembershipException>(() =>
             _actor.AddMemberAsync(cAddress, TestContext.Current.CancellationToken));
 
         ex.CyclePath.Count.ShouldBeGreaterThanOrEqualTo(3);
-
-        await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.Members,
-            Arg.Any<List<Address>>(),
-            Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task AddMemberAsync_AgentMember_SkipsCycleDetection()
     {
-        // Agent members are leaves and cannot introduce cycles. The directory
-        // must not be touched for agent-typed adds — assert that by leaving
-        // the substitute with no configured behaviour (returns null) and
-        // verifying the agent is persisted anyway.
-        var agentAddress = new Address("agent", Guid.NewGuid());
+        // Agent members are leaves and cannot introduce cycles. The
+        // graph store's sub-unit walk must not be queried for agent-
+        // typed adds.
+        var agentAddress = new Address("agent", TestSlugIds.For("agent-leaf"));
 
         await _actor.AddMemberAsync(agentAddress, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.Members,
-            Arg.Is<List<Address>>(list => list.Count == 1 && list[0] == agentAddress),
-            Arg.Any<CancellationToken>());
-
-        await _directoryService.DidNotReceive().ResolveAsync(
-            Arg.Any<Address>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task AddMemberAsync_SubUnitResolutionFails_TreatsAsDeadEnd()
-    {
-        // A sub-unit that has been deleted mid-walk must not block the add.
-        var subAddress = new Address("unit", Guid.NewGuid());
-        _directoryService.ResolveAsync(subAddress, Arg.Any<CancellationToken>())
-            .Returns((DirectoryEntry?)null);
-
-        await _actor.AddMemberAsync(subAddress, TestContext.Current.CancellationToken);
-
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.Members,
-            Arg.Is<List<Address>>(list => list.Count == 1 && list[0] == subAddress),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task AddMemberAsync_GetMembersThrows_TreatsAsDeadEnd()
-    {
-        var flakyId = Guid.NewGuid();
-        var subAddress = new Address("unit", flakyId);
-        _directoryService.ResolveAsync(subAddress, Arg.Any<CancellationToken>())
-            .Returns(MakeUnitEntry("flaky-team", flakyId));
-
-        var flakyProxy = Substitute.For<IUnitActor>();
-        flakyProxy.GetMembersAsync(Arg.Any<CancellationToken>())
-            .Returns<Address[]>(_ => throw new InvalidOperationException("actor unavailable"));
-        _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == flakyId.ToString("N")),
-                nameof(UnitActor))
-            .Returns(flakyProxy);
-
-        await _actor.AddMemberAsync(subAddress, TestContext.Current.CancellationToken);
-
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.Members,
-            Arg.Is<List<Address>>(list => list.Count == 1 && list[0] == subAddress),
-            Arg.Any<CancellationToken>());
+        var members = await _memberGraphStore.GetMembersAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        members.ShouldContain(agentAddress);
     }
 
     [Fact]
     public async Task AddMemberAsync_BenignSubGraphCycle_DoesNotFalsePositive()
     {
-        // The sub-graph below the candidate may itself be cyclic (e.g. a
-        // pre-existing bad state). We only care whether the new edge would
-        // close a cycle back to *this* unit. A side-cycle that does not
-        // involve this unit must not block the add.
-        var teamXId = Guid.NewGuid();
-        var teamYId = Guid.NewGuid();
+        // X -> Y -> X (benign 2-cycle in the subgraph, not involving the test unit).
+        var teamXId = TestSlugIds.For("team-x");
+        var teamYId = TestSlugIds.For("team-y");
+        _memberGraphStore.SeedSubunitChildren(teamXId, teamYId);
+        _memberGraphStore.SeedSubunitChildren(teamYId, teamXId);
+
         var subAddress = new Address("unit", teamXId);
-        _directoryService.ResolveAsync(subAddress, Arg.Any<CancellationToken>())
-            .Returns(MakeUnitEntry("team-x", teamXId));
-
-        var xProxy = Substitute.For<IUnitActor>();
-        xProxy.GetMembersAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { new Address("unit", teamYId) });
-        _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == teamXId.ToString("N")),
-                nameof(UnitActor))
-            .Returns(xProxy);
-
-        // team-y -> team-x (benign 2-cycle in the subgraph, not involving the test unit).
-        var yAddress = new Address("unit", teamYId);
-        _directoryService.ResolveAsync(yAddress, Arg.Any<CancellationToken>())
-            .Returns(MakeUnitEntry("team-y", teamYId));
-
-        var yProxy = Substitute.For<IUnitActor>();
-        yProxy.GetMembersAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { new Address("unit", teamXId) });
-        _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == teamYId.ToString("N")),
-                nameof(UnitActor))
-            .Returns(yProxy);
 
         await _actor.AddMemberAsync(subAddress, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.Members,
-            Arg.Is<List<Address>>(list => list.Count == 1 && list[0] == subAddress),
-            Arg.Any<CancellationToken>());
+        var children = await _memberGraphStore.ListDirectSubunitChildrenAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        children.ShouldContain(teamXId);
     }
 
     [Fact]
-    public async Task RemoveMemberAsync_UnitMember_RemovesWithoutCycleCheck()
+    public async Task RemoveMemberAsync_UnitMember_RemovesEdge()
     {
-        var subAddress = Address.For("unit", TestSlugIds.HexFor("team-b"));
-        _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [subAddress]));
+        var teamBId = TestSlugIds.For("team-b");
+        _memberGraphStore.SeedSubunitChildren(TestUnitGuid, teamBId);
+        var subAddress = new Address("unit", teamBId);
 
         await _actor.RemoveMemberAsync(subAddress, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
-            StateKeys.Members,
-            Arg.Is<List<Address>>(list => list.Count == 0),
-            Arg.Any<CancellationToken>());
-
-        // Remove does not walk the graph.
-        await _directoryService.DidNotReceive().ResolveAsync(
-            Arg.Any<Address>(), Arg.Any<CancellationToken>());
+        var children = await _memberGraphStore.ListDirectSubunitChildrenAsync(
+            TestUnitGuid, TestContext.Current.CancellationToken);
+        children.ShouldNotContain(teamBId);
     }
 
     [Fact]
     public async Task ReceiveAsync_DomainMessage_WithMixedAgentAndUnitMembers_InvokesRuntimePath()
     {
-        // Mixed members remain unit state. Domain dispatch now enters the
-        // unit runtime; child routing is exposed later through orchestration
-        // tools rather than an IUnitContext handed to UnitActor.
-        var agent = Address.For("agent", TestSlugIds.HexFor("agent-1"));
-        var unit = Address.For("unit", TestSlugIds.HexFor("team-b"));
-        _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [agent, unit]));
+        // Mixed members live in the EF graph store; domain dispatch
+        // routes through the runtime invocation path regardless.
+        _memberGraphStore.SeedAgentMembers(TestUnitGuid, TestSlugIds.For("agent-1"));
+        _memberGraphStore.SeedSubunitChildren(TestUnitGuid, TestSlugIds.For("team-b"));
 
         var message = CreateMessage();
 

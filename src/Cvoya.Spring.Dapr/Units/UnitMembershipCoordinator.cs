@@ -4,7 +4,6 @@
 namespace Cvoya.Spring.Dapr.Units;
 
 using Cvoya.Spring.Core;
-using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 
@@ -12,238 +11,198 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default singleton implementation of <see cref="IUnitMembershipCoordinator"/>.
-/// Owns the membership-management concern extracted from <c>UnitActor</c>:
-/// duplicate detection on add, BFS cycle-detection for <c>unit://</c>-typed
-/// members, state persistence via caller-supplied delegates, and mirroring
-/// every <c>unit://</c> mutation into the persistent subunit projection table
-/// via an optional <see cref="IUnitSubunitMembershipProjector"/>.
+/// Owns the membership-management concern for <c>UnitActor</c>: cycle
+/// detection for <c>unit://</c>-typed members, idempotent edge
+/// persistence through <see cref="IUnitMemberGraphStore"/>, and the
+/// activity-event emission contract.
 /// </summary>
 /// <remarks>
-/// The coordinator is stateless with respect to any individual unit — it
-/// operates entirely through the per-call delegates and the injected
-/// singletons. This makes it safe to register as a singleton and share
-/// across all <c>UnitActor</c> instances.
+/// <para>
+/// Per #2052 / ADR-0040 the member graph lives in EF
+/// (<c>unit_memberships</c> + <c>unit_subunit_memberships</c>). The
+/// coordinator never touches actor state — both the cycle-detection walk
+/// and the write go through <see cref="IUnitMemberGraphStore"/> against
+/// the same tenant-scoped tables.
+/// </para>
+/// <para>
+/// The coordinator is stateless with respect to any individual unit, so
+/// it is safe to register as a singleton and share across all
+/// <c>UnitActor</c> instances.
+/// </para>
 /// </remarks>
 public class UnitMembershipCoordinator(
-    IUnitSubunitMembershipProjector? subunitProjector,
+    IUnitMemberGraphStore graphStore,
     ILogger<UnitMembershipCoordinator> logger) : IUnitMembershipCoordinator
 {
     /// <summary>
-    /// Maximum number of levels walked during cycle detection before the walk
-    /// is treated as itself a cycle signal. Keeps <see cref="AddMemberAsync"/>
-    /// bounded even in the face of pathological graphs.
+    /// Maximum number of levels walked during cycle detection before the
+    /// walk is treated as itself a cycle signal. Keeps
+    /// <see cref="AddMemberAsync"/> bounded even in the face of
+    /// pathological graphs.
     /// </summary>
     internal const int MaxCycleDetectionDepth = 64;
 
     /// <inheritdoc />
     public async Task AddMemberAsync(
-        string unitActorId,
+        Guid unitId,
         Address unitAddress,
         Address member,
-        Func<CancellationToken, Task<List<Address>>> getMembers,
-        Func<List<Address>, CancellationToken, Task> persistMembers,
-        Func<Address, CancellationToken, Task<DirectoryEntry?>> resolveAddress,
-        Func<string, CancellationToken, Task<Address[]>> getSubUnitMembers,
+        Func<Address, int, CancellationToken, Task> emitStateChanged,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(unitAddress);
         ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(emitStateChanged);
 
-        var members = await getMembers(cancellationToken);
+        var isUnitMember = string.Equals(member.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase);
+        var isAgentMember = string.Equals(member.Scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase);
 
-        if (members.Exists(m => m == member))
+        if (!isUnitMember && !isAgentMember)
+        {
+            throw new ArgumentException(
+                $"Unsupported member scheme '{member.Scheme}' (only 'agent' and 'unit' are valid).",
+                nameof(member));
+        }
+
+        // Cycle detection only applies to unit-typed members — agents are
+        // leaves and cannot introduce a containment cycle.
+        if (isUnitMember)
+        {
+            await EnsureNoCycleAsync(unitId, unitAddress, member, cancellationToken);
+        }
+
+        var inserted = isAgentMember
+            ? await graphStore.AddAgentMemberAsync(unitId, member.Id, cancellationToken)
+            : await graphStore.AddSubunitMemberAsync(unitId, member.Id, cancellationToken);
+
+        if (!inserted)
         {
             logger.LogWarning(
-                "Unit {ActorId} already contains member {Member}", unitActorId, member);
+                "Unit {UnitId} already contains member {Member}; idempotent add ignored.",
+                unitId, member);
             return;
         }
 
-        // Cycle detection only applies to unit-typed members — agents can
-        // belong to at most one unit (1:N parent) and are leaves, so they
-        // cannot introduce a cycle in the containment graph.
-        if (string.Equals(member.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
-        {
-            await EnsureNoCycleAsync(
-                unitActorId, unitAddress, member, resolveAddress, getSubUnitMembers, cancellationToken);
-        }
-
-        members.Add(member);
-        await persistMembers(members, cancellationToken);
+        var totalMembers = (await graphStore.GetMembersAsync(unitId, cancellationToken)).Count;
 
         logger.LogInformation(
-            "Unit {ActorId} added member {Member}. Total members: {Count}",
-            unitActorId, member, members.Count);
+            "Unit {UnitId} added member {Member}. Total members: {Count}",
+            unitId, member, totalMembers);
 
-        // #1154: persist the parent → child edge so the tenant-tree
-        // endpoint can resolve nested unit hierarchies without a
-        // per-unit actor fanout. The projector swallows its own
-        // failures — the actor-state write above is authoritative and
-        // the startup reconciliation service replays drifted edges on
-        // the next host boot.
-        if (subunitProjector is not null
-            && string.Equals(member.Scheme, "unit", StringComparison.OrdinalIgnoreCase)
-            && Guid.TryParse(unitActorId, out var unitActorUuid))
-        {
-            await subunitProjector.ProjectAddAsync(unitActorUuid, member.Id, cancellationToken);
-        }
+        await emitStateChanged(member, totalMembers, cancellationToken);
     }
 
     /// <inheritdoc />
     public async Task RemoveMemberAsync(
-        string unitActorId,
+        Guid unitId,
         Address member,
-        Func<CancellationToken, Task<List<Address>>> getMembers,
-        Func<List<Address>, CancellationToken, Task> persistMembers,
+        Func<Address, int, CancellationToken, Task> emitStateChanged,
         CancellationToken cancellationToken = default)
     {
-        var members = await getMembers(cancellationToken);
-        var removed = members.RemoveAll(m => m == member);
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(emitStateChanged);
 
-        if (removed == 0)
+        var removed = string.Equals(member.Scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase)
+            ? await graphStore.RemoveAgentMemberAsync(unitId, member.Id, cancellationToken)
+            : string.Equals(member.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
+                ? await graphStore.RemoveSubunitMemberAsync(unitId, member.Id, cancellationToken)
+                : false;
+
+        if (!removed)
         {
             logger.LogWarning(
-                "Unit {ActorId} does not contain member {Member}", unitActorId, member);
+                "Unit {UnitId} does not contain member {Member}; idempotent remove ignored.",
+                unitId, member);
             return;
         }
 
-        await persistMembers(members, cancellationToken);
+        var totalMembers = (await graphStore.GetMembersAsync(unitId, cancellationToken)).Count;
 
         logger.LogInformation(
-            "Unit {ActorId} removed member {Member}. Total members: {Count}",
-            unitActorId, member, members.Count);
+            "Unit {UnitId} removed member {Member}. Total members: {Count}",
+            unitId, member, totalMembers);
 
-        // #1154: keep the persistent projection in sync with the
-        // actor-state list. Failures are swallowed by the projector;
-        // the next host start reconciles any drift.
-        if (subunitProjector is not null
-            && string.Equals(member.Scheme, "unit", StringComparison.OrdinalIgnoreCase)
-            && Guid.TryParse(unitActorId, out var unitActorUuid))
-        {
-            await subunitProjector.ProjectRemoveAsync(unitActorUuid, member.Id, cancellationToken);
-        }
+        await emitStateChanged(member, totalMembers, cancellationToken);
     }
 
     /// <summary>
-    /// Verifies that adding <paramref name="candidate"/> as a <c>unit://</c>
-    /// member of the unit identified by <paramref name="unitActorId"/> would
-    /// not introduce a cycle. Throws <see cref="CyclicMembershipException"/>
-    /// on self-loop, back-edge, or when the walk exceeds
-    /// <see cref="MaxCycleDetectionDepth"/>.
-    /// <para>
-    /// The walk resolves each candidate path to its backing actor id via the
-    /// <paramref name="resolveAddress"/> delegate, then reads its current
-    /// members via <paramref name="getSubUnitMembers"/>. Missing or non-unit
-    /// members are treated as dead ends — they cannot close a cycle.
-    /// </para>
+    /// Verifies that adding <paramref name="candidate"/> as a
+    /// <c>unit://</c> member of the unit identified by
+    /// <paramref name="unitId"/> would not introduce a cycle. Throws
+    /// <see cref="CyclicMembershipException"/> on self-loop, back-edge, or
+    /// when the walk exceeds <see cref="MaxCycleDetectionDepth"/>. Reads
+    /// the sub-unit graph through <see cref="IUnitMemberGraphStore"/> so
+    /// the walk runs against EF, not actor state.
     /// </summary>
     private async Task EnsureNoCycleAsync(
-        string unitActorId,
+        Guid unitId,
         Address unitAddress,
         Address candidate,
-        Func<Address, CancellationToken, Task<DirectoryEntry?>> resolveAddress,
-        Func<string, CancellationToken, Task<Address[]>> getSubUnitMembers,
         CancellationToken cancellationToken)
     {
-        // Fast self-loop check: candidate resolves (by address equality) to
-        // this same actor. Works even if the candidate was addressed via
-        // path-form rather than actor-id form — the path-form case is caught
-        // one level below after directory resolution.
-        if (candidate == unitAddress)
+        // Fast self-loop check by Guid identity. Address equality is the
+        // canonical signal post-#1629 — both sides carry the same Guid.
+        if (candidate.Id == unitId)
         {
             throw BuildCycleException(unitAddress, candidate, [candidate],
                 $"Unit '{unitAddress}' cannot be added as a member of itself.");
         }
 
-        // Walk the candidate's sub-unit graph breadth-first. Whenever we
-        // land on an actor whose id matches this unit's actor id, a cycle
-        // exists and we must reject the add.
-        var visited = new HashSet<string>(StringComparer.Ordinal);
-        var queue = new Queue<(Address Unit, IReadOnlyList<Address> PathFromCandidate)>();
-        queue.Enqueue((candidate, [candidate]));
+        // BFS the candidate's sub-unit graph. Whenever we land on the
+        // parent unit's id, a cycle exists and we must reject the add.
+        var visited = new HashSet<Guid> { candidate.Id };
+        var queue = new Queue<(Guid Current, IReadOnlyList<Address> Path)>();
+        queue.Enqueue((candidate.Id, new[] { candidate }));
 
         while (queue.Count > 0)
         {
-            var (current, pathFromCandidate) = queue.Dequeue();
+            var (current, path) = queue.Dequeue();
 
-            if (pathFromCandidate.Count > MaxCycleDetectionDepth)
+            if (path.Count > MaxCycleDetectionDepth)
             {
                 logger.LogWarning(
-                    "Unit {ActorId} rejected adding member {Candidate}: cycle-detection walk exceeded max depth {MaxDepth}. Path: {Path}",
-                    unitActorId, candidate, MaxCycleDetectionDepth, DescribePath(pathFromCandidate));
+                    "Unit {UnitId} rejected adding member {Candidate}: cycle-detection walk exceeded max depth {MaxDepth}. Path: {Path}",
+                    unitId, candidate, MaxCycleDetectionDepth, DescribePath(path));
 
-                throw BuildCycleException(unitAddress, candidate, pathFromCandidate,
+                throw BuildCycleException(unitAddress, candidate, path,
                     $"Adding '{candidate}' to unit '{unitAddress}' would exceed the maximum unit-nesting depth ({MaxCycleDetectionDepth}). Treating as a cycle.");
             }
 
-            DirectoryEntry? entry;
+            IReadOnlyList<Guid> children;
             try
             {
-                entry = await resolveAddress(current, cancellationToken);
+                children = await graphStore.ListDirectSubunitChildrenAsync(current, cancellationToken);
             }
-            catch (Exception ex) when (ex is not SpringException)
+            catch (Exception ex) when (ex is not SpringException && ex is not OperationCanceledException)
             {
-                // Directory read failures during traversal should not poison
-                // the add — they look like "unreachable" and surface as a
-                // log-worthy warning, not a cycle.
                 logger.LogWarning(ex,
-                    "Unit {ActorId} cycle-check: failed to resolve {Unit}; treating as dead end.",
-                    unitActorId, current);
+                    "Unit {UnitId} cycle-check: failed to read sub-unit children of {Current}; treating as dead end.",
+                    unitId, current);
                 continue;
             }
 
-            if (entry is null)
+            foreach (var childId in children)
             {
-                // Unknown unit — not a cycle via this path.
-                continue;
-            }
+                if (childId == unitId)
+                {
+                    var childAddress = new Address(Address.UnitScheme, childId);
+                    var cyclePath = path.Append(childAddress).ToList();
 
-            var entryActorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+                    logger.LogWarning(
+                        "Unit {UnitId} rejected adding member {Candidate}: cycle detected. Path: {Path}",
+                        unitId, candidate, DescribePath(cyclePath));
 
-            // Back-edge check: did we just land on this unit?
-            if (string.Equals(entryActorId, unitActorId, StringComparison.Ordinal))
-            {
-                var cyclePath = pathFromCandidate.Append(unitAddress).ToList();
+                    throw BuildCycleException(unitAddress, candidate, cyclePath,
+                        $"Adding '{candidate}' to unit '{unitAddress}' would create a membership cycle: {DescribePath(cyclePath)}.");
+                }
 
-                logger.LogWarning(
-                    "Unit {ActorId} rejected adding member {Candidate}: cycle detected. Path: {Path}",
-                    unitActorId, candidate, DescribePath(cyclePath));
-
-                throw BuildCycleException(unitAddress, candidate, cyclePath,
-                    $"Adding '{candidate}' to unit '{unitAddress}' would create a membership cycle: {DescribePath(cyclePath)}.");
-            }
-
-            // Mark this unit as visited by actor id so different address
-            // spellings (e.g. path-form and uuid-form of the same unit) are
-            // coalesced and we cannot get stuck on a benign sub-graph cycle
-            // that does not involve this unit.
-            if (!visited.Add(entryActorId))
-            {
-                continue;
-            }
-
-            Address[] subMembers;
-            try
-            {
-                subMembers = await getSubUnitMembers(entryActorId, cancellationToken);
-            }
-            catch (Exception ex) when (ex is not SpringException)
-            {
-                // If the sub-unit is deleted or otherwise unreachable mid-walk,
-                // treat as "not a cycle via that path" and continue.
-                logger.LogWarning(ex,
-                    "Unit {ActorId} cycle-check: failed to read members of {Unit} (actorId={SubActorId}); treating as dead end.",
-                    unitActorId, current, entryActorId);
-                continue;
-            }
-
-            foreach (var sub in subMembers)
-            {
-                if (!string.Equals(sub.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
+                if (!visited.Add(childId))
                 {
                     continue;
                 }
 
-                var nextPath = pathFromCandidate.Append(sub).ToList();
-                queue.Enqueue((sub, nextPath));
+                var childAddr = new Address(Address.UnitScheme, childId);
+                queue.Enqueue((childId, path.Append(childAddr).ToList()));
             }
         }
     }

@@ -128,43 +128,6 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers <see cref="UnitSubunitMembershipReconciliationService"/>
-    /// as a hosted service so the host that owns the actor runtime
-    /// reconciles the persistent <c>unit_subunit_memberships</c>
-    /// projection with each <c>UnitActor</c>'s in-state member list on
-    /// startup (#1154).
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Single-owner invariant: call this from the host that registers
-    /// the unit actor (the Worker in OSS topology). Running it in
-    /// multiple replicas is safe — every write is idempotent — but
-    /// wastes per-actor round-trips. Hosts that do not own the actor
-    /// runtime (the API host, build-time tooling) MUST NOT register
-    /// this service: without the local actor activations the proxy
-    /// calls have nothing to call into and reconciliation logs noise
-    /// for every unit.
-    /// </para>
-    /// <para>
-    /// Mirrors the lifecycle of
-    /// <see cref="AddCvoyaSpringDatabaseMigrator"/> /
-    /// <see cref="AddCvoyaSpringDefaultTenantBootstrap"/>: the
-    /// reconciliation runs once at <c>StartAsync</c> and no-ops on
-    /// stop. Failures are logged and swallowed — a stale projection
-    /// degrades the tenant tree to "missing some sub-unit edges" but
-    /// never blocks the host from coming up.
-    /// </para>
-    /// </remarks>
-    /// <param name="services">The service collection to configure.</param>
-    /// <returns>The same service collection for chaining.</returns>
-    public static IServiceCollection AddCvoyaSpringUnitSubunitMembershipReconciliation(
-        this IServiceCollection services)
-    {
-        services.AddHostedService<UnitSubunitMembershipReconciliationService>();
-        return services;
-    }
-
-    /// <summary>
     /// Registers <see cref="OllamaProvider"/> as the primary <c>IAiProvider</c> when
     /// <c>LanguageModel:Ollama:Enabled=true</c> (or when the caller forces registration
     /// via <paramref name="force"/>).

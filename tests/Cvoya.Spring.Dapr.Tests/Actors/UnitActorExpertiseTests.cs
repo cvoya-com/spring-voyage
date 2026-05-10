@@ -221,6 +221,7 @@ public class UnitActorExpertiseTests
             Substitute.For<IDirectoryService>(),
             Substitute.For<IActorProxyFactory>(),
             new UnitStateCoordinator(store, Substitute.For<ILogger<UnitStateCoordinator>>()),
+            new InMemoryUnitMemberGraphStore(),
             seedProvider);
 
         return (actor, store);

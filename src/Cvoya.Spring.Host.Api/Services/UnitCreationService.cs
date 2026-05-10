@@ -17,6 +17,7 @@ using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -60,6 +61,8 @@ public class UnitCreationService : IUnitCreationService
     private readonly ISkillBundleValidator _bundleValidator;
     private readonly IUnitSkillBundleStore _bundleStore;
     private readonly IUnitMembershipRepository _membershipRepository;
+    private readonly IUnitMemberGraphStore _memberGraphStore;
+    private readonly ITenantContext _tenantContext;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IUnitBoundaryStore? _boundaryStore;
     private readonly IUnitExecutionStore? _executionStore;
@@ -84,6 +87,8 @@ public class UnitCreationService : IUnitCreationService
         ISkillBundleValidator bundleValidator,
         IUnitSkillBundleStore bundleStore,
         IUnitMembershipRepository membershipRepository,
+        IUnitMemberGraphStore memberGraphStore,
+        ITenantContext tenantContext,
         IServiceScopeFactory scopeFactory,
         ILoggerFactory loggerFactory,
         IUnitBoundaryStore? boundaryStore = null,
@@ -91,6 +96,9 @@ public class UnitCreationService : IUnitCreationService
         IUnitMembershipTenantGuard? tenantGuard = null,
         ILlmCredentialResolver? credentialResolver = null)
     {
+        ArgumentNullException.ThrowIfNull(memberGraphStore);
+        ArgumentNullException.ThrowIfNull(tenantContext);
+
         _directoryService = directoryService;
         _actorProxyFactory = actorProxyFactory;
         _httpContextAccessor = httpContextAccessor;
@@ -100,6 +108,8 @@ public class UnitCreationService : IUnitCreationService
         _bundleValidator = bundleValidator;
         _bundleStore = bundleStore;
         _membershipRepository = membershipRepository;
+        _memberGraphStore = memberGraphStore;
+        _tenantContext = tenantContext;
         _scopeFactory = scopeFactory;
         _boundaryStore = boundaryStore;
         _executionStore = executionStore;
@@ -574,18 +584,26 @@ public class UnitCreationService : IUnitCreationService
 
         await _directoryService.RegisterAsync(entry, cancellationToken);
 
-        // Review feedback on #744: persist the IsTopLevel flag on the
-        // UnitDefinition row so the parent-required invariant can
-        // distinguish "deliberately tenant-parented" from "orphaned in
-        // transit." The row was just upserted by RegisterAsync — load it
-        // back and flip the flag in a separate save so we don't have to
-        // reach into DirectoryService for this one field. A failure here
-        // rolls the whole creation back (directory entry + any bundle
-        // rows) via the catch below so the unit never exists in the
-        // half-persisted state where its parent contract is ambiguous.
+        // #2052 / ADR-0040: top-level units are expressed as an explicit
+        // unit_subunit_memberships row whose parent is the tenant id.
+        // The edge is the only signal — there is no separate IsTopLevel
+        // flag, no zero-edge heuristic. Failure here is non-fatal: the
+        // unit is reachable via its directory entry, and the operator
+        // can re-parent later by calling AddMemberAsync on a parent
+        // unit (which retires the tenant-root edge automatically).
         if (parentInfo.IsTopLevel)
         {
-            await SetTopLevelFlagAsync(name, cancellationToken);
+            try
+            {
+                await _memberGraphStore.EnsureTopLevelEdgeAsync(
+                    actorGuid, _tenantContext.CurrentTenantId, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex,
+                    "Unit '{UnitName}': failed to write tenant-root edge for top-level unit; the unit will not be visible as a top-level node until the edge is repaired.",
+                    name);
+            }
         }
 
         try
@@ -1202,50 +1220,6 @@ public class UnitCreationService : IUnitCreationService
         return new UnitParentInfo(topLevel, normalisedParents);
     }
 
-    private async Task SetTopLevelFlagAsync(string unitId, CancellationToken cancellationToken)
-    {
-        // The IsTopLevel column was removed in #1629; "top-level" is now
-        // expressed implicitly: a unit with zero unit_subunit_memberships
-        // rows on the child side IS top-level. Nothing to write here, but
-        // keep the method as a no-op so callers don't have to branch.
-        await Task.CompletedTask;
-        try
-        {
-            // Defensive: still verify the unit exists so log diagnostics
-            // emit a clear message when callers pass an unknown id.
-            await using var scope = _scopeFactory.CreateAsyncScope();
-            var db = scope.ServiceProvider.GetService<SpringDbContext>();
-            if (db is null)
-            {
-                return;
-            }
-
-            var entity = await db.UnitDefinitions
-                .FirstOrDefaultAsync(u => u.DisplayName == unitId && u.DeletedAt == null, cancellationToken);
-
-            if (entity is null)
-            {
-                _logger.LogWarning(
-                    "Unit '{UnitId}': could not locate UnitDefinition row while setting top-level marker; ignored.",
-                    unitId);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // Matches the PersistUnitDefinitionExpertiseAsync / boundary
-            // patterns above: the unit itself is already live, so we
-            // degrade to a warning rather than rolling back a successful
-            // creation. Operators can re-apply the flag via a follow-up
-            // path if the DB write hiccups — out of scope for this PR.
-            _logger.LogWarning(ex,
-                "Unit '{UnitId}': failed to persist IsTopLevel flag on UnitDefinition; flag will remain at its default (false).",
-                unitId);
-        }
-    }
 }
 
 /// <summary>

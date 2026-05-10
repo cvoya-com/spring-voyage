@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -237,6 +238,10 @@ public class UnitCreationServiceExecutionPersistenceTests
         // accept a name argument and silently mask the regression.
         var executionStore = new DbUnitExecutionStore(scopeFactory, NullLoggerFactory.Instance);
 
+        var memberGraphStore = Substitute.For<IUnitMemberGraphStore>();
+        var tenantContext = Substitute.For<ITenantContext>();
+        tenantContext.CurrentTenantId.Returns(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+
         var service = new UnitCreationService(
             directory,
             actorProxyFactory,
@@ -247,6 +252,8 @@ public class UnitCreationServiceExecutionPersistenceTests
             Substitute.For<ISkillBundleValidator>(),
             Substitute.For<IUnitSkillBundleStore>(),
             Substitute.For<IUnitMembershipRepository>(),
+            memberGraphStore,
+            tenantContext,
             scopeFactory,
             NullLoggerFactory.Instance,
             executionStore: executionStore);

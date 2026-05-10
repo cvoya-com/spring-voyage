@@ -5,10 +5,13 @@ namespace Cvoya.Spring.Core.Units;
 
 /// <summary>
 /// Persistence abstraction for the parent → child unit edge introduced
-/// in #1154. Mirrors the <c>unit://</c>-scheme entries kept in
-/// <c>UnitActor</c> state so cross-cutting readers (the tenant-tree
-/// endpoint, analytics, the cloud overlay) can resolve the unit
-/// containment graph without a per-unit actor round-trip.
+/// in #1154 and made authoritative by #2052 / ADR-0040. The
+/// <c>unit_subunit_memberships</c> table is the single source of truth
+/// for the unit containment graph: <c>UnitActor</c> reads / writes via
+/// <see cref="IUnitMemberGraphStore"/>, the tenant-tree endpoint reads
+/// here directly, and cross-cutting readers (analytics, the cloud
+/// overlay) resolve the containment graph without a per-unit actor
+/// round-trip.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,11 +23,11 @@ namespace Cvoya.Spring.Core.Units;
 /// <see cref="IUnitMembershipRepository"/>.
 /// </para>
 /// <para>
-/// The actor-state list remains authoritative for runtime dispatch and
-/// cycle detection. This repository is a write-through projection: every
-/// mutation should also flow through the actor, and a startup
-/// reconciliation hosted service backfills rows for actors that already
-/// carry sub-unit edges in state.
+/// Top-level units carry an explicit tenant-root edge (#2052) — a row
+/// whose <c>ParentId</c> equals the tenant id. Readers that walk the
+/// hierarchy as "unit → unit links" must filter the tenant-root edges
+/// out (they are terminal); readers that want to identify which units
+/// render under the tenant node use them as the positive signal.
 /// </para>
 /// </remarks>
 public interface IUnitSubunitMembershipRepository

@@ -148,14 +148,12 @@ public static class WorkerComposition
         // Tenancy:BootstrapDefaultTenant (default true).
         services.AddCvoyaSpringDefaultTenantBootstrap();
 
-        // Worker owns the sub-unit membership reconciliation (#1154):
-        // it walks the directory and asks each unit actor for its
-        // current member list, then upserts every unit-scheme edge
-        // into the persistent projection. Same single-owner rationale
-        // as the migrator and bootstrap — the Worker is the host that
-        // owns the actor runtime, so the actor proxies actually
-        // resolve to local activations and the round-trip is cheap.
-        services.AddCvoyaSpringUnitSubunitMembershipReconciliation();
+        // ADR-0040 / #2052: the unit_subunit_memberships reconciliation
+        // hosted service was removed once EF became the single source
+        // of truth for the unit member graph. Actor-state was the
+        // previous authoritative store and the reconciler bridged it
+        // to the EF projection; with the bridge gone, no startup
+        // reconciliation is needed.
 
         // Register Dapr actors
         services.AddActors(options =>
