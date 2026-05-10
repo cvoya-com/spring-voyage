@@ -90,7 +90,6 @@ public class StreamEventSubscriber(
         return eventType switch
         {
             nameof(StreamEvent.TokenDelta) => ActivityEventType.TokenDelta,
-            nameof(StreamEvent.Completed) => ActivityEventType.ThreadCompleted,
             nameof(StreamEvent.ToolCall) => ActivityEventType.ToolCall,
             nameof(StreamEvent.ToolResult) => ActivityEventType.ToolResult,
             _ => ActivityEventType.StateChanged

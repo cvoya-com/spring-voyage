@@ -60,28 +60,6 @@ public class StreamEventSubscriberTests
     }
 
     [Fact]
-    public async Task HandleAsync_Completed_PublishesThreadCompletedEvent()
-    {
-        var completed = new StreamEvent.Completed(
-            Guid.NewGuid(), DateTimeOffset.UtcNow, 100, 50, "end_turn");
-        var envelope = new StreamEventEnvelope
-        {
-            EventType = nameof(StreamEvent.Completed),
-            AgentId = AgentHex,
-            Timestamp = DateTimeOffset.UtcNow,
-            Payload = JsonSerializer.SerializeToElement(completed)
-        };
-
-        await _subscriber.HandleAsync(envelope, TestContext.Current.CancellationToken);
-
-        await _activityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.ThreadCompleted &&
-                e.Summary == "Execution completed"),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
     public async Task HandleAsync_PreservesAgentAddress()
     {
         var tokenDelta = new StreamEvent.TokenDelta(Guid.NewGuid(), DateTimeOffset.UtcNow, "test");

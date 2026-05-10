@@ -20,7 +20,6 @@ export function humanEventType(eventType: string): string {
     MessageReceived: "Message received",
     MessageSent: "Message sent",
     ThreadStarted: "Thread started",
-    ThreadCompleted: "Thread completed",
     DecisionMade: "Decision made",
     ErrorOccurred: "Error",
     StateChanged: "State changed",

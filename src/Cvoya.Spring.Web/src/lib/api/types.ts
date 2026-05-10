@@ -645,7 +645,6 @@ export type ActivityEventType =
   | "MessageReceived"
   | "MessageSent"
   | "ThreadStarted"
-  | "ThreadCompleted"
   | "DecisionMade"
   | "ErrorOccurred"
   | "StateChanged"

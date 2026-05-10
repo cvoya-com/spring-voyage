@@ -83,7 +83,6 @@ const eventTypes: ActivityEventType[] = [
   "MessageReceived",
   "MessageSent",
   "ThreadStarted",
-  "ThreadCompleted",
   "DecisionMade",
   "ErrorOccurred",
   "StateChanged",

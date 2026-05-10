@@ -53,7 +53,6 @@ describe("humanEventType (#989)", () => {
     expect(humanEventType("MessageReceived")).toBe("Message received");
     expect(humanEventType("MessageSent")).toBe("Message sent");
     expect(humanEventType("ThreadStarted")).toBe("Thread started");
-    expect(humanEventType("ThreadCompleted")).toBe("Thread completed");
     expect(humanEventType("DecisionMade")).toBe("Decision made");
     expect(humanEventType("ErrorOccurred")).toBe("Error");
     expect(humanEventType("StateChanged")).toBe("State changed");
