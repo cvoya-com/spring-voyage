@@ -5,11 +5,11 @@ namespace Cvoya.Spring.Dapr.Auth;
 
 /// <summary>
 /// Controls whether a unit inherits human permission grants from its ancestor
-/// units. Persisted on the unit actor under
-/// <see cref="Cvoya.Spring.Dapr.Actors.StateKeys.UnitPermissionInheritance"/>;
-/// consulted by <see cref="IPermissionService.ResolveEffectivePermissionAsync"/>
-/// (#414) when walking up the parent chain to compute an effective
-/// permission level.
+/// units. Per ADR-0040 / #2049 the flag lives on the
+/// <c>unit_live_config.permission_inheritance</c> EF column;
+/// <see cref="IPermissionService.ResolveEffectivePermissionAsync"/> (#414)
+/// consults it via <c>IUnitLiveConfigStore</c> when walking up the parent
+/// chain to compute an effective permission level.
 /// </summary>
 /// <remarks>
 /// <para>

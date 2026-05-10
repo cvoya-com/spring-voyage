@@ -172,6 +172,21 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<AgentExpertiseEntity> AgentExpertise => Set<AgentExpertiseEntity>();
 
+    /// <summary>
+    /// Gets the set of unit live-config rows (#2049 / ADR-0040). One row
+    /// per unit; replaces the actor-state <c>Unit:Model</c>,
+    /// <c>Unit:Color</c>, <c>Unit:Provider</c>, <c>Unit:Hosting</c>,
+    /// <c>Unit:Boundary</c>, and <c>Unit:PermissionInheritance</c> keys.
+    /// </summary>
+    public DbSet<UnitLiveConfigEntity> UnitLiveConfigs => Set<UnitLiveConfigEntity>();
+
+    /// <summary>
+    /// Gets the set of unit own-expertise rows (#2049 / ADR-0040). One
+    /// row per (unit, expertise-name); replaces the actor-state
+    /// <c>Unit:OwnExpertise</c> list.
+    /// </summary>
+    public DbSet<UnitExpertiseEntity> UnitExpertise => Set<UnitExpertiseEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -209,6 +224,8 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new AgentLiveConfigEntityConfiguration());
         modelBuilder.ApplyConfiguration(new AgentSkillGrantEntityConfiguration());
         modelBuilder.ApplyConfiguration(new AgentExpertiseEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new UnitLiveConfigEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new UnitExpertiseEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -286,6 +303,14 @@ public class SpringDbContext : DbContext
 
         // Agent expertise: tenant-scoped, no soft-delete (#2048 / ADR-0040).
         modelBuilder.Entity<AgentExpertiseEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Unit live config: tenant-scoped, no soft-delete (#2049 / ADR-0040).
+        modelBuilder.Entity<UnitLiveConfigEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Unit own expertise: tenant-scoped, no soft-delete (#2049 / ADR-0040).
+        modelBuilder.Entity<UnitExpertiseEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 

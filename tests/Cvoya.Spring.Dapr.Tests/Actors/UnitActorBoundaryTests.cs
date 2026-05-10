@@ -7,6 +7,8 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
+using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -24,11 +26,16 @@ using Xunit;
 /// Tests for <see cref="UnitActor.GetBoundaryAsync"/> and
 /// <see cref="UnitActor.SetBoundaryAsync"/> (#413). Covers empty-state
 /// defaults, upsert-then-read, and the "empty boundary clears state"
-/// semantics.
+/// semantics. Per ADR-0040 / #2049 the boundary lives on
+/// <c>unit_live_config.boundary</c>; the tests drive the EF surface
+/// through <see cref="InMemoryUnitLiveConfigStore"/>.
 /// </summary>
 public class UnitActorBoundaryTests
 {
-    private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
+    private static readonly Guid TestUnitGuid = new("aaaaaaaa-0000-0000-0000-00000000bbbb");
+    private static readonly string TestUnitActorId = TestUnitGuid.ToString("N");
+
+    private readonly InMemoryUnitLiveConfigStore _liveConfigStore = new();
     private readonly UnitActor _actor;
 
     public UnitActorBoundaryTests()
@@ -38,6 +45,7 @@ public class UnitActorBoundaryTests
 
         var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
         {
+            ActorId = new ActorId(TestUnitActorId),
         });
         _actor = new UnitActor(
             host,
@@ -45,15 +53,8 @@ public class UnitActorBoundaryTests
             Substitute.For<IRuntimeInvocationPath>(),
             Substitute.For<IActivityEventBus>(),
             Substitute.For<IDirectoryService>(),
-            Substitute.For<IActorProxyFactory>());
-
-        var field = typeof(Actor).GetField("<StateManager>k__BackingField",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        field?.SetValue(_actor, _stateManager);
-
-        _stateManager
-            .TryGetStateAsync<UnitBoundary>(StateKeys.UnitBoundary, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitBoundary>(false, default!));
+            Substitute.For<IActorProxyFactory>(),
+            new UnitStateCoordinator(_liveConfigStore, Substitute.For<ILogger<UnitStateCoordinator>>()));
     }
 
     [Fact]
@@ -65,30 +66,31 @@ public class UnitActorBoundaryTests
     }
 
     [Fact]
-    public async Task SetBoundaryAsync_NonEmpty_PersistsToState()
+    public async Task SetBoundaryAsync_NonEmpty_PersistsToEf()
     {
-        UnitBoundary? captured = null;
-        _stateManager
-            .SetStateAsync(
-                StateKeys.UnitBoundary,
-                Arg.Do<UnitBoundary>(v => captured = v),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.CompletedTask);
-
         var boundary = new UnitBoundary(
             Opacities: new[] { new BoundaryOpacityRule(DomainPattern: "secret-*") });
 
         await _actor.SetBoundaryAsync(boundary, TestContext.Current.CancellationToken);
 
-        captured.ShouldNotBeNull();
-        captured!.Opacities!.Count.ShouldBe(1);
+        var fetched = await _liveConfigStore.GetBoundaryAsync(TestUnitGuid, TestContext.Current.CancellationToken);
+        fetched.ShouldNotBeNull();
+        fetched.Opacities!.Count.ShouldBe(1);
     }
 
     [Fact]
-    public async Task SetBoundaryAsync_Empty_RemovesState()
+    public async Task SetBoundaryAsync_Empty_ClearsPersistedBoundary()
     {
+        // Seed a non-empty boundary, then write Empty and verify the
+        // store reports Empty on the next read (the "no rules" semantics
+        // are preserved across the round-trip).
+        _liveConfigStore.SeedBoundary(
+            TestUnitGuid,
+            new UnitBoundary(Opacities: new[] { new BoundaryOpacityRule(DomainPattern: "x") }));
+
         await _actor.SetBoundaryAsync(UnitBoundary.Empty, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received().RemoveStateAsync(StateKeys.UnitBoundary, Arg.Any<CancellationToken>());
+        var fetched = await _liveConfigStore.GetBoundaryAsync(TestUnitGuid, TestContext.Current.CancellationToken);
+        fetched.IsEmpty.ShouldBeTrue();
     }
 }

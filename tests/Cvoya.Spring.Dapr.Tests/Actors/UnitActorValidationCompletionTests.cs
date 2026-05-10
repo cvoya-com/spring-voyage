@@ -9,6 +9,8 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
+using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -62,6 +64,7 @@ public class UnitActorValidationCompletionTests
             _activityEventBus,
             _directoryService,
             _actorProxyFactory,
+            new UnitStateCoordinator(new InMemoryUnitLiveConfigStore(), Substitute.For<ILogger<UnitStateCoordinator>>()),
             validationTracker: _validationTracker);
         SetStateManager(_actor, _stateManager);
 

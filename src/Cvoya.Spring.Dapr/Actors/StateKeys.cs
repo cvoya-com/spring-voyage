@@ -49,20 +49,20 @@ public static class StateKeys
     /// </summary>
     public const string Members = "Unit:Members";
 
-    /// <summary>
-    /// State key for unit policies.
-    /// </summary>
-    public const string Policies = "Unit:Policies";
+    // ADR-0040 / #2049: Unit:Policies actor-state copy was dropped.
+    // UnitPolicyEntity (unit_policies EF table) is the single write
+    // path for unit policies; the PolicyUpdate control message is now
+    // an audit-only notification.
 
     /// <summary>
     /// State key for the unit directory cache.
     /// </summary>
     public const string DirectoryCache = "Unit:DirectoryCache";
 
-    /// <summary>
-    /// State key for the unit definition.
-    /// </summary>
-    public const string UnitDefinition = "Unit:Definition";
+    // ADR-0040 / #2049: Unit:Definition was dropped. Cloning re-reads
+    // the parent's row from unit_definitions in EF directly; there is
+    // no actor-state copy of the YAML template (parallels the
+    // Agent:Definition drop in #2048).
 
     /// <summary>
     /// State key for the connector's connection status.
@@ -136,17 +136,14 @@ public static class StateKeys
     /// </summary>
     public const string UnitStatus = "Unit:Status";
 
-    /// <summary>
-    /// State key for the unit's model hint (e.g., default LLM identifier).
-    /// Surfaced through <see cref="Core.Units.UnitMetadata"/>.
-    /// </summary>
-    public const string UnitModel = "Unit:Model";
-
-    /// <summary>
-    /// State key for the unit's UI color hint.
-    /// Surfaced through <see cref="Core.Units.UnitMetadata"/>.
-    /// </summary>
-    public const string UnitColor = "Unit:Color";
+    // ADR-0040 / #2049: the unit live-config keys (Unit:Model,
+    // Unit:Color, Unit:Provider, Unit:Hosting, Unit:Boundary,
+    // Unit:PermissionInheritance, Unit:OwnExpertise) were moved to EF.
+    // Model / Color / Provider / Hosting live on the unit_live_config
+    // row alongside Boundary (jsonb) and PermissionInheritance (int);
+    // own-expertise lives on the unit_expertise rows. UnitActor reads
+    // / writes via IUnitStateCoordinator, which routes through
+    // IUnitLiveConfigStore.
 
     /// <summary>
     /// State key for the unit's generic connector binding
@@ -184,39 +181,9 @@ public static class StateKeys
     // ADR-0040 / #2048: Agent:Expertise was moved to the
     // agent_expertise EF table — see the comment block above.
 
-    /// <summary>
-    /// State key for the unit's own (non-aggregated) expertise domains —
-    /// the capabilities the unit advertises in its own right, independent
-    /// of its members. Stored as a <c>List&lt;ExpertiseDomain&gt;</c>.
-    /// Recursive composition over the member graph happens at read time in
-    /// <see cref="Cvoya.Spring.Core.Capabilities.IExpertiseAggregator"/>;
-    /// this state key only holds the slice <em>owned by the unit</em>. See #412.
-    /// </summary>
-    public const string UnitOwnExpertise = "Unit:OwnExpertise";
-
-    /// <summary>
-    /// State key for the unit's boundary configuration — the
-    /// <see cref="Cvoya.Spring.Core.Capabilities.UnitBoundary"/> record that
-    /// controls which aggregated expertise entries are opaque, projected, or
-    /// synthesised when an outside caller reads the unit's effective
-    /// expertise. Empty / never-set means "transparent" (no boundary rules).
-    /// See #413.
-    /// </summary>
-    public const string UnitBoundary = "Unit:Boundary";
-
-    /// <summary>
-    /// State key for the unit's permission-inheritance mode
-    /// (<see cref="Cvoya.Spring.Dapr.Auth.UnitPermissionInheritance"/>). Unset
-    /// defaults to <see cref="Cvoya.Spring.Dapr.Auth.UnitPermissionInheritance.Inherit"/>
-    /// — ancestor permission grants cascade down to the unit. Setting this
-    /// key to <see cref="Cvoya.Spring.Dapr.Auth.UnitPermissionInheritance.Isolated"/>
-    /// causes the hierarchy-aware permission resolver to stop walking up
-    /// through this unit, so ancestor grants do not apply. This is the
-    /// permission-layer analogue of the boundary's opacity rules (#413) and
-    /// is read by <c>PermissionService.ResolveEffectivePermissionAsync</c>
-    /// (#414).
-    /// </summary>
-    public const string UnitPermissionInheritance = "Unit:PermissionInheritance";
+    // ADR-0040 / #2049: Unit:OwnExpertise, Unit:Boundary, and
+    // Unit:PermissionInheritance were moved to EF — see the
+    // unit_live_config / unit_expertise comment block above.
 
     /// <summary>
     /// State-key prefix for the persistent cloning policy recorded against
@@ -246,28 +213,12 @@ public static class StateKeys
     // #1732 is silently ignored.
 
     /// <summary>
-    /// State key for the unit's LLM provider identifier
-    /// (e.g. <c>ollama</c>, <c>openai</c>). Surfaced through
-    /// <see cref="Core.Units.UnitMetadata"/>. Distinct from the
-    /// container runtime (<c>docker | podman</c>) which lives on the
-    /// unit's <c>execution:</c> block as <c>runtime</c>. See #1065.
-    /// </summary>
-    public const string UnitProvider = "Unit:Provider";
-
-    /// <summary>
     /// State key for the <see cref="ContainerSupervisorActor"/>'s persisted
     /// supervision state (container id, hosting mode, restart count, etc.).
     /// Stored on the <c>ContainerSupervisorActor</c> (keyed by agent id).
     /// D3d — ADR-0029 § "Failure recovery".
     /// </summary>
     public const string SupervisorState = "Supervisor:State";
-
-    /// <summary>
-    /// State key for the unit's hosting hint
-    /// (e.g. <c>ephemeral</c>, <c>persistent</c>). Surfaced through
-    /// <see cref="Core.Units.UnitMetadata"/>. See #1065.
-    /// </summary>
-    public const string UnitHosting = "Unit:Hosting";
 
     /// <summary>
     /// State key for the human actor's per-thread read cursor map
