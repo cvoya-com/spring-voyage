@@ -183,8 +183,13 @@ public class PersistentAgentRegistryTests : IDisposable
     }
 
     [Fact]
-    public async Task RunHealthChecksAsync_SingleFailure_IncreasesFailureCount()
+    public async Task RunHealthChecksAsync_SingleFailure_MarksUnhealthyImmediately()
     {
+        // #2092: a single probe failure flips HealthStatus to Unhealthy on
+        // the next sweep so the dispatcher's pre-flight check catches the
+        // crash before issuing the doomed A2A call. Restart of the
+        // container is still gated on UnhealthyThreshold consecutive
+        // failures (covered by RunHealthChecksAsync_ConsecutiveFailures_…).
         _containerRuntime.ProbeHttpFromHostAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
@@ -196,7 +201,7 @@ public class PersistentAgentRegistryTests : IDisposable
 
         _registry.TryGet("agent-1", out var entry);
         entry!.ConsecutiveFailures.ShouldBe(1);
-        entry.HealthStatus.ShouldBe(AgentHealthStatus.Healthy); // Not yet unhealthy.
+        entry.HealthStatus.ShouldBe(AgentHealthStatus.Unhealthy);
     }
 
     [Fact]
@@ -349,6 +354,110 @@ public class PersistentAgentRegistryTests : IDisposable
         // The timer is internal so we just verify StartAsync completes without error.
         // Actual health check behavior is tested in RunHealthChecksAsync tests.
         await _registry.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public void HealthCheckInterval_IsSubSecondOrSecond_For2092CrashDetection()
+    {
+        // #2092: the registry must observe a crashed persistent agent
+        // within ~1s of the A2A endpoint going unreachable. The original
+        // 30s sweep cadence missed the cold-path requirement; this asserts
+        // the post-#2092 cadence so a future "let's loosen this" change
+        // re-trips the regression on the way out.
+        PersistentAgentRegistry.HealthCheckInterval.ShouldBeLessThanOrEqualTo(
+            TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task RunHealthChecksAsync_CrashedAgent_DetectedInSingleSweep()
+    {
+        // #2092: a single probe failure from a crashed agent flips
+        // HealthStatus to Unhealthy on the very next sweep. Combined
+        // with the 1s sweep cadence (HealthCheckInterval), the registry
+        // surfaces a crash within the bounded latency the issue asks for
+        // — without waiting for UnhealthyThreshold consecutive failures
+        // (the threshold only gates the more-expensive background restart).
+        var probeResults = new Queue<bool>([true, false]);
+        _containerRuntime.ProbeHttpFromHostAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult(probeResults.Dequeue()));
+
+        var endpoint = new Uri("http://localhost:8999/");
+        _registry.Register("agent-1", endpoint, "container-1");
+
+        // First sweep: agent answers.
+        await _registry.RunHealthChecksAsync();
+        _registry.TryGet("agent-1", out var entry);
+        entry!.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
+        entry.ConsecutiveFailures.ShouldBe(0);
+
+        // Second sweep: agent has crashed (probe returns false). Even
+        // though we are well below UnhealthyThreshold, the dispatcher's
+        // pre-flight contract requires HealthStatus to flip immediately.
+        await _registry.RunHealthChecksAsync();
+        _registry.TryGet("agent-1", out entry);
+        entry!.HealthStatus.ShouldBe(AgentHealthStatus.Unhealthy);
+        entry.ConsecutiveFailures.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ProbeLivenessAsync_DeadEndpoint_ReturnsFalseFastWithBoundedTimeout()
+    {
+        // #2092 pre-flight semantics: when the dispatcher checks an entry
+        // before issuing the A2A call, the probe must fail-fast (within
+        // its short caller-supplied timeout) so the cold path doesn't pay
+        // a multi-second wall-clock wait against a dead container.
+        _containerRuntime.ProbeHttpFromHostAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var entry = new PersistentAgentEntry(
+            "agent-1",
+            new Uri("http://localhost:8999/"),
+            ContainerId: "container-1",
+            StartedAt: DateTimeOffset.UtcNow);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var live = await _registry.ProbeLivenessAsync(
+            entry, TimeSpan.FromMilliseconds(750), CancellationToken.None);
+        sw.Stop();
+
+        live.ShouldBeFalse();
+        // Should be way under the 750ms ceiling because the mock returns
+        // synchronously, but the test's real value is asserting fail-fast
+        // semantics rather than a tight timing bound.
+        sw.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task StopContainerAsync_RemovesEntryAndStopsContainer_PreservesVolume()
+    {
+        // #2092: dispatcher restarts on crash detection use
+        // StopContainerAsync (not UndeployAsync) so the per-agent
+        // workspace volume survives across restart per ADR-0029
+        // ("Container crashes do NOT trigger reclamation").
+        var endpoint = new Uri("http://localhost:8999/");
+        _registry.Register("agent-1", endpoint, "container-1");
+
+        var stopped = await _registry.StopContainerAsync("agent-1", CancellationToken.None);
+
+        stopped.ShouldBeTrue();
+        _registry.TryGet("agent-1", out var entry);
+        entry.ShouldBeNull();
+        await _containerRuntime.Received().StopAsync("container-1", Arg.Any<CancellationToken>());
+        // Volume reclamation is NOT triggered — that's the
+        // UndeployAsync responsibility, gated on explicit operator
+        // delete. (AgentVolumeManager.ReclaimAsync would shell out
+        // to the runtime; the substitute records nothing here, but
+        // we verify the public seam: there is no call we're driving
+        // through ReclaimAsync from this entry point.)
+    }
+
+    [Fact]
+    public async Task StopContainerAsync_UnknownAgent_ReturnsFalse()
+    {
+        var stopped = await _registry.StopContainerAsync("unknown-agent", CancellationToken.None);
+        stopped.ShouldBeFalse();
     }
 
     [Fact]

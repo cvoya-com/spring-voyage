@@ -35,14 +35,29 @@ public class PersistentAgentRegistry(
     private readonly IServiceScopeFactory _scopeFactory = serviceScopeFactory;
     private readonly ConcurrentDictionary<string, PersistentAgentEntry> _entries = new();
     private Timer? _healthTimer;
+    private int _healthCheckRunning;
 
     /// <summary>
-    /// Default interval between health-check sweeps.
+    /// Interval between health-check sweeps. Tightened to 1s (issue #2092)
+    /// so a crashed persistent agent is observed in the registry before the
+    /// next dispatch arrives, instead of waiting up to ~30s for the next
+    /// poll cycle. The probe itself is a single short-bounded HTTP GET per
+    /// tracked agent — when the endpoint is reachable it returns in
+    /// sub-100ms; when the agent has crashed the underlying TCP connect
+    /// fails immediately. A re-entrancy guard prevents overlapping ticks
+    /// when the probe set takes longer than the interval.
     /// </summary>
-    internal static readonly TimeSpan HealthCheckInterval = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan HealthCheckInterval = TimeSpan.FromSeconds(1);
 
     /// <summary>
-    /// Number of consecutive health-check failures before an agent is marked unhealthy.
+    /// Number of consecutive health-check failures before the registry
+    /// attempts a background restart of the agent. The
+    /// <see cref="PersistentAgentEntry.HealthStatus"/> is flipped to
+    /// <see cref="AgentHealthStatus.Unhealthy"/> on the very first failure
+    /// (#2092) so a subsequent dispatch can route through the auto-restart
+    /// path before issuing the doomed A2A call; the threshold here only
+    /// gates the more expensive container teardown + relaunch, so a single
+    /// transient blip does not flap the container.
     /// </summary>
     internal const int UnhealthyThreshold = 3;
 
@@ -189,12 +204,65 @@ public class PersistentAgentRegistry(
         return true;
     }
 
+    /// <summary>
+    /// Stops and removes the backing container for an agent and drops its
+    /// registry entry — without reclaiming the per-agent workspace volume.
+    /// Used by the dispatch path's pre-flight crash detection (#2092):
+    /// when a persistent agent crashes mid-flight, the volume must survive
+    /// across the restart per ADR-0029 § "Durable state: a per-agent
+    /// persistent volume". <see cref="UndeployAsync"/> remains the
+    /// agent-delete entry point and reclaims the volume.
+    /// </summary>
+    /// <remarks>
+    /// Idempotent: returns <c>false</c> when nothing is tracked. Failures
+    /// to stop the container are logged but do not prevent the entry from
+    /// being removed — the operator intent is "this entry is no longer
+    /// authoritative" and a dangling container is recoverable via the
+    /// runtime's own cleanup tools or the next dispatch's relaunch.
+    /// </remarks>
+    /// <param name="agentId">The agent identifier.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    public async Task<bool> StopContainerAsync(string agentId, CancellationToken cancellationToken = default)
+    {
+        if (!_entries.TryRemove(agentId, out var entry))
+        {
+            return false;
+        }
+
+        if (entry.ContainerId is not null)
+        {
+            await TeardownOrStopEntryAsync(entry, cancellationToken);
+        }
+
+        _logger.LogInformation(
+            EventIds.AgentUnregistered,
+            "Persistent agent {AgentId} container stopped for restart (container {ContainerId}; volume preserved)",
+            agentId, entry.ContainerId);
+
+        return true;
+    }
+
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation(EventIds.HealthMonitorStarting, "Persistent agent health monitor starting");
+        // Re-entrancy guard: when a probe sweep takes longer than the
+        // tightened 1s interval (#2092) the timer thread would otherwise
+        // start a second concurrent sweep. The Interlocked check below
+        // skips the tick if the previous one is still running so probe
+        // calls don't pile up against a slow / hung dispatcher channel.
         _healthTimer = new Timer(
-            callback: _ => _ = RunHealthChecksAsync(),
+            callback: _ =>
+            {
+                if (Interlocked.CompareExchange(ref _healthCheckRunning, 1, 0) != 0)
+                {
+                    return;
+                }
+
+                _ = RunHealthChecksAsync().ContinueWith(
+                    _ => Interlocked.Exchange(ref _healthCheckRunning, 0),
+                    TaskScheduler.Default);
+            },
             state: null,
             dueTime: HealthCheckInterval,
             period: HealthCheckInterval);
@@ -223,6 +291,17 @@ public class PersistentAgentRegistry(
     /// <summary>
     /// Runs health checks against all registered agents. Called on the timer thread.
     /// </summary>
+    /// <remarks>
+    /// Issue #2092: a single probe failure flips
+    /// <see cref="PersistentAgentEntry.HealthStatus"/> to
+    /// <see cref="AgentHealthStatus.Unhealthy"/> immediately so a subsequent
+    /// dispatch routes through the auto-restart path instead of issuing a
+    /// doomed A2A call. The expensive container teardown + relaunch is
+    /// still gated on <see cref="UnhealthyThreshold"/> consecutive failures
+    /// to avoid restart-flapping on a transient probe blip — the dispatch
+    /// path will trigger an explicit restart on the next inbound turn if
+    /// the agent stays down before the threshold is reached.
+    /// </remarks>
     internal async Task RunHealthChecksAsync()
     {
         var entries = _entries.Values.ToList();
@@ -242,7 +321,7 @@ public class PersistentAgentRegistry(
                 if (healthy)
                 {
                     // Reset failure count on success.
-                    if (entry.ConsecutiveFailures > 0)
+                    if (entry.ConsecutiveFailures > 0 || entry.HealthStatus != AgentHealthStatus.Healthy)
                     {
                         _entries[entry.AgentId] = entry with
                         {
@@ -254,25 +333,37 @@ public class PersistentAgentRegistry(
                 else
                 {
                     var failures = entry.ConsecutiveFailures + 1;
+
+                    // #2092: flip to Unhealthy on the first failure so the
+                    // dispatcher's pre-flight check on the next dispatch
+                    // can route through the auto-restart path before the
+                    // doomed A2A call goes out.
+                    _entries[entry.AgentId] = entry with
+                    {
+                        HealthStatus = AgentHealthStatus.Unhealthy,
+                        ConsecutiveFailures = failures,
+                    };
+
+                    if (failures == 1)
+                    {
+                        _logger.LogInformation(
+                            EventIds.AgentUnhealthy,
+                            "Agent {AgentId} probe failed; marked Unhealthy after first failure (restart at threshold {Threshold})",
+                            entry.AgentId, UnhealthyThreshold);
+                    }
+
                     if (failures >= UnhealthyThreshold)
                     {
                         _logger.LogWarning(
                             EventIds.AgentUnhealthy,
-                            "Agent {AgentId} marked unhealthy after {Failures} consecutive failures",
+                            "Agent {AgentId} hit restart threshold after {Failures} consecutive failures; attempting restart",
                             entry.AgentId, failures);
 
-                        _entries[entry.AgentId] = entry with
-                        {
-                            HealthStatus = AgentHealthStatus.Unhealthy,
-                            ConsecutiveFailures = failures
-                        };
-
-                        // Attempt restart.
+                        // Background restart on the slow path. The dispatch
+                        // path still gets first crack via its pre-flight
+                        // check (#2092) so a real inbound turn doesn't wait
+                        // for this loop's threshold to elapse.
                         await TryRestartAsync(entry);
-                    }
-                    else
-                    {
-                        _entries[entry.AgentId] = entry with { ConsecutiveFailures = failures };
                     }
                 }
             }
@@ -280,23 +371,32 @@ public class PersistentAgentRegistry(
             {
                 _logger.LogWarning(ex, "Health check failed for agent {AgentId}", entry.AgentId);
                 var failures = entry.ConsecutiveFailures + 1;
-                var status = failures >= UnhealthyThreshold
-                    ? AgentHealthStatus.Unhealthy
-                    : entry.HealthStatus;
 
                 _entries[entry.AgentId] = entry with
                 {
-                    HealthStatus = status,
-                    ConsecutiveFailures = failures
+                    HealthStatus = AgentHealthStatus.Unhealthy,
+                    ConsecutiveFailures = failures,
                 };
 
-                if (status == AgentHealthStatus.Unhealthy)
+                if (failures >= UnhealthyThreshold)
                 {
                     await TryRestartAsync(entry);
                 }
             }
         }
     }
+
+    /// <summary>
+    /// Per-attempt timeout used by the dispatcher's pre-flight liveness
+    /// probe (#2092). Shorter than <see cref="HealthProbeTimeout"/> because
+    /// this runs on the cold path of every persistent dispatch — a healthy
+    /// agent must pay only a few-hundred-ms ceiling, not the multi-second
+    /// background-loop budget. A crashed container fails the probe in
+    /// sub-100ms (TCP RST), so the small timeout is rarely the binding
+    /// factor.
+    /// </summary>
+    internal static readonly TimeSpan DispatchPreflightProbeTimeout =
+        TimeSpan.FromMilliseconds(750);
 
     /// <summary>
     /// Probes the A2A Agent Card endpoint to verify the agent is healthy.
@@ -310,17 +410,42 @@ public class PersistentAgentRegistry(
     /// Entries without a container id (legacy externally-registered persistent
     /// agents) fall back to the direct HTTP probe.
     /// </remarks>
-    internal async Task<bool> ProbeHealthAsync(PersistentAgentEntry entry)
+    internal Task<bool> ProbeHealthAsync(PersistentAgentEntry entry)
+        => ProbeLivenessAsync(entry, HealthProbeTimeout, CancellationToken.None);
+
+    /// <summary>
+    /// Probes the A2A Agent Card endpoint with a caller-supplied timeout.
+    /// Used by both the periodic background sweep
+    /// (<see cref="HealthProbeTimeout"/>) and the dispatcher's pre-flight
+    /// liveness check (<see cref="DispatchPreflightProbeTimeout"/>) so the
+    /// probe surface stays in one place. Returns <c>false</c> on timeout,
+    /// connection failure, non-2xx, or any exception thrown by the
+    /// underlying probe transport.
+    /// </summary>
+    /// <param name="entry">The agent entry whose endpoint to probe.</param>
+    /// <param name="timeout">Per-attempt timeout cap for this probe.</param>
+    /// <param name="cancellationToken">Outer cancellation token (typically the dispatch turn's token).</param>
+    public async Task<bool> ProbeLivenessAsync(
+        PersistentAgentEntry entry,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(entry);
+
         var agentCardUri = new Uri(entry.Endpoint, ".well-known/agent.json").ToString();
 
         if (!string.IsNullOrEmpty(entry.ContainerId))
         {
-            using var probeCts = new CancellationTokenSource(HealthProbeTimeout);
+            using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            probeCts.CancelAfter(timeout);
             try
             {
                 return await containerRuntime.ProbeHttpFromHostAsync(
                     entry.ContainerId, agentCardUri, probeCts.Token);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception)
             {
@@ -329,12 +454,16 @@ public class PersistentAgentRegistry(
         }
 
         using var httpClient = httpClientFactory.CreateClient("PersistentAgentHealthCheck");
-        httpClient.Timeout = HealthProbeTimeout;
+        httpClient.Timeout = timeout;
 
         try
         {
-            var response = await httpClient.GetAsync(agentCardUri);
+            var response = await httpClient.GetAsync(agentCardUri, cancellationToken);
             return response.IsSuccessStatusCode;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception)
         {
