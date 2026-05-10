@@ -365,7 +365,10 @@ public class PersistentAgentLifecycle(
     /// the daprd sidecar. Mirrors
     /// <see cref="A2AExecutionDispatcher"/>'s resolver so the persistent and
     /// ephemeral dispatch paths agree on which provider's components are
-    /// loaded for a given agent. See that method for the rationale.
+    /// loaded for a given agent. The base path is a host filesystem path;
+    /// no <c>Directory.Exists</c> check here because this code runs inside
+    /// the worker container (the host path is not mounted into the worker —
+    /// only into the dispatcher).
     /// </summary>
     private string? ResolveDelegatedComponentsPath(string? provider, string agentId)
     {
@@ -385,14 +388,6 @@ public class PersistentAgentLifecycle(
 
         var providerKey = provider.Trim().ToLowerInvariant();
         var profilePath = System.IO.Path.Combine(basePath, "profiles", providerKey);
-        if (!System.IO.Directory.Exists(profilePath))
-        {
-            _logger.LogWarning(
-                "Agent {AgentId} provider '{Provider}': no components profile at {ProfilePath}; falling back to {BasePath}. daprd will load every provider's component, which fatal-exits when any provider's API key is missing.",
-                agentId, providerKey, profilePath, basePath);
-            return basePath;
-        }
-
         _logger.LogDebug(
             "Agent {AgentId} provider '{Provider}': mounting per-provider components profile {ProfilePath}.",
             agentId, providerKey, profilePath);

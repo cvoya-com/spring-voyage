@@ -469,14 +469,21 @@ public class A2AExecutionDispatcher(
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Resolution rule: when the configured base contains a
-    /// <c>profiles/&lt;provider&gt;/</c> subdirectory we return that; daprd
-    /// then loads only the components for the unit's actual provider. The
-    /// provider is taken from
-    /// <see cref="AgentExecutionConfig.Provider"/> (lower-cased). Missing
-    /// provider, missing profile dir, or a missing base path each fall
-    /// back to the legacy single-directory path so deployments that have
-    /// not yet rebuilt the per-provider profile layout keep working.
+    /// Resolution rule: <c>&lt;base&gt;/profiles/&lt;provider&gt;</c>. The
+    /// repo ships <c>dapr/components/delegated-spring-voyage-agent/profiles/&lt;provider&gt;/</c>
+    /// with the matching LLM YAML plus the shared <c>secretstore.yaml</c> /
+    /// <c>statestore.yaml</c>; daprd loads only those, leaving the other
+    /// providers' components on disk but never touched. The provider
+    /// comes from <see cref="AgentExecutionConfig.Provider"/>
+    /// (lower-cased); missing provider returns the base path verbatim
+    /// for back-compat with units that predate the profile layout.
+    /// </para>
+    /// <para>
+    /// No <c>Directory.Exists</c> check here: this code runs inside the
+    /// worker container, which does not have the host components
+    /// directory mounted (the dispatcher does, on the host). The string
+    /// is passed to the dispatcher as a bind-mount source; podman
+    /// surfaces a clean error if the host path doesn't exist.
     /// </para>
     /// </remarks>
     private string? ResolveDelegatedComponentsPath(string? provider, string agentId)
@@ -497,14 +504,6 @@ public class A2AExecutionDispatcher(
 
         var providerKey = provider.Trim().ToLowerInvariant();
         var profilePath = System.IO.Path.Combine(basePath, "profiles", providerKey);
-        if (!System.IO.Directory.Exists(profilePath))
-        {
-            _logger.LogWarning(
-                "Agent {AgentId} provider '{Provider}': no components profile at {ProfilePath}; falling back to {BasePath}. daprd will load every provider's component, which fatal-exits when any provider's API key is missing.",
-                agentId, providerKey, profilePath, basePath);
-            return basePath;
-        }
-
         _logger.LogDebug(
             "Agent {AgentId} provider '{Provider}': mounting per-provider components profile {ProfilePath}.",
             agentId, providerKey, profilePath);
