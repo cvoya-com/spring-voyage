@@ -34,19 +34,22 @@ public class AgentLifecycleCoordinator(
     /// <inheritdoc />
     public async Task ActivateAsync(
         string agentId,
-        Func<CancellationToken, Task<(bool hasValue, List<ExpertiseDomain>? value)>> getExistingExpertise,
+        Func<CancellationToken, Task<bool>> hasExistingExpertise,
         Func<CancellationToken, Task<IReadOnlyList<ExpertiseDomain>?>> getSeed,
         Func<ExpertiseDomain[], CancellationToken, Task> persistExpertise,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var (hasValue, _) = await getExistingExpertise(cancellationToken);
+            var alreadyInitialised = await hasExistingExpertise(cancellationToken);
 
-            // Actor state wins — if ANY value (including an empty list) was
-            // persisted through SetExpertiseAsync, the operator's runtime
-            // edit is preserved across activations.
-            if (hasValue)
+            // Operator-state wins — if ANY value (including an empty list)
+            // has been persisted through SetExpertiseAsync, the operator's
+            // runtime edit is preserved across activations. Per ADR-0040 /
+            // #2048 the flag lives on agent_live_config.expertise_initialised;
+            // the delegate passes through the EF check so this coordinator
+            // stays free of EF dependencies.
+            if (alreadyInitialised)
             {
                 return;
             }

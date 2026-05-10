@@ -14,6 +14,7 @@ using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Agents;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Initiative;
@@ -127,6 +128,22 @@ public static class ActorTestHost
             definitionProvider,
             Substitute.For<ILogger<Cvoya.Spring.Dapr.Initiative.AgentObservationCoordinator>>());
 
+        // ADR-0040 / #2048: AgentStateCoordinator routes through the EF
+        // store. Configure the substitute to return defaults that mirror
+        // a "no row yet" agent — otherwise NSubstitute returns
+        // default(Task<AgentMetadata>) (i.e. null) which crashes the
+        // agent's effective-metadata merge.
+        var liveConfigStore = Substitute.For<IAgentLiveConfigStore>();
+        liveConfigStore
+            .GetMetadataAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new Cvoya.Spring.Core.Agents.AgentMetadata());
+        liveConfigStore
+            .GetSkillsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<string>());
+        liveConfigStore
+            .GetExpertiseAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<Cvoya.Spring.Core.Capabilities.ExpertiseDomain>());
+
         var actor = new AgentActor(
             host,
             activityEventBus,
@@ -140,7 +157,7 @@ public static class ActorTestHost
             initiativeEvaluator,
             loggerFactory,
             Substitute.For<IAgentLifecycleCoordinator>(),
-            new AgentStateCoordinator(Substitute.For<ILogger<AgentStateCoordinator>>()),
+            new AgentStateCoordinator(liveConfigStore, Substitute.For<ILogger<AgentStateCoordinator>>()),
             new AgentAmendmentCoordinator(Substitute.For<ILogger<AgentAmendmentCoordinator>>()),
             new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()),
             directoryService: directoryService);

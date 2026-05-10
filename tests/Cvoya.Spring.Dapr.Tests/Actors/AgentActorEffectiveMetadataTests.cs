@@ -16,6 +16,7 @@ using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Agents;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Initiative;
@@ -34,12 +35,18 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for the receive-path per-membership config override introduced by
-/// <c>#243</c>. Verifies that <see cref="AgentActor"/> merges its own global
-/// metadata with any <see cref="UnitMembership"/> row on the
-/// <c>(sender-unit, agent)</c> edge, and that the resulting effective metadata
-/// drives dispatch decisions for the turn.
+/// Tests for the receive-path per-membership config override
+/// introduced by <c>#243</c>. Verifies that <see cref="AgentActor"/>
+/// merges its own global metadata with any <see cref="UnitMembership"/>
+/// row on the <c>(sender-unit, agent)</c> edge, and that the resulting
+/// effective metadata drives dispatch decisions for the turn.
 /// </summary>
+/// <remarks>
+/// Per ADR-0040 / #2048 the agent-global metadata lives on the
+/// <c>agent_live_config</c> EF row, so this test seeds that store via
+/// <see cref="InMemoryAgentLiveConfigStore"/> rather than priming
+/// actor-state delegates as before.
+/// </remarks>
 public class AgentActorEffectiveMetadataTests
 {
     // Stable UUIDs for the agent actor and test units.
@@ -48,7 +55,6 @@ public class AgentActorEffectiveMetadataTests
     private static readonly Guid UnitBUuid = new("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
     private static readonly string AgentId = AgentActorUuid.ToString("N");
-    private static readonly string UnitId = UnitAUuid.ToString("N");
 
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
@@ -57,6 +63,7 @@ public class AgentActorEffectiveMetadataTests
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
+    private readonly InMemoryAgentLiveConfigStore _liveConfigStore = new();
     private readonly AgentActor _actor;
 
     public AgentActorEffectiveMetadataTests()
@@ -109,7 +116,7 @@ public class AgentActorEffectiveMetadataTests
             Substitute.For<IAgentInitiativeEvaluator>(),
             loggerFactory,
             Substitute.For<IAgentLifecycleCoordinator>(),
-            new AgentStateCoordinator(Substitute.For<ILogger<AgentStateCoordinator>>()),
+            new AgentStateCoordinator(_liveConfigStore, Substitute.For<ILogger<AgentStateCoordinator>>()),
             new AgentAmendmentCoordinator(Substitute.For<ILogger<AgentAmendmentCoordinator>>()),
             new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()),
             directoryService: _directoryService);
@@ -120,14 +127,6 @@ public class AgentActorEffectiveMetadataTests
             .Returns(new ConditionalValue<ThreadChannel>(false, default!));
         _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
-
-        // Default: no agent-global metadata set.
-        _stateManager.TryGetStateAsync<string>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
-        _stateManager.TryGetStateAsync<bool>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<bool>(false, default));
-        _stateManager.TryGetStateAsync<AgentExecutionMode>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<AgentExecutionMode>(false, default));
 
         // Default: no membership row for any (unit, agent) pair.
         _membershipRepository
@@ -153,29 +152,11 @@ public class AgentActorEffectiveMetadataTests
         bool? enabled = null,
         AgentExecutionMode? executionMode = null)
     {
-        if (model is not null)
-        {
-            _stateManager.TryGetStateAsync<string>(StateKeys.AgentModel, Arg.Any<CancellationToken>())
-                .Returns(new ConditionalValue<string>(true, model));
-        }
-
-        if (specialty is not null)
-        {
-            _stateManager.TryGetStateAsync<string>(StateKeys.AgentSpecialty, Arg.Any<CancellationToken>())
-                .Returns(new ConditionalValue<string>(true, specialty));
-        }
-
-        if (enabled is not null)
-        {
-            _stateManager.TryGetStateAsync<bool>(StateKeys.AgentEnabled, Arg.Any<CancellationToken>())
-                .Returns(new ConditionalValue<bool>(true, enabled.Value));
-        }
-
-        if (executionMode is not null)
-        {
-            _stateManager.TryGetStateAsync<AgentExecutionMode>(StateKeys.AgentExecutionMode, Arg.Any<CancellationToken>())
-                .Returns(new ConditionalValue<AgentExecutionMode>(true, executionMode.Value));
-        }
+        _liveConfigStore.SeedMetadata(AgentActorUuid, new AgentMetadata(
+            Model: model,
+            Specialty: specialty,
+            Enabled: enabled,
+            ExecutionMode: executionMode));
     }
 
     [Fact]

@@ -112,8 +112,15 @@ internal static class ServiceCollectionExtensionsExecution
         services.TryAddSingleton<IAgentMailboxCoordinator, AgentMailboxCoordinator>();
 
         // Agent metadata/state coordinator (#1339 / #1276 concern 6).
-        // Singleton: stateless across agents; all actor-state reads and writes
-        // flow through per-call delegates so no Dapr actor types are captured.
+        // #2048 / ADR-0040: agent live config (model / specialty / enabled
+        // / execution_mode), skill grants, and expertise are EF-backed.
+        // The singleton store wraps the scoped EF repository so AgentActor
+        // (not request-scoped) can read / write through it. TryAddSingleton
+        // so the cloud overlay can layer audit / cross-tenant guards on top.
+        services.TryAddSingleton<IAgentLiveConfigStore, AgentLiveConfigStore>();
+
+        // Singleton: stateless across agents; the metadata / skills /
+        // expertise reads + writes flow through IAgentLiveConfigStore (#2048).
         // TryAdd so the private cloud repo can substitute a tenant-aware
         // implementation (e.g. one that layers audit logging or gates skill
         // assignment on per-tenant allowlists) without touching this registration.

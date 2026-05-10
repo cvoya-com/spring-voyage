@@ -73,21 +73,19 @@ public class AgentActor(
     /// <summary>
     /// Runs the actor-activation logic by delegating to
     /// <see cref="IAgentLifecycleCoordinator"/>. The coordinator handles
-    /// expertise seeding from <c>AgentDefinition</c> YAML (#488): it applies
-    /// the seed only when actor state does not already hold an expertise list
-    /// so that runtime operator edits survive process restarts.
+    /// expertise seeding from <c>AgentDefinition</c> YAML (#488): it
+    /// applies the seed only when the agent has not already had its
+    /// expertise list initialised so that runtime operator edits survive
+    /// process restarts. Per ADR-0040 / #2048 the
+    /// <c>expertise_initialised</c> flag lives on the
+    /// <c>agent_live_config</c> EF row, not in actor state.
     /// See <c>docs/architecture/units.md § Seeding from YAML</c>.
     /// </summary>
     protected override async Task OnActivateAsync()
     {
         await lifecycleCoordinator.ActivateAsync(
             Id.GetId(),
-            async ct =>
-            {
-                var state = await StateManager
-                    .TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.AgentExpertise, ct);
-                return (state.HasValue, state.HasValue ? state.Value : null);
-            },
+            ct => stateCoordinator.HasExpertiseSetAsync(Id.GetId(), ct),
             ct => expertiseSeedProvider is not null
                 ? expertiseSeedProvider.GetAgentSeedAsync(Id.GetId(), ct)
                 : Task.FromResult<IReadOnlyList<ExpertiseDomain>?>(null),
@@ -917,78 +915,57 @@ public class AgentActor(
     /// <inheritdoc />
     public Task<AgentMetadata> GetMetadataAsync(CancellationToken cancellationToken = default)
     {
-        return stateCoordinator.GetMetadataAsync(
-            Id.GetId(),
-            async ct =>
-            {
-                var v = await StateManager.TryGetStateAsync<string>(StateKeys.AgentModel, ct);
-                return (v.HasValue, v.HasValue ? v.Value : null);
-            },
-            async ct =>
-            {
-                var v = await StateManager.TryGetStateAsync<string>(StateKeys.AgentSpecialty, ct);
-                return (v.HasValue, v.HasValue ? v.Value : null);
-            },
-            async ct =>
-            {
-                var v = await StateManager.TryGetStateAsync<bool>(StateKeys.AgentEnabled, ct);
-                return (v.HasValue, v.HasValue ? v.Value : default);
-            },
-            async ct =>
-            {
-                var v = await StateManager.TryGetStateAsync<AgentExecutionMode>(StateKeys.AgentExecutionMode, ct);
-                return (v.HasValue, v.HasValue ? v.Value : default);
-            },
-            async ct =>
-            {
-                var v = await StateManager.TryGetStateAsync<string>(StateKeys.AgentParentUnit, ct);
-                return (v.HasValue, v.HasValue ? v.Value : null);
-            },
-            cancellationToken);
+        // ADR-0040 / #2048: metadata reads come straight from the
+        // agent_live_config EF row through the coordinator. The actor
+        // no longer maintains an actor-state mirror.
+        return stateCoordinator.GetMetadataAsync(Id.GetId(), cancellationToken);
     }
 
     /// <inheritdoc />
     public Task SetMetadataAsync(AgentMetadata metadata, CancellationToken cancellationToken = default)
     {
+        // ADR-0040 / #2048: writes go to the agent_live_config EF row.
+        // ParentUnit is silently ignored — membership writes flow
+        // through the unit assign / unassign endpoints, which update
+        // unit_memberships directly.
         return stateCoordinator.SetMetadataAsync(
             Id.GetId(),
             metadata,
-            (v, ct) => StateManager.SetStateAsync(StateKeys.AgentModel, v, ct),
-            (v, ct) => StateManager.SetStateAsync(StateKeys.AgentSpecialty, v, ct),
-            (v, ct) => StateManager.SetStateAsync(StateKeys.AgentEnabled, v, ct),
-            (v, ct) => StateManager.SetStateAsync(StateKeys.AgentExecutionMode, v, ct),
-            (v, ct) => StateManager.SetStateAsync(StateKeys.AgentParentUnit, v, ct),
             EmitActivityEventAsync,
             cancellationToken);
     }
 
     /// <summary>
-    /// Clears the agent's parent-unit pointer. Used by the unit's unassign
-    /// endpoint alongside removal from the unit's <c>members</c> list, so
-    /// <see cref="AgentMetadata.ParentUnit"/> and the unit's member list stay
-    /// in sync. Separated from <see cref="SetMetadataAsync"/> because the
-    /// partial-patch semantics there treat <c>null</c> as "leave untouched."
+    /// Legacy hook from the unit unassign endpoint. With ADR-0040 /
+    /// #2048 the parent-unit pointer is no longer stored on the agent
+    /// — the membership row in <c>unit_memberships</c> is the single
+    /// source of truth. The unassign endpoint already deletes the
+    /// membership row before calling here, so this method has no
+    /// persistent state to clear; it remains on the
+    /// <see cref="IAgentActor"/> surface for ABI stability and emits a
+    /// <c>StateChanged</c> activity event so audit history still
+    /// records the operator action.
     /// </summary>
-    public Task ClearParentUnitAsync(CancellationToken cancellationToken = default)
+    public async Task ClearParentUnitAsync(CancellationToken cancellationToken = default)
     {
-        return stateCoordinator.ClearParentUnitAsync(
-            Id.GetId(),
-            ct => StateManager.RemoveStateAsync(StateKeys.AgentParentUnit, ct),
-            EmitActivityEventAsync,
-            cancellationToken);
+        _logger.LogDebug(
+            "Agent {AgentId} ClearParentUnit invoked; membership table is authoritative (ADR-0040).",
+            Id.GetId());
+
+        await EmitActivityEventAsync(
+            ActivityEventType.StateChanged,
+            "Agent parent-unit cleared",
+            cancellationToken,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "AgentParentUnitCleared",
+            }));
     }
 
     /// <inheritdoc />
     public Task<string[]> GetSkillsAsync(CancellationToken cancellationToken = default)
     {
-        return stateCoordinator.GetSkillsAsync(
-            Id.GetId(),
-            async ct =>
-            {
-                var v = await StateManager.TryGetStateAsync<List<string>>(StateKeys.AgentSkills, ct);
-                return (v.HasValue, v.HasValue ? v.Value : null);
-            },
-            cancellationToken);
+        return stateCoordinator.GetSkillsAsync(Id.GetId(), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -997,7 +974,6 @@ public class AgentActor(
         return stateCoordinator.SetSkillsAsync(
             Id.GetId(),
             skills,
-            (normalised, ct) => StateManager.SetStateAsync(StateKeys.AgentSkills, normalised, ct),
             EmitActivityEventAsync,
             cancellationToken);
     }
@@ -1005,14 +981,7 @@ public class AgentActor(
     /// <inheritdoc />
     public Task<ExpertiseDomain[]> GetExpertiseAsync(CancellationToken cancellationToken = default)
     {
-        return stateCoordinator.GetExpertiseAsync(
-            Id.GetId(),
-            async ct =>
-            {
-                var v = await StateManager.TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.AgentExpertise, ct);
-                return (v.HasValue, v.HasValue ? v.Value : null);
-            },
-            cancellationToken);
+        return stateCoordinator.GetExpertiseAsync(Id.GetId(), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -1021,7 +990,6 @@ public class AgentActor(
         return stateCoordinator.SetExpertiseAsync(
             Id.GetId(),
             domains,
-            (normalised, ct) => StateManager.SetStateAsync(StateKeys.AgentExpertise, normalised, ct),
             EmitActivityEventAsync,
             cancellationToken);
     }

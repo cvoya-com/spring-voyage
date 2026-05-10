@@ -30,9 +30,10 @@ public class DestroyCloneActivity(
         var address = Address.For("agent", input.TargetAgentId);
         await directoryService.UnregisterAsync(address);
 
-        // Clean up clone state.
+        // Clean up clone state. Agent:Definition is no longer mirrored
+        // in the state store (ADR-0040 / #2048) so there is nothing to
+        // delete for that key.
         await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.CloneIdentity}");
-        await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.AgentDefinition}");
         await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.ActiveThread}");
         await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.InitiativeState}");
 

@@ -16,6 +16,7 @@ using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Agents;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Initiative;
@@ -123,7 +124,7 @@ public class AgentActorReflectionDispatchTests
             _initiativeEvaluator,
             loggerFactory,
             Substitute.For<IAgentLifecycleCoordinator>(),
-            new AgentStateCoordinator(Substitute.For<ILogger<AgentStateCoordinator>>()),
+            new AgentStateCoordinator(new InMemoryAgentLiveConfigStore(), Substitute.For<ILogger<AgentStateCoordinator>>()),
             new AgentAmendmentCoordinator(Substitute.For<ILogger<AgentAmendmentCoordinator>>()),
             new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()));
 

@@ -8,12 +8,14 @@ using System.Reflection;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Agents;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Initiative;
@@ -21,7 +23,6 @@ using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
 using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
 using global::Dapr.Actors.Runtime;
 
 using Microsoft.Extensions.Logging;
@@ -33,132 +34,127 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for <see cref="AgentActor"/>'s <c>OnActivateAsync</c> seed path that
-/// auto-applies expertise declared in <c>AgentDefinition</c> YAML to actor
-/// state on first activation. See #488.
+/// Tests for <see cref="AgentActor"/>'s <c>OnActivateAsync</c> seed
+/// path that auto-applies expertise declared in
+/// <c>AgentDefinition</c> YAML on first activation. See #488.
+///
+/// Per ADR-0040 / #2048 the "actor-state wins" precedence flag lives
+/// on <c>agent_live_config.expertise_initialised</c>. These tests
+/// drive the EF surface through <see cref="InMemoryAgentLiveConfigStore"/>.
 /// </summary>
 public class AgentActorSeedExpertiseTests
 {
+    private static readonly Guid AgentGuid = Guid.NewGuid();
+    private static readonly string AgentId = GuidFormatter.Format(AgentGuid);
+
     [Fact]
-    public async Task OnActivateAsync_EmptyState_SeedsFromProvider()
+    public async Task OnActivateAsync_NoPriorState_SeedsFromProvider()
     {
         var seed = new[]
         {
-            new ExpertiseDomain("architecture", "", ExpertiseLevel.Expert),
-            new ExpertiseDomain("code-review", "", ExpertiseLevel.Expert),
+            new ExpertiseDomain("architecture", string.Empty, ExpertiseLevel.Expert),
+            new ExpertiseDomain("code-review", string.Empty, ExpertiseLevel.Expert),
         };
 
-        var actor = BuildActor(
-            stateHasValue: false,
-            seedProvider: CreateSeedProvider(seed),
-            out var stateManager);
-
-        List<ExpertiseDomain>? captured = null;
-        stateManager.SetStateAsync(
-                StateKeys.AgentExpertise,
-                Arg.Do<List<ExpertiseDomain>>(v => captured = v),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.CompletedTask);
+        var (actor, store) = BuildActor(
+            expertiseInitialised: false,
+            seedProvider: CreateSeedProvider(seed));
 
         await InvokeOnActivateAsync(actor);
 
-        captured.ShouldNotBeNull();
-        captured!.Count.ShouldBe(2);
-        captured[0].Name.ShouldBe("architecture");
-        captured[1].Name.ShouldBe("code-review");
+        var stored = await store.GetExpertiseAsync(AgentGuid, TestContext.Current.CancellationToken);
+        stored.Length.ShouldBe(2);
+        stored.ShouldContain(d => d.Name == "architecture");
+        stored.ShouldContain(d => d.Name == "code-review");
+        (await store.HasExpertiseSetAsync(AgentGuid, TestContext.Current.CancellationToken))
+            .ShouldBeTrue();
     }
 
     /// <summary>
-    /// Precedence: actor state wins. Once anything has been persisted (even
-    /// an empty list), subsequent activations must not re-seed from YAML so
-    /// runtime operator edits are never silently clobbered by a stale seed.
+    /// Precedence: operator state wins. Once anything has been
+    /// persisted (even an empty list), subsequent activations must not
+    /// re-seed from YAML so runtime operator edits are never silently
+    /// clobbered by a stale seed.
     /// </summary>
     [Fact]
-    public async Task OnActivateAsync_StateAlreadySet_DoesNotOverwrite()
+    public async Task OnActivateAsync_ExpertiseAlreadyInitialised_DoesNotOverwrite()
     {
-        var actor = BuildActor(
-            stateHasValue: true,
+        var (actor, store) = BuildActor(
+            expertiseInitialised: true,
             seedProvider: CreateSeedProvider(new[]
             {
-                new ExpertiseDomain("should-not-seed", "", ExpertiseLevel.Beginner),
-            }),
-            out var stateManager);
+                new ExpertiseDomain("should-not-seed", string.Empty, ExpertiseLevel.Beginner),
+            }));
 
         await InvokeOnActivateAsync(actor);
 
-        await stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.AgentExpertise,
-            Arg.Any<List<ExpertiseDomain>>(),
-            Arg.Any<CancellationToken>());
+        var stored = await store.GetExpertiseAsync(AgentGuid, TestContext.Current.CancellationToken);
+        stored.ShouldBeEmpty();
     }
 
     [Fact]
     public async Task OnActivateAsync_NoSeedDeclared_DoesNotWrite()
     {
-        var actor = BuildActor(
-            stateHasValue: false,
-            seedProvider: CreateSeedProvider(null),
-            out var stateManager);
+        var (actor, store) = BuildActor(
+            expertiseInitialised: false,
+            seedProvider: CreateSeedProvider(null));
 
         await InvokeOnActivateAsync(actor);
 
-        await stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.AgentExpertise,
-            Arg.Any<List<ExpertiseDomain>>(),
-            Arg.Any<CancellationToken>());
+        var stored = await store.GetExpertiseAsync(AgentGuid, TestContext.Current.CancellationToken);
+        stored.ShouldBeEmpty();
+        (await store.HasExpertiseSetAsync(AgentGuid, TestContext.Current.CancellationToken))
+            .ShouldBeFalse();
     }
 
     [Fact]
     public async Task OnActivateAsync_EmptySeedList_DoesNotWrite()
     {
         // A declared-but-empty seed is a legal operator choice ("explicitly
-        // no seed"); treat it identically to "no seed declared" at the actor
-        // layer — there is nothing to write.
-        var actor = BuildActor(
-            stateHasValue: false,
-            seedProvider: CreateSeedProvider(Array.Empty<ExpertiseDomain>()),
-            out var stateManager);
+        // no seed"); treat it identically to "no seed declared" at the
+        // actor layer — there is nothing to write.
+        var (actor, store) = BuildActor(
+            expertiseInitialised: false,
+            seedProvider: CreateSeedProvider(Array.Empty<ExpertiseDomain>()));
 
         await InvokeOnActivateAsync(actor);
 
-        await stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.AgentExpertise,
-            Arg.Any<List<ExpertiseDomain>>(),
-            Arg.Any<CancellationToken>());
+        var stored = await store.GetExpertiseAsync(AgentGuid, TestContext.Current.CancellationToken);
+        stored.ShouldBeEmpty();
+        (await store.HasExpertiseSetAsync(AgentGuid, TestContext.Current.CancellationToken))
+            .ShouldBeFalse();
     }
 
     [Fact]
     public async Task OnActivateAsync_NullProvider_NoOp()
     {
-        // Legacy test harnesses pass null for the seed provider — activation
-        // must remain a no-op in that case.
-        var actor = BuildActor(stateHasValue: false, seedProvider: null, out var stateManager);
+        // Legacy test harnesses pass null for the seed provider —
+        // activation must remain a no-op in that case.
+        var (actor, store) = BuildActor(expertiseInitialised: false, seedProvider: null);
 
         await InvokeOnActivateAsync(actor);
 
-        await stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.AgentExpertise,
-            Arg.Any<List<ExpertiseDomain>>(),
-            Arg.Any<CancellationToken>());
+        var stored = await store.GetExpertiseAsync(AgentGuid, TestContext.Current.CancellationToken);
+        stored.ShouldBeEmpty();
     }
 
-    private static AgentActor BuildActor(
-        bool stateHasValue,
-        IExpertiseSeedProvider? seedProvider,
-        out IActorStateManager stateManager)
+    private static (AgentActor Actor, InMemoryAgentLiveConfigStore Store) BuildActor(
+        bool expertiseInitialised,
+        IExpertiseSeedProvider? seedProvider)
     {
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
 
-        stateManager = Substitute.For<IActorStateManager>();
-        stateManager
-            .TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.AgentExpertise, Arg.Any<CancellationToken>())
-            .Returns(stateHasValue
-                ? new ConditionalValue<List<ExpertiseDomain>>(true, new List<ExpertiseDomain>())
-                : new ConditionalValue<List<ExpertiseDomain>>(false, default!));
+        var stateManager = Substitute.For<IActorStateManager>();
+        var store = new InMemoryAgentLiveConfigStore();
+        if (expertiseInitialised)
+        {
+            store.SetExpertiseInitialised(AgentGuid, true);
+        }
 
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
+            ActorId = new ActorId(AgentId),
         });
 
         var router = Substitute.For<MessageRouter>(
@@ -177,9 +173,7 @@ public class AgentActorSeedExpertiseTests
         policyEnforcer.WithAllowByDefault();
 
         // Wire the real AgentLifecycleCoordinator so that OnActivateAsync
-        // exercises the coordinator's seeding logic end-to-end. Scoped seams
-        // (StateManager, IExpertiseSeedProvider) are injected as delegates by
-        // the actor on each activation — the coordinator itself is stateless.
+        // exercises the coordinator's seeding logic end-to-end.
         var lifecycleCoordinator = new AgentLifecycleCoordinator(
             Substitute.For<ILogger<AgentLifecycleCoordinator>>());
 
@@ -199,7 +193,7 @@ public class AgentActorSeedExpertiseTests
             Substitute.For<IAgentInitiativeEvaluator>(),
             loggerFactory,
             lifecycleCoordinator,
-            new AgentStateCoordinator(Substitute.For<ILogger<AgentStateCoordinator>>()),
+            new AgentStateCoordinator(store, Substitute.For<ILogger<AgentStateCoordinator>>()),
             new AgentAmendmentCoordinator(Substitute.For<ILogger<AgentAmendmentCoordinator>>()),
             new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()),
             seedProvider);
@@ -207,7 +201,7 @@ public class AgentActorSeedExpertiseTests
         typeof(Actor).GetField("<StateManager>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)!
             .SetValue(actor, stateManager);
 
-        return actor;
+        return (actor, store);
     }
 
     private static IExpertiseSeedProvider CreateSeedProvider(IReadOnlyList<ExpertiseDomain>? seed)

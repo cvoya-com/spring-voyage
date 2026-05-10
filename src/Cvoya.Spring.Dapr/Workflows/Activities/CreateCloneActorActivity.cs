@@ -34,14 +34,10 @@ public class CreateCloneActorActivity(
         var cloneIdentityKey = $"{input.TargetAgentId}:{StateKeys.CloneIdentity}";
         await stateStore.SetAsync(cloneIdentityKey, cloneIdentity);
 
-        // Copy parent agent definition to clone.
-        var parentDefinitionKey = $"{input.SourceAgentId}:{StateKeys.AgentDefinition}";
-        var parentDefinition = await stateStore.GetAsync<object>(parentDefinitionKey);
-        if (parentDefinition is not null)
-        {
-            var cloneDefinitionKey = $"{input.TargetAgentId}:{StateKeys.AgentDefinition}";
-            await stateStore.SetAsync(cloneDefinitionKey, parentDefinition);
-        }
+        // ADR-0040 / #2048: Agent:Definition is no longer mirrored in the
+        // state store. The clone reads its parent's definition from the
+        // agent_definitions EF table on activation; there is nothing to
+        // copy here.
 
         // Copy memory state if the policy requires it.
         if (input.CloningPolicy == CloningPolicy.EphemeralWithMemory)

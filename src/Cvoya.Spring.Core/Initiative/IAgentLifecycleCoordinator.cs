@@ -50,13 +50,16 @@ public interface IAgentLifecycleCoordinator
     /// The Dapr actor id (<c>Id.GetId()</c>) of the activating agent. Passed
     /// to the seed provider and used for log correlation.
     /// </param>
-    /// <param name="getExistingExpertise">
-    /// Delegate that reads the current expertise list from actor state.
-    /// Returns a <c>ConditionalValue</c>-style pair: the boolean indicates
-    /// whether state was set at all (even an empty list counts), and the
-    /// list carries the value when set. Passed as a delegate so the
-    /// coordinator can remain a singleton even though <c>StateManager</c>
-    /// is a per-actor Dapr type.
+    /// <param name="hasExistingExpertise">
+    /// Delegate that returns <c>true</c> when the agent already has an
+    /// explicit expertise list persisted (even an empty list). The
+    /// coordinator uses this to honour the actor-state-wins precedence
+    /// rule (#488) — once an explicit value has been written through
+    /// <c>SetExpertiseAsync</c>, the YAML seed is not re-applied. Passed
+    /// as a delegate so the coordinator can remain a singleton even
+    /// though the underlying read goes through the EF
+    /// <c>agent_live_config.expertise_initialised</c> flag (ADR-0040 /
+    /// #2048).
     /// </param>
     /// <param name="getSeed">
     /// Delegate that fetches the declarative expertise seed for the agent.
@@ -74,7 +77,7 @@ public interface IAgentLifecycleCoordinator
     /// <param name="cancellationToken">Cancels the activation operation.</param>
     Task ActivateAsync(
         string agentId,
-        Func<CancellationToken, Task<(bool hasValue, List<ExpertiseDomain>? value)>> getExistingExpertise,
+        Func<CancellationToken, Task<bool>> hasExistingExpertise,
         Func<CancellationToken, Task<IReadOnlyList<ExpertiseDomain>?>> getSeed,
         Func<ExpertiseDomain[], CancellationToken, Task> persistExpertise,
         CancellationToken cancellationToken = default);
