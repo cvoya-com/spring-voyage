@@ -22,8 +22,8 @@ using Xunit;
 /// <summary>
 /// HTTP-level tests for <see cref="Endpoints.CloningPolicyEndpoints"/>. Rides
 /// the shared <see cref="CustomWebApplicationFactory"/> so the server pipeline
-/// mirrors production; the cloning-policy repository sits on the in-memory
-/// state store substituted in the factory.
+/// mirrors production; the cloning-policy repository (#2051 / ADR-0040) sits
+/// on the EF in-memory database substituted in the factory.
 /// </summary>
 public class CloningPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 {
@@ -66,10 +66,9 @@ public class CloningPolicyEndpointsTests : IClassFixture<CustomWebApplicationFac
         var address = new Address("agent", Agent_AdaGet_Id);
         _factory.DirectoryService.ResolveAsync(address, Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(address, Agent_AdaGet_Id, "Ada", "Ada", null, DateTimeOffset.UtcNow));
-        _factory.StateStore
-            .GetAsync<AgentCloningPolicy>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((AgentCloningPolicy?)null);
 
+        // No row in cloning_policies → repository returns Empty; the
+        // endpoint serialises that as an all-null wire payload.
         var response = await _client.GetAsync(
             $"/api/v1/tenant/agents/{Agent_AdaGet_Id:N}/cloning-policy", ct);
 

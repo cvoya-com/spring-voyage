@@ -14,6 +14,7 @@ using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Cloning;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -28,6 +29,14 @@ using Xunit;
 /// exercises one dimension of the enforcement chain (allowed-policy,
 /// allowed-attachment, depth cap, boundary opacity) with the other axes
 /// left unconstrained, so a failure localises to the dimension under test.
+///
+/// <para>
+/// Post-#2051 / ADR-0040 the cloning-policy repository is EF-backed; these
+/// unit tests drive the enforcer through an
+/// <see cref="InMemoryAgentCloningPolicyRepository"/> so they don't depend
+/// on either the state-store or the EF in-memory provider. The EF surface
+/// itself is covered in <c>CloningPolicyRepositoryTests</c>.
+/// </para>
 /// </summary>
 public class DefaultAgentCloningPolicyEnforcerTests
 {
@@ -36,7 +45,7 @@ public class DefaultAgentCloningPolicyEnforcerTests
     private static readonly Guid UnitResearchCellUuid = new("cccccccc-0000-0000-0000-000000000001");
 
     private readonly InMemoryStateStore _stateStore = new();
-    private readonly StateStoreAgentCloningPolicyRepository _repository;
+    private readonly InMemoryAgentCloningPolicyRepository _repository = new();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
     private readonly IUnitBoundaryStore _boundaryStore = Substitute.For<IUnitBoundaryStore>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
@@ -45,7 +54,6 @@ public class DefaultAgentCloningPolicyEnforcerTests
 
     public DefaultAgentCloningPolicyEnforcerTests()
     {
-        _repository = new StateStoreAgentCloningPolicyRepository(_stateStore);
         _tenantContext.CurrentTenantId.Returns(new Guid("aaaaaaaa-1111-1111-1111-000000000001"));
 
         _membershipRepository

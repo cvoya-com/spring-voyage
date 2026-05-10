@@ -135,7 +135,7 @@ The enum above tells the lifecycle workflow which memory shape to use for a sing
 - **CLI** — `spring agent clone policy get|set|clear` with `--scope agent|tenant`. `set` accepts per-flag edits (`--allowed-policy`, `--allowed-attachment`, `--max-clones`, `--max-depth`, `--budget`) or a YAML fragment via `-f`. `clear` removes the policy row.
 - **Portal** — tracked as [#534](https://github.com/cvoya-com/spring-voyage/issues/534) (backend + CLI ship here; the portal tab lands as a follow-up).
 
-**Storage.** Policies persist via `IAgentCloningPolicyRepository`, backed in the OSS default by the shared `IStateStore` under `Agent:CloningPolicy:{id}` / `Tenant:CloningPolicy:{tenantId}`. An all-null policy (`AgentCloningPolicy.Empty`) is represented as a deleted row so the store reflects scopes that actually have a policy. A private-cloud host can layer a tenant-scoped wrapper via `TryAdd*` without reshaping persistence.
+**Storage.** Policies persist via `IAgentCloningPolicyRepository`, backed in the OSS default by the tenant-scoped `cloning_policies` EF table (#2051 / [ADR-0040](../decisions/0040-actor-state-ownership-matrix.md)). One row per `(tenant_id, scope_type, scope_id)` — agent-scope rows carry the agent's stable Guid in `scope_id`; the tenant-scope row carries `NULL` (uniqueness enforced by partial index). The serialised `AgentCloningPolicy` payload lives in a `policy jsonb` column so adding new policy slots is additive at the schema level. An all-null policy (`AgentCloningPolicy.Empty`) is represented as a deleted row so the table reflects scopes that actually have a policy. A private-cloud host can layer a tenant-scoped wrapper via `TryAdd*` without reshaping persistence.
 
 ### Role
 

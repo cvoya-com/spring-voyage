@@ -196,6 +196,16 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<UnitConnectorBindingEntity> UnitConnectorBindings => Set<UnitConnectorBindingEntity>();
 
+    /// <summary>
+    /// Gets the set of agent / tenant cloning-policy rows (#2051 /
+    /// ADR-0040). One row per <c>(tenant_id, scope_type, scope_id)</c>;
+    /// replaces the actor-state <c>Agent:CloningPolicy:{agentId}</c> and
+    /// <c>Tenant:CloningPolicy:{tenantId}</c> keys with a tenant-scoped
+    /// EF row whose <c>policy</c> column holds the serialised
+    /// <see cref="Cvoya.Spring.Core.Cloning.AgentCloningPolicy"/> payload.
+    /// </summary>
+    public DbSet<CloningPolicyEntity> CloningPolicies => Set<CloningPolicyEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -236,6 +246,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new UnitLiveConfigEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitExpertiseEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitConnectorBindingEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new CloningPolicyEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -327,6 +338,14 @@ public class SpringDbContext : DbContext
         // Cleared bindings are deleted outright; rebinds upsert into the
         // existing row to preserve id stability.
         modelBuilder.Entity<UnitConnectorBindingEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Cloning policies: tenant-scoped, no soft-delete (#2051 / ADR-0040).
+        // Empty policies are deleted outright; non-empty upserts replace
+        // the policy payload in place to preserve row id stability. Tenant-
+        // scope rows carry NULL scope_id (uniqueness enforced by partial
+        // index in the entity configuration).
+        modelBuilder.Entity<CloningPolicyEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 
