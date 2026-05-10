@@ -178,6 +178,15 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // can write through it.
         services.TryAddScoped<IUnitLiveConfigRepository, UnitLiveConfigRepository>();
 
+        // #2050 / ADR-0040: unit connector bindings (connector type,
+        // typed config, runtime metadata) live in EF on the
+        // unit_connector_bindings table, not actor state. Scoped repo
+        // wrapped by a singleton store (registered separately) so the
+        // unit lifecycle endpoints and the public connector-package
+        // surface (IUnitConnectorConfigStore / IUnitConnectorRuntimeStore)
+        // can read/write through it from singleton call sites.
+        services.TryAddScoped<IUnitConnectorBindingRepository, UnitConnectorBindingRepository>();
+
         // Singleton write-through wrapper around the scoped sub-unit
         // membership repository (#1154). UnitActor is not request-scoped
         // and cannot consume the scoped repo directly; the projector

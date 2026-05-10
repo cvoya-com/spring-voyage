@@ -145,23 +145,15 @@ public static class StateKeys
     // / writes via IUnitStateCoordinator, which routes through
     // IUnitLiveConfigStore.
 
-    /// <summary>
-    /// State key for the unit's generic connector binding
-    /// (<see cref="Connectors.UnitConnectorBinding"/>): a
-    /// <c>(TypeId, JsonElement)</c> pair that identifies which connector
-    /// owns the unit and carries the connector-specific typed config.
-    /// Present while the unit is bound; absent otherwise.
-    /// </summary>
-    public const string UnitConnectorBinding = "Unit:ConnectorBinding";
-
-    /// <summary>
-    /// State key for connector-owned runtime metadata persisted on a unit —
-    /// e.g. the GitHub webhook id created at /start and needed by /stop so
-    /// it can call <c>DELETE /repos/{owner}/{repo}/hooks/{id}</c>. Stored as
-    /// an opaque <see cref="System.Text.Json.JsonElement"/> because the
-    /// actor has no knowledge of any individual connector's shape.
-    /// </summary>
-    public const string UnitConnectorMetadata = "Unit:ConnectorMetadata";
+    // ADR-0040 / #2050: Unit:ConnectorBinding and Unit:ConnectorMetadata
+    // were moved to the unit_connector_bindings EF table. Connector
+    // bindings now live on a single relational row keyed by
+    // (tenant, unit) so the binding survives actor restarts and the
+    // connector lifecycle hooks can resolve from a single SQL read.
+    // The connector-owned runtime metadata column (e.g. GitHub webhook
+    // ids) lives on the same row. Connector:Status, Connector:Type,
+    // and Connector:Config remain instance-local actor state on
+    // ConnectorActor per ADR-0040.
 
     /// <summary>
     /// State key for the agent's pending mid-flight amendments queue

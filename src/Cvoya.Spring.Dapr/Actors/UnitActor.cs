@@ -5,7 +5,6 @@ namespace Cvoya.Spring.Dapr.Actors;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
@@ -739,56 +738,14 @@ public class UnitActor : Actor, IUnitActor
         }
     }
 
-    /// <inheritdoc />
-    public async Task<UnitConnectorBinding?> GetConnectorBindingAsync(CancellationToken ct = default)
-    {
-        var result = await StateManager.TryGetStateAsync<UnitConnectorBinding>(
-            StateKeys.UnitConnectorBinding, ct);
-        return result.HasValue ? result.Value : null;
-    }
-
-    /// <inheritdoc />
-    public async Task SetConnectorBindingAsync(UnitConnectorBinding? binding, CancellationToken ct = default)
-    {
-        if (binding is null)
-        {
-            await StateManager.RemoveStateAsync(StateKeys.UnitConnectorBinding, ct);
-            // Clearing the binding also drops any connector-owned runtime
-            // metadata — it would otherwise leak across a rebind to a
-            // different connector type.
-            await StateManager.RemoveStateAsync(StateKeys.UnitConnectorMetadata, ct);
-            _logger.LogInformation(
-                "Unit {ActorId} cleared connector binding",
-                Id.GetId());
-            return;
-        }
-
-        await StateManager.SetStateAsync(StateKeys.UnitConnectorBinding, binding, ct);
-        _logger.LogInformation(
-            "Unit {ActorId} bound to connector type {TypeId}",
-            Id.GetId(), binding.TypeId);
-    }
-
-    /// <inheritdoc />
-    public async Task<JsonElement?> GetConnectorMetadataAsync(CancellationToken ct = default)
-    {
-        var result = await StateManager.TryGetStateAsync<JsonElement>(
-            StateKeys.UnitConnectorMetadata, ct);
-        return result.HasValue ? result.Value : null;
-    }
-
-    /// <inheritdoc />
-    public async Task SetConnectorMetadataAsync(JsonElement? metadata, CancellationToken ct = default)
-    {
-        if (metadata is null || metadata.Value.ValueKind == JsonValueKind.Null ||
-            metadata.Value.ValueKind == JsonValueKind.Undefined)
-        {
-            await StateManager.RemoveStateAsync(StateKeys.UnitConnectorMetadata, ct);
-            return;
-        }
-
-        await StateManager.SetStateAsync(StateKeys.UnitConnectorMetadata, metadata.Value, ct);
-    }
+    // ADR-0040 / #2050: GetConnectorBindingAsync /
+    // SetConnectorBindingAsync / GetConnectorMetadataAsync /
+    // SetConnectorMetadataAsync were removed from the actor surface.
+    // Connector bindings + their runtime metadata live on the
+    // unit_connector_bindings EF table; callers route through
+    // IUnitConnectorConfigStore / IUnitConnectorRuntimeStore (the
+    // public connector-package surface) or IUnitConnectorBindingStore
+    // (the platform-internal seam used by the unit lifecycle endpoints).
 
     /// <summary>
     /// Persists a single status transition and emits the corresponding

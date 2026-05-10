@@ -3,9 +3,6 @@
 
 namespace Cvoya.Spring.Dapr.Actors;
 
-using System.Text.Json;
-
-using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
@@ -209,42 +206,13 @@ public interface IUnitActor : IAgent
     /// <param name="ct">A token to cancel the operation.</param>
     Task SetMetadataAsync(UnitMetadata metadata, CancellationToken ct = default);
 
-    /// <summary>
-    /// Gets the unit's active connector binding, or <c>null</c> when the
-    /// unit is not wired to any connector. The binding identifies the
-    /// connector type and carries the connector-specific typed config as an
-    /// opaque <see cref="JsonElement"/> — connector-specific shape is
-    /// deserialized by the owning connector package.
-    /// </summary>
-    /// <param name="ct">A token to cancel the operation.</param>
-    /// <returns>The persisted binding, or <c>null</c> if unset.</returns>
-    Task<UnitConnectorBinding?> GetConnectorBindingAsync(CancellationToken ct = default);
-
-    /// <summary>
-    /// Upserts the unit's connector binding atomically. Replaces any prior
-    /// binding regardless of connector type. Pass <c>null</c> to clear the
-    /// binding.
-    /// </summary>
-    /// <param name="binding">The new binding, or <c>null</c> to clear.</param>
-    /// <param name="ct">A token to cancel the operation.</param>
-    Task SetConnectorBindingAsync(UnitConnectorBinding? binding, CancellationToken ct = default);
-
-    /// <summary>
-    /// Returns the opaque connector-owned runtime metadata stored on the
-    /// unit (e.g. a webhook id that a connector registered on /start and
-    /// will need on /stop), or <c>null</c> when no metadata is stored.
-    /// </summary>
-    /// <param name="ct">A token to cancel the operation.</param>
-    Task<JsonElement?> GetConnectorMetadataAsync(CancellationToken ct = default);
-
-    /// <summary>
-    /// Stores connector-owned runtime metadata on the unit. Pass
-    /// <c>default(JsonElement)</c> or an explicit null-valued element to
-    /// clear.
-    /// </summary>
-    /// <param name="metadata">The metadata to persist, or <c>null</c> to clear.</param>
-    /// <param name="ct">A token to cancel the operation.</param>
-    Task SetConnectorMetadataAsync(JsonElement? metadata, CancellationToken ct = default);
+    // ADR-0040 / #2050: GetConnectorBindingAsync, SetConnectorBindingAsync,
+    // GetConnectorMetadataAsync, and SetConnectorMetadataAsync were
+    // removed. Connector bindings + connector-owned runtime metadata
+    // live on the unit_connector_bindings EF table. Callers go through
+    // IUnitConnectorConfigStore / IUnitConnectorRuntimeStore (the
+    // public connector-package surface) or IUnitConnectorBindingStore
+    // (the platform-internal seam).
 
     /// <summary>
     /// Evaluates whether the unit has enough configuration to leave the

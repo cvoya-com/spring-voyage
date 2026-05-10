@@ -52,8 +52,15 @@ public class ActorInterfaceSerializationTests
     [Fact]
     public void UnitConnectorBinding_RoundTripsThroughDataContractSerializer()
     {
-        // Realistic payload — the Config is an opaque JsonElement carrying
-        // connector-specific typed config.
+        // ADR-0040 / #2050: UnitConnectorBinding no longer crosses the
+        // Dapr actor remoting boundary — bindings live on the
+        // unit_connector_bindings EF table and cross via plain DI.
+        // The [DataContract] / [DataMember] annotations on the record
+        // are kept defensively because the type is still public surface
+        // for connector packages and a future caller might re-introduce
+        // a remoting hop. This test pins the round-trip so a regression
+        // (someone removes the annotations and a future caller re-adds
+        // an actor-boundary use site) fails fast.
         using var configDoc = JsonDocument.Parse("""{"owner":"acme","repo":"spring-voyage"}""");
         var original = new UnitConnectorBinding(
             TypeId: Guid.Parse("11111111-2222-3333-4444-555555555555"),

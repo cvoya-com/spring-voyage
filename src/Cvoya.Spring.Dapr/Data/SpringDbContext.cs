@@ -187,6 +187,15 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<UnitExpertiseEntity> UnitExpertise => Set<UnitExpertiseEntity>();
 
+    /// <summary>
+    /// Gets the set of unit connector binding rows (#2050 / ADR-0040).
+    /// One row per (tenant, unit); replaces the actor-state
+    /// <c>Unit:ConnectorBinding</c> + <c>Unit:ConnectorMetadata</c>
+    /// pair with the connector type, typed config, and connector-owned
+    /// runtime metadata (e.g. webhook ids) on a single relational row.
+    /// </summary>
+    public DbSet<UnitConnectorBindingEntity> UnitConnectorBindings => Set<UnitConnectorBindingEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -226,6 +235,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new AgentExpertiseEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitLiveConfigEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitExpertiseEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new UnitConnectorBindingEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -311,6 +321,12 @@ public class SpringDbContext : DbContext
 
         // Unit own expertise: tenant-scoped, no soft-delete (#2049 / ADR-0040).
         modelBuilder.Entity<UnitExpertiseEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Unit connector bindings: tenant-scoped, no soft-delete (#2050 / ADR-0040).
+        // Cleared bindings are deleted outright; rebinds upsert into the
+        // existing row to preserve id stability.
+        modelBuilder.Entity<UnitConnectorBindingEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 

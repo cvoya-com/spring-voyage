@@ -119,9 +119,11 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         var proxy = ArrangeUnit(startingResult: new TransitionResult(true, UnitStatus.Starting, null),
             finalResult: new TransitionResult(true, UnitStatus.Running, null));
 
+        // ADR-0040 / #2050: the binding lookup goes through
+        // IUnitConnectorConfigStore (EF), not the unit actor proxy.
         var boundTypeId = _factory.StubConnectorType.TypeId;
         var boundConfig = JsonSerializer.SerializeToElement(new { owner = "acme", repo = "platform" });
-        proxy.GetConnectorBindingAsync(Arg.Any<CancellationToken>())
+        _factory.ConnectorConfigStore.GetAsync(UnitName, Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(boundTypeId, boundConfig));
 
         var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/start", content: null, ct);
@@ -140,7 +142,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
 
         var boundTypeId = _factory.StubConnectorType.TypeId;
         var boundConfig = JsonSerializer.SerializeToElement(new { owner = "acme", repo = "platform" });
-        proxy.GetConnectorBindingAsync(Arg.Any<CancellationToken>())
+        _factory.ConnectorConfigStore.GetAsync(UnitName, Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(boundTypeId, boundConfig));
 
         _factory.StubConnectorType.OnUnitStartingAsync(UnitName, Arg.Any<CancellationToken>())
@@ -164,7 +166,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
             .Returns(new TransitionResult(true, UnitStatus.Stopped, null));
         var boundTypeId = _factory.StubConnectorType.TypeId;
         var boundConfig = JsonSerializer.SerializeToElement(new { owner = "acme", repo = "platform" });
-        proxy.GetConnectorBindingAsync(Arg.Any<CancellationToken>())
+        _factory.ConnectorConfigStore.GetAsync(UnitName, Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(boundTypeId, boundConfig));
 
         ArrangeResolved(proxy);
@@ -186,7 +188,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
             .Returns(new TransitionResult(true, UnitStatus.Stopping, null));
         proxy.TransitionAsync(UnitStatus.Stopped, Arg.Any<CancellationToken>())
             .Returns(new TransitionResult(true, UnitStatus.Stopped, null));
-        proxy.GetConnectorBindingAsync(Arg.Any<CancellationToken>())
+        _factory.ConnectorConfigStore.GetAsync(UnitName, Arg.Any<CancellationToken>())
             .Returns((UnitConnectorBinding?)null);
 
         ArrangeResolved(proxy);
@@ -232,6 +234,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         _factory.UnitContainerLifecycle.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();
         _factory.StubConnectorType.ClearReceivedCalls();
+        _factory.ConnectorConfigStore.ClearReceivedCalls();
 
         var entry = new DirectoryEntry(
             new Address("unit", ActorId_Guid),

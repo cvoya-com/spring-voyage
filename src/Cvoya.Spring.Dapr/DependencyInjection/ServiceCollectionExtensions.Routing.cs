@@ -82,6 +82,12 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddSingleton<IUnitConnectorConfigStore, UnitActorConnectorConfigStore>();
         services.TryAddSingleton<IUnitConnectorRuntimeStore, UnitActorConnectorRuntimeStore>();
 
+        // ADR-0040 / #2050: connector binding persistence is now
+        // EF-backed (unit_connector_bindings table). The singleton store
+        // creates a fresh DI scope per call to resolve the scoped
+        // repository — same pattern as IUnitLiveConfigStore.
+        services.TryAddSingleton<IUnitConnectorBindingStore, UnitConnectorBindingStore>();
+
         // Register the base aggregator as a concrete singleton so the
         // boundary decorator can take a typed inner reference. Tests that
         // want the raw (unfiltered) aggregator can resolve the concrete
