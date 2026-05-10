@@ -4,12 +4,10 @@
 namespace Cvoya.Spring.Core.Observability;
 
 /// <summary>
-/// Looks up a single message by id (#1209). Like
-/// <see cref="IThreadQueryService"/> the default OSS implementation
-/// projects from the activity-event store — each <c>MessageReceived</c>
-/// event stamps the message envelope (id / from / to / payload) on its
-/// <c>Details</c> JSON. Cloud overlays can swap the implementation to read
-/// from a dedicated message store without touching call sites.
+/// Looks up a single message by id (#1209). The default OSS implementation
+/// reads the EF-authoritative <c>messages</c> table (per ADR-0030 / ADR-0040);
+/// cloud overlays can swap the implementation through DI without touching
+/// call sites.
 /// </summary>
 public interface IMessageQueryService
 {
