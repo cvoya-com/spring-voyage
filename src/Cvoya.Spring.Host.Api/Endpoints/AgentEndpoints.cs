@@ -363,17 +363,21 @@ public static class AgentEndpoints
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            return AgentHostingMode.Ephemeral;
+            return AgentHostingMode.Persistent;
         }
         if (value.Equals("persistent", StringComparison.OrdinalIgnoreCase))
         {
             return AgentHostingMode.Persistent;
         }
+        if (value.Equals("ephemeral", StringComparison.OrdinalIgnoreCase))
+        {
+            return AgentHostingMode.Ephemeral;
+        }
         if (value.Equals("pooled", StringComparison.OrdinalIgnoreCase))
         {
             return AgentHostingMode.Pooled;
         }
-        return AgentHostingMode.Ephemeral;
+        return AgentHostingMode.Persistent;
     }
 
     /// <summary>

@@ -134,11 +134,11 @@ export const DEFAULT_RUNTIME_ID: RuntimeId = "claude-code";
 export type HostingMode = "ephemeral" | "persistent";
 
 export const HOSTING_MODES: readonly { id: HostingMode; label: string }[] = [
-  { id: "ephemeral", label: "Ephemeral" },
   { id: "persistent", label: "Persistent" },
+  { id: "ephemeral", label: "Ephemeral" },
 ];
 
-export const DEFAULT_HOSTING_MODE: HostingMode = "ephemeral";
+export const DEFAULT_HOSTING_MODE: HostingMode = "persistent";
 
 /**
  * Returns true when the runtime's provider is fixed by the launcher

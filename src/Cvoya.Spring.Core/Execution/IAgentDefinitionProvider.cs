@@ -42,13 +42,12 @@ public enum AgentHostingMode
 {
     /// <summary>
     /// A fresh container is started per dispatch, does its work, and is cleaned up.
-    /// This is the default and matches the existing behaviour.
     /// </summary>
     Ephemeral,
 
     /// <summary>
     /// A long-lived service receives messages over its lifetime. The platform
-    /// starts it on first dispatch and keeps it running.
+    /// starts it on first dispatch and keeps it running. This is the default.
     /// </summary>
     Persistent,
 
@@ -93,7 +92,7 @@ public enum AgentHostingMode
 /// require a container image (e.g. agents running as standalone services).
 /// </param>
 /// <param name="Hosting">
-/// The hosting mode for the agent. Defaults to <see cref="AgentHostingMode.Ephemeral"/>.
+/// The hosting mode for the agent. Defaults to <see cref="AgentHostingMode.Persistent"/>.
 /// </param>
 /// <param name="Provider">
 /// Optional LLM provider selector for Dapr-Conversation-backed launchers (e.g.
@@ -119,7 +118,7 @@ public enum AgentHostingMode
 public record AgentExecutionConfig(
     string AgentRuntimeId,
     string? Image,
-    AgentHostingMode Hosting = AgentHostingMode.Ephemeral,
+    AgentHostingMode Hosting = AgentHostingMode.Persistent,
     string? Provider = null,
     string? Model = null,
     bool ConcurrentThreads = true)
