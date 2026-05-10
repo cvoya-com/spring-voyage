@@ -539,6 +539,7 @@ public static class UnitEndpoints
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitContainerLifecycle containerLifecycle,
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        [FromServices] IUnitConnectorConfigStore connectorConfigStore,
         [FromServices] IActivityEventBus activityEventBus,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -583,8 +584,8 @@ public static class UnitEndpoints
         return await ForceDeleteUnitAsync(
             id, address, entry.ActorId, status,
             directoryService, actorProxyFactory,
-            containerLifecycle, connectorTypes, activityEventBus,
-            logger, cancellationToken);
+            containerLifecycle, connectorTypes, connectorConfigStore,
+            activityEventBus, logger, cancellationToken);
     }
 
     /// <summary>
@@ -604,6 +605,7 @@ public static class UnitEndpoints
         IActorProxyFactory actorProxyFactory,
         IUnitContainerLifecycle containerLifecycle,
         IEnumerable<IConnectorType> connectorTypes,
+        IUnitConnectorConfigStore connectorConfigStore,
         IActivityEventBus activityEventBus,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -613,20 +615,17 @@ public static class UnitEndpoints
             id, previousStatus);
 
         var failures = new List<string>();
-        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorId)), nameof(UnitActor));
 
         try
         {
             // Delegate to the connector type owning this unit so it can
             // tear down its external resources. Each connector's stop hook
             // is responsible for catching its own errors; the try/catch
-            // here is a second safety net.
-            // #1748: pass the unit's actor-Guid form because the runtime /
-            // config stores parse it as a Guid.
+            // here is a second safety net. ADR-0040 / #2050: the binding
+            // lookup is an EF read keyed by the unit's actor Guid.
             await DispatchConnectorStopAsync(
                 Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorId),
-                proxy, connectorTypes, logger, cancellationToken);
+                connectorConfigStore, connectorTypes, logger, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -740,6 +739,7 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        [FromServices] IUnitConnectorConfigStore connectorConfigStore,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -769,12 +769,12 @@ public static class UnitEndpoints
         // any external-system resources its binding needs (e.g. GitHub
         // webhooks). Each connector is responsible for catching its own
         // failures — we never let a misbehaving connector fail a unit start.
-        // #1748: connectors call IUnitConnectorRuntimeStore / -ConfigStore
-        // which are keyed by the unit's actor Guid; pass the canonical
-        // actor-id form rather than the route id.
+        // ADR-0040 / #2050: the binding is read from the EF-backed
+        // IUnitConnectorConfigStore (unit_connector_bindings table); pass
+        // the canonical actor-id form so the store joins on unit_id Guid.
         await DispatchConnectorStartAsync(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId),
-            proxy, connectorTypes, logger, cancellationToken);
+            connectorConfigStore, connectorTypes, logger, cancellationToken);
 
         // Transition straight to Running. Agent-container lifecycle is
         // managed by the A2A dispatcher (#346/#349), not by this endpoint.
@@ -801,6 +801,7 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        [FromServices] IUnitConnectorConfigStore connectorConfigStore,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -829,12 +830,11 @@ public static class UnitEndpoints
         // Dispatch connector stop-hooks so each connector can tear down any
         // external-system resources it provisioned on /start. Individual
         // connector failures are logged inside the connector and must not
-        // block the /stop flow.
-        // #1748: connectors call IUnitConnectorRuntimeStore / -ConfigStore
-        // which are keyed by the unit's actor Guid.
+        // block the /stop flow. ADR-0040 / #2050: binding lookup goes
+        // through the EF-backed config store.
         await DispatchConnectorStopAsync(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId),
-            proxy, connectorTypes, logger, cancellationToken);
+            connectorConfigStore, connectorTypes, logger, cancellationToken);
 
         // Transition straight to Stopped. Agent-container lifecycle is
         // managed by the A2A dispatcher (#346/#349), not by this endpoint.
@@ -1279,19 +1279,21 @@ public static class UnitEndpoints
 
     /// <summary>
     /// Invokes <see cref="IConnectorType.OnUnitStartingAsync"/> on the
-    /// connector type the unit is currently bound to, if any. The unit is
-    /// "bound" when its <see cref="IUnitActor.GetConnectorBindingAsync"/>
-    /// returns a <see cref="UnitConnectorBinding"/> whose type id matches a
-    /// registered <see cref="IConnectorType"/>.
+    /// connector type the unit is currently bound to, if any. The unit
+    /// is "bound" when <see cref="IUnitConnectorConfigStore.GetAsync"/>
+    /// returns a <see cref="UnitConnectorBinding"/> whose type id matches
+    /// a registered <see cref="IConnectorType"/>. ADR-0040 / #2050: the
+    /// binding lookup goes through the EF-backed store, not the unit
+    /// actor — no cold-activation hop is required.
     /// </summary>
     private static async Task DispatchConnectorStartAsync(
         string unitId,
-        IUnitActor proxy,
+        IUnitConnectorConfigStore configStore,
         IEnumerable<IConnectorType> connectorTypes,
         ILogger logger,
         CancellationToken ct)
     {
-        var binding = await proxy.GetConnectorBindingAsync(ct);
+        var binding = await configStore.GetAsync(unitId, ct);
         if (binding is null)
         {
             return;
@@ -1325,12 +1327,12 @@ public static class UnitEndpoints
     /// </summary>
     private static async Task DispatchConnectorStopAsync(
         string unitId,
-        IUnitActor proxy,
+        IUnitConnectorConfigStore configStore,
         IEnumerable<IConnectorType> connectorTypes,
         ILogger logger,
         CancellationToken ct)
     {
-        var binding = await proxy.GetConnectorBindingAsync(ct);
+        var binding = await configStore.GetAsync(unitId, ct);
         if (binding is null)
         {
             return;
