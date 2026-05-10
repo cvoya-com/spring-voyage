@@ -39,7 +39,6 @@ function makeDetail(events: ThreadDetail["events"]): ThreadDetail {
   return {
     summary: {
       id: "t-1",
-      status: "active",
       participants: [
         { address: "human://savas", displayName: "savas" },
         { address: "agent://ada", displayName: "ada" },

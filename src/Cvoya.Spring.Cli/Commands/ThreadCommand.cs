@@ -22,7 +22,6 @@ public static class ThreadCommand
     private static readonly OutputFormatter.Column<ThreadSummaryResponse>[] ListColumns =
     {
         new("id", c => c.Id),
-        new("status", c => c.Status),
         new("origin", c => c.Origin?.DisplayName ?? c.Origin?.Address ?? string.Empty),
         new("participants", c => FormatParticipants(c.Participants)),
         new("events", c => c.EventCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty),
@@ -39,7 +38,6 @@ public static class ThreadCommand
         cmd.Subcommands.Add(CreateListCommand(outputOption));
         cmd.Subcommands.Add(CreateShowCommand(outputOption));
         cmd.Subcommands.Add(CreateSendCommand(outputOption));
-        cmd.Subcommands.Add(CreateCloseCommand(outputOption));
         return cmd;
     }
 
@@ -47,8 +45,6 @@ public static class ThreadCommand
     {
         var unitOption = new Option<string?>("--unit") { Description = "Filter by unit name" };
         var agentOption = new Option<string?>("--agent") { Description = "Filter by agent name" };
-        var statusOption = new Option<string?>("--status") { Description = "Filter by status (active | completed)" };
-        statusOption.AcceptOnlyFromAmong("active", "completed");
         var participantOption = new Option<string?>("--participant")
         {
             Description = "Filter by participant address in canonical scheme:<guid> form (e.g. agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7)",
@@ -58,7 +54,6 @@ public static class ThreadCommand
         var command = new Command("list", "List threads with optional filters");
         command.Options.Add(unitOption);
         command.Options.Add(agentOption);
-        command.Options.Add(statusOption);
         command.Options.Add(participantOption);
         command.Options.Add(limitOption);
 
@@ -70,7 +65,6 @@ public static class ThreadCommand
             var result = await client.ListThreadsAsync(
                 unit: parseResult.GetValue(unitOption),
                 agent: parseResult.GetValue(agentOption),
-                status: parseResult.GetValue(statusOption),
                 participant: parseResult.GetValue(participantOption),
                 limit: parseResult.GetValue(limitOption),
                 ct: ct);
@@ -110,7 +104,6 @@ public static class ThreadCommand
                 if (summary is not null)
                 {
                     Console.WriteLine($"Thread:       {summary.Id}");
-                    Console.WriteLine($"Status:       {summary.Status}");
                     Console.WriteLine($"Origin:       {summary.Origin?.DisplayName ?? summary.Origin?.Address ?? string.Empty}");
                     Console.WriteLine($"Participants: {FormatParticipants(summary.Participants)}");
                     Console.WriteLine($"Created:      {FormatTimestamp(summary.CreatedAt)}");
@@ -183,67 +176,6 @@ public static class ThreadCommand
             {
                 await Console.Error.WriteLineAsync(
                     $"Failed to send to thread '{threadId}': {ProblemDetailsFormatter.Format(ex)}");
-                Environment.Exit(1);
-            }
-        });
-
-        return command;
-    }
-
-    private static Command CreateCloseCommand(Option<string> outputOption)
-    {
-        // #1038: operator-driven close. Required when a dispatch fails in a
-        // way the actor itself cannot recover from (e.g. container exit 125
-        // before the runtime instance materialised — #1036) so the agent
-        // does not stay stuck on a dead thread forever.
-        var idArg = new Argument<string>("id") { Description = "The thread id to close" };
-        var reasonOption = new Option<string?>("--reason")
-        {
-            Description = "Optional human-readable reason — surfaced on the ThreadClosed activity event.",
-        };
-
-        var command = new Command(
-            "close",
-            "Close (abort) an in-flight or pending thread across every participating agent.");
-        command.Arguments.Add(idArg);
-        command.Options.Add(reasonOption);
-
-        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
-        {
-            var id = parseResult.GetValue(idArg)!;
-            var reason = parseResult.GetValue(reasonOption);
-            var output = parseResult.GetValue(outputOption) ?? "table";
-
-            var client = ClientFactory.Create();
-
-            try
-            {
-                var detail = await client.CloseThreadAsync(id, reason, ct);
-
-                if (output == "json")
-                {
-                    Console.WriteLine(OutputFormatter.FormatJson(detail));
-                    return;
-                }
-
-                var summary = detail.Summary;
-                Console.WriteLine($"Thread {id} closed.");
-                if (summary is not null)
-                {
-                    Console.WriteLine($"Status:       {summary.Status}");
-                    Console.WriteLine($"Participants: {FormatParticipants(summary.Participants ?? [])}");
-
-                    Console.WriteLine($"Last:         {FormatTimestamp(summary.LastActivity)}");
-                }
-                if (!string.IsNullOrWhiteSpace(reason))
-                {
-                    Console.WriteLine($"Reason:       {reason}");
-                }
-            }
-            catch (Microsoft.Kiota.Abstractions.ApiException ex)
-            {
-                await Console.Error.WriteLineAsync(
-                    $"Failed to close thread '{id}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });

@@ -62,6 +62,7 @@ Two operational pain points kept surfacing. The agent mailbox conflated message 
 - **CLI:** `spring conversation …` → `spring thread …` ([#1288](https://github.com/cvoya-com/spring-voyage/issues/1288)).
 - **Doc sweep:** `messaging.md`, `units.md`, `agent-runtime.md`, glossary entries land in F2 ([#1271](https://github.com/cvoya-com/spring-voyage/issues/1271)).
 - **Deferred for future design:** unit recursion, cross-thread reads at the recall API level, multi-human permission gating ([#1292](https://github.com/cvoya-com/spring-voyage/issues/1292)); inferences with explicit provenance ([#1293](https://github.com/cvoya-com/spring-voyage/issues/1293)).
+- **Thread-close vestige removal ([#2074](https://github.com/cvoya-com/spring-voyage/issues/2074)).** The legacy `threads.status` column, `POST /api/v1/threads/{id}/close` endpoint, `IAgentActor.CloseThreadAsync`, `spring thread close` CLI verb, and the `ThreadClosed` activity event were vestiges of the pre-#1268 chat-container metaphor that this ADR supersedes; they have been deleted in #2074. The legitimate "I'm done with this thread" semantic is a per-(thread, participant) `ParticipantStateChanged` transition to `removed`.
 
 ### ADR-0018 superseded
 

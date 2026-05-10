@@ -92,29 +92,6 @@ public interface IAgentActor : IAgent
     Task SetExpertiseAsync(ExpertiseDomain[] domains, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Closes the supplied thread (#1038). Idempotent — a thread
-    /// id that matches neither the active channel nor any pending channel
-    /// returns silently. When the id matches the currently active
-    /// thread the actor cancels in-flight dispatch, removes the
-    /// active state, emits a <c>ThreadClosed</c> activity event, and
-    /// promotes the next pending thread onto the active slot. When
-    /// the id matches a pending channel that channel is dropped and the
-    /// active slot is left untouched.
-    /// </summary>
-    /// <param name="threadId">The thread identifier to close.</param>
-    /// <param name="reason">
-    /// Optional human-readable reason — surfaced on the
-    /// <c>ThreadClosed</c> activity event's <c>details</c> payload so
-    /// operators can see <em>why</em> the close happened (operator request,
-    /// non-zero dispatch exit, etc.).
-    /// </param>
-    /// <param name="cancellationToken">A token to cancel the operation.</param>
-    Task CloseThreadAsync(
-        string threadId,
-        string? reason,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Off-turn helper that the actor's own dispatch task self-invokes
     /// (via Dapr remoting) when a dispatch terminates abnormally — either a
     /// non-zero container exit (#1036) or an exception in the dispatcher

@@ -35,7 +35,6 @@ public record InboxItemResponse(
 /// </summary>
 /// <param name="Id">The thread identifier.</param>
 /// <param name="Participants">Distinct participants, each enriched with a display name.</param>
-/// <param name="Status">Lifecycle state — <c>active</c> or <c>completed</c>.</param>
 /// <param name="LastActivity">Timestamp of the most recent event on this thread.</param>
 /// <param name="CreatedAt">Timestamp of the first event on this thread.</param>
 /// <param name="EventCount">Number of activity events observed for this thread.</param>
@@ -44,7 +43,6 @@ public record InboxItemResponse(
 public record ThreadSummaryResponse(
     string Id,
     IReadOnlyList<ParticipantRef> Participants,
-    string Status,
     DateTimeOffset LastActivity,
     DateTimeOffset CreatedAt,
     int EventCount,

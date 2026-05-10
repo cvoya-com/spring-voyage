@@ -976,13 +976,12 @@ public class SpringApiClient
     // Threads (#452)
 
     /// <summary>
-    /// Lists thread summaries, optionally filtered by unit, agent,
-    /// status, or participant. Backs <c>spring thread list</c>.
+    /// Lists thread summaries, optionally filtered by unit, agent, or
+    /// participant. Backs <c>spring thread list</c>.
     /// </summary>
     public async Task<IReadOnlyList<ThreadSummaryResponse>> ListThreadsAsync(
         string? unit = null,
         string? agent = null,
-        string? status = null,
         string? participant = null,
         int? limit = null,
         CancellationToken ct = default)
@@ -992,7 +991,6 @@ public class SpringApiClient
             {
                 config.QueryParameters.Unit = unit;
                 config.QueryParameters.Agent = agent;
-                config.QueryParameters.Status = status;
                 config.QueryParameters.Participant = participant;
                 config.QueryParameters.Limit = limit;
             },
@@ -1042,27 +1040,6 @@ public class SpringApiClient
         var result = await _client.Api.V1.Tenant.Threads[threadId].Messages.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty message response for thread '{threadId}'.");
-    }
-
-    /// <summary>
-    /// Closes (aborts) a thread across every participating agent
-    /// (#1038). Backs <c>spring thread close &lt;id&gt;</c>. Returns
-    /// the (now-closed) thread detail so the CLI can render a
-    /// confirmation and the trailing event timeline including the
-    /// <c>ThreadClosed</c> events the actors just emitted.
-    /// </summary>
-    public async Task<ThreadDetailResponse> CloseThreadAsync(
-        string threadId,
-        string? reason = null,
-        CancellationToken ct = default)
-    {
-        var request = new CloseThreadRequest
-        {
-            Reason = string.IsNullOrWhiteSpace(reason) ? null : reason,
-        };
-        var result = await _client.Api.V1.Tenant.Threads[threadId].Close.PostAsync(request, cancellationToken: ct);
-        return result ?? throw new InvalidOperationException(
-            $"Server returned an empty close response for thread '{threadId}'.");
     }
 
     // Engagements (E2.2 / #1421) — SSE stream

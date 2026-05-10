@@ -42,7 +42,6 @@ function makeThread(overrides: Partial<ThreadSummary> = {}): ThreadSummary {
       { address: "human://savas", displayName: "savas" },
       { address: "agent://ada", displayName: "ada" },
     ],
-    status: "active",
     lastActivity: new Date().toISOString(),
     createdAt: new Date().toISOString(),
     eventCount: 5,

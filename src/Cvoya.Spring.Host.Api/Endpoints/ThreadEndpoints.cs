@@ -3,7 +3,6 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
-using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Dapr.Actors;
@@ -15,7 +14,6 @@ using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Maps the thread read + send endpoints introduced by #452. Threads
@@ -56,18 +54,6 @@ public static class ThreadEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status502BadGateway);
 
-        // #1038: explicit operator-driven close so a single failed dispatch
-        // doesn't permanently brick an agent. We use `/{id}/close` rather
-        // than `/{id}:close` so the route plays nicely with the existing
-        // `/{id}/messages` sibling and routing template constraints; the
-        // verb-style URL was tempting but inconsistent with the rest of the
-        // surface.
-        group.MapPost("/{id}/close", CloseThreadAsync)
-            .WithName("CloseThread")
-            .WithSummary("Close (abort) an in-flight or pending thread across all participating agents")
-            .Produces<ThreadDetailResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status404NotFound);
-
         return group;
     }
 
@@ -80,7 +66,6 @@ public static class ThreadEndpoints
         var filters = new ThreadQueryFilters(
             Unit: query.Unit,
             Agent: query.Agent,
-            Status: query.Status,
             Participant: query.Participant,
             Limit: query.Limit);
 
@@ -182,96 +167,6 @@ public static class ThreadEndpoints
         return Results.Ok(new ThreadMessageResponse(messageId, id, result.Value?.Payload, kind));
     }
 
-    /// <summary>
-    /// Closes (aborts) a thread across every agent participant, then
-    /// returns the (now-closed) thread detail. See #1038 — without this
-    /// surface a single failed dispatch leaves an agent permanently busy
-    /// because the active-thread pointer is persisted in actor state.
-    /// </summary>
-    private static async Task<IResult> CloseThreadAsync(
-        string id,
-        CloseThreadRequest request,
-        IThreadQueryService queryService,
-        IDirectoryService directoryService,
-        IActorProxyFactory actorProxyFactory,
-        IParticipantDisplayNameResolver resolver,
-        ILoggerFactory loggerFactory,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            return Results.Problem(
-                detail: "Thread id is required.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        var detail = await queryService.GetAsync(id, cancellationToken);
-        if (detail is null)
-        {
-            return Results.Problem(
-                detail: $"Thread '{id}' not found",
-                statusCode: StatusCodes.Status404NotFound);
-        }
-
-        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.ThreadEndpoints");
-        var reason = request?.Reason;
-
-        // Walk the participants on the summary, keeping only agent-scheme
-        // entries (humans don't have actor proxies and units close as a
-        // side-effect of their member agents closing). Any participant the
-        // directory can't resolve is skipped with a structured warning rather
-        // than failing the whole close — the operator's intent is "stop this
-        // thread", and a missing participant shouldn't block the others.
-        foreach (var participant in detail.Summary.Participants)
-        {
-            if (!TryParseAgentParticipant(participant, out var agentAddress))
-            {
-                continue;
-            }
-
-            DirectoryEntry? entry;
-            try
-            {
-                entry = await directoryService.ResolveAsync(agentAddress, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "Failed to resolve participant {Participant} while closing thread {ThreadId}.",
-                    participant, id);
-                continue;
-            }
-
-            if (entry is null)
-            {
-                logger.LogWarning(
-                    "Participant {Participant} not found in directory while closing thread {ThreadId}.",
-                    participant, id);
-                continue;
-            }
-
-            try
-            {
-                var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-                    new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(AgentActor));
-                await proxy.CloseThreadAsync(id, reason, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "CloseThreadAsync failed on participant {Participant} for thread {ThreadId}.",
-                    participant, id);
-            }
-        }
-
-        // Re-read the detail so the response reflects the close events the
-        // actors just emitted (the read model is event-sourced — by the time
-        // we return, the ThreadClosed events should be projected).
-        var updated = await queryService.GetAsync(id, cancellationToken) ?? detail;
-        var enriched = await EnrichDetailAsync(updated, resolver, cancellationToken);
-        return Results.Ok(enriched);
-    }
-
     // ---------------------------------------------------------------------------
     // Enrichment helpers
     // ---------------------------------------------------------------------------
@@ -312,7 +207,6 @@ public static class ThreadEndpoints
         return new ThreadSummaryResponse(
             s.Id,
             participants,
-            s.Status,
             s.LastActivity,
             s.CreatedAt,
             s.EventCount,
@@ -352,46 +246,6 @@ public static class ThreadEndpoints
                 e.Body));
         }
         return new ThreadDetailResponse(summary, events);
-    }
-
-    private static bool TryParseAgentParticipant(string participant, out Address address)
-    {
-        address = default!;
-        if (string.IsNullOrWhiteSpace(participant))
-        {
-            return false;
-        }
-
-        var separatorIdx = participant.IndexOf("://", StringComparison.Ordinal);
-        string scheme;
-        string path;
-        if (separatorIdx > 0)
-        {
-            scheme = participant[..separatorIdx];
-            path = participant[(separatorIdx + 3)..];
-        }
-        else
-        {
-            var colonIdx = participant.IndexOf(':');
-            if (colonIdx <= 0)
-            {
-                return false;
-            }
-            scheme = participant[..colonIdx];
-            path = participant[(colonIdx + 1)..];
-        }
-
-        if (!string.Equals(scheme, "agent", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (!Address.TryParse($"{scheme}:{path}", out var parsed) || parsed is null)
-        {
-            return false;
-        }
-        address = parsed;
-        return true;
     }
 }
 

@@ -375,7 +375,6 @@ function EngagementCard({
         {variant === "page" && (
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
             <span>{thread.eventCount ?? 0} events</span>
-            <span className="font-mono">{thread.status}</span>
           </div>
         )}
       </div>
