@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -84,6 +85,10 @@ public class UnitCreationServiceExpertiseSeedTests
         actorProxyFactory.CreateActorProxy<IHumanActor>(Arg.Any<ActorId>(), Arg.Any<string>())
             .Returns(Substitute.For<IHumanActor>());
 
+        var memberGraphStore = Substitute.For<IUnitMemberGraphStore>();
+        var tenantContext = Substitute.For<ITenantContext>();
+        tenantContext.CurrentTenantId.Returns(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+
         var service = new UnitCreationService(
             directory,
             actorProxyFactory,
@@ -94,6 +99,8 @@ public class UnitCreationServiceExpertiseSeedTests
             Substitute.For<ISkillBundleValidator>(),
             Substitute.For<IUnitSkillBundleStore>(),
             Substitute.For<IUnitMembershipRepository>(),
+            memberGraphStore,
+            tenantContext,
             scopeFactory,
             NullLoggerFactory.Instance);
 

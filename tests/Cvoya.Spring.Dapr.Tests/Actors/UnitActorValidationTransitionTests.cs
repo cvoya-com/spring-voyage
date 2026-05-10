@@ -57,7 +57,8 @@ public class UnitActorValidationTransitionTests
             _activityEventBus,
             _directoryService,
             _actorProxyFactory,
-            new UnitStateCoordinator(new InMemoryUnitLiveConfigStore(), Substitute.For<ILogger<UnitStateCoordinator>>()));
+            new UnitStateCoordinator(new InMemoryUnitLiveConfigStore(), Substitute.For<ILogger<UnitStateCoordinator>>()),
+            new InMemoryUnitMemberGraphStore());
         SetStateManager(_actor, _stateManager);
 
         // Default: no persisted status -> Draft.

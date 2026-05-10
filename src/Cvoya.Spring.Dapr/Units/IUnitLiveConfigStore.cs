@@ -14,7 +14,7 @@ using Cvoya.Spring.Dapr.Auth;
 /// per call, resolves the repository, and forwards the operation.
 /// Mirrors the scope-creating pattern already in use for
 /// <c>IUnitHumanPermissionStore</c>,
-/// <c>IUnitSubunitMembershipProjector</c>, and
+/// <c>IUnitMemberGraphStore</c>, and
 /// <c>IAgentLiveConfigStore</c>.
 /// </summary>
 /// <remarks>

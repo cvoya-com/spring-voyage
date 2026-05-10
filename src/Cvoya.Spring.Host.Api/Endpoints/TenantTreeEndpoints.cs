@@ -122,18 +122,23 @@ public static class TenantTreeEndpoints
             .GroupBy(m => unitSlugByGuid[m.UnitId], StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
-        // #1154: pull the persistent sub-unit projection so the tree can
-        // nest child units under their parent. Filter out edges whose
-        // child or parent has no live directory entry — leftover ghosts
-        // that the cascade or reconciliation hasn't caught up with yet
-        // would otherwise render as broken nodes.
+        // #1154 / #2052: pull the persistent sub-unit projection so the
+        // tree can nest child units under their parent. Tenant-root
+        // edges (parent_id == tenantId) are the explicit "this unit is
+        // top-level" marker per ADR-0040 — they are NOT shown as parent
+        // links in the tree but are used to identify which units render
+        // directly under the tenant node. Filter out edges whose child
+        // has no live directory entry — leftover ghosts that the
+        // cascade hasn't caught up with would otherwise render as
+        // broken nodes.
         var allSubunitEdges = await subunitMemberships.ListAllAsync(cancellationToken);
-        var liveSubunitEdges = allSubunitEdges
-            .Where(e => unitSlugByGuid.ContainsKey(e.ParentUnitId)
+        var unitToUnitEdges = allSubunitEdges
+            .Where(e => e.ParentUnitId != tenantId
+                     && unitSlugByGuid.ContainsKey(e.ParentUnitId)
                      && unitSlugByGuid.ContainsKey(e.ChildUnitId))
             .ToList();
 
-        var childUnitsByParent = liveSubunitEdges
+        var childUnitsByParent = unitToUnitEdges
             .GroupBy(e => unitSlugByGuid[e.ParentUnitId], StringComparer.Ordinal)
             .ToDictionary(
                 g => g.Key,
@@ -143,10 +148,22 @@ public static class TenantTreeEndpoints
                     .ToList(),
                 StringComparer.Ordinal);
 
-        // Any unit that appears on the child side of at least one live
-        // edge is no longer a tenant-root unit — it must render under
-        // its parent rather than alongside it.
-        var nestedUnitIds = liveSubunitEdges
+        // #2052: top-level units are exactly those with an explicit
+        // tenant-root edge. The previous "zero edges" heuristic is
+        // gone. Units that have neither a tenant-root edge nor a
+        // unit-parent edge are orphaned — render them under the tenant
+        // as a fallback so they remain reachable while the operator
+        // repairs the parent link.
+        var topLevelUnitIds = allSubunitEdges
+            .Where(e => e.ParentUnitId == tenantId
+                     && unitSlugByGuid.ContainsKey(e.ChildUnitId))
+            .Select(e => unitSlugByGuid[e.ChildUnitId])
+            .ToHashSet(StringComparer.Ordinal);
+
+        // Any unit that has a unit-parent edge is no longer a tenant-
+        // root candidate — it renders under its parent rather than
+        // alongside it.
+        var nestedUnitIds = unitToUnitEdges
             .Select(e => unitSlugByGuid[e.ChildUnitId])
             .ToHashSet(StringComparer.Ordinal);
 
@@ -164,11 +181,14 @@ public static class TenantTreeEndpoints
                 await TryGetUnitStatusAsync(actorProxyFactory, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.ActorId), logger, unit.Address.Path, cancellationToken);
         }
 
-        // Walk the tree top-down from the unnested root units. The
-        // visited set defends against a corrupted projection that would
-        // otherwise loop — cycle prevention lives on the actor write
-        // path (UnitActor.EnsureNoCycleAsync) but we don't trust the
-        // projection blindly here.
+        // Walk the tree top-down from the units that render under the
+        // tenant. Per #2052 a unit is rendered under the tenant when it
+        // either has an explicit tenant-root edge OR is orphaned (no
+        // parent edges at all — should not happen post-#2052 but is
+        // tolerated as a fallback so an operator-triggered repair stays
+        // possible). The visited set defends against a corrupted
+        // projection — cycle prevention lives on the membership-coord
+        // write path; we don't trust the projection blindly here.
         var visited = new HashSet<string>(StringComparer.Ordinal);
         var rootUnitNodes = unitEntries
             .Where(u => !nestedUnitIds.Contains(u.Address.Path))

@@ -26,12 +26,10 @@ public class GitHubWebhookFlowTests
     [Fact]
     public async Task WebhookMessage_RoutedThroughUnit_RuntimePathReceivesWebhookPayload()
     {
-        var (unitActor, unitStateManager, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "webhook-unit");
+        var (unitActor, _, runtimeInvocationPath, graph) = ActorTestHost.CreateUnitActor(actorId: "webhook-unit");
 
-        // Register an agent member on the unit.
-        var agentAddress = Address.For("agent", TestSlugIds.HexFor("webhook-agent"));
-        unitStateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [agentAddress]));
+        // Register an agent member on the unit (#2052: EF-backed graph).
+        graph.SeedAgentMembers(TestSlugIds.For("webhook-unit"), TestSlugIds.For("webhook-agent"));
 
         // Capture what the runtime path receives.
         Message? capturedMessage = null;
@@ -64,11 +62,9 @@ public class GitHubWebhookFlowTests
     [Fact]
     public async Task WebhookMessage_RoutedThroughUnit_InvokesUnitRuntime()
     {
-        var (unitActor, unitStateManager, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "flow-unit");
+        var (unitActor, _, runtimeInvocationPath, graph) = ActorTestHost.CreateUnitActor(actorId: "flow-unit");
 
-        var agentAddress = Address.For("agent", TestSlugIds.HexFor("flow-agent"));
-        unitStateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [agentAddress]));
+        graph.SeedAgentMembers(TestSlugIds.For("flow-unit"), TestSlugIds.For("flow-agent"));
 
         var webhookMessage = MessageFactory.CreateWebhookMessage(toId: "flow-unit");
 

@@ -20,8 +20,8 @@ public class UnitNoMembersResponds
     [Fact]
     public async Task ReceiveAsync_UnitWithNoMembers_InvokesRuntimeInvocationPath()
     {
-        var (actor, _, runtimeInvocationPath) = ActorTestHost.CreateUnitActor(actorId: "no-members-unit");
-        // Default setup: no members (CreateUnitActor's default stateManager returns false for Members)
+        var (actor, _, runtimeInvocationPath, _) = ActorTestHost.CreateUnitActor(actorId: "no-members-unit");
+        // Default setup: no members (the EF-backed graph store starts empty per #2052)
         var message = MessageFactory.CreateDomainMessage(toId: "no-members-unit", toType: "unit");
 
         await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);

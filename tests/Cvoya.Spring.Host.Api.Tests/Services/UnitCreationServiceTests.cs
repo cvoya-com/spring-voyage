@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -141,6 +142,8 @@ public class UnitCreationServiceTests
         public ISkillBundleValidator BundleValidator { get; } = Substitute.For<ISkillBundleValidator>();
         public IUnitSkillBundleStore BundleStore { get; } = Substitute.For<IUnitSkillBundleStore>();
         public IUnitMembershipRepository MembershipRepository { get; } = Substitute.For<IUnitMembershipRepository>();
+        public IUnitMemberGraphStore MemberGraphStore { get; } = Substitute.For<IUnitMemberGraphStore>();
+        public ITenantContext TenantContext { get; } = Substitute.For<ITenantContext>();
         public IUnitActor Proxy { get; } = Substitute.For<IUnitActor>();
         public Cvoya.Spring.Core.Execution.ILlmCredentialResolver CredentialResolver { get; } =
             Substitute.For<Cvoya.Spring.Core.Execution.ILlmCredentialResolver>();
@@ -182,6 +185,8 @@ public class UnitCreationServiceTests
             services.AddScoped<IHumanIdentityResolver>(_ => identityResolver);
             var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
+            TenantContext.CurrentTenantId.Returns(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+
             Service = new UnitCreationService(
                 Directory,
                 ActorProxyFactory,
@@ -192,6 +197,8 @@ public class UnitCreationServiceTests
                 BundleValidator,
                 BundleStore,
                 MembershipRepository,
+                MemberGraphStore,
+                TenantContext,
                 scopeFactory,
                 NullLoggerFactory.Instance,
                 executionStore: ExecutionStore,

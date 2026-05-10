@@ -227,11 +227,10 @@ public class OrchestrationDelegationDecisionIntegrationTests
 
     private static HandlerHarness CreateHarness(Address parent, params Address[] children)
     {
-        var (unitActor, stateManager, _) =
+        var (unitActor, _, _, graph) =
             ActorTestHost.CreateUnitActor(actorId: GuidFormatter.Format(parent.Id));
 
-        stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, children.ToList()));
+        graph.SeedMembers(parent.Id, children);
 
         var agents = new Dictionary<string, IAgent>(StringComparer.OrdinalIgnoreCase);
         var actorProxyFactory = Substitute.For<IActorProxyFactory>();

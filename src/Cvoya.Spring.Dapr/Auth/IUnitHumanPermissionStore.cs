@@ -8,7 +8,7 @@ using Cvoya.Spring.Dapr.Actors;
 /// <summary>
 /// Singleton seam over the scoped <c>IUnitHumanPermissionRepository</c>.
 /// Mirrors the scope-creating pattern used by
-/// <c>UnitSubunitMembershipProjector</c>: actors are not request-scoped, so
+/// <c>UnitMemberGraphStore</c>: actors are not request-scoped, so
 /// they cannot consume a scoped EF repository directly. The store creates a
 /// fresh DI scope per call, resolves the repository, and translates the
 /// (unit, human) write into a tenant-scoped row mutation.

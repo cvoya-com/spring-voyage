@@ -187,14 +187,16 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // can read/write through it from singleton call sites.
         services.TryAddScoped<IUnitConnectorBindingRepository, UnitConnectorBindingRepository>();
 
-        // Singleton write-through wrapper around the scoped sub-unit
-        // membership repository (#1154). UnitActor is not request-scoped
-        // and cannot consume the scoped repo directly; the projector
-        // creates a fresh DI scope per call so the EF context resolves
-        // cleanly. TryAddSingleton so the cloud overlay can register a
-        // tenant-aware decorator (audit / permission / multi-tenant
-        // context) ahead of the OSS default.
-        services.TryAddSingleton<IUnitSubunitMembershipProjector, UnitSubunitMembershipProjector>();
+        // ADR-0040 / #2052: the EF-backed unit member graph store is the
+        // singleton seam UnitActor uses to read / write the
+        // unit_memberships + unit_subunit_memberships tables on every
+        // member-graph call. UnitActor is not request-scoped and cannot
+        // consume scoped repositories directly; the store creates a
+        // fresh DI scope per call so the EF context resolves cleanly.
+        // TryAddSingleton so the cloud overlay can register a tenant-
+        // aware decorator (audit / permission / multi-tenant context)
+        // ahead of the OSS default.
+        services.TryAddSingleton<IUnitMemberGraphStore, UnitMemberGraphStore>();
 
         // Tenant-scoping guard for composition + membership writes (#745).
         // Scoped so the guard sees the current request's tenant context —

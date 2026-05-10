@@ -114,11 +114,10 @@ public class GitHubLabelRoutingRoundtrip
 
     private static HandlerHarness CreateHandlerHarness(RecordingActivityEventBus bus)
     {
-        var (unitActor, stateManager, _) =
+        var (unitActor, _, _, graph) =
             ActorTestHost.CreateUnitActor(actorId: GuidFormatter.Format(Unit.Id));
 
-        stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Address>>(true, [Child]));
+        graph.SeedMembers(Unit.Id, Child);
 
         var agents = new Dictionary<string, IAgent>(StringComparer.OrdinalIgnoreCase);
         var actorProxyFactory = Substitute.For<IActorProxyFactory>();

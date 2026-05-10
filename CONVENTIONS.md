@@ -180,18 +180,20 @@ public static class ServiceCollectionExtensions
 ```csharp
 public static class StateKeys
 {
-    // AgentActor state
+    // AgentActor state (runtime ephemeral only — see ADR-0040)
     public const string ActiveConversation = "Agent:ActiveConversation";
     public const string PendingConversations = "Agent:PendingConversations";
     public const string ObservationChannel = "Agent:ObservationChannel";
-    public const string AgentDefinition = "Agent:Definition";
     public const string InitiativeState = "Agent:InitiativeState";
 
-    // UnitActor state
-    public const string Members = "Unit:Members";
-    public const string Policies = "Unit:Policies";
+    // UnitActor state (runtime ephemeral only — see ADR-0040)
     public const string DirectoryCache = "Unit:DirectoryCache";
-    public const string UnitDefinition = "Unit:Definition";
+    public const string UnitStatus = "Unit:Status";
+
+    // Configuration / authorization / membership data lives in EF
+    // (unit_memberships, unit_subunit_memberships, unit_live_config,
+    // unit_human_permissions, agent_live_config, ...). See ADR-0040 for
+    // the canonical state-ownership matrix.
 }
 ```
 

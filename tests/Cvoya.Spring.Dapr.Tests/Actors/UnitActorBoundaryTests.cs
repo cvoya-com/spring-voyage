@@ -54,7 +54,8 @@ public class UnitActorBoundaryTests
             Substitute.For<IActivityEventBus>(),
             Substitute.For<IDirectoryService>(),
             Substitute.For<IActorProxyFactory>(),
-            new UnitStateCoordinator(_liveConfigStore, Substitute.For<ILogger<UnitStateCoordinator>>()));
+            new UnitStateCoordinator(_liveConfigStore, Substitute.For<ILogger<UnitStateCoordinator>>()),
+            new InMemoryUnitMemberGraphStore());
     }
 
     [Fact]

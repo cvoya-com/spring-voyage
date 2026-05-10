@@ -65,6 +65,7 @@ public class UnitActorValidationSchedulingTests
             _directoryService,
             _actorProxyFactory,
             new UnitStateCoordinator(new InMemoryUnitLiveConfigStore(), Substitute.For<ILogger<UnitStateCoordinator>>()),
+            new InMemoryUnitMemberGraphStore(),
             validationWorkflowScheduler: _scheduler,
             validationTracker: _validationTracker);
         SetStateManager(_actor, _stateManager);

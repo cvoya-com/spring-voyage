@@ -44,10 +44,13 @@ public static class StateKeys
     /// </summary>
     public const string InitiativeReminderRegistered = "Agent:InitiativeReminderRegistered";
 
-    /// <summary>
-    /// State key for unit members.
-    /// </summary>
-    public const string Members = "Unit:Members";
+    // ADR-0040 / #2052: Unit:Members was dropped. The unit member graph
+    // (agent edges in unit_memberships + sub-unit edges in
+    // unit_subunit_memberships) is the single source of truth — UnitActor
+    // reads / writes through IUnitMemberGraphStore on every call.
+    // Persisted state keyed on `Unit:Members` from before #2052 is
+    // silently ignored (no migration needed; the actor never reads from
+    // state for the member graph after this PR).
 
     // ADR-0040 / #2049: Unit:Policies actor-state copy was dropped.
     // UnitPolicyEntity (unit_policies EF table) is the single write

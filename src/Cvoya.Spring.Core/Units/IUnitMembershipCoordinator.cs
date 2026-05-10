@@ -3,71 +3,52 @@
 
 namespace Cvoya.Spring.Core.Units;
 
-using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 
 /// <summary>
-/// Seam that encapsulates the membership-management concern extracted from
-/// <c>UnitActor</c>: adding a member (including cycle-detection for
-/// <c>unit://</c>-typed candidates), removing a member, and mirroring every
-/// mutation into a persistent projection via the actor's
-/// <c>subunit projector</c> callback.
+/// Membership-management seam for <c>UnitActor</c>: adding a member
+/// (including cycle-detection for <c>unit://</c>-typed candidates) and
+/// removing a member, both routed through <see cref="IUnitMemberGraphStore"/>
+/// so <c>unit_memberships</c> / <c>unit_subunit_memberships</c> are the
+/// single source of truth (#2052 / ADR-0040).
 /// </summary>
 /// <remarks>
 /// <para>
-/// The interface lives in <c>Cvoya.Spring.Core</c> so the cloud host can
-/// substitute a tenant-aware coordinator (e.g. one that enforces
-/// cross-tenant guards or adds audit logging on every membership change)
-/// without touching the actor. Per the platform's "interface-first + TryAdd*"
-/// rule, production DI registers the default implementation with
-/// <c>TryAddSingleton</c> so the private repo's registration takes precedence
-/// when present.
-/// </para>
-/// <para>
-/// The coordinator does not hold a reference to the actor. Both methods receive
-/// delegates so the actor can inject its own state-read, state-write, and
-/// event-emission implementations without the coordinator depending on Dapr
-/// actor types.
+/// Defined in <c>Cvoya.Spring.Core</c> so the cloud host can substitute a
+/// tenant-aware coordinator (e.g. one that adds audit logging on every
+/// membership change) without touching the actor. Per the platform's
+/// "interface-first + TryAdd*" rule, production DI registers the default
+/// implementation with <c>TryAddSingleton</c> so the private repo's
+/// registration takes precedence when present.
 /// </para>
 /// <para>
 /// The coordinator is stateless with respect to any individual unit — it
-/// operates entirely through the per-call delegates and the injected
-/// <see cref="IDirectoryService"/> singleton. This makes it safe to register
-/// as a singleton and share across all <c>UnitActor</c> instances.
+/// operates entirely against the injected <see cref="IUnitMemberGraphStore"/>
+/// (which itself wraps a per-call EF scope). This keeps it safe to register
+/// as a singleton.
 /// </para>
 /// </remarks>
 public interface IUnitMembershipCoordinator
 {
     /// <summary>
-    /// Adds <paramref name="member"/> to the unit's member list, performing
-    /// cycle detection for <c>unit://</c>-typed members before persisting the
-    /// change. Idempotent: if <paramref name="member"/> is already present the
-    /// method returns without modifying state.
+    /// Adds <paramref name="member"/> to the unit's member graph in EF,
+    /// performing cycle detection for <c>unit://</c>-typed members before
+    /// persisting. Idempotent: if the edge already exists the method
+    /// returns without modifying state. Emits a <c>StateChanged</c>
+    /// activity event via <paramref name="emitStateChanged"/> when (and
+    /// only when) a new edge is written.
     /// </summary>
-    /// <param name="unitActorId">The Dapr actor id of the unit accepting the new member.</param>
+    /// <param name="unitId">The stable Guid identity of the parent unit.</param>
     /// <param name="unitAddress">
-    /// The address of the unit actor (e.g. <c>unit://team-alpha</c>). Used as
-    /// the cycle-detection anchor and as the <c>ParentUnit</c> in any thrown
-    /// <see cref="CyclicMembershipException"/>.
+    /// The address of the parent unit (e.g. <c>unit://{guid}</c>). Used as
+    /// the cycle-detection anchor and as the <c>ParentUnit</c> in any
+    /// thrown <see cref="CyclicMembershipException"/>.
     /// </param>
     /// <param name="member">The member address to add.</param>
-    /// <param name="getMembers">
-    /// Delegate that reads the unit's current member list from actor state.
-    /// </param>
-    /// <param name="persistMembers">
-    /// Delegate that writes the updated member list back to actor state and
-    /// emits the corresponding <c>StateChanged</c> activity event.
-    /// </param>
-    /// <param name="resolveAddress">
-    /// Delegate that resolves a <c>unit://</c> address to a
-    /// <see cref="DirectoryEntry"/> (or <see langword="null"/> when the unit
-    /// does not exist). Used to map path-form addresses to actor ids during
-    /// the cycle-detection walk.
-    /// </param>
-    /// <param name="getSubUnitMembers">
-    /// Delegate that returns the member list of a sub-unit identified by its
-    /// Dapr actor id. The coordinator calls this for each node it visits
-    /// during the BFS cycle-detection walk.
+    /// <param name="emitStateChanged">
+    /// Delegate the actor passes so the coordinator can emit the
+    /// <c>StateChanged</c> activity event with the actor's standard
+    /// envelope shape after a successful write.
     /// </param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <exception cref="CyclicMembershipException">
@@ -75,34 +56,30 @@ public interface IUnitMembershipCoordinator
     /// (self-loop, back-edge, or depth-bound exceeded).
     /// </exception>
     Task AddMemberAsync(
-        string unitActorId,
+        Guid unitId,
         Address unitAddress,
         Address member,
-        Func<CancellationToken, Task<List<Address>>> getMembers,
-        Func<List<Address>, CancellationToken, Task> persistMembers,
-        Func<Address, CancellationToken, Task<DirectoryEntry?>> resolveAddress,
-        Func<string, CancellationToken, Task<Address[]>> getSubUnitMembers,
+        Func<Address, int, CancellationToken, Task> emitStateChanged,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Removes <paramref name="member"/> from the unit's member list. Idempotent:
-    /// if <paramref name="member"/> is not present the method returns without
-    /// modifying state.
+    /// Removes <paramref name="member"/> from the unit's member graph in
+    /// EF. Idempotent: if the edge is absent the method returns without
+    /// modifying state. Emits a <c>StateChanged</c> event via
+    /// <paramref name="emitStateChanged"/> when (and only when) a row
+    /// was deleted.
     /// </summary>
-    /// <param name="unitActorId">The Dapr actor id of the unit losing the member.</param>
+    /// <param name="unitId">The stable Guid identity of the parent unit.</param>
     /// <param name="member">The member address to remove.</param>
-    /// <param name="getMembers">
-    /// Delegate that reads the unit's current member list from actor state.
-    /// </param>
-    /// <param name="persistMembers">
-    /// Delegate that writes the updated member list back to actor state and
-    /// emits the corresponding <c>StateChanged</c> activity event.
+    /// <param name="emitStateChanged">
+    /// Delegate the actor passes so the coordinator can emit the
+    /// <c>StateChanged</c> activity event with the actor's standard
+    /// envelope shape after a successful delete.
     /// </param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     Task RemoveMemberAsync(
-        string unitActorId,
+        Guid unitId,
         Address member,
-        Func<CancellationToken, Task<List<Address>>> getMembers,
-        Func<List<Address>, CancellationToken, Task> persistMembers,
+        Func<Address, int, CancellationToken, Task> emitStateChanged,
         CancellationToken cancellationToken = default);
 }

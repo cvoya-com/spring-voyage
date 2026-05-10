@@ -197,12 +197,18 @@ public static class ActorTestHost
     /// <param name="actorId">The actor identifier. Defaults to a new GUID.</param>
     /// <param name="directoryService">The directory service used for nested-unit cycle detection. Defaults to a substitute that resolves nothing.</param>
     /// <param name="actorProxyFactory">The actor proxy factory used for nested-unit cycle detection. Defaults to a substitute.</param>
+    /// <param name="memberGraphStore">
+    /// Optional EF-backed member graph store (#2052 / ADR-0040). When
+    /// <see langword="null"/>, an in-memory store is created so tests
+    /// can pre-seed agent / sub-unit edges via the returned reference.
+    /// </param>
     /// <returns>A tuple of the actor instance, its mocked state manager, and the runtime invocation path.</returns>
-    public static (UnitActor Actor, IActorStateManager StateManager, IRuntimeInvocationPath RuntimeInvocationPath) CreateUnitActor(
+    public static (UnitActor Actor, IActorStateManager StateManager, IRuntimeInvocationPath RuntimeInvocationPath, InMemoryUnitMemberGraphStore MemberGraphStore) CreateUnitActor(
         IRuntimeInvocationPath? runtimeInvocationPath = null,
         string? actorId = null,
         IDirectoryService? directoryService = null,
-        IActorProxyFactory? actorProxyFactory = null)
+        IActorProxyFactory? actorProxyFactory = null,
+        InMemoryUnitMemberGraphStore? memberGraphStore = null)
     {
         var stateManager = Substitute.For<IActorStateManager>();
         var loggerFactory = Substitute.For<ILoggerFactory>();
@@ -243,6 +249,8 @@ public static class ActorTestHost
             .HasOwnExpertiseSetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(false);
 
+        memberGraphStore ??= new InMemoryUnitMemberGraphStore();
+
         var actor = new UnitActor(
             host,
             loggerFactory,
@@ -250,15 +258,12 @@ public static class ActorTestHost
             activityEventBus,
             directoryService,
             actorProxyFactory,
-            stateCoordinator);
+            stateCoordinator,
+            memberGraphStore);
         SetStateManager(actor, stateManager);
 
-        // Default: no members.
-        stateManager.TryGetStateAsync<List<CoreMessaging.Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<CoreMessaging.Address>>(false, default!));
-
         runtimeInvocationPath.ClearReceivedCalls();
-        return (actor, stateManager, runtimeInvocationPath);
+        return (actor, stateManager, runtimeInvocationPath, memberGraphStore);
     }
 
     /// <summary>
