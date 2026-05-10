@@ -31,7 +31,7 @@ The runtime's session identifier is `thread.id` verbatim. No hashing, no derivat
 
 ### Two modes, bound to `concurrent_threads`
 
-| `concurrent_threads` | Mailbox behaviour | In-container concurrency | HoL blocking | In-process conflict surface |
+| `concurrent_threads` | Mailbox behaviour | In-container concurrency | Head-of-line (HoL) blocking | In-process conflict surface |
 | --- | --- | --- | --- | --- |
 | **`false`** (default) | Per-agent serialization across all threads. | One runtime invocation in flight at a time. | Yes — long turn on thread A queues thread B. | None. |
 | **`true`** (opt-in) | Per-thread channels dispatch independently. | N concurrent runtime invocations (one per active thread). | No. | Author-owned (ports, `/tmp`, `~/.cache`, child PIDs, network state, env globals). |
