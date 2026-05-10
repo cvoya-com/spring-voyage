@@ -109,3 +109,25 @@ are present, and starts the A2A server.
 - When `concurrent_threads=false`, invocations are serialised globally.
 - SIGTERM is trapped; `on_shutdown` is called and must complete within 30 s.
 - If `initialize` fails or times out, the container exits non-zero.
+
+## Per-thread state
+
+Every inbound message exposes `message.thread_id` (the A2A `Message.context_id`).
+On-disk per-thread state lives under `$SPRING_WORKSPACE_PATH/threads/<thread.id>/`
+by convention — use `IAgentContext.thread_workspace(thread_id)` to resolve the
+directory (it is created on first access):
+
+```python
+async def on_message(message: Message):
+    workspace = context.thread_workspace(message.thread_id)
+    (workspace / "state.json").write_text(...)
+```
+
+In-memory per-thread state is safe under `concurrent_threads=false` (the
+default — mailbox serialises invocations). Under `concurrent_threads=true`,
+follow the author contract in
+[ADR-0041](../../docs/decisions/0041-actor-runtime-contract.md): no fixed
+ports, no shared globals, and keep thread-local files inside the per-thread
+workspace directory.
+
+See also: [`docs/architecture/agent-sdk.md` § "Per-Thread State"](../../docs/architecture/agent-sdk.md).

@@ -86,6 +86,39 @@ Child targets are Spring Voyage address strings such as `agent:aaaaaaaa000000000
 
 The SDK does not provide workflow durability. If an image needs restart survival or multi-step state, put a state store such as SQLite or Redis in the image or alongside it as a sidecar. The platform delivers the inbound message, validates callbacks, records orchestration evidence, and collects the runtime's final result.
 
+## Per-Thread State
+
+This section governs **per-thread** state held by an agent process — both on disk and in memory — and applies to the Python SDK (`agents/spring-voyage-agent-sdk/`) and to runtime images that hold their own per-thread state. The contract derives from [ADR-0041 — Actor-runtime contract](../decisions/0041-actor-runtime-contract.md).
+
+### `thread.id` is delivered on every turn
+
+Every inbound message carries the platform-assigned thread id. In the Python SDK it is `Message.thread_id` (sourced from the A2A SDK's `Message.context_id`). The id is stable across the thread's lifetime and globally unique (a `Guid`, per ADR-0036), so it can be used directly as a session / file-key without hashing.
+
+### On-disk per-thread state
+
+On-disk per-thread state lives under `$SPRING_WORKSPACE_PATH/threads/<thread.id>/`. The Python SDK exposes `IAgentContext.thread_workspace(thread_id) -> Path` which returns this directory and creates it on first access (`mkdir(parents=True, exist_ok=True)`):
+
+```python
+async def on_message(message: Message):
+    workspace = context.thread_workspace(message.thread_id)
+    transcript = workspace / "transcript.jsonl"
+    transcript.write_text(...)  # safe: directory exists
+```
+
+This is the canonical location for thread-local files (transcripts, scratchpads, vector caches, partial work). Anything written here survives container restarts (the workspace is a durable volume — see `docs/specs/agent-runtime-boundary.md` § 3) and is scoped to one thread, so it cannot collide between concurrent thread invocations.
+
+Authors **MUST NOT** write thread-local state outside this directory — the [ADR-0041 author contract](../decisions/0041-actor-runtime-contract.md) for `concurrent_threads: true` makes this normative for opt-in agents, and the convention applies to the default mode as well so that switching the flag never silently corrupts state.
+
+### In-memory per-thread state
+
+Whether in-memory per-thread state is safe depends on the agent's `concurrent_threads` setting:
+
+- **`concurrent_threads: false`** (default) — the platform-side mailbox serialises invocations across all threads inside the container; only one `on_message` runs at a time. In-memory state keyed by `thread.id` (e.g. a `dict[str, ThreadState]`) is safe by construction. Trade-off: head-of-line blocking — a long turn on thread A queues thread B inside the same agent.
+
+- **`concurrent_threads: true`** (opt-in) — the platform dispatches per-thread channels concurrently; N `on_message` invocations may run in parallel. In-memory per-thread state is allowed but the agent author signs up for the full [ADR-0041 `concurrent_threads: true` contract](../decisions/0041-actor-runtime-contract.md): no fixed ports, no shared global mutation, no `pkill`-style child-process assumptions, and all thread-local files under `$SPRING_WORKSPACE_PATH/threads/<thread.id>/`. Agents that cannot meet the contract should stay on `false` and accept HoL.
+
+`spring agent validate` surfaces a warning when an agent declares `concurrent_threads: true` so the author opts in deliberately.
+
 ## Security Model
 
 - The callback token is per-invocation and scoped to the current thread.

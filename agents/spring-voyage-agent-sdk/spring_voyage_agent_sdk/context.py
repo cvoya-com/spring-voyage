@@ -111,6 +111,41 @@ class IAgentContext:
     agent_definition: dict[str, Any] = field(default_factory=dict)
     tenant_config: dict[str, Any] = field(default_factory=dict)
 
+    def thread_workspace(self, thread_id: str) -> Path:
+        """Return the on-disk workspace directory for ``thread_id``.
+
+        Per ADR-0041 (`docs/decisions/0041-actor-runtime-contract.md`),
+        on-disk per-thread state lives under
+        ``$SPRING_WORKSPACE_PATH/threads/<thread.id>/``.  This helper
+        returns that path and creates the directory on first access
+        (``mkdir(parents=True, exist_ok=True)``).
+
+        ``thread_id`` is the platform-assigned thread id exposed on every
+        ``on_message`` invocation as :attr:`Message.thread_id` (the A2A
+        SDK's ``Message.context_id``).
+
+        Parameters
+        ----------
+        thread_id:
+            The Spring Voyage thread id.  MUST be non-empty.
+
+        Returns
+        -------
+        Path
+            The thread-local directory; safe to write into immediately.
+
+        Raises
+        ------
+        ValueError
+            ``thread_id`` is empty or whitespace.
+        """
+        if not thread_id or not thread_id.strip():
+            raise ValueError("thread_id must be a non-empty string")
+
+        path = Path(self.workspace_path) / "threads" / thread_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     @classmethod
     def load(cls) -> "IAgentContext":
         """Read IAgentContext from environment variables and mounted files.
