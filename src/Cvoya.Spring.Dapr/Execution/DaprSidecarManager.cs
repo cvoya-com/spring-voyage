@@ -219,6 +219,19 @@ public class DaprSidecarManager(
             "--app-port", config.AppPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--dapr-http-port", config.DaprHttpPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--dapr-grpc-port", config.DaprGrpcPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            // daprd defaults to binding HTTP/gRPC on 127.0.0.1 only; the
+            // sidecar pattern relies on app + daprd sharing a network
+            // namespace. In our dispatch shape the app container and the
+            // daprd sidecar are *separate* containers on a shared bridge,
+            // so the transient curl probe (and the app's own dapr SDK)
+            // dial daprd by its container DNS name. Without
+            // `--dapr-listen-addresses 0.0.0.0` daprd refuses the
+            // cross-container connection, the readiness probe times out
+            // after 30s, and the dispatch tears the sidecar down before
+            // ever reaching the app launch. Matches what
+            // `deployment/deploy.sh` passes for `spring-api-dapr` /
+            // `spring-worker-dapr`.
+            "--dapr-listen-addresses", "0.0.0.0",
         };
 
         if (config.ComponentsPath is not null)
