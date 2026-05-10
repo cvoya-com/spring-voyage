@@ -62,6 +62,7 @@ public class DaprSidecarManagerTests
             "--app-port", "8080",
             "--dapr-http-port", "3500",
             "--dapr-grpc-port", "50001",
+            "--dapr-listen-addresses", "0.0.0.0",
         ]);
         containerConfig.Command.ShouldNotContain("--resources-path");
         containerConfig.NetworkName.ShouldBeNull();

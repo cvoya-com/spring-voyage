@@ -1,0 +1,23 @@
+# Per-provider components profile for `provider: ollama` units.
+# Mounted into the per-dispatch daprd sidecar at /components — only this
+# profile's components are loaded so a deployment that lacks the other
+# providers' API keys does not fatal daprd on boot.
+#
+# Naming follows ADR-0038: in-tree Dapr component files use the
+# `llm-{provider.id}` convention. The Dapr `type:` field stays
+# `conversation.openai` because Ollama exposes an OpenAI-compatible
+# surface and that is Dapr's contract, not ours.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: llm-ollama
+spec:
+  type: conversation.openai
+  version: v1
+  metadata:
+  - name: key
+    value: "ollama"
+  - name: model
+    value: "llama3.2:3b"
+  - name: endpoint
+    value: "http://spring-ollama:11434/v1"

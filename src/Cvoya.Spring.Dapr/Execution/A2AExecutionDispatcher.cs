@@ -284,7 +284,8 @@ public class A2AExecutionDispatcher(
                 {
                     DaprAppId = daprAppId,
                     DaprAppPort = spec.A2APort,
-                    DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath,
+                    DaprSidecarComponentsPath = ResolveDelegatedComponentsPath(
+                        definition.Execution.Provider, agentId),
                 };
 
                 var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
@@ -452,6 +453,61 @@ public class A2AExecutionDispatcher(
         }
 
         return "p" + id;
+    }
+
+    /// <summary>
+    /// Resolves the per-dispatch Dapr components directory bind-mounted into
+    /// the daprd sidecar at <c>/components</c>. The base
+    /// <see cref="DaprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath"/>
+    /// ships every supported provider's Conversation YAML side-by-side
+    /// (<c>llm-anthropic.yaml</c>, <c>llm-google.yaml</c>, <c>llm-ollama.yaml</c>,
+    /// <c>llm-openai.yaml</c>); loading the whole directory means daprd
+    /// fatal-exits on the first component whose secretKeyRef cannot be
+    /// satisfied (e.g. <c>llm-anthropic</c> without an
+    /// <c>ANTHROPIC_API_KEY</c>) — even when the dispatched unit's
+    /// provider is something else entirely.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Resolution rule: <c>&lt;base&gt;/profiles/&lt;provider&gt;</c>. The
+    /// repo ships <c>dapr/components/delegated-spring-voyage-agent/profiles/&lt;provider&gt;/</c>
+    /// with the matching LLM YAML plus the shared <c>secretstore.yaml</c> /
+    /// <c>statestore.yaml</c>; daprd loads only those, leaving the other
+    /// providers' components on disk but never touched. The provider
+    /// comes from <see cref="AgentExecutionConfig.Provider"/>
+    /// (lower-cased); missing provider returns the base path verbatim
+    /// for back-compat with units that predate the profile layout.
+    /// </para>
+    /// <para>
+    /// No <c>Directory.Exists</c> check here: this code runs inside the
+    /// worker container, which does not have the host components
+    /// directory mounted (the dispatcher does, on the host). The string
+    /// is passed to the dispatcher as a bind-mount source; podman
+    /// surfaces a clean error if the host path doesn't exist.
+    /// </para>
+    /// </remarks>
+    private string? ResolveDelegatedComponentsPath(string? provider, string agentId)
+    {
+        var basePath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath;
+        if (string.IsNullOrWhiteSpace(basePath))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            _logger.LogDebug(
+                "Agent {AgentId} has no execution.provider; mounting legacy single-profile components dir {Path}.",
+                agentId, basePath);
+            return basePath;
+        }
+
+        var providerKey = provider.Trim().ToLowerInvariant();
+        var profilePath = System.IO.Path.Combine(basePath, "profiles", providerKey);
+        _logger.LogDebug(
+            "Agent {AgentId} provider '{Provider}': mounting per-provider components profile {ProfilePath}.",
+            agentId, providerKey, profilePath);
+        return profilePath;
     }
 
     private async Task<SvMessage?> DispatchPersistentAsync(
@@ -624,7 +680,8 @@ public class A2AExecutionDispatcher(
             {
                 DaprAppId = daprAppId,
                 DaprAppPort = spec.A2APort,
-                DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath,
+                DaprSidecarComponentsPath = ResolveDelegatedComponentsPath(
+                    definition.Execution.Provider, agentId),
             };
             var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
                 daprConfig, cancellationToken);

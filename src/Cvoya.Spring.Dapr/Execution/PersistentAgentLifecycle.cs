@@ -201,7 +201,13 @@ public class PersistentAgentLifecycle(
             {
                 DaprAppId = daprAppId,
                 DaprAppPort = prep.A2APort,
-                DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath,
+                // Per-provider components profile (ADR-0028 V2 interim).
+                // See A2AExecutionDispatcher.ResolveDelegatedComponentsPath for
+                // the resolution rule and the rationale (every provider's
+                // component would otherwise load, fatal-exiting daprd on the
+                // first missing API key).
+                DaprSidecarComponentsPath = ResolveDelegatedComponentsPath(
+                    definition.Execution.Provider, agentId),
             };
             var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
                 daprConfig, cancellationToken);
@@ -352,5 +358,39 @@ public class PersistentAgentLifecycle(
         }
 
         return "p" + id;
+    }
+
+    /// <summary>
+    /// Resolves the per-dispatch Dapr components directory bind-mounted into
+    /// the daprd sidecar. Mirrors
+    /// <see cref="A2AExecutionDispatcher"/>'s resolver so the persistent and
+    /// ephemeral dispatch paths agree on which provider's components are
+    /// loaded for a given agent. The base path is a host filesystem path;
+    /// no <c>Directory.Exists</c> check here because this code runs inside
+    /// the worker container (the host path is not mounted into the worker —
+    /// only into the dispatcher).
+    /// </summary>
+    private string? ResolveDelegatedComponentsPath(string? provider, string agentId)
+    {
+        var basePath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath;
+        if (string.IsNullOrWhiteSpace(basePath))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            _logger.LogDebug(
+                "Agent {AgentId} has no execution.provider; mounting legacy single-profile components dir {Path}.",
+                agentId, basePath);
+            return basePath;
+        }
+
+        var providerKey = provider.Trim().ToLowerInvariant();
+        var profilePath = System.IO.Path.Combine(basePath, "profiles", providerKey);
+        _logger.LogDebug(
+            "Agent {AgentId} provider '{Provider}': mounting per-provider components profile {ProfilePath}.",
+            agentId, providerKey, profilePath);
+        return profilePath;
     }
 }

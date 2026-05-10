@@ -49,7 +49,8 @@ using Microsoft.Extensions.Logging;
 public class DbAgentDefinitionProvider(
     IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory,
-    IUnitExecutionStore? unitExecutionStore = null) : IAgentDefinitionProvider
+    IUnitExecutionStore? unitExecutionStore = null,
+    IUnitStateCoordinator? unitStateCoordinator = null) : IAgentDefinitionProvider
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<DbAgentDefinitionProvider>();
 
@@ -71,7 +72,23 @@ public class DbAgentDefinitionProvider(
 
         if (entity is null)
         {
-            _logger.LogDebug("No agent definition found for id {AgentId}", agentId);
+            // ADR-0039: units are agents. The dispatcher resolves a message
+            // recipient by id without knowing whether it's an `agent://` or
+            // a `unit://`. When the id does not match an agent definition
+            // row, fall through to the unit-definitions table and project
+            // the unit's own execution block as an AgentDefinition so the
+            // dispatcher can launch the unit's runtime container directly.
+            // Issue #2081 follow-up: before the reentrancy fix the dispatch
+            // never reached this point (the actor-self-call deadlocked
+            // first); now it does, and the unit-as-agent path needs an
+            // actual implementation.
+            var unitDefinition = await TryProjectUnitAsync(db, agentUuid, cancellationToken);
+            if (unitDefinition is not null)
+            {
+                return unitDefinition;
+            }
+
+            _logger.LogDebug("No agent or unit definition found for id {Id}", agentId);
             return null;
         }
 
@@ -137,6 +154,101 @@ public class DbAgentDefinitionProvider(
         return new AgentDefinition(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entity.Id),
             entity.DisplayName,
+            instructions,
+            execution);
+    }
+
+    /// <summary>
+    /// Projects a <c>UnitDefinitionEntity</c> as an <see cref="AgentDefinition"/>
+    /// so the dispatcher can launch the unit's own runtime container (per
+    /// ADR-0039 — units are agents). Returns <c>null</c> when no unit row
+    /// exists for <paramref name="unitId"/>, when the row was soft-deleted,
+    /// or when the unit's definition JSON does not carry an executable
+    /// runtime slot (<c>execution.agent</c>) — the dispatcher requires
+    /// an agent-runtime id to know which launcher to invoke.
+    /// </summary>
+    /// <remarks>
+    /// Hosting mode is forced to <see cref="AgentHostingMode.Ephemeral"/>:
+    /// units launch a fresh container per inbound message, the same shape
+    /// the validation workflow already uses for unit probes. The unit's
+    /// <c>execution</c> JSON shape is identical to the agent's, so
+    /// <see cref="ExtractExecution"/> handles both — we just reuse it.
+    /// Instructions come from the unit's top-level <c>instructions</c>
+    /// field when present (mirrors agent definitions).
+    /// </remarks>
+    private async Task<AgentDefinition?> TryProjectUnitAsync(
+        SpringDbContext db,
+        Guid unitId,
+        CancellationToken cancellationToken)
+    {
+        var unit = await db.UnitDefinitions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == unitId && u.DeletedAt == null, cancellationToken);
+
+        if (unit is null)
+        {
+            return null;
+        }
+
+        string? instructions = null;
+        AgentExecutionConfig? execution = null;
+
+        if (unit.Definition is { ValueKind: JsonValueKind.Object } definition)
+        {
+            if (definition.TryGetProperty("instructions", out var instructionsProp) &&
+                instructionsProp.ValueKind == JsonValueKind.String)
+            {
+                instructions = instructionsProp.GetString();
+            }
+
+            execution = ExtractExecution(definition);
+        }
+
+        if (execution is null)
+        {
+            _logger.LogWarning(
+                "Unit {UnitId} matched by id but has no execution.agent slot; cannot dispatch as runtime.",
+                unitId);
+            return null;
+        }
+
+        // Overlay live-config slots (unit_live_config) on top of the JSON-
+        // derived execution. The unit-create flow writes Hosting / Color /
+        // Model / Provider to unit_live_config via UnitActor.SetMetadataAsync
+        // — but does NOT round-trip them into unit_definitions.definition
+        // (the JSON is the at-create snapshot only). For dispatch we want
+        // the authoritative live values, which is what every other
+        // metadata reader returns. Most critically for #2081/#2082
+        // follow-up: a unit created with `hosting: persistent` was being
+        // dispatched as Ephemeral because the JSON didn't carry the flag.
+        if (unitStateCoordinator is not null)
+        {
+            try
+            {
+                var unitIdString = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id);
+                var metadata = await unitStateCoordinator.GetMetadataAsync(unitIdString, cancellationToken);
+
+                var liveHosting = ParseHosting(metadata.Hosting);
+                execution = execution with
+                {
+                    AgentRuntimeId = execution.AgentRuntimeId,
+                    Image = execution.Image,
+                    Hosting = metadata.Hosting is null ? execution.Hosting : liveHosting,
+                    Provider = metadata.Provider ?? execution.Provider,
+                    Model = metadata.Model ?? execution.Model,
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to overlay unit_live_config onto unit {UnitId}'s execution; falling back to JSON-only values.",
+                    unitId);
+            }
+        }
+
+        return new AgentDefinition(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id),
+            unit.DisplayName,
             instructions,
             execution);
     }
