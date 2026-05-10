@@ -98,7 +98,6 @@ public class UnitCreationServiceExpertiseSeedTests
             Substitute.For<ISkillBundleResolver>(),
             Substitute.For<ISkillBundleValidator>(),
             Substitute.For<IUnitSkillBundleStore>(),
-            Substitute.For<IUnitMembershipRepository>(),
             memberGraphStore,
             tenantContext,
             scopeFactory,

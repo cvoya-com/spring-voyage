@@ -1592,13 +1592,14 @@ public static class UnitEndpoints
         // of multiple units. No 1:N conflict check — the old guard is gone
         // and operators may freely add the same agent to several units.
         // Existing membership rows are preserved (idempotent re-assign).
-        var existing = await membershipRepository.GetAsync(unitAssignUuid, agentAssignUuid, cancellationToken);
-        var membership = existing is null
-            ? new UnitMembership(UnitId: unitAssignUuid, AgentId: agentAssignUuid, Enabled: true)
-            : existing with { UnitId = unitAssignUuid, AgentId = agentAssignUuid };
-
-        await membershipRepository.UpsertAsync(membership, cancellationToken);
-
+        //
+        // #2072: route the write through UnitActor.AddMemberAsync — the
+        // canonical membership-write surface post-#2052. The actor calls
+        // UnitMembershipCoordinator, which idempotently writes the
+        // unit_memberships row through IUnitMemberGraphStore and emits the
+        // StateChanged/MemberAdded activity event. The previous
+        // direct-repository upsert here was a redundant second write to
+        // the same EF row.
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitEntry.ActorId)), nameof(UnitActor));
         await unitProxy.AddMemberAsync(agentAddress, cancellationToken);
@@ -1794,14 +1795,12 @@ public static class UnitEndpoints
         var existingMemberships = await membershipRepository.ListByAgentAsync(
             agentUnassignUuid,
             cancellationToken);
-        var targetMembershipExists = false;
         var remainingParentSet = new List<Guid>(existingMemberships.Count);
         var seenRemainingParents = new HashSet<Guid>();
         foreach (var membership in existingMemberships)
         {
             if (membership.UnitId == unitUnassignUuid)
             {
-                targetMembershipExists = true;
                 continue;
             }
 
@@ -1823,35 +1822,22 @@ public static class UnitEndpoints
             return conflictResult;
         }
 
-        // Delete the membership row. Other units the agent still belongs to
-        // are unaffected — this is the point of M:N. ADR-0039 §6 / B4 lets
-        // the DELETE endpoint remove the final row and make the agent top-
-        // level, so the final-row branch uses the repository's cascade
-        // primitive to bypass DeleteAsync's legacy last-membership guard.
-        try
-        {
-            if (targetMembershipExists && remainingParentSet.Count == 0)
-            {
-                await membershipRepository.DeleteAllForAgentAsync(agentUnassignUuid, cancellationToken);
-            }
-            else
-            {
-                await membershipRepository.DeleteAsync(unitUnassignUuid, agentUnassignUuid, cancellationToken);
-            }
-        }
-        catch (AgentMembershipRequiredException ex)
-        {
-            return Results.Problem(
-                title: "Agent must belong to at least one unit",
-                detail: ex.Message,
-                statusCode: StatusCodes.Status409Conflict,
-                extensions: new Dictionary<string, object?>
-                {
-                    ["agentId"] = ex.AgentId,
-                    ["unitId"] = ex.UnitId,
-                });
-        }
-
+        // #2072: route the delete through UnitActor.RemoveMemberAsync — the
+        // canonical membership-write surface post-#2052. The actor calls
+        // UnitMembershipCoordinator, which idempotently removes the
+        // unit_memberships row through IUnitMemberGraphStore and emits the
+        // StateChanged/MemberRemoved activity event. The previous
+        // direct-repository delete here was a redundant second write to
+        // the same EF row.
+        //
+        // The repository's last-membership guard (#744) is intentionally
+        // not consulted here: ADR-0039 §6 / B4 explicitly permits the
+        // DELETE endpoint to remove the final row and leave the agent
+        // top-level (resolves against tenant defaults). Endpoints that
+        // *do* need the guard (e.g.
+        // DELETE /api/v1/tenant/units/{id}/memberships/{agentId}) call
+        // IUnitMembershipRepository.DeleteAsync directly per the
+        // IUnitMemberGraphStore.RemoveAgentMemberAsync contract.
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitEntry.ActorId)), nameof(UnitActor));
         await unitProxy.RemoveMemberAsync(agentAddress, cancellationToken);
