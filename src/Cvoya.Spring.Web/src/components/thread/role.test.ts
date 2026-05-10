@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   addressOf,
+  idOf,
   isHumanAddress,
   parseThreadSource,
   participantDisplayName,
   ROLE_STYLES,
   roleFromEvent,
+  sameIdentity,
 } from "./role";
 
 describe("parseThreadSource", () => {
@@ -152,6 +154,82 @@ describe("addressOf", () => {
 
   it("returns empty string when address field is missing", () => {
     expect(addressOf({ displayName: "ada" })).toBe("");
+  });
+});
+
+// #2082 — identity equality on the typed Guid id, not on address strings.
+describe("idOf", () => {
+  it("returns the lowercased id when present on a ParticipantRef", () => {
+    expect(
+      idOf({
+        id: "ABCDEF01-1234-5678-9ABC-DEF012345678",
+        address: "agent:abcdef0112345678abcd",
+        displayName: "ada",
+      }),
+    ).toBe("abcdef01-1234-5678-9abc-def012345678");
+  });
+
+  it("returns null for plain string participants (no typed id)", () => {
+    expect(idOf("agent://ada")).toBeNull();
+  });
+
+  it("returns null when the id field is empty / missing", () => {
+    expect(idOf({ address: "agent://ada", displayName: "ada" })).toBeNull();
+    expect(
+      idOf({ id: "", address: "agent://ada", displayName: "ada" }),
+    ).toBeNull();
+  });
+
+  it("returns null for null / undefined", () => {
+    expect(idOf(null)).toBeNull();
+    expect(idOf(undefined)).toBeNull();
+  });
+});
+
+describe("sameIdentity", () => {
+  it("compares on id when both sides have one", () => {
+    const a = {
+      id: "11111111-1111-1111-1111-111111111111",
+      address: "human://savas",
+      displayName: "savas",
+    };
+    const b = {
+      id: "11111111-1111-1111-1111-111111111111",
+      address: "human:11111111111111111111111111111111",
+      displayName: "savas",
+    };
+    expect(sameIdentity(a, b)).toBe(true);
+  });
+
+  it("returns false when ids differ even if addresses match", () => {
+    expect(
+      sameIdentity(
+        {
+          id: "11111111-1111-1111-1111-111111111111",
+          address: "human://savas",
+          displayName: "savas",
+        },
+        {
+          id: "22222222-2222-2222-2222-222222222222",
+          address: "human://savas",
+          displayName: "savas",
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("returns false when either side has no id", () => {
+    expect(
+      sameIdentity(
+        {
+          id: "11111111-1111-1111-1111-111111111111",
+          address: "human://savas",
+          displayName: "savas",
+        },
+        { address: "human://savas", displayName: "savas" },
+      ),
+    ).toBe(false);
+    expect(sameIdentity("human://savas", "human://savas")).toBe(false);
   });
 });
 

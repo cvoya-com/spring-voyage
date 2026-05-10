@@ -5,7 +5,6 @@ namespace Cvoya.Spring.Dapr.Observability;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
@@ -30,18 +29,13 @@ using Microsoft.EntityFrameworkCore;
 /// cheap.
 /// </para>
 /// <para>
-/// The directory service is consulted only to render an actor id back to its
-/// scheme when a message references a recipient/sender that doesn't appear
-/// in the thread's participant set (defensive — the dispatcher's invariants
-/// keep these aligned in practice). Tenant scoping flows from
-/// <see cref="SpringDbContext"/>'s <c>HasQueryFilter</c> on each entity, so
-/// the service itself never references <c>OssTenantIds.Default</c> or
-/// hardcodes a tenant string.
+/// Tenant scoping flows from <see cref="SpringDbContext"/>'s
+/// <c>HasQueryFilter</c> on each entity, so the service itself never
+/// references <c>OssTenantIds.Default</c> or hardcodes a tenant string.
 /// </para>
 /// </remarks>
 public class ThreadQueryService(
-    SpringDbContext dbContext,
-    IDirectoryService? directoryService = null) : IThreadQueryService
+    SpringDbContext dbContext) : IThreadQueryService
 {
     private const int DefaultLimit = 50;
 
@@ -98,7 +92,7 @@ public class ThreadQueryService(
             summaries.Add(summary);
         }
 
-        var filtered = await ApplyFiltersAsync(summaries, filters, cancellationToken);
+        var filtered = ApplyFilters(summaries, filters);
         var limit = filters.Limit is > 0 ? filters.Limit.Value : DefaultLimit;
         return filtered
             .OrderByDescending(s => s.LastActivity)
@@ -345,92 +339,107 @@ public class ThreadQueryService(
             Body: message.Body);
     }
 
-    private async Task<IReadOnlyList<ThreadSummary>> ApplyFiltersAsync(
+    private static IReadOnlyList<ThreadSummary> ApplyFilters(
         IReadOnlyList<ThreadSummary> summaries,
-        ThreadQueryFilters filters,
-        CancellationToken cancellationToken)
+        ThreadQueryFilters filters)
     {
         IEnumerable<ThreadSummary> query = summaries;
 
         if (!string.IsNullOrWhiteSpace(filters.Unit))
         {
-            var needles = await BuildAddressNeedlesAsync("unit", filters.Unit!, cancellationToken);
-            query = query.Where(s =>
-                s.Participants.Any(p => needles.Contains(p, StringComparer.OrdinalIgnoreCase))
-                || needles.Contains(s.Origin, StringComparer.OrdinalIgnoreCase));
+            var targetId = ResolveFilterIdentity(filters.Unit!);
+            query = targetId is null
+                ? Array.Empty<ThreadSummary>()
+                : query.Where(s => MatchesActor(s, targetId.Value));
         }
 
         if (!string.IsNullOrWhiteSpace(filters.Agent))
         {
-            var needles = await BuildAddressNeedlesAsync("agent", filters.Agent!, cancellationToken);
-            query = query.Where(s =>
-                s.Participants.Any(p => needles.Contains(p, StringComparer.OrdinalIgnoreCase))
-                || needles.Contains(s.Origin, StringComparer.OrdinalIgnoreCase));
+            var targetId = ResolveFilterIdentity(filters.Agent!);
+            query = targetId is null
+                ? Array.Empty<ThreadSummary>()
+                : query.Where(s => MatchesActor(s, targetId.Value));
         }
 
         if (!string.IsNullOrWhiteSpace(filters.Participant))
         {
-            var needle = filters.Participant!;
-            query = query.Where(s =>
-                s.Participants.Any(p => string.Equals(p, needle, StringComparison.OrdinalIgnoreCase)));
+            // #2082: identity is a typed-Guid concept. Tolerate any of the
+            // historical address forms by extracting the Guid via the
+            // shared parser, then compare on the typed primitive — no
+            // case-insensitive string equality on rendered addresses.
+            if (AddressIdentity.TryGetActorId(filters.Participant!, out var participantId))
+            {
+                query = query.Where(s => s.Participants.Any(p =>
+                    AddressIdentity.TryGetActorId(p, out var pid) && pid == participantId));
+            }
+            else
+            {
+                query = Array.Empty<ThreadSummary>();
+            }
         }
 
         return query.ToList();
     }
 
     /// <summary>
-    /// Builds the candidate participant strings for an agent / unit slug-or-id
-    /// filter. When the directory service resolves the value to a UUID, only
-    /// the identity form (<c>scheme:id:&lt;uuid&gt;</c>) is returned so that
-    /// threads from previous instances of an entity with the same slug name
-    /// are not incorrectly included (#1488). The literal navigation form is
-    /// returned as a fallback when: (a) no directory service is wired,
-    /// (b) the value is already a UUID, or (c) resolution fails.
+    /// Tests whether the given thread summary involves the actor whose
+    /// stable Guid id is <paramref name="targetId"/>, either as a
+    /// participant or as the origin sender. Both checks parse the
+    /// stored address string to a Guid via
+    /// <see cref="AddressIdentity.TryGetActorId"/> so identity matching
+    /// is independent of which historical form the address was
+    /// persisted in.
     /// </summary>
-    private async Task<IReadOnlyList<string>> BuildAddressNeedlesAsync(
-        string scheme,
-        string value,
-        CancellationToken cancellationToken)
+    private static bool MatchesActor(ThreadSummary summary, Guid targetId)
     {
-        var isUuidValue = Guid.TryParse(value, out _);
-        var literal = isUuidValue
-            ? $"{scheme}:id:{value}"
-            : $"{scheme}://{value}";
-
-        if (directoryService is null || !isUuidValue)
+        if (AddressIdentity.TryGetActorId(summary.Origin, out var originId)
+            && originId == targetId)
         {
-            // The post-#1629 directory service is keyed by Guid only; a slug
-            // needle that isn't already a Guid cannot resolve. Returning the
-            // literal keeps direct-UUID filters working and lets slug filters
-            // fall through with no match.
-            return new[] { literal };
+            return true;
         }
 
-        try
-        {
-            var entry = await directoryService.ResolveAsync(
-                Address.For(scheme, value), cancellationToken);
-            if (entry is null)
-            {
-                return new[] { literal };
-            }
-
-            return new[] { $"{scheme}:id:{GuidFormatter.Format(entry.ActorId)}" };
-        }
-        catch
-        {
-            return new[] { literal };
-        }
+        return summary.Participants.Any(p =>
+            AddressIdentity.TryGetActorId(p, out var pid) && pid == targetId);
     }
 
     /// <summary>
-    /// Renders an actor (scheme + Guid id) as <c>scheme:id:&lt;hex&gt;</c> —
-    /// the identity form the existing wire surface uses. The format matches
-    /// what previously came out of <c>NormaliseSource</c> on
-    /// <c>scheme:&lt;hex&gt;</c> activity rows.
+    /// Resolves a unit-or-agent filter value to the actor's stable Guid
+    /// identity. Accepts a raw Guid string (the post-#1629 default) or
+    /// any of the rendered address forms (canonical, navigation,
+    /// identity). Returns <c>null</c> when the value cannot be parsed
+    /// to a Guid — the caller treats that as "no match". Slug-shaped
+    /// legacy filter values are not supported post-#1629; the directory
+    /// is keyed by Guid only.
+    /// </summary>
+    private static Guid? ResolveFilterIdentity(string value)
+    {
+        if (AddressIdentity.TryGetActorId(value, out var direct))
+        {
+            return direct;
+        }
+
+        if (Guid.TryParse(value, out var raw))
+        {
+            return raw;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Renders an actor (scheme + Guid id) in the canonical wire form —
+    /// <c>scheme:&lt;32-hex-no-dash&gt;</c> — matching
+    /// <see cref="Address.ToString"/>. Issue #2082: the previous
+    /// <c>scheme:id:&lt;hex&gt;</c> rendering disagreed with the form
+    /// emitted by <c>AuthEndpoints.GetCurrentUserAsync</c>, causing
+    /// downstream string-equality identity checks to silently miss
+    /// matches. Identity comparisons should use
+    /// <see cref="AddressIdentity.TryGetActorId"/> on the typed Guid,
+    /// not string equality — but emitting a single canonical form here
+    /// removes the cross-source drift entirely.
     /// </summary>
     internal static string RenderAddress(string scheme, Guid id) =>
-        $"{scheme}:id:{GuidFormatter.Format(id)}";
+        $"{scheme}:{GuidFormatter.Format(id)}";
 
     /// <summary>
     /// Parses the JSON array of canonical addresses written by

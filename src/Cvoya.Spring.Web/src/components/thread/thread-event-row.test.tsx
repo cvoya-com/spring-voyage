@@ -20,7 +20,7 @@ function makeEvent(overrides: Partial<ThreadEvent> = {}): ThreadEvent {
   return {
     id: "00000000-0000-0000-0000-000000000001",
     timestamp: "2026-04-26T12:00:00Z",
-    source: { address: "agent://ada", displayName: "ada" },
+    source: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
     eventType: "MessageReceived",
     severity: "Info",
     summary: "human reply placeholder",
@@ -74,9 +74,9 @@ describe("ThreadEventRow", () => {
         <ThreadEventRow
           event={makeEvent({
             // Receiver-projected: human emitted the receive event.
-            source: { address: "human://savas", displayName: "savas" },
+            source: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
             // Underlying sender: the agent.
-            from: { address: "agent://ada", displayName: "ada" },
+            from: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
             body: "Hello savas",
           })}
         />,
@@ -93,7 +93,7 @@ describe("ThreadEventRow", () => {
       const { container } = render(
         <ThreadEventRow
           event={makeEvent({
-            source: { address: "agent://ada", displayName: "ada" },
+            source: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
             body: "Hello",
           })}
         />,
@@ -110,8 +110,8 @@ describe("ThreadEventRow", () => {
       const { container } = render(
         <ThreadEventRow
           event={makeEvent({
-            source: { address: "agent://ada", displayName: "ada" },
-            from: { address: "human://savas", displayName: "savas" },
+            source: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
+            from: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
             body: "What's up?",
           })}
         />,

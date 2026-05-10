@@ -27,6 +27,7 @@ const _markReadMutate = vi.fn();
 
 // Thread detail returned by useThread — controls right-pane rendering.
 interface MockParticipantRef {
+  id: string;
   address: string;
   displayName: string;
 }
@@ -69,7 +70,10 @@ vi.mock("@/lib/api/queries", () => ({
     isPending: false,
   }),
   useCurrentUser: () => ({
-    data: { address: "human://savas" },
+    data: {
+      id: "11111111-1111-1111-1111-111111111111",
+      address: "human://savas",
+    },
     isPending: false,
     error: null,
   }),
@@ -128,16 +132,16 @@ const DESIGN_ID = "a1b2c3d4-0000-0000-0000-000000000002";
 const rows: InboxItem[] = [
   {
     threadId: "conv-1",
-    from: { address: `agent:id:${ADA_ID}`, displayName: "engineering-team/ada" },
-    human: { address: "human://savas", displayName: "savas" },
+    from: { id: ADA_ID, address: `agent:id:${ADA_ID}`, displayName: "engineering-team/ada" },
+    human: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
     pendingSince: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
     summary: "Need your call on the migration plan",
     unreadCount: 3,
   },
   {
     threadId: "conv-2",
-    from: { address: `unit:id:${DESIGN_ID}`, displayName: "design" },
-    human: { address: "human://savas", displayName: "savas" },
+    from: { id: DESIGN_ID, address: `unit:id:${DESIGN_ID}`, displayName: "design" },
+    human: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
     pendingSince: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
     summary: "Ready to ship the portal redesign?",
     unreadCount: 0,
@@ -301,8 +305,8 @@ describe("InboxPage — timeline participant popover (#1482)", () => {
         id: "conv-1",
         status: "active",
         participants: [
-          { address: "human://savas", displayName: "savas" },
-          { address: agentAddr, displayName: "ada" },
+          { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+          { id: ADA_ID, address: agentAddr, displayName: "ada" },
         ],
       },
       events: [],
@@ -327,8 +331,8 @@ describe("InboxPage — timeline participant popover (#1482)", () => {
         id: "conv-1",
         status: "active",
         participants: [
-          { address: "human://savas", displayName: "savas" },
-          { address: agentAddr, displayName: "ada" },
+          { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+          { id: ADA_ID, address: agentAddr, displayName: "ada" },
         ],
       },
       events: [],
@@ -365,8 +369,8 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
         id: "conv-1",
         status: "active",
         participants: [
-          { address: "human://savas", displayName: "savas" },
-          { address: agentAddr, displayName: "ada" },
+          { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+          { id: ADA_ID, address: agentAddr, displayName: "ada" },
         ],
       },
       events: [],
@@ -389,15 +393,15 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
         id: "conv-1",
         status: "active",
         participants: [
-          { address: "human://savas", displayName: "savas" },
-          { address: agentAddr, displayName: "ada" },
+          { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+          { id: ADA_ID, address: agentAddr, displayName: "ada" },
         ],
       },
       events: [
         {
           id: "e-msg",
           eventType: "MessageReceived",
-          source: { address: agentAddr, displayName: "ada" },
+          source: { id: ADA_ID, address: agentAddr, displayName: "ada" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",
           summary: "hello",
@@ -406,7 +410,7 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
         {
           id: "e-state",
           eventType: "StateChanged",
-          source: { address: agentAddr, displayName: "ada" },
+          source: { id: ADA_ID, address: agentAddr, displayName: "ada" },
           timestamp: "2026-04-30T10:01:00Z",
           severity: "Info",
           summary: "state changed",
@@ -435,15 +439,15 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
         id: "conv-1",
         status: "active",
         participants: [
-          { address: "human://savas", displayName: "savas" },
-          { address: agentAddr, displayName: "ada" },
+          { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+          { id: ADA_ID, address: agentAddr, displayName: "ada" },
         ],
       },
       events: [
         {
           id: "e-msg",
           eventType: "MessageReceived",
-          source: { address: agentAddr, displayName: "ada" },
+          source: { id: ADA_ID, address: agentAddr, displayName: "ada" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",
           summary: "hello",
@@ -452,7 +456,7 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
         {
           id: "e-state",
           eventType: "StateChanged",
-          source: { address: agentAddr, displayName: "ada" },
+          source: { id: ADA_ID, address: agentAddr, displayName: "ada" },
           timestamp: "2026-04-30T10:01:00Z",
           severity: "Info",
           summary: "state changed",
@@ -497,15 +501,15 @@ describe("InboxPage — user's own message renders text, not placeholder (#1482)
         id: "conv-1",
         status: "active",
         participants: [
-          { address: "human://savas", displayName: "savas" },
-          { address: agentAddr, displayName: "ada" },
+          { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+          { id: ADA_ID, address: agentAddr, displayName: "ada" },
         ],
       },
       events: [
         {
           id: "e-human",
           eventType: "MessageReceived",
-          source: { address: "human://savas", displayName: "savas" },
+          source: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",
           summary: "human message placeholder",
@@ -593,8 +597,8 @@ describe("InboxPage — unread badge and mark-read (#1477)", () => {
         id: "conv-1",
         status: "active",
         participants: [
-          { address: "human://savas", displayName: "savas" },
-          { address: agentAddr, displayName: "ada" },
+          { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+          { id: ADA_ID, address: agentAddr, displayName: "ada" },
         ],
       },
       events: [],
@@ -622,16 +626,16 @@ describe("InboxPage — unread badge and mark-read (#1477)", () => {
     const mixed: InboxItem[] = [
       {
         threadId: "read-thread",
-        from: { address: `agent:id:${aliceId}`, displayName: "alice" },
-        human: { address: "human://savas", displayName: "savas" },
+        from: { id: aliceId, address: `agent:id:${aliceId}`, displayName: "alice" },
+        human: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
         pendingSince: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
         summary: "Read thread",
         unreadCount: 0,
       },
       {
         threadId: "unread-thread",
-        from: { address: `agent:id:${bobId}`, displayName: "bob" },
-        human: { address: "human://savas", displayName: "savas" },
+        from: { id: bobId, address: `agent:id:${bobId}`, displayName: "bob" },
+        human: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
         // older, but should still sort first because it has unread events
         pendingSince: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
         summary: "Unread thread",

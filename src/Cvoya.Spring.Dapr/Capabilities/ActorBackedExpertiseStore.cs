@@ -3,35 +3,49 @@
 
 namespace Cvoya.Spring.Dapr.Capabilities;
 
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Dapr.Actors;
-
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
+using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Default <see cref="IExpertiseStore"/>: reads per-agent expertise from the
-/// agent actor via <see cref="IAgentActor.GetExpertiseAsync"/>, and per-unit
-/// <em>own</em> expertise from the unit actor via
-/// <see cref="IUnitActor.GetOwnExpertiseAsync"/>. Address scheme dispatches
-/// the read; an unknown scheme returns an empty list instead of throwing so
-/// the aggregator can safely walk heterogeneous member graphs.
+/// Default <see cref="IExpertiseStore"/>: reads per-agent and per-unit
+/// <em>own</em> expertise directly from the EF-backed coordinators
+/// (<see cref="IAgentStateCoordinator"/>, <see cref="IUnitStateCoordinator"/>),
+/// which front <c>spring.agent_live_config</c> / <c>spring.unit_expertise</c>.
+/// Address scheme dispatches the read; an unknown scheme returns an empty
+/// list instead of throwing so the aggregator can safely walk
+/// heterogeneous member graphs.
 /// </summary>
 /// <remarks>
-/// Actor reads are looked up through the directory service to resolve
-/// address path → actor id — this matches the resolution rule the routing
-/// layer uses and keeps the store agnostic of how an address was spelled on
-/// the wire. A missing directory entry or a transient actor error returns
-/// an empty list and logs a warning; the aggregator then treats that
-/// contributor as "no expertise" rather than failing the whole read.
+/// <para>
+/// Issue #2081: this store used to read expertise via Dapr actor proxies
+/// (<c>IAgentActor.GetExpertiseAsync</c> / <c>IUnitActor.GetOwnExpertiseAsync</c>).
+/// When the aggregator was driven from inside an actor turn (e.g. during
+/// the <c>UnitActor</c> dispatch pipeline), the proxy call re-entered the
+/// same actor and deadlocked on Dapr's turn-based concurrency lock until
+/// <c>HttpClient.Timeout</c> fired. The EF-backed coordinators are
+/// singletons with internal scoped <c>SpringDbContext</c> scopes, so they
+/// can be injected into this singleton store and read without any actor
+/// round-trip. The actor methods (<c>GetExpertiseAsync</c> /
+/// <c>GetOwnExpertiseAsync</c>) themselves go through the same
+/// coordinators, so the data source is unchanged — we simply skip the
+/// actor hop.
+/// </para>
+/// <para>
+/// The directory resolve stays in place: it owns the address-path-to-
+/// actor-id resolution rule the routing layer uses, and the entity-id
+/// it returns is the EF row key the coordinators consume.
+/// </para>
 /// </remarks>
 public class ActorBackedExpertiseStore(
     IDirectoryService directoryService,
-    IActorProxyFactory actorProxyFactory,
+    IAgentStateCoordinator agentStateCoordinator,
+    IUnitStateCoordinator unitStateCoordinator,
     ILoggerFactory loggerFactory) : IExpertiseStore
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<ActorBackedExpertiseStore>();
@@ -49,32 +63,32 @@ public class ActorBackedExpertiseStore(
             return Array.Empty<ExpertiseDomain>();
         }
 
+        var entityIdString = GuidFormatter.Format(entry.ActorId);
+
         try
         {
-            if (string.Equals(entity.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(entity.Scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase))
             {
-                var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-                    new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(AgentActor));
-                var domains = await proxy.GetExpertiseAsync(cancellationToken);
+                var domains = await agentStateCoordinator.GetExpertiseAsync(
+                    entityIdString, cancellationToken);
                 return domains ?? Array.Empty<ExpertiseDomain>();
             }
 
-            if (string.Equals(entity.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(entity.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
             {
-                var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                    new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(UnitActor));
-                var domains = await proxy.GetOwnExpertiseAsync(cancellationToken);
+                var domains = await unitStateCoordinator.GetOwnExpertiseAsync(
+                    entityIdString, cancellationToken);
                 return domains ?? Array.Empty<ExpertiseDomain>();
             }
         }
         catch (Exception ex)
         {
-            // A transient actor read failure must not poison aggregation; log
+            // A transient EF read failure must not poison aggregation; log
             // and treat as "no expertise from this contributor" so the caller
             // still gets the rest of the tree.
             _logger.LogWarning(ex,
-                "Failed to read expertise for {Scheme}://{Path}; treating as empty.",
-                entity.Scheme, entity.Path);
+                "Failed to read expertise for {Address}; treating as empty.",
+                entity);
         }
 
         return Array.Empty<ExpertiseDomain>();
@@ -89,8 +103,8 @@ public class ActorBackedExpertiseStore(
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "Directory resolve failed for {Scheme}://{Path}; treating as unknown.",
-                address.Scheme, address.Path);
+                "Directory resolve failed for {Address}; treating as unknown.",
+                address);
             return null;
         }
     }

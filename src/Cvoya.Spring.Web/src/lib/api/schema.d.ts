@@ -3120,6 +3120,8 @@ export interface components {
             version?: null | string;
         };
         ParticipantRef: {
+            /** Format: uuid */
+            id: string;
             address: string;
             displayName: string;
         };
@@ -3600,6 +3602,8 @@ export interface components {
         UserProfileResponse: {
             userId: string;
             displayName: string;
+            /** Format: uuid */
+            id: string;
             address?: null | string;
         };
         WaitTimeEntryResponse: {

@@ -84,13 +84,13 @@ function makeThread(overrides: Partial<ThreadDetail["summary"]> = {}): ThreadDet
     summary: {
       id: "thread-abc",
       participants: [
-        { address: "human://savas", displayName: "savas" },
-        { address: "agent://ada", displayName: "ada" },
+        { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
+        { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
       ],
       lastActivity: new Date().toISOString(),
       createdAt: new Date().toISOString(),
       eventCount: 3,
-      origin: { address: "human://savas", displayName: "savas" },
+      origin: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
       summary: "Test engagement",
       ...overrides,
     },
@@ -101,8 +101,8 @@ function makeThread(overrides: Partial<ThreadDetail["summary"]> = {}): ThreadDet
 function makeInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
   return {
     threadId: "thread-abc",
-    from: { address: "agent://ada", displayName: "ada" },
-    human: { address: "human://savas", displayName: "savas" },
+    from: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
+    human: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
     pendingSince: new Date().toISOString(),
     summary: "Which branch?",
     unreadCount: 0,
@@ -110,7 +110,13 @@ function makeInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
   };
 }
 
-const CURRENT_USER = { address: "human://savas" };
+// #2082: identity comparisons go via Guid `id`; the textual address is
+// retained for display / "from" routing but no longer drives "am I a
+// participant?".
+const CURRENT_USER = {
+  id: "11111111-1111-1111-1111-111111111111",
+  address: "human://savas",
+};
 
 // ── tests ──────────────────────────────────────────────────────────────────
 
@@ -231,7 +237,7 @@ describe("EngagementDetail", () => {
     beforeEach(() => {
       // Current user is NOT in the thread's participant list.
       mockUseCurrentUser.mockReturnValue({
-        data: { address: "human://other" },
+        data: { id: "99999999-9999-9999-9999-999999999999", address: "human://other" },
         isPending: false,
         error: null,
       });
@@ -318,10 +324,10 @@ describe("EngagementDetail", () => {
       mockUseThread.mockReturnValue({
         data: makeThread({
           participants: [
-            { address: "human://savas", displayName: "savas" },
+            { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
             // identity form, no displayName — the wire shape that
             // produced the GUID titles in the issue screenshot.
-            { address: `agent:id:${id}`, displayName: "" },
+            { id, address: `agent:id:${id}`, displayName: "" },
           ],
         }),
         isPending: false,
@@ -395,7 +401,7 @@ describe("EngagementDetail", () => {
 
     it("does NOT show the question CTA for non-participants (observers)", () => {
       mockUseCurrentUser.mockReturnValue({
-        data: { address: "human://other" },
+        data: { id: "99999999-9999-9999-9999-999999999999", address: "human://other" },
         isPending: false,
         error: null,
       });

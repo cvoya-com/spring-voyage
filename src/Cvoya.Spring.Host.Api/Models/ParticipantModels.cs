@@ -4,12 +4,21 @@
 namespace Cvoya.Spring.Host.Api.Models;
 
 /// <summary>
-/// A participant address paired with a server-resolved human-readable
-/// display name. Used in <see cref="InboxItemResponse"/>, thread summaries,
-/// and thread events wherever a raw address would otherwise leak into the
-/// UI.
+/// A participant reference — the stable Guid identity of the addressable,
+/// plus its canonical wire address and a server-resolved display name.
+/// Used in <see cref="InboxItemResponse"/>, thread summaries, and thread
+/// events wherever a raw address would otherwise leak into the UI.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <b>Identity vs. display (#2082).</b> Callers asking "is this
+/// participant the currently authenticated human / the same actor as X?"
+/// MUST compare on <see cref="Id"/>, never on <see cref="Address"/>.
+/// Addresses are presentation: the same actor may be rendered in the
+/// canonical <c>scheme:&lt;hex&gt;</c> form or, for legacy threads, in
+/// the navigation <c>scheme://path</c> form. The <see cref="Id"/> Guid is
+/// the only stable equality primitive.
+/// </para>
 /// <para>
 /// <b>Wire shape (post-#1629).</b> <see cref="Address"/> always carries
 /// the canonical <c>scheme:&lt;32-hex-no-dash&gt;</c> form (e.g.
@@ -29,22 +38,21 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// the field. This contract lets the portal render <c>DisplayName</c>
 /// directly without UUID-shape heuristics.
 /// </para>
-/// <para>
-/// Callers checking "is this participant the currently logged-in user?"
-/// should compare the canonical address string against
-/// <see cref="UserProfileResponse.Address"/>; cross-scheme comparisons
-/// are inherently false.
-/// </para>
 /// </remarks>
+/// <param name="Id">
+/// The participant's stable Guid identity (the actor's id). This is the
+/// canonical primitive for identity comparisons.
+/// </param>
 /// <param name="Address">
 /// The canonical wire-form participant address —
 /// <c>scheme:&lt;32-hex-no-dash&gt;</c> per #1629. May still surface in
 /// legacy <c>scheme://path</c> form on threads that include events
-/// persisted before the baseline migration.
+/// persisted before the baseline migration. Use for display / routing
+/// only; never for identity comparisons.
 /// </param>
 /// <param name="DisplayName">
 /// The server-resolved human-readable display name. Always non-empty.
 /// Falls back to <c>&lt;deleted&gt;</c> when the underlying entity has
 /// been removed; the portal can render this string directly.
 /// </param>
-public record ParticipantRef(string Address, string DisplayName);
+public record ParticipantRef(Guid Id, string Address, string DisplayName);

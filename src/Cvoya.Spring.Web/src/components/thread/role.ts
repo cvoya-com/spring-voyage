@@ -95,23 +95,60 @@ export function isHumanAddress(address: string): boolean {
 
 /**
  * Address-shaped value tolerated by the rendering helpers. Mirrors the
- * `ParticipantRef` server shape (`{ address, displayName }`) plus the
+ * `ParticipantRef` server shape (`{ id, address, displayName }`) plus the
  * legacy plain-string form that pre-#1502 servers emit.
+ *
+ * Post-#2082: identity comparisons must use {@link idOf} (the participant's
+ * stable Guid). {@link addressOf} is for display / routing only.
  */
 export type AddressLike =
   | string
-  | { address?: string | null; displayName?: string | null }
+  | { id?: string | null; address?: string | null; displayName?: string | null }
   | null
   | undefined;
 
 /**
  * Returns the canonical address string for any `AddressLike` value.
  * Empty string when nothing is available.
+ *
+ * Use for **display / routing only**. Identity comparisons (e.g. "is this
+ * me?") must use {@link idOf} — addresses are a presentation primitive and
+ * may legitimately surface in more than one shape across the wire (#2082).
  */
 export function addressOf(p: AddressLike): string {
   if (!p) return "";
   if (typeof p === "string") return p;
   return p.address ?? "";
+}
+
+/**
+ * Returns the stable Guid identity (lowercased, dashed string) carried by
+ * a `ParticipantRef`-shaped value, or `null` when the value is a plain
+ * address string or the server omitted the id field.
+ *
+ * Identity comparisons across `ParticipantRef`s — and between a participant
+ * and the authenticated user — should be done on this primitive, not on
+ * `addressOf(p)`. The address-string form historically drifted between
+ * `scheme:<hex>` and `scheme:id:<hex>` rendering, causing string-equality
+ * checks to silently miss matches (#2082).
+ */
+export function idOf(p: AddressLike): string | null {
+  if (!p || typeof p === "string") return null;
+  const raw = p.id?.trim().toLowerCase();
+  return raw ? raw : null;
+}
+
+/**
+ * True when two `AddressLike` values refer to the same actor — i.e. carry
+ * the same {@link idOf} primitive. Returns `false` when either side has no
+ * resolvable identity (string-only participants from legacy servers, or
+ * absent values); callers needing tri-state behaviour should use `idOf`
+ * directly.
+ */
+export function sameIdentity(a: AddressLike, b: AddressLike): boolean {
+  const ida = idOf(a);
+  const idb = idOf(b);
+  return ida !== null && idb !== null && ida === idb;
 }
 
 /**

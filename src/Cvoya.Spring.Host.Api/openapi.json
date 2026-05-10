@@ -11517,11 +11517,16 @@
       },
       "ParticipantRef": {
         "required": [
+          "id",
           "address",
           "displayName"
         ],
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
           "address": {
             "type": "string"
           },
@@ -13438,7 +13443,8 @@
       "UserProfileResponse": {
         "required": [
           "userId",
-          "displayName"
+          "displayName",
+          "id"
         ],
         "type": "object",
         "properties": {
@@ -13447,6 +13453,10 @@
           },
           "displayName": {
             "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
           },
           "address": {
             "type": [

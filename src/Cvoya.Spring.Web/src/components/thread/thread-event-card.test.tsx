@@ -20,7 +20,7 @@ function makeEvent(overrides: Partial<ThreadEvent> = {}): ThreadEvent {
   return {
     id: "00000000-0000-0000-0000-000000000001",
     timestamp: "2026-04-26T12:00:00Z",
-    source: { address: `agent:id:${ADA_ID}`, displayName: "ada" },
+    source: { id: ADA_ID, address: `agent:id:${ADA_ID}`, displayName: "ada" },
     eventType: "StateChanged",
     severity: "Info",
     summary: "agent finished its current step",
@@ -47,7 +47,7 @@ describe("ThreadEventCard", () => {
       <ThreadEventCard
         event={makeEvent({
           id,
-          source: { address: `agent:id:${ADA_ID}`, displayName: "ada" },
+          source: { id: ADA_ID, address: `agent:id:${ADA_ID}`, displayName: "ada" },
           summary: "agent finished its current step",
         })}
       />,
@@ -74,9 +74,9 @@ describe("ThreadEventCard", () => {
       <ThreadEventCard
         event={makeEvent({
           // Receiver-projected: the human emitted the event.
-          source: { address: "human://savas", displayName: "savas" },
+          source: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
           // Underlying sender: the agent.
-          from: { address: `agent:id:${ADA_ID}`, displayName: "ada" },
+          from: { id: ADA_ID, address: `agent:id:${ADA_ID}`, displayName: "ada" },
         })}
       />,
     );

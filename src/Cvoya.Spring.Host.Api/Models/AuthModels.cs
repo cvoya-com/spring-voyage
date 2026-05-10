@@ -40,15 +40,24 @@ public record CreateTokenResponse(
 /// <summary>
 /// Response body returned from the /me endpoint with the current user's profile.
 /// </summary>
-/// <param name="UserId">The user's identifier.</param>
+/// <param name="UserId">The username / login subject claim. Used for display only.</param>
 /// <param name="DisplayName">The user's display name.</param>
+/// <param name="Id">
+/// The authenticated human's stable Guid identity (the actor's id). This is
+/// the canonical primitive callers use to answer "is this me?" — see
+/// <see cref="ParticipantRef.Id"/>. Identity equality is a typed-Guid
+/// operation; the textual <see cref="Address"/> below is for display /
+/// routing only and may legitimately appear in more than one shape across
+/// the wire (#2082).
+/// </param>
 /// <param name="Address">
-/// The canonical <c>human://</c> address for the authenticated user
-/// (e.g. <c>human://savas</c>). Callers use this to identify "self"
-/// in participant lists so they can filter out the current user's own
-/// address without relying on display-name equality (#1485).
+/// The canonical wire-form <c>human:&lt;32-hex&gt;</c> address for the
+/// authenticated user. Use this for display, routing, and as the
+/// <c>from</c> field on <c>POST /messages</c>. <b>Do not</b> use it for
+/// identity comparisons — compare on <see cref="Id"/> instead.
 /// </param>
 public record UserProfileResponse(
     string UserId,
     string DisplayName,
+    Guid Id,
     string? Address = null);

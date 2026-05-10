@@ -37,6 +37,7 @@ import { useThreads, useInbox, useCurrentUser } from "@/lib/api/queries";
 import type { ParticipantRef, ThreadSummary } from "@/lib/api/types";
 import {
   addressOf,
+  idOf,
   participantDisplayName,
 } from "@/components/thread/role";
 
@@ -91,14 +92,16 @@ function isA2aOnly(participants: ParticipantRef[]): boolean {
 }
 
 /**
- * Whether the current user appears in the participant list.
+ * Whether the current user appears in the participant list. #2082:
+ * identity is a typed Guid, not an address string — compare on the
+ * `id` field the server emits alongside the display address.
  */
 function userIsParticipant(
   participants: ParticipantRef[],
-  currentUserAddress: string | undefined,
+  currentUserId: string | undefined,
 ): boolean {
-  if (!currentUserAddress) return false;
-  return participants.some((p) => addressOf(p) === currentUserAddress);
+  if (!currentUserId) return false;
+  return participants.some((p) => idOf(p) === currentUserId);
 }
 
 /**
@@ -158,10 +161,11 @@ const FRESHNESS_OPACITY: Record<string, string> = {
  */
 function engagementTitle(
   participants: ParticipantRef[],
-  currentUserAddress: string | undefined,
+  currentUserId: string | undefined,
 ): string {
+  // #2082: filter by Guid identity, not address string.
   const others = participants.filter((p) =>
-    currentUserAddress ? addressOf(p) !== currentUserAddress : true,
+    currentUserId ? idOf(p) !== currentUserId : true,
   );
   // Solo thread (just the active user)
   if (others.length === 0) return "Just you";
@@ -503,7 +507,9 @@ export function EngagementList({
   const inboxQuery = useInbox({ staleTime: 10_000 });
   const userQuery = useCurrentUser({ staleTime: 60_000 });
 
-  const currentUserAddress = userQuery.data?.address ?? undefined;
+  // #2082: identity comparisons go via the typed Guid id, not the
+  // textual address.
+  const currentUserId = userQuery.data?.id?.toLowerCase() ?? undefined;
 
   // Pending-question lookup keyed by thread id.
   const pendingThreadIds = new Set<string>(
@@ -542,7 +548,7 @@ export function EngagementList({
   // Decorate each thread with the current human's relationship to it.
   const decorated = allThreads.map((thread) => {
     const participants = thread.participants ?? [];
-    const isParticipant = userIsParticipant(participants, currentUserAddress);
+    const isParticipant = userIsParticipant(participants, currentUserId);
     const a2aOnly = isA2aOnly(participants);
     return { thread, isParticipant, a2aOnly };
   });
@@ -617,7 +623,7 @@ export function EngagementList({
               isParticipant={isParticipant}
               title={engagementTitle(
                 thread.participants ?? [],
-                currentUserAddress,
+                currentUserId,
               )}
               selected={selectedThreadId === thread.id}
               variant={variant}

@@ -6,13 +6,9 @@ namespace Cvoya.Spring.Dapr.Orchestration;
 using System.Reflection;
 using System.Text.Json;
 
-using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
-using Cvoya.Spring.Dapr.Actors;
-
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
+using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.Logging;
 
@@ -36,8 +32,8 @@ using Microsoft.Extensions.Logging;
 ///   <item>
 ///     <description>
 ///       <c>unit://</c> address — read the unit's member list via the
-///       <see cref="IUnitActor"/> proxy. Empty list ⇒ no tools attached;
-///       non-empty ⇒ return the cached descriptor set.
+///       EF-backed <see cref="IUnitMemberGraphStore"/>. Empty list ⇒ no
+///       tools attached; non-empty ⇒ return the cached descriptor set.
 ///     </description>
 ///   </item>
 ///   <item>
@@ -51,8 +47,8 @@ using Microsoft.Extensions.Logging;
 /// </list>
 /// <para>
 /// The five descriptors are static — built once from embedded JSON schema
-/// resources at startup — so per-call work is bounded by the directory
-/// check. The schemas live next to this file under
+/// resources at startup — so per-call work is bounded by the membership
+/// read. The schemas live next to this file under
 /// <c>Orchestration/Resources/&lt;tool-name&gt;.&lt;input|output&gt;.schema.json</c>
 /// and are wired in as <c>&lt;EmbeddedResource&gt;</c> entries in
 /// <c>Cvoya.Spring.Dapr.csproj</c>.
@@ -61,26 +57,30 @@ using Microsoft.Extensions.Logging;
 /// The <see cref="IOrchestrationToolProvider.GetOrchestrationTools"/>
 /// signature is intentionally synchronous (the launcher consults it on a
 /// path that has already resolved every async dependency by the time
-/// orchestration tools are computed). The <see cref="IUnitActor"/>
-/// member-read is async; this implementation bridges the two via
-/// <c>Task.Run(...).GetAwaiter().GetResult()</c>, the same pattern used in
-/// <c>BudgetEnforcer</c> / <c>CostTracker</c> / <c>ActivityEventPersister</c>
-/// for sync-callback bridging across the codebase. Subsequent tasks in the
-/// ADR-0039 execution plan may move this read onto an async pre-launch
-/// hook; for D1 the contract is fixed.
+/// orchestration tools are computed). The membership read goes through
+/// <see cref="IUnitMemberGraphStore"/> — the same EF-backed seam
+/// <see cref="Cvoya.Spring.Dapr.Actors.UnitActor"/> uses internally — so this
+/// provider does <b>not</b> round-trip through a Dapr actor proxy. Issue
+/// #2081: using the actor proxy here caused a re-entrancy deadlock when
+/// the provider was invoked from inside a <c>UnitActor</c> turn (Dapr
+/// actors are turn-based; a self-call blocks until <c>HttpClient.Timeout</c>
+/// fires). The sync-over-async bridge stays as
+/// <c>Task.Run(...).GetAwaiter().GetResult()</c> — same pattern used
+/// elsewhere in this assembly — but the work it awaits is now a plain EF
+/// read that cannot re-enter the actor.
 /// </para>
 /// </remarks>
 public class DirectoryOrchestrationToolProvider : IOrchestrationToolProvider
 {
-    private readonly IActorProxyFactory _actorProxyFactory;
+    private readonly IUnitMemberGraphStore _memberGraphStore;
     private readonly ILogger<DirectoryOrchestrationToolProvider> _logger;
     private readonly OrchestrationToolDescriptor[] _toolset;
 
     public DirectoryOrchestrationToolProvider(
-        IActorProxyFactory actorProxyFactory,
+        IUnitMemberGraphStore memberGraphStore,
         ILogger<DirectoryOrchestrationToolProvider> logger)
     {
-        _actorProxyFactory = actorProxyFactory;
+        _memberGraphStore = memberGraphStore;
         _logger = logger;
         _toolset = LoadStaticToolset();
     }
@@ -91,7 +91,7 @@ public class DirectoryOrchestrationToolProvider : IOrchestrationToolProvider
         ArgumentNullException.ThrowIfNull(agent);
 
         // Leaf agents structurally have no children (ADR-0039 §1). Skip the
-        // directory round-trip for the common case.
+        // membership round-trip for the common case.
         if (string.Equals(agent.Scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase))
         {
             return Array.Empty<OrchestrationToolDescriptor>();
@@ -110,31 +110,28 @@ public class DirectoryOrchestrationToolProvider : IOrchestrationToolProvider
     }
 
     /// <summary>
-    /// Reads the unit actor's persisted member list and reports whether
-    /// at least one member is present. Failures (actor unavailable,
-    /// remoting error, transient state-store glitch) degrade to "no
-    /// children": attaching tools to a unit whose membership we could not
-    /// confirm would surface broken delegation calls to the runtime, so
-    /// the conservative answer is to suppress the toolset until the next
-    /// launch retry.
+    /// Reads the unit's persisted member list directly from the EF-backed
+    /// <see cref="IUnitMemberGraphStore"/> and reports whether at least
+    /// one member is present. Failures (transient EF glitch) degrade to
+    /// "no children": attaching tools to a unit whose membership we could
+    /// not confirm would surface broken delegation calls to the runtime,
+    /// so the conservative answer is to suppress the toolset until the
+    /// next launch retry.
     /// </summary>
     private bool HasChildren(Address unitAddress)
     {
         try
         {
             // ADR-0039's IOrchestrationToolProvider contract is sync; the
-            // actor proxy is async. Mirror the Task.Run(...).GetResult()
-            // pattern used elsewhere in this assembly to bridge the two
-            // without risking a captured-context deadlock.
+            // store is async. Mirror the Task.Run(...).GetResult() pattern
+            // used elsewhere in this assembly to bridge the two without
+            // risking a captured-context deadlock. The EF read goes
+            // straight to Postgres — no Dapr actor proxy, no re-entrancy
+            // risk (#2081).
             var members = Task.Run(() =>
-            {
-                var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                    new ActorId(GuidFormatter.Format(unitAddress.Id)),
-                    nameof(UnitActor));
-                return proxy.GetMembersAsync();
-            }).GetAwaiter().GetResult();
+                _memberGraphStore.GetMembersAsync(unitAddress.Id)).GetAwaiter().GetResult();
 
-            return members is { Length: > 0 };
+            return members is { Count: > 0 };
         }
         catch (Exception ex)
         {

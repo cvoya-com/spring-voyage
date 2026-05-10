@@ -157,10 +157,18 @@ export function MessageComposer({
         const key = queryKeys.threads.detail(threadId);
         const prev = queryClient.getQueryData<ThreadDetail | null>(key);
         if (prev) {
+          // #2082: ParticipantRef.id is required on the contract. The
+          // optimistic event is a placeholder that the refetch replaces
+          // with the real, server-resolved event; we just need a value
+          // that satisfies the type without claiming identity.
           const syntheticEvent = {
             id: `optimistic-${Date.now()}`,
             eventType: "MessageReceived",
-            source: { address: "human://me", displayName: "me" },
+            source: {
+              id: "00000000-0000-0000-0000-000000000000",
+              address: "human://me",
+              displayName: "me",
+            },
             timestamp: new Date().toISOString(),
             severity: "Info",
             summary: trimmed,
