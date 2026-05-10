@@ -14,9 +14,16 @@ import http, { type IncomingMessage, type Server, type ServerResponse } from "no
 
 import { A2AHandler, type JsonRpcRequest } from "./a2a.js";
 import type { BridgeConfig } from "./config.js";
+import { ThreadIdRegistry } from "./threads.js";
 import { BRIDGE_VERSION } from "./version.js";
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
+
+// Env var the launcher sets to point at the per-agent workspace volume
+// (D1 spec § 2.2.1, ADR-0029). The bridge persists its thread-id marker
+// file under here so create/resume picks survive container restart
+// (ADR-0041 / #2094 acceptance).
+const WORKSPACE_PATH_ENV_VAR = "SPRING_WORKSPACE_PATH";
 
 export interface SidecarServer {
   server: Server;
@@ -25,12 +32,15 @@ export interface SidecarServer {
 }
 
 export function createServer(config: BridgeConfig, env: NodeJS.ProcessEnv = process.env): SidecarServer {
+  const threadIdRegistry = new ThreadIdRegistry(env[WORKSPACE_PATH_ENV_VAR]);
   const handler = new A2AHandler({
     agentName: config.agentName,
     agentArgv: config.agentArgv,
     port: config.port,
     cancelGraceMs: config.cancelGraceMs,
     spawnEnv: env,
+    threadBinding: config.threadBinding,
+    threadIdRegistry,
   });
 
   const server = http.createServer((req, res) => {

@@ -8,5 +8,6 @@
 export { runAgentBridge, type BridgeRunOptions, type BridgeRunResult } from "./bridge.js";
 export { A2AHandler, type AgentCard, type JsonRpcRequest, type JsonRpcResponse, type TaskState } from "./a2a.js";
 export { createServer, type SidecarServer } from "./server.js";
-export { loadConfigFromEnv, type BridgeConfig } from "./config.js";
+export { loadConfigFromEnv, type BridgeConfig, type ThreadBindingConfig } from "./config.js";
+export { ThreadIdRegistry } from "./threads.js";
 export { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "./version.js";

@@ -2,20 +2,32 @@
 // See LICENSE.md in the project root for full license terms.
 
 import { strict as assert } from "node:assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, it } from "node:test";
 
 import { A2AHandler } from "../src/a2a.ts";
+import type { ThreadBindingConfig } from "../src/config.ts";
+import { BRIDGE_STATE_DIR, SEEN_THREADS_FILE, ThreadIdRegistry } from "../src/threads.ts";
 import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "../src/version.ts";
 
 const PROCESS_NODE = process.execPath;
 
-function makeHandler(argv: string[], spawnEnv: NodeJS.ProcessEnv = process.env) {
+function makeHandler(
+  argv: string[],
+  spawnEnv: NodeJS.ProcessEnv = process.env,
+  threadBinding?: ThreadBindingConfig,
+  threadIdRegistry?: ThreadIdRegistry,
+) {
   return new A2AHandler({
     agentName: "test-agent",
     agentArgv: argv,
     port: 8999,
     cancelGraceMs: 200,
     spawnEnv,
+    threadBinding,
+    threadIdRegistry,
   });
 }
 
@@ -264,5 +276,284 @@ describe("A2AHandler.handle", () => {
       id: 1,
     });
     assert.equal(res.error?.code, -32602);
+  });
+});
+
+describe("A2AHandler.handle — thread-id binding (ADR-0041 / #2094)", () => {
+  // The stub CLI prints its full argv (skipping argv[0/1] which are the
+  // node binary + the -e flag's eval string) to stdout as JSON. The bridge
+  // wraps spawn with the additional [flag, threadId] tokens at the tail
+  // of the argv vector when a ThreadBindingConfig is configured.
+  const ARGV_DUMP_SCRIPT = "process.stdout.write(JSON.stringify(process.argv.slice(1)))";
+
+  function workspaceTempdir(): string {
+    return fs.mkdtempSync(path.join(os.tmpdir(), "sv-bridge-a2a-"));
+  }
+
+  it("first message on a thread spawns CLI with the create flag (--session-id)", async () => {
+    const ws = workspaceTempdir();
+    try {
+      const registry = new ThreadIdRegistry(ws);
+      const handler = makeHandler(
+        // `--` so node forwards subsequent args (--session-id, --resume) to
+        // the script's process.argv instead of trying to interpret them.
+        [PROCESS_NODE, "-e", ARGV_DUMP_SCRIPT, "--"],
+        process.env,
+        { createArg: "--session-id", resumeArg: "--resume" },
+        registry,
+      );
+
+      const threadId = "11111111-2222-3333-4444-555555555555";
+      const res = await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: {
+          message: {
+            contextId: threadId,
+            parts: [{ text: "hello" }],
+          },
+        },
+        id: "first",
+      });
+
+      const task = res.result as Record<string, unknown>;
+      assert.equal((task["status"] as Record<string, unknown>)["state"], "completed");
+      const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+      const childArgv = JSON.parse(artifacts[0]?.parts[0]?.text ?? "[]") as string[];
+      // Bridge appended [createArg, threadId] to the end of argv. The
+      // stub's own -e arg lands at index 0 in the slice; we look at the
+      // last two tokens regardless of argv length.
+      assert.equal(childArgv[childArgv.length - 2], "--session-id");
+      assert.equal(childArgv[childArgv.length - 1], threadId);
+
+      // Acceptance: the registry must mark this thread as seen *and*
+      // persist it so the next bridge boot resumes correctly.
+      assert.equal(registry.has(threadId), true);
+      const markerPath = path.join(ws, BRIDGE_STATE_DIR, SEEN_THREADS_FILE);
+      assert.ok(fs.existsSync(markerPath), `expected marker file at ${markerPath}`);
+      const persisted = fs.readFileSync(markerPath, "utf8");
+      assert.match(persisted, new RegExp(threadId));
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("second message on the same thread spawns CLI with the resume flag (--resume)", async () => {
+    const ws = workspaceTempdir();
+    try {
+      const registry = new ThreadIdRegistry(ws);
+      const handler = makeHandler(
+        // `--` so node forwards subsequent args (--session-id, --resume) to
+        // the script's process.argv instead of trying to interpret them.
+        [PROCESS_NODE, "-e", ARGV_DUMP_SCRIPT, "--"],
+        process.env,
+        { createArg: "--session-id", resumeArg: "--resume" },
+        registry,
+      );
+
+      const threadId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+      // First send establishes the thread. We don't assert on its argv
+      // here — the previous test covers that.
+      await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { contextId: threadId, parts: [{ text: "hi" }] } },
+        id: 1,
+      });
+      assert.equal(registry.has(threadId), true, "thread should be marked seen after first send");
+
+      // Second send must use --resume.
+      const res = await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { contextId: threadId, parts: [{ text: "again" }] } },
+        id: 2,
+      });
+
+      const task = res.result as Record<string, unknown>;
+      assert.equal((task["status"] as Record<string, unknown>)["state"], "completed");
+      const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+      const childArgv = JSON.parse(artifacts[0]?.parts[0]?.text ?? "[]") as string[];
+      assert.equal(childArgv[childArgv.length - 2], "--resume");
+      assert.equal(childArgv[childArgv.length - 1], threadId);
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("after container restart (registry rehydrated from disk) the next send uses --resume", async () => {
+    // ADR-0041 acceptance: session files survive a container restart.
+    // Simulate restart by constructing a *fresh* handler+registry with the
+    // same workspace path — the marker file written by the first run must
+    // be loaded by the new ThreadIdRegistry so the next message goes
+    // straight to --resume.
+    const ws = workspaceTempdir();
+    try {
+      const threadId = "12345678-1234-1234-1234-123456789012";
+
+      // First "container generation" — sends one message, persists the id.
+      {
+        const registry = new ThreadIdRegistry(ws);
+        const handler = makeHandler(
+          // `--` so node forwards subsequent args (--session-id, --resume) to
+        // the script's process.argv instead of trying to interpret them.
+        [PROCESS_NODE, "-e", ARGV_DUMP_SCRIPT, "--"],
+          process.env,
+          { createArg: "--session-id", resumeArg: "--resume" },
+          registry,
+        );
+        await handler.handle({
+          jsonrpc: "2.0",
+          method: "message/send",
+          params: { message: { contextId: threadId, parts: [{ text: "first turn" }] } },
+          id: 1,
+        });
+      }
+
+      // Second "container generation" — fresh handler, fresh registry,
+      // same workspace. The next send must use --resume.
+      const registry = new ThreadIdRegistry(ws);
+      assert.equal(
+        registry.has(threadId),
+        true,
+        "rehydrated registry should remember the seen thread id",
+      );
+      const handler = makeHandler(
+        // `--` so node forwards subsequent args (--session-id, --resume) to
+        // the script's process.argv instead of trying to interpret them.
+        [PROCESS_NODE, "-e", ARGV_DUMP_SCRIPT, "--"],
+        process.env,
+        { createArg: "--session-id", resumeArg: "--resume" },
+        registry,
+      );
+      const res = await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { contextId: threadId, parts: [{ text: "post-restart turn" }] } },
+        id: 2,
+      });
+
+      const task = res.result as Record<string, unknown>;
+      const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+      const childArgv = JSON.parse(artifacts[0]?.parts[0]?.text ?? "[]") as string[];
+      assert.equal(childArgv[childArgv.length - 2], "--resume");
+      assert.equal(childArgv[childArgv.length - 1], threadId);
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("two distinct threads are tracked independently (no cross-thread collision)", async () => {
+    // ADR-0041 acceptance: no collision between two threads on the same
+    // agent (concurrent_threads: true exercise). Each thread gets its
+    // own create-then-resume sequence.
+    const ws = workspaceTempdir();
+    try {
+      const registry = new ThreadIdRegistry(ws);
+      const handler = makeHandler(
+        // `--` so node forwards subsequent args (--session-id, --resume) to
+        // the script's process.argv instead of trying to interpret them.
+        [PROCESS_NODE, "-e", ARGV_DUMP_SCRIPT, "--"],
+        process.env,
+        { createArg: "--session-id", resumeArg: "--resume" },
+        registry,
+      );
+      const threadA = "aaaa1111-0000-0000-0000-000000000000";
+      const threadB = "bbbb2222-0000-0000-0000-000000000000";
+
+      // First send on A → create.
+      let res = await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { contextId: threadA, parts: [{ text: "" }] } },
+        id: 1,
+      });
+      let task = res.result as Record<string, unknown>;
+      let artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+      let argv = JSON.parse(artifacts[0]?.parts[0]?.text ?? "[]") as string[];
+      assert.deepEqual(argv.slice(-2), ["--session-id", threadA]);
+
+      // First send on B → create (independent of A's state).
+      res = await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { contextId: threadB, parts: [{ text: "" }] } },
+        id: 2,
+      });
+      task = res.result as Record<string, unknown>;
+      artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+      argv = JSON.parse(artifacts[0]?.parts[0]?.text ?? "[]") as string[];
+      assert.deepEqual(argv.slice(-2), ["--session-id", threadB]);
+
+      // Second send on A → resume A.
+      res = await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { contextId: threadA, parts: [{ text: "" }] } },
+        id: 3,
+      });
+      task = res.result as Record<string, unknown>;
+      artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+      argv = JSON.parse(artifacts[0]?.parts[0]?.text ?? "[]") as string[];
+      assert.deepEqual(argv.slice(-2), ["--resume", threadA]);
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("spawns argv unchanged when no thread-binding is configured", async () => {
+    // Backwards-compatible default: a launcher that doesn't set the
+    // SPRING_THREAD_ID_ARG_* env vars (e.g. a Python SDK runtime that
+    // takes the thread id via SPRING_THREAD_ID env var instead) gets the
+    // pre-#2094 behaviour — no extra argv tokens.
+    const handler = makeHandler(
+      [PROCESS_NODE, "-e", ARGV_DUMP_SCRIPT, "user-arg"],
+      process.env,
+      undefined, // no threadBinding
+    );
+    const res = await handler.handle({
+      jsonrpc: "2.0",
+      method: "message/send",
+      params: {
+        message: {
+          contextId: "12345678-aaaa-bbbb-cccc-dddddddddddd",
+          parts: [{ text: "" }],
+        },
+      },
+      id: 1,
+    });
+    const task = res.result as Record<string, unknown>;
+    const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+    const argv = JSON.parse(artifacts[0]?.parts[0]?.text ?? "[]") as string[];
+    assert.deepEqual(argv, ["user-arg"]);
+  });
+
+  it("does not mark thread as seen when CLI fails (next send retries create)", async () => {
+    // If the CLI exits non-zero, the session file may not have been
+    // written; the next send must re-attempt the create path so a
+    // recoverable failure (transient credential error, ...) doesn't
+    // permanently break that thread.
+    const ws = workspaceTempdir();
+    try {
+      const registry = new ThreadIdRegistry(ws);
+      const handler = makeHandler(
+        [PROCESS_NODE, "-e", "process.stderr.write('boom');process.exit(1)"],
+        process.env,
+        { createArg: "--session-id", resumeArg: "--resume" },
+        registry,
+      );
+      const threadId = "ffffffff-1111-2222-3333-444444444444";
+      const res = await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { contextId: threadId, parts: [{ text: "" }] } },
+        id: 1,
+      });
+      const task = res.result as Record<string, unknown>;
+      assert.equal((task["status"] as Record<string, unknown>)["state"], "failed");
+      assert.equal(registry.has(threadId), false, "failed spawn must not mark thread seen");
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
   });
 });
