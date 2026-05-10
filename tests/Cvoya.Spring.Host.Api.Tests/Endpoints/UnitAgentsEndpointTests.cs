@@ -717,6 +717,55 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
             .Returns(entry);
 
         var proxy = Substitute.For<IUnitActor>();
+
+        // #2072: the assign / unassign endpoints route membership writes
+        // through UnitActor.AddMemberAsync / RemoveMemberAsync (the
+        // canonical surface post-#2052). The mocked proxy can't run the
+        // real coordinator, so wire its add / remove calls to the same
+        // EF-backed repository the tests' arrange / assert helpers use.
+        // This keeps these endpoint tests focused on the endpoint's
+        // policy (cross-tenant guard, multi-parent inheritance check,
+        // cached-pointer refresh) while still exercising the membership-
+        // row write through to EF.
+        proxy
+            .AddMemberAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                var member = callInfo.Arg<Address>();
+                if (string.Equals(member.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
+                {
+                    using var scope = _factory.Services.CreateScope();
+                    var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
+                    return repo.UpsertAsync(
+                        new UnitMembership(uuid, member.Id, Enabled: true),
+                        callInfo.Arg<CancellationToken>());
+                }
+                return Task.CompletedTask;
+            });
+        proxy
+            .RemoveMemberAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                var member = callInfo.Arg<Address>();
+                if (!string.Equals(member.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Task.CompletedTask;
+                }
+
+                using var scope = _factory.Services.CreateScope();
+                var db = scope.ServiceProvider
+                    .GetRequiredService<Cvoya.Spring.Dapr.Data.SpringDbContext>();
+                var ct = callInfo.Arg<CancellationToken>();
+                var existing = db.UnitMemberships.FirstOrDefault(
+                    m => m.UnitId == uuid && m.AgentId == member.Id);
+                if (existing is null)
+                {
+                    return Task.CompletedTask;
+                }
+                db.UnitMemberships.Remove(existing);
+                return db.SaveChangesAsync(ct);
+            });
+
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(Arg.Is<ActorId>(a => a.GetId() == actorId),
                 Arg.Any<string>())

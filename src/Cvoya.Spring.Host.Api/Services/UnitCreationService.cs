@@ -60,7 +60,6 @@ public class UnitCreationService : IUnitCreationService
     private readonly ISkillBundleResolver _bundleResolver;
     private readonly ISkillBundleValidator _bundleValidator;
     private readonly IUnitSkillBundleStore _bundleStore;
-    private readonly IUnitMembershipRepository _membershipRepository;
     private readonly IUnitMemberGraphStore _memberGraphStore;
     private readonly ITenantContext _tenantContext;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -86,7 +85,6 @@ public class UnitCreationService : IUnitCreationService
         ISkillBundleResolver bundleResolver,
         ISkillBundleValidator bundleValidator,
         IUnitSkillBundleStore bundleStore,
-        IUnitMembershipRepository membershipRepository,
         IUnitMemberGraphStore memberGraphStore,
         ITenantContext tenantContext,
         IServiceScopeFactory scopeFactory,
@@ -107,7 +105,6 @@ public class UnitCreationService : IUnitCreationService
         _bundleResolver = bundleResolver;
         _bundleValidator = bundleValidator;
         _bundleStore = bundleStore;
-        _membershipRepository = membershipRepository;
         _memberGraphStore = memberGraphStore;
         _tenantContext = tenantContext;
         _scopeFactory = scopeFactory;
@@ -760,13 +757,6 @@ public class UnitCreationService : IUnitCreationService
                     // create` before being added to the unit), the existing
                     // entry is preserved.
                     //
-                    // Order matters: we register the agent BEFORE writing the
-                    // unit_memberships row below, because the membership write
-                    // resolves the agent's UUID via DirectoryService and would
-                    // skip the row when the agent has no directory entry yet
-                    // (the symptom: package-installed units showing the unit
-                    // members in the actor list but `[]` from /memberships).
-                    //
                     // Post-#1629 every Address is keyed by Guid identity. The
                     // memberAddress minted above already carries the agent's
                     // stable Guid (matched to an existing display-name row when
@@ -797,41 +787,16 @@ public class UnitCreationService : IUnitCreationService
                             $"member agent:{resolved.Value.Path} added to unit but directory registration failed: {ex.Message}");
                     }
 
-                    // Fix #340: the actor-state member list is no longer the
-                    // source of truth for the Agents tab, memberships endpoint,
-                    // and per-membership config — the unit_memberships table is
-                    // (see #245 / C2b-1). Mirror the add into the DB so template-
-                    // created units show up in those surfaces. Unit-typed members
-                    // remain 1:N and are not stored here (per #217 scope); only
-                    // agent-scheme members get a row. Template creation passes no
-                    // per-membership overrides so Model/Specialty/ExecutionMode
-                    // default to null and Enabled defaults to true.
-                    // Post-#1629 the membership row keys off the Guid identities
-                    // we already resolved above (memberAddress + the unit's
-                    // freshly minted actorGuid), so no further slug→Guid lookup
-                    // is needed.
-                    try
-                    {
-                        await _membershipRepository.UpsertAsync(
-                            new UnitMembership(
-                                UnitId: actorGuid,
-                                AgentId: memberAddress.Id,
-                                Enabled: true),
-                            cancellationToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        // The actor-state add succeeded; surface the DB-write
-                        // failure as a warning and log it so operators can
-                        // reconcile. Actor state remains the authoritative
-                        // fast-path; a separate reconciler can repair any
-                        // divergence.
-                        _logger.LogWarning(ex,
-                            "Unit '{UnitName}' member {Member}: actor-state add succeeded but membership DB write failed.",
-                            name, $"{resolved.Value.Scheme}:{resolved.Value.Path}");
-                        warnings.Add(
-                            $"member {resolved.Value.Scheme}:{resolved.Value.Path} added to actor state but membership table write failed: {ex.Message}");
-                    }
+                    // #2072: the membership row was already written by
+                    // proxy.AddMemberAsync above. UnitActor.AddMemberAsync
+                    // routes through UnitMembershipCoordinator, which
+                    // idempotently writes unit_memberships via
+                    // IUnitMemberGraphStore — the canonical
+                    // membership-write surface post-#2052. The previous
+                    // direct-repository upsert here was a redundant second
+                    // write to the same EF row (the stale "Mirror the add
+                    // into the DB so …" comment described an actor-state /
+                    // EF dual-storage that no longer exists).
                 }
             }
 

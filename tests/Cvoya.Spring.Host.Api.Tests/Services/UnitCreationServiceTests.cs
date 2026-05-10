@@ -141,7 +141,6 @@ public class UnitCreationServiceTests
         public ISkillBundleResolver BundleResolver { get; } = Substitute.For<ISkillBundleResolver>();
         public ISkillBundleValidator BundleValidator { get; } = Substitute.For<ISkillBundleValidator>();
         public IUnitSkillBundleStore BundleStore { get; } = Substitute.For<IUnitSkillBundleStore>();
-        public IUnitMembershipRepository MembershipRepository { get; } = Substitute.For<IUnitMembershipRepository>();
         public IUnitMemberGraphStore MemberGraphStore { get; } = Substitute.For<IUnitMemberGraphStore>();
         public ITenantContext TenantContext { get; } = Substitute.For<ITenantContext>();
         public IUnitActor Proxy { get; } = Substitute.For<IUnitActor>();
@@ -196,7 +195,6 @@ public class UnitCreationServiceTests
                 BundleResolver,
                 BundleValidator,
                 BundleStore,
-                MembershipRepository,
                 MemberGraphStore,
                 TenantContext,
                 scopeFactory,
@@ -234,14 +232,17 @@ public class UnitCreationServiceTests
                 CancellationToken.None);
     }
 
-    // --- #340: template creation writes agent memberships through to the DB ---
+    // --- #340 / #2072: template creation writes agent memberships through the canonical actor path ---
 
     [Fact]
-    public async Task CreateFromManifestAsync_AgentMembers_WritesMembershipRow()
+    public async Task CreateFromManifestAsync_AgentMembers_AddsMembershipsThroughActorProxy()
     {
-        // Regression test for #340. Actor-state add via proxy.AddMemberAsync
-        // was already happening; this verifies the parallel DB write-through
-        // now lands on the membership repository for every agent member.
+        // Regression test for #340 (membership rows must reach EF for
+        // template-created units) and #2072 (the canonical write path is
+        // UnitActor.AddMemberAsync, which routes through
+        // UnitMembershipCoordinator → IUnitMemberGraphStore). The previous
+        // direct IUnitMembershipRepository.UpsertAsync call here was a
+        // redundant second write to the same EF row.
         //
         // After #1629 the service resolves manifest slugs to stable UUIDs
         // by walking the directory's ListAllAsync result and matching on
@@ -286,34 +287,27 @@ public class UnitCreationServiceTests
 
         result.MembersAdded.ShouldBe(3);
 
-        // The UnitId is the unit's actor Guid, minted internally by the
-        // service. Assert on the agent ids only — those are deterministic.
-        await fixture.MembershipRepository.Received(1).UpsertAsync(
-            Arg.Is<UnitMembership>(u =>
-                u.AgentId == techLeadUuid
-                && u.Enabled && u.Model == null && u.Specialty == null && u.ExecutionMode == null),
+        // Each agent member reaches EF via the actor surface — the proxy
+        // call is the only write the service issues.
+        await fixture.Proxy.Received(1).AddMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == techLeadUuid),
             Arg.Any<CancellationToken>());
-
-        await fixture.MembershipRepository.Received(1).UpsertAsync(
-            Arg.Is<UnitMembership>(u =>
-                u.AgentId == backendUuid
-                && u.Enabled && u.Model == null && u.Specialty == null && u.ExecutionMode == null),
+        await fixture.Proxy.Received(1).AddMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == backendUuid),
             Arg.Any<CancellationToken>());
-
-        await fixture.MembershipRepository.Received(1).UpsertAsync(
-            Arg.Is<UnitMembership>(u =>
-                u.AgentId == qaUuid
-                && u.Enabled && u.Model == null && u.Specialty == null && u.ExecutionMode == null),
+        await fixture.Proxy.Received(1).AddMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == qaUuid),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task CreateFromManifestAsync_UnitTypedMember_DoesNotWriteMembershipRow()
+    public async Task CreateFromManifestAsync_UnitTypedMember_AddsMembershipThroughActorProxy()
     {
-        // Per #217 scope: unit-typed members stay in actor state only — the
-        // membership table is agent-addressed and polymorphic rows are a
-        // future issue. The template fix must not leak unit rows into the
-        // table through the same code path.
+        // Unit-typed members were never written to unit_memberships (that
+        // table is agent-addressed; #2052 / ADR-0040 keeps unit-typed edges
+        // in unit_subunit_memberships under the actor's coordinator). The
+        // template path forwards the add through the actor proxy regardless
+        // of scheme, so the assertion is symmetric with the agent case.
         var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
@@ -325,65 +319,10 @@ public class UnitCreationServiceTests
         var result = await fixture.CreateFromManifestAsync("parent-unit", members);
 
         result.MembersAdded.ShouldBe(1);
-        await fixture.MembershipRepository.DidNotReceive().UpsertAsync(
-            Arg.Any<UnitMembership>(),
-            Arg.Any<CancellationToken>());
 
-        // The actor-state add still happened — unit-typed membership is the
-        // fast-path read until #217 lands polymorphic rows.
         await fixture.Proxy.Received(1).AddMemberAsync(
             Arg.Is<Address>(a => a.Scheme == "unit"),
             Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task CreateFromManifestAsync_MembershipRepositoryThrows_ActorStateUpdatedWithWarning()
-    {
-        // Preferred failure mode per the fix plan: if the DB write fails
-        // after the actor-state write, we log + surface a warning rather
-        // than trying to roll back the actor state. Actor state is the
-        // authoritative fast-path; a reconciler repairs divergence.
-        var flakyUnitUuid = new Guid("f1a4f1a4-0000-0000-0000-000000000001");
-        var lonelyAgentUuid = new Guid("10e1a6e1-0000-0000-0000-000000000001");
-
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
-
-        // Post-#1629 the manifest-driven member resolution walks ListAllAsync
-        // and matches DisplayName == slug. Seed the directory so the agent
-        // resolves to a deterministic UUID before the throw path is exercised.
-        fixture.Directory
-            .ListAllAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<DirectoryEntry>
-            {
-                new(new Address("agent", lonelyAgentUuid), lonelyAgentUuid,
-                    "lonely-agent", string.Empty, null, DateTimeOffset.UtcNow),
-            });
-        fixture.Directory
-            .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == lonelyAgentUuid),
-                Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(new Address("agent", lonelyAgentUuid), lonelyAgentUuid,
-                "lonely-agent", string.Empty, null, DateTimeOffset.UtcNow));
-
-        fixture.MembershipRepository
-            .UpsertAsync(Arg.Any<UnitMembership>(), Arg.Any<CancellationToken>())
-            .Returns(_ => Task.FromException(new InvalidOperationException("db down")));
-
-        var result = await fixture.CreateFromManifestAsync(
-            "flaky-unit",
-            new[] { new MemberManifest { Agent = "lonely-agent" } });
-
-        // The actor-state add succeeded — tally reflects it.
-        result.MembersAdded.ShouldBe(1);
-        await fixture.Proxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == lonelyAgentUuid),
-            Arg.Any<CancellationToken>());
-
-        // The DB-write failure surfaces as a warning on the creation result.
-        result.Warnings.ShouldContain(w =>
-            w.Contains("lonely-agent", StringComparison.Ordinal)
-            && w.Contains("db down", StringComparison.Ordinal));
     }
 
     // --- #374: template creation auto-registers agent directory entries ---

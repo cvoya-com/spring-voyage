@@ -251,7 +251,6 @@ public class UnitCreationServiceExecutionPersistenceTests
             Substitute.For<ISkillBundleResolver>(),
             Substitute.For<ISkillBundleValidator>(),
             Substitute.For<IUnitSkillBundleStore>(),
-            Substitute.For<IUnitMembershipRepository>(),
             memberGraphStore,
             tenantContext,
             scopeFactory,
