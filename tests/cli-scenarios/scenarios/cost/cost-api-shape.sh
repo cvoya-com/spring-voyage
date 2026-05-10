@@ -23,19 +23,26 @@ trap 'e2e::cleanup_unit "${unit}"; e2e::cleanup_agent "${agent}"' EXIT
 e2e::log "spring unit create ${unit}"
 response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
+body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
+# Canonical hex id — required for raw HTTP paths below.
+unit_id="$(printf '%s' "${body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
 e2e::log "spring agent create --name ${agent} --unit ${unit}"
 response="$(e2e::cli_agent_create --output json --name "${agent}" --unit "${unit}")"
 code="${response##*$'\n'}"
+body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "agent create succeeds"
+# AgentResponse keeps `name` = display name; strip dashes from the dashed
+# Guid in `id` to get the canonical hex form the API wants in URL paths.
+agent_id="$(printf '%s' "${body}" | awk -F'"' '/"id":/ { gsub(/-/, "", $4); print $4; exit }')"
 
 # --- Per-agent cost: a fresh agent has no records ---------------------------
 # The response schema (CostSummaryResponse) is required to carry the full
 # field set even when nothing has been spent; a missing field here would
 # break every dashboard client. Assert the zero-state shape explicitly.
-e2e::log "GET /api/v1/costs/agents/${agent}"
-response="$(e2e::http GET "/api/v1/tenant/cost/agents/${agent}")"
+e2e::log "GET /api/v1/tenant/cost/agents/${agent_id}"
+response="$(e2e::http GET "/api/v1/tenant/cost/agents/${agent_id}")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "cost query for new agent returns 200"
@@ -49,8 +56,8 @@ e2e::expect_contains "\"from\":" "${body}" "response includes the aggregation wi
 e2e::expect_contains "\"to\":" "${body}" "response includes the aggregation window end"
 
 # --- Per-unit cost: a fresh unit has no records -----------------------------
-e2e::log "GET /api/v1/costs/units/${unit}"
-response="$(e2e::http GET "/api/v1/tenant/cost/units/${unit}")"
+e2e::log "GET /api/v1/tenant/cost/units/${unit_id}"
+response="$(e2e::http GET "/api/v1/tenant/cost/units/${unit_id}")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "cost query for new unit returns 200"
@@ -61,7 +68,7 @@ e2e::expect_contains "\"recordCount\":0" "${body}" "fresh unit: recordCount is z
 # The default tenant id is supplied by the server; callers just hit the
 # bare tenant endpoint. The value may be non-zero on a shared environment
 # (previous runs' residue), so we only assert the shape here.
-e2e::log "GET /api/v1/costs/tenant"
+e2e::log "GET /api/v1/tenant/cost/tenant"
 response="$(e2e::http GET "/api/v1/tenant/cost/tenant")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
@@ -77,8 +84,8 @@ e2e::expect_contains "\"to\":" "${body}" "tenant payload carries window end"
 # regressed.
 past_from="2020-01-01T00:00:00Z"
 past_to="2020-01-02T00:00:00Z"
-e2e::log "GET /api/v1/costs/agents/${agent}?from=${past_from}&to=${past_to}"
-response="$(e2e::http GET "/api/v1/tenant/cost/agents/${agent}?from=${past_from}&to=${past_to}")"
+e2e::log "GET /api/v1/tenant/cost/agents/${agent_id}?from=${past_from}&to=${past_to}"
+response="$(e2e::http GET "/api/v1/tenant/cost/agents/${agent_id}?from=${past_from}&to=${past_to}")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "cost query with explicit from/to returns 200"

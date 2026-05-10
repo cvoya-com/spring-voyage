@@ -93,9 +93,21 @@ public static class UnitPolicyCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var policy = await client.GetUnitPolicyAsync(unitId, ct);
             var slot = ExtractSlot(dimension, policy);
@@ -125,14 +137,14 @@ public static class UnitPolicyCommand
             }
 
             var sb = new StringBuilder();
-            sb.AppendLine($"Unit:      {unitId}");
+            sb.AppendLine($"Unit:      {idOrName}");
             sb.AppendLine($"Dimension: {dimension}");
             sb.AppendLine();
             sb.AppendLine("Current policy:");
             sb.AppendLine(FormatSlotForHumans(dimension, slot, indent: "  "));
             sb.AppendLine();
             sb.AppendLine("Effective policy (inheritance chain):");
-            sb.AppendLine($"  1. unit://{unitId}");
+            sb.AppendLine($"  1. unit://{idOrName}");
             sb.AppendLine(FormatSlotForHumans(dimension, slot, indent: "     "));
             sb.AppendLine();
             sb.AppendLine(
@@ -255,10 +267,22 @@ public static class UnitPolicyCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var file = parseResult.GetValue(fileOption);
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var current = await client.GetUnitPolicyAsync(unitId, ct);
 
@@ -320,7 +344,7 @@ public static class UnitPolicyCommand
             }
             else
             {
-                Console.WriteLine($"Unit '{unitId}' {dimension} policy updated.");
+                Console.WriteLine($"Unit '{idOrName}' {dimension} policy updated.");
                 Console.Write(FormatSlotForHumans(dimension, ExtractSlot(dimension, stored), indent: "  "));
             }
         });
@@ -340,9 +364,21 @@ public static class UnitPolicyCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var current = await client.GetUnitPolicyAsync(unitId, ct);
             var cleared = MergeSlot(dimension, current, null);
@@ -361,7 +397,7 @@ public static class UnitPolicyCommand
             else
             {
                 Console.WriteLine(
-                    $"Unit '{unitId}' {dimension} policy cleared.");
+                    $"Unit '{idOrName}' {dimension} policy cleared.");
             }
         });
 

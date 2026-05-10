@@ -47,9 +47,21 @@ public static class UnitBoundaryCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var boundary = await client.GetUnitBoundaryAsync(unitId, ct);
 
@@ -65,7 +77,7 @@ public static class UnitBoundaryCommand
                 return;
             }
 
-            Console.Write(FormatBoundaryForHumans(unitId, boundary));
+            Console.Write(FormatBoundaryForHumans(idOrName, boundary));
         });
 
         return command;
@@ -113,10 +125,22 @@ public static class UnitBoundaryCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var file = parseResult.GetValue(fileOption);
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             UnitBoundaryResponse body;
             if (!string.IsNullOrWhiteSpace(file))
@@ -156,8 +180,8 @@ public static class UnitBoundaryCommand
             }
             else
             {
-                Console.WriteLine($"Unit '{unitId}' boundary updated.");
-                Console.Write(FormatBoundaryForHumans(unitId, stored));
+                Console.WriteLine($"Unit '{idOrName}' boundary updated.");
+                Console.Write(FormatBoundaryForHumans(idOrName, stored));
             }
         });
 
@@ -175,10 +199,23 @@ public static class UnitBoundaryCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
             await client.ClearUnitBoundaryAsync(unitId, ct);
-            Console.WriteLine($"Unit '{unitId}' boundary cleared.");
+            Console.WriteLine($"Unit '{idOrName}' boundary cleared.");
         });
 
         return command;

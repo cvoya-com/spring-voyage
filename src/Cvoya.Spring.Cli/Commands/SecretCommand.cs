@@ -124,6 +124,41 @@ public static class SecretCommand
         Environment.Exit(1);
     }
 
+    /// <summary>
+    /// Resolves the scope-keyed identifier through <see cref="CliResolver"/>
+    /// so the wire URL / body always carries the canonical no-dash hex GUID
+    /// the API requires. Returns the resolved id (hex) along with the
+    /// user-typed input for prose. <c>tenant</c> and <c>platform</c> scopes
+    /// have no per-entity id, so both come back as <see cref="string.Empty"/>.
+    /// </summary>
+    private static async Task<(string ResolvedId, string DisplayInput)?> ResolveScopeIdAsync(
+        SpringApiClient client,
+        string scope,
+        string? unit,
+        string? agent,
+        CancellationToken ct)
+    {
+        var resolver = new CliResolver(client);
+        try
+        {
+            switch (scope)
+            {
+                case "unit":
+                    return (await resolver.ResolveUnitIdAsync(unit!, parentContext: null, ct), unit!);
+                case "agent":
+                    return (await resolver.ResolveAgentIdAsync(agent!, unitContext: null, ct), agent!);
+                default:
+                    return (string.Empty, string.Empty);
+            }
+        }
+        catch (CliResolutionException ex)
+        {
+            CliResolutionPrinter.Write(Console.Error, ex);
+            Environment.Exit(1);
+            return null;
+        }
+    }
+
     // ---- create -------------------------------------------------------------
 
     private static Command CreateCreateCommand(Option<string> outputOption)
@@ -239,12 +274,15 @@ public static class SecretCommand
             }
 
             var client = ClientFactory.Create();
+            var resolved = await ResolveScopeIdAsync(client, scope, unit, agent, ct);
+            if (resolved is null) { return; }
+            var scopeId = resolved.Value.ResolvedId;
             try
             {
                 CreateSecretResponse response = scope switch
                 {
-                    "unit" => await client.CreateUnitSecretAsync(unit!, name, resolvedValue, external, propagate, ct),
-                    "agent" => await client.CreateAgentSecretAsync(agent!, name, resolvedValue, external, ct),
+                    "unit" => await client.CreateUnitSecretAsync(scopeId, name, resolvedValue, external, propagate, ct),
+                    "agent" => await client.CreateAgentSecretAsync(scopeId, name, resolvedValue, external, ct),
                     "tenant" => await client.CreateTenantSecretAsync(name, resolvedValue, external, ct),
                     "platform" => await client.CreatePlatformSecretAsync(name, resolvedValue, external, ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -299,12 +337,15 @@ public static class SecretCommand
             }
 
             var client = ClientFactory.Create();
+            var resolved = await ResolveScopeIdAsync(client, scope, unit, agent, ct);
+            if (resolved is null) { return; }
+            var scopeId = resolved.Value.ResolvedId;
             try
             {
                 IReadOnlyList<SecretMetadata> entries = scope switch
                 {
-                    "unit" => await client.ListUnitSecretsAsync(unit!, ct),
-                    "agent" => await client.ListAgentSecretsAsync(agent!, ct),
+                    "unit" => await client.ListUnitSecretsAsync(scopeId, ct),
+                    "agent" => await client.ListAgentSecretsAsync(scopeId, ct),
                     "tenant" => await client.ListTenantSecretsAsync(ct),
                     "platform" => await client.ListPlatformSecretsAsync(ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -370,12 +411,15 @@ public static class SecretCommand
             }
 
             var client = ClientFactory.Create();
+            var resolved = await ResolveScopeIdAsync(client, scope, unit, agent, ct);
+            if (resolved is null) { return; }
+            var scopeId = resolved.Value.ResolvedId;
             try
             {
                 var versions = scope switch
                 {
-                    "unit" => await client.ListUnitSecretVersionsAsync(unit!, name, ct),
-                    "agent" => await client.ListAgentSecretVersionsAsync(agent!, name, ct),
+                    "unit" => await client.ListUnitSecretVersionsAsync(scopeId, name, ct),
+                    "agent" => await client.ListAgentSecretVersionsAsync(scopeId, name, ct),
                     "tenant" => await client.ListTenantSecretVersionsAsync(name, ct),
                     "platform" => await client.ListPlatformSecretVersionsAsync(name, ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -537,12 +581,15 @@ public static class SecretCommand
             }
 
             var client = ClientFactory.Create();
+            var resolved = await ResolveScopeIdAsync(client, scope, unit, agent, ct);
+            if (resolved is null) { return; }
+            var scopeId = resolved.Value.ResolvedId;
             try
             {
                 RotateSecretResponse response = scope switch
                 {
-                    "unit" => await client.RotateUnitSecretAsync(unit!, name, resolvedValue, external, propagate, ct),
-                    "agent" => await client.RotateAgentSecretAsync(agent!, name, resolvedValue, external, ct),
+                    "unit" => await client.RotateUnitSecretAsync(scopeId, name, resolvedValue, external, propagate, ct),
+                    "agent" => await client.RotateAgentSecretAsync(scopeId, name, resolvedValue, external, ct),
                     "tenant" => await client.RotateTenantSecretAsync(name, resolvedValue, external, ct),
                     "platform" => await client.RotatePlatformSecretAsync(name, resolvedValue, external, ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -605,12 +652,15 @@ public static class SecretCommand
             }
 
             var client = ClientFactory.Create();
+            var resolved = await ResolveScopeIdAsync(client, scope, unit, agent, ct);
+            if (resolved is null) { return; }
+            var scopeId = resolved.Value.ResolvedId;
             try
             {
                 var response = scope switch
                 {
-                    "unit" => await client.ListUnitSecretVersionsAsync(unit!, name, ct),
-                    "agent" => await client.ListAgentSecretVersionsAsync(agent!, name, ct),
+                    "unit" => await client.ListUnitSecretVersionsAsync(scopeId, name, ct),
+                    "agent" => await client.ListAgentSecretVersionsAsync(scopeId, name, ct),
                     "tenant" => await client.ListTenantSecretVersionsAsync(name, ct),
                     "platform" => await client.ListPlatformSecretVersionsAsync(name, ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -676,12 +726,15 @@ public static class SecretCommand
             }
 
             var client = ClientFactory.Create();
+            var resolved = await ResolveScopeIdAsync(client, scope, unit, agent, ct);
+            if (resolved is null) { return; }
+            var scopeId = resolved.Value.ResolvedId;
             try
             {
                 var response = scope switch
                 {
-                    "unit" => await client.PruneUnitSecretAsync(unit!, name, keep, ct),
-                    "agent" => await client.PruneAgentSecretAsync(agent!, name, keep, ct),
+                    "unit" => await client.PruneUnitSecretAsync(scopeId, name, keep, ct),
+                    "agent" => await client.PruneAgentSecretAsync(scopeId, name, keep, ct),
                     "tenant" => await client.PruneTenantSecretAsync(name, keep, ct),
                     "platform" => await client.PrunePlatformSecretAsync(name, keep, ct),
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
@@ -748,15 +801,18 @@ public static class SecretCommand
             }
 
             var client = ClientFactory.Create();
+            var resolved = await ResolveScopeIdAsync(client, scope, unit, agent, ct);
+            if (resolved is null) { return; }
+            var scopeId = resolved.Value.ResolvedId;
             try
             {
                 switch (scope)
                 {
                     case "unit":
-                        await client.DeleteUnitSecretAsync(unit!, name, ct);
+                        await client.DeleteUnitSecretAsync(scopeId, name, ct);
                         break;
                     case "agent":
-                        await client.DeleteAgentSecretAsync(agent!, name, ct);
+                        await client.DeleteAgentSecretAsync(scopeId, name, ct);
                         break;
                     case "tenant":
                         await client.DeleteTenantSecretAsync(name, ct);

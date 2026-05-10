@@ -29,7 +29,10 @@ source "${HERE}/../../_lib.sh"
 
 agent="$(e2e::agent_name message-target)"
 unit="$(e2e::unit_name message-target-unit)"
-thread_id="${E2E_PREFIX}-${E2E_RUN_ID}-conv-msg"
+# The server validates threadId as a Guid now; the previous human-shaped id
+# returns 400. Letting the server allocate one (omit the field) yields a
+# canonical 32-char hex thread id back via the response.
+thread_id=""
 
 # Cascading unit purge drops the agent's membership row before the agent
 # purge runs.
@@ -49,16 +52,17 @@ code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "agent create succeeds"
 
-# Activity source filtering uses `agent:<actorId>` (the GUID) — fish it out
-# of the CLI create response so we can filter the activity query precisely.
-# The response JSON is { "id": "<guid>", "name": "<path>", ... }.
+# Activity source filtering uses `agent:<actorId>` — the actorId is the
+# canonical hex (no-dashes) Guid form. AgentResponse keeps `name` = display
+# name today, so strip dashes off the `id` field for the path-id form.
 agent_id="$(printf '%s' "${body}" | awk -F'"' '/"id":/ { print $4; exit }')"
 if [[ -z "${agent_id}" ]]; then
     e2e::fail "could not extract agent id from create response: ${body:0:200}"
     e2e::summary
     exit 1
 fi
-e2e::log "agent actor id: ${agent_id}"
+agent_id_hex="${agent_id//-/}"
+e2e::log "agent actor id: ${agent_id} (hex ${agent_id_hex})"
 
 # --- Send a Domain message ---------------------------------------------------
 # Driven through raw HTTP rather than `spring message send` because the
@@ -66,11 +70,15 @@ e2e::log "agent actor id: ${agent_id}"
 # and we want to assert on the persisted MessageReceived event regardless
 # of the dispatch tail. The actual JSON-RPC dispatch path is covered by
 # `A2ADispatchTransportContractTests` (#1465).
+#
+# The `to.path` field must carry the canonical hex form; the API rejects
+# the human display name with a Guid-parse 400/500. The CLI surface that
+# accepts names goes through CliResolver — this raw HTTP path does not.
 payload=$(cat <<EOF
-{"to":{"scheme":"agent","path":"${agent}"},"type":"Domain","threadId":"${thread_id}","payload":"hello"}
+{"to":{"scheme":"agent","path":"${agent_id_hex}"},"type":"Domain","payload":"hello"}
 EOF
 )
-e2e::log "POST /api/v1/tenant/messages (Domain → agent://${agent}, thread=${thread_id})"
+e2e::log "POST /api/v1/tenant/messages (Domain → agent:${agent_id_hex})"
 response="$(e2e::http POST /api/v1/tenant/messages "${payload}")"
 status="${response##*$'\n'}"
 # The server may respond 200 (dispatch chained cleanly) or 502 (dispatch
@@ -86,7 +94,7 @@ fi
 # --- Poll the activity query store for MessageReceived ------------------------
 # Persister batches every second (ActivityEventPersister), so a single query
 # right after the send races. Retry up to ~10s with a short sleep.
-expected_source="agent:${agent_id}"
+expected_source="agent:${agent_id_hex}"
 found=0
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
     query_response="$(e2e::http GET "/api/v1/tenant/activity?source=${expected_source}&eventType=MessageReceived&limit=5")"

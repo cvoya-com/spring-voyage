@@ -41,11 +41,39 @@ public static class MessageCommand
         {
             var address = parseResult.GetValue(addressArg)!;
             var text = parseResult.GetValue(textArg)!;
-            var threadId = parseResult.GetValue(conversationOption);
+            var threadInput = parseResult.GetValue(conversationOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var verbose = parseResult.GetValue<bool>("--verbose");
             var (scheme, path) = AddressParser.Parse(address);
             var client = ClientFactory.Create();
+
+            // Resolve the path through CliResolver for agent / unit schemes so
+            // the wire body's recipient id is the canonical no-dash hex form
+            // the dispatcher requires. human / connector / system addresses
+            // stay opaque — they aren't tenant entities.
+            if (!string.IsNullOrWhiteSpace(path)
+                && (scheme == "agent" || scheme == "unit"))
+            {
+                var resolver = new CliResolver(client);
+                try
+                {
+                    path = scheme == "agent"
+                        ? await resolver.ResolveAgentIdAsync(path, unitContext: null, ct)
+                        : await resolver.ResolveUnitIdAsync(path, parentContext: null, ct);
+                }
+                catch (CliResolutionException ex)
+                {
+                    CliResolutionPrinter.Write(Console.Error, ex);
+                    Environment.Exit(1);
+                    return;
+                }
+            }
+
+            // Threads aren't in CliResolver; normalise the id when it parses
+            // so the wire body carries the canonical no-dash form.
+            var threadId = !string.IsNullOrWhiteSpace(threadInput) && Guid.TryParse(threadInput, out var parsedThreadId)
+                ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parsedThreadId)
+                : threadInput;
 
             var result = await client.SendMessageAsync(scheme, path, text, threadId, ct);
 

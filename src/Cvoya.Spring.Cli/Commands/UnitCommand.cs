@@ -285,24 +285,33 @@ public static class UnitCommand
             var apiKey = parseResult.GetValue(apiKeyOption);
             var apiKeyFromFile = parseResult.GetValue(apiKeyFromFileOption);
             var saveAsTenantDefault = parseResult.GetValue(saveAsTenantDefaultOption);
-            // Post-#1629 parent-unit ids are stable Guids; the CLI parses
-            // both no-dash and dashed forms, surfaces a friendly error
-            // before the API call when any value is malformed.
+            // Post-#1629 parent-unit ids are stable Guids on the wire; the
+            // CLI accepts either Guid form OR a display-name, resolving the
+            // latter through CliResolver so users (and the e2e suite) can
+            // pass human names anywhere a Guid is required.
             var parentUnitsRaw = (parseResult.GetValue(parentUnitOption) ?? Array.Empty<string>())
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Select(p => p.Trim())
                 .ToArray();
             var parentUnits = new List<Guid>(parentUnitsRaw.Length);
-            foreach (var raw in parentUnitsRaw)
+            if (parentUnitsRaw.Length > 0)
             {
-                if (!Guid.TryParse(raw, out var parentGuid))
+                var parentResolverClient = ClientFactory.Create();
+                var parentResolver = new CliResolver(parentResolverClient);
+                foreach (var raw in parentUnitsRaw)
                 {
-                    await Console.Error.WriteLineAsync(
-                        $"Invalid parent-unit id '{raw}': expected a Guid.");
-                    Environment.Exit(1);
-                    return;
+                    try
+                    {
+                        var parentGuid = await parentResolver.ResolveUnitAsync(raw, parentContext: null, ct);
+                        parentUnits.Add(parentGuid);
+                    }
+                    catch (CliResolutionException ex)
+                    {
+                        CliResolutionPrinter.Write(Console.Error, ex);
+                        Environment.Exit(1);
+                        return;
+                    }
                 }
-                parentUnits.Add(parentGuid);
             }
             var topLevel = parseResult.GetValue(topLevelOption);
             var noWait = parseResult.GetValue(noWaitOption);
@@ -825,14 +834,26 @@ public static class UnitCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var force = parseResult.GetValue(forceOption);
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             await client.DeleteUnitAsync(id, force, ct);
             Console.WriteLine(force
-                ? $"Unit '{id}' force-deleted."
-                : $"Unit '{id}' deleted.");
+                ? $"Unit '{idOrName}' force-deleted."
+                : $"Unit '{idOrName}' deleted.");
         });
 
         return command;
@@ -863,27 +884,39 @@ public static class UnitCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var confirm = parseResult.GetValue(confirmOption);
             var force = parseResult.GetValue(forceOption);
             if (!confirm)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Refusing to purge unit '{id}' without --confirm. Re-run with --confirm to proceed.");
+                    $"Refusing to purge unit '{idOrName}' without --confirm. Re-run with --confirm to proceed.");
                 Environment.Exit(1);
                 return;
             }
 
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
             var renderContext = ErrorHandling.RenderContextFactory.For(
-                parseResult, $"Failed to purge unit '{id}'");
+                parseResult, $"Failed to purge unit '{idOrName}'");
 
             try
             {
                 // Step 1: enumerate memberships so the user sees exactly what is cascading.
                 var memberships = await client.ListUnitMembershipsAsync(id, ct);
                 Console.WriteLine(
-                    $"Purging unit '{id}': {memberships.Count} membership(s) to remove before the unit itself.");
+                    $"Purging unit '{idOrName}': {memberships.Count} membership(s) to remove before the unit itself.");
 
                 // Step 2: delete each membership row. When the API refuses the
                 // delete with 409 "agent's last unit membership" (#744 / #823),
@@ -913,10 +946,10 @@ public static class UnitCommand
                 // root unit stuck in a non-terminal state still gets
                 // tombstoned (#1137).
                 Console.WriteLine(force
-                    ? $"  - force-deleting unit '{id}'"
-                    : $"  - deleting unit '{id}'");
+                    ? $"  - force-deleting unit '{idOrName}'"
+                    : $"  - deleting unit '{idOrName}'");
                 await client.DeleteUnitAsync(id, force, ct);
-                Console.WriteLine($"Unit '{id}' purged.");
+                Console.WriteLine($"Unit '{idOrName}' purged.");
             }
             catch (ApiException ex)
             {
@@ -941,18 +974,30 @@ public static class UnitCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             try
             {
                 var result = await client.StartUnitAsync(id, ct);
-                Console.WriteLine($"Unit '{id}' is now {result.Status}.");
+                Console.WriteLine($"Unit '{idOrName}' is now {result.Status}.");
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to start unit '{id}': {ExtractServerDetail(ex)}");
+                    $"Failed to start unit '{idOrName}': {ExtractServerDetail(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -968,18 +1013,30 @@ public static class UnitCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             try
             {
                 var result = await client.StopUnitAsync(id, ct);
-                Console.WriteLine($"Unit '{id}' is now {result.Status}.");
+                Console.WriteLine($"Unit '{idOrName}' is now {result.Status}.");
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to stop unit '{id}': {ExtractServerDetail(ex)}");
+                    $"Failed to stop unit '{idOrName}': {ExtractServerDetail(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -995,9 +1052,21 @@ public static class UnitCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             try
             {
@@ -1020,7 +1089,7 @@ public static class UnitCommand
                 }
                 else
                 {
-                    Console.WriteLine($"Unit:     {id}");
+                    Console.WriteLine($"Unit:     {idOrName}");
                     Console.WriteLine($"Status:   {unit.Unit?.Status}");
                     Console.WriteLine($"Ready:    {(readiness.IsReady == true ? "yes" : "no")}");
                     if (readiness.MissingRequirements is { Count: > 0 } missing)
@@ -1032,7 +1101,7 @@ public static class UnitCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to get status for unit '{id}': {ExtractServerDetail(ex)}");
+                    $"Failed to get status for unit '{idOrName}': {ExtractServerDetail(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -1062,9 +1131,21 @@ public static class UnitCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             // Two sources — unified here because neither alone gives the full
             // picture today:
@@ -1193,18 +1274,32 @@ public static class UnitCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var parentUnitId = parseResult.GetValue(unitArg)!;
-            var agentId = parseResult.GetValue(agentOption);
-            var childUnitId = parseResult.GetValue(unitOption);
+            var parentIdOrName = parseResult.GetValue(unitArg)!;
+            var agentIdOrName = parseResult.GetValue(agentOption);
+            var childIdOrName = parseResult.GetValue(unitOption);
 
-            var hasAgent = !string.IsNullOrWhiteSpace(agentId);
-            var hasChildUnit = !string.IsNullOrWhiteSpace(childUnitId);
+            var hasAgent = !string.IsNullOrWhiteSpace(agentIdOrName);
+            var hasChildUnit = !string.IsNullOrWhiteSpace(childIdOrName);
 
             if (hasAgent == hasChildUnit)
             {
                 await Console.Error.WriteLineAsync(hasAgent
                     ? "--agent and --unit are mutually exclusive. Supply exactly one."
                     : "One of --agent or --unit is required.");
+                Environment.Exit(1);
+                return;
+            }
+
+            var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string parentUnitId;
+            try
+            {
+                parentUnitId = await resolver.ResolveUnitIdAsync(parentIdOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
                 Environment.Exit(1);
                 return;
             }
@@ -1222,10 +1317,21 @@ public static class UnitCommand
                     return;
                 }
 
-                var client = ClientFactory.Create();
+                string childUnitId;
                 try
                 {
-                    await client.AddUnitMemberAsync(parentUnitId, childUnitId!, ct);
+                    childUnitId = await resolver.ResolveUnitIdAsync(childIdOrName!, parentContext: null, ct);
+                }
+                catch (CliResolutionException ex)
+                {
+                    CliResolutionPrinter.Write(Console.Error, ex);
+                    Environment.Exit(1);
+                    return;
+                }
+
+                try
+                {
+                    await client.AddUnitMemberAsync(parentUnitId, childUnitId, ct);
                 }
                 catch (Microsoft.Kiota.Abstractions.ApiException ex)
                 {
@@ -1234,19 +1340,33 @@ public static class UnitCommand
                     // message verbatim so operators see the offending chain
                     // rather than a generic Kiota error.
                     await Console.Error.WriteLineAsync(
-                        $"Failed to add unit '{childUnitId}' as a member of '{parentUnitId}': {ExtractServerDetail(ex)}");
+                        $"Failed to add unit '{childIdOrName}' as a member of '{parentIdOrName}': {ExtractServerDetail(ex)}");
                     Environment.Exit(1);
                     return;
                 }
 
-                Console.WriteLine($"Unit '{childUnitId}' added as a member of '{parentUnitId}'.");
+                Console.WriteLine($"Unit '{childIdOrName}' added as a member of '{parentIdOrName}'.");
                 return;
             }
 
             // Agent path: run the public assignment endpoint first so
             // server-side membership-graph validation fires, then preserve
             // the existing override output shape through the upsert flow.
-            await InvokeUpsertAsync(parseResult, unitArg, bind, outputOption, assignAgent: true, ct);
+            string agentId;
+            try
+            {
+                agentId = await resolver.ResolveAgentIdAsync(agentIdOrName!, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            await InvokeUpsertAsync(
+                parseResult, parentUnitId, parentIdOrName, agentId, agentIdOrName!, bind, outputOption,
+                assignAgent: true, ct);
         });
 
         return command;
@@ -1289,7 +1409,41 @@ public static class UnitCommand
         }
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
-            await InvokeUpsertAsync(parseResult, unitArg, bind, outputOption, assignAgent: false, ct));
+        {
+            var parentIdOrName = parseResult.GetValue(unitArg)!;
+            var inputs = bind(parseResult);
+            var agentIdOrName = inputs.AgentId;
+
+            var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string parentUnitId;
+            try
+            {
+                parentUnitId = await resolver.ResolveUnitIdAsync(parentIdOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            string agentId;
+            try
+            {
+                agentId = await resolver.ResolveAgentIdAsync(agentIdOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            await InvokeUpsertAsync(
+                parseResult, parentUnitId, parentIdOrName, agentId, agentIdOrName, bind, outputOption,
+                assignAgent: false, ct);
+        });
 
         return command;
     }
@@ -1321,12 +1475,12 @@ public static class UnitCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var parentUnitId = parseResult.GetValue(unitArg)!;
-            var agentId = parseResult.GetValue(agentOption);
-            var childUnitId = parseResult.GetValue(unitOption);
+            var parentIdOrName = parseResult.GetValue(unitArg)!;
+            var agentIdOrName = parseResult.GetValue(agentOption);
+            var childIdOrName = parseResult.GetValue(unitOption);
 
-            var hasAgent = !string.IsNullOrWhiteSpace(agentId);
-            var hasChildUnit = !string.IsNullOrWhiteSpace(childUnitId);
+            var hasAgent = !string.IsNullOrWhiteSpace(agentIdOrName);
+            var hasChildUnit = !string.IsNullOrWhiteSpace(childIdOrName);
 
             if (hasAgent == hasChildUnit)
             {
@@ -1338,9 +1492,33 @@ public static class UnitCommand
             }
 
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string parentUnitId;
+            try
+            {
+                parentUnitId = await resolver.ResolveUnitIdAsync(parentIdOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             if (hasChildUnit)
             {
+                string childUnitId;
+                try
+                {
+                    childUnitId = await resolver.ResolveUnitIdAsync(childIdOrName!, parentContext: null, ct);
+                }
+                catch (CliResolutionException ex)
+                {
+                    CliResolutionPrinter.Write(Console.Error, ex);
+                    Environment.Exit(1);
+                    return;
+                }
+
                 // #1151: sub-unit memberships live on the unit actor's
                 // member list rather than the /memberships repository
                 // (per-membership overrides are agent-only today, see
@@ -1352,23 +1530,35 @@ public static class UnitCommand
                 // error path.
                 try
                 {
-                    await client.RemoveMemberAsync(parentUnitId, childUnitId!, ct);
+                    await client.RemoveMemberAsync(parentUnitId, childUnitId, ct);
                 }
                 catch (ApiException ex)
                 {
                     await Console.Error.WriteLineAsync(
-                        $"Failed to detach sub-unit '{childUnitId}' from unit '{parentUnitId}': {ExtractServerDetail(ex)}");
+                        $"Failed to detach sub-unit '{childIdOrName}' from unit '{parentIdOrName}': {ExtractServerDetail(ex)}");
                     Environment.Exit(1);
                     return;
                 }
 
-                Console.WriteLine($"Sub-unit '{childUnitId}' detached from unit '{parentUnitId}'.");
+                Console.WriteLine($"Sub-unit '{childIdOrName}' detached from unit '{parentIdOrName}'.");
+                return;
+            }
+
+            string agentId;
+            try
+            {
+                agentId = await resolver.ResolveAgentIdAsync(agentIdOrName!, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
                 return;
             }
 
             try
             {
-                await client.DeleteMembershipAsync(parentUnitId, agentId!, ct);
+                await client.DeleteMembershipAsync(parentUnitId, agentId, ct);
             }
             catch (ApiException ex)
             {
@@ -1377,11 +1567,11 @@ public static class UnitCommand
                 // so operators see the server's title/detail rather than the
                 // Kiota exception stack.
                 await Console.Error.WriteLineAsync(
-                    $"Failed to remove membership for agent '{agentId}' from unit '{parentUnitId}': {ExtractServerDetail(ex)}");
+                    $"Failed to remove membership for agent '{agentIdOrName}' from unit '{parentIdOrName}': {ExtractServerDetail(ex)}");
                 Environment.Exit(1);
                 return;
             }
-            Console.WriteLine($"Membership for agent '{agentId}' removed from unit '{parentUnitId}'.");
+            Console.WriteLine($"Membership for agent '{agentIdOrName}' removed from unit '{parentIdOrName}'.");
         });
 
         return command;
@@ -1463,13 +1653,15 @@ public static class UnitCommand
 
     private static async Task InvokeUpsertAsync(
         ParseResult parseResult,
-        Argument<string> unitArg,
+        string unitId,
+        string unitIdOrName,
+        string agentId,
+        string agentIdOrName,
         Func<ParseResult, MembershipInputs> bind,
         Option<string> outputOption,
         bool assignAgent,
         CancellationToken ct)
     {
-        var unitId = parseResult.GetValue(unitArg)!;
         var inputs = bind(parseResult);
         var output = parseResult.GetValue(outputOption) ?? "table";
         var client = ClientFactory.Create();
@@ -1479,12 +1671,12 @@ public static class UnitCommand
         {
             if (assignAgent)
             {
-                await client.AssignUnitAgentAsync(unitId, inputs.AgentId, ct);
+                await client.AssignUnitAgentAsync(unitId, agentId, ct);
             }
 
             result = await client.UpsertMembershipAsync(
                 unitId,
-                inputs.AgentId,
+                agentId,
                 inputs.Model,
                 inputs.Specialty,
                 inputs.Enabled,
@@ -1504,7 +1696,7 @@ public static class UnitCommand
             // as an unformatted stack trace. Exit 1 so scripts can detect
             // the failure without parsing stderr.
             await Console.Error.WriteLineAsync(
-                $"Failed to upsert membership for agent '{inputs.AgentId}' in unit '{unitId}': {ExtractServerDetail(ex)}");
+                $"Failed to upsert membership for agent '{agentIdOrName}' in unit '{unitIdOrName}': {ExtractServerDetail(ex)}");
             Environment.Exit(1);
             return;
         }

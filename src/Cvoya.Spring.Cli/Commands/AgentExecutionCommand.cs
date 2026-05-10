@@ -48,9 +48,21 @@ public static class AgentExecutionCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var agentId = parseResult.GetValue(agentArg)!;
+            var idOrName = parseResult.GetValue(agentArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string agentId;
+            try
+            {
+                agentId = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var shape = await client.GetAgentExecutionAsync(agentId, ct);
 
@@ -70,7 +82,7 @@ public static class AgentExecutionCommand
                 return;
             }
 
-            Console.WriteLine($"Agent:    {agentId}");
+            Console.WriteLine($"Agent:    {idOrName}");
             Console.WriteLine($"  image:             {shape.Image ?? "(inherited / unset)"}");
             Console.WriteLine($"  runtime:           {shape.Runtime ?? "(inherited / unset)"}");
             Console.WriteLine($"  model_provider:    {shape.Model?.AiModelDto?.Provider ?? "(inherited / unset)"}");
@@ -123,7 +135,7 @@ public static class AgentExecutionCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var agentId = parseResult.GetValue(agentArg)!;
+            var idOrName = parseResult.GetValue(agentArg)!;
             var image = parseResult.GetValue(imageOption);
             var runtime = parseResult.GetValue(runtimeOption);
             var modelProvider = parseResult.GetValue(modelProviderOption);
@@ -142,6 +154,18 @@ public static class AgentExecutionCommand
             }
 
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string agentId;
+            try
+            {
+                agentId = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             // ADR-0038: structured execution.model = {provider, id} on the wire.
             var modelDto = (!string.IsNullOrWhiteSpace(modelProvider) && !string.IsNullOrWhiteSpace(model))
@@ -173,7 +197,7 @@ public static class AgentExecutionCommand
             }
             else
             {
-                Console.WriteLine($"Agent '{agentId}' execution updated.");
+                Console.WriteLine($"Agent '{idOrName}' execution updated.");
                 Console.WriteLine($"  image:             {stored.Image ?? "(inherited / unset)"}");
                 Console.WriteLine($"  runtime:           {stored.Runtime ?? "(inherited / unset)"}");
                 Console.WriteLine($"  model_provider:    {stored.Model?.AiModelDto?.Provider ?? "(inherited / unset)"}");
@@ -210,10 +234,22 @@ public static class AgentExecutionCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var agentId = parseResult.GetValue(agentArg)!;
+            var idOrName = parseResult.GetValue(agentArg)!;
             var field = parseResult.GetValue(fieldOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string agentId;
+            try
+            {
+                agentId = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             if (string.IsNullOrWhiteSpace(field))
             {
@@ -224,7 +260,7 @@ public static class AgentExecutionCommand
                 }
                 else
                 {
-                    Console.WriteLine($"Agent '{agentId}' execution block cleared.");
+                    Console.WriteLine($"Agent '{idOrName}' execution block cleared.");
                 }
                 return;
             }
@@ -270,7 +306,7 @@ public static class AgentExecutionCommand
             }
             else
             {
-                Console.WriteLine($"Agent '{agentId}' execution.{field} cleared.");
+                Console.WriteLine($"Agent '{idOrName}' execution.{field} cleared.");
             }
         });
 

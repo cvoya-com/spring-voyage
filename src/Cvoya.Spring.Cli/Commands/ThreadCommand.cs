@@ -86,9 +86,16 @@ public static class ThreadCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idInput = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+
+            // Threads aren't in CliResolver; the id is a ThreadId (Guid).
+            // Normalise to the no-dash hex form the API expects when the
+            // input parses; otherwise let the API surface its own 400/404.
+            var id = Guid.TryParse(idInput, out var parsedThreadId)
+                ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parsedThreadId)
+                : idInput;
 
             try
             {
@@ -122,7 +129,7 @@ public static class ThreadCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to load thread '{id}': {ProblemDetailsFormatter.Format(ex)}");
+                await Console.Error.WriteLineAsync($"Failed to load thread '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -155,10 +162,16 @@ public static class ThreadCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var threadId = parseResult.GetValue(threadOption)!;
+            var threadInput = parseResult.GetValue(threadOption)!;
             var address = parseResult.GetValue(addressArg)!;
             var text = parseResult.GetValue(textArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
+
+            // Threads aren't in CliResolver; normalise the id when it parses
+            // as a Guid so the URL path carries the canonical no-dash form.
+            var threadId = Guid.TryParse(threadInput, out var parsedThreadId)
+                ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parsedThreadId)
+                : threadInput;
 
             var (scheme, path) = AddressParser.Parse(address);
             var client = ClientFactory.Create();
@@ -175,7 +188,7 @@ public static class ThreadCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to send to thread '{threadId}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to send to thread '{threadInput}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });

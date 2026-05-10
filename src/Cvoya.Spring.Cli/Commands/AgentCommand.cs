@@ -471,24 +471,33 @@ public static class AgentCommand
 
             var client = clientFactory();
 
-            // CLI accepts both no-dash hex (canonical post-#1629) and dashed
-            // Guid forms; the shared GuidFormatter parses leniently.
+            // CLI accepts no-dash hex Guid, dashed Guid, OR a display-name.
+            // Display-name path resolves through CliResolver so the e2e
+            // suite and operators can pass human names anywhere a unit id
+            // is required.
             var unitIds = new List<Guid>();
-            foreach (var raw in units ?? Array.Empty<string>())
+            if ((units ?? Array.Empty<string>()).Any(u => !string.IsNullOrWhiteSpace(u)))
             {
-                if (string.IsNullOrWhiteSpace(raw))
+                var unitResolver = new CliResolver(client);
+                foreach (var raw in units!)
                 {
-                    continue;
-                }
+                    if (string.IsNullOrWhiteSpace(raw))
+                    {
+                        continue;
+                    }
 
-                if (!Guid.TryParse(raw.Trim(), out var unitGuid))
-                {
-                    await Console.Error.WriteLineAsync($"Invalid unit id '{raw}': expected a Guid.");
-                    Environment.Exit(1);
-                    return;
+                    try
+                    {
+                        var unitGuid = await unitResolver.ResolveUnitAsync(raw.Trim(), parentContext: null, ct);
+                        unitIds.Add(unitGuid);
+                    }
+                    catch (CliResolutionException ex)
+                    {
+                        CliResolutionPrinter.Write(Console.Error, ex);
+                        Environment.Exit(1);
+                        return;
+                    }
                 }
-
-                unitIds.Add(unitGuid);
             }
 
             AgentResponse result;
@@ -907,9 +916,21 @@ public static class AgentCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var result = await client.GetAgentStatusAsync(id, ct);
 
@@ -929,11 +950,23 @@ public static class AgentCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             await client.DeleteAgentAsync(id, ct);
-            Console.WriteLine($"Agent '{id}' deleted.");
+            Console.WriteLine($"Agent '{idOrName}' deleted.");
         });
 
         return command;
@@ -954,26 +987,39 @@ public static class AgentCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var confirm = parseResult.GetValue(confirmOption);
             if (!confirm)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Refusing to purge agent '{id}' without --confirm. Re-run with --confirm to proceed.");
+                    $"Refusing to purge agent '{idOrName}' without --confirm. Re-run with --confirm to proceed.");
                 Environment.Exit(1);
                 return;
             }
 
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
             var renderContext = RenderContextFactory.For(
-                parseResult, $"Failed to purge agent '{id}'");
+                parseResult, $"Failed to purge agent '{idOrName}'");
 
             try
             {
                 // Step 1: enumerate memberships so users see exactly what is cascading.
                 var memberships = await client.ListAgentMembershipsAsync(id, ct);
                 Console.WriteLine(
-                    $"Purging agent '{id}': {memberships.Count} membership(s) to remove before the agent itself.");
+                    $"Purging agent '{idOrName}': {memberships.Count} membership(s) to remove before the agent itself.");
 
                 // Step 2: remove the agent from each unit it belongs to. Fail loud on the
                 // first error so the caller can investigate before the agent is deleted.
@@ -985,9 +1031,9 @@ public static class AgentCommand
                 }
 
                 // Step 3: delete the agent record.
-                Console.WriteLine($"  - deleting agent '{id}'");
+                Console.WriteLine($"  - deleting agent '{idOrName}'");
                 await client.DeleteAgentAsync(id, ct);
-                Console.WriteLine($"Agent '{id}' purged.");
+                Console.WriteLine($"Agent '{idOrName}' purged.");
             }
             catch (ApiException ex)
             {
@@ -1156,11 +1202,23 @@ public static class AgentCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var image = parseResult.GetValue(imageOption);
             var replicas = parseResult.GetValue(replicasOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var result = await client.DeployPersistentAgentAsync(id, image, replicas, ct);
 
@@ -1184,9 +1242,21 @@ public static class AgentCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var result = await client.UndeployPersistentAgentAsync(id, ct);
 
@@ -1217,10 +1287,22 @@ public static class AgentCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var replicas = parseResult.GetValue(replicasOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var result = await client.ScalePersistentAgentAsync(id, replicas, ct);
 
@@ -1250,9 +1332,21 @@ public static class AgentCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var tail = parseResult.GetValue(tailOption);
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var result = await client.GetPersistentAgentLogsAsync(id, tail, ct);
 
@@ -1306,9 +1400,21 @@ public static class AgentCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var deployment = await client.GetPersistentAgentDeploymentAsync(id, ct);
 
@@ -1322,7 +1428,7 @@ public static class AgentCommand
             }
             else
             {
-                var row = new HealthRow(id, status, running, container);
+                var row = new HealthRow(idOrName, status, running, container);
                 Console.WriteLine(OutputFormatter.FormatTable(row, HealthColumns));
             }
 

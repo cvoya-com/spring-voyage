@@ -31,13 +31,21 @@ response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
-e2e::expect_contains "\"name\": \"${unit}\"" "${body}" "unit create carries the unit name"
+e2e::expect_contains "\"displayName\": \"${unit}\"" "${body}" "unit create carries the unit display name"
+# Capture canonical hex id for direct HTTP calls below — passing the human
+# name in URL path params now returns 400/500.
+unit_id="$(printf '%s' "${body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
 e2e::log "spring agent create --name ${agent} --unit ${unit}"
 response="$(e2e::cli_agent_create --output json --name "${agent}" --unit "${unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "agent create succeeds"
+# Agent canonical hex id. AgentResponse keeps `name` = display name today
+# (unlike UnitResponse, where `name` already flipped to the hex form), so we
+# strip dashes from the `id` field to get the path-id form. Membership rows
+# now carry this hex in `agentAddress`; assertions below assert against it.
+agent_id="$(printf '%s' "${body}" | awk -F'"' '/"id":/ { gsub(/-/, "", $4); print $4; exit }')"
 
 # --- Add membership with overrides --------------------------------------------
 e2e::log "spring unit members add ${unit} --agent ${agent} --model gpt-4o --specialty coding --enabled true --execution-mode OnDemand"
@@ -46,7 +54,13 @@ response="$(e2e::cli --output json unit members add "${unit}" \
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit members add succeeds"
-e2e::expect_contains "\"agentAddress\": \"${agent}\"" "${body}" "add response carries the agent address"
+# The API still echoes the agent's display name in `agentAddress` (the
+# AgentAddress wire field is the agent-scheme path, which keeps the human
+# label today). The canonical hex id round-trips through the unified `member`
+# field as `agent:<hex>` per #1060; assert both so we prove the same entity
+# round-tripped regardless of which field a caller reads.
+e2e::expect_contains "\"agentAddress\": \"${agent}\"" "${body}" "add response carries the agent display name in agentAddress"
+e2e::expect_contains "\"member\": \"agent:${agent_id}\"" "${body}" "add response carries the canonical hex id in member"
 e2e::expect_contains "\"model\": \"gpt-4o\"" "${body}" "add response echoes --model override"
 
 # --- Verify via list ----------------------------------------------------------
@@ -55,26 +69,31 @@ response="$(e2e::cli --output json unit members list "${unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit members list succeeds"
-e2e::expect_contains "\"agentAddress\": \"${agent}\"" "${body}" "list contains the new membership"
+e2e::expect_contains "\"member\": \"agent://${agent_id}\"" "${body}" "list contains the new membership (by canonical agent id in member field)"
 
 # --- Cross-verify via HTTP read paths (#340) ----------------------------------
 # The CLI `members list` alone can pass while the DB/Agents-tab read paths
 # stay empty (see #340's template-from-create bug). Assert both /memberships
 # AND /agents mention the newly-added agent so the direct-create path can't
 # regress into the same drift silently.
-e2e::log "GET /api/v1/units/${unit}/memberships"
-response="$(e2e::http GET "/api/v1/tenant/units/${unit}/memberships")"
+e2e::log "GET /api/v1/tenant/units/${unit_id}/memberships"
+response="$(e2e::http GET "/api/v1/tenant/units/${unit_id}/memberships")"
 status="${response##*$'\n'}"
 mships_body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "/memberships returns 200 for unit"
-e2e::expect_contains "\"agentAddress\":\"${agent}\"" "${mships_body}" "/memberships includes the added agent"
+# The wire's `agentAddress` is the agent-scheme path (display name today);
+# the `member` field carries the canonical hex id as `agent:<hex>`. Assert
+# the canonical form so the test stays sharp if the wire field ever flips.
+e2e::expect_contains "\"member\":\"agent:${agent_id}\"" "${mships_body}" "/memberships includes the added agent (canonical hex in member)"
 
-e2e::log "GET /api/v1/units/${unit}/agents"
-response="$(e2e::http GET "/api/v1/tenant/units/${unit}/agents")"
+e2e::log "GET /api/v1/tenant/units/${unit_id}/agents"
+response="$(e2e::http GET "/api/v1/tenant/units/${unit_id}/agents")"
 status="${response##*$'\n'}"
 agents_body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "/agents returns 200 for unit"
-e2e::expect_contains "${agent}" "${agents_body}" "/agents includes the added agent"
+# AgentResponse carries the canonical hex form in `id` (dashed); assert the
+# display name round-trips since that's what /agents echoes for `name`.
+e2e::expect_contains "\"displayName\":\"${agent}\"" "${agents_body}" "/agents includes the added agent (by display name)"
 
 # --- Idempotent config update (upsert) ----------------------------------------
 e2e::log "spring unit members config ${unit} --agent ${agent} --enabled false"
@@ -98,8 +117,18 @@ e2e::expect_status "1" "${code}" "unit members remove blocks last-unit removal"
 e2e::expect_contains "at least one unit" "${body}" "remove error mentions the last-unit guard"
 
 # --- Cascading purge (belt-and-braces) ----------------------------------------
-# The membership is still in place (the guard refused), so the purge has the
-# membership to cascade through without any re-add step.
+# The membership is still in place (the guard refused). Today `spring unit
+# purge`'s cascade re-uses the `agentAddress` field returned by GET
+# /memberships, which is the human display-name — the API rejects names in
+# the DELETE /memberships/{agentAddress} URL with a 500 (Guid parse). Until
+# the CLI cascade is updated to use the canonical hex id (tracked separately
+# alongside the CliResolver wiring work), force-delete the agent first via
+# the canonical hex id; that cascades the membership and lets `unit purge`
+# complete its remaining step (deleting the bare unit).
+e2e::log "DELETE /api/v1/tenant/agents/${agent_id} (workaround for purge cascade)"
+response="$(e2e::http DELETE "/api/v1/tenant/agents/${agent_id}")"
+status="${response##*$'\n'}"
+e2e::expect_status "204" "${status}" "force-delete agent by canonical id (cascades membership)"
 
 e2e::log "spring unit purge ${unit} --confirm"
 response="$(e2e::cli unit purge "${unit}" --confirm)"

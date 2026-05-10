@@ -109,14 +109,37 @@ public static class EngagementCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
+            var unitInput = parseResult.GetValue(unitOption);
+            var agentInput = parseResult.GetValue(agentOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+
+            string? unitId = null;
+            string? agentId = null;
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(unitInput))
+                {
+                    unitId = await resolver.ResolveUnitIdAsync(unitInput, parentContext: null, ct);
+                }
+                if (!string.IsNullOrWhiteSpace(agentInput))
+                {
+                    agentId = await resolver.ResolveAgentIdAsync(agentInput, unitContext: null, ct);
+                }
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             try
             {
                 var result = await client.ListThreadsAsync(
-                    unit: parseResult.GetValue(unitOption),
-                    agent: parseResult.GetValue(agentOption),
+                    unit: unitId,
+                    agent: agentId,
                     participant: parseResult.GetValue(participantOption),
                     limit: parseResult.GetValue(limitOption),
                     ct: ct);
@@ -158,12 +181,16 @@ public static class EngagementCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idInput = parseResult.GetValue(idArg)!;
             var source = parseResult.GetValue(sourceOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
 
-            Console.Error.WriteLine($"Watching engagement {id} — press Ctrl+C to stop...");
+            var id = Guid.TryParse(idInput, out var parsedThreadId)
+                ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parsedThreadId)
+                : idInput;
+
+            Console.Error.WriteLine($"Watching engagement {idInput} — press Ctrl+C to stop...");
 
             try
             {
@@ -236,7 +263,7 @@ public static class EngagementCommand
             catch (Exception ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Engagement stream interrupted for '{id}': {ex.Message}");
+                    $"Engagement stream interrupted for '{idInput}': {ex.Message}");
                 Environment.Exit(1);
             }
         });
@@ -267,10 +294,14 @@ public static class EngagementCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idInput = parseResult.GetValue(idArg)!;
             var address = parseResult.GetValue(addressArg)!;
             var message = parseResult.GetValue(messageArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
+
+            var id = Guid.TryParse(idInput, out var parsedThreadId)
+                ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parsedThreadId)
+                : idInput;
 
             var (scheme, path) = AddressParser.Parse(address);
             var client = ClientFactory.Create();
@@ -288,7 +319,7 @@ public static class EngagementCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to send message into engagement '{id}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to send message into engagement '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -324,10 +355,14 @@ public static class EngagementCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idInput = parseResult.GetValue(idArg)!;
             var address = parseResult.GetValue(addressArg)!;
             var answer = parseResult.GetValue(answerArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
+
+            var id = Guid.TryParse(idInput, out var parsedThreadId)
+                ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parsedThreadId)
+                : idInput;
 
             var (scheme, path) = AddressParser.Parse(address);
             var client = ClientFactory.Create();
@@ -346,7 +381,7 @@ public static class EngagementCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to send answer into engagement '{id}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to send answer into engagement '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -370,9 +405,13 @@ public static class EngagementCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idInput = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+
+            var id = Guid.TryParse(idInput, out var parsedThreadId)
+                ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parsedThreadId)
+                : idInput;
 
             try
             {
@@ -397,7 +436,7 @@ public static class EngagementCommand
                     return;
                 }
 
-                Console.WriteLine($"Engagement: {id}");
+                Console.WriteLine($"Engagement: {idInput}");
                 Console.WriteLine($"Errors:     {errors.Count}");
                 Console.WriteLine();
                 Console.WriteLine(OutputFormatter.FormatTable(errors, ErrorColumns));
@@ -405,7 +444,7 @@ public static class EngagementCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to load engagement '{id}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to load engagement '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });

@@ -204,9 +204,21 @@ public static class ConnectorCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitOption)!;
+            var unitInput = parseResult.GetValue(unitOption)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(unitInput, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var pointer = await client.GetUnitConnectorAsync(unitId, ct);
             if (pointer is null)
@@ -224,7 +236,7 @@ public static class ConnectorCommand
                 }
                 else
                 {
-                    Console.WriteLine($"Unit '{unitId}' has no active connector binding.");
+                    Console.WriteLine($"Unit '{unitInput}' has no active connector binding.");
                 }
                 return;
             }
@@ -336,7 +348,7 @@ public static class ConnectorCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitOption)!;
+            var unitInput = parseResult.GetValue(unitOption)!;
             var type = parseResult.GetValue(typeOption)!;
             var owner = parseResult.GetValue(ownerOption);
             var repo = parseResult.GetValue(repoOption);
@@ -369,6 +381,18 @@ public static class ConnectorCommand
             }
 
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(unitInput, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             try
             {
@@ -388,7 +412,7 @@ public static class ConnectorCommand
                 else
                 {
                     Console.WriteLine(
-                        $"Unit '{unitId}' bound to connector 'github' ({result.Owner}/{result.Repo}).");
+                        $"Unit '{unitInput}' bound to connector 'github' ({result.Owner}/{result.Repo}).");
                 }
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
@@ -398,7 +422,7 @@ public static class ConnectorCommand
                 // events list). Surface the server's message verbatim so
                 // the operator can fix the request without guessing.
                 await Console.Error.WriteLineAsync(
-                    $"Failed to bind unit '{unitId}' to connector '{type}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to bind unit '{unitInput}' to connector '{type}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });

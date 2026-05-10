@@ -83,7 +83,7 @@ public static class AgentCloningPolicyCommand
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var scope = parseResult.GetValue(scopeOption) ?? "agent";
-            var id = parseResult.GetValue(idArg);
+            var idOrName = parseResult.GetValue(idArg);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
 
@@ -96,15 +96,28 @@ public static class AgentCloningPolicyCommand
             }
             else
             {
-                if (string.IsNullOrWhiteSpace(id))
+                if (string.IsNullOrWhiteSpace(idOrName))
                 {
                     await Console.Error.WriteLineAsync(
                         "Agent id is required for --scope agent.");
                     Environment.Exit(1);
                     return;
                 }
-                policy = await client.GetAgentCloningPolicyAsync(id!, ct);
-                label = $"agent '{id}'";
+                var resolver = new CliResolver(client);
+                string agentId;
+                try
+                {
+                    agentId = await resolver.ResolveAgentIdAsync(idOrName!, unitContext: null, ct);
+                }
+                catch (CliResolutionException ex)
+                {
+                    CliResolutionPrinter.Write(Console.Error, ex);
+                    Environment.Exit(1);
+                    return;
+                }
+
+                policy = await client.GetAgentCloningPolicyAsync(agentId, ct);
+                label = $"agent '{idOrName}'";
             }
 
             if (output == "json")
@@ -177,7 +190,7 @@ public static class AgentCloningPolicyCommand
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var scope = parseResult.GetValue(scopeOption) ?? "agent";
-            var id = parseResult.GetValue(idArg);
+            var idOrName = parseResult.GetValue(idArg);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var file = parseResult.GetValue(fileOption);
             var client = ClientFactory.Create();
@@ -212,15 +225,27 @@ public static class AgentCloningPolicyCommand
             }
             else
             {
-                if (string.IsNullOrWhiteSpace(id))
+                if (string.IsNullOrWhiteSpace(idOrName))
                 {
                     await Console.Error.WriteLineAsync(
                         "Agent id is required for --scope agent.");
                     Environment.Exit(1);
                     return;
                 }
-                stored = await client.SetAgentCloningPolicyAsync(id!, body, ct);
-                label = $"agent '{id}'";
+                var resolver = new CliResolver(client);
+                string agentId;
+                try
+                {
+                    agentId = await resolver.ResolveAgentIdAsync(idOrName!, unitContext: null, ct);
+                }
+                catch (CliResolutionException ex)
+                {
+                    CliResolutionPrinter.Write(Console.Error, ex);
+                    Environment.Exit(1);
+                    return;
+                }
+                stored = await client.SetAgentCloningPolicyAsync(agentId, body, ct);
+                label = $"agent '{idOrName}'";
             }
 
             if (output == "json")
@@ -254,7 +279,7 @@ public static class AgentCloningPolicyCommand
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var scope = parseResult.GetValue(scopeOption) ?? "agent";
-            var id = parseResult.GetValue(idArg);
+            var idOrName = parseResult.GetValue(idArg);
             var client = ClientFactory.Create();
 
             if (scope == "tenant")
@@ -264,15 +289,28 @@ public static class AgentCloningPolicyCommand
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(id))
+            if (string.IsNullOrWhiteSpace(idOrName))
             {
                 await Console.Error.WriteLineAsync("Agent id is required for --scope agent.");
                 Environment.Exit(1);
                 return;
             }
 
-            await client.ClearAgentCloningPolicyAsync(id!, ct);
-            Console.WriteLine($"Agent '{id}' cloning policy cleared.");
+            var resolver = new CliResolver(client);
+            string agentId;
+            try
+            {
+                agentId = await resolver.ResolveAgentIdAsync(idOrName!, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            await client.ClearAgentCloningPolicyAsync(agentId, ct);
+            Console.WriteLine($"Agent '{idOrName}' cloning policy cleared.");
         });
 
         return command;

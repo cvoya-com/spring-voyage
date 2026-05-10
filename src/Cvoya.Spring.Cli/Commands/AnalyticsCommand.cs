@@ -207,14 +207,14 @@ public static class AnalyticsCommand
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var window = parseResult.GetValue(windowOption);
-            var unit = parseResult.GetValue(unitOption);
-            var agent = parseResult.GetValue(agentOption);
+            var unitInput = parseResult.GetValue(unitOption);
+            var agentInput = parseResult.GetValue(agentOption);
             var bySource = parseResult.GetValue(bySourceOption);
             var series = parseResult.GetValue(seriesOption);
             var bucket = parseResult.GetValue(bucketOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (!string.IsNullOrEmpty(unit) && !string.IsNullOrEmpty(agent))
+            if (!string.IsNullOrEmpty(unitInput) && !string.IsNullOrEmpty(agentInput))
             {
                 await Console.Error.WriteLineAsync("Refusing to run with both --unit and --agent. Choose one.");
                 Environment.Exit(1);
@@ -223,6 +223,26 @@ public static class AnalyticsCommand
 
             var (from, to) = ResolveWindow(window);
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string? unit = null;
+            string? agent = null;
+            try
+            {
+                if (!string.IsNullOrEmpty(unitInput))
+                {
+                    unit = await resolver.ResolveUnitIdAsync(unitInput, parentContext: null, ct);
+                }
+                if (!string.IsNullOrEmpty(agentInput))
+                {
+                    agent = await resolver.ResolveAgentIdAsync(agentInput, unitContext: null, ct);
+                }
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             // #1361: --series mode. Requires --agent or --unit scope.
             if (series)
@@ -311,13 +331,13 @@ public static class AnalyticsCommand
             {
                 result = await client.GetUnitCostAsync(unit, from, to, ct);
                 scope = "unit";
-                target = unit;
+                target = unitInput!;
             }
             else if (!string.IsNullOrEmpty(agent))
             {
                 result = await client.GetAgentCostAsync(agent, from, to, ct);
                 scope = "agent";
-                target = agent;
+                target = agentInput!;
             }
             else
             {
@@ -392,11 +412,11 @@ public static class AnalyticsCommand
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var window = parseResult.GetValue(windowOption);
-            var unit = parseResult.GetValue(unitOption);
-            var agent = parseResult.GetValue(agentOption);
+            var unitInput = parseResult.GetValue(unitOption);
+            var agentInput = parseResult.GetValue(agentOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (!string.IsNullOrEmpty(unit) && !string.IsNullOrEmpty(agent))
+            if (!string.IsNullOrEmpty(unitInput) && !string.IsNullOrEmpty(agentInput))
             {
                 await Console.Error.WriteLineAsync("Refusing to run with both --unit and --agent. Choose one.");
                 Environment.Exit(1);
@@ -404,8 +424,29 @@ public static class AnalyticsCommand
             }
 
             var (from, to) = ResolveWindow(window);
-            var sourceFilter = ResolveSourceFilter(unit, agent);
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string? unit = null;
+            string? agent = null;
+            try
+            {
+                if (!string.IsNullOrEmpty(unitInput))
+                {
+                    unit = await resolver.ResolveUnitIdAsync(unitInput, parentContext: null, ct);
+                }
+                if (!string.IsNullOrEmpty(agentInput))
+                {
+                    agent = await resolver.ResolveAgentIdAsync(agentInput, unitContext: null, ct);
+                }
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            var sourceFilter = ResolveSourceFilter(unit, agent);
 
             var result = await client.GetThroughputAsync(sourceFilter, from, to, ct);
 
@@ -454,11 +495,11 @@ public static class AnalyticsCommand
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var window = parseResult.GetValue(windowOption);
-            var unit = parseResult.GetValue(unitOption);
-            var agent = parseResult.GetValue(agentOption);
+            var unitInput = parseResult.GetValue(unitOption);
+            var agentInput = parseResult.GetValue(agentOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
-            if (!string.IsNullOrEmpty(unit) && !string.IsNullOrEmpty(agent))
+            if (!string.IsNullOrEmpty(unitInput) && !string.IsNullOrEmpty(agentInput))
             {
                 await Console.Error.WriteLineAsync("Refusing to run with both --unit and --agent. Choose one.");
                 Environment.Exit(1);
@@ -466,8 +507,29 @@ public static class AnalyticsCommand
             }
 
             var (from, to) = ResolveWindow(window);
-            var sourceFilter = ResolveSourceFilter(unit, agent);
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string? unit = null;
+            string? agent = null;
+            try
+            {
+                if (!string.IsNullOrEmpty(unitInput))
+                {
+                    unit = await resolver.ResolveUnitIdAsync(unitInput, parentContext: null, ct);
+                }
+                if (!string.IsNullOrEmpty(agentInput))
+                {
+                    agent = await resolver.ResolveAgentIdAsync(agentInput, unitContext: null, ct);
+                }
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            var sourceFilter = ResolveSourceFilter(unit, agent);
 
             var result = await client.GetWaitTimesAsync(sourceFilter, from, to, ct);
 
