@@ -33,6 +33,8 @@
 import { randomUUID } from "node:crypto";
 
 import { runAgentBridge } from "./bridge.js";
+import type { ThreadBindingConfig } from "./config.js";
+import { ThreadIdRegistry } from "./threads.js";
 import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "./version.js";
 
 const CALLBACK_TOKEN_FIELD = "callbackToken";
@@ -110,6 +112,20 @@ export interface A2AHandlerDeps {
   port: number;
   cancelGraceMs: number;
   spawnEnv: NodeJS.ProcessEnv;
+  // ADR-0041: how to deliver `thread.id` to the spawned CLI as its
+  // session identifier. Absent when the wrapped runtime has no session
+  // concept (or carries the id via env var rather than argv). When set,
+  // the handler appends `[createArg|resumeArg, threadId]` to argv on
+  // every `message/send`, picking create vs resume by whether it has
+  // already seen the same thread id (per-process + persisted to the
+  // workspace volume — see `ThreadIdRegistry`).
+  threadBinding?: ThreadBindingConfig;
+  // Tracks which thread ids the bridge has dispatched before. When
+  // omitted the handler constructs an in-memory registry (no
+  // persistence — fine for tests, lossy on container restart in prod).
+  // Inject explicitly to share state across handler instances or to
+  // pin a workspace location.
+  threadIdRegistry?: ThreadIdRegistry;
 }
 
 interface ActiveTask {
@@ -122,9 +138,18 @@ interface ActiveTask {
 export class A2AHandler {
   private readonly deps: A2AHandlerDeps;
   private readonly tasks = new Map<string, ActiveTask>();
+  // ADR-0041: tracks which thread ids this bridge has dispatched before.
+  // First send for a thread uses `createArg` (e.g. `claude --session-id
+  // <id>` — mint a session with this id); subsequent sends use
+  // `resumeArg` (`claude --resume <id>` — load the existing session
+  // file). The registry persists to the per-agent workspace volume so
+  // the answer survives container restart (#2094 acceptance).
+  private readonly threadIdRegistry: ThreadIdRegistry;
 
   constructor(deps: A2AHandlerDeps) {
     this.deps = deps;
+    this.threadIdRegistry =
+      deps.threadIdRegistry ?? new ThreadIdRegistry(undefined);
   }
 
   buildAgentCard(): AgentCard {
@@ -203,6 +228,59 @@ export class A2AHandler {
     return text;
   }
 
+  /**
+   * Extracts the A2A 0.3 `contextId` from `message/send` params. Per
+   * ADR-0041 this is the platform's `thread.id` verbatim — the bridge
+   * passes it straight through to the CLI as the session identifier.
+   *
+   * The .NET dispatcher
+   * (`A2AExecutionDispatcher.MapA2AResponseToMessage` and the surrounding
+   * `MessageSendParams` build) sets `params.message.contextId`. We look
+   * there first and fall back to a top-level `params.contextId` for
+   * generality (the A2A 0.3 spec puts it on the message, but some
+   * mid-version clients put it on the envelope).
+   */
+  private extractContextId(params: unknown): string | undefined {
+    if (!params || typeof params !== "object") {
+      return undefined;
+    }
+    const root = params as Record<string, unknown>;
+    const message = root["message"];
+    if (message && typeof message === "object") {
+      const fromMessage = (message as Record<string, unknown>)["contextId"];
+      if (typeof fromMessage === "string" && fromMessage.length > 0) {
+        return fromMessage;
+      }
+    }
+    const fromRoot = root["contextId"];
+    if (typeof fromRoot === "string" && fromRoot.length > 0) {
+      return fromRoot;
+    }
+    return undefined;
+  }
+
+  /**
+   * Returns the argv to spawn for a given thread id, given the
+   * configured `ThreadBindingConfig`. First send for a thread appends
+   * `[createArg, threadId]`; subsequent sends append `[resumeArg,
+   * threadId]`. The seen-set is updated *after* the spawn invariant is
+   * decided so the second send on the same thread within one process
+   * gets the resume path even if the first is still in flight.
+   *
+   * Visible for testing. Does not mutate; the caller is responsible for
+   * `threadIdRegistry.add(threadId)` after a successful spawn.
+   */
+  private composeArgv(
+    threadId: string | undefined,
+    binding: ThreadBindingConfig | undefined,
+  ): string[] {
+    if (!threadId || !binding) {
+      return this.deps.agentArgv;
+    }
+    const flag = this.threadIdRegistry.has(threadId) ? binding.resumeArg : binding.createArg;
+    return [...this.deps.agentArgv, flag, threadId];
+  }
+
   private extractCallbackToken(params: unknown): string | undefined {
     if (!params || typeof params !== "object") {
       return undefined;
@@ -257,10 +335,18 @@ export class A2AHandler {
       : this.deps.spawnEnv;
     const stderrLines: string[] = [];
 
+    // ADR-0041 / #2094: `params.message.contextId` is the platform
+    // thread.id. When the launcher declared a thread-binding (e.g.
+    // Claude Code with --session-id / --resume), append the create or
+    // resume flag + the id to argv on every spawn. Otherwise spawn the
+    // launcher-supplied argv unchanged.
+    const threadId = this.extractContextId(req.params);
+    const argv = this.composeArgv(threadId, this.deps.threadBinding);
+
     let result;
     try {
       result = await runAgentBridge({
-        argv: this.deps.agentArgv,
+        argv,
         stdin: userText,
         env: spawnEnv,
         signal: abort.signal,
@@ -301,6 +387,16 @@ export class A2AHandler {
           : `Agent CLI exited with code ${result.exitCode} and produced no stderr.`;
     }
     this.tasks.set(taskId, task);
+
+    // ADR-0041: only record the thread id after the CLI actually
+    // accepted the create call. If the spawn failed (non-zero exit, ENOENT,
+    // ...) we leave the thread id off the seen-set so the next message
+    // retries the create path — the CLI didn't write a session file we
+    // could resume from. The ordering matters: a record on
+    // pre-spawn-failure would permanently break resume for that thread.
+    if (threadId && this.deps.threadBinding && task.state === "completed") {
+      this.threadIdRegistry.add(threadId);
+    }
     return {
       jsonrpc: "2.0",
       id,

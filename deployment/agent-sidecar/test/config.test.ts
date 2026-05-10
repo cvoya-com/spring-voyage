@@ -45,4 +45,36 @@ describe("loadConfigFromEnv", () => {
     const cfg = loadConfigFromEnv({ AGENT_NAME: "my-agent" });
     assert.equal(cfg.agentName, "my-agent");
   });
+
+  it("returns undefined threadBinding when neither env var is set", () => {
+    const cfg = loadConfigFromEnv({});
+    assert.equal(cfg.threadBinding, undefined);
+  });
+
+  it("parses SPRING_THREAD_ID_ARG_{CREATE,RESUME} into a ThreadBindingConfig", () => {
+    const cfg = loadConfigFromEnv({
+      SPRING_THREAD_ID_ARG_CREATE: "--session-id",
+      SPRING_THREAD_ID_ARG_RESUME: "--resume",
+    });
+    assert.deepEqual(cfg.threadBinding, {
+      createArg: "--session-id",
+      resumeArg: "--resume",
+    });
+  });
+
+  it("rejects partial thread-binding config (CREATE without RESUME)", () => {
+    // Partial config is a launcher bug — surface loudly rather than
+    // silently degrade to spawning with no session id. (ADR-0041)
+    assert.throws(
+      () => loadConfigFromEnv({ SPRING_THREAD_ID_ARG_CREATE: "--session-id" }),
+      /set together/,
+    );
+  });
+
+  it("rejects partial thread-binding config (RESUME without CREATE)", () => {
+    assert.throws(
+      () => loadConfigFromEnv({ SPRING_THREAD_ID_ARG_RESUME: "--resume" }),
+      /set together/,
+    );
+  });
 });

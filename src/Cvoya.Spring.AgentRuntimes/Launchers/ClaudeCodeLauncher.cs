@@ -58,6 +58,50 @@ public class ClaudeCodeLauncher(
     internal const string SpringOrchestrationMcpServerName = "spring-orchestration";
 
     /// <summary>
+    /// Bridge env var name carrying the CLI flag that *creates* a session
+    /// with a supplied id (ADR-0041 / #2094). Read by
+    /// `deployment/agent-sidecar/src/config.ts:parseThreadBinding`.
+    /// </summary>
+    internal const string ThreadIdArgCreateEnvVar = "SPRING_THREAD_ID_ARG_CREATE";
+
+    /// <summary>
+    /// Bridge env var name carrying the CLI flag that *resumes* a session
+    /// by id (ADR-0041 / #2094).
+    /// </summary>
+    internal const string ThreadIdArgResumeEnvVar = "SPRING_THREAD_ID_ARG_RESUME";
+
+    /// <summary>
+    /// Claude Code CLI flag that creates a fresh session with a caller-
+    /// supplied UUID. Verified against `claude --help` (2.1.x): the flag
+    /// is documented as <c>--session-id &lt;uuid&gt;</c>.
+    /// </summary>
+    internal const string ThreadIdArgCreate = "--session-id";
+
+    /// <summary>
+    /// Claude Code CLI flag that resumes a session by id. Verified
+    /// against `claude --help` (2.1.x): <c>-r, --resume [value]</c>.
+    /// </summary>
+    internal const string ThreadIdArgResume = "--resume";
+
+    /// <summary>
+    /// Env var Claude Code reads to locate its config / session storage
+    /// directory. When set, Claude writes session files under
+    /// <c>$CLAUDE_CONFIG_DIR/projects/&lt;cwd-mangled&gt;/&lt;sid&gt;.jsonl</c>;
+    /// when unset it falls back to <c>~/.claude/</c>. Pointing this under
+    /// <see cref="AgentWorkspaceContract.WorkspaceMountPath"/> is what
+    /// makes session resume work across container restarts.
+    /// </summary>
+    internal const string ClaudeConfigDirEnvVar = "CLAUDE_CONFIG_DIR";
+
+    /// <summary>
+    /// Relative path under <see cref="AgentWorkspaceContract.WorkspaceMountPath"/>
+    /// the launcher hands to Claude Code as its config dir. Using a
+    /// dot-prefixed name keeps it out of agent-author tools that walk
+    /// the workspace tree for sources.
+    /// </summary>
+    internal const string ClaudeConfigDirRelative = ".claude";
+
+    /// <summary>
     /// Argv vector the A2A bridge (agent-base ENTRYPOINT) spawns inside the
     /// container on every <c>message/send</c>. Encoded as a JSON array string
     /// in <c>SPRING_AGENT_ARGV</c> so the bridge can recover the exact
@@ -171,6 +215,24 @@ public class ClaudeCodeLauncher(
             // encoding is forbidden (see issue text); JsonSerializer
             // gives us stable, double-quoted output.
             ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(DefaultClaudeArgv),
+            // ADR-0041 / #2094: tell the bridge how to bind the platform
+            // thread.id (= A2A 0.3 contextId) onto Claude Code's session
+            // identifier. First message on a thread → `--session-id <id>`
+            // (mints a session with the supplied UUID); subsequent messages
+            // → `--resume <id>` (loads the existing session file from disk).
+            // The bridge picks create vs resume from a marker file it
+            // persists to the workspace volume (see CLAUDE_CONFIG_DIR
+            // below) so the answer survives container restart. Both flags
+            // verified against `claude --help` (Claude Code 2.1.x).
+            [ThreadIdArgCreateEnvVar] = ThreadIdArgCreate,
+            [ThreadIdArgResumeEnvVar] = ThreadIdArgResume,
+            // ADR-0041 / #2094: anchor Claude Code's session storage on the
+            // per-agent workspace volume (D1 § 2.2.1, ADR-0029). Claude
+            // writes session files at `<CLAUDE_CONFIG_DIR>/projects/<cwd-mangled>/<sid>.jsonl`;
+            // by pointing CLAUDE_CONFIG_DIR under SPRING_WORKSPACE_PATH the
+            // session file survives container restart and can be resumed
+            // by the next `--resume <sid>` invocation.
+            [ClaudeConfigDirEnvVar] = $"{AgentWorkspaceContract.WorkspaceMountPath}/{ClaudeConfigDirRelative}",
             // D3c: canonical path where the per-agent workspace volume is
             // mounted. The dispatcher provisions the volume and adds the
             // -v mount; the env var tells the in-container SDK where to find
