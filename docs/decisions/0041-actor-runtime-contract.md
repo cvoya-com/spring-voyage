@@ -38,6 +38,19 @@ The runtime's session identifier is `thread.id` verbatim. No hashing, no derivat
 
 The `false` default is safe for any agent. The `true` mode is an explicit author opt-in with a published contract; agents that cannot meet the contract stay on `false`.
 
+#### HoL scope: per-agent, not per-thread
+
+HoL blocking applies to the agent's own mailbox only. A thread is a participant set ([ADR-0030](0030-thread-model.md)); the actor mailbox is per-agent ([ADR-0026](0026-per-agent-container-scope.md)). A busy agent does not block its co-participants in the same thread.
+
+Worked example. Two threads share a participant:
+
+- Thread 1 = {agent A, agent B, human 1}
+- Thread 2 = {agent A, human 1}
+
+Human 1 asks A to do long-running work on thread 2. A's mailbox is now busy. Human 1 then posts on thread 1. **B responds normally** — B has its own actor and its own container; A's busy state does not touch B. **A is silent on thread 1** until it drains thread 2; thread 1's messages addressed to A queue in A's mailbox and are processed when A is free. Thread 1's conversation between B and human 1 continues at full speed.
+
+The user-visible failure mode of A's silence is a portal concern (rendering A's runtime status to humans in thread 1) — tracked under [#2100](https://github.com/cvoya-com/spring-voyage/issues/2100), not a model change.
+
 ### The `concurrent_threads: true` author contract
 
 An agent that sets `concurrent_threads: true`:
