@@ -292,6 +292,42 @@ public class ClaudeCodeLauncherTests
             () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsGuardToCLAUDEmd_AndStdin()
+    {
+        // #2096 / ADR-0041: when concurrent_threads is on, the assembled
+        // prompt the model sees (CLAUDE.md, SPRING_SYSTEM_PROMPT,
+        // StdinPayload) MUST start with the shared launcher guard. The
+        // user's prompt body is preserved in full — the guard composes,
+        // it does not replace.
+        var context = CreateContext() with { ConcurrentThreads = true };
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldStartWith("## Spring Voyage runtime guard");
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldContain(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
+        prep.StdinPayload.ShouldStartWith("## Spring Voyage runtime guard");
+        prep.StdinPayload.ShouldContain(context.Prompt);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_ConcurrentThreadsFalse_LeavesPromptVerbatim()
+    {
+        // The guard MUST NOT fire when the agent stays on the safe-default
+        // mode — we don't want to bias every agent away from valid
+        // patterns just because the launcher has a guard available.
+        var context = CreateContext() with { ConcurrentThreads = false };
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldBe(context.Prompt);
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldNotContain("Spring Voyage runtime guard");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        prep.StdinPayload.ShouldBe(context.Prompt);
+    }
+
     private static AgentLaunchContext CreateContext(
         OrchestrationToolDescriptor[]? orchestrationTools = null) =>
         LauncherCallbackTestSupport.CreateContext() with { OrchestrationTools = orchestrationTools };

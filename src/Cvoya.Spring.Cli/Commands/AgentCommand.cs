@@ -125,6 +125,12 @@ public static class AgentCommand
         // persistent agent's backing container from the deployment endpoint.
         agentCommand.Subcommands.Add(CreateHealthCommand(outputOption));
 
+        // #2096 / ADR-0041: `spring agent validate <id>` — surface
+        // author-facing warnings about runtime-contract opt-ins
+        // (e.g. concurrent_threads: true). Non-blocking — exit 0 unless
+        // lookup fails.
+        agentCommand.Subcommands.Add(AgentValidateCommand.Create(outputOption, clientFactory));
+
         return agentCommand;
     }
 

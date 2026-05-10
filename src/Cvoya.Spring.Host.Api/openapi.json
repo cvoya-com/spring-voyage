@@ -8961,6 +8961,12 @@
               "null",
               "string"
             ]
+          },
+          "concurrentThreads": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },

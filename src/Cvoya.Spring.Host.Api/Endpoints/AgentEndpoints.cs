@@ -165,6 +165,7 @@ public static class AgentEndpoints
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IAgentExecutionStore store,
+        [FromServices] SpringDbContext db,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -175,7 +176,66 @@ public static class AgentEndpoints
 
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
         var shape = await store.GetAsync(actorId, cancellationToken);
-        return Results.Ok(ToAgentExecutionResponse(shape));
+
+        // #2096 / ADR-0041: surface execution.concurrent_threads on the
+        // wire so `spring agent validate` can warn on opt-in. The
+        // IAgentExecutionStore shape doesn't carry the bool — it is
+        // read directly from the persisted definition JSON. Failure to
+        // peek (no row, malformed JSON, missing slot) leaves the field
+        // null, which the CLI treats as "use the runtime default" and
+        // does not warn on.
+        bool? concurrentThreads = await ReadConcurrentThreadsFromDefinitionAsync(
+            db, entry.ActorId, cancellationToken);
+
+        return Results.Ok(ToAgentExecutionResponse(shape, concurrentThreads));
+    }
+
+    /// <summary>
+    /// Peeks at the persisted <c>AgentDefinitions.Definition</c> document
+    /// and reads the <c>execution.concurrent_threads</c> boolean (#2096 /
+    /// ADR-0041). Returns <c>null</c> when the agent has no definition row,
+    /// the document doesn't carry an <c>execution</c> object, or the
+    /// <c>concurrent_threads</c> slot is absent — all three cases mean
+    /// "use the runtime's default", which the CLI does not warn on.
+    /// </summary>
+    private static async Task<bool?> ReadConcurrentThreadsFromDefinitionAsync(
+        SpringDbContext db,
+        Guid agentActorId,
+        CancellationToken cancellationToken)
+    {
+        var entity = await db.AgentDefinitions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                a => a.Id == agentActorId && a.DeletedAt == null,
+                cancellationToken);
+
+        if (entity is null || entity.Definition is not { } definition)
+        {
+            return null;
+        }
+
+        if (definition.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (!definition.TryGetProperty("execution", out var exec)
+            || exec.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (!exec.TryGetProperty("concurrent_threads", out var prop))
+        {
+            return null;
+        }
+
+        return prop.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => (bool?)null,
+        };
     }
 
     private static async Task<IResult> SetAgentExecutionAsync(
@@ -433,11 +493,17 @@ public static class AgentEndpoints
         return Results.NoContent();
     }
 
-    internal static AgentExecutionResponse ToAgentExecutionResponse(AgentExecutionShape? shape)
+    internal static AgentExecutionResponse ToAgentExecutionResponse(
+        AgentExecutionShape? shape,
+        bool? concurrentThreads = null)
     {
         if (shape is null)
         {
-            return new AgentExecutionResponse();
+            // Even a missing shape carries through `concurrentThreads` —
+            // an agent definition can declare `execution.concurrent_threads`
+            // without declaring image / runtime / model / hosting, and the
+            // CLI's validate verb still needs to see the flag.
+            return new AgentExecutionResponse(ConcurrentThreads: concurrentThreads);
         }
 
         // ADR-0038: project the internal store shape onto the new wire
@@ -455,7 +521,8 @@ public static class AgentEndpoints
             Image: shape.Image,
             Runtime: shape.Agent,
             Model: model,
-            Hosting: shape.Hosting);
+            Hosting: shape.Hosting,
+            ConcurrentThreads: concurrentThreads);
     }
 
     private static async Task<IResult> DeployPersistentAgentAsync(

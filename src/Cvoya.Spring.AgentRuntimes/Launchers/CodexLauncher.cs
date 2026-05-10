@@ -99,10 +99,17 @@ public class CodexLauncher(
         // (SPRING_AGENT_ID, SPRING_MCP_URL, SPRING_MCP_TOKEN) for every launcher.
         // SPRING_THREAD_ID, SPRING_SYSTEM_PROMPT have no D1-spec equivalent and
         // are retained here as launcher-specific vars.
+        // ADR-0041 / #2096: when concurrent_threads is on, prepend the
+        // shared launcher guard to the assembled prompt so the model is
+        // told (in the system prompt) not to invoke long-running watchers,
+        // bind fixed ports, or mutate shared global state. Composes with
+        // the user's prompt — never replaces it.
+        var prompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
+
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
-            ["SPRING_SYSTEM_PROMPT"] = context.Prompt,
+            ["SPRING_SYSTEM_PROMPT"] = prompt,
             // D3c: canonical path where the per-agent workspace volume is
             // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
@@ -144,7 +151,7 @@ public class CodexLauncher(
 
         var workspaceFiles = new Dictionary<string, string>
         {
-            ["AGENTS.md"] = context.Prompt,
+            ["AGENTS.md"] = prompt,
             [".mcp.json"] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true })
         };
 
