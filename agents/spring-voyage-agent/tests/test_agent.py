@@ -374,3 +374,47 @@ class TestOnMessageHook:
         assert chunks[0].error is not None
         assert "LLM down" in chunks[0].error
         assert chunks[0].text is None
+
+    @pytest.mark.asyncio
+    async def test_writes_per_thread_turn_counter(self, tmp_path):
+        """Demonstrates the ADR-0041 per-thread workspace convention: on_message
+        writes a turn counter under ``$SPRING_WORKSPACE_PATH/threads/<thread.id>/``
+        via ``IAgentContext.thread_workspace`` (issue #2095)."""
+        from spring_voyage_agent_sdk.context import IAgentContext
+
+        llm = MagicMock()
+        llm.generate = MagicMock(return_value=_final_response("ok"))
+
+        agent_module._agent_build = AgentBuild(
+            llm=llm,
+            tools=[],
+            system_prompt="Be helpful.",
+            tools_by_name={},
+        )
+        # A real IAgentContext gives us the live thread_workspace helper.
+        agent_module._agent_context = IAgentContext(
+            tenant_id="t",
+            agent_id="a",
+            unit_id=None,
+            thread_id=None,
+            bucket2_url="",
+            bucket2_token="",
+            llm_provider_url="",
+            llm_provider_token="",
+            mcp_url="",
+            mcp_token="",
+            telemetry_url="",
+            telemetry_token=None,
+            workspace_path=str(tmp_path),
+            concurrent_threads=False,
+        )
+        try:
+            message = _make_message("first")
+            [_ async for _ in on_message(message)]
+            [_ async for _ in on_message(_make_message("second"))]
+        finally:
+            agent_module._agent_context = None
+
+        counter = tmp_path / "threads" / "thr-1" / "turn-count.txt"
+        assert counter.exists()
+        assert counter.read_text() == "2"

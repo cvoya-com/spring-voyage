@@ -91,6 +91,9 @@ DEFAULT_MAX_STEPS = 12
 
 # Module-level cache populated by initialize(); on_message reads it.
 _agent_build: "AgentBuild | None" = None
+# Module-level reference to the IAgentContext from initialize().  on_message
+# uses it to resolve the per-thread workspace path (ADR-0041).
+_agent_context: IAgentContext | None = None
 
 
 @dataclass
@@ -114,7 +117,11 @@ async def initialize(context: IAgentContext) -> None:
     SDK spec §1.1: called exactly once before any on_message invocation.
     The result is cached in the module-level ``_agent_build``.
     """
-    global _agent_build
+    global _agent_build, _agent_context
+
+    # Stash the context so on_message can resolve per-thread workspaces
+    # via context.thread_workspace(thread_id) — see ADR-0041.
+    _agent_context = context
 
     # MCP endpoint: read from IAgentContext (SPRING_MCP_URL / SPRING_MCP_TOKEN).
     # The legacy SPRING_MCP_ENDPOINT / SPRING_AGENT_TOKEN fallback was removed
@@ -190,10 +197,34 @@ async def on_message(message: Message):
     SDK spec §1.2: called once per inbound message; yields Response chunks.
     The tool-calling loop runs against DaprChatClient (Dapr Conversation
     building block) and the MCP tool proxies wired up in initialize().
+
+    Per ADR-0041, on-disk per-thread state (here, a turn counter) lives
+    under ``$SPRING_WORKSPACE_PATH/threads/<thread.id>/`` via
+    ``IAgentContext.thread_workspace``.  This is the canonical location
+    for thread-local files and is safe under both ``concurrent_threads``
+    modes.
     """
     assert _agent_build is not None, "initialize() must complete before on_message"
 
     user_text = message.text or ""
+
+    # Maintain a tiny per-thread turn counter on disk to demonstrate the
+    # ADR-0041 per-thread workspace convention.  Real agents will store
+    # transcripts, vector caches, scratchpads, etc. here — anything that
+    # needs to survive a container restart but be scoped to one thread.
+    # _agent_context may be None in unit tests that exercise on_message
+    # without going through initialize(); the demonstration is best-effort.
+    if _agent_context is not None and message.thread_id:
+        thread_dir = _agent_context.thread_workspace(message.thread_id)
+        counter_file = thread_dir / "turn-count.txt"
+        prev = int(counter_file.read_text()) if counter_file.exists() else 0
+        counter_file.write_text(str(prev + 1))
+        logger.info(
+            "Thread %s turn %d (workspace=%s)",
+            message.thread_id,
+            prev + 1,
+            thread_dir,
+        )
 
     try:
         result_text = await _run_agentic_loop(_agent_build, user_text)

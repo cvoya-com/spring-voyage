@@ -181,3 +181,82 @@ class TestIAgentContextLoad:
             assert ctx.tenant_config["features"]["extended-context"] is True
         finally:
             ctx_module._TENANT_CONFIG_JSON = orig_cfg
+
+
+class TestThreadWorkspace:
+    """Per-thread on-disk workspace helper (ADR-0041, issue #2095)."""
+
+    def test_returns_canonical_path_under_workspace(self, tmp_path):
+        """Per ADR-0041 §"thread.id IS the session identifier", per-thread
+        on-disk state lives under ``$SPRING_WORKSPACE_PATH/threads/<thread.id>/``.
+        """
+        with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
+            ctx = IAgentContext.load()
+
+        path = ctx.thread_workspace("thr_abc123")
+        assert path == tmp_path / "threads" / "thr_abc123"
+
+    def test_creates_directory_on_first_access(self, tmp_path):
+        """The helper MUST create the directory eagerly so authors can
+        write into it without an extra ``mkdir`` call."""
+        with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
+            ctx = IAgentContext.load()
+
+        target = tmp_path / "threads" / "thr_xyz"
+        assert not target.exists()
+        path = ctx.thread_workspace("thr_xyz")
+        assert path.exists()
+        assert path.is_dir()
+
+    def test_idempotent_on_repeat_access(self, tmp_path):
+        """Repeat calls for the same thread_id MUST NOT raise (mkdir
+        ``exist_ok=True``) and MUST NOT clobber existing files."""
+        with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
+            ctx = IAgentContext.load()
+
+        path = ctx.thread_workspace("thr_repeat")
+        (path / "state.json").write_text('{"step": 1}')
+
+        path_again = ctx.thread_workspace("thr_repeat")
+        assert path_again == path
+        assert (path / "state.json").read_text() == '{"step": 1}'
+
+    def test_distinct_thread_ids_get_distinct_directories(self, tmp_path):
+        with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
+            ctx = IAgentContext.load()
+
+        a = ctx.thread_workspace("thr_a")
+        b = ctx.thread_workspace("thr_b")
+        assert a != b
+        assert a.exists() and b.exists()
+
+    def test_uses_workspace_path_from_env(self, tmp_path):
+        """The helper reads ``workspace_path`` from the loaded context, which
+        in turn reads ``SPRING_WORKSPACE_PATH`` from env (spec §2.2.1)."""
+        custom = tmp_path / "custom-workspace"
+        custom.mkdir()
+        with _patch_env(SPRING_WORKSPACE_PATH=str(custom)):
+            ctx = IAgentContext.load()
+
+        path = ctx.thread_workspace("thr_env")
+        assert path.is_relative_to(custom)
+        assert path == custom / "threads" / "thr_env"
+
+    @pytest.mark.parametrize("bad", ["", "   ", "\t"])
+    def test_empty_thread_id_raises(self, tmp_path, bad):
+        with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
+            ctx = IAgentContext.load()
+        with pytest.raises(ValueError, match="thread_id"):
+            ctx.thread_workspace(bad)
+
+    def test_workspace_path_env_unset_surfaces_via_load(self, monkeypatch):
+        """``SPRING_WORKSPACE_PATH`` is a required env var; absence raises
+        at ``IAgentContext.load()`` (spec §2.2.1) — the helper is never
+        reached. Asserting this keeps the helper's contract pinned to "the
+        env var is always present by the time load() returned"."""
+        for k, v in _REQUIRED_ENV.items():
+            monkeypatch.setenv(k, v)
+        monkeypatch.delenv("SPRING_WORKSPACE_PATH", raising=False)
+
+        with pytest.raises(ContextLoadError, match="SPRING_WORKSPACE_PATH"):
+            IAgentContext.load()
