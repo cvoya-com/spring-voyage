@@ -9,9 +9,9 @@
 #   3. StateChanged     — "Idle → Active" once the dispatch task is armed.
 #
 # This scenario verifies those three lifecycle events reach the activity
-# query store. The actual LLM-backed turn that would flip the agent back to
-# Idle (ThreadCompleted) is out of scope for the fast pool — the three
-# upstream events alone prove the thread state machine kicks off correctly.
+# query store. The actual LLM-backed turn is out of scope for the fast pool —
+# the three upstream events alone prove the thread state machine kicks off
+# correctly.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

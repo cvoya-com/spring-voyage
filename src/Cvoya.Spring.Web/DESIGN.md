@@ -873,7 +873,6 @@ Message events (`MessageReceived` / `MessageSent`) always render through the bub
 |---|---|---|---|
 | `MessageReceived` / `MessageSent` | Message | `MessageSquare` | info |
 | `ThreadStarted` | Engagement started | `ListTree` | neutral |
-| `ThreadCompleted` | Engagement completed | `ListTree` | neutral |
 | `DecisionMade` | Tool call | `Wrench` | warning |
 | `StateChanged` / `WorkflowStepCompleted` / `ReflectionCompleted` | State changed / Workflow step / Reflection | `Cog` | neutral |
 | `CostIncurred` / `TokenDelta` / `ValidationProgress` | Cost / Token usage / Validation | `Cog` | neutral |

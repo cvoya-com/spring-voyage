@@ -56,7 +56,6 @@ const EVENT_PRESENTATION: Record<
   MessageReceived: { label: "Message", icon: MessageSquare, tone: "info" },
   MessageSent: { label: "Message", icon: MessageSquare, tone: "info" },
   ThreadStarted: { label: "Engagement started", icon: ListTree, tone: "neutral" },
-  ThreadCompleted: { label: "Engagement completed", icon: ListTree, tone: "neutral" },
   DecisionMade: { label: "Tool call", icon: Wrench, tone: "warning" },
   StateChanged: { label: "State changed", icon: Cog, tone: "neutral" },
   WorkflowStepCompleted: { label: "Workflow step", icon: Cog, tone: "neutral" },

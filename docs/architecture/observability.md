@@ -14,7 +14,7 @@ Every `IActivityObservable` entity emits typed events via `IObservable<ActivityE
 ActivityEvent:
   timestamp: DateTimeOffset
   source: Address
-  type: enum (MessageReceived, MessageSent, ThreadStarted, ThreadCompleted,
+  type: enum (MessageReceived, MessageSent, ThreadStarted,
               DecisionMade, ErrorOccurred, StateChanged, InitiativeTriggered,
               ReflectionCompleted, WorkflowStepCompleted, CostIncurred,
               TokenDelta, ReflectionActionDispatched, ReflectionActionSkipped,
@@ -40,7 +40,7 @@ The platform uses a **single process-wide hot bus** (`IActivityEventBus`) as the
                    │                │                │           │
  AgentActor        │  UnitActor     │  HumanActor    │  Stream   │  SSE /api/v1/activity/stream
   MessageReceived  │   DecisionMade │  MessageRcvd   │  Event    │    Per-source permission filter
-  ThreadStart/End  │   StateChanged │                │  Sub-     │    Permission-at-subscribe for
+  ThreadStarted    │   StateChanged │                │  Sub-     │    Permission-at-subscribe for
   DecisionMade     │   MemberChange │                │  scriber  │    unit-scoped (?unitId=X)
   ErrorOccurred    │   ErrorOccur'd │                │  (Dapr    │    Bounded channel back-pressure
   StateChanged     │                │                │   pub/sub)│
@@ -87,7 +87,7 @@ bus.ActivityStream
 |--------|--------------------|-----|
 | `AgentActor.ReceiveAsync` | `MessageReceived` | every message, carrying `conversationId` as `CorrelationId` |
 | `AgentActor.HandleDomainMessageAsync` | `ThreadStarted`, `StateChanged (Idle→Active)`, `DecisionMade` | new conversation, queued conversation, membership-disabled / unit-policy blocks |
-| `AgentActor.HandleCancelAsync` | `ThreadCompleted`, `StateChanged (Active→Idle)` | cancel path |
+| `AgentActor.HandleCancelAsync` | (no events) | per-thread cancel cleanly tears down the matched thread's channel and dispatcher CTS; no thread-level activity event is emitted (#2076 / ADR-0030 §3) |
 | `AgentActor.HandleAmendmentAsync` | `AmendmentReceived`, `AmendmentRejected`, `StateChanged (Active→Paused)` | supervisor amendments (#142) |
 | `AgentActor.SetMetadataAsync / SetSkillsAsync / ClearParentUnitAsync` | `StateChanged` | configuration edits |
 | `AgentActor.RunDispatchAsync` | `ErrorOccurred` | dispatcher failures |
@@ -97,7 +97,7 @@ bus.ActivityStream
 | `UnitActor.AddMemberAsync / RemoveMemberAsync / TransitionAsync / SetMetadataAsync` | `StateChanged` | membership, lifecycle, metadata edits |
 | `UnitEndpoints` force-delete | `StateChanged` | force-delete audit |
 | `HumanActor.ReceiveAsync` | `MessageReceived` | human inbox (#456) |
-| `StreamEventSubscriber` (Dapr pub/sub) | `TokenDelta`, `ToolCall`, `ToolResult`, `ThreadCompleted`, `StateChanged` | bridges execution-environment events into the activity bus; failing tool results escalate to `Warning` |
+| `StreamEventSubscriber` (Dapr pub/sub) | `TokenDelta`, `ToolCall`, `ToolResult`, `StateChanged` | bridges execution-environment events into the activity bus; failing tool results escalate to `Warning` |
 | `BudgetEnforcer` | `CostIncurred` (synthetic warning/error) | budget threshold hits |
 
 ### Subscribers

@@ -11,7 +11,6 @@ public enum ActivityEventType
     MessageReceived,
     MessageSent,
     ThreadStarted,
-    ThreadCompleted,
     DecisionMade,
     ErrorOccurred,
     StateChanged,

@@ -22,7 +22,7 @@ Every observable entity emits typed **activity events**. Each event carries:
 Activity events cover the full spectrum of agent behavior:
 
 - **MessageReceived / MessageSent** -- communication events
-- **ThreadStarted / ThreadCompleted** -- work lifecycle
+- **ThreadStarted** -- work lifecycle (a fresh thread arrived at an idle agent)
 - **DecisionMade** -- the agent chose a course of action
 - **ErrorOccurred** -- something went wrong
 - **StateChanged** -- the agent's internal state changed

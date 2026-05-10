@@ -288,14 +288,14 @@ public class ActivityEventTests
 
         var activityEvent = new ActivityEvent(
             id, timestamp, source,
-            ActivityEventType.ThreadCompleted,
+            ActivityEventType.ThreadStarted,
             ActivitySeverity.Info,
             "Agent completed the task");
 
         activityEvent.Id.ShouldBe(id);
         activityEvent.Timestamp.ShouldBe(timestamp);
         activityEvent.Source.ShouldBe(source);
-        activityEvent.EventType.ShouldBe(ActivityEventType.ThreadCompleted);
+        activityEvent.EventType.ShouldBe(ActivityEventType.ThreadStarted);
         activityEvent.Severity.ShouldBe(ActivitySeverity.Info);
         activityEvent.Summary.ShouldBe("Agent completed the task");
         activityEvent.Details.ShouldBeNull();
