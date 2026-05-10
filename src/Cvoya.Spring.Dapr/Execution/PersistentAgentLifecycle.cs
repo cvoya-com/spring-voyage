@@ -201,7 +201,13 @@ public class PersistentAgentLifecycle(
             {
                 DaprAppId = daprAppId,
                 DaprAppPort = prep.A2APort,
-                DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath,
+                // Per-provider components profile (ADR-0028 V2 interim).
+                // See A2AExecutionDispatcher.ResolveDelegatedComponentsPath for
+                // the resolution rule and the rationale (every provider's
+                // component would otherwise load, fatal-exiting daprd on the
+                // first missing API key).
+                DaprSidecarComponentsPath = ResolveDelegatedComponentsPath(
+                    definition.Execution.Provider, agentId),
             };
             var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
                 daprConfig, cancellationToken);
@@ -352,5 +358,44 @@ public class PersistentAgentLifecycle(
         }
 
         return "p" + id;
+    }
+
+    /// <summary>
+    /// Resolves the per-dispatch Dapr components directory bind-mounted into
+    /// the daprd sidecar. Mirrors
+    /// <see cref="A2AExecutionDispatcher"/>'s resolver so the persistent and
+    /// ephemeral dispatch paths agree on which provider's components are
+    /// loaded for a given agent. See that method for the rationale.
+    /// </summary>
+    private string? ResolveDelegatedComponentsPath(string? provider, string agentId)
+    {
+        var basePath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath;
+        if (string.IsNullOrWhiteSpace(basePath))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            _logger.LogDebug(
+                "Agent {AgentId} has no execution.provider; mounting legacy single-profile components dir {Path}.",
+                agentId, basePath);
+            return basePath;
+        }
+
+        var providerKey = provider.Trim().ToLowerInvariant();
+        var profilePath = System.IO.Path.Combine(basePath, "profiles", providerKey);
+        if (!System.IO.Directory.Exists(profilePath))
+        {
+            _logger.LogWarning(
+                "Agent {AgentId} provider '{Provider}': no components profile at {ProfilePath}; falling back to {BasePath}. daprd will load every provider's component, which fatal-exits when any provider's API key is missing.",
+                agentId, providerKey, profilePath, basePath);
+            return basePath;
+        }
+
+        _logger.LogDebug(
+            "Agent {AgentId} provider '{Provider}': mounting per-provider components profile {ProfilePath}.",
+            agentId, providerKey, profilePath);
+        return profilePath;
     }
 }

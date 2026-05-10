@@ -284,7 +284,8 @@ public class A2AExecutionDispatcher(
                 {
                     DaprAppId = daprAppId,
                     DaprAppPort = spec.A2APort,
-                    DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath,
+                    DaprSidecarComponentsPath = ResolveDelegatedComponentsPath(
+                        definition.Execution.Provider, agentId),
                 };
 
                 var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
@@ -452,6 +453,62 @@ public class A2AExecutionDispatcher(
         }
 
         return "p" + id;
+    }
+
+    /// <summary>
+    /// Resolves the per-dispatch Dapr components directory bind-mounted into
+    /// the daprd sidecar at <c>/components</c>. The base
+    /// <see cref="DaprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath"/>
+    /// ships every supported provider's Conversation YAML side-by-side
+    /// (<c>llm-anthropic.yaml</c>, <c>llm-google.yaml</c>, <c>llm-ollama.yaml</c>,
+    /// <c>llm-openai.yaml</c>); loading the whole directory means daprd
+    /// fatal-exits on the first component whose secretKeyRef cannot be
+    /// satisfied (e.g. <c>llm-anthropic</c> without an
+    /// <c>ANTHROPIC_API_KEY</c>) — even when the dispatched unit's
+    /// provider is something else entirely.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Resolution rule: when the configured base contains a
+    /// <c>profiles/&lt;provider&gt;/</c> subdirectory we return that; daprd
+    /// then loads only the components for the unit's actual provider. The
+    /// provider is taken from
+    /// <see cref="AgentExecutionConfig.Provider"/> (lower-cased). Missing
+    /// provider, missing profile dir, or a missing base path each fall
+    /// back to the legacy single-directory path so deployments that have
+    /// not yet rebuilt the per-provider profile layout keep working.
+    /// </para>
+    /// </remarks>
+    private string? ResolveDelegatedComponentsPath(string? provider, string agentId)
+    {
+        var basePath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath;
+        if (string.IsNullOrWhiteSpace(basePath))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            _logger.LogDebug(
+                "Agent {AgentId} has no execution.provider; mounting legacy single-profile components dir {Path}.",
+                agentId, basePath);
+            return basePath;
+        }
+
+        var providerKey = provider.Trim().ToLowerInvariant();
+        var profilePath = System.IO.Path.Combine(basePath, "profiles", providerKey);
+        if (!System.IO.Directory.Exists(profilePath))
+        {
+            _logger.LogWarning(
+                "Agent {AgentId} provider '{Provider}': no components profile at {ProfilePath}; falling back to {BasePath}. daprd will load every provider's component, which fatal-exits when any provider's API key is missing.",
+                agentId, providerKey, profilePath, basePath);
+            return basePath;
+        }
+
+        _logger.LogDebug(
+            "Agent {AgentId} provider '{Provider}': mounting per-provider components profile {ProfilePath}.",
+            agentId, providerKey, profilePath);
+        return profilePath;
     }
 
     private async Task<SvMessage?> DispatchPersistentAsync(
@@ -624,7 +681,8 @@ public class A2AExecutionDispatcher(
             {
                 DaprAppId = daprAppId,
                 DaprAppPort = spec.A2APort,
-                DaprSidecarComponentsPath = _daprSidecarOptions.DelegatedSpringVoyageAgentComponentsPath,
+                DaprSidecarComponentsPath = ResolveDelegatedComponentsPath(
+                    definition.Execution.Provider, agentId),
             };
             var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
                 daprConfig, cancellationToken);
