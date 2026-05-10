@@ -38,6 +38,7 @@ import type { ParticipantRef, ThreadSummary } from "@/lib/api/types";
 import {
   addressOf,
   idOf,
+  isHumanAddress as sharedIsHumanAddress,
   participantDisplayName,
 } from "@/components/thread/role";
 
@@ -81,7 +82,11 @@ interface EngagementListProps {
 // ---------------------------------------------------------------------------
 
 function isHumanAddress(address: string): boolean {
-  return address.startsWith("human://") || address.startsWith("human:id:");
+  // #2082 follow-up: post-RenderAddress unification, humans surface as
+  // canonical `human:<hex>`. The shared role-helper recognises every
+  // historical address form (navigation, identity, canonical), so use
+  // it rather than rolling another prefix check that misses one of them.
+  return sharedIsHumanAddress(address);
 }
 
 /**

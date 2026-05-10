@@ -61,14 +61,20 @@ import {
   MessageComposer,
   type MessageRecipient,
 } from "@/components/conversation/message-composer";
+import { isHumanAddress as sharedIsHumanAddress } from "@/components/thread/role";
 import type { InboxItem, ParticipantRef } from "@/lib/api/types";
 
 // ---------------------------------------------------------------------------
 // Address / display-name helpers
 // ---------------------------------------------------------------------------
 
+// #2082 follow-up: rely on the shared role-helper so canonical
+// `human:<hex>` is recognised alongside the legacy navigation / identity
+// forms. Rolling our own prefix check missed the canonical form and
+// broke the inbox "is this a human ask?" classification once the wire
+// form was unified.
 function isHumanAddress(address: string): boolean {
-  return address.startsWith("human://");
+  return sharedIsHumanAddress(address);
 }
 
 function isHumanParticipant(p: ParticipantRef): boolean {

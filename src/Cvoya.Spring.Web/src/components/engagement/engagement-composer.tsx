@@ -45,10 +45,18 @@ interface EngagementComposerProps {
 }
 
 function deriveRecipient(participants: string[]): MessageRecipient | null {
+  // #2082 follow-up: after RenderAddress was unified to the canonical
+  // `scheme:<hex>` form, raw `startsWith("human://")` no longer matched
+  // the new human address shape, so the human slipped through and was
+  // picked as the recipient — meaning the user's message was routed
+  // back to themselves via HumanActor.ReceiveAsync instead of reaching
+  // the unit. Parse the scheme through `parseThreadSource` and skip
+  // anything human-shaped, regardless of which historical form the
+  // address arrives in.
   for (const p of participants) {
-    if (!p.startsWith("human://")) {
-      const { scheme, path } = parseThreadSource(p);
-      if (scheme && path) return { scheme, path };
+    const parsed = parseThreadSource(p);
+    if (parsed.scheme !== "human" && parsed.scheme && parsed.path) {
+      return { scheme: parsed.scheme, path: parsed.path };
     }
   }
   if (participants.length > 0) {
