@@ -49,7 +49,8 @@ using Microsoft.Extensions.Logging;
 public class DbAgentDefinitionProvider(
     IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory,
-    IUnitExecutionStore? unitExecutionStore = null) : IAgentDefinitionProvider
+    IUnitExecutionStore? unitExecutionStore = null,
+    IUnitStateCoordinator? unitStateCoordinator = null) : IAgentDefinitionProvider
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<DbAgentDefinitionProvider>();
 
@@ -209,6 +210,40 @@ public class DbAgentDefinitionProvider(
                 "Unit {UnitId} matched by id but has no execution.agent slot; cannot dispatch as runtime.",
                 unitId);
             return null;
+        }
+
+        // Overlay live-config slots (unit_live_config) on top of the JSON-
+        // derived execution. The unit-create flow writes Hosting / Color /
+        // Model / Provider to unit_live_config via UnitActor.SetMetadataAsync
+        // — but does NOT round-trip them into unit_definitions.definition
+        // (the JSON is the at-create snapshot only). For dispatch we want
+        // the authoritative live values, which is what every other
+        // metadata reader returns. Most critically for #2081/#2082
+        // follow-up: a unit created with `hosting: persistent` was being
+        // dispatched as Ephemeral because the JSON didn't carry the flag.
+        if (unitStateCoordinator is not null)
+        {
+            try
+            {
+                var unitIdString = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id);
+                var metadata = await unitStateCoordinator.GetMetadataAsync(unitIdString, cancellationToken);
+
+                var liveHosting = ParseHosting(metadata.Hosting);
+                execution = execution with
+                {
+                    AgentRuntimeId = execution.AgentRuntimeId,
+                    Image = execution.Image,
+                    Hosting = metadata.Hosting is null ? execution.Hosting : liveHosting,
+                    Provider = metadata.Provider ?? execution.Provider,
+                    Model = metadata.Model ?? execution.Model,
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to overlay unit_live_config onto unit {UnitId}'s execution; falling back to JSON-only values.",
+                    unitId);
+            }
         }
 
         return new AgentDefinition(
