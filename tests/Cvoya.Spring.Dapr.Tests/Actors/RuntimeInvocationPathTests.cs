@@ -76,7 +76,7 @@ public class RuntimeInvocationPathTests
             message: inbound,
             context: Arg.Any<PromptAssemblyContext>(),
             emitActivity: Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
-            clearActiveThread: Arg.Any<Func<string, Task>>(),
+            onDispatchExit: Arg.Any<Func<string, Task>>(),
             cancellationToken: Arg.Any<CancellationToken>());
     }
 
@@ -186,7 +186,7 @@ public class RuntimeInvocationPathTests
             message: inbound,
             context: context,
             emitActivity: emit,
-            clearActiveThread: clear,
+            onDispatchExit: clear,
             cancellationToken: Arg.Any<CancellationToken>());
     }
 

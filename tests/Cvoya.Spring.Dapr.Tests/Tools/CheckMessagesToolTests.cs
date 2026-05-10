@@ -66,7 +66,7 @@ public class CheckMessagesToolTests
             Messages = [message1, message2]
         };
 
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + "conv-1", Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, channel));
 
         var result = await _tool.ExecuteAsync(
@@ -81,7 +81,7 @@ public class CheckMessagesToolTests
     [Fact]
     public async Task ExecuteAsync_NoMessages_ReturnsEmptyArray()
     {
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + "conv-1", Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(false, default!));
 
         var result = await _tool.ExecuteAsync(

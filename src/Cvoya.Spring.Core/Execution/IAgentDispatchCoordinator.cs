@@ -10,8 +10,9 @@ using Cvoya.Spring.Core.Messaging;
 /// Seam that encapsulates the execution-dispatch concern extracted from
 /// <c>AgentActor</c>: invoking the <see cref="IExecutionDispatcher"/>,
 /// inspecting the response for a non-zero container exit code, routing the
-/// response message back to the caller, and clearing the active thread slot
-/// via a Dapr self-call when the dispatch terminates abnormally.
+/// response message back to the caller, and signalling the per-thread
+/// dispatch exit so the actor's mailbox can drain remaining queued
+/// messages or mark the channel idle.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,7 +26,7 @@ using Cvoya.Spring.Core.Messaging;
 /// <para>
 /// The coordinator holds zero Dapr-actor references. <see cref="RunDispatchAsync"/>
 /// receives delegate parameters so the actor can inject its own
-/// activity-emission and active-thread-clearing implementations without
+/// activity-emission and per-thread dispatch-exit implementations without
 /// the coordinator depending on Dapr actor types or scoped DI services.
 /// </para>
 /// <para>
@@ -39,25 +40,27 @@ public interface IAgentDispatchCoordinator
 {
     /// <summary>
     /// Runs the execution dispatcher for a single agent turn, routes the
-    /// response, and clears the active thread slot when the dispatch
-    /// terminates abnormally (cancelled, exception, or non-zero container
-    /// exit code).
+    /// response, and signals the per-thread dispatch exit. The exit
+    /// callback runs on every termination path (success, cancel,
+    /// exception, or non-zero container exit) so the actor's mailbox can
+    /// drain any messages appended while the dispatcher was running, or
+    /// mark the channel idle when the queue is empty.
     /// </summary>
     /// <remarks>
     /// <para>
     /// This method runs outside the Dapr actor turn (fire-and-forget), so
     /// implementations MUST NOT touch actor state directly via
-    /// <c>StateManager</c>. State mutations on failure are routed through
-    /// <paramref name="clearActiveThread"/> so the actor can schedule
-    /// them as a self-call, which queues the mutation on the actor's own
-    /// turn queue.
+    /// <c>StateManager</c>. State mutations on the per-thread channel are
+    /// routed through <paramref name="onDispatchExit"/> so the actor can
+    /// schedule them as a self-call, which queues the mutation on the
+    /// actor's own turn queue.
     /// </para>
     /// <para>
     /// A non-zero container exit (see the <c>ExitCode</c> / <c>Error</c>
     /// payload fields introduced by #1036) is treated as an abnormal
     /// termination: the error is surfaced to the caller via
     /// <paramref name="emitActivity"/> and the response is still routed
-    /// (best-effort) before clearing the active thread.
+    /// (best-effort) before the dispatch-exit callback runs.
     /// </para>
     /// </remarks>
     /// <param name="agentId">
@@ -80,23 +83,26 @@ public interface IAgentDispatchCoordinator
     /// though the actor's own <c>EmitActivityEventAsync</c> captures
     /// per-instance fields.
     /// </param>
-    /// <param name="clearActiveThread">
-    /// Delegate that clears the active-thread slot for the agent.
-    /// Called with a reason string whenever the dispatch terminates abnormally
-    /// (cancelled, exception, or non-zero exit). The actor owns the
-    /// self-call / direct-call decision (production vs. test harness); the
-    /// coordinator only invokes this delegate.
+    /// <param name="onDispatchExit">
+    /// Delegate that signals the per-thread dispatch exit. Receives a
+    /// reason string explaining why the dispatcher returned (success,
+    /// cancel, non-zero exit, exception). The actor's implementation
+    /// drains any messages that arrived for this thread while the
+    /// dispatcher was running, or marks the channel idle when the queue
+    /// is empty. Per-ADR-0030, the exit is per-thread — other threads on
+    /// the same agent are unaffected.
     /// </param>
     /// <param name="cancellationToken">
-    /// The cancellation token tied to the actor's active-work CTS. When this
-    /// token is cancelled the coordinator logs the cancellation and calls
-    /// <paramref name="clearActiveThread"/> before returning.
+    /// The cancellation token tied to the actor's per-thread cancellation
+    /// source. When this token is cancelled the coordinator logs the
+    /// cancellation and calls <paramref name="onDispatchExit"/> before
+    /// returning.
     /// </param>
     Task RunDispatchAsync(
         string agentId,
         Message message,
         PromptAssemblyContext context,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
-        Func<string, Task> clearActiveThread,
+        Func<string, Task> onDispatchExit,
         CancellationToken cancellationToken = default);
 }

@@ -49,14 +49,26 @@ public class CheckMessagesTool(
         _logger.LogDebug("CheckMessages for agent {AgentPath}, thread {ThreadId}",
             executionContext.AgentAddress.Path, executionContext.ThreadId);
 
-        var activeThread = await executionContext.StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, cancellationToken);
-
-        if (!activeThread.HasValue || activeThread.Value.Messages.Count == 0)
+        // #2076 / ADR-0030 §3 §44: per-thread channels, keyed by
+        // Agent:Channel:{ThreadId}. The tool exposes pending messages for
+        // the thread the dispatch is currently running on; threads other
+        // than the executing one are not visible (and would not be useful
+        // — the SDK exposes a peek_pending(thread_id) accessor for the
+        // intended thread only).
+        if (string.IsNullOrEmpty(executionContext.ThreadId))
         {
             return JsonSerializer.SerializeToElement(Array.Empty<object>());
         }
 
-        return JsonSerializer.SerializeToElement(activeThread.Value.Messages);
+        var key = StateKeys.ChannelPrefix + executionContext.ThreadId;
+        var channel = await executionContext.StateManager
+            .TryGetStateAsync<ThreadChannel>(key, cancellationToken);
+
+        if (!channel.HasValue || channel.Value.Messages.Count == 0)
+        {
+            return JsonSerializer.SerializeToElement(Array.Empty<object>());
+        }
+
+        return JsonSerializer.SerializeToElement(channel.Value.Messages);
     }
 }

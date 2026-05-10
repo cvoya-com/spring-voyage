@@ -22,7 +22,8 @@ using Xunit;
 /// <summary>
 /// Unit tests for <see cref="AgentMailboxCoordinator"/> validating the
 /// pre-validation guards relocated from <c>AgentActor.HandleDomainMessageAsync</c>
-/// (#1349) and the three routing cases.
+/// (#1349) and the per-thread channel routing
+/// (#2076 / ADR-0030 §3 §44).
 /// </summary>
 public class AgentMailboxCoordinatorTests
 {
@@ -42,19 +43,13 @@ public class AgentMailboxCoordinatorTests
 
     // --- Guard 0: Membership-disabled (#1349) ---
 
-    /// <summary>
-    /// Guard 0 relocated from AgentActor (#1349): when effective.Enabled is
-    /// false the coordinator must short-circuit, emit a DecisionMade
-    /// "MembershipDisabled" event, and NOT call getActiveThread or
-    /// activateAndDispatch.
-    /// </summary>
     [Fact]
     public async Task HandleDomainMessageAsync_MembershipDisabled_RejectsWithDecisionMadeEvent()
     {
         var message = CreateMessage();
         var disabledMetadata = new AgentMetadata(Enabled: false);
-        var getActiveThreadCalled = false;
-        var activateAndDispatchCalled = false;
+        var getChannelCalled = false;
+        var dispatchCalled = false;
 
         await _coordinator.HandleDomainMessageAsync(
             agentId: AgentId,
@@ -62,17 +57,15 @@ public class AgentMailboxCoordinatorTests
             effective: disabledMetadata,
             applyUnitPolicies: (eff, ct) =>
                 Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
-            getActiveThread: ct =>
+            getChannel: (_, _) =>
             {
-                getActiveThreadCalled = true;
+                getChannelCalled = true;
                 return Task.FromResult<ThreadChannel?>(null);
             },
-            setActiveThread: (_, _) => Task.CompletedTask,
-            getPendingList: _ => Task.FromResult<List<ThreadChannel>?>(null),
-            setPendingList: (_, _) => Task.CompletedTask,
-            activateAndDispatch: (_, _, _) =>
+            saveChannel: (_, _) => Task.CompletedTask,
+            dispatch: (_, _, _) =>
             {
-                activateAndDispatchCalled = true;
+                dispatchCalled = true;
                 return Task.CompletedTask;
             },
             emitActivity: (evt, _) =>
@@ -82,9 +75,9 @@ public class AgentMailboxCoordinatorTests
             },
             cancellationToken: TestContext.Current.CancellationToken);
 
-        getActiveThreadCalled.ShouldBeFalse(
+        getChannelCalled.ShouldBeFalse(
             "Guard 0 must short-circuit before reading actor state when membership is disabled.");
-        activateAndDispatchCalled.ShouldBeFalse(
+        dispatchCalled.ShouldBeFalse(
             "Guard 0 must not dispatch when membership is disabled.");
         _emittedEvents.ShouldHaveSingleItem();
         _emittedEvents[0].EventType.ShouldBe(ActivityEventType.DecisionMade);
@@ -93,11 +86,6 @@ public class AgentMailboxCoordinatorTests
 
     // --- Guard 1: Unit-policy check (#1349) ---
 
-    /// <summary>
-    /// Guard 1 relocated from AgentActor (#1349): when applyUnitPolicies returns
-    /// a non-null PolicyVerdict the coordinator must short-circuit, emit a
-    /// DecisionMade "BlockedByUnitPolicy" event, and NOT call activateAndDispatch.
-    /// </summary>
     [Fact]
     public async Task HandleDomainMessageAsync_PolicyDenied_RejectsWithDecisionMadeEvent()
     {
@@ -109,7 +97,7 @@ public class AgentMailboxCoordinatorTests
             Summary: "Model gpt-4 is not permitted by unit policy.",
             Decision: PolicyDecision.Deny("model denied", "unit-1"));
 
-        var activateAndDispatchCalled = false;
+        var dispatchCalled = false;
 
         await _coordinator.HandleDomainMessageAsync(
             agentId: AgentId,
@@ -117,13 +105,11 @@ public class AgentMailboxCoordinatorTests
             effective: enabledMetadata,
             applyUnitPolicies: (eff, ct) =>
                 Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, verdict)),
-            getActiveThread: _ => Task.FromResult<ThreadChannel?>(null),
-            setActiveThread: (_, _) => Task.CompletedTask,
-            getPendingList: _ => Task.FromResult<List<ThreadChannel>?>(null),
-            setPendingList: (_, _) => Task.CompletedTask,
-            activateAndDispatch: (_, _, _) =>
+            getChannel: (_, _) => Task.FromResult<ThreadChannel?>(null),
+            saveChannel: (_, _) => Task.CompletedTask,
+            dispatch: (_, _, _) =>
             {
-                activateAndDispatchCalled = true;
+                dispatchCalled = true;
                 return Task.CompletedTask;
             },
             emitActivity: (evt, _) =>
@@ -133,7 +119,7 @@ public class AgentMailboxCoordinatorTests
             },
             cancellationToken: TestContext.Current.CancellationToken);
 
-        activateAndDispatchCalled.ShouldBeFalse(
+        dispatchCalled.ShouldBeFalse(
             "Guard 1 must not dispatch when a PolicyVerdict is returned.");
         _emittedEvents.ShouldHaveSingleItem();
         _emittedEvents[0].EventType.ShouldBe(ActivityEventType.DecisionMade);
@@ -142,53 +128,51 @@ public class AgentMailboxCoordinatorTests
 
     // --- Routing cases (guard-pass path) ---
 
-    /// <summary>
-    /// Case 1: when no thread is active the message creates a new active
-    /// thread and calls activateAndDispatch.
-    /// </summary>
     [Fact]
-    public async Task HandleDomainMessageAsync_NoActiveThread_ActivatesAndDispatches()
+    public async Task HandleDomainMessageAsync_NoChannel_CreatesAndDispatches()
     {
         var message = CreateMessage();
         var metadata = new AgentMetadata(Enabled: true);
-        ThreadChannel? activatedChannel = null;
+        ThreadChannel? saved = null;
+        ThreadChannel? dispatched = null;
 
         await _coordinator.HandleDomainMessageAsync(
             agentId: AgentId,
             message: message,
             effective: metadata,
             applyUnitPolicies: (eff, _) => Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
-            getActiveThread: _ => Task.FromResult<ThreadChannel?>(null),
-            setActiveThread: (ch, _) =>
+            getChannel: (_, _) => Task.FromResult<ThreadChannel?>(null),
+            saveChannel: (ch, _) =>
             {
-                activatedChannel = ch;
+                saved = ch;
                 return Task.CompletedTask;
             },
-            getPendingList: _ => Task.FromResult<List<ThreadChannel>?>(null),
-            setPendingList: (_, _) => Task.CompletedTask,
-            activateAndDispatch: (ch, _, _) =>
+            dispatch: (ch, _, _) =>
             {
-                activatedChannel ??= ch;
+                dispatched = ch;
                 return Task.CompletedTask;
             },
             emitActivity: (_, _) => Task.CompletedTask,
             cancellationToken: TestContext.Current.CancellationToken);
 
-        activatedChannel.ShouldNotBeNull();
-        activatedChannel!.ThreadId.ShouldBe(ThreadId);
+        saved.ShouldNotBeNull();
+        saved!.ThreadId.ShouldBe(ThreadId);
+        saved.Dispatching.ShouldBeTrue();
+        dispatched.ShouldNotBeNull();
     }
 
-    /// <summary>
-    /// Case 2: a message for the already-active thread appends to the channel
-    /// without dispatching a new task.
-    /// </summary>
     [Fact]
-    public async Task HandleDomainMessageAsync_SameActiveThread_AppendsMessage()
+    public async Task HandleDomainMessageAsync_ChannelDispatching_AppendsWithoutDispatching()
     {
-        var existing = new ThreadChannel { ThreadId = ThreadId, Messages = [CreateMessage()] };
+        var existing = new ThreadChannel
+        {
+            ThreadId = ThreadId,
+            Messages = [CreateMessage()],
+            Dispatching = true,
+        };
         var message = CreateMessage();
         var metadata = new AgentMetadata(Enabled: true);
-        ThreadChannel? updated = null;
+        ThreadChannel? saved = null;
         var dispatchCalled = false;
 
         await _coordinator.HandleDomainMessageAsync(
@@ -196,15 +180,13 @@ public class AgentMailboxCoordinatorTests
             message: message,
             effective: metadata,
             applyUnitPolicies: (eff, _) => Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
-            getActiveThread: _ => Task.FromResult<ThreadChannel?>(existing),
-            setActiveThread: (ch, _) =>
+            getChannel: (_, _) => Task.FromResult<ThreadChannel?>(existing),
+            saveChannel: (ch, _) =>
             {
-                updated = ch;
+                saved = ch;
                 return Task.CompletedTask;
             },
-            getPendingList: _ => Task.FromResult<List<ThreadChannel>?>(null),
-            setPendingList: (_, _) => Task.CompletedTask,
-            activateAndDispatch: (_, _, _) =>
+            dispatch: (_, _, _) =>
             {
                 dispatchCalled = true;
                 return Task.CompletedTask;
@@ -212,9 +194,53 @@ public class AgentMailboxCoordinatorTests
             emitActivity: (_, _) => Task.CompletedTask,
             cancellationToken: TestContext.Current.CancellationToken);
 
-        dispatchCalled.ShouldBeFalse();
-        updated.ShouldNotBeNull();
-        updated!.Messages.Count.ShouldBe(2);
+        dispatchCalled.ShouldBeFalse(
+            "Channel mid-drain must not spawn a parallel dispatcher; per-thread FIFO requires the existing drain to pick up the appended message.");
+        saved.ShouldNotBeNull();
+        saved!.Messages.Count.ShouldBe(2);
+        saved.Dispatching.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task HandleDomainMessageAsync_ChannelIdle_AppendsAndRestartsDispatch()
+    {
+        // A channel that was kept around between dispatches (Dispatching=false)
+        // must restart its dispatch loop on the next inbound on the same
+        // thread.
+        var existing = new ThreadChannel
+        {
+            ThreadId = ThreadId,
+            Messages = [],
+            Dispatching = false,
+        };
+        var message = CreateMessage();
+        var metadata = new AgentMetadata(Enabled: true);
+        ThreadChannel? saved = null;
+        var dispatchCalled = false;
+
+        await _coordinator.HandleDomainMessageAsync(
+            agentId: AgentId,
+            message: message,
+            effective: metadata,
+            applyUnitPolicies: (eff, _) => Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
+            getChannel: (_, _) => Task.FromResult<ThreadChannel?>(existing),
+            saveChannel: (ch, _) =>
+            {
+                saved = ch;
+                return Task.CompletedTask;
+            },
+            dispatch: (_, _, _) =>
+            {
+                dispatchCalled = true;
+                return Task.CompletedTask;
+            },
+            emitActivity: (_, _) => Task.CompletedTask,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        dispatchCalled.ShouldBeTrue();
+        saved.ShouldNotBeNull();
+        saved!.Dispatching.ShouldBeTrue();
+        saved.Messages.Count.ShouldBe(1);
     }
 
     // --- Helpers ---

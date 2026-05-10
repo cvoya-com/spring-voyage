@@ -123,10 +123,8 @@ public class AgentActorEffectiveMetadataTests
 
         SetStateManager(_actor, _stateManager);
 
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
-        _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(false, default!));
 
         // Default: no membership row for any (unit, agent) pair.
         _membershipRepository
@@ -200,9 +198,9 @@ public class AgentActorEffectiveMetadataTests
             Arg.Any<PromptAssemblyContext?>(),
             Arg.Any<CancellationToken>());
 
-        // No active conversation was written either — the agent remained idle.
+        // No per-thread channel was written either — the agent remained idle.
         await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.ActiveThread,
+            Arg.Is<string>(k => k.StartsWith(StateKeys.ChannelPrefix)),
             Arg.Any<ThreadChannel>(),
             Arg.Any<CancellationToken>());
 
@@ -343,10 +341,12 @@ public class AgentActorEffectiveMetadataTests
         await _actor.ReceiveAsync(msg1, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
-        // After the first message the active conversation exists.
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+        // After the first message a per-thread channel exists for conv-1
+        // and is mid-drain. Per #2076 the second message appends without
+        // launching a parallel dispatcher.
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + "conv-1", Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true,
-                new ThreadChannel { ThreadId = "conv-1", Messages = [msg1] }));
+                new ThreadChannel { ThreadId = "conv-1", Messages = [msg1], Dispatching = true }));
 
         var msg2 = DomainMessageFrom(new Address("unit", UnitAUuid), "conv-1");
         await _actor.ReceiveAsync(msg2, TestContext.Current.CancellationToken);
@@ -377,13 +377,10 @@ public class AgentActorEffectiveMetadataTests
                 ctx != null && ctx.EffectiveMetadata != null && ctx.EffectiveMetadata.Model == "gpt-4"),
             Arg.Any<CancellationToken>());
 
-        // Turn 2: unit-b sends conv-b. Because conv-a is active, conv-b
-        // goes to pending — but when we promote conv-b, the membership
-        // merge must run against unit-b. Simulate the flow: cancel conv-a,
-        // then send conv-b fresh (no active).
-        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
-
+        // Turn 2: unit-b sends conv-b. Per #2076 / ADR-0030 §44 conv-b
+        // creates an independent per-thread channel — it does NOT queue
+        // behind conv-a. The membership merge runs against unit-b
+        // because the inbound's From address is unit-b.
         var msgB = DomainMessageFrom(new Address("unit", UnitBUuid), "conv-b");
         await _actor.ReceiveAsync(msgB, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;

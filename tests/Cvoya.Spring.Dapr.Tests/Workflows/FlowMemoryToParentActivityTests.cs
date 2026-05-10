@@ -38,22 +38,33 @@ public class FlowMemoryToParentActivityTests
     }
 
     [Fact]
-    public async Task RunAsync_CopiesActiveThreadToParent()
+    public async Task RunAsync_CopiesPerThreadChannelsToParent()
     {
+        // #2076 / ADR-0030 §3 §44: per-thread channels keyed by
+        // Agent:Channel:{ThreadId} replace the legacy Agent:ActiveThread
+        // slot. The activity now copies every channel listed in the
+        // clone's Agent:ChannelIndex.
         var input = new CloningInput(
             "parent-agent", "clone-1",
             CloningPolicy.EphemeralWithMemory, AttachmentMode.Attached);
 
-        var conversationData = new object();
+        var channelData = new object();
+        _stateStore.GetAsync<List<string>>(
+            $"clone-1:{StateKeys.ChannelIndex}", Arg.Any<CancellationToken>())
+            .Returns(["thread-a"]);
         _stateStore.GetAsync<object>(
-            $"clone-1:{StateKeys.ActiveThread}", Arg.Any<CancellationToken>())
-            .Returns(conversationData);
+            $"clone-1:{StateKeys.ChannelPrefix}thread-a", Arg.Any<CancellationToken>())
+            .Returns(channelData);
 
         await _activity.RunAsync(_context, input);
 
         await _stateStore.Received(1).SetAsync(
-            $"parent-agent:{StateKeys.ActiveThread}",
-            conversationData,
+            $"parent-agent:{StateKeys.ChannelIndex}",
+            Arg.Any<List<string>>(),
+            Arg.Any<CancellationToken>());
+        await _stateStore.Received(1).SetAsync(
+            $"parent-agent:{StateKeys.ChannelPrefix}thread-a",
+            channelData,
             Arg.Any<CancellationToken>());
     }
 

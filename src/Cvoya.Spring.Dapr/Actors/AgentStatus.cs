@@ -4,22 +4,21 @@
 namespace Cvoya.Spring.Dapr.Actors;
 
 /// <summary>
-/// Represents the current status of an agent actor.
+/// Coarse status label for an agent actor's mailbox (#2076 / ADR-0030 §3 §44).
+/// The real per-thread depth is exposed alongside this label on the
+/// <c>StatusQuery</c> response payload — under concurrent threads the agent
+/// may be Active on N threads simultaneously, each at its own queue depth.
 /// </summary>
 public enum AgentStatus
 {
     /// <summary>
-    /// The agent has no active threads and is waiting for work.
+    /// The agent has no per-thread channels and is waiting for work.
     /// </summary>
     Idle,
 
     /// <summary>
-    /// The agent has an active thread being processed.
+    /// The agent has at least one per-thread channel with a dispatcher
+    /// running or queued messages awaiting dispatch.
     /// </summary>
     Active,
-
-    /// <summary>
-    /// The agent's active thread has been suspended (e.g., due to a higher-priority thread).
-    /// </summary>
-    Suspended
 }

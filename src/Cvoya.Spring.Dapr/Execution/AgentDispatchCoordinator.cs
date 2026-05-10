@@ -17,8 +17,9 @@ using Microsoft.Extensions.Logging;
 /// Owns the execution-dispatch concern extracted from <c>AgentActor</c>:
 /// invoking the <see cref="IExecutionDispatcher"/>, inspecting the response
 /// for a non-zero container exit code, routing the response via
-/// <see cref="MessageRouter"/>, and clearing the active thread slot when
-/// the dispatch terminates abnormally.
+/// <see cref="MessageRouter"/>, and signalling the per-thread dispatch exit
+/// so the actor's mailbox can drain remaining queued messages on the same
+/// thread or mark the channel idle.
 /// </summary>
 /// <remarks>
 /// The coordinator is stateless with respect to any individual agent — it
@@ -37,7 +38,7 @@ public class AgentDispatchCoordinator(
         Message message,
         PromptAssemblyContext context,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
-        Func<string, Task> clearActiveThread,
+        Func<string, Task> onDispatchExit,
         CancellationToken cancellationToken = default)
     {
         try
@@ -48,12 +49,12 @@ public class AgentDispatchCoordinator(
                 logger.LogInformation(
                     "Dispatcher returned no response for thread {ThreadId}; nothing to route.",
                     message.ThreadId);
-                // Even when the dispatcher returns nothing to route, the turn
-                // is over from the actor's perspective. The active-thread slot
-                // must be released so the next message can be dispatched
-                // instead of being queued forever as pending. See the success
-                // branch below for the same rationale.
-                await clearActiveThread("dispatch returned no response");
+                // Even when the dispatcher returns nothing to route, the
+                // dispatch is over from the actor's perspective. Signal the
+                // per-thread exit so the mailbox can drain any messages
+                // appended during the dispatch (per-thread FIFO) or mark
+                // the channel idle.
+                await onDispatchExit("dispatch returned no response");
                 return;
             }
 
@@ -84,53 +85,36 @@ public class AgentDispatchCoordinator(
 
                 // Best-effort: still surface the failure to the caller so an
                 // upstream agent / human sees the error response. We do this
-                // BEFORE clearing the active thread so the response is
-                // ordered correctly in the thread event log.
+                // BEFORE signalling the exit so the response is ordered
+                // correctly in the thread event log.
                 await TryRouteResponseAsync(agentId, response, message.ThreadId, cancellationToken);
 
-                await clearActiveThread($"dispatch exit code {failure.ExitCode}");
+                await onDispatchExit($"dispatch exit code {failure.ExitCode}");
                 return;
             }
 
             await TryRouteResponseAsync(agentId, response, message.ThreadId, cancellationToken);
 
-            // The successful turn is complete: the dispatcher returned a
+            // Per-thread dispatch is complete: the dispatcher returned a
             // response and we routed it back to the original sender. The
-            // actor's ActiveThread slot must be released so the next
-            // message dispatched to this agent can run, instead of being
-            // queued behind a thread the actor has actually finished with.
-            // The error/cancel branches above call clearActiveThread
-            // for the same reason — without an explicit clear here, an
-            // agent that ever completes a turn successfully looks bricked
-            // to every later sender, including the very human it just
-            // replied to. Discovered while debugging an agent stuck in
-            // Active state after a working dispatch (Status=Active,
-            // PendingConversationCount=0): every follow-up send was either
-            // appended to the dead active channel (Case 2 in
-            // HandleDomainMessageAsync) or queued as pending (Case 3) and
-            // never dispatched.
-            await clearActiveThread("dispatch completed");
+            // actor's mailbox drains any messages appended during the
+            // dispatch (per-thread FIFO) or marks the channel idle. Other
+            // threads on the same agent are unaffected — concurrent
+            // threads run independently per ADR-0030 §44.
+            await onDispatchExit("dispatch completed");
         }
         catch (OperationCanceledException)
         {
-            // A cancelled dispatch leaves the active-thread slot
-            // pointing at a dead turn. Without clearing it, the actor
-            // refuses every subsequent message in any other thread
-            // (Case 3 in HandleDomainMessageAsync queues them as pending
-            // forever) and the agent looks bricked from the user's
-            // perspective. The non-zero exit and generic-exception
-            // branches above already call clearActiveThread for
-            // exactly this reason; the cancel branch must too.
-            // Discovered post-Stage-2 cutover (#1063 / #522 follow-up):
-            // a worker-side HttpClient timeout surfaced as
-            // OperationCanceledException, the actor logged it but kept
-            // the thread marked Active, and every subsequent
-            // user message was queued as pending and never dispatched.
+            // A cancelled dispatch leaves the channel mid-drain. Signal
+            // the exit so the mailbox doesn't sit Active-but-idle: the
+            // actor either drains the next queued message on the same
+            // thread or marks the channel idle. Other threads are
+            // unaffected (they have their own channels and dispatchers).
             logger.LogInformation(
                 "Dispatch cancelled for actor {ActorId} thread {ThreadId}.",
                 agentId, message.ThreadId);
 
-            await clearActiveThread("dispatch cancelled");
+            await onDispatchExit("dispatch cancelled");
         }
         catch (Exception ex)
         {
@@ -153,7 +137,7 @@ public class AgentDispatchCoordinator(
                     })),
                 CancellationToken.None);
 
-            await clearActiveThread($"dispatch exception: {ex.GetType().Name}");
+            await onDispatchExit($"dispatch exception: {ex.GetType().Name}");
         }
     }
 

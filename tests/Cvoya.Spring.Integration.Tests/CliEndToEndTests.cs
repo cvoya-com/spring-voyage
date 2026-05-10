@@ -61,7 +61,7 @@ public class CliEndToEndTests
     }
 
     [Fact]
-    public async Task FullLifecycle_AgentReceivesMessage_StatusReflectsActiveThread()
+    public async Task FullLifecycle_AgentReceivesMessage_StatusReflectsPerThreadDepth()
     {
         // Step 1: Create an agent actor.
         var (agentActor, agentStateManager) = ActorTestHost.CreateAgentActor("cli-agent");
@@ -71,24 +71,26 @@ public class CliEndToEndTests
         var message = MessageFactory.CreateDomainMessage(threadId: threadId, toId: "cli-agent");
         await agentActor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        // Simulate the state manager now having the active conversation.
-        var activeChannel = new ThreadChannel
+        // Simulate the state manager now having a per-thread channel.
+        var channel = new ThreadChannel
         {
             ThreadId = threadId,
-            Messages = [message]
+            Messages = [message],
+            Dispatching = true,
         };
-        agentStateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
+        agentStateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, [threadId]));
+        agentStateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channel));
 
-        // Step 3: Query status.
+        // Step 3: Query status — payload exposes per-thread depth.
         var statusQuery = MessageFactory.CreateStatusQuery("cli-requester", "cli-agent");
         var statusResult = await agentActor.ReceiveAsync(statusQuery, TestContext.Current.CancellationToken);
 
         statusResult.ShouldNotBeNull();
         var payload = statusResult!.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Status").GetString().ShouldBe("Active");
-        payload.GetProperty("ActiveThreadId").GetString().ShouldBe(threadId);
-        payload.GetProperty("PendingConversationCount").GetInt32().ShouldBe(0);
+        payload.GetProperty("ThreadDepths").GetProperty(threadId).GetInt32().ShouldBe(1);
     }
 
     [Fact]

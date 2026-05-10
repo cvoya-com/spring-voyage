@@ -73,9 +73,10 @@ public class AmendmentFlowTests
             {
                 MessageFactory.CreateDomainMessage(threadId: "conv-live", toId: AgentId),
             },
+            Dispatching = true,
         };
         harness.StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveThread, Arg.Any<CancellationToken>())
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + "conv-live", Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         // The supervisor pushes an amendment mid-turn.

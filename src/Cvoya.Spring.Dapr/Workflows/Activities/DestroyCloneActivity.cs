@@ -32,9 +32,21 @@ public class DestroyCloneActivity(
 
         // Clean up clone state. Agent:Definition is no longer mirrored
         // in the state store (ADR-0040 / #2048) so there is nothing to
-        // delete for that key.
+        // delete for that key. Per-thread channels (ADR-0030 §3 §44) are
+        // enumerated through the channel index.
         await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.CloneIdentity}");
-        await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.ActiveThread}");
+
+        var indexKey = $"{input.TargetAgentId}:{StateKeys.ChannelIndex}";
+        var index = await stateStore.GetAsync<List<string>>(indexKey);
+        if (index is { Count: > 0 })
+        {
+            foreach (var threadId in index)
+            {
+                await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.ChannelPrefix}{threadId}");
+            }
+            await stateStore.DeleteAsync(indexKey);
+        }
+
         await stateStore.DeleteAsync($"{input.TargetAgentId}:{StateKeys.InitiativeState}");
 
         // Remove from parent's children list.

@@ -10,14 +10,29 @@ namespace Cvoya.Spring.Dapr.Actors;
 public static class StateKeys
 {
     /// <summary>
-    /// State key for the currently active thread channel.
+    /// State key prefix for a per-thread channel (#2076 / ADR-0030 §3 §44).
+    /// Full key format: <c>Agent:Channel:{ThreadId}</c>. Each entry holds
+    /// the per-thread <see cref="Core.Messaging.ThreadChannel"/> with its
+    /// queued messages and a <c>Dispatching</c> flag that prevents a fresh
+    /// inbound on the same thread from launching a parallel dispatcher
+    /// while the channel is mid-drain. The set of currently-known
+    /// thread ids is tracked separately on <see cref="ChannelIndex"/>
+    /// because the Dapr actor state manager has no key-enumeration
+    /// primitive.
     /// </summary>
-    public const string ActiveThread = "Agent:ActiveThread";
+    public const string ChannelPrefix = "Agent:Channel:";
 
     /// <summary>
-    /// State key for the list of pending thread channels.
+    /// State key for the index of thread ids that currently have an
+    /// associated <see cref="ChannelPrefix"/> entry. Stored as
+    /// <c>List&lt;string&gt;</c>. Used so the agent can enumerate its
+    /// per-thread channels for status queries and clone state-copy
+    /// activities without relying on a key-prefix scan (which the Dapr
+    /// actor state manager does not expose). The index is updated
+    /// transactionally with the channel writes; a thread id is removed
+    /// when its channel is removed.
     /// </summary>
-    public const string PendingConversations = "Agent:PendingConversations";
+    public const string ChannelIndex = "Agent:ChannelIndex";
 
     /// <summary>
     /// State key for the observation channel (batched events).

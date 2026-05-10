@@ -12,7 +12,8 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Flows memory state from an ephemeral-with-memory clone back to its parent
-/// before the clone is destroyed. Copies active thread and initiative state.
+/// before the clone is destroyed. Copies every per-thread channel and the
+/// initiative state.
 /// </summary>
 public class FlowMemoryToParentActivity(
     IStateStore stateStore,
@@ -23,13 +24,27 @@ public class FlowMemoryToParentActivity(
     /// <inheritdoc />
     public override async Task<bool> RunAsync(WorkflowActivityContext context, CloningInput input)
     {
-        // Copy active thread state from clone to parent.
-        var cloneActiveKey = $"{input.TargetAgentId}:{StateKeys.ActiveThread}";
-        var activeThread = await stateStore.GetAsync<object>(cloneActiveKey);
-        if (activeThread is not null)
+        // #2076 / ADR-0030 §3 §44: per-thread channels keyed by
+        // Agent:Channel:{ThreadId} replace the single Agent:ActiveThread
+        // slot. Copy the channel index plus every per-thread channel
+        // listed in it from clone to parent.
+        var cloneIndexKey = $"{input.TargetAgentId}:{StateKeys.ChannelIndex}";
+        var index = await stateStore.GetAsync<List<string>>(cloneIndexKey);
+        if (index is { Count: > 0 })
         {
-            var parentActiveKey = $"{input.SourceAgentId}:{StateKeys.ActiveThread}";
-            await stateStore.SetAsync(parentActiveKey, activeThread);
+            var parentIndexKey = $"{input.SourceAgentId}:{StateKeys.ChannelIndex}";
+            await stateStore.SetAsync(parentIndexKey, index);
+
+            foreach (var threadId in index)
+            {
+                var cloneChannelKey = $"{input.TargetAgentId}:{StateKeys.ChannelPrefix}{threadId}";
+                var channel = await stateStore.GetAsync<object>(cloneChannelKey);
+                if (channel is not null)
+                {
+                    var parentChannelKey = $"{input.SourceAgentId}:{StateKeys.ChannelPrefix}{threadId}";
+                    await stateStore.SetAsync(parentChannelKey, channel);
+                }
+            }
         }
 
         // Copy initiative state from clone to parent.

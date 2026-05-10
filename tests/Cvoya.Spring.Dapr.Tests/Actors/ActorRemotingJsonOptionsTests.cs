@@ -49,12 +49,11 @@ public class ActorRemotingJsonOptionsTests
     {
         // Arrange: build a Message the way the actor does — payload is a
         // JsonElement produced by SerializeToElement, exactly as
-        // AgentActor.HandleStatusQueryAsync would produce.
+        // AgentActor.HandleStatusQueryAsync would produce (#2076).
         var payload = JsonSerializer.SerializeToElement(new
         {
             Status = "Idle",
-            ActiveThreadId = (string?)null,
-            PendingConversationCount = 0,
+            ThreadDepths = new Dictionary<string, int>(),
         });
 
         var message = new Message(
@@ -79,7 +78,7 @@ public class ActorRemotingJsonOptionsTests
         hydrated.Payload.ValueKind.ShouldBe(JsonValueKind.Object);
         JsonSerializer.Serialize(hydrated.Payload).ShouldBe(JsonSerializer.Serialize(payload));
         hydrated.Payload.GetProperty("Status").GetString().ShouldBe("Idle");
-        hydrated.Payload.GetProperty("PendingConversationCount").GetInt32().ShouldBe(0);
+        hydrated.Payload.GetProperty("ThreadDepths").EnumerateObject().Count().ShouldBe(0);
     }
 
     /// <summary>
