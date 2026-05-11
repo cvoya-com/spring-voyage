@@ -179,6 +179,24 @@ public interface IUnitActor : IAgent
     Task<TransitionResult> CompleteValidationAsync(UnitValidationCompletion completion, CancellationToken ct = default);
 
     /// <summary>
+    /// Marks this unit as awaiting an automatic transition into <c>Running</c>
+    /// once <see cref="CompleteValidationAsync"/> reports a successful
+    /// validation outcome (#2156). Called by the unit-creation /
+    /// package-install paths immediately after the unit transitions to
+    /// <see cref="UnitStatus.Validating"/> so a freshly installed unit ends
+    /// up usable without a manual <c>POST /units/{id}/start</c> click.
+    /// </summary>
+    /// <remarks>
+    /// The flag is consumed and cleared inside
+    /// <see cref="CompleteValidationAsync"/>; setting it twice before
+    /// validation finishes is idempotent. Setting it after a validation has
+    /// already completed has no effect on the already-applied transition —
+    /// the unit stays in <see cref="UnitStatus.Stopped"/>.
+    /// </remarks>
+    /// <param name="ct">A token to cancel the operation.</param>
+    Task SetPendingAutoStartAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Returns the actor-owned portion of the unit's metadata. Only
     /// <c>Model</c> and <c>Color</c> are persisted on the actor; DisplayName
     /// and Description live on the directory entity and are always returned

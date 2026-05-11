@@ -154,6 +154,18 @@ public static class StateKeys
     /// </summary>
     public const string UnitStatus = "Unit:Status";
 
+    /// <summary>
+    /// State key (boolean) marking a unit as awaiting an automatic transition
+    /// to <c>Running</c> as soon as validation succeeds (#2156). Set by the
+    /// creation / package-install path on every unit that lands in
+    /// <c>Validating</c> at create time; consumed and cleared by
+    /// <see cref="UnitActor.CompleteValidationAsync"/> when the workflow
+    /// reports success. Absent / <c>false</c> means "leave the unit in
+    /// Stopped after validation" — the original behaviour preserved for the
+    /// manual <c>/revalidate</c> path.
+    /// </summary>
+    public const string PendingAutoStart = "Unit:PendingAutoStart";
+
     // ADR-0040 / #2049: the unit live-config keys (Unit:Model,
     // Unit:Color, Unit:Provider, Unit:Hosting, Unit:Boundary,
     // Unit:PermissionInheritance, Unit:OwnExpertise) were moved to EF.
@@ -226,4 +238,22 @@ public static class StateKeys
     /// <c>POST /api/v1/inbox/{threadId}/mark-read</c> endpoint (#1477).
     /// </summary>
     public const string HumanLastReadAt = "Human:LastReadAt";
+
+    /// <summary>
+    /// State key for an agent's installation-lifecycle status (#2156).
+    /// Stored as a <see cref="Cvoya.Spring.Core.Agents.AgentLifecycleStatus"/>
+    /// enum value (Active / Error). Set by
+    /// <c>DefaultPackageArtefactActivator</c> at install time. Absent
+    /// means the agent activated successfully through the pre-#2156
+    /// path — readers default to <c>Active</c>.
+    /// </summary>
+    public const string AgentLifecycleStatus = "Agent:LifecycleStatus";
+
+    /// <summary>
+    /// State key for the diagnostic message accompanying an
+    /// <see cref="Cvoya.Spring.Core.Agents.AgentLifecycleStatus.Error"/>
+    /// row (#2156). Cleared whenever the lifecycle status flips back to
+    /// <see cref="Cvoya.Spring.Core.Agents.AgentLifecycleStatus.Active"/>.
+    /// </summary>
+    public const string AgentLifecycleError = "Agent:LifecycleError";
 }

@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Services;
 
 using Cvoya.Spring.Dapr.Skills;
+using Cvoya.Spring.Dapr.Units;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Manifest;
 
@@ -33,6 +34,12 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IPackageInstallService, PackageInstallService>();
         services.TryAddScoped<IPackageExportService, PackageExportService>();
         services.TryAddScoped<IAuthenticatedCallerAccessor, AuthenticatedCallerAccessor>();
+        // #2156: connector start-hook dispatch is needed both by the
+        // POST /units/{id}/start endpoint and by the unit actor's
+        // auto-start path after validation succeeds. Singleton: the
+        // dispatcher is stateless and the underlying IConnectorType
+        // registrations are singletons.
+        services.TryAddSingleton<IUnitConnectorStartDispatcher, UnitConnectorStartDispatcher>();
 
         // IParticipantDisplayNameResolver is registered by AddCvoyaSpringDapr
         // — see ServiceCollectionExtensions.Infrastructure.cs. The interface

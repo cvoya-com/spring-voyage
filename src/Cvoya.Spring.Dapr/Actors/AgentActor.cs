@@ -898,6 +898,60 @@ public class AgentActor(
             ObservedAt: DateTimeOffset.UtcNow);
     }
 
+    /// <inheritdoc />
+    public async Task<AgentLifecycleStatus> GetLifecycleStatusAsync(
+        CancellationToken cancellationToken = default)
+    {
+        // Default to Active for pre-#2156 agents (those activated before the
+        // lifecycle row was written by the package activator). Their
+        // activation succeeded silently in the legacy path so reporting
+        // Active is the correct backwards-compatible answer.
+        var result = await StateManager
+            .TryGetStateAsync<AgentLifecycleStatus>(StateKeys.AgentLifecycleStatus, cancellationToken);
+        return result.HasValue ? result.Value : AgentLifecycleStatus.Active;
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> GetLifecycleErrorAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<string>(StateKeys.AgentLifecycleError, cancellationToken);
+        return result.HasValue ? result.Value : null;
+    }
+
+    /// <inheritdoc />
+    public async Task SetLifecycleStatusAsync(
+        AgentLifecycleStatus status,
+        string? error = null,
+        CancellationToken cancellationToken = default)
+    {
+        await StateManager.SetStateAsync(StateKeys.AgentLifecycleStatus, status, cancellationToken);
+        if (status == AgentLifecycleStatus.Error)
+        {
+            // Persist the diagnostic alongside the status so the GET
+            // endpoint can surface "why" without forcing the operator to
+            // grep the worker logs. Empty / null messages still flip the
+            // status to Error so a "we don't know" outcome is at least
+            // visible.
+            if (!string.IsNullOrEmpty(error))
+            {
+                await StateManager.SetStateAsync(StateKeys.AgentLifecycleError, error, cancellationToken);
+            }
+            else
+            {
+                await StateManager.TryRemoveStateAsync(StateKeys.AgentLifecycleError, cancellationToken);
+            }
+        }
+        else
+        {
+            // Flipping back to Active clears any previous error so the
+            // status row is internally consistent.
+            await StateManager.TryRemoveStateAsync(StateKeys.AgentLifecycleError, cancellationToken);
+        }
+
+        await StateManager.SaveStateAsync(cancellationToken);
+    }
+
     /// <summary>
     /// Determines whether this agent is a clone by checking for a stored <see cref="CloneIdentity"/>.
     /// </summary>

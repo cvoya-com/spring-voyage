@@ -881,6 +881,12 @@ public class UnitCreationService : IUnitCreationService
                     if (transitionResult is { Success: true })
                     {
                         initialStatus = UnitStatus.Validating;
+                        // #2156: mark the unit for automatic transition into
+                        // Running once validation succeeds. The actor's
+                        // CompleteValidationAsync consumes and clears this
+                        // flag so a subsequent manual revalidation falls
+                        // back to the legacy "settle in Stopped" behaviour.
+                        await proxy.SetPendingAutoStartAsync(cancellationToken);
                     }
                     else
                     {
