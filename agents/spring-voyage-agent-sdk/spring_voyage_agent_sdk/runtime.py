@@ -239,16 +239,39 @@ class _SdkAgentExecutor(AgentExecutor):
                     text_chunks.append(response.text)
 
         if error_text is not None:
+            logger.error(
+                "on_message hook reported an error for task %s: %s",
+                context.task_id,
+                error_text,
+            )
             await updater.failed(updater.new_agent_message([Part(text=error_text)]))
             return
 
         full_text = "".join(text_chunks)
-        if full_text:
-            await updater.add_artifact(
-                parts=[Part(text=full_text)],
-                name="response",
+        if not full_text:
+            # The hook returned (or its async-generator exhausted) without
+            # yielding any text and without raising. Completing the task
+            # silently here would surface as "agent produced no response"
+            # to the platform — and the platform has historically logged
+            # nothing in that case, leaving the user staring at an empty
+            # chat. Per spec §1.2 a hook MUST either yield text, yield
+            # an error, or raise; reaching this point is a contract
+            # violation by the hook implementation. Surface it as a
+            # failed task so the platform records an event the operator
+            # can see.
+            error_msg = (
+                "on_message hook returned no text and no error — "
+                "this is a contract violation (spec §1.2). Surfacing "
+                "as task failure rather than silent empty completion."
             )
+            logger.error("Task %s: %s", context.task_id, error_msg)
+            await updater.failed(updater.new_agent_message([Part(text=error_msg)]))
+            return
 
+        await updater.add_artifact(
+            parts=[Part(text=full_text)],
+            name="response",
+        )
         await updater.complete()
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
