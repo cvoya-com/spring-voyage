@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # pool: fast
-# Install the engineering-team unit via `spring package install` and verify
-# the unit reports a sensible status. The pre-#1583 form of this scenario
-# used `unit create --from-template` (now deleted); the v0.1 install path
-# is `spring package install`.
+# Install the `hello-world` catalog package and verify the resulting unit
+# reports a sensible status. The pre-#1583 form of this scenario used
+# `unit create --from-template` (now deleted); the v0.1 install path is
+# `spring package install`.
 #
 # The actor transition table (#939) intentionally forbids Draft->Starting:
 # units must pass through Validating->Stopped before they can be started.
@@ -14,17 +14,23 @@
 #
 # The full start path (Draft->Stopped->Starting->Running) requires a
 # resolvable credential and a running container probe — out of scope.
+#
+# Why hello-world (#2127): every other catalog package declares a required
+# `github` connector binding which forced the fast pool to stub
+# `--connector github=acme/repo@1` just to clear `ConnectorBindingMissing`.
+# `hello-world` ships with no `requires:` block (#2115 / PR #2125), so the
+# install path is exercised end-to-end without a stub binding.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${HERE}/../../_lib.sh"
 
-unit="engineering-team"
+unit="hello-world"
 
-# Pre-flight teardown of any leftover engineering-team from a prior failed
-# run — see unit-create-from-template.sh for the rationale. `spring unit
-# purge` 500s when the unit holds the agents' only membership; force-delete
-# the agents (cascading their memberships) then the unit. Best-effort.
+# Pre-flight teardown of any leftover hello-world unit from a prior failed
+# run. `spring unit purge` 500s when the unit holds the agents' only
+# membership; force-delete the agents (cascading their memberships) then
+# the unit. Best-effort.
 _pre_cleanup() {
     local show memberships agent_id unit_hex
     show="$(e2e::cli unit show "${unit}" --output json 2>/dev/null)"
@@ -42,17 +48,13 @@ _pre_cleanup() {
 _pre_cleanup
 trap '_pre_cleanup' EXIT
 
-# Stub connector binding to satisfy the package's required `github`
-# declaration; the fast pool does not exercise real GitHub I/O.
-e2e::log "spring package install software-engineering --connector github=acme/repo@1"
-response="$(e2e::cli --output json package install software-engineering --connector "github=acme/repo@1")"
+# Install hello-world with no --connector flag — the package declares no
+# `requires:` block on either side, so the install pipeline accepts it
+# without a binding.
+e2e::log "spring package install hello-world"
+response="$(e2e::cli --output json package install hello-world)"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
-if [[ "${code}" != "0" && "${body}" == *"ConnectorBindingMissing"* ]]; then
-    # TODO(spring-voyage#cli-e2e-stub-binding): see unit-create-from-template.sh.
-    e2e::log "package requires a real connector binding the fast pool cannot supply — skipping scenario."
-    exit 0
-fi
 e2e::expect_status "0" "${code}" "package install succeeds"
 
 # Verify status command works — it should return a JSON envelope with
