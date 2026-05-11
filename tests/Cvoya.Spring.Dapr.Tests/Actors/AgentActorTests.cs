@@ -266,6 +266,98 @@ public class AgentActorTests
             Arg.Any<CancellationToken>());
     }
 
+    // --- Runtime-status snapshot (#2100) ---
+
+    [Fact]
+    public async Task GetRuntimeStatusAsync_NoChannels_ReportsZero()
+    {
+        var report = await _actor.GetRuntimeStatusAsync(TestContext.Current.CancellationToken);
+
+        report.InFlightThreadCount.ShouldBe(0);
+        report.QueuedMessageCount.ShouldBe(0);
+        report.ChannelCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetRuntimeStatusAsync_OneDispatchingChannel_CountsInFlight()
+    {
+        var threadId = "conv-busy";
+        var channel = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages = [CreateMessage(threadId: threadId)],
+            Dispatching = true,
+        };
+
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, [threadId]));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channel));
+
+        var report = await _actor.GetRuntimeStatusAsync(TestContext.Current.CancellationToken);
+
+        report.InFlightThreadCount.ShouldBe(1);
+        report.QueuedMessageCount.ShouldBe(0);
+        report.ChannelCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetRuntimeStatusAsync_DispatchingChannelWithBacklog_CountsQueueBeyondHead()
+    {
+        var threadId = "conv-busy";
+        var channel = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages =
+            [
+                CreateMessage(threadId: threadId),
+                CreateMessage(threadId: threadId),
+                CreateMessage(threadId: threadId),
+            ],
+            Dispatching = true,
+        };
+
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, [threadId]));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channel));
+
+        var report = await _actor.GetRuntimeStatusAsync(TestContext.Current.CancellationToken);
+
+        // 3 messages, 1 in-flight head ⇒ 2 queued behind it.
+        report.InFlightThreadCount.ShouldBe(1);
+        report.QueuedMessageCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task GetRuntimeStatusAsync_NonDispatchingChannelWithMessages_CountsAllAsQueued()
+    {
+        // Transient state between drains: channel exists with messages
+        // but the dispatcher has just exited and the next one hasn't
+        // started yet. Every message is queued ahead of any future drain.
+        var threadId = "conv-queued";
+        var channel = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages =
+            [
+                CreateMessage(threadId: threadId),
+                CreateMessage(threadId: threadId),
+            ],
+            Dispatching = false,
+        };
+
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, [threadId]));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channel));
+
+        var report = await _actor.GetRuntimeStatusAsync(TestContext.Current.CancellationToken);
+
+        report.InFlightThreadCount.ShouldBe(0);
+        report.QueuedMessageCount.ShouldBe(2);
+    }
+
     // --- Per-thread cancel (#2076 / ADR-0030 §44) ---
 
     [Fact]

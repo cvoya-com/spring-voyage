@@ -68,6 +68,7 @@ function FilterChip({
 
 function agentToCardShape(agent: AgentResponse): AgentCardAgent {
   return {
+    id: agent.id,
     name: agent.name,
     displayName: agent.displayName,
     role: agent.role ?? null,

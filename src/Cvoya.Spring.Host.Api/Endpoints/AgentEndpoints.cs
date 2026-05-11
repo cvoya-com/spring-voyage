@@ -127,6 +127,18 @@ public static class AgentEndpoints
             .Produces<PersistentAgentDeploymentResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // Portal runtime-status indicator (#2100). Cheap polling endpoint
+        // backing the per-name status chip. Distinct from
+        // /{id} (full StatusQuery via the message router): no activity
+        // event, no permission gate beyond the group's authentication,
+        // sub-2s latency target. Polled by the portal at ~2s cadence
+        // when a chip is on screen.
+        group.MapGet("/{id}/runtime-status", GetAgentRuntimeStatusAsync)
+            .WithName("GetAgentRuntimeStatus")
+            .WithSummary("Get the agent's runtime-status indicator (idle / busy / queued / unavailable)")
+            .Produces<AgentRuntimeStatusResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         // Agent execution surface (#601 / #603 / #409 B-wide). Exposes
         // the agent's own `execution:` block (image / runtime / model /
         // hosting). Resolution chain (agent → unit
@@ -677,6 +689,122 @@ public static class AgentEndpoints
         }
 
         return Results.Ok(EmptyDeploymentResponse(id, replicas: 0));
+    }
+
+    /// <summary>
+    /// Returns the runtime-status indicator for an agent (#2100). Combines
+    /// the actor's per-thread channel snapshot
+    /// (<see cref="IAgentActor.GetRuntimeStatusAsync"/>) with the
+    /// <see cref="PersistentAgentRegistry"/> health probe to project one
+    /// of <c>idle</c> / <c>busy</c> / <c>queued</c> / <c>unavailable</c>.
+    /// Endpoint is poll-friendly: no activity-event side effect, no
+    /// permission gate beyond the group-level authentication.
+    /// </summary>
+    private static async Task<IResult> GetAgentRuntimeStatusAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] PersistentAgentRegistry persistentAgentRegistry,
+        [FromServices] IAgentExecutionStore executionStore,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+
+        // Persistent-mode agents only: an `unavailable` probe value can
+        // come from the registry — ephemeral agents have no container to
+        // be unhealthy. Look up the agent's hosting mode through the
+        // execution store; on transient store error fall through to the
+        // actor read (fail-open: report idle/busy/queued rather than
+        // misclassify a healthy ephemeral agent as unavailable).
+        AgentExecutionShape? shape = null;
+        try
+        {
+            shape = await executionStore.GetAsync(actorId, cancellationToken);
+        }
+        catch
+        {
+            // Fail-open per the comment above.
+        }
+
+        var isPersistent = string.Equals(shape?.Hosting, "persistent", StringComparison.OrdinalIgnoreCase);
+        if (isPersistent)
+        {
+            // Persistent agent: registry MUST carry an entry once the
+            // agent has been deployed. No entry => not deployed yet =>
+            // unavailable. Entry present but Unhealthy => unavailable.
+            if (!persistentAgentRegistry.TryGet(actorId, out var registryEntry) || registryEntry is null)
+            {
+                return Results.Ok(new AgentRuntimeStatusResponse(
+                    Status: "unavailable",
+                    LastUpdated: DateTimeOffset.UtcNow,
+                    InFlightThreadCount: 0,
+                    QueuedMessageCount: 0));
+            }
+
+            if (registryEntry.HealthStatus != AgentHealthStatus.Healthy)
+            {
+                return Results.Ok(new AgentRuntimeStatusResponse(
+                    Status: "unavailable",
+                    LastUpdated: DateTimeOffset.UtcNow,
+                    InFlightThreadCount: 0,
+                    QueuedMessageCount: 0));
+            }
+        }
+
+        // Healthy / ephemeral path: ask the actor for its per-thread
+        // channel snapshot. Wrap the proxy call so a transient Dapr
+        // hiccup surfaces as `idle` rather than 5xx — the chip is a
+        // best-effort indicator and a stale-but-rendered chip is a
+        // strictly better failure mode than a blanked card.
+        AgentRuntimeStatusReport report;
+        try
+        {
+            var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+                new ActorId(actorId), nameof(AgentActor));
+            report = await proxy.GetRuntimeStatusAsync(cancellationToken);
+        }
+        catch (Exception)
+        {
+            report = new AgentRuntimeStatusReport(
+                InFlightThreadCount: 0,
+                QueuedMessageCount: 0,
+                ChannelCount: 0,
+                ObservedAt: DateTimeOffset.UtcNow);
+        }
+
+        return Results.Ok(ProjectRuntimeStatus(report));
+    }
+
+    /// <summary>
+    /// Maps an actor-side <see cref="AgentRuntimeStatusReport"/> to the
+    /// portal-facing <see cref="AgentRuntimeStatusResponse"/>. Pure;
+    /// shared with the unit endpoint variant.
+    /// </summary>
+    internal static AgentRuntimeStatusResponse ProjectRuntimeStatus(AgentRuntimeStatusReport report)
+    {
+        // busy strictly wins over queued: an in-flight dispatcher is the
+        // signal humans need to see ("the agent is doing something
+        // somewhere right now"). queued without busy is the head-of-line
+        // signal — the actor has nothing actively dispatching but
+        // messages are sitting in a channel between drains.
+        var status = (report.InFlightThreadCount, report.QueuedMessageCount) switch
+        {
+            ( > 0, _) => "busy",
+            (0, > 0) => "queued",
+            _ => "idle",
+        };
+
+        return new AgentRuntimeStatusResponse(
+            Status: status,
+            LastUpdated: report.ObservedAt,
+            InFlightThreadCount: report.InFlightThreadCount,
+            QueuedMessageCount: report.QueuedMessageCount);
     }
 
     /// <summary>

@@ -24,11 +24,13 @@ import { Eye, MessageCircleQuestion } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { RuntimeStatusBadge } from "@/components/runtime-status-badge";
 import { useThread, useCurrentUser, useInbox } from "@/lib/api/queries";
 import {
   addressOf,
   idOf,
   participantDisplayName,
+  runtimeKindOf,
 } from "@/components/thread/role";
 import { EngagementTimeline } from "./engagement-timeline";
 import { EngagementComposer } from "./engagement-composer";
@@ -209,32 +211,59 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
   // — the previous fallback emitted strings like "agent:id:<uuid>",
   // which is the bug tracked in #1630. #2082: filter by Guid identity
   // rather than address string.
-  const headerNames = (() => {
-    const others = currentUserId
-      ? participants.filter((p) => idOf(p) !== currentUserId)
-      : participants;
-    if (others.length === 0) return "Just you";
-    const names = others
-      .map((p) => participantDisplayName(p))
-      .filter(Boolean) as string[];
-    if (names.length > 0) return names.join(" · ");
-    // No name resolved — soft fallback rather than leak GUIDs.
-    return others.length === 1 ? "Unknown participant" : "Unknown participants";
-  })();
+  const otherParticipants = currentUserId
+    ? participants.filter((p) => idOf(p) !== currentUserId)
+    : participants;
+  const fallbackHeader =
+    otherParticipants.length === 0
+      ? "Just you"
+      : otherParticipants.length === 1
+        ? "Unknown participant"
+        : "Unknown participants";
+  const renderableHeaderEntries = otherParticipants
+    .map((p) => ({ p, name: participantDisplayName(p) }))
+    .filter((e) => Boolean(e.name));
 
   return (
     <div
       className="flex flex-col min-h-0 flex-1"
       data-testid="engagement-detail"
     >
-      {/* Participant summary header */}
+      {/* Participant summary header.
+          #2100: each non-human participant carries a small runtime-status
+          chip so silent moments (head-of-line victims of another thread)
+          don't read as "the agent is broken". Humans don't get a chip —
+          their absence is the indicator. */}
       <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs">
-        <span
-          className="truncate font-medium text-foreground"
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-medium text-foreground"
           data-testid="engagement-detail-header-names"
         >
-          {headerNames}
-        </span>
+          {renderableHeaderEntries.length === 0 ? (
+            <span className="truncate">{fallbackHeader}</span>
+          ) : (
+            renderableHeaderEntries.map(({ p, name }, idx) => {
+              const kind = runtimeKindOf(p);
+              const actorId = idOf(p);
+              return (
+                <span
+                  key={`${addressOf(p)}-${idx}`}
+                  className="inline-flex min-w-0 items-center gap-1.5"
+                >
+                  <span className="truncate">{name}</span>
+                  {kind && (
+                    <RuntimeStatusBadge
+                      kind={kind}
+                      id={actorId}
+                      size="dot"
+                      testId={`engagement-detail-header-status-${actorId ?? "unknown"}`}
+                    />
+                  )}
+                </span>
+              );
+            })
+          )}
+        </div>
         {!isParticipant && (
           <Badge variant="secondary" className="ml-auto shrink-0">
             Observer

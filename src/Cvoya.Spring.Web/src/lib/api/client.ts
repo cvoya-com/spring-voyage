@@ -6,6 +6,7 @@ import type {
   AgentDetailResponse,
   AgentExecutionResponse,
   AgentResponse,
+  AgentRuntimeStatusResponse,
   ThreadListFilters,
   ThreadMessageRequest,
   CreateAgentRequest,
@@ -258,6 +259,36 @@ export const api = {
         params: { path: { id } },
       }),
     ) as PersistentAgentDeploymentResponse,
+
+  /**
+   * Polled by `<RuntimeStatusBadge>` to drive the agent runtime-status
+   * chip (#2100). Returns one of `idle` / `busy` / `queued` /
+   * `unavailable`, plus the in-flight + queue counts the chip surfaces
+   * in its tooltip. Unlike `getAgent()`, this endpoint does NOT round-
+   * trip through the message router — it's a cheap actor-state read so
+   * polling at sub-2s cadence does not flood the activity stream.
+   */
+  getAgentRuntimeStatus: async (
+    id: string,
+  ): Promise<AgentRuntimeStatusResponse> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/runtime-status", {
+        params: { path: { id } },
+      }),
+    ) as AgentRuntimeStatusResponse,
+
+  /**
+   * Unit-side counterpart of {@link getAgentRuntimeStatus} (#2100). Same
+   * wire shape — units project the same indicator per ADR-0017.
+   */
+  getUnitRuntimeStatus: async (
+    id: string,
+  ): Promise<AgentRuntimeStatusResponse> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/units/{id}/runtime-status", {
+        params: { path: { id } },
+      }),
+    ) as AgentRuntimeStatusResponse,
 
   // Units
   //

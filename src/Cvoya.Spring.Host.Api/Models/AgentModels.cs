@@ -141,3 +141,36 @@ public record AgentSkillsResponse(IReadOnlyList<string> Skills);
 /// clears the configuration; it is not treated as "leave alone."
 /// </summary>
 public record SetAgentSkillsRequest(IReadOnlyList<string> Skills);
+
+/// <summary>
+/// Response body for <c>GET /api/v1/tenant/agents/{id}/runtime-status</c>
+/// and <c>GET /api/v1/tenant/units/{id}/runtime-status</c> (#2100).
+/// Surfaces the four-state runtime indicator the portal renders next to
+/// every agent / unit name (engagement timeline, member rosters, drawer
+/// panels, mention chips).
+/// </summary>
+/// <param name="Status">
+/// One of <c>idle</c>, <c>busy</c>, <c>queued</c>, or <c>unavailable</c>.
+/// Lower-case wire form so the portal's status-chip switch can match
+/// without a normalisation step. Maps from
+/// <see cref="AgentRuntimeStatus"/>.
+/// </param>
+/// <param name="LastUpdated">
+/// UTC timestamp the snapshot was taken at the actor. Polling clients
+/// surface staleness from this. The endpoint takes the actor's
+/// <c>ObservedAt</c> when available; on the unavailable path it stamps
+/// the request time so the wire field is never absent.
+/// </param>
+/// <param name="InFlightThreadCount">
+/// Number of per-thread channels with a dispatcher currently running.
+/// <c>0</c> for units (no per-thread channels yet) and for idle agents.
+/// </param>
+/// <param name="QueuedMessageCount">
+/// Total messages queued behind the in-flight heads across every channel.
+/// <c>0</c> when no head-of-line victims exist.
+/// </param>
+public record AgentRuntimeStatusResponse(
+    string Status,
+    DateTimeOffset LastUpdated,
+    int InFlightThreadCount,
+    int QueuedMessageCount);

@@ -9,7 +9,28 @@ import "@testing-library/jest-dom/vitest";
 import * as jestDomMatchers from "@testing-library/jest-dom/matchers";
 import "vitest-axe/extend-expect";
 import * as axeMatchers from "vitest-axe/matchers";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
+
+// `<RuntimeStatusBadge>` (#2100) uses `useQuery` to poll the runtime-
+// status endpoint, which would require every component-test render that
+// transitively rendered the badge to wrap in a `QueryClientProvider`.
+// Stub the polling hook globally so existing tests render the badge in
+// its loading-skeleton (`unknown`) state without needing a query
+// provider; tests that want to assert specific badge states still
+// override this mock with `vi.mock(...)` at the top of their file.
+vi.mock("@/lib/api/use-runtime-status", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/lib/api/use-runtime-status")
+  >("@/lib/api/use-runtime-status");
+  return {
+    ...actual,
+    useRuntimeStatus: () => ({
+      data: undefined,
+      isPending: true,
+      isError: false,
+    }),
+  };
+});
 
 expect.extend(jestDomMatchers);
 

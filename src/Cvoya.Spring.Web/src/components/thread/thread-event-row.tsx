@@ -11,15 +11,18 @@ import {
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+import { RuntimeStatusBadge } from "@/components/runtime-status-badge";
 import { cn } from "@/lib/utils";
 import type { ThreadEvent } from "@/lib/api/types";
 
 import {
   addressOf,
+  idOf,
   parseThreadSource,
   participantDisplayName,
   ROLE_STYLES,
   roleFromEvent,
+  runtimeKindOf,
   type ConversationRole,
 } from "./role";
 
@@ -143,6 +146,12 @@ export function ThreadEventRow({
   // sentinel; raw GUIDs leaking here is a server-side resolver bug.
   const resolvedDisplayName = participantDisplayName(attributed);
 
+  // Runtime-status indicator for the bubble header (#2100). Only rendered
+  // when the event is attributed to an addressable agent or unit — humans
+  // and tool / system rows do not carry one.
+  const runtimeKind = runtimeKindOf(attributed);
+  const runtimeId = idOf(attributed);
+
   // #1161: error events render with destructive styling and are never
   // collapsed — the user cannot be expected to open the activity log to
   // discover a dispatch failure that happened inside their active
@@ -233,6 +242,14 @@ export function ThreadEventRow({
                 {resolvedDisplayName}
               </span>
             )}
+            {runtimeKind && runtimeId && (
+              <RuntimeStatusBadge
+                kind={runtimeKind}
+                id={runtimeId}
+                size="dot"
+                testId={`${testIdPrefix}-source-status`}
+              />
+            )}
             <span aria-hidden="true">·</span>
             <time
               dateTime={event.timestamp}
@@ -292,6 +309,14 @@ export function ThreadEventRow({
             >
               {resolvedDisplayName}
             </span>
+          )}
+          {runtimeKind && runtimeId && (
+            <RuntimeStatusBadge
+              kind={runtimeKind}
+              id={runtimeId}
+              size="dot"
+              testId={`${testIdPrefix}-source-status`}
+            />
           )}
           <span aria-hidden="true">·</span>
           <time

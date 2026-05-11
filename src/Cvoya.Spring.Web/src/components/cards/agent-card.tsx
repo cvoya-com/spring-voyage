@@ -2,6 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { RuntimeStatusBadge } from "@/components/runtime-status-badge";
 import type {
   AgentDashboardSummary,
   AgentExecutionMode,
@@ -34,6 +35,13 @@ export interface AgentCardAgent {
   executionMode?: AgentExecutionMode | null;
   /** Short one-line summary of the most recent activity, if known. */
   lastActivity?: string | null;
+  /**
+   * Stable Guid of the agent — when present, the card renders the
+   * runtime-status indicator chip (#2100). Optional because the
+   * dashboard-summary shape doesn't carry it; that surface degrades to
+   * the legacy badge-only rendering when omitted.
+   */
+  id?: string | null;
 }
 
 /**
@@ -123,6 +131,11 @@ export function AgentCard({
   const status = "status" in agent ? agent.status ?? null : null;
   const execMode =
     "executionMode" in agent ? agent.executionMode ?? null : null;
+  // #2100: render the runtime-status indicator next to the role/status
+  // pills when the caller threads through the agent's stable id. The
+  // dashboard summary shape doesn't carry it; the card degrades to the
+  // legacy badge-only layout in that case.
+  const runtimeId = "id" in agent ? agent.id ?? null : null;
 
   return (
     <Card
@@ -170,6 +183,13 @@ export function AgentCard({
               <Badge variant="outline" data-testid="agent-execution-mode-badge">
                 {execMode}
               </Badge>
+            )}
+            {runtimeId && (
+              <RuntimeStatusBadge
+                kind="agent"
+                id={runtimeId}
+                testId={`agent-runtime-status-${agent.name}`}
+              />
             )}
           </div>
         </Link>

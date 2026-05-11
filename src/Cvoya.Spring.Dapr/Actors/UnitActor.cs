@@ -982,6 +982,26 @@ public class UnitActor : Actor, IUnitActor
         return await _memberGraphStore.GetMembersAsync(unitGuid, ct);
     }
 
+    /// <inheritdoc />
+    public Task<Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport> GetRuntimeStatusAsync(
+        CancellationToken ct = default)
+    {
+        // Units do not currently track per-thread mailbox channels — every
+        // domain message goes straight through `_runtimeInvocationPath`
+        // (see HandleDomainMessageAsync), so there is no in-actor queue
+        // depth to surface. The API layer combines the zero report below
+        // with the PersistentAgentRegistry health probe (units share the
+        // registry with agents) to project either `idle` or `unavailable`
+        // (#2100). When per-unit channel mailboxes land we backfill this
+        // method to mirror AgentActor.GetRuntimeStatusAsync.
+        _ = ct;
+        return Task.FromResult(new Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport(
+            InFlightThreadCount: 0,
+            QueuedMessageCount: 0,
+            ChannelCount: 0,
+            ObservedAt: DateTimeOffset.UtcNow));
+    }
+
     /// <summary>
     /// Publishes a pre-built <see cref="ActivityEvent"/> to the activity
     /// bus. Failures are logged but never allowed to escape the actor

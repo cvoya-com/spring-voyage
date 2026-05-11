@@ -1045,6 +1045,47 @@
         }
       }
     },
+    "/api/v1/tenant/agents/{id}/runtime-status": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Get the agent's runtime-status indicator (idle / busy / queued / unavailable)",
+        "operationId": "GetAgentRuntimeStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRuntimeStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/agents/{id}/execution": {
       "get": {
         "tags": [
@@ -2154,6 +2195,47 @@
           },
           "422": {
             "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/units/{id}/runtime-status": {
+      "get": {
+        "tags": [
+          "Units"
+        ],
+        "summary": "Get the unit's runtime-status indicator (idle / busy / queued / unavailable)",
+        "operationId": "GetUnitRuntimeStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRuntimeStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -9044,6 +9126,32 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "AgentRuntimeStatusResponse": {
+        "required": [
+          "status",
+          "lastUpdated",
+          "inFlightThreadCount",
+          "queuedMessageCount"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "lastUpdated": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "inFlightThreadCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "queuedMessageCount": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

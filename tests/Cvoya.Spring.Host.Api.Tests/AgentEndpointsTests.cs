@@ -569,4 +569,208 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 e.DisplayName == "Resolved Agent"),
             Arg.Any<CancellationToken>());
     }
+
+    // -------------------------------------------------------------------
+    // GET /api/v1/tenant/agents/{id}/runtime-status (#2100)
+    //
+    // The portal-facing runtime-status indicator. Backend covers four
+    // states:
+    //   - idle       (actor reports no channels)
+    //   - busy       (actor reports >0 in-flight channels)
+    //   - queued     (actor reports 0 in-flight, >0 queued)
+    //   - unavailable (persistent + registry probe Unhealthy / missing)
+    //
+    // Ephemeral agents never flip to `unavailable` — there's no container
+    // to probe — so we exercise the unavailable path through a persistent
+    // shape on the execution-store substitute.
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task GetAgentRuntimeStatus_AgentNotFound_Returns404()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ghost = Guid.NewGuid();
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Id == ghost), Arg.Any<CancellationToken>())
+            .Returns((DirectoryEntry?)null);
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/agents/{ghost:N}/runtime-status", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetAgentRuntimeStatus_NoChannels_ReturnsIdle()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Idle Agent");
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 0, channels: 0);
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/agents/{agentId:N}/runtime-status", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content
+            .ReadFromJsonAsync<AgentRuntimeStatusResponse>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+        body.Status.ShouldBe("idle");
+        body.InFlightThreadCount.ShouldBe(0);
+        body.QueuedMessageCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetAgentRuntimeStatus_InFlightChannel_ReturnsBusy()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Busy Agent");
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 1, queued: 0, channels: 1);
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/agents/{agentId:N}/runtime-status", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content
+            .ReadFromJsonAsync<AgentRuntimeStatusResponse>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+        body.Status.ShouldBe("busy");
+        body.InFlightThreadCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetAgentRuntimeStatus_QueuedWithoutInFlight_ReturnsQueued()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Queued Agent");
+        // 0 in-flight + queued > 0 is the brief transient between drains.
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 3, channels: 1);
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/agents/{agentId:N}/runtime-status", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content
+            .ReadFromJsonAsync<AgentRuntimeStatusResponse>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+        body.Status.ShouldBe("queued");
+        body.QueuedMessageCount.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task GetAgentRuntimeStatus_PersistentAgentNotDeployed_ReturnsUnavailable()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Persistent Ghost");
+        ArrangeAgentExecutionShape(agentId, hosting: "persistent");
+        // No registry registration ⇒ TryGet returns false ⇒ unavailable.
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 5, queued: 99, channels: 5);
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/agents/{agentId:N}/runtime-status", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content
+            .ReadFromJsonAsync<AgentRuntimeStatusResponse>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+        body.Status.ShouldBe("unavailable");
+        // unavailable supersedes the actor-reported in-flight/queue.
+        body.InFlightThreadCount.ShouldBe(0);
+        body.QueuedMessageCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetAgentRuntimeStatus_PersistentAgentUnhealthy_ReturnsUnavailable()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Persistent Sick");
+        ArrangeAgentExecutionShape(agentId, hosting: "persistent");
+
+        var registry = _factory.Services
+            .GetRequiredService<Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry>();
+        var actorId = agentId.ToString("N");
+        registry.Register(
+            actorId,
+            new Uri("http://test/agent"),
+            containerId: "container-1");
+        registry.MarkUnhealthy(actorId);
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/agents/{agentId:N}/runtime-status", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content
+            .ReadFromJsonAsync<AgentRuntimeStatusResponse>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+        body.Status.ShouldBe("unavailable");
+
+        // Cleanup so a sibling test in the same fixture doesn't see this entry.
+        registry.Remove(actorId);
+    }
+
+    [Fact]
+    public async Task GetAgentRuntimeStatus_EphemeralAgentWithoutDeployment_FallsThroughToActor()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Ephemeral Idle");
+        // No execution shape ⇒ ephemeral (default null hosting) ⇒ never
+        // unavailable, even though the registry has no entry.
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 0, channels: 0);
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/agents/{agentId:N}/runtime-status", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content
+            .ReadFromJsonAsync<AgentRuntimeStatusResponse>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+        body.Status.ShouldBe("idle");
+    }
+
+    private void ArrangeAgentDirectoryEntry(Guid agentId, string displayName)
+    {
+        var entry = new DirectoryEntry(
+            new Address("agent", agentId),
+            agentId,
+            displayName,
+            displayName,
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+    }
+
+    private void ArrangeAgentRuntimeStatus(Guid agentId, int inFlight, int queued, int channels)
+    {
+        var actorIdString = agentId.ToString("N");
+        var proxy = Substitute.For<IAgentActor>();
+        proxy.GetRuntimeStatusAsync(Arg.Any<CancellationToken>())
+            .Returns(new Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport(
+                InFlightThreadCount: inFlight,
+                QueuedMessageCount: queued,
+                ChannelCount: channels,
+                ObservedAt: DateTimeOffset.UtcNow));
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IAgentActor>(
+                Arg.Is<ActorId>(a => a.GetId() == actorIdString),
+                Arg.Any<string>())
+            .Returns(proxy);
+    }
+
+    private void ArrangeAgentExecutionShape(Guid agentId, string hosting)
+    {
+        var actorIdString = agentId.ToString("N");
+        _factory.AgentExecutionStore
+            .GetAsync(actorIdString, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<AgentExecutionShape?>(
+                new AgentExecutionShape(Hosting: hosting)));
+    }
 }

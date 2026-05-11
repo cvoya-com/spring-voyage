@@ -296,4 +296,19 @@ public interface IUnitActor : IAgent
     /// <param name="inheritance">The inheritance mode to persist.</param>
     /// <param name="ct">A token to cancel the operation.</param>
     Task SetPermissionInheritanceAsync(UnitPermissionInheritance inheritance, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns a coarse runtime-status snapshot of this unit — the same
+    /// shape <see cref="IAgentActor.GetRuntimeStatusAsync"/> returns for
+    /// agents (#2100). Units do not currently track per-thread mailbox
+    /// channels (they invoke the runtime path directly per
+    /// <c>HandleDomainMessageAsync</c>), so the snapshot reports zero
+    /// in-flight / queued / channels today; the API layer combines this
+    /// with the <c>PersistentAgentRegistry</c> health probe to project
+    /// <c>idle</c> or <c>unavailable</c>.
+    /// </summary>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>A snapshot of the unit's runtime state.</returns>
+    Task<Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport> GetRuntimeStatusAsync(
+        CancellationToken ct = default);
 }

@@ -119,8 +119,17 @@ Small non-interactive signals use Tailwind palette colours directly for visual p
 | Activity severity — `Warning`                | `bg-warning` / `text-warning`                                  |
 | Activity severity — `Error`                  | `bg-destructive` / `text-destructive`                          |
 | Activity severity — `Debug`                  | `bg-debug` / `text-debug`                                      |
+| Runtime status — `idle`                      | `border-border bg-muted/40 text-muted-foreground`              |
+| Runtime status — `busy`                      | `border-warning/50 bg-warning/10 text-warning` (icon `animate-spin`) |
+| Runtime status — `queued`                    | `border-primary/40 bg-primary/10 text-primary`                 |
+| Runtime status — `unavailable`               | `border-destructive/50 bg-destructive/10 text-destructive`     |
 
 Prefer the semantic `success` / `warning` / `destructive` tokens for badges and buttons. Use the brand-extension palette only for brand-facing chrome.
+
+The runtime-status palette ships through `<RuntimeStatusBadge>` (`src/components/runtime-status-badge.tsx`, #2100). It renders next to every agent / unit name across the portal — engagement-timeline header and bubbles, agent/unit cards, member rosters, mention chips — and polls `GET /api/v1/tenant/{kind}/{id}/runtime-status` at ~2s cadence. Two variants:
+- `size="default"` — pill with icon + text label (cards / drawer panels).
+- `size="dot"` — colour-only chip with ARIA label + tooltip (chrome-tight surfaces such as the engagement-timeline message-bubble header).
+Status is conveyed by both colour AND a Lucide icon (per § 14 — never colour-only) so colour-blind operators can still resolve the state.
 
 ---
 
