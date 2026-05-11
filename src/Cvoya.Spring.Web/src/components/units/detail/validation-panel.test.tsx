@@ -39,10 +39,10 @@ vi.mock("@/lib/api/client", () => ({
     revalidateUnit: (id: string) => revalidateUnitMock(id),
     createUnitSecret: (id: string, body: unknown) =>
       createUnitSecretMock(id, body),
-    // ADR-0038: the credential-edit sub-panel resolves the secret
-    // name from the installed-providers list. Tests need a stable
-    // anthropic install row so the (claude-code, anthropic) edge
-    // resolves to the OAuth-token secret name.
+    // ADR-0038 / #2161: the credential-edit sub-panel computes the
+    // secret name from the (runtime, provider) edge, not from the
+    // install row's primary `credentialSecretName`. The mock just
+    // needs anthropic to be installed so the edit panel renders.
     listModelProviders: async () => [
       {
         id: "anthropic",
@@ -54,7 +54,7 @@ vi.mock("@/lib/api/client", () => ({
         baseUrl: null,
         credentialKind: "OAuthToken",
         credentialDisplayHint: null,
-        credentialSecretName: "anthropic-oauth-token",
+        credentialSecretName: "anthropic-oauth",
       },
     ],
   },
@@ -294,16 +294,59 @@ describe("ValidationPanel — Error status", () => {
       expect(createUnitSecretMock).toHaveBeenCalledTimes(1);
       expect(revalidateUnitMock).toHaveBeenCalledTimes(1);
     });
-    // ADR-0038: the panel resolves the secret name via the
-    // installed-providers list. The mocked `anthropic` install carries
-    // `credentialSecretName: "anthropic-oauth-token"`, matching the
-    // per-edge entry in `runtime-catalog.yaml`.
+    // ADR-0038 / #2161: the panel computes the secret name from the
+    // (claude-code, anthropic) edge → `anthropic-oauth` (the canonical
+    // `{provider}-{authMethod-slug}` name from `CredentialNaming`),
+    // not from the install row's primary `credentialSecretName`.
     expect(createUnitSecretMock).toHaveBeenCalledWith("alpha", {
-      name: "anthropic-oauth-token",
+      name: "anthropic-oauth",
       value: "sk-ant-new",
     });
     // Order matters — secret write first, then revalidate.
     expect(callOrder).toEqual(["createUnitSecret", "revalidateUnit"]);
+  });
+
+  it("writes anthropic-api-key for the (spring-voyage, anthropic) edge (#2161)", async () => {
+    const err: UnitValidationError = {
+      step: "ValidatingCredential",
+      code: "CredentialInvalid",
+      message: "rejected",
+      details: null,
+    };
+    const unit = makeUnit({ status: "Error", lastValidationError: err });
+
+    createUnitSecretMock.mockResolvedValue(undefined);
+    revalidateUnitMock.mockResolvedValue(undefined);
+
+    render(
+      wrap(
+        <ValidationPanel
+          unit={unit}
+          runtime="spring-voyage"
+          modelProvider="anthropic"
+        />,
+      ),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("validation-panel-edit-credential"));
+    });
+    await act(async () => {
+      fireEvent.change(
+        screen.getByTestId("validation-panel-credential-input"),
+        { target: { value: "sk-ant-api-key-value" } },
+      );
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("validation-panel-credential-save"));
+    });
+
+    await waitFor(() => {
+      expect(createUnitSecretMock).toHaveBeenCalledWith("alpha", {
+        name: "anthropic-api-key",
+        value: "sk-ant-api-key-value",
+      });
+    });
   });
 });
 

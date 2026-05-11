@@ -48,6 +48,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api/client";
 import { useModelProviders } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
+import { runtimeCredentialDescriptor } from "@/lib/runtime-credentials";
 import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import type {
   ActivityEvent,
@@ -543,12 +544,11 @@ function ErrorActions({
   const [credentialKey, setCredentialKey] = useState("");
   const queryClient = useQueryClient();
 
-  // ADR-0038 §6: credentials are keyed by `(tenant, provider, authMethod)`.
-  // The portal resolves the secret name via the
-  // `InstalledModelProviderResponse.credentialSecretName` field on the
-  // tenant's installed-providers list — the backend writes that into
-  // the install row at install time, so the portal doesn't need to
-  // duplicate the catalogue.
+  // ADR-0038 §6 / #2161: credentials are keyed by `(tenant, provider,
+  // authMethod)` — Anthropic ships two edges (claude-code → OAuth,
+  // spring-voyage → API key), so resolving by provider id alone would
+  // write to the wrong slot. Derive the canonical secret name from the
+  // (runtime, provider) edge instead.
   const secretName = useSecretNameForProvider(modelProvider, runtime);
 
   const editAndRetryMutation = useMutation<
@@ -685,37 +685,29 @@ function ErrorActions({
 }
 
 /**
- * ADR-0038 §6: resolve the secret name the backend reads for this
- * unit's (provider, authMethod) edge from the installed-providers
- * list. Each `InstalledModelProviderResponse` carries the canonical
- * `credentialSecretName` the backend wrote at install time, so the
- * portal does not duplicate the runtime-catalog mapping.
+ * ADR-0038 §6 / #2161: resolve the canonical secret name for the
+ * unit's (runtime, provider) credential edge. Anthropic ships two
+ * auth methods (claude-code → OAuth, spring-voyage → API key), so the
+ * lookup must consider the runtime — `InstalledModelProviderResponse
+ * .credentialSecretName` only carries the provider's *primary* edge
+ * and would mis-resolve for the secondary one.
  *
- * Returns `null` for providers with `credentialKind === "None"`
- * (Ollama) and for providers that aren't installed on the tenant —
- * the inline credential-edit panel hides itself in those cases.
- *
- * The `runtime` parameter is preserved for forward-compat with
- * v0.2 #1761: when a tenant installs the same provider with two
- * different auth methods (claude-code's OAuth vs. spring-voyage's
- * API-key), the lookup will need the runtime to disambiguate.
- * v0.1 ships one auth method per provider so we just match on id.
+ * Returns `null` when the unit's runtime/provider edge declares no
+ * credential (e.g. spring-voyage + ollama), when the provider isn't
+ * installed on the tenant, or when either id is missing — the inline
+ * credential-edit panel hides itself in those cases.
  */
 function useSecretNameForProvider(
   modelProvider: string | null,
-  // The `_runtime` param is preserved for v0.2 #1761 (per-edge auth
-  // method disambiguation). Not consulted in v0.1 because each
-  // provider ships exactly one auth method.
-  _runtime: string | null,
+  runtime: string | null,
 ): string | null {
-  void _runtime;
   const installedProvidersQuery = useModelProviders();
   const provider = (modelProvider ?? "").trim().toLowerCase();
   if (!provider) return null;
-  const entry = installedProvidersQuery.data?.find(
+  const installed = installedProvidersQuery.data?.find(
     (p) => p.id.toLowerCase() === provider,
   );
-  if (!entry) return null;
-  if (entry.credentialKind === "None") return null;
-  return entry.credentialSecretName ?? null;
+  if (!installed) return null;
+  const descriptor = runtimeCredentialDescriptor(runtime, provider);
+  return descriptor?.secretName ?? null;
 }
