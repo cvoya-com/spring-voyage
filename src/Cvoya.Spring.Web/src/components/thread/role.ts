@@ -179,6 +179,24 @@ export function participantDisplayName(p: AddressLike): string | null {
 }
 
 /**
+ * Returns the actor's runtime-status kind (`"agent"` / `"unit"`) when
+ * the participant resolves to one of those schemes, or `null` for
+ * humans / system / tool / unknown shapes (#2100). Used to decide
+ * whether to render a `<RuntimeStatusBadge>` next to a participant's
+ * name — humans don't have a runtime-status indicator and tool /
+ * system rows are presentation-only.
+ */
+export function runtimeKindOf(p: AddressLike): "agent" | "unit" | null {
+  if (!p) return null;
+  const addr = typeof p === "string" ? p : p.address ?? "";
+  if (!addr) return null;
+  const { scheme } = parseThreadSource(addr);
+  if (scheme === "agent") return "agent";
+  if (scheme === "unit") return "unit";
+  return null;
+}
+
+/**
  * Resolves the presentation role for a thread event. Tool-call events
  * (`DecisionMade`) get their own role so the thread view can render
  * them as collapsed call-outs (#410 § role attribution).

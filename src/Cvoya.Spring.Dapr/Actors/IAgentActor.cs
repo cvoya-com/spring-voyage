@@ -111,4 +111,18 @@ public interface IAgentActor : IAgent
         string threadId,
         string? reason,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a coarse runtime-status snapshot of this agent — the
+    /// per-thread channel population the portal renders next to every
+    /// agent name (#2100). Distinct from <see cref="GetMetadataAsync"/>
+    /// (which returns durable configuration) and from <c>StatusQuery</c>
+    /// via the message router (which is the orchestration-tool surface):
+    /// this method is a cheap actor-state read intended to be polled at
+    /// sub-2s cadence and does not emit a <c>StatusQuery</c> activity event.
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>A snapshot of the agent's per-thread channel state.</returns>
+    Task<AgentRuntimeStatusReport> GetRuntimeStatusAsync(
+        CancellationToken cancellationToken = default);
 }

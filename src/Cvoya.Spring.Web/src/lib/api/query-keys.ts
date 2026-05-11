@@ -49,6 +49,8 @@ export const queryKeys = {
     costBreakdown: (id: string) => ["agents", "costBreakdown", id] as const,
     /** Persistent cloning policy (PR-PLAT-CLONE-1, #534). */
     cloningPolicy: (id: string) => ["agents", "cloningPolicy", id] as const,
+    /** Runtime-status indicator polled by `<RuntimeStatusBadge>` (#2100). */
+    runtimeStatus: (id: string) => ["agents", "runtimeStatus", id] as const,
   },
 
   units: {
@@ -73,6 +75,8 @@ export const queryKeys = {
       ["units", "aggregatedExpertise", id] as const,
     costTimeseries: (id: string, window: string, bucket: string) =>
       ["units", "costTimeseries", id, window, bucket] as const,
+    /** Runtime-status indicator polled by `<RuntimeStatusBadge>` (#2100). */
+    runtimeStatus: (id: string) => ["units", "runtimeStatus", id] as const,
   },
 
   directory: {

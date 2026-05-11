@@ -503,9 +503,14 @@ public class PersistentAgentRegistry(
             if (entry.Definition?.Execution?.Image is null)
             {
                 _logger.LogWarning(
-                    "Cannot restart agent {AgentId}: no definition/image available. Removing from registry.",
+                    "Cannot restart agent {AgentId}: no definition/image available; keeping as unavailable.",
                     entry.AgentId);
-                _entries.TryRemove(entry.AgentId, out _);
+                // Keep the entry in the registry so the portal chip stays
+                // "unavailable" rather than flipping back to "idle". Reset
+                // ConsecutiveFailures so we don't re-enter TryRestartAsync on
+                // every subsequent health tick — the cycle naturally rebuilds
+                // to the restart threshold over UnhealthyThreshold ticks.
+                _entries[entry.AgentId] = entry with { ConsecutiveFailures = 0 };
                 return;
             }
 

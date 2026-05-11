@@ -250,6 +250,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/agents/{id}/runtime-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the agent's runtime-status indicator (idle / busy / queued / unavailable) */
+        get: operations["GetAgentRuntimeStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/agents/{id}/execution": {
         parameters: {
             query?: never;
@@ -501,6 +518,23 @@ export interface paths {
         post: operations["AssignUnitAgent"];
         /** Unassign an agent from this unit. Deletes the membership row and removes the agent from the unit's members list; other memberships the agent holds are unaffected. */
         delete: operations["UnassignUnitAgent"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/units/{id}/runtime-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the unit's runtime-status indicator (idle / busy / queued / unavailable) */
+        get: operations["GetUnitRuntimeStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2476,6 +2510,7 @@ export interface components {
             runtime?: null | string;
             model?: null | components["schemas"]["AiModelDto"];
             hosting?: null | string;
+            concurrentThreads?: null | boolean;
         };
         AgentResponse: {
             /** Format: uuid */
@@ -2493,6 +2528,15 @@ export interface components {
             parentUnit: null | string;
             hostingMode?: null | string;
             initiativeLevel?: null | string;
+        };
+        AgentRuntimeStatusResponse: {
+            status: string;
+            /** Format: date-time */
+            lastUpdated: string;
+            /** Format: int32 */
+            inFlightThreadCount: number;
+            /** Format: int32 */
+            queuedMessageCount: number;
         };
         AgentSkillsResponse: {
             skills: string[];
@@ -4447,6 +4491,37 @@ export interface operations {
             };
         };
     };
+    GetAgentRuntimeStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRuntimeStatusResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     GetAgentExecution: {
         parameters: {
             query?: never;
@@ -5298,6 +5373,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    GetUnitRuntimeStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRuntimeStatusResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };

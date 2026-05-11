@@ -17,6 +17,7 @@ using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Host.Api.Services;
@@ -197,7 +198,84 @@ public static class UnitEndpoints
             // structured conflict body as assignment.
             .Produces(StatusCodes.Status422UnprocessableEntity);
 
+        // Portal runtime-status indicator (#2100). Same shape as the agent
+        // variant on AgentEndpoints — units are agents per ADR-0017 and
+        // the portal renders the same status chip next to every name.
+        // Today the unit actor reports zero in-flight / queued because it
+        // does not yet maintain per-thread channels (every domain
+        // message goes straight through `_runtimeInvocationPath`); the
+        // endpoint still reaches the actor for forward-compatibility and
+        // combines the result with the persistent-registry health probe.
+        group.MapGet("/{id}/runtime-status", GetUnitRuntimeStatusAsync)
+            .WithName("GetUnitRuntimeStatus")
+            .WithSummary("Get the unit's runtime-status indicator (idle / busy / queued / unavailable)")
+            .Produces<AgentRuntimeStatusResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return group;
+    }
+
+    /// <summary>
+    /// Returns the runtime-status indicator for a unit (#2100). Mirrors
+    /// <c>AgentEndpoints.GetAgentRuntimeStatusAsync</c>: registry health
+    /// gate first; on healthy / no-registry-entry, ask the unit actor for
+    /// its per-thread channel snapshot (zero today — see
+    /// <c>UnitActor.GetRuntimeStatusAsync</c>).
+    /// </summary>
+    private static async Task<IResult> GetUnitRuntimeStatusAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] PersistentAgentRegistry persistentAgentRegistry,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(Address.For("unit", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+
+        // Unlike agents, units don't carry an `execution.hosting` slot —
+        // they are always container-backed when running. We treat
+        // "registry entry present and Unhealthy" as `unavailable`;
+        // "no registry entry" is the "not yet started / never deployed"
+        // case which we report as `idle` rather than `unavailable` so
+        // the chip doesn't scream on every Draft / Stopped unit. Operators
+        // who want lifecycle-state visibility have the `UnitStatus` field
+        // (Draft / Validating / Stopped / Error) on the unit detail
+        // endpoint.
+        if (persistentAgentRegistry.TryGet(actorId, out var registryEntry)
+            && registryEntry is not null
+            && registryEntry.HealthStatus != AgentHealthStatus.Healthy)
+        {
+            return Results.Ok(new AgentRuntimeStatusResponse(
+                Status: "unavailable",
+                LastUpdated: DateTimeOffset.UtcNow,
+                InFlightThreadCount: 0,
+                QueuedMessageCount: 0));
+        }
+
+        Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport? report = null;
+        try
+        {
+            var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+                new ActorId(actorId), nameof(UnitActor));
+            report = await proxy.GetRuntimeStatusAsync(cancellationToken);
+        }
+        catch (Exception)
+        {
+            // swallow — best-effort indicator, idle is safer than 5xx
+        }
+
+        report ??= new Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport(
+            InFlightThreadCount: 0,
+            QueuedMessageCount: 0,
+            ChannelCount: 0,
+            ObservedAt: DateTimeOffset.UtcNow);
+
+        return Results.Ok(AgentEndpoints.ProjectRuntimeStatus(report));
     }
 
     private static async Task<IResult> ListUnitsAsync(

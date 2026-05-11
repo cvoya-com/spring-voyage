@@ -208,6 +208,7 @@ export function AgentsTab({ unitId, unitDisplayName }: AgentsTabProps) {
               // renders for memberships whose agent we couldn't look up.
               const cardAgent: AgentCardAgent = directoryAgent
                 ? {
+                    id: directoryAgent.id,
                     name: directoryAgent.name,
                     displayName,
                     role: directoryAgent.role,

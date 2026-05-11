@@ -66,6 +66,28 @@ export type PersistentAgentLogsResponse =
 export type UpdateAgentMetadataRequest = Schemas["UpdateAgentMetadataRequest"];
 
 /**
+ * Response body for `GET /api/v1/tenant/{agents|units}/{id}/runtime-status`
+ * (#2100). Polled by the portal's `<RuntimeStatusBadge>` to surface the
+ * four-state runtime indicator (idle / busy / queued / unavailable) next
+ * to every agent / unit name.
+ */
+export type AgentRuntimeStatusResponse =
+  Schemas["AgentRuntimeStatusResponse"];
+
+/**
+ * The four discrete runtime-status values the portal renders. Mirrors
+ * the lower-case wire form on `AgentRuntimeStatusResponse.status`. The
+ * additional `"unknown"` value is portal-only and represents "no signal
+ * yet" while the first poll is in flight (loading skeleton path).
+ */
+export type RuntimeStatus =
+  | "idle"
+  | "busy"
+  | "queued"
+  | "unavailable"
+  | "unknown";
+
+/**
  * POST /api/v1/tenant/agents request body. Mirrors the `spring agent create`
  * CLI surface 1:1: the wire shape requires `displayName`, `description`,
  * `role`, `unitIds`, and a nullable `definitionJson`. `unitIds: []`

@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { RuntimeStatusBadge } from "@/components/runtime-status-badge";
 import type { UnitDashboardSummary, UnitStatus } from "@/lib/api/types";
 // Some dashboard payloads (see DashboardUnit) ship status as a raw
 // string until the OpenAPI regeneration lands; accept either form so
@@ -42,6 +43,13 @@ export interface UnitCardUnit {
    * 5-minute window). Rendered as a minimal sparkline when provided.
    */
   activitySeries?: number[];
+  /**
+   * Stable Guid of the unit — when present, the card renders the
+   * runtime-status indicator chip (#2100). Optional because the
+   * dashboard-summary shape doesn't carry it; the card degrades to the
+   * legacy badge-only layout when omitted.
+   */
+  id?: string | null;
 }
 
 interface UnitCardInput {
@@ -51,6 +59,7 @@ interface UnitCardInput {
   status?: UnitStatusInput;
   cost?: number | null;
   activitySeries?: number[];
+  id?: string | null;
 }
 
 /**
@@ -201,6 +210,13 @@ export function UnitCard({
                 <DollarSign className="h-3 w-3" aria-hidden="true" />
                 {formatCost(cost)}
               </Badge>
+            )}
+            {"id" in unit && unit.id && (
+              <RuntimeStatusBadge
+                kind="unit"
+                id={unit.id}
+                testId={`unit-runtime-status-${unit.name}`}
+              />
             )}
           </div>
         </Link>

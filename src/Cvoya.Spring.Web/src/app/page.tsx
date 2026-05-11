@@ -279,6 +279,7 @@ function TopLevelUnitsWidget({
             <UnitCard
               key={u.id}
               unit={{
+                id: u.id,
                 name: u.id,
                 displayName: u.displayName,
                 registeredAt: new Date().toISOString(),

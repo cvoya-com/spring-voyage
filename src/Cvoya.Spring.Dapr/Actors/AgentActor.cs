@@ -768,6 +768,56 @@ public class AgentActor(
         return result.HasValue ? result.Value : new List<string>();
     }
 
+    /// <inheritdoc />
+    public async Task<AgentRuntimeStatusReport> GetRuntimeStatusAsync(
+        CancellationToken cancellationToken = default)
+    {
+        // Sum per-thread channel state. Each ThreadChannel.Dispatching
+        // mirrors the dispatcher state the mailbox coordinator manages
+        // (#2076); each channel's Messages.Count is the FIFO queue depth
+        // including the in-flight head.
+        //
+        // In-flight count := number of channels with Dispatching == true.
+        // Queue count := total messages across channels, minus the
+        // in-flight heads (so a channel with Dispatching == true and
+        // 1 message contributes 0 queued; with 3 messages it contributes
+        // 2 queued). A channel with Dispatching == false but messages
+        // present is a transient state between drains; we count those
+        // messages as queued so the API surfaces the correct
+        // "queued ahead" signal.
+        var threadIds = await GetChannelIndexAsync(cancellationToken);
+        var inFlight = 0;
+        var queued = 0;
+        var channelCount = 0;
+
+        foreach (var tid in threadIds)
+        {
+            var channel = await GetChannelAsync(tid, cancellationToken);
+            if (channel is null)
+            {
+                continue;
+            }
+
+            channelCount++;
+            var depth = channel.Messages.Count;
+            if (channel.Dispatching)
+            {
+                inFlight++;
+                queued += Math.Max(0, depth - 1);
+            }
+            else
+            {
+                queued += depth;
+            }
+        }
+
+        return new AgentRuntimeStatusReport(
+            InFlightThreadCount: inFlight,
+            QueuedMessageCount: queued,
+            ChannelCount: channelCount,
+            ObservedAt: DateTimeOffset.UtcNow);
+    }
+
     /// <summary>
     /// Determines whether this agent is a clone by checking for a stored <see cref="CloneIdentity"/>.
     /// </summary>
