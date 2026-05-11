@@ -519,9 +519,7 @@ async def _ensure_ollama_model(model: str, provider_url: str) -> None:
 
     base_url = _ollama_api_base_url(provider_url)
     if not base_url:
-        raise RuntimeError(
-            "SPRING_LLM_PROVIDER_URL is empty; cannot check or pull the requested Ollama model."
-        )
+        raise RuntimeError("SPRING_LLM_PROVIDER_URL is empty; cannot check or pull the requested Ollama model.")
 
     await asyncio.to_thread(_ensure_ollama_model_sync, model, base_url)
 
