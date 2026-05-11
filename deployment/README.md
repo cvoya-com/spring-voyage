@@ -1,7 +1,7 @@
 # Deployment
 
-Podman-based deployment scripts for running Spring Voyage on a single machine
-(local workstation or single VPS). For Kubernetes / cloud-scale deployment see
+Podman-based deployment scripts for running Spring Voyage on a single machine.
+For Kubernetes / cloud-scale deployment see
 the private Spring Voyage Cloud repository — this directory targets the
 open-source single-host scenario.
 
@@ -9,14 +9,14 @@ open-source single-host scenario.
 
 | File                     | Purpose                                                           |
 | ------------------------ | ----------------------------------------------------------------- |
-| `deploy.sh`              | Local Podman deployment (network, containers, images). Delegates the dispatcher lifecycle to `spring-voyage-host.sh`. |
-| `deploy-remote.sh`       | SSH + rsync wrapper that runs `deploy.sh` on a remote VPS.        |
+| `build.sh`               | Local Podman image build (platform image, bundled agent images, dispatcher publish). |
+| `deploy.sh`              | Local Podman deployment lifecycle (network, containers). Delegates the dispatcher lifecycle to `spring-voyage-host.sh`. |
 | `spring-voyage-host.sh`  | Manages host-process services (`spring-dispatcher`). Used directly when bouncing the dispatcher in isolation; called by `deploy.sh up/down`. |
 | `Dockerfile`             | Multi-stage platform image (.NET 10 API/Worker + Web + Dapr CLI). |
 | `Dockerfile.agent-base`  | A2A bridge sidecar base image (BYOI conformance path 1 — see [`docs/architecture/agent-runtime.md` § 7](../docs/architecture/agent-runtime.md#7-byoi-conformance-contract)). Published as `ghcr.io/cvoya-com/agent-base:<semver>` by `release-agent-base.yml`. |
 | `Dockerfile.agent.claude-code` | Claude Code CLI on top of `agent-base` (path 1 reference). Built locally as `ghcr.io/cvoya-com/claude-code-base:latest`. |
 | `Dockerfile.agent.dapr`  | Dapr Agent native A2A image (path 3). Built locally as `ghcr.io/cvoya-com/spring-voyage-agent:latest`. |
-| `build-agent-images.sh`  | Builds the three agent images above. Invoked by `deploy.sh build`. |
+| `build-agent-images.sh`  | Builds the three agent images above. Invoked by `build.sh`. |
 | `build-sidecar.sh`       | Builds `ghcr.io/cvoya-com/agent-base:dev` from local sources. Used when iterating on the bridge sidecar without GHCR pull access. |
 | `Caddyfile`              | Single-host path-routed Caddy config (default).                   |
 | `Caddyfile.multi-host`   | Per-service hostnames variant (web / API / webhook each FQDN).    |
@@ -57,7 +57,7 @@ Build them locally with:
 ```bash
 ./deployment/build-agent-images.sh                # all seven at :dev
 ./deployment/build-agent-images.sh --tag latest   # all seven at :latest
-./deployment/deploy.sh build --ghcr-only          # release-style canonical tags only
+./deployment/build.sh --ghcr-only                 # release-style canonical tags only
 ```
 
 To layer extra tooling on top of one of the bases, start from a
@@ -94,10 +94,6 @@ own `execution.image` inherit the unit's default.
 - The .NET 10 SDK on the host that runs `spring-voyage-host.sh start`. The
   script publishes `Cvoya.Spring.Dispatcher` once on first start and reuses
   the published binary on subsequent starts (`--rebuild` forces a republish).
-- `bash`, `rsync`, `ssh` for the remote workflow.
-- On the VPS: Podman + .NET 10 SDK installed, a non-root user able to run
-  rootless Podman, ports 80/443 available for Caddy.
-
 No Docker Compose / Podman Compose dependency — the script uses `podman` directly
 so behavior is deterministic across Podman versions.
 
@@ -182,11 +178,13 @@ cd deployment/
 $EDITOR spring.env             # deploy-time config: hostname, DB password, image tags,
                                # GitHub__*, Anthropic / OpenAI / Google credentials, …
 
-./deploy.sh build              # build platform + agent images, publish dispatcher binary
+./build.sh                     # build platform + agent images, publish dispatcher binary
+./build.sh clean               # remove local Spring Voyage image refs and dispatcher publish output
 ./deploy.sh up                 # create network, start the stack + bounce spring-dispatcher (host)
 ./deploy.sh status             # list running containers + host services
 ./deploy.sh logs spring-api    # tail a single container service
 ./deploy.sh down               # stop containers + host services (volumes preserved)
+./deploy.sh clean              # destructive reset: containers, volumes, networks, local images
 ```
 
 The `SPRING_SECRETS_AES_KEY` provisioned by `init` is the only thing that
@@ -195,8 +193,12 @@ postgres volume; deleting it permanently orphans every encrypted secret.
 See `docs/developer/secret-store.md` for rotation guidance.
 
 Volumes (`spring-postgres-data`, `spring-redis-data`, `spring-caddy-data`,
-`spring-caddy-config`) persist across `down`/`up` cycles. Remove them with
-`podman volume rm` when you need a clean slate.
+`spring-caddy-config`, and the other deploy-owned `spring-*` volumes)
+persist across `down`/`up` cycles. Use `./deploy.sh clean` when you need a
+destructive clean slate; it removes only the service containers, platform
+runtime containers (`spring-persistent-*`, `spring-ephemeral-*`, and related
+dispatcher names), volumes, networks, and local Spring Voyage image refs owned
+by these scripts.
 
 ### Host-process services (`spring-voyage-host.sh`)
 
@@ -422,41 +424,14 @@ no longer reads those environment variables — credentials must be set at
 tenant or unit scope. See [`docs/guide/secrets.md`](../docs/guide/secrets.md)
 for the full resolution chain.
 
-## Remote (VPS) deployment
-
-`deploy-remote.sh` rsyncs the repo + `deployment/` to the VPS and then invokes
-`deploy.sh` there over SSH.
-
-```bash
-export SPRING_REMOTE_HOST=deploy@vps.example.com
-export SPRING_REMOTE_DIR=/opt/spring-voyage    # optional, this is the default
-
-./deploy-remote.sh deploy      # sync + build + up
-./deploy-remote.sh logs spring-worker
-./deploy-remote.sh down
-```
-
-**Registry flow (no source on the VPS).** If you publish platform + agent
-images to a registry, skip source sync and build:
-
-```bash
-export SPRING_SKIP_SOURCE_SYNC=1
-# Point image settings in spring.env at the registry.
-./deploy-remote.sh deploy      # now: rsync deployment/ + spring.env, then `up` (pulls images)
-```
-
-Podman pulls images on demand when `podman run` runs — no explicit pull step
-is needed. Rotate by bumping `SPRING_IMAGE_TAG` in `spring.env` and re-running
-`./deploy-remote.sh up`.
-
 ## Reverse proxy and TLS
 
 Spring Voyage fronts the web portal, API, and webhook endpoint with
 [Caddy](https://caddyserver.com/). Caddy obtains Let's Encrypt certificates
 automatically for any public FQDN it serves, provided:
 
-- The hostname's public DNS `A`/`AAAA` record points at the VPS.
-- Ports `80` and `443` on the VPS are reachable from the public internet
+- The hostname's public DNS `A`/`AAAA` record points at the host.
+- Ports `80` and `443` on the host are reachable from the public internet
   (the ACME HTTP-01 challenge requires `:80`).
 - `ACME_EMAIL` is set in `spring.env` so Let's Encrypt can email expiry
   and revocation notices.
@@ -543,10 +518,10 @@ should target a deployed `WEBHOOK_HOSTNAME` directly.
 
 Secrets are passed via `spring.env` (`--env-file`) and Dapr's secret store.
 Never commit `spring.env`; it is in `.gitignore` implicitly because only
-`spring.env.example` is tracked. On the VPS, restrict its permissions:
+`spring.env.example` is tracked. On shared hosts, restrict its permissions:
 
 ```bash
-chmod 600 /opt/spring-voyage/deployment/spring.env
+chmod 600 deployment/spring.env
 ```
 
 The production profile under `dapr/components/production/` uses
@@ -687,12 +662,14 @@ for local and self-hosted deployments. Enable it by setting
 Ollama's OpenAI-compatible `/v1/chat/completions` endpoint and no API key is
 required.
 
-Two modes are supported and selected by the deploy-time `OLLAMA_MODE` variable:
+Two modes are supported. Container mode is selected with the deploy-time
+`OLLAMA_MODE` variable. Host-installed mode can be selected either in
+`spring.env` or per run with `deploy.sh up --local-ollama`:
 
-| Mode          | Deploy flag           | When to use                                                       |
+| Mode          | Configuration         | When to use                                                       |
 | ------------- | --------------------- | ----------------------------------------------------------------- |
 | Container     | `OLLAMA_MODE=container` (default) | Linux/Windows; CPU-only or NVIDIA GPU via `OLLAMA_GPU=nvidia`.    |
-| Host-install  | `OLLAMA_MODE=host`    | macOS with Metal GPU — Metal does not pass through into Podman.   |
+| Host-install  | `./deploy.sh up --local-ollama` or `OLLAMA_MODE=host` | macOS with Metal GPU — Metal does not pass through into Podman.   |
 
 ### Container mode
 
@@ -716,14 +693,56 @@ is up.
 brew install ollama
 ollama serve &
 
-# spring.env
+# deployment
+./deploy.sh up --local-ollama
+```
+
+`deploy.sh up --local-ollama` checks `http://127.0.0.1:11434/api/tags`,
+removes any existing `spring-ollama` container from an earlier container-mode
+deploy, and injects
+`LanguageModel__Ollama__Enabled=true`,
+`OLLAMA_MODE=host`, and
+`LanguageModel__Ollama__BaseUrl=http://host.containers.internal:11434`
+for the platform containers.
+
+Agent containers talk to the model through their per-launch Dapr Conversation
+sidecar. Because Dapr component YAML does not expand shell-style defaults,
+host mode also generates a delegated-agent Dapr component profile under
+`~/.spring-voyage/deployment/dapr/components/delegated-spring-voyage-agent-local-ollama`
+(override the root with `SPRING_DEPLOY_STATE_DIR`) and points
+`Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath` at it for that
+deployment run. The generated `llm-ollama.yaml` leaves the model runtime-bound
+through `SPRING_MODEL` and rewrites only the Conversation endpoint to the
+host-facing OpenAI-compatible URL, for example
+`http://host.containers.internal:11434/v1`.
+
+Model downloads are also runtime-bound. When a dispatched `spring-voyage` agent
+selects an Ollama model that is not installed yet, the agent runtime calls
+Ollama's native `/api/pull` endpoint before its first Dapr Conversation turn.
+Set `SPRING_OLLAMA_AUTO_PULL=false` in the agent environment to require manual
+pulls instead.
+
+For a non-default host or port:
+
+```bash
+./deploy.sh up --local-ollama --ollama-endpoint host.containers.internal --ollama-port 11435
+./deploy.sh up --local-ollama --ollama-endpoint http://ollama.internal:11434
+```
+
+The endpoint is the container-facing base URL. When the endpoint is
+`host.containers.internal` or `host.docker.internal`, the deploy script
+probes `127.0.0.1:<port>` from the host before starting the stack.
+You can still set the equivalent values permanently in `spring.env`:
+
+```dotenv
 LanguageModel__Ollama__Enabled=true
 OLLAMA_MODE=host
 LanguageModel__Ollama__BaseUrl=http://host.containers.internal:11434
 ```
 
-`deploy.sh up` skips `spring-ollama` and the platform talks to the host
-server through Podman's `host.containers.internal` DNS name.
+`deploy.sh clean` removes the generated local-Ollama component profile along
+with the deploy-owned containers, volumes, networks, and Spring Voyage image
+refs.
 
 See [`docs/developer/local-ai-ollama.md`](../docs/developer/local-ai-ollama.md)
 for full details (troubleshooting, cloud-deployment patterns, and the GPU

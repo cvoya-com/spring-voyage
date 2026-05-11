@@ -263,13 +263,13 @@ public class ContainerLifecycleManager(
             sidecarAdditional = [tenantNetwork];
         }
 
-        // #1714 step 3: copy the agent's provider credential env vars into
-        // the sidecar's process env so daprd's `secretstores.local.env`
-        // component can satisfy `secretKeyRef` lookups in the per-provider
-        // Conversation YAMLs (llm-anthropic.yaml, etc., per ADR-0038). The
-        // secret store reads from the sidecar process env, NOT the app
-        // container's env, so without this propagation the conversation
-        // call would resolve the credential to an empty string.
+        // #1714 step 3: copy the agent's provider credential / runtime
+        // metadata env vars into the sidecar's process env so daprd's
+        // `secretstores.local.env` component can satisfy `secretKeyRef`
+        // lookups in the per-provider Conversation YAMLs. The secret store
+        // reads from the sidecar process env, NOT the app container's env.
+        // This also carries SPRING_MODEL for Ollama: the model is selected
+        // by the unit/agent at launch time, not by deployment.
         var sidecarEnv = ExtractSidecarEnvVars(appConfig.EnvironmentVariables);
 
         return new DaprSidecarConfig(
@@ -288,24 +288,26 @@ public class ContainerLifecycleManager(
     }
 
     /// <summary>
-    /// The set of credential env-var names the daprd sidecar's
+    /// The set of env-var names the daprd sidecar's
     /// <c>secretstores.local.env</c> component reads from its own process
-    /// env to satisfy per-provider Conversation YAMLs. Kept here (not in
-    /// <see cref="DaprSidecarOptions"/>) because the names are part of the
-    /// platform's component shape, not operator-tunable: any operator-set
-    /// override would break the YAMLs that hard-code the same names in
-    /// their <c>secretKeyRef</c> entries.
+    /// env to satisfy per-provider Conversation YAMLs. Includes real
+    /// provider credentials and non-secret runtime metadata such as
+    /// <c>SPRING_MODEL</c> because Dapr Conversation metadata is resolved
+    /// from sidecar-local secret stores, not app-container env. Kept here
+    /// (not in <see cref="DaprSidecarOptions"/>) because the names are part
+    /// of the platform's component shape, not operator-tunable.
     /// </summary>
-    private static readonly string[] CredentialEnvVarsToPropagate =
+    private static readonly string[] SidecarEnvVarsToPropagate =
     [
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
         "GOOGLE_API_KEY",
+        "SPRING_MODEL",
     ];
 
     /// <summary>
-    /// Filters the agent app's env vars down to the credential names that
-    /// the daprd sidecar's local-env secret store must see. Callers that
+    /// Filters the agent app's env vars down to the names that the daprd
+    /// sidecar's local-env secret store must see. Callers that
     /// pass <c>null</c> get a <c>null</c> back (no env propagation).
     /// </summary>
     private static IReadOnlyDictionary<string, string>? ExtractSidecarEnvVars(
@@ -317,7 +319,7 @@ public class ContainerLifecycleManager(
         }
 
         Dictionary<string, string>? sidecarEnv = null;
-        foreach (var name in CredentialEnvVarsToPropagate)
+        foreach (var name in SidecarEnvVarsToPropagate)
         {
             if (appEnv.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value))
             {

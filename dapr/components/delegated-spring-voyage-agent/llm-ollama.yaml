@@ -4,18 +4,12 @@
 # Notes on metadata values:
 #   * Dapr does NOT do POSIX-style `${VAR:-default}` substitution in
 #     component YAML — daprd treats the literal string as the value
-#     and the conversation call then fails at the OpenAI URL parser
-#     with "first path segment in URL cannot contain colon". The values
-#     below are hardcoded to match the OSS deploy.sh topology
-#     (`spring-ollama` dual-attached to the tenant network, default
-#     model pulled into Ollama at deploy time). Operators who change
-#     the model or move Ollama off the tenant bridge should regenerate
-#     this profile rather than reach for env-var interpolation here.
-#
+#     and the conversation call then fails at the OpenAI URL parser.
 #   * `model` lives on the Conversation component (dapr-agents 1.x
-#     dropped the per-call model kwarg from `DaprChatClient`); the
-#     agent's `SPRING_MODEL` env var is kept for telemetry and the
-#     A2A agent card description, but it does not flow into daprd.
+#     dropped the per-call model kwarg from `DaprChatClient`). The
+#     platform propagates SPRING_MODEL into daprd's process env and
+#     secretstores.local.env resolves it here at sidecar startup, so each
+#     unit/agent can request its own model without deployment-time rewrites.
 #
 # Naming follows ADR-0038: in-tree Dapr component files use the
 # `llm-{provider.id}` convention. The Dapr `type:` field stays
@@ -32,6 +26,10 @@ spec:
   - name: key
     value: "ollama"
   - name: model
-    value: "llama3.2:3b-16k"
+    secretKeyRef:
+      name: SPRING_MODEL
+      key: SPRING_MODEL
   - name: endpoint
     value: "http://spring-ollama:11434/v1"
+auth:
+  secretStore: secretstore

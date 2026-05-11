@@ -2,7 +2,7 @@
 #
 # This is the default Caddyfile used when all three services (web portal,
 # API, and webhook endpoint) share a single public hostname and are
-# disambiguated by URL path. It is the simplest setup for a single VPS.
+# disambiguated by URL path. It is the simplest setup for a single host.
 #
 # For per-service hostnames (e.g. app.example.com, api.example.com,
 # hooks.example.com) use Caddyfile.multi-host instead — mount it to

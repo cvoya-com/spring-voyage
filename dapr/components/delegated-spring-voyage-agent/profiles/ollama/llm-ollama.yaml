@@ -7,6 +7,11 @@
 # `llm-{provider.id}` convention. The Dapr `type:` field stays
 # `conversation.openai` because Ollama exposes an OpenAI-compatible
 # surface and that is Dapr's contract, not ours.
+#
+# `model` is resolved from SPRING_MODEL in the sidecar's local-env secret
+# store. The worker propagates that env var from the selected unit/agent
+# launch context so deployment does not need to know every model a unit may
+# request.
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
@@ -18,6 +23,10 @@ spec:
   - name: key
     value: "ollama"
   - name: model
-    value: "llama3.2:3b-16k"
+    secretKeyRef:
+      name: SPRING_MODEL
+      key: SPRING_MODEL
   - name: endpoint
     value: "http://spring-ollama:11434/v1"
+auth:
+  secretStore: secretstore

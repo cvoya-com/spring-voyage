@@ -29,12 +29,13 @@
 # stable topology and removes the podman CLI dependency from every image.
 #
 # Usage:
-#   ./deploy.sh up              # create network, pull/build, start stack + host services
+#   ./deploy.sh up              # create network, start stack + host services
+#   ./deploy.sh up --local-ollama [--ollama-endpoint <host-or-url>] [--ollama-port <port>]
 #   ./deploy.sh down            # stop containers + host services (preserves volumes)
+#   ./deploy.sh clean           # stop containers, remove volumes/networks/images
 #   ./deploy.sh restart         # down + up
 #   ./deploy.sh logs [service]  # follow logs for one or all services
 #   ./deploy.sh status          # show container + host-service status
-#   ./deploy.sh build [--ghcr-only] # build platform Dockerfile + per-tool agent images
 #   ./deploy.sh ensure-user-net <uid>  # create per-user bridge network for agent isolation
 #
 # Environment: reads values from ./spring.env (or $SPRING_ENV_FILE).
@@ -75,11 +76,28 @@ SERVICES=(
     spring-ollama
 )
 
+VOLUMES=(
+    spring-postgres-data
+    spring-redis-data
+    spring-placement-data
+    spring-scheduler-data
+    spring-dataprotection-keys
+    spring-ollama-data
+    spring-caddy-data
+    spring-caddy-config
+)
+
+# Runtime containers launched through the platform dispatcher. These are
+# created after deploy.sh brings the stack up, so they are not listed in
+# SERVICES, but they are still owned by this local deployment.
+RUNTIME_CONTAINER_NAME_PATTERN='^spring-(persistent|ephemeral|exec|dapr)-'
+
 # Wrapper around the host-process service manager. The dispatcher lives
 # outside the container stack (issue #1063); deploy.sh delegates to this
 # script so the lifecycle is observable and operators can manage it
 # directly when they want to bounce the dispatcher in isolation.
 HOST_SCRIPT="${SCRIPT_DIR}/spring-voyage-host.sh"
+BUILD_SCRIPT="${SCRIPT_DIR}/build.sh"
 
 # Path to the file the host script writes after `spring-voyage-host.sh
 # start` resolves the bearer token, port, and tenant. Sourced before
@@ -88,6 +106,12 @@ HOST_SCRIPT="${SCRIPT_DIR}/spring-voyage-host.sh"
 # without it being checked into the repo or hardcoded here. Honors
 # SPRING_HOST_STATE_DIR exactly the way the host script does.
 DISPATCHER_ENV_FILE="${SPRING_HOST_STATE_DIR:-${HOME}/.spring-voyage/host}/dispatcher.env"
+DEPLOY_STATE_DIR="${SPRING_DEPLOY_STATE_DIR:-${HOME}/.spring-voyage/deployment}"
+LOCAL_OLLAMA_COMPONENTS_DIR="${DEPLOY_STATE_DIR}/dapr/components/delegated-spring-voyage-agent-local-ollama"
+
+LOCAL_OLLAMA_REQUESTED=0
+LOCAL_OLLAMA_ENDPOINT=""
+LOCAL_OLLAMA_PORT=""
 
 # Source the dispatcher env file written by spring-voyage-host.sh.
 # Idempotent — silently skips when the file is missing (e.g. dispatcher
@@ -143,6 +167,258 @@ load_env() {
     chmod 600 "${RESOLVED_ENV_FILE}"
     envsubst < "${ENV_FILE}" > "${RESOLVED_ENV_FILE}"
     trap 'rm -f "${RESOLVED_ENV_FILE}"' EXIT
+}
+
+set_resolved_env_var() {
+    local key="$1"
+    local value="$2"
+    [[ -n "${RESOLVED_ENV_FILE}" ]] || die "resolved env file is not initialized"
+
+    local tmp
+    tmp="$(mktemp "${RESOLVED_ENV_FILE}.XXXXXX")"
+    awk -v key="${key}" -v value="${value}" '
+        BEGIN { replaced = 0 }
+        index($0, key "=") == 1 {
+            print key "=" value
+            replaced = 1
+            next
+        }
+        { print }
+        END {
+            if (!replaced) {
+                print key "=" value
+            }
+        }
+    ' "${RESOLVED_ENV_FILE}" > "${tmp}"
+    chmod 600 "${tmp}"
+    mv "${tmp}" "${RESOLVED_ENV_FILE}"
+
+    declare -gx "${key}=${value}"
+}
+
+validate_port() {
+    local value="$1"
+    [[ "${value}" =~ ^[0-9]+$ ]] || die "port must be numeric: ${value}"
+    local numeric_value=$((10#${value}))
+    (( numeric_value >= 1 && numeric_value <= 65535 )) || die "port must be between 1 and 65535: ${value}"
+}
+
+normalize_ollama_base_url() {
+    local endpoint="$1"
+    local port="$2"
+    local explicit_port="$3"
+
+    endpoint="${endpoint%/}"
+    [[ -n "${endpoint}" ]] || die "--ollama-endpoint cannot be empty"
+    if [[ "${endpoint}" != *"://"* ]]; then
+        endpoint="http://${endpoint}"
+    fi
+
+    local rest="${endpoint#*://}"
+    if [[ "${rest}" == */* ]]; then
+        die "--ollama-endpoint must be a scheme/host[:port] base URL, not include a path: ${endpoint}"
+    fi
+
+    local authority="${rest}"
+    if [[ "${authority}" =~ :[0-9]+$ ]]; then
+        [[ "${explicit_port}" != "1" ]] || die "--ollama-endpoint already includes a port; omit --ollama-port"
+        printf '%s\n' "${endpoint}"
+        return 0
+    fi
+
+    printf '%s:%s\n' "${endpoint}" "${port}"
+}
+
+ollama_probe_base_url() {
+    local base_url="$1"
+    local scheme="${base_url%%://*}"
+    local rest="${base_url#*://}"
+    local authority="${rest%%/*}"
+    local host="${authority%:*}"
+    local port="${authority##*:}"
+
+    if [[ "${host}" == "${port}" ]]; then
+        port="11434"
+    fi
+    case "${host}" in
+        host.containers.internal|host.docker.internal)
+            host="127.0.0.1"
+            ;;
+    esac
+
+    printf '%s://%s:%s\n' "${scheme}" "${host}" "${port}"
+}
+
+check_ollama_endpoint() {
+    local probe_base_url="$1"
+    require curl
+
+    log "checking host-installed Ollama at ${probe_base_url}"
+    if curl -fsS --max-time 5 "${probe_base_url}/api/tags" >/dev/null; then
+        log "verified host-installed Ollama endpoint"
+        return 0
+    fi
+
+    if [[ "${probe_base_url}" == "http://127.0.0.1:11434" ]] && ! command -v ollama >/dev/null 2>&1; then
+        die "host-installed Ollama was requested, but the ollama CLI is not on PATH and ${probe_base_url}/api/tags is not reachable. Install Ollama and start it with 'ollama serve', or pass --ollama-endpoint/--ollama-port for a reachable service."
+    fi
+
+    die "host-installed Ollama was requested, but ${probe_base_url}/api/tags is not reachable. Start Ollama, or pass --ollama-endpoint/--ollama-port for the reachable service."
+}
+
+configure_local_ollama() {
+    local mode="${OLLAMA_MODE:-container}"
+    if [[ "${LOCAL_OLLAMA_REQUESTED}" -eq 1 ]]; then
+        mode="host"
+    fi
+    [[ "${mode}" == "host" ]] || return 0
+
+    local base_url
+    if [[ "${LOCAL_OLLAMA_REQUESTED}" -eq 1 ]]; then
+        local endpoint="${LOCAL_OLLAMA_ENDPOINT:-host.containers.internal}"
+        local port="${LOCAL_OLLAMA_PORT:-11434}"
+        local explicit_port=0
+        if [[ -n "${LOCAL_OLLAMA_PORT}" ]]; then
+            explicit_port=1
+            validate_port "${LOCAL_OLLAMA_PORT}"
+        fi
+
+        base_url="$(normalize_ollama_base_url "${endpoint}" "${port}" "${explicit_port}")"
+    else
+        local configured_base_url="${LanguageModel__Ollama__BaseUrl:-}"
+        if [[ -z "${configured_base_url}" || "${configured_base_url}" == "http://spring-ollama:11434" ]]; then
+            configured_base_url="http://host.containers.internal:11434"
+        fi
+        base_url="$(normalize_ollama_base_url "${configured_base_url}" "11434" "0")"
+    fi
+
+    local probe_base_url
+    probe_base_url="$(ollama_probe_base_url "${base_url}")"
+    check_ollama_endpoint "${probe_base_url}"
+
+    set_resolved_env_var OLLAMA_MODE host
+    set_resolved_env_var LanguageModel__Ollama__Enabled true
+    set_resolved_env_var LanguageModel__Ollama__BaseUrl "${base_url}"
+    set_resolved_env_var AgentContext__LlmProviderUrl "${base_url}"
+    configure_local_ollama_dapr_profile "${base_url}"
+
+    log "using host-installed Ollama for platform and agent containers: ${base_url}"
+}
+
+ollama_openai_endpoint_url() {
+    local base_url="${1%/}"
+    if [[ "${base_url}" == */v1 ]]; then
+        printf '%s\n' "${base_url}"
+    else
+        printf '%s/v1\n' "${base_url}"
+    fi
+}
+
+configure_local_ollama_dapr_profile() {
+    local base_url="$1"
+    local endpoint
+    endpoint="$(ollama_openai_endpoint_url "${base_url}")"
+
+    local source_dir="${Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath:-${REPO_ROOT}/dapr/components/delegated-spring-voyage-agent}"
+    if [[ "${source_dir}" == "${LOCAL_OLLAMA_COMPONENTS_DIR}" ]]; then
+        source_dir="${REPO_ROOT}/dapr/components/delegated-spring-voyage-agent"
+    fi
+    if [[ ! -d "${source_dir}" && -d "${REPO_ROOT}/dapr/components/delegated-spring-voyage-agent" ]]; then
+        log "warning: configured delegated Dapr components path does not exist (${source_dir}); using repo path"
+        source_dir="${REPO_ROOT}/dapr/components/delegated-spring-voyage-agent"
+    fi
+    [[ -d "${source_dir}" ]] || die "delegated Dapr components directory not found: ${source_dir}"
+
+    rm -rf "${LOCAL_OLLAMA_COMPONENTS_DIR}"
+    mkdir -p "$(dirname "${LOCAL_OLLAMA_COMPONENTS_DIR}")"
+    cp -R "${source_dir}" "${LOCAL_OLLAMA_COMPONENTS_DIR}"
+
+    local rewrote=0
+    while IFS= read -r component_file; do
+        rewrite_ollama_component_endpoint "${component_file}" "${endpoint}"
+        rewrote=$(( rewrote + 1 ))
+    done < <(find "${LOCAL_OLLAMA_COMPONENTS_DIR}" -name 'llm-ollama.yaml' -type f)
+    (( rewrote > 0 )) || die "no llm-ollama.yaml files found under ${LOCAL_OLLAMA_COMPONENTS_DIR}"
+    chmod -R a+rX "${LOCAL_OLLAMA_COMPONENTS_DIR}"
+
+    set_resolved_env_var Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath "${LOCAL_OLLAMA_COMPONENTS_DIR}"
+    log "generated local Ollama Dapr profile: ${LOCAL_OLLAMA_COMPONENTS_DIR} (endpoint ${endpoint})"
+}
+
+rewrite_ollama_component_endpoint() {
+    local component_file="$1"
+    local endpoint="$2"
+    local tmp
+    tmp="$(mktemp "${component_file}.XXXXXX")"
+    awk -v endpoint="${endpoint}" '
+        /^[[:space:]]*-[[:space:]]name:[[:space:]]endpoint[[:space:]]*$/ {
+            print
+            in_endpoint = 1
+            next
+        }
+        in_endpoint && /^[[:space:]]*value:[[:space:]]/ {
+            print "    value: \"" endpoint "\""
+            in_endpoint = 0
+            next
+        }
+        {
+            print
+            if ($0 ~ /^[[:space:]]*-[[:space:]]name:[[:space:]]/) {
+                in_endpoint = 0
+            }
+        }
+    ' "${component_file}" > "${tmp}"
+    mv "${tmp}" "${component_file}"
+    chmod 0644 "${component_file}"
+}
+
+parse_up_options() {
+    LOCAL_OLLAMA_REQUESTED=0
+    LOCAL_OLLAMA_ENDPOINT=""
+    LOCAL_OLLAMA_PORT=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --local-ollama)
+                LOCAL_OLLAMA_REQUESTED=1
+                shift
+                ;;
+            --local-ollama=*)
+                LOCAL_OLLAMA_REQUESTED=1
+                LOCAL_OLLAMA_ENDPOINT="${1#*=}"
+                shift
+                ;;
+            --ollama-endpoint)
+                [[ $# -ge 2 ]] || die "--ollama-endpoint requires a value"
+                LOCAL_OLLAMA_REQUESTED=1
+                LOCAL_OLLAMA_ENDPOINT="$2"
+                shift 2
+                ;;
+            --ollama-endpoint=*)
+                LOCAL_OLLAMA_REQUESTED=1
+                LOCAL_OLLAMA_ENDPOINT="${1#*=}"
+                shift
+                ;;
+            --ollama-port)
+                [[ $# -ge 2 ]] || die "--ollama-port requires a value"
+                LOCAL_OLLAMA_REQUESTED=1
+                LOCAL_OLLAMA_PORT="$2"
+                shift 2
+                ;;
+            --ollama-port=*)
+                LOCAL_OLLAMA_REQUESTED=1
+                LOCAL_OLLAMA_PORT="${1#*=}"
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                die "unknown up option: $1"
+                ;;
+        esac
+    done
 }
 
 # Provisions a fresh deployment env file. Idempotent against an empty start
@@ -276,6 +552,45 @@ remove_container() {
     fi
 }
 
+remove_volume() {
+    local name="$1"
+    if podman volume exists "${name}" 2>/dev/null; then
+        log "removing volume '${name}'"
+        if ! podman volume rm -f "${name}" >/dev/null 2>&1; then
+            log "warning: failed to remove volume '${name}'"
+        fi
+    fi
+}
+
+remove_network() {
+    local name="$1"
+    if podman network exists "${name}" 2>/dev/null; then
+        log "removing network '${name}'"
+        if ! podman network rm "${name}" >/dev/null 2>&1; then
+            log "warning: failed to remove network '${name}' — it may still have non-deploy containers attached"
+        fi
+    fi
+}
+
+remove_generated_local_ollama_profile() {
+    if [[ -d "${LOCAL_OLLAMA_COMPONENTS_DIR}" ]]; then
+        log "removing generated local Ollama Dapr profile '${LOCAL_OLLAMA_COMPONENTS_DIR}'"
+        rm -rf "${LOCAL_OLLAMA_COMPONENTS_DIR}"
+    fi
+}
+
+owned_user_networks() {
+    podman network ls --format '{{.Name}}' 2>/dev/null | grep -E "^${USER_NETWORK_PREFIX}" || true
+}
+
+owned_runtime_containers() {
+    podman ps -a --format '{{.Names}}' 2>/dev/null | grep -E "${RUNTIME_CONTAINER_NAME_PATTERN}" || true
+}
+
+owned_runtime_networks() {
+    podman network ls --format '{{.Name}}' 2>/dev/null | grep -E '^spring-net-[[:xdigit:]]+' || true
+}
+
 run_container() {
     # Idempotent: remove any existing container with the same name before creating.
     local name="$1"; shift
@@ -287,6 +602,7 @@ run_container() {
 # ---------- service definitions ----------
 
 start_postgres() {
+    # shellcheck disable=SC2016
     run_container spring-postgres \
         --env-file "${RESOLVED_ENV_FILE}" \
         -v spring-postgres-data:/var/lib/postgresql/data \
@@ -465,7 +781,7 @@ start_worker() {
     load_dispatcher_env
     local dispatcher_port="${SPRING_DISPATCHER_PORT:-8090}"
     if [[ -z "${SPRING_DISPATCHER_WORKER_TOKEN:-}" ]]; then
-        die "SPRING_DISPATCHER_WORKER_TOKEN is not set. The dispatcher must be started first ('${HOST_SCRIPT##${REPO_ROOT}/} start') so it can write the bearer token to ${DISPATCHER_ENV_FILE} for the worker to source."
+        die "SPRING_DISPATCHER_WORKER_TOKEN is not set. The dispatcher must be started first ('${HOST_SCRIPT##"${REPO_ROOT}"/} start') so it can write the bearer token to ${DISPATCHER_ENV_FILE} for the worker to source."
     fi
     # Worker MCP server port. Bound on `+` (all interfaces) inside the worker
     # container and published to the host so agent containers on the tenant
@@ -519,22 +835,22 @@ start_worker() {
 # `restart` (not `start`) is deliberate — see #1675. `spring-voyage-host.sh
 # start` short-circuits when a dispatcher PID is already live, which left
 # stale dispatchers serving prior code (and, in the reported case, a
-# deleted worktree cwd) for operators who ran `deploy.sh build &&
+# deleted worktree cwd) for operators who ran `build.sh &&
 # deploy.sh up` expecting a fresh process. `restart` is a clean
 # stop+start — a cold start path is an idempotent no-op on the stop
 # side, so this is safe on a fresh machine too. `spring-voyage-host.sh
-# build` (invoked by `deploy.sh build`) has already published the new
+# build` (invoked by `build.sh`) has already published the new
 # binary by the time we get here, so the restarted process picks up
 # whatever was just published.
 start_dispatcher() {
     [[ -x "${HOST_SCRIPT}" ]] || die "host-services script not found at ${HOST_SCRIPT} — run 'chmod +x ${HOST_SCRIPT}'"
-    log "bouncing spring-dispatcher via ${HOST_SCRIPT##${REPO_ROOT}/} (restart)"
+    log "bouncing spring-dispatcher via ${HOST_SCRIPT##"${REPO_ROOT}"/} (restart)"
     "${HOST_SCRIPT}" restart
 }
 
 stop_dispatcher() {
     [[ -x "${HOST_SCRIPT}" ]] || return 0
-    log "stopping spring-dispatcher via ${HOST_SCRIPT##${REPO_ROOT}/}"
+    log "stopping spring-dispatcher via ${HOST_SCRIPT##"${REPO_ROOT}"/}"
     "${HOST_SCRIPT}" stop || true
 }
 
@@ -578,10 +894,12 @@ start_web() {
 start_ollama() {
     local mode="${OLLAMA_MODE:-container}"
     if [[ "${mode}" == "host" ]]; then
-        log "OLLAMA_MODE=host — skipping container. Ensure 'ollama serve' is running on the host (port 11434)."
+        remove_container spring-ollama
+        log "OLLAMA_MODE=host — skipping container. Ensure 'ollama serve' is running on the host."
         log "  macOS: brew install ollama && ollama serve"
         log "  Linux: https://ollama.com/download"
-        log "Platform talks to it via LanguageModel__Ollama__BaseUrl (default http://host.containers.internal:11434)."
+        log "Platform talks to it via LanguageModel__Ollama__BaseUrl (current ${LanguageModel__Ollama__BaseUrl:-http://host.containers.internal:11434})."
+        log "Agent sidecars use the generated Dapr profile at ${Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath:-${LOCAL_OLLAMA_COMPONENTS_DIR}}."
         return
     fi
 
@@ -721,8 +1039,10 @@ wait_sidecar_ready() {
 # ---------- commands ----------
 
 cmd_up() {
+    parse_up_options "$@"
     require podman
     load_env
+    configure_local_ollama
     ensure_network "${NETWORK_NAME}"
     # Tenant network must exist before start_ollama tries to dual-attach.
     ensure_network "${TENANT_NETWORK_NAME}"
@@ -788,9 +1108,72 @@ cmd_down() {
     log "stack is down (volumes preserved)"
 }
 
+cmd_clean() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                usage
+                return 0
+                ;;
+            *)
+                die "unknown clean option: $1"
+                ;;
+        esac
+    done
+
+    require podman
+
+    # Stop the host-process dispatcher first, matching cmd_down.
+    stop_dispatcher
+
+    while IFS= read -r container; do
+        [[ -n "${container}" ]] || continue
+        remove_container "${container}"
+    done < <(owned_runtime_containers)
+
+    for svc in "${SERVICES[@]}"; do
+        remove_container "${svc}"
+    done
+
+    for volume in "${VOLUMES[@]}"; do
+        remove_volume "${volume}"
+    done
+
+    while IFS= read -r net; do
+        [[ -n "${net}" ]] || continue
+        remove_network "${net}"
+    done < <(owned_runtime_networks)
+    while IFS= read -r net; do
+        [[ -n "${net}" ]] || continue
+        remove_network "${net}"
+    done < <(owned_user_networks)
+    remove_network "${TENANT_NETWORK_NAME}"
+    remove_network "${NETWORK_NAME}"
+    remove_generated_local_ollama_profile
+
+    if [[ -x "${BUILD_SCRIPT}" ]]; then
+        log "removing Spring Voyage image refs via ${BUILD_SCRIPT##"${REPO_ROOT}"/} clean"
+        if ! "${BUILD_SCRIPT}" clean; then
+            log "warning: image cleanup failed; deployment containers, volumes, and networks were still cleaned"
+        fi
+    else
+        log "warning: build script not found at ${BUILD_SCRIPT}; skipping image cleanup"
+    fi
+
+    log "clean complete"
+}
+
 cmd_restart() {
+    for arg in "$@"; do
+        case "${arg}" in
+            -h|--help)
+                usage
+                exit 0
+                ;;
+        esac
+    done
     cmd_down
-    cmd_up
+    cmd_up "$@"
 }
 
 cmd_status() {
@@ -812,59 +1195,10 @@ cmd_logs() {
     fi
 }
 
-cmd_build() {
-    require podman
-    local ghcr_only=0
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --ghcr-only)
-                ghcr_only=1
-                shift
-                ;;
-            -h|--help)
-                cat <<EOF
-Usage: ./deploy.sh build [--ghcr-only]
-
-Build the platform Dockerfile and per-tool agent images.
-
-Options:
-  --ghcr-only  Tag only canonical ghcr.io/... agent image refs. By default,
-               the agent-image build also writes localhost/... aliases for
-               older local dev workflows.
-EOF
-                return 0
-                ;;
-            *)
-                die "unknown build option: $1"
-                ;;
-        esac
-    done
-
-    load_env
-    log "building platform image: ${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}"
-    podman build \
-        -f "${SCRIPT_DIR}/Dockerfile" \
-        -t "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
-        "${REPO_ROOT}"
-
-    # The tool-bearing agent images are built under their canonical GHCR
-    # refs so the dispatcher can satisfy runtime-catalog defaults from the
-    # local image store before attempting a registry pull. Localhost aliases
-    # are only a dev convenience and can be suppressed for release-style
-    # builds.
-    log "building agent images via deployment/build-agent-images.sh"
-    local agent_build_args=(--tag "${SPRING_AGENT_TAG:-latest}")
-    if [[ "${ghcr_only}" -eq 1 ]]; then
-        agent_build_args+=(--ghcr-only)
-    fi
-    DOCKER=podman "${SCRIPT_DIR}/build-agent-images.sh" "${agent_build_args[@]}"
-
-    # spring-dispatcher is a host process (#1063); we publish its .NET binary
-    # via spring-voyage-host.sh build instead of producing an image.
-    if [[ -x "${HOST_SCRIPT}" ]]; then
-        log "publishing spring-dispatcher host binary"
-        "${HOST_SCRIPT}" build
-    fi
+cmd_build_deprecated() {
+    [[ -x "${BUILD_SCRIPT}" ]] || die "build script not found at ${BUILD_SCRIPT}"
+    log "'deploy.sh build' is deprecated; use './build.sh' instead."
+    "${BUILD_SCRIPT}" "$@"
 }
 
 cmd_ensure_user_net() {
@@ -883,18 +1217,31 @@ Commands:
                          existing key.
   up                     Start the full stack on ${NETWORK_NAME}
   down                   Stop and remove containers (keeps volumes)
+  clean                  Stop deploy-owned containers, remove deploy-owned
+                         volumes and networks, remove platform runtime
+                         containers, and remove Spring Voyage image refs
+                         via build.sh clean
   restart                down + up
+                         Supports the same options as 'up'.
   status                 Show container status
   logs [service]         Follow logs (all services if omitted)
-  build [--ghcr-only]    Build platform Dockerfile + per-tool agent images
   ensure-user-net <uid>  Create per-user bridge network for agent isolation
+
+Options for 'up' and 'restart':
+  --local-ollama                 Use a host-installed Ollama service instead
+                                 of the spring-ollama container. The script
+                                 verifies /api/tags before starting the stack.
+  --ollama-endpoint <host-or-url> Container-facing Ollama endpoint. Defaults to
+                                 http://host.containers.internal.
+  --ollama-port <port>           Ollama port. Defaults to 11434.
 
 Environment file: ${ENV_FILE}
   Override with SPRING_ENV_FILE=/path/to/other.env
 
 The first time you deploy, run 'init' to generate the secrets key, then
-'up'. The key in spring.env is the only thing that can decrypt secrets in
-the state store — back it up alongside the postgres volume.
+'./build.sh', then './deploy.sh up'.
+The key in spring.env is the only thing that can decrypt secrets in the
+state store — back it up alongside the postgres volume.
 EOF
 }
 
@@ -905,10 +1252,11 @@ main() {
         init)                cmd_init "$@" ;;
         up)                  cmd_up "$@" ;;
         down)                cmd_down "$@" ;;
+        clean)               cmd_clean "$@" ;;
         restart)             cmd_restart "$@" ;;
         status)              cmd_status "$@" ;;
         logs)                cmd_logs "$@" ;;
-        build)               cmd_build "$@" ;;
+        build)               cmd_build_deprecated "$@" ;;
         ensure-user-net)     cmd_ensure_user_net "$@" ;;
         ""|-h|--help|help)   usage ;;
         *)                   usage; exit 2 ;;

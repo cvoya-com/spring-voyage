@@ -506,8 +506,14 @@ The `SpringVoyageAgentLauncher` forwards three YAML-driven knobs to the containe
 
 `agents/spring-voyage-agent/agent.py` reads `SPRING_LLM_COMPONENT` and passes
 the resolved name to `DaprChatClient(component_name=...)`. The model id is
-configured on the Dapr component metadata; `SPRING_MODEL` is kept on the
-container env for telemetry and agent-card rendering.
+selected at launch time: `ContainerLifecycleManager` propagates `SPRING_MODEL`
+into the paired daprd sidecar, and the Ollama Conversation component resolves
+its `model` metadata from `secretstores.local.env`. This lets two units use
+different local Ollama models in the same deployment; deployment only wires the
+endpoint. For Ollama, the `spring-voyage` agent runtime also preflights the
+selected model against the provider URL and calls Ollama's native `/api/pull`
+when the model is missing, so model installation remains a first-use runtime
+concern rather than a deployment-time catalogue guess.
 
 **Dapr component naming convention.** Each provider has one in-tree YAML at
 `dapr/components/delegated-spring-voyage-agent/llm-{provider.id}.yaml`:

@@ -75,13 +75,19 @@ public class RuntimeInvocationPath(
     {
         var context = await BuildContextAsync(subject, inbound, ct);
 
+        // The lean path is used by UnitActor, whose runtime invocation can
+        // outlive the HTTP request that originally delivered the message.
+        // Once the message has reached the unit actor and its prompt context
+        // is built, client disconnects must not cancel the long-running A2A
+        // dispatch; otherwise the agent may finish but the platform stops
+        // polling before it can route the response back to the human thread.
         await dispatchCoordinator.RunDispatchAsync(
             agentId: subject.Path,
             message: inbound,
             context: context,
             emitActivity: (_, _) => Task.CompletedTask,
             onDispatchExit: _ => Task.CompletedTask,
-            cancellationToken: ct);
+            cancellationToken: CancellationToken.None);
     }
 
     /// <summary>

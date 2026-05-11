@@ -11,12 +11,10 @@ _build_task_response helper and the JSON-RPC envelope shape directly.
 """
 from __future__ import annotations
 
-import json
 import sys
 import os
 
 import pytest
-from aiohttp.test_utils import TestClient, TestServer
 
 # Add the parent directory to sys.path so we can import sidecar
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

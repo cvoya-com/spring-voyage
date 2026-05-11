@@ -263,14 +263,14 @@ public class ContainerLifecycleManagerTests
     }
 
     [Fact]
-    public async Task LaunchWithSidecarAsync_PropagatesProviderCredentialEnvVars_IntoSidecarConfig()
+    public async Task LaunchWithSidecarAsync_PropagatesSecretStoreEnvVars_IntoSidecarConfig()
     {
         // #1714 step 3: secretstores.local.env reads from the daprd
-        // sidecar's process env. The lifecycle manager must filter the
-        // agent app's env vars down to the credential names and feed
-        // them into DaprSidecarConfig.EnvironmentVariables so the
-        // sidecar's secret store can satisfy llm-*.yaml's
-        // secretKeyRef entries (per ADR-0038).
+        // sidecar's process env. The lifecycle manager must filter the agent
+        // app's env vars down to the names the Conversation YAML references
+        // and feed them into DaprSidecarConfig.EnvironmentVariables so the
+        // sidecar's secret store can satisfy llm-*.yaml's secretKeyRef
+        // entries (per ADR-0038).
         DaprSidecarConfig? capturedSidecarConfig = null;
         _sidecarManager.StartSidecarAsync(
                 Arg.Do<DaprSidecarConfig>(c => capturedSidecarConfig = c),
@@ -287,8 +287,9 @@ public class ContainerLifecycleManagerTests
             EnvironmentVariables: new Dictionary<string, string>
             {
                 ["ANTHROPIC_API_KEY"] = "sk-ant-api-fake",
+                ["SPRING_MODEL"] = "claude-sonnet-4-6",
                 ["SPRING_LLM_COMPONENT"] = "llm-anthropic",
-                // Non-credential env vars should NOT propagate to the sidecar.
+                // Unreferenced env vars should NOT propagate to the sidecar.
                 ["SPRING_THREAD_ID"] = "conv-1",
             });
 
@@ -297,15 +298,16 @@ public class ContainerLifecycleManagerTests
         capturedSidecarConfig.ShouldNotBeNull();
         capturedSidecarConfig!.EnvironmentVariables.ShouldNotBeNull();
         capturedSidecarConfig.EnvironmentVariables!["ANTHROPIC_API_KEY"].ShouldBe("sk-ant-api-fake");
-        // Only credential names propagate — the SPRING_* vars stay on the app container.
+        capturedSidecarConfig.EnvironmentVariables["SPRING_MODEL"].ShouldBe("claude-sonnet-4-6");
+        // Only component-referenced names propagate — unrelated SPRING_* vars stay on the app container.
         capturedSidecarConfig.EnvironmentVariables.ShouldNotContainKey("SPRING_LLM_COMPONENT");
         capturedSidecarConfig.EnvironmentVariables.ShouldNotContainKey("SPRING_THREAD_ID");
     }
 
     [Fact]
-    public async Task LaunchWithSidecarAsync_NoCredentialEnvVars_LeavesSidecarConfigEnvNull()
+    public async Task LaunchWithSidecarAsync_NoSecretStoreEnvVars_LeavesSidecarConfigEnvNull()
     {
-        // No credential names present in the app's env → no env propagated
+        // No secret-store referenced names present in the app's env → no env propagated
         // to the sidecar. Defends against a leak where unrelated env vars
         // (e.g. SPRING_THREAD_ID) accidentally reach the sidecar's process
         // env.

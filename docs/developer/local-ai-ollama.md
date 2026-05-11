@@ -43,7 +43,7 @@ hosted provider.
 | ---------------------------------- | ----------------- | ------------------------------------------------------ |
 | OSS single-host, container, CPU    | none              | default — just set `Enabled=true`                      |
 | OSS single-host, container, NVIDIA | Linux / WSL2      | `OLLAMA_GPU=nvidia` in `spring.env`                    |
-| OSS single-host, host-installed    | macOS Metal       | `OLLAMA_MODE=host` + `BaseUrl=host.containers.internal`|
+| OSS single-host, host-installed    | macOS Metal       | `deploy.sh up --local-ollama` or `OLLAMA_MODE=host` + `BaseUrl=host.containers.internal` |
 | Cloud, multi-tenant, shared        | provider-specific | cloud host pre-registers `IOptions<OllamaOptions>`     |
 | Cloud, multi-tenant, per-tenant VM | NVIDIA GPU VM     | cloud host maps tenant → VM endpoint                   |
 
@@ -63,8 +63,33 @@ available on Linux and WSL2 today.
 
 Because Metal cannot be exposed inside a rootless container, macOS operators
 who want GPU acceleration must run Ollama on the host and point the platform
-at `http://host.containers.internal:11434`. This is the `OLLAMA_MODE=host`
-deploy path.
+at `http://host.containers.internal:11434`. The one-shot deploy path is:
+
+```bash
+ollama serve &
+./deployment/deploy.sh up --local-ollama
+```
+
+That flag verifies `http://127.0.0.1:11434/api/tags`, skips the
+`spring-ollama` container, removes a stale one if a previous deploy used
+container mode, and injects the host-mode Ollama settings into the platform
+containers. Use `--ollama-port <port>` or
+`--ollama-endpoint <host-or-url>` when the local service is not on the
+default port.
+
+The persistent env-file path remains `OLLAMA_MODE=host` with
+`LanguageModel__Ollama__BaseUrl=http://host.containers.internal:11434`.
+
+The Spring Voyage agent runtime reaches Ollama through its per-launch Dapr
+Conversation sidecar, not directly through the worker's provider. Host mode
+therefore generates a delegated-agent component profile under
+`~/.spring-voyage/deployment/dapr/components/delegated-spring-voyage-agent-local-ollama`
+(or under `SPRING_DEPLOY_STATE_DIR` when set) and rewrites `llm-ollama.yaml`
+to use the OpenAI-compatible host endpoint, such as
+`http://host.containers.internal:11434/v1`. The requested model still comes
+from each unit/agent launch via `SPRING_MODEL`; host mode does not try to
+guess models at deployment time. `deploy.sh clean` removes that generated
+profile.
 
 ## Platform probe behaviour
 
@@ -117,11 +142,13 @@ OLLAMA_DEFAULT_MODEL=qwen2.5:7b   # or llama3.1:8b, mistral:7b, etc.
 LanguageModel__Ollama__DefaultModel=qwen2.5:7b
 ```
 
-Pull it manually if `deploy.sh up` has already run:
-
-```bash
-podman exec spring-ollama ollama pull qwen2.5:7b
-```
+The platform does not need to know every possible unit or agent model at
+deployment time. For `spring-voyage` agents using `provider: ollama`, the
+agent runtime checks the selected `SPRING_MODEL` before the first LLM turn and
+uses Ollama's native `/api/pull` endpoint if the model is missing. Set
+`SPRING_OLLAMA_AUTO_PULL=false` in the agent environment to opt out; in that
+case, pull manually with `podman exec spring-ollama ollama pull qwen2.5:7b`
+or `ollama pull qwen2.5:7b` for host mode.
 
 ## Troubleshooting
 
@@ -135,9 +162,12 @@ podman logs spring-ollama
 podman exec spring-worker curl -sSf http://spring-ollama:11434/api/tags
 ```
 
-### "model 'llama3.2:3b' not found, try pulling it first"
+### "model 'llama3.2:3b' not found"
 
-First-run model pull failed or was skipped. Pull manually:
+The agent runtime normally pulls missing Ollama models on first use. If you see
+this error, either the running agent image predates auto-pull, auto-pull was
+disabled with `SPRING_OLLAMA_AUTO_PULL=false`, or Ollama could not pull the
+requested model name. Pull manually or update the unit/agent model:
 
 ```bash
 podman exec spring-ollama ollama pull llama3.2:3b
