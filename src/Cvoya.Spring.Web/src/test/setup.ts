@@ -18,19 +18,29 @@ import { expect, vi } from "vitest";
 // its loading-skeleton (`unknown`) state without needing a query
 // provider; tests that want to assert specific badge states still
 // override this mock with `vi.mock(...)` at the top of their file.
-vi.mock("@/lib/api/use-runtime-status", async () => {
-  const actual = await vi.importActual<
-    typeof import("@/lib/api/use-runtime-status")
-  >("@/lib/api/use-runtime-status");
-  return {
-    ...actual,
-    useRuntimeStatus: () => ({
-      data: undefined,
-      isPending: true,
-      isError: false,
-    }),
-  };
-});
+//
+// The factory is intentionally sync (no `await vi.importActual`). An
+// async factory makes the first import of this module await a microtask,
+// which on slower CI runners shifts the order in which siblings'
+// `useEffect` data-fetches resolve relative to render — surfacing as
+// flaky controlled-`<select>` interactions in tests that fire change
+// events right after `findByTestId` (e.g. agent-overrides-panel #1744).
+// Inline the small `projectStatus` helper so the mock stays self-
+// contained instead of pulling in the real module's dependency graph.
+const RUNTIME_STATUSES = ["idle", "busy", "queued", "unavailable"] as const;
+type RuntimeStatusLiteral = (typeof RUNTIME_STATUSES)[number] | "unknown";
+vi.mock("@/lib/api/use-runtime-status", () => ({
+  useRuntimeStatus: () => ({
+    data: undefined,
+    isPending: true,
+    isError: false,
+  }),
+  projectStatus: (raw: string | null | undefined): RuntimeStatusLiteral =>
+    (RUNTIME_STATUSES as readonly string[]).includes(raw ?? "")
+      ? (raw as RuntimeStatusLiteral)
+      : "unknown",
+  RUNTIME_STATUS_POLL_INTERVAL_MS: 2000,
+}));
 
 expect.extend(jestDomMatchers);
 
