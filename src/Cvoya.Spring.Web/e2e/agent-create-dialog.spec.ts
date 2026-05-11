@@ -217,6 +217,28 @@ async function mockDialogFlowApis(page: Page) {
     },
   );
 
+  // After the dialog persists the new agent the dashboard re-renders the
+  // refreshed Agents tab, which mounts a `<RuntimeStatusBadge>` per card
+  // and immediately polls `/runtime-status` (#2100). Stub it as a benign
+  // `idle` so the proxy doesn't try to dial the unmocked dotnet backend
+  // and trip the unexpected-API-error guard at the end of the test.
+  await page.route(
+    (url) =>
+      /^\/api\/v1\/tenant\/(agents|units)\/[^/]+\/runtime-status$/.test(
+        url.pathname,
+      ),
+    async (route) => {
+      await route.fulfill({
+        json: {
+          status: "idle",
+          lastUpdated: "2026-01-01T00:00:00.000Z",
+          inFlightThreadCount: 0,
+          queuedMessageCount: 0,
+        },
+      });
+    },
+  );
+
   return { agents, createRequests, memberships, unexpectedApiErrors };
 }
 
