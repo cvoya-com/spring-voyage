@@ -39,6 +39,7 @@ public class PersistentAgentLifecycle(
     IEnumerable<IAgentRuntimeLauncher> launchers,
     IRuntimeCatalog runtimeCatalog,
     IOrchestrationToolProvider orchestrationToolProvider,
+    IAgentContextBuilder agentContextBuilder,
     PersistentAgentRegistry persistentAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
     AgentVolumeManager volumeManager,
@@ -159,12 +160,18 @@ public class PersistentAgentLifecycle(
             TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
             Provider: definition.Execution.Provider,
             Model: definition.Execution.Model,
+            ConcurrentThreads: definition.Execution.ConcurrentThreads,
             OrchestrationTools: orchestrationTools,
             AgentAddress: deployTarget,
             CallbackThreadId: Guid.NewGuid(),
             MessageId: Guid.NewGuid());
 
         var prep = await launcher.PrepareAsync(launchContext, cancellationToken);
+
+        // D3a: assemble the IAgentContext bootstrap bundle (env vars + /spring/context/ files)
+        // and merge onto the launcher spec so all D1 spec env vars are present in the container.
+        var bootstrapContext = await agentContextBuilder.BuildAsync(launchContext, cancellationToken);
+        var prepWithBootstrap = MergeBootstrapContext(prep, bootstrapContext);
 
         _logger.LogInformation(
             "Deploying persistent agent {AgentId} with image {Image}",
@@ -175,9 +182,9 @@ public class PersistentAgentLifecycle(
         // UndeployAsync (which delegates to PersistentAgentRegistry.UndeployAsync).
         var volumeName = await volumeManager.EnsureAsync(agentId, cancellationToken);
         var volumeMount = AgentVolumeManager.BuildVolumeMount(volumeName);
-        var prepWithVolume = prep with
+        var prepWithVolume = prepWithBootstrap with
         {
-            ExtraVolumeMounts = MergeVolumeMounts(prep.ExtraVolumeMounts, volumeMount),
+            ExtraVolumeMounts = MergeVolumeMounts(prepWithBootstrap.ExtraVolumeMounts, volumeMount),
         };
 
         // We pass the (possibly overridden) image into the ContainerConfig so
@@ -331,6 +338,36 @@ public class PersistentAgentLifecycle(
         // replicas == 1 is equivalent to "ensure deployed". Reuse the deploy
         // path with no image override.
         return await DeployAsync(agentId, imageOverride: null, cancellationToken);
+    }
+
+    private static AgentLaunchSpec MergeBootstrapContext(AgentLaunchSpec spec, AgentBootstrapContext bootstrap)
+    {
+        var mergedEnv = new Dictionary<string, string>(spec.EnvironmentVariables, StringComparer.Ordinal);
+        foreach (var kvp in bootstrap.EnvironmentVariables)
+        {
+            mergedEnv[kvp.Key] = kvp.Value;
+        }
+
+        Dictionary<string, string> mergedContext;
+        if (spec.ContextFiles is { Count: > 0 })
+        {
+            mergedContext = new Dictionary<string, string>(spec.ContextFiles, StringComparer.Ordinal);
+        }
+        else
+        {
+            mergedContext = new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        foreach (var kvp in bootstrap.ContextFiles)
+        {
+            mergedContext[kvp.Key] = kvp.Value;
+        }
+
+        return spec with
+        {
+            EnvironmentVariables = mergedEnv,
+            ContextFiles = mergedContext.Count > 0 ? mergedContext : null,
+        };
     }
 
     private static IReadOnlyList<string> MergeVolumeMounts(
