@@ -32,6 +32,6 @@ spec:
   - name: key
     value: "ollama"
   - name: model
-    value: "llama3.2:3b"
+    value: "llama3.2:3b-16k"
   - name: endpoint
     value: "http://spring-ollama:11434/v1"
