@@ -108,6 +108,62 @@ public class GeminiLauncher(
     /// </summary>
     internal const string GeminiCliHomeEnvVar = "GEMINI_CLI_HOME";
 
+    /// <summary>
+    /// Argv vector the A2A bridge (agent-base ENTRYPOINT) spawns inside
+    /// the Gemini container on every <c>message/send</c>. Encoded as a
+    /// JSON array string in <c>SPRING_AGENT_ARGV</c> so the bridge
+    /// (<c>deployment/agent-sidecar/src/config.ts</c>) can recover the
+    /// exact quoting/whitespace via <c>JSON.parse</c> instead of shell
+    /// splitting (#1063 history). The bridge appends
+    /// <c>[--session-id|--resume, &lt;thread.id&gt;]</c> to this vector
+    /// per <see cref="ThreadIdArgCreate"/> / <see cref="ThreadIdArgResume"/>.
+    /// </summary>
+    /// <remarks>
+    /// Verified against the upstream <c>gemini --help</c> surface
+    /// (gemini-cli 0.41.x):
+    /// <list type="bullet">
+    ///   <item><c>--prompt ""</c> activates non-interactive (headless)
+    ///   mode. Per <c>--help</c>: "Run in non-interactive (headless) mode
+    ///   with the given prompt. Appended to input on stdin (if any)."
+    ///   The empty string is the trigger; the actual user message arrives
+    ///   via stdin (which the bridge's <c>runAgentBridge({stdin: userText})</c>
+    ///   already pipes in — see <c>deployment/agent-sidecar/src/bridge.ts</c>).
+    ///   Without <c>--prompt</c> the CLI's default is interactive mode and
+    ///   it never exits, hanging the bridge — empirically confirmed.</item>
+    ///   <item><c>--output-format stream-json</c> emits newline-delimited
+    ///   JSON events (<c>init</c> / <c>message</c> / <c>tool_use</c> /
+    ///   <c>tool_result</c> / <c>error</c> / <c>result</c>) the dispatcher
+    ///   can map to <see cref="Cvoya.Spring.Core.Messaging.StreamEvent"/>s.
+    ///   Direct analogue of Claude's <c>--output-format stream-json</c>.</item>
+    ///   <item><c>--yolo</c> auto-approves every tool call without an
+    ///   interactive confirmation prompt — the container is the sandbox.
+    ///   Direct analogue of Claude's <c>--dangerously-skip-permissions</c>.
+    ///   Aliased as <c>-y</c>; we keep the long form for legibility in
+    ///   process listings.</item>
+    ///   <item><c>--skip-trust</c> trusts the workspace for this session
+    ///   without requiring the interactive trust prompt — gemini-cli
+    ///   refuses headless invocation in an untrusted directory otherwise
+    ///   (see <c>https://geminicli.com/docs/cli/trusted-folders/</c>).
+    ///   The container's <c>/workspace</c> mount is dispatcher-controlled,
+    ///   not user-controlled, so trust is implicit at the platform layer.</item>
+    /// </list>
+    /// <c>--session-id</c> and <c>--resume</c> are NOT included here —
+    /// the bridge appends them per-message based on the thread-binding
+    /// env vars (<see cref="ThreadIdArgCreateEnvVar"/> /
+    /// <see cref="ThreadIdArgResumeEnvVar"/>) so the same default argv
+    /// covers both cold-start and resume.
+    /// </remarks>
+    internal static readonly string[] DefaultGeminiArgv =
+    [
+        "gemini",
+        "--prompt",
+        string.Empty,
+        "--output-format",
+        "stream-json",
+        "--yolo",
+        "--skip-trust",
+    ];
+
     private const string SpringVoyageMcpServerName = "spring-voyage";
     private const string SpringOrchestrationMcpServerName = "spring-orchestration";
 
@@ -168,6 +224,17 @@ public class GeminiLauncher(
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
             ["SPRING_SYSTEM_PROMPT"] = prompt,
+            // #2108: the bridge parses this back into argv via JSON.parse —
+            // see deployment/agent-sidecar/src/config.ts. Hand-rolling the
+            // encoding is forbidden (#1063 history); JsonSerializer gives
+            // us stable, double-quoted output. The bridge appends
+            // [--session-id|--resume, <thread.id>] to this vector per the
+            // ThreadIdArg* env vars below, then pipes the user's prompt
+            // into the spawned process's stdin. Until #2108 the launcher
+            // left this unset and the spawn vector became just
+            // [--session-id, <id>] with no command name — Gemini agent
+            // containers couldn't actually execute end-to-end.
+            ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(DefaultGeminiArgv),
             // D3c: canonical path where the per-agent workspace volume is
             // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,

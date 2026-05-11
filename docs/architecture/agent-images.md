@@ -6,9 +6,10 @@ Spring Voyage ships two classes of container image for running agents:
 |-------|----------------|---------|
 | `agent-base` | `ghcr.io/cvoya-com/agent-base:latest` | BYOI minimal — the A2A sidecar bridge only. Operators layer their own CLI on top. |
 | `claude-code-base` | `ghcr.io/cvoya-com/claude-code-base:latest` | Claude Code CLI on top of the agent-base bridge. |
+| `gemini-base` | `ghcr.io/cvoya-com/gemini-base:latest` | Google Gemini CLI on top of the agent-base bridge. |
 | `spring-voyage-agent` | `ghcr.io/cvoya-com/spring-voyage-agent:latest` | Path-3 native A2A image used by the `spring-voyage` runtime. |
 
-Per ADR-0038, every entry under `agentRuntimes` in `platform/runtime-catalog.yaml` declares a `defaultImage`. The unit-creation wizard pre-fills the image field with the selected runtime's `defaultImage`. This repository builds the `claude-code-base` and `spring-voyage-agent` references; `codex-base` and `gemini-base` are external runtime images.
+Per ADR-0038, every entry under `agentRuntimes` in `platform/runtime-catalog.yaml` declares a `defaultImage`. The unit-creation wizard pre-fills the image field with the selected runtime's `defaultImage`. This repository builds the `claude-code-base`, `gemini-base`, and `spring-voyage-agent` references; `codex-base` is an external runtime image.
 
 For local development before GHCR publishing, `deployment/build-agent-images.sh`
 tags built images with their canonical `ghcr.io/cvoya-com/...:<tag>`
@@ -47,6 +48,7 @@ Built by `deployment/build-agent-images.sh` for local dev and CI verification.
 | Image | Source file | Tool kind |
 |-------|-------------|-----------|
 | `ghcr.io/cvoya-com/claude-code-base:dev` | `deployment/Dockerfile.agent.claude-code` | `claude-code-cli` |
+| `ghcr.io/cvoya-com/gemini-base:dev` | `deployment/Dockerfile.agent.gemini` | `gemini-cli` |
 | `ghcr.io/cvoya-com/spring-voyage-agent:dev` | `deployment/Dockerfile.agent.dapr` | `spring-voyage-agent` (native A2A, Python) |
 
 **When to use per-runtime images:**

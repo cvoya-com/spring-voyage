@@ -260,6 +260,49 @@ public class GeminiLauncherTests
     }
 
     [Fact]
+    public async Task PrepareAsync_SetsSpringAgentArgv_AsJsonEncodedArrayOfStrings()
+    {
+        // #2108: until this issue the launcher left SPRING_AGENT_ARGV
+        // unset and the bridge had nothing to append the per-message
+        // session-id flag onto — Gemini agent containers literally could
+        // not execute end-to-end. The default argv must be JSON-encoded
+        // (the bridge does JSON.parse, see
+        // `deployment/agent-sidecar/src/config.ts:parseArgv`) and must
+        // produce a complete spawn vector once the bridge appends
+        // [--session-id|--resume, <thread.id>] to it.
+        //
+        // Each flag below has a documented rationale — see the doc-comment
+        // on `GeminiLauncher.DefaultGeminiArgv`. The values are pinned
+        // here so accidental drift surfaces in unit-test failure rather
+        // than at integration time. In particular, the empty-string
+        // sentinel after `--prompt` is what the upstream `gemini --help`
+        // documents as the headless-mode trigger ("Appended to input on
+        // stdin (if any)"); without it the CLI defaults to interactive
+        // mode and never exits, hanging the bridge.
+        var prep = await _launcher.PrepareAsync(
+            LauncherCallbackTestSupport.CreateContext(
+                prompt: "Be helpful.",
+                mcpToken: "gemini-secret-token"),
+            TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldContainKey("SPRING_AGENT_ARGV");
+        var raw = prep.EnvironmentVariables["SPRING_AGENT_ARGV"];
+
+        var argv = JsonSerializer.Deserialize<string[]>(raw);
+        argv.ShouldNotBeNull();
+        argv.ShouldBe(new[]
+        {
+            "gemini",
+            "--prompt",
+            string.Empty,
+            "--output-format",
+            "stream-json",
+            "--yolo",
+            "--skip-trust",
+        });
+    }
+
+    [Fact]
     public async Task PrepareAsync_PointsGeminiCliHome_AtWorkspaceMountPath()
     {
         // ADR-0041 / #2103: GEMINI_CLI_HOME relocates Gemini's config and
