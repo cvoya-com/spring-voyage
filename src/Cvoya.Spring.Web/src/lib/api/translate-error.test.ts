@@ -195,6 +195,77 @@ describe("translateApiError", () => {
     },
   );
 
+  it("translates CredentialsMissing — single missing entry", () => {
+    const translated = translateApiError(
+      new ApiError(400, "Bad Request", {
+        type: "https://cvoya.com/problems/credentials-missing",
+        title: "Bad Request",
+        status: 400,
+        code: "CredentialsMissing",
+        missing: [
+          {
+            provider: "anthropic",
+            authMethod: "oauth",
+            secretName: "anthropic-oauth",
+            credentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
+          },
+        ],
+      }),
+    );
+
+    expect(translated.title).toBe(
+      "This package needs the `CLAUDE_CODE_OAUTH_TOKEN` credential.",
+    );
+    expect(translated.nextStep).toMatch(/--oauth-token/);
+  });
+
+  it("translates CredentialsMissing — multiple missing entries", () => {
+    const translated = translateApiError(
+      new ApiError(400, "Bad Request", {
+        type: "https://cvoya.com/problems/credentials-missing",
+        title: "Bad Request",
+        status: 400,
+        code: "CredentialsMissing",
+        missing: [
+          {
+            provider: "anthropic",
+            authMethod: "oauth",
+            secretName: "anthropic-oauth",
+            credentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
+          },
+          {
+            provider: "openai",
+            authMethod: "api-key",
+            secretName: "openai-api-key",
+            credentialEnvVar: "OPENAI_API_KEY",
+          },
+        ],
+      }),
+    );
+
+    expect(translated.title).toBe(
+      "This package needs 2 credentials, including `CLAUDE_CODE_OAUTH_TOKEN`.",
+    );
+  });
+
+  it("translates UnknownCredentialEdge", () => {
+    const translated = translateApiError(
+      new ApiError(400, "Bad Request", {
+        type: "https://cvoya.com/problems/unknown-credential-edge",
+        title: "Bad Request",
+        status: 400,
+        code: "UnknownCredentialEdge",
+        provider: "openai",
+        authMethod: "api-key",
+      }),
+    );
+
+    expect(translated.title).toBe(
+      "No member unit consumes a `openai` / `api-key` credential.",
+    );
+    expect(translated.nextStep).toMatch(/Remove that credential entry/);
+  });
+
   it("falls back to the server title and detail for unknown codes", () => {
     const translated = translateApiError(
       new ApiError(418, "I'm a teapot", {

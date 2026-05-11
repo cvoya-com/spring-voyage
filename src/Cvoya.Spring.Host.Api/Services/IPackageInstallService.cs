@@ -101,7 +101,8 @@ public record InstallTarget(
     string OriginalYaml,
     string? PackageRoot = null,
     IReadOnlyDictionary<string, ConnectorBinding>? PackageBindings = null,
-    IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? UnitBindings = null);
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? UnitBindings = null,
+    IReadOnlyList<CredentialBinding>? Credentials = null);
 
 /// <summary>
 /// Outcome of a single <c>IPackageInstallService.InstallAsync</c> call.

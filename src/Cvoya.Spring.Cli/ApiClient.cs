@@ -2711,7 +2711,18 @@ public class SpringApiClient
         string PackageName,
         IReadOnlyDictionary<string, string>? Inputs,
         PackageConnectorBindingsRequest? ConnectorBindings = null,
-        string? Version = null);
+        string? Version = null,
+        IReadOnlyList<CredentialBindingPayloadRequest>? Credentials = null);
+
+    /// <summary>
+    /// Wire shape for one operator-supplied LLM credential at install
+    /// time (#2159). The install pipeline writes accepted bindings as
+    /// tenant-scoped secrets during Phase 1.
+    /// </summary>
+    public sealed record CredentialBindingPayloadRequest(
+        string Provider,
+        string AuthMethod,
+        string Value);
 
     /// <summary>
     /// Wire shape for the install request's <c>connectorBindings</c>

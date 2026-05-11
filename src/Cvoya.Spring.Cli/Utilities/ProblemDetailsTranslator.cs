@@ -30,10 +30,12 @@ public static class ProblemDetailsTranslator
         "LifecycleConflict",
         "InvalidState",
         "CredentialMissing",
+        "CredentialsMissing",
         "CredentialInvalid",
         "ValidationFailed",
         "ConfigurationIncomplete",
         "UnknownConnectorSlug",
+        "UnknownCredentialEdge",
         "MultiParentInheritanceConflict",
         "ImagePullFailed",
         "ImageStartFailed",
@@ -86,6 +88,7 @@ public static class ProblemDetailsTranslator
                 TraceId(problem)),
             "LifecycleConflict" or "InvalidState" => LifecycleConflict(problem),
             "CredentialMissing" => CredentialMissing(problem),
+            "CredentialsMissing" => CredentialsMissing(problem),
             "CredentialInvalid" => CredentialInvalid(problem),
             "ValidationFailed" => new(
                 "The request was invalid.",
@@ -93,6 +96,7 @@ public static class ProblemDetailsTranslator
                 TraceId(problem)),
             "ConfigurationIncomplete" => ConfigurationIncomplete(problem),
             "UnknownConnectorSlug" => UnknownConnectorSlug(problem),
+            "UnknownCredentialEdge" => UnknownCredentialEdge(problem),
             "MultiParentInheritanceConflict" => new(
                 "Parent units disagree on inherited execution settings.",
                 NullIfBlank(problem.Detail)
@@ -221,6 +225,49 @@ public static class ProblemDetailsTranslator
             TraceId(problem));
     }
 
+    private static TranslatedProblemDetails CredentialsMissing(ProblemDetails problem)
+    {
+        var missing = MissingArray(problem);
+        if (missing.Count == 0)
+        {
+            return new(
+                "This package needs at least one credential.",
+                "Supply each one via `--oauth-token` / `--api-key` and retry the install.",
+                TraceId(problem));
+        }
+
+        var first = missing[0];
+        var envVar =
+            GetValue(first, "credentialEnvVar")
+            ?? GetValue(first, "credential")
+            ?? GetValue(first, "secretName");
+        var provider = GetValue(first, "provider");
+        var label = envVar
+            ?? (provider is not null ? $"{provider} credential" : "the required credential");
+
+        if (missing.Count == 1)
+        {
+            return new(
+                $"This package needs the `{label}` credential.",
+                "Supply it via `--oauth-token` / `--api-key` (or set the tenant secret), then retry the install.",
+                TraceId(problem));
+        }
+        return new(
+            $"This package needs {missing.Count} credentials, including `{label}`.",
+            "Supply each one via `--oauth-token` / `--api-key` (or set the tenant secrets), then retry the install.",
+            TraceId(problem));
+    }
+
+    private static TranslatedProblemDetails UnknownCredentialEdge(ProblemDetails problem)
+    {
+        var provider = GetString(problem, "provider") ?? "that provider";
+        var authMethod = GetString(problem, "authMethod") ?? "auth method";
+        return new(
+            $"No member unit consumes a `{provider}` / `{authMethod}` credential.",
+            "Remove that credential entry, or pick a runtime/provider that consumes it.",
+            TraceId(problem));
+    }
+
     private static TranslatedProblemDetails CredentialInvalid(ProblemDetails problem)
     {
         var provider =
@@ -319,19 +366,27 @@ public static class ProblemDetailsTranslator
 
     private static object? FirstMissing(ProblemDetails problem)
     {
+        var array = MissingArray(problem);
+        return array.Count > 0 ? array[0] : null;
+    }
+
+    private static IReadOnlyList<object?> MissingArray(ProblemDetails problem)
+    {
         if (problem.AdditionalData is null
             || !problem.AdditionalData.TryGetValue("missing", out var value))
         {
-            return null;
+            return Array.Empty<object?>();
         }
 
         return value switch
         {
-            JsonElement { ValueKind: JsonValueKind.Array } element
-                when element.GetArrayLength() > 0 => element[0],
-            UntypedArray array => array.GetValue().FirstOrDefault(),
-            IEnumerable enumerable and not string => enumerable.Cast<object?>().FirstOrDefault(),
-            _ => null,
+            JsonElement { ValueKind: JsonValueKind.Array } element =>
+                Enumerable.Range(0, element.GetArrayLength())
+                    .Select(i => (object?)element[i])
+                    .ToArray(),
+            UntypedArray array => array.GetValue().ToArray(),
+            IEnumerable enumerable and not string => enumerable.Cast<object?>().ToArray(),
+            _ => Array.Empty<object?>(),
         };
     }
 

@@ -48,7 +48,8 @@ public sealed record PackageInstallTarget(
     string PackageName,
     IReadOnlyDictionary<string, string>? Inputs,
     PackageConnectorBindings? ConnectorBindings = null,
-    string? Version = null);
+    string? Version = null,
+    IReadOnlyList<CredentialBindingPayload>? Credentials = null);
 
 /// <summary>
 /// Operator-supplied connector bindings for a single package install
@@ -91,6 +92,43 @@ public sealed record ConnectorBindingMissingDetail(
     string Slug,
     string Scope,
     string? UnitName);
+
+/// <summary>
+/// Wire shape for one operator-supplied LLM credential at install time
+/// (#2159). The install pipeline writes accepted bindings as
+/// tenant-scoped secrets during Phase 2, keyed by
+/// <c>{provider}-{authMethod-slug}</c> per
+/// <see cref="Cvoya.Spring.Core.Catalog.CredentialNaming.SecretNameFor"/>.
+/// </summary>
+/// <param name="Provider">Provider id — <c>anthropic</c>, <c>openai</c>, <c>google</c>.</param>
+/// <param name="AuthMethod">Auth method on the consuming runtime/provider edge — <c>oauth</c> or <c>api-key</c>.</param>
+/// <param name="Value">The cleartext secret value the operator typed. Never persisted as plaintext beyond the request.</param>
+public sealed record CredentialBindingPayload(
+    string Provider,
+    string AuthMethod,
+    string Value);
+
+/// <summary>
+/// One missing LLM credential surfaced through the
+/// <c>CredentialsMissing</c> 400 (#2159). Carried in the response's
+/// <c>extensions["missing"]</c> array so the wizard / CLI can prompt
+/// for the missing values precisely.
+/// </summary>
+/// <param name="Provider">The provider that needs the credential.</param>
+/// <param name="AuthMethod">The auth method on the consuming edge — <c>oauth</c> or <c>api-key</c>.</param>
+/// <param name="SecretName">Canonical secret name the resolver looks for.</param>
+/// <param name="CredentialEnvVar">Env var the runtime launcher consumes the resolved value under.</param>
+/// <param name="Scope">Where the gap was detected — <c>"package"</c> or <c>"unit"</c>.</param>
+/// <param name="UnitName">Member unit name when <see cref="Scope"/> is <c>"unit"</c>; <c>null</c> otherwise.</param>
+/// <param name="ConsumingUnits">Member units whose runtime/provider edge consumes this credential.</param>
+public sealed record CredentialMissingDetail(
+    string Provider,
+    string AuthMethod,
+    string SecretName,
+    string CredentialEnvVar,
+    string Scope,
+    string? UnitName,
+    IReadOnlyList<string> ConsumingUnits);
 
 /// <summary>
 /// One missing execution-configuration field surfaced through the

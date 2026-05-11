@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Cli.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Utilities;
@@ -347,6 +348,76 @@ public class ProblemDetailsTranslatorTests
 
         rendered.ShouldContain(expectedTitle);
         rendered.ShouldContain(expectedNextStep);
+    }
+
+    [Fact]
+    public void Format_CredentialsMissing_RendersFriendlyMultiCredentialCopy()
+    {
+        var problem = new ProblemDetails
+        {
+            AdditionalData = new Dictionary<string, object>
+            {
+                ["code"] = "CredentialsMissing",
+                ["missing"] = JsonDocument.Parse(
+                    "[{\"provider\":\"anthropic\",\"authMethod\":\"oauth\"," +
+                    "\"secretName\":\"anthropic-oauth\"," +
+                    "\"credentialEnvVar\":\"CLAUDE_CODE_OAUTH_TOKEN\"}," +
+                    "{\"provider\":\"openai\",\"authMethod\":\"api-key\"," +
+                    "\"secretName\":\"openai-api-key\"," +
+                    "\"credentialEnvVar\":\"OPENAI_API_KEY\"}]")
+                    .RootElement,
+                ["traceId"] = "00-creds",
+            },
+        };
+
+        var rendered = ProblemDetailsTranslator.Format(problem);
+
+        rendered.ShouldContain("This package needs 2 credentials");
+        rendered.ShouldContain("CLAUDE_CODE_OAUTH_TOKEN");
+        rendered.ShouldContain("--oauth-token");
+        rendered.ShouldNotContain("traceId");
+        rendered.ShouldNotContain("API error");
+    }
+
+    [Fact]
+    public void Format_CredentialsMissing_SingleEntry_NamesItDirectly()
+    {
+        var problem = new ProblemDetails
+        {
+            AdditionalData = new Dictionary<string, object>
+            {
+                ["code"] = "CredentialsMissing",
+                ["missing"] = JsonDocument.Parse(
+                    "[{\"provider\":\"anthropic\",\"authMethod\":\"oauth\"," +
+                    "\"secretName\":\"anthropic-oauth\"," +
+                    "\"credentialEnvVar\":\"CLAUDE_CODE_OAUTH_TOKEN\"}]")
+                    .RootElement,
+            },
+        };
+
+        var rendered = ProblemDetailsTranslator.Format(problem);
+
+        rendered.ShouldContain("This package needs the `CLAUDE_CODE_OAUTH_TOKEN` credential.");
+        rendered.ShouldContain("--oauth-token");
+    }
+
+    [Fact]
+    public void Format_UnknownCredentialEdge_NamesProviderAndAuthMethod()
+    {
+        var problem = new ProblemDetails
+        {
+            AdditionalData = new Dictionary<string, object>
+            {
+                ["code"] = "UnknownCredentialEdge",
+                ["provider"] = "openai",
+                ["authMethod"] = "api-key",
+            },
+        };
+
+        var rendered = ProblemDetailsTranslator.Format(problem);
+
+        rendered.ShouldContain("`openai` / `api-key`");
+        rendered.ShouldContain("Remove that credential entry");
     }
 
     [Fact]

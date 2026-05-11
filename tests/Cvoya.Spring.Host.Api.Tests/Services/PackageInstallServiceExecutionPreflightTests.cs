@@ -9,7 +9,11 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Secrets;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Host.Api.Services;
 using Cvoya.Spring.Manifest;
@@ -218,10 +222,28 @@ public class PackageInstallServiceExecutionPreflightTests
         var directory = Substitute.For<IDirectoryService>();
         var activator = new CapturingActivator();
 
+        // The execution-preflight tests don't exercise credential
+        // resolution (units in these fixtures don't declare an `ai:`
+        // block), so a no-op resolver returning NotFound is fine — the
+        // preflight short-circuits before consulting it. Substituted
+        // secret store / registry / tenant context likewise stay
+        // unused.
+        var credentialResolver = Substitute.For<ILlmCredentialResolver>();
+        credentialResolver
+            .ResolveAsync(Arg.Any<string>(), Arg.Any<AuthMethod>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(new LlmCredentialResolution(null, LlmCredentialSource.NotFound, string.Empty)));
+        var tenantContext = Substitute.For<ITenantContext>();
+        tenantContext.CurrentTenantId.Returns(Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
+
         var service = new PackageInstallService(
             scopeFactory,
             directory,
             activator,
+            Cvoya.Spring.RuntimeCatalog.RuntimeCatalogLoader.LoadEmbedded(),
+            credentialResolver,
+            Substitute.For<ISecretStore>(),
+            Substitute.For<ISecretRegistry>(),
+            tenantContext,
             NullLogger<PackageInstallService>.Instance);
 
         return (service, activator);
