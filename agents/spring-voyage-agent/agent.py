@@ -296,9 +296,7 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
         # Off-load the blocking call to the default executor so the event
         # loop stays responsive and the health probe continues to answer
         # 200 while the LLM call is in flight.
-        response = await asyncio.to_thread(
-            build.llm.generate, messages=messages, tools=build.tools
-        )
+        response = await asyncio.to_thread(build.llm.generate, messages=messages, tools=build.tools)
         assistant = response.get_message()
         if assistant is None:
             raise RuntimeError(
