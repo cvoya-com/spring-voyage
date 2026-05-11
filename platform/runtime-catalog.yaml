@@ -63,9 +63,10 @@ modelProviders:
       name: openai
       version: v1
     defaultModels:
-      - llama3.2:3b
-      - llama3.2:1b
-      - qwen2.5:7b
+      - qwen3.6:27b
+      - qwen3.6:27b-coding-nvfp4
+      - deepseek-r1:7b
+      - deepseek-coder:6.7b
 
 agentRuntimes:
   - id: claude-code
