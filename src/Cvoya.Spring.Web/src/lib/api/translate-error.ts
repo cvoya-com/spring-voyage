@@ -31,6 +31,8 @@ const translators: Record<string, ProblemTranslator> = {
   LifecycleConflict: translateLifecycleConflict,
   InvalidState: translateLifecycleConflict,
   CredentialMissing: translateCredentialMissing,
+  CredentialsMissing: translateCredentialsMissing,
+  UnknownCredentialEdge: translateUnknownCredentialEdge,
   CredentialInvalid: translateCredentialInvalid,
   ValidationFailed: (problem) => ({
     title: "The request was invalid.",
@@ -179,6 +181,46 @@ function translateCredentialMissing(problem: ParsedProblemDetails): TranslatedEr
     title: `Required credential \`${credential}\` isn't set.`,
     nextStep:
       "Set it in Config -> Secrets on this unit, on a parent unit, or on the tenant.",
+  };
+}
+
+function translateCredentialsMissing(problem: ParsedProblemDetails): TranslatedError {
+  const missing = Array.isArray(problem.missing) ? problem.missing : [];
+  if (missing.length === 0) {
+    return {
+      title: "This package needs at least one credential.",
+      nextStep:
+        "Open the credential step in the wizard or supply `--oauth-token` / `--api-key` and retry.",
+    };
+  }
+  const first = missing[0] as Record<string, unknown> | null;
+  const envVar =
+    fieldFromRecord(first, "credentialEnvVar") ??
+    fieldFromRecord(first, "credential") ??
+    fieldFromRecord(first, "secretName");
+  const provider = fieldFromRecord(first, "provider");
+  const label = envVar ?? (provider ? `${provider} credential` : "the required credential");
+  if (missing.length === 1) {
+    return {
+      title: `This package needs the \`${label}\` credential.`,
+      nextStep:
+        "Open the credential step in the wizard, or supply it via `--oauth-token` / `--api-key`, then retry the install.",
+    };
+  }
+  return {
+    title: `This package needs ${missing.length} credentials, including \`${label}\`.`,
+    nextStep:
+      "Open the credential step in the wizard, or supply each one via `--oauth-token` / `--api-key`, then retry.",
+  };
+}
+
+function translateUnknownCredentialEdge(problem: ParsedProblemDetails): TranslatedError {
+  const provider = stringField(problem, "provider") ?? "that provider";
+  const authMethod = stringField(problem, "authMethod") ?? "auth method";
+  return {
+    title: `No member unit consumes a \`${provider}\` / \`${authMethod}\` credential.`,
+    nextStep:
+      "Remove that credential entry, or pick a runtime/provider that consumes it.",
   };
 }
 

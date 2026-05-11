@@ -10077,6 +10077,25 @@
           }
         }
       },
+      "CredentialBindingPayload": {
+        "required": [
+          "provider",
+          "authMethod",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "authMethod": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
       "CredentialHealthResponse": {
         "required": [
           "subjectId",
@@ -11596,6 +11615,15 @@
               "null",
               "string"
             ]
+          },
+          "credentials": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CredentialBindingPayload"
+            }
           }
         }
       },

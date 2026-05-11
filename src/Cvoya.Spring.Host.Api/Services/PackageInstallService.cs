@@ -11,8 +11,12 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Secrets;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Manifest;
@@ -32,6 +36,11 @@ public class PackageInstallService : IPackageInstallService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IDirectoryService _directoryService;
     private readonly IPackageArtefactActivator _activator;
+    private readonly IRuntimeCatalog _runtimeCatalog;
+    private readonly ILlmCredentialResolver _credentialResolver;
+    private readonly ISecretStore _secretStore;
+    private readonly ISecretRegistry _secretRegistry;
+    private readonly ITenantContext _tenantContext;
     private readonly IPackageCatalogProvider? _catalogProvider;
     private readonly ILogger<PackageInstallService> _logger;
 
@@ -42,12 +51,22 @@ public class PackageInstallService : IPackageInstallService
         IServiceScopeFactory scopeFactory,
         IDirectoryService directoryService,
         IPackageArtefactActivator activator,
+        IRuntimeCatalog runtimeCatalog,
+        ILlmCredentialResolver credentialResolver,
+        ISecretStore secretStore,
+        ISecretRegistry secretRegistry,
+        ITenantContext tenantContext,
         ILogger<PackageInstallService> logger,
         IPackageCatalogProvider? catalogProvider = null)
     {
         _scopeFactory = scopeFactory;
         _directoryService = directoryService;
         _activator = activator;
+        _runtimeCatalog = runtimeCatalog;
+        _credentialResolver = credentialResolver;
+        _secretStore = secretStore;
+        _secretRegistry = secretRegistry;
+        _tenantContext = tenantContext;
         _logger = logger;
         _catalogProvider = catalogProvider;
     }
@@ -116,6 +135,66 @@ public class PackageInstallService : IPackageInstallService
         if (allMissing.Count > 0)
         {
             throw new ConnectorBindingsMissingException(allMissing);
+        }
+
+        // #2159: LLM-credential pre-flight. Same shape as the connector
+        // pre-flight: derive each unit's required (provider, authMethod)
+        // edge from the runtime catalogue, match against operator-supplied
+        // bindings, fall back to the tenant secret store, and aggregate
+        // genuine gaps into a single CredentialsMissingException so the
+        // operator sees the full punch-list at once. Resolved bindings
+        // are deferred to a post-pre-flight write step (below) so a
+        // missing-secret failure cannot leave half-written tenant
+        // secrets behind.
+        var allCredMissing = new List<CredentialMissing>();
+        UnknownCredentialEdgeEntry? firstUnknownCred = null;
+        var resolvedCredentials = new List<ResolvedCredentialBinding>();
+        foreach (var (target, pkg) in resolvedTargets)
+        {
+            var required = CredentialBindingResolver.CollectRequired(pkg, _runtimeCatalog);
+            var resolution = CredentialBindingResolver.Resolve(required, target.Credentials);
+            if (resolution.UnknownEdges.Count > 0 && firstUnknownCred is null)
+            {
+                firstUnknownCred = resolution.UnknownEdges[0];
+            }
+            resolvedCredentials.AddRange(resolution.Resolved);
+
+            foreach (var candidate in resolution.UnsuppliedCandidates)
+            {
+                var lookup = await _credentialResolver.ResolveAsync(
+                    candidate.Provider,
+                    candidate.AuthMethod,
+                    agentId: null,
+                    unitId: null,
+                    cancellationToken);
+                if (lookup.Source == LlmCredentialSource.NotFound)
+                {
+                    allCredMissing.Add(CredentialBindingResolver.ToMissing(candidate));
+                }
+            }
+        }
+        if (firstUnknownCred is not null)
+        {
+            throw new UnknownCredentialEdgeException(
+                firstUnknownCred.Provider, firstUnknownCred.AuthMethod);
+        }
+        if (allCredMissing.Count > 0)
+        {
+            throw new CredentialsMissingException(allCredMissing);
+        }
+
+        // Persist any operator-supplied credentials as tenant secrets
+        // before Phase 1 begins. Idempotent: if a secret already exists
+        // under the canonical name, rotate its value forward (the
+        // operator's explicit re-supply is treated as intent-to-override).
+        // Done before Phase 1 so a write failure aborts the install
+        // without staging rows; the registry itself is transactional with
+        // EF, but the underlying SecretStore writes are not, so we accept
+        // best-effort orphan blobs on a partial failure (cleaned up by
+        // `spring secret delete` if needed).
+        if (resolvedCredentials.Count > 0)
+        {
+            await PersistSuppliedCredentialsAsync(resolvedCredentials, cancellationToken);
         }
 
         // #1679: execution-defaults pre-flight. Merge each member unit's
@@ -767,6 +846,62 @@ public class PackageInstallService : IPackageInstallService
             result[row.ConnectorId] = new ConnectorBinding(row.ConnectorId, config);
         }
         return result;
+    }
+
+    /// <summary>
+    /// #2159: persist operator-supplied LLM credentials at tenant scope.
+    /// Per credential: write the value to the secret store, then either
+    /// register a new secret-registry entry or rotate the existing one
+    /// forward to the new store key. Idempotent on re-supply (the
+    /// operator's explicit re-paste counts as intent-to-rotate).
+    /// </summary>
+    private async Task PersistSuppliedCredentialsAsync(
+        IReadOnlyList<ResolvedCredentialBinding> resolvedCredentials,
+        CancellationToken cancellationToken)
+    {
+        var ownerId = _tenantContext.CurrentTenantId;
+        foreach (var resolved in resolvedCredentials)
+        {
+            var secretRef = new SecretRef(SecretScope.Tenant, ownerId, resolved.Required.SecretName);
+            var storeKey = await _secretStore.WriteAsync(resolved.Binding.Value, cancellationToken);
+            try
+            {
+                var existing = await _secretRegistry.LookupAsync(secretRef, cancellationToken);
+                if (existing is null)
+                {
+                    await _secretRegistry.RegisterAsync(
+                        secretRef,
+                        storeKey,
+                        SecretOrigin.PlatformOwned,
+                        propagate: true,
+                        cancellationToken);
+                }
+                else
+                {
+                    await _secretRegistry.RotateAsync(
+                        secretRef,
+                        storeKey,
+                        SecretOrigin.PlatformOwned,
+                        deletePreviousStoreKeyAsync: null,
+                        cancellationToken);
+                }
+            }
+            catch
+            {
+                // Registry write failed after the store blob was written.
+                // Best-effort cleanup of the orphan blob; surface the
+                // primary registry error so the install aborts.
+                try
+                {
+                    await _secretStore.DeleteAsync(storeKey, CancellationToken.None);
+                }
+                catch
+                {
+                    // Swallow — reconciliation handles orphans.
+                }
+                throw;
+            }
+        }
     }
 
     // ── Phase 2 helpers ────────────────────────────────────────────────────

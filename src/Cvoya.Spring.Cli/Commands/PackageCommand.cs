@@ -208,6 +208,27 @@ public static class PackageCommand
             AllowMultipleArgumentsPerToken = false,
         };
 
+        // #2159: --secret flag — repeatable. Form:
+        //   <provider>:<auth-method>=<value>                    (single-target install)
+        //   <pkg>.<provider>:<auth-method>=<value>              (multi-target install)
+        // The pre-flight derives required credentials from each unit's
+        // (runtime, provider) edge and writes the supplied value as a
+        // tenant-scoped secret keyed by `{provider}-{auth-method-slug}`.
+        // Interactive TTY installs that omit a required credential are
+        // prompted for it after the first failed attempt.
+        var secretOption = new Option<string[]>("--secret")
+        {
+            Description =
+                "LLM credential for the package's runtimes, repeatable. " +
+                "Form: --secret <provider>:<auth-method>=<value> " +
+                "(e.g. --secret anthropic:oauth=sk-ant-oat-... or --secret openai:api-key=sk-...). " +
+                "For multi-target installs, namespace by package: --secret <pkg>.<provider>:<auth-method>=<value>. " +
+                "Required credentials missing from the request prompt the operator " +
+                "interactively when stdin is a TTY; otherwise the install fails with " +
+                "a structured CredentialsMissing error listing each missing slot.",
+            AllowMultipleArgumentsPerToken = false,
+        };
+
         var command = new Command(
             "install",
             "Install one or more packages from the catalog (spring package install <name> [<name>...]) " +
@@ -227,6 +248,7 @@ public static class PackageCommand
         command.Options.Add(inputFileOption);
         command.Options.Add(connectorOption);
         command.Options.Add(versionOption);
+        command.Options.Add(secretOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -235,6 +257,7 @@ public static class PackageCommand
             var inputs = parseResult.GetValue(inputOption) ?? Array.Empty<string>();
             var inputFile = parseResult.GetValue(inputFileOption);
             var connectorTokens = parseResult.GetValue(connectorOption) ?? Array.Empty<string>();
+            var secretTokens = parseResult.GetValue(secretOption) ?? Array.Empty<string>();
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             var client = ClientFactory.Create();
@@ -326,25 +349,69 @@ public static class PackageCommand
                 return;
             }
 
+            // #2159: parse --secret flags into per-package credential
+            // payloads. Validation of (provider, authMethod) edges against
+            // the runtime catalogue happens server-side; the CLI only
+            // enforces well-formedness so a typo surfaces locally.
+            Dictionary<string, List<SpringApiClient.CredentialBindingPayloadRequest>> perPackageSecrets;
+            try
+            {
+                perPackageSecrets = ParseSecretTokens(secretTokens, names);
+            }
+            catch (ArgumentException ex)
+            {
+                await Console.Error.WriteLineAsync(ex.Message);
+                Environment.Exit(2);
+                return;
+            }
+
             // ADR-0037 D5: optional --version pin applies to every named target.
             // For multi-target installs the same version flag scopes all targets;
             // when more granular per-target pinning is needed operators install
             // per-target with separate invocations.
             var versionPin = parseResult.GetValue(versionOption);
 
-            var targets = names
+            List<SpringApiClient.PackageInstallTargetRequest> BuildTargets() => names
                 .Select(n => new SpringApiClient.PackageInstallTargetRequest(
                     PackageName: n,
                     Inputs: perPackageInputs.TryGetValue(n, out var m) ? m : new Dictionary<string, string>(),
                     ConnectorBindings: perPackageBindings is not null
                         && perPackageBindings.TryGetValue(n, out var b) ? b : null,
-                    Version: versionPin))
+                    Version: versionPin,
+                    Credentials: perPackageSecrets.TryGetValue(n, out var s) && s.Count > 0
+                        ? s.ToList()
+                        : null))
                 .ToList();
 
             SpringApiClient.PackageInstallResponse catalogResult;
             try
             {
-                catalogResult = await client.InstallPackagesAsync(targets, ct);
+                catalogResult = await client.InstallPackagesAsync(BuildTargets(), ct);
+            }
+            catch (ProblemDetails problem) when (
+                ProblemDetailsTranslator.GetCode(problem) == "CredentialsMissing"
+                && !Console.IsInputRedirected)
+            {
+                // #2159: TTY recovery — prompt for each missing credential
+                // and retry once. Non-TTY callers fall through to the
+                // generic ApiException handler so scripts see the
+                // structured CredentialsMissing error verbatim.
+                if (!await TryPromptForMissingCredentialsAsync(problem, names, perPackageSecrets, ct))
+                {
+                    Environment.Exit(MapInstallException(problem));
+                    return;
+                }
+                try
+                {
+                    catalogResult = await client.InstallPackagesAsync(BuildTargets(), ct);
+                }
+                catch (ApiException ex)
+                {
+                    await Console.Error.WriteLineAsync(
+                        $"Install failed: {ProblemDetailsTranslator.Format(ex)}");
+                    Environment.Exit(MapInstallException(ex));
+                    return;
+                }
             }
             catch (ApiException ex)
             {
@@ -1235,4 +1302,197 @@ public static class PackageCommand
             409 => 4,
             _ => 1,
         };
+
+    /// <summary>
+    /// #2159: parse <c>--secret</c> tokens into per-package credential
+    /// payloads. Forms accepted:
+    /// <list type="bullet">
+    ///   <item><description>
+    ///     <c>&lt;provider&gt;:&lt;auth-method&gt;=&lt;value&gt;</c> — single-target installs.
+    ///   </description></item>
+    ///   <item><description>
+    ///     <c>&lt;pkg&gt;.&lt;provider&gt;:&lt;auth-method&gt;=&lt;value&gt;</c> — multi-target installs.
+    ///   </description></item>
+    /// </list>
+    /// Throws <see cref="ArgumentException"/> on malformed tokens.
+    /// </summary>
+    public static Dictionary<string, List<SpringApiClient.CredentialBindingPayloadRequest>> ParseSecretTokens(
+        IReadOnlyList<string> tokens,
+        IReadOnlyList<string> names)
+    {
+        var perPackage = new Dictionary<string, List<SpringApiClient.CredentialBindingPayloadRequest>>(
+            StringComparer.OrdinalIgnoreCase);
+        if (tokens.Count == 0)
+        {
+            return perPackage;
+        }
+
+        var packageSet = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
+        if (packageSet.Count == 0)
+        {
+            throw new ArgumentException(
+                "--secret requires at least one positional package name.");
+        }
+
+        foreach (var raw in tokens)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+            var eqIndex = raw.IndexOf('=');
+            if (eqIndex < 0)
+            {
+                throw new ArgumentException(
+                    $"--secret '{raw}': missing '='. Form: <provider>:<auth-method>=<value>.");
+            }
+            var key = raw[..eqIndex];
+            var value = raw[(eqIndex + 1)..];
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new ArgumentException(
+                    $"--secret '{raw}': value after '=' is empty.");
+            }
+
+            // Optional package prefix: <pkg>.<provider>:<auth>
+            string targetPackage;
+            string providerAuth;
+            if (packageSet.Count > 1)
+            {
+                var dotIndex = key.IndexOf('.');
+                if (dotIndex < 0 || !packageSet.Contains(key[..dotIndex]))
+                {
+                    throw new ArgumentException(
+                        $"--secret '{raw}': multi-target installs require a package prefix " +
+                        $"(<pkg>.<provider>:<auth-method>=<value>).");
+                }
+                targetPackage = names.First(n => string.Equals(n, key[..dotIndex], StringComparison.OrdinalIgnoreCase));
+                providerAuth = key[(dotIndex + 1)..];
+            }
+            else
+            {
+                // Single target — accept either bare or namespaced.
+                targetPackage = names[0];
+                var dotIndex = key.IndexOf('.');
+                providerAuth = dotIndex >= 0 && string.Equals(
+                    key[..dotIndex], targetPackage, StringComparison.OrdinalIgnoreCase)
+                    ? key[(dotIndex + 1)..]
+                    : key;
+            }
+
+            var colonIndex = providerAuth.IndexOf(':');
+            if (colonIndex <= 0 || colonIndex == providerAuth.Length - 1)
+            {
+                throw new ArgumentException(
+                    $"--secret '{raw}': key must be '<provider>:<auth-method>' " +
+                    $"(e.g. 'anthropic:oauth' or 'openai:api-key').");
+            }
+            var provider = providerAuth[..colonIndex].Trim();
+            var authMethod = providerAuth[(colonIndex + 1)..].Trim();
+            if (authMethod is not ("oauth" or "api-key"))
+            {
+                throw new ArgumentException(
+                    $"--secret '{raw}': auth method must be 'oauth' or 'api-key' (got '{authMethod}').");
+            }
+
+            if (!perPackage.TryGetValue(targetPackage, out var list))
+            {
+                list = new List<SpringApiClient.CredentialBindingPayloadRequest>();
+                perPackage[targetPackage] = list;
+            }
+            list.Add(new SpringApiClient.CredentialBindingPayloadRequest(provider, authMethod, value));
+        }
+
+        return perPackage;
+    }
+
+    /// <summary>
+    /// #2159: TTY-only prompt for missing credentials. The structured
+    /// `missing` list on a CredentialsMissing ProblemDetails tells us
+    /// which (provider, authMethod) edges are unsatisfied. We prompt for
+    /// each, append to the per-package payload, and let the caller retry
+    /// the install once. Returns false when the user supplied no values
+    /// (Ctrl-D / empty everywhere) so the caller surfaces the original
+    /// structured error rather than retrying with a no-op delta.
+    /// </summary>
+    private static async Task<bool> TryPromptForMissingCredentialsAsync(
+        ProblemDetails problem,
+        IReadOnlyList<string> packageNames,
+        Dictionary<string, List<SpringApiClient.CredentialBindingPayloadRequest>> perPackageSecrets,
+        CancellationToken ct)
+    {
+        await Console.Error.WriteLineAsync(
+            $"Install needs credentials: {ProblemDetailsTranslator.TranslateProblemDetails(problem)}");
+
+        var missing = ExtractMissingCredentials(problem);
+        if (missing.Count == 0)
+        {
+            return false;
+        }
+
+        var anySupplied = false;
+        // For multi-target installs we don't know which package the
+        // missing credential belongs to (the server aggregates across
+        // every package in the batch); attach it to all targets so the
+        // re-resolve picks it up.
+        foreach (var entry in missing)
+        {
+            if (ct.IsCancellationRequested) return false;
+            var label = entry.CredentialEnvVar ?? entry.SecretName ?? $"{entry.Provider}/{entry.AuthMethod}";
+            await Console.Error.WriteAsync($"  paste value for {label}: ");
+            var line = Console.ReadLine();
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                await Console.Error.WriteLineAsync($"  (skipped — no value provided for {label})");
+                continue;
+            }
+            anySupplied = true;
+            var payload = new SpringApiClient.CredentialBindingPayloadRequest(
+                entry.Provider, entry.AuthMethod, line);
+            foreach (var pkg in packageNames)
+            {
+                if (!perPackageSecrets.TryGetValue(pkg, out var list))
+                {
+                    list = new List<SpringApiClient.CredentialBindingPayloadRequest>();
+                    perPackageSecrets[pkg] = list;
+                }
+                list.Add(payload);
+            }
+        }
+        return anySupplied;
+    }
+
+    private static IReadOnlyList<MissingCredentialEntry> ExtractMissingCredentials(ProblemDetails problem)
+    {
+        if (problem.AdditionalData is null
+            || !problem.AdditionalData.TryGetValue("missing", out var raw)
+            || raw is not System.Text.Json.JsonElement element
+            || element.ValueKind != System.Text.Json.JsonValueKind.Array)
+        {
+            return Array.Empty<MissingCredentialEntry>();
+        }
+
+        var result = new List<MissingCredentialEntry>(element.GetArrayLength());
+        foreach (var item in element.EnumerateArray())
+        {
+            if (item.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+            var provider = item.TryGetProperty("provider", out var p) && p.ValueKind == System.Text.Json.JsonValueKind.String
+                ? p.GetString() : null;
+            var authMethod = item.TryGetProperty("authMethod", out var a) && a.ValueKind == System.Text.Json.JsonValueKind.String
+                ? a.GetString() : null;
+            if (string.IsNullOrEmpty(provider) || string.IsNullOrEmpty(authMethod)) continue;
+            var secretName = item.TryGetProperty("secretName", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.String
+                ? s.GetString() : null;
+            var envVar = item.TryGetProperty("credentialEnvVar", out var e) && e.ValueKind == System.Text.Json.JsonValueKind.String
+                ? e.GetString() : null;
+            result.Add(new MissingCredentialEntry(provider!, authMethod!, secretName, envVar));
+        }
+        return result;
+    }
+
+    private sealed record MissingCredentialEntry(
+        string Provider,
+        string AuthMethod,
+        string? SecretName,
+        string? CredentialEnvVar);
 }

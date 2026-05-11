@@ -2773,6 +2773,11 @@ export interface components {
             parentUnitIds?: null | string[];
             isTopLevel?: null | boolean;
         };
+        CredentialBindingPayload: {
+            provider: string;
+            authMethod: string;
+            value: string;
+        };
         CredentialHealthResponse: {
             subjectId: string;
             secretName: string;
@@ -3149,6 +3154,7 @@ export interface components {
             };
             connectorBindings?: null | components["schemas"]["PackageConnectorBindings"];
             version?: null | string;
+            credentials?: null | components["schemas"]["CredentialBindingPayload"][];
         };
         PackageSummary: {
             name: string;

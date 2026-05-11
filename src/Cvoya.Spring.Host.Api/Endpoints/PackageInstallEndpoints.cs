@@ -386,6 +386,45 @@ public static class PackageInstallEndpoints
                     ["unitName"] = ex.UnitName,
                 });
         }
+        catch (CredentialsMissingException ex)
+        {
+            // #2159: structured 400 — the wizard / CLI render one row per
+            // missing credential rather than parsing the prose detail
+            // string. Mirrors the ConnectorBindingMissing shape.
+            return Results.Problem(
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest,
+                type: "https://cvoya.com/problems/credentials-missing",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "CredentialsMissing",
+                    ["missing"] = ex.Missing
+                        .Select(m => new CredentialMissingDetail(
+                            m.Provider,
+                            FormatAuthMethod(m.AuthMethod),
+                            m.SecretName,
+                            m.CredentialEnvVar,
+                            m.Scope,
+                            m.UnitName,
+                            m.ConsumingUnits))
+                        .ToList(),
+                });
+        }
+        catch (UnknownCredentialEdgeException ex)
+        {
+            // #2159: a credential was supplied for an edge no member unit
+            // consumes. Structurally invalid; surface as 400.
+            return Results.Problem(
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest,
+                type: "https://cvoya.com/problems/unknown-credential-edge",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "UnknownCredentialEdge",
+                    ["provider"] = ex.Provider,
+                    ["authMethod"] = FormatAuthMethod(ex.AuthMethod),
+                });
+        }
         catch (PackageDepGraphException ex)
         {
             // ADR-0035 decision 14: dep-graph closure violations carry the
@@ -478,6 +517,11 @@ public static class PackageInstallEndpoints
             // #1671: project the wire connector-binding payload into the
             // service-layer ConnectorBinding shape.
             var (pkgBindings, unitBindings) = ProjectConnectorBindings(t.ConnectorBindings);
+            // #2159: project the wire credential payload into the
+            // service-layer CredentialBinding shape. Reject malformed
+            // authMethod values up-front so the install service stays
+            // strict-typed.
+            var credentials = ProjectCredentials(t.Credentials);
 
             result.Add(new InstallTarget(
                 PackageName: t.PackageName,
@@ -485,7 +529,8 @@ public static class PackageInstallEndpoints
                 OriginalYaml: yaml,
                 PackageRoot: packageRoot,
                 PackageBindings: pkgBindings,
-                UnitBindings: unitBindings));
+                UnitBindings: unitBindings,
+                Credentials: credentials));
         }
 
         return result;
@@ -532,6 +577,58 @@ public static class PackageInstallEndpoints
         }
         return (pkg, units);
     }
+
+    /// <summary>
+    /// #2159: project the wire credential payload into the
+    /// service-layer <see cref="Cvoya.Spring.Manifest.CredentialBinding"/>
+    /// shape. Throws a <see cref="System.ArgumentException"/> on
+    /// unrecognised <c>authMethod</c> values so the endpoint surfaces
+    /// a clean 400 rather than the resolver complaining about an
+    /// unmatched edge.
+    /// </summary>
+    private static IReadOnlyList<Cvoya.Spring.Manifest.CredentialBinding>? ProjectCredentials(
+        IReadOnlyList<CredentialBindingPayload>? payloads)
+    {
+        if (payloads is null || payloads.Count == 0)
+        {
+            return null;
+        }
+        var result = new List<Cvoya.Spring.Manifest.CredentialBinding>(payloads.Count);
+        foreach (var p in payloads)
+        {
+            if (string.IsNullOrWhiteSpace(p.Provider))
+            {
+                throw new System.ArgumentException("Credential provider is required.");
+            }
+            if (string.IsNullOrWhiteSpace(p.Value))
+            {
+                throw new System.ArgumentException(
+                    $"Credential value for provider '{p.Provider}' is empty.");
+            }
+            result.Add(new Cvoya.Spring.Manifest.CredentialBinding(
+                Provider: p.Provider.Trim().ToLowerInvariant(),
+                AuthMethod: ParseAuthMethod(p.AuthMethod),
+                Value: p.Value));
+        }
+        return result;
+    }
+
+    private static Cvoya.Spring.Core.Catalog.AuthMethod ParseAuthMethod(string raw) =>
+        (raw ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "oauth" => Cvoya.Spring.Core.Catalog.AuthMethod.Oauth,
+            "api-key" => Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey,
+            _ => throw new System.ArgumentException(
+                $"authMethod must be 'oauth' or 'api-key' (got '{raw}')."),
+        };
+
+    private static string FormatAuthMethod(Cvoya.Spring.Core.Catalog.AuthMethod method) =>
+        method switch
+        {
+            Cvoya.Spring.Core.Catalog.AuthMethod.Oauth => "oauth",
+            Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey => "api-key",
+            _ => method.ToString().ToLowerInvariant(),
+        };
 
     /// <summary>
     /// Builds an <see cref="InstallStatusResponse"/> from a list of
