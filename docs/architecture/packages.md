@@ -17,7 +17,7 @@ Each domain package follows a standard directory convention:
 - **`execution/`** — Agent execution environment sources (Dockerfile)
 - **`connectors/`** — Connector implementations (compiled into host)
 
-Three packages ship in-tree: `software-engineering`, `product-management`, and `research`. The file-system catalog (`GET /api/v1/packages`) picks them up automatically because `FileSystemPackageCatalogService` walks every directory under `packages/`.
+Five packages ship in-tree: `hello-world` (a minimal connector-free smoke-test package — see #2115), `software-engineering`, `product-management`, `research`, and `spring-voyage-oss`. The file-system catalog (`GET /api/v1/packages`) picks them up automatically because `FileSystemPackageCatalogService` walks every directory under `packages/`.
 
 **Dockerfiles are source; images are runtime.** Packages include Dockerfiles for workflows and agent execution environments — they are the source of truth for how images are built. Agent and unit definitions reference pre-built images at runtime. The `spring build` command bridges the gap:
 

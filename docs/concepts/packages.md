@@ -13,7 +13,7 @@ A **package** is an installable bundle of domain-specific content, described by 
 - **Connectors** -- bridges to domain-specific external systems
 - **Execution environments** -- container images for agent work
 
-Three packages ship in-tree: `software-engineering`, `product-management`, and `research`. All three are discoverable via `spring package list` and `/packages`.
+Five packages ship in-tree: `hello-world` (a connector-free smoke-test package), `software-engineering`, `product-management`, `research`, and `spring-voyage-oss`. All five are discoverable via `spring package list` and `/packages`.
 
 ### Example: The Software Engineering Package
 
