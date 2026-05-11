@@ -762,7 +762,7 @@ public static class AgentEndpoints
         // hiccup surfaces as `idle` rather than 5xx — the chip is a
         // best-effort indicator and a stale-but-rendered chip is a
         // strictly better failure mode than a blanked card.
-        AgentRuntimeStatusReport report;
+        AgentRuntimeStatusReport? report = null;
         try
         {
             var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
@@ -771,12 +771,14 @@ public static class AgentEndpoints
         }
         catch (Exception)
         {
-            report = new AgentRuntimeStatusReport(
-                InFlightThreadCount: 0,
-                QueuedMessageCount: 0,
-                ChannelCount: 0,
-                ObservedAt: DateTimeOffset.UtcNow);
+            // swallow — best-effort indicator, idle is safer than 5xx
         }
+
+        report ??= new AgentRuntimeStatusReport(
+            InFlightThreadCount: 0,
+            QueuedMessageCount: 0,
+            ChannelCount: 0,
+            ObservedAt: DateTimeOffset.UtcNow);
 
         return Results.Ok(ProjectRuntimeStatus(report));
     }

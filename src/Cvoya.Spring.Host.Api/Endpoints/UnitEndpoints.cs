@@ -257,7 +257,7 @@ public static class UnitEndpoints
                 QueuedMessageCount: 0));
         }
 
-        Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport report;
+        Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport? report = null;
         try
         {
             var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
@@ -266,12 +266,14 @@ public static class UnitEndpoints
         }
         catch (Exception)
         {
-            report = new Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport(
-                InFlightThreadCount: 0,
-                QueuedMessageCount: 0,
-                ChannelCount: 0,
-                ObservedAt: DateTimeOffset.UtcNow);
+            // swallow — best-effort indicator, idle is safer than 5xx
         }
+
+        report ??= new Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport(
+            InFlightThreadCount: 0,
+            QueuedMessageCount: 0,
+            ChannelCount: 0,
+            ObservedAt: DateTimeOffset.UtcNow);
 
         return Results.Ok(AgentEndpoints.ProjectRuntimeStatus(report));
     }
