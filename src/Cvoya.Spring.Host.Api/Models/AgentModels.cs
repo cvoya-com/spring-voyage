@@ -70,6 +70,22 @@ public record CreateAgentRequest(
 /// <c>autonomous</c>). <c>null</c> when the level could not be resolved
 /// (e.g. policy store unavailable — fail-open on the list path). Added by #573.
 /// </param>
+/// <param name="LifecycleStatus">
+/// Installation-lifecycle outcome for the agent (<c>"active"</c> when the
+/// activation step that registered the directory entry and persisted the
+/// definition JSON succeeded; <c>"error"</c> when either step failed and
+/// was recorded by the package activator). <c>null</c> when the GET could
+/// not read the actor's lifecycle row — treat that as no signal rather
+/// than implicitly <c>"active"</c>. Wire form is the lowercase enum name
+/// to match the existing <see cref="InitiativeLevel"/> pattern (avoids the
+/// nullable-enum <c>oneOf</c> ambiguity that JSON Schema 2020-12 reports
+/// as a contract violation). Added by #2156.
+/// </param>
+/// <param name="LifecycleError">
+/// Diagnostic message persisted alongside an <c>error</c> lifecycle row.
+/// <c>null</c> when <see cref="LifecycleStatus"/> is <c>"active"</c> or
+/// when the lifecycle could not be read. Added by #2156.
+/// </param>
 public record AgentResponse(
     Guid Id,
     string Name,
@@ -83,7 +99,9 @@ public record AgentResponse(
     AgentExecutionMode ExecutionMode,
     string? ParentUnit,
     string? HostingMode = null,
-    string? InitiativeLevel = null);
+    string? InitiativeLevel = null,
+    string? LifecycleStatus = null,
+    string? LifecycleError = null);
 
 /// <summary>
 /// Request body for <c>PATCH /api/v1/agents/{id}</c>. All fields optional;

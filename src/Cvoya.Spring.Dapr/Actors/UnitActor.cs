@@ -43,6 +43,7 @@ public class UnitActor : Actor, IUnitActor
     private readonly IAgentExecutionStore? _agentExecutionStore;
     private readonly IUnitExecutionStore? _unitExecutionStore;
     private readonly IUnitHumanPermissionStore? _humanPermissionStore;
+    private readonly IUnitConnectorStartDispatcher? _connectorStartDispatcher;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UnitActor"/> class.
@@ -102,6 +103,19 @@ public class UnitActor : Actor, IUnitActor
     /// <c>null</c>, in which case those tests must wire the store
     /// explicitly to exercise the ACL surface.
     /// </param>
+    /// <param name="connectorStartDispatcher">
+    /// Optional dispatcher for the unit-start connector hook (#2156). When
+    /// non-<c>null</c> and the unit has been marked for auto-start (see
+    /// <see cref="SetPendingAutoStartAsync"/>), a successful
+    /// <see cref="CompleteValidationAsync"/> call transitions the unit
+    /// through <c>Stopped → Starting → Running</c> in a single turn,
+    /// invoking this dispatcher between <c>Starting</c> and <c>Running</c>
+    /// so connectors get the same start hook the
+    /// <c>POST /units/{id}/start</c> endpoint fires. Null in tests that
+    /// don't register the host-side dispatcher — auto-start is skipped and
+    /// the unit settles in <c>Stopped</c> exactly as the legacy
+    /// behaviour did.
+    /// </param>
     public UnitActor(
         ActorHost host,
         ILoggerFactory loggerFactory,
@@ -118,7 +132,8 @@ public class UnitActor : Actor, IUnitActor
         IUnitMembershipCoordinator? membershipCoordinator = null,
         IAgentExecutionStore? agentExecutionStore = null,
         IUnitExecutionStore? unitExecutionStore = null,
-        IUnitHumanPermissionStore? humanPermissionStore = null)
+        IUnitHumanPermissionStore? humanPermissionStore = null,
+        IUnitConnectorStartDispatcher? connectorStartDispatcher = null)
         : base(host)
     {
         ArgumentNullException.ThrowIfNull(stateCoordinator);
@@ -143,6 +158,7 @@ public class UnitActor : Actor, IUnitActor
         _agentExecutionStore = agentExecutionStore;
         _unitExecutionStore = unitExecutionStore;
         _humanPermissionStore = humanPermissionStore;
+        _connectorStartDispatcher = connectorStartDispatcher;
     }
 
     private static IUnitValidationCoordinator BuildDefaultValidationCoordinator(
@@ -571,34 +587,110 @@ public class UnitActor : Actor, IUnitActor
         // actor without scheduler/tracker), fall back to the minimal inline path
         // so older tests keep passing: read current status, guard against terminal
         // states, and apply the appropriate transition.
+        TransitionResult result;
         if (_validationCoordinator is not null)
         {
-            return await _validationCoordinator.CompleteValidationAsync(
+            result = await _validationCoordinator.CompleteValidationAsync(
                 Id.GetId(),
                 completion,
                 GetStatusInternalAsync,
                 PersistTransitionAsync,
                 ct);
         }
-
-        // Legacy fallback (no coordinator wired — e.g. UnitActorValidationTransitionTests
-        // that construct the actor without a scheduler or tracker).
-        var current = await GetStatusInternalAsync(ct);
-        if (current == UnitStatus.Stopped || current == UnitStatus.Error)
+        else
         {
-            return new TransitionResult(false, current, $"validation completion ignored: unit already {current}");
+            // Legacy fallback (no coordinator wired — e.g. UnitActorValidationTransitionTests
+            // that construct the actor without a scheduler or tracker).
+            var current = await GetStatusInternalAsync(ct);
+            if (current == UnitStatus.Stopped || current == UnitStatus.Error)
+            {
+                return new TransitionResult(false, current, $"validation completion ignored: unit already {current}");
+            }
+
+            if (current != UnitStatus.Validating)
+            {
+                return new TransitionResult(false, current, $"validation completion ignored: status is {current}, expected Validating");
+            }
+
+            result = await PersistTransitionAsync(
+                UnitStatus.Validating,
+                completion.Success ? UnitStatus.Stopped : UnitStatus.Error,
+                completion.Success ? null : completion.Failure,
+                ct);
         }
 
-        if (current != UnitStatus.Validating)
+        // #2156: auto-start the unit after a successful validation when the
+        // creation / package-install path marked it as pending. This makes
+        // installed units land in Running without a manual click. The flag is
+        // consumed once — subsequent revalidations leave the unit in Stopped
+        // (the legacy /revalidate behaviour). The dispatcher is optional so
+        // tests that construct the actor without it still see the
+        // post-validation Stopped state.
+        if (result.Success && result.CurrentStatus == UnitStatus.Stopped)
         {
-            return new TransitionResult(false, current, $"validation completion ignored: status is {current}, expected Validating");
+            await TryAutoStartAsync(ct);
         }
 
-        return await PersistTransitionAsync(
-            UnitStatus.Validating,
-            completion.Success ? UnitStatus.Stopped : UnitStatus.Error,
-            completion.Success ? null : completion.Failure,
-            ct);
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async Task SetPendingAutoStartAsync(CancellationToken ct = default)
+    {
+        // Idempotent — overwriting with the same value is fine; subsequent
+        // SaveStateAsync persists the flag so the next CompleteValidationAsync
+        // turn observes it.
+        await StateManager.SetStateAsync(StateKeys.PendingAutoStart, true, ct);
+        await StateManager.SaveStateAsync(ct);
+    }
+
+    /// <summary>
+    /// Reads and clears the auto-start marker, then transitions the unit
+    /// through <c>Stopped → Starting → Running</c>, firing the connector
+    /// start hook between the two transitions (#2156). A rejected Starting
+    /// transition is logged and the unit is left in Stopped — the next
+    /// manual <c>POST /units/{id}/start</c> can recover.
+    /// </summary>
+    private async Task TryAutoStartAsync(CancellationToken ct)
+    {
+        var pending = await StateManager.TryGetStateAsync<bool>(StateKeys.PendingAutoStart, ct);
+        if (!pending.HasValue || !pending.Value)
+        {
+            return;
+        }
+
+        // Clear the marker FIRST so a connector hook that throws or a
+        // partial Running transition doesn't leave a permanent
+        // auto-start flag re-firing on every revalidation.
+        await StateManager.TryRemoveStateAsync(StateKeys.PendingAutoStart, ct);
+        await StateManager.SaveStateAsync(ct);
+
+        if (_connectorStartDispatcher is null)
+        {
+            // No dispatcher wired (test harness). Leave the unit in
+            // Stopped — the operator can still click Start manually and
+            // the dispatcher endpoint will run.
+            return;
+        }
+
+        var startingResult = await TransitionAsync(UnitStatus.Starting, ct);
+        if (!startingResult.Success)
+        {
+            _logger.LogWarning(
+                "Unit {ActorId} auto-start skipped: Starting transition rejected: {Reason}",
+                Id.GetId(), startingResult.RejectionReason);
+            return;
+        }
+
+        await _connectorStartDispatcher.DispatchAsync(Id.GetId(), ct);
+
+        var runningResult = await TransitionAsync(UnitStatus.Running, ct);
+        if (!runningResult.Success)
+        {
+            _logger.LogWarning(
+                "Unit {ActorId} auto-start: Running transition rejected: {Reason} (current status {Status})",
+                Id.GetId(), runningResult.RejectionReason, runningResult.CurrentStatus);
+        }
     }
 
     /// <inheritdoc />

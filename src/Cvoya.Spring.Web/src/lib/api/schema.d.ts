@@ -2528,6 +2528,8 @@ export interface components {
             parentUnit: null | string;
             hostingMode?: null | string;
             initiativeLevel?: null | string;
+            lifecycleStatus?: null | string;
+            lifecycleError?: null | string;
         };
         AgentRuntimeStatusResponse: {
             status: string;

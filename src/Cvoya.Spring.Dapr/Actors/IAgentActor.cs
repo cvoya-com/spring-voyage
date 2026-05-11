@@ -125,4 +125,47 @@ public interface IAgentActor : IAgent
     /// <returns>A snapshot of the agent's per-thread channel state.</returns>
     Task<AgentRuntimeStatusReport> GetRuntimeStatusAsync(
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the agent's installation-lifecycle status (#2156). Distinct
+    /// from <see cref="AgentRuntimeStatus"/>: that one is the moment-to-
+    /// moment mailbox snapshot; this one records whether the package /
+    /// direct-create activation succeeded. Agents whose lifecycle was
+    /// never written default to <see cref="AgentLifecycleStatus.Active"/>
+    /// — agents installed before #2156 landed completed activation
+    /// successfully in the legacy path, so the default is the correct
+    /// backwards-compatible answer.
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The persisted lifecycle status, or <c>Active</c> when unset.</returns>
+    Task<AgentLifecycleStatus> GetLifecycleStatusAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the diagnostic error message persisted alongside an
+    /// <see cref="AgentLifecycleStatus.Error"/> status (#2156). <c>null</c>
+    /// when the agent is in <see cref="AgentLifecycleStatus.Active"/> or
+    /// when an error was recorded without an accompanying message.
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task<string?> GetLifecycleErrorAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Persists the agent's installation-lifecycle outcome (#2156). Called
+    /// by <c>DefaultPackageArtefactActivator</c> immediately after a
+    /// successful directory registration (with <see cref="AgentLifecycleStatus.Active"/>
+    /// and a <c>null</c> error) and from every <c>catch</c> in the
+    /// activator (with <see cref="AgentLifecycleStatus.Error"/> and the
+    /// exception message) before the activator rethrows.
+    /// </summary>
+    /// <param name="status">The lifecycle status to persist.</param>
+    /// <param name="error">
+    /// Optional human-readable diagnostic. Persisted alongside <paramref name="status"/>
+    /// so the GET endpoint can surface "why" without forcing the operator
+    /// to comb the worker logs.
+    /// </param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task SetLifecycleStatusAsync(
+        AgentLifecycleStatus status,
+        string? error = null,
+        CancellationToken cancellationToken = default);
 }

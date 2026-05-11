@@ -1061,7 +1061,33 @@ public static class AgentEndpoints
             // Fail-open: initiative level stays null.
         }
 
-        var agentResponse = ToAgentResponse(entry, metadata, hostingMode: shape?.Hosting, initiativeLevel: level);
+        // #2156: surface the agent's installation-lifecycle row on the
+        // detail response so the UI / CLI can distinguish "installed
+        // cleanly" from "install failed; here's why" without grepping
+        // worker logs. Fail-open (null) so a transient actor outage
+        // doesn't blank the otherwise-complete response.
+        AgentLifecycleStatus? lifecycleStatus = null;
+        string? lifecycleError = null;
+        try
+        {
+            lifecycleStatus = await proxy.GetLifecycleStatusAsync(cancellationToken);
+            if (lifecycleStatus == AgentLifecycleStatus.Error)
+            {
+                lifecycleError = await proxy.GetLifecycleErrorAsync(cancellationToken);
+            }
+        }
+        catch
+        {
+            // Fail-open: lifecycle stays null.
+        }
+
+        var agentResponse = ToAgentResponse(
+            entry,
+            metadata,
+            hostingMode: shape?.Hosting,
+            initiativeLevel: level,
+            lifecycleStatus: lifecycleStatus,
+            lifecycleError: lifecycleError);
         if (!result.IsSuccess)
         {
             return Results.Ok(new AgentDetailResponse(agentResponse, null, deployment));
@@ -1460,7 +1486,9 @@ public static class AgentEndpoints
         DirectoryEntry entry,
         AgentMetadata? metadata = null,
         string? hostingMode = null,
-        InitiativeLevel? initiativeLevel = null) =>
+        InitiativeLevel? initiativeLevel = null,
+        AgentLifecycleStatus? lifecycleStatus = null,
+        string? lifecycleError = null) =>
         new(
             entry.ActorId,
             // #2114: Name carries the canonical 32-char no-dash hex form
@@ -1480,7 +1508,17 @@ public static class AgentEndpoints
             HostingMode: hostingMode,
             InitiativeLevel: initiativeLevel.HasValue
                 ? initiativeLevel.Value.ToString().ToLowerInvariant()
-                : null);
+                : null,
+            // #2156: surface the lifecycle outcome as a lowercase string so
+            // the wire shape mirrors InitiativeLevel and avoids the
+            // nullable-enum oneOf ambiguity that the contract-test JSON
+            // Schema runner flags as a violation. The string surface
+            // round-trips Active / Error verbatim — Kiota lowers it to a
+            // plain string property on the generated client.
+            LifecycleStatus: lifecycleStatus.HasValue
+                ? lifecycleStatus.Value.ToString().ToLowerInvariant()
+                : null,
+            LifecycleError: lifecycleError);
 
     /// <summary>
     /// Best-effort read of the agent actor's metadata. A failure here is

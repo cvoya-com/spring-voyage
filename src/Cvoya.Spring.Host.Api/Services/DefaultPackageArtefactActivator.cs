@@ -10,12 +10,17 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Manifest;
+
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -51,6 +56,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
     private readonly IUnitCreationService _unitCreationService;
     private readonly IDirectoryService _directoryService;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IActorProxyFactory _actorProxyFactory;
     private readonly ILogger<DefaultPackageArtefactActivator> _logger;
 
     /// <summary>
@@ -60,11 +66,13 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         IUnitCreationService unitCreationService,
         IDirectoryService directoryService,
         IServiceScopeFactory scopeFactory,
+        IActorProxyFactory actorProxyFactory,
         ILogger<DefaultPackageArtefactActivator> logger)
     {
         _unitCreationService = unitCreationService;
         _directoryService = directoryService;
         _scopeFactory = scopeFactory;
+        _actorProxyFactory = actorProxyFactory;
         _logger = logger;
     }
 
@@ -363,9 +371,12 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         var slug = string.IsNullOrWhiteSpace(fields.Id) ? artefact.Name : fields.Id!;
         if (string.IsNullOrWhiteSpace(slug))
         {
-            _logger.LogWarning(
-                "Agent artefact has no name; cannot register in directory.");
-            return;
+            // #2156: pre-fix this was a warning-and-return. Treat as a hard
+            // install failure so the caller sees a precise diagnostic — an
+            // anonymous agent silently dropping out of the install batch is
+            // exactly the operator-confusing failure mode the issue calls out.
+            throw new InvalidOperationException(
+                $"Agent artefact '{artefact.Name}' has no name; cannot register in directory.");
         }
 
         var displayName = string.IsNullOrWhiteSpace(fields.DisplayName) ? slug : fields.DisplayName!;
@@ -387,7 +398,27 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             fields.Role,
             DateTimeOffset.UtcNow);
 
-        await _directoryService.RegisterAsync(entry, ct);
+        // Build an actor proxy up-front so failures further down can flip
+        // the agent's lifecycle row to Error before rethrowing — without
+        // this the install would silently fail and the operator would have
+        // to comb worker logs to understand why an agent never picked up
+        // messages (#2156).
+        var actorProxy = _actorProxyFactory.CreateActorProxy<IAgentActor>(
+            new ActorId(GuidFormatter.Format(actorId)), nameof(AgentActor));
+
+        try
+        {
+            await _directoryService.RegisterAsync(entry, ct);
+        }
+        catch (Exception ex)
+        {
+            // Surface the failure on the agent's lifecycle row so the GET
+            // endpoint can show "why" without forcing the operator to
+            // diagnose by log inspection. Best-effort: a state write that
+            // also throws falls through to the rethrow below.
+            await TrySetLifecycleErrorAsync(actorProxy, slug, ex, ct);
+            throw;
+        }
 
         // Persist the execution / ai block as the AgentDefinitionEntity's
         // Definition JSON so IAgentDefinitionProvider can surface the
@@ -409,15 +440,49 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex,
-                    "Agent artefact '{Name}': directory registration succeeded but Definition JSON write failed.",
-                    slug);
+                // #2156: pre-fix this was a warning-and-continue, which
+                // left the package reporting "active" while the agent's
+                // execution block was missing — a silent partial install.
+                // Flip the lifecycle row to Error so the operator sees the
+                // failure, then rethrow so the install pipeline surfaces it.
+                await TrySetLifecycleErrorAsync(actorProxy, slug, ex, ct);
+                throw;
             }
         }
+
+        // Directory registration + definition write both succeeded — mark
+        // the agent Active so the GET endpoint reports a clean install.
+        await actorProxy.SetLifecycleStatusAsync(AgentLifecycleStatus.Active, null, ct);
 
         _logger.LogInformation(
             "Agent artefact '{Name}' registered (actorId={ActorId}, role={Role}).",
             slug, actorId, fields.Role ?? "(none)");
+    }
+
+    /// <summary>
+    /// Best-effort flip of the agent's lifecycle row to
+    /// <see cref="AgentLifecycleStatus.Error"/>. Called from the
+    /// <c>catch</c> blocks in <see cref="ActivateAgentAsync"/>; a failure
+    /// inside this method is swallowed so the original exception is the
+    /// one that surfaces to the install pipeline.
+    /// </summary>
+    private async Task TrySetLifecycleErrorAsync(
+        IAgentActor actorProxy,
+        string slug,
+        Exception ex,
+        CancellationToken ct)
+    {
+        try
+        {
+            await actorProxy.SetLifecycleStatusAsync(
+                AgentLifecycleStatus.Error, ex.Message, ct);
+        }
+        catch (Exception lifecycleEx)
+        {
+            _logger.LogWarning(lifecycleEx,
+                "Agent artefact '{Name}': failed to record lifecycle Error after install fault; original error: {OriginalError}",
+                slug, ex.Message);
+        }
     }
 
     /// <summary>Minimal projection of the agent YAML fields the activator needs.</summary>

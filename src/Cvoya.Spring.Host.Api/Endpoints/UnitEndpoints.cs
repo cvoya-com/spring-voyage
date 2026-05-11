@@ -18,6 +18,7 @@ using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.Dapr.Units;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Host.Api.Services;
@@ -816,8 +817,7 @@ public static class UnitEndpoints
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
-        [FromServices] IEnumerable<IConnectorType> connectorTypes,
-        [FromServices] IUnitConnectorConfigStore connectorConfigStore,
+        [FromServices] IUnitConnectorStartDispatcher startDispatcher,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -847,12 +847,12 @@ public static class UnitEndpoints
         // any external-system resources its binding needs (e.g. GitHub
         // webhooks). Each connector is responsible for catching its own
         // failures — we never let a misbehaving connector fail a unit start.
-        // ADR-0040 / #2050: the binding is read from the EF-backed
-        // IUnitConnectorConfigStore (unit_connector_bindings table); pass
-        // the canonical actor-id form so the store joins on unit_id Guid.
-        await DispatchConnectorStartAsync(
+        // #2156: the dispatch body lives in IUnitConnectorStartDispatcher so
+        // the actor's post-validation auto-start path can run the same hook
+        // without depending on UnitEndpoints internals.
+        await startDispatcher.DispatchAsync(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId),
-            connectorConfigStore, connectorTypes, logger, cancellationToken);
+            cancellationToken);
 
         // Transition straight to Running. Agent-container lifecycle is
         // managed by the A2A dispatcher (#346/#349), not by this endpoint.
@@ -1356,52 +1356,9 @@ public static class UnitEndpoints
     }
 
     /// <summary>
-    /// Invokes <see cref="IConnectorType.OnUnitStartingAsync"/> on the
-    /// connector type the unit is currently bound to, if any. The unit
-    /// is "bound" when <see cref="IUnitConnectorConfigStore.GetAsync"/>
-    /// returns a <see cref="UnitConnectorBinding"/> whose type id matches
-    /// a registered <see cref="IConnectorType"/>. ADR-0040 / #2050: the
-    /// binding lookup goes through the EF-backed store, not the unit
-    /// actor — no cold-activation hop is required.
-    /// </summary>
-    private static async Task DispatchConnectorStartAsync(
-        string unitId,
-        IUnitConnectorConfigStore configStore,
-        IEnumerable<IConnectorType> connectorTypes,
-        ILogger logger,
-        CancellationToken ct)
-    {
-        var binding = await configStore.GetAsync(unitId, ct);
-        if (binding is null)
-        {
-            return;
-        }
-
-        var connector = connectorTypes.FirstOrDefault(c => c.TypeId == binding.TypeId);
-        if (connector is null)
-        {
-            logger.LogWarning(
-                "Unit {UnitId} is bound to connector type {TypeId} which is not registered; skipping start hook.",
-                unitId, binding.TypeId);
-            return;
-        }
-
-        try
-        {
-            await connector.OnUnitStartingAsync(unitId, ct);
-        }
-        catch (Exception ex)
-        {
-            // Any connector start failure is non-fatal — the unit
-            // transitions to Running regardless so the container stays up.
-            logger.LogError(ex,
-                "Connector {Slug} start hook threw for unit {UnitId}; continuing unit start.",
-                connector.Slug, unitId);
-        }
-    }
-
-    /// <summary>
-    /// Mirrors <see cref="DispatchConnectorStartAsync"/> for the stop path.
+    /// Mirrors <see cref="IUnitConnectorStartDispatcher"/> for the stop path
+    /// (the start path was extracted in #2156 so it can be reused from the
+    /// unit actor's auto-start hook; the stop path is endpoint-only today).
     /// </summary>
     private static async Task DispatchConnectorStopAsync(
         string unitId,
