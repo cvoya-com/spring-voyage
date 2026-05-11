@@ -336,6 +336,117 @@ function normaliseGuid(value: string): string {
   return /^[0-9a-f]{32}$/.test(stripped) ? stripped : "";
 }
 
+/**
+ * Splits a `MessageReceived` body into its leading JSON envelope (when
+ * present) and the surrounding prose (#2128). A weak / noisy LLM may
+ * emit a hallucinated tool-call result as a JSON object at the top of
+ * its natural-language reply; rendering that verbatim in the chat
+ * bubble drowns out the conversational text. The portal folds the
+ * envelope into a collapsed structured-payload card below the bubble
+ * and keeps the bubble for the prose only.
+ *
+ * Detection is shape-only — we do **not** validate the payload against
+ * any tool-result schema. The rule is:
+ *
+ *  - The first non-whitespace character is `{`.
+ *  - A balanced `{ ... }` segment starting at that position parses as
+ *    JSON via `JSON.parse`.
+ *  - The parsed result is a plain object (arrays, primitives, and
+ *    null don't trigger the card — they're far less likely to be
+ *    structured tool envelopes and far more likely to be a stray `{`
+ *    in prose like "{ thinking out loud }").
+ *
+ * When the heuristic fires:
+ *  - `structured` is the parsed object.
+ *  - `prose` is everything after the closing `}` of the matched
+ *    segment, trimmed.
+ *
+ * When it doesn't (no leading `{`, malformed JSON, non-object payload):
+ *  - `structured` is `null`.
+ *  - `prose` is the original body (no trim — preserves any
+ *    intentional leading whitespace in normal prose bodies).
+ *
+ * Idempotent: passing the function's own output back through it is a
+ * no-op because the prose half no longer starts with `{` once the
+ * envelope has been peeled off.
+ *
+ * The function is pure; address-resolution still happens at the call
+ * site by passing `prose` through {@link renderBodyWithResolvedAddresses}.
+ */
+export function splitBodyIntoStructuredAndProse(body: string): {
+  structured: Record<string, unknown> | null;
+  prose: string;
+} {
+  if (!body) return { structured: null, prose: body };
+
+  // Find the first non-whitespace character. If it isn't `{`, no card.
+  let i = 0;
+  while (i < body.length && /\s/.test(body[i]!)) i += 1;
+  if (i >= body.length || body[i] !== "{") {
+    return { structured: null, prose: body };
+  }
+
+  // Scan a balanced `{ ... }` segment respecting JSON string literals
+  // (so a `}` inside a string doesn't end the object early). This is a
+  // small enough state machine that pulling in a parser is overkill —
+  // and JSON.parse runs on the resulting slice as the actual validator.
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let end = -1;
+  for (let j = i; j < body.length; j += 1) {
+    const ch = body[j]!;
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === "\\") {
+        escape = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        end = j;
+        break;
+      }
+    }
+  }
+
+  if (end < 0) {
+    return { structured: null, prose: body };
+  }
+
+  const candidate = body.slice(i, end + 1);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(candidate);
+  } catch {
+    return { structured: null, prose: body };
+  }
+
+  // Only plain objects get the card. Arrays / primitives / null aren't
+  // tool-envelope-shaped and are more likely to be a stray brace.
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed)
+  ) {
+    return { structured: null, prose: body };
+  }
+
+  const prose = body.slice(end + 1).trim();
+  return { structured: parsed as Record<string, unknown>, prose };
+}
+
 export const ROLE_STYLES: Record<ConversationRole, RoleStyle> = {
   human: {
     align: "end",
