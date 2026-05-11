@@ -42,24 +42,97 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 const fetchClient = createClient<paths>({ baseUrl: BASE });
 
+export type ParsedProblemDetails = {
+  type?: string;
+  title?: string;
+  status?: number;
+  detail?: string;
+  code?: string;
+  traceId?: string;
+  [key: string]: unknown;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function parseProblemDetails(
+  body: unknown,
+): ParsedProblemDetails | undefined {
+  if (!isRecord(body)) {
+    return undefined;
+  }
+
+  const type = typeof body.type === "string" ? body.type : undefined;
+  const title = typeof body.title === "string" ? body.title : undefined;
+  const detail = typeof body.detail === "string" ? body.detail : undefined;
+  const code = typeof body.code === "string" ? body.code : undefined;
+  const traceId =
+    typeof body.traceId === "string" ? body.traceId : undefined;
+  const status = typeof body.status === "number" ? body.status : undefined;
+
+  const looksLikeProblem =
+    type !== undefined ||
+    code !== undefined ||
+    (title !== undefined && status !== undefined);
+
+  if (!looksLikeProblem) {
+    return undefined;
+  }
+
+  return {
+    ...body,
+    ...(type !== undefined ? { type } : {}),
+    ...(title !== undefined ? { title } : {}),
+    ...(status !== undefined ? { status } : {}),
+    ...(detail !== undefined ? { detail } : {}),
+    ...(code !== undefined ? { code } : {}),
+    ...(traceId !== undefined ? { traceId } : {}),
+  };
+}
+
+function parseJsonBody(text: string): unknown {
+  const trimmed = text.trim();
+  if (trimmed === "") {
+    return "";
+  }
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+async function parseErrorBody(response: Response): Promise<unknown> {
+  const text = await response.text();
+  return parseJsonBody(text);
+}
+
 /**
- * Thrown by every `api.*` method on a non-2xx response. Keeps the
- * previous hand-rolled error shape (`message` formatted as
- * `API error {status}: {statusText} — {body}`) so call sites that
- * inspect `err.message` don't change.
+ * Thrown by every `api.*` method on a non-2xx response. Preserves the raw
+ * response body and, when present, the parsed RFC-7807 ProblemDetails
+ * envelope so UX surfaces can render stable user-facing translations
+ * instead of string-parsing `message`.
  */
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly statusText: string,
     public readonly body: unknown,
+    public readonly problem: ParsedProblemDetails | undefined =
+      parseProblemDetails(body),
   ) {
-    const detail =
-      typeof body === "string"
+    const problemMessage = problem
+      ? [problem.title, problem.detail]
+          .filter((part): part is string => Boolean(part && part.trim()))
+          .join(" — ")
+      : "";
+    const detail = problemMessage ||
+      (typeof body === "string"
         ? body
         : body
           ? JSON.stringify(body)
-          : "";
+          : "");
     super(
       `API error ${status}: ${statusText}${detail ? ` — ${detail}` : ""}`,
     );
@@ -81,10 +154,12 @@ type FetchResult<T> = {
  */
 function unwrap<T>(result: FetchResult<T>): T {
   if (result.error !== undefined || !result.response.ok) {
+    const body = result.error ?? null;
     throw new ApiError(
       result.response.status,
       result.response.statusText,
-      result.error ?? null,
+      body,
+      parseProblemDetails(body),
     );
   }
   if (result.data === undefined) {
@@ -102,10 +177,12 @@ function unwrap<T>(result: FetchResult<T>): T {
  */
 function assertOk(result: FetchResult<unknown>): void {
   if (result.error !== undefined || !result.response.ok) {
+    const body = result.error ?? null;
     throw new ApiError(
       result.response.status,
       result.response.statusText,
-      result.error ?? null,
+      body,
+      parseProblemDetails(body),
     );
   }
 }
@@ -137,7 +214,8 @@ export const api = {
   getDashboardSummary: async (): Promise<DashboardSummary> => {
     const resp = await fetch(`${BASE}/api/v1/tenant/dashboard/summary`);
     if (!resp.ok) {
-      throw new ApiError(resp.status, resp.statusText, await resp.text());
+      const body = await parseErrorBody(resp);
+      throw new ApiError(resp.status, resp.statusText, body);
     }
     return resp.json() as Promise<DashboardSummary>;
   },
@@ -906,7 +984,8 @@ export const api = {
       return null;
     }
     if (!resp.ok) {
-      throw new ApiError(resp.status, resp.statusText, await resp.text());
+      const body = await parseErrorBody(resp);
+      throw new ApiError(resp.status, resp.statusText, body);
     }
     const text = await resp.text();
     if (!text.trim()) {
@@ -1421,7 +1500,8 @@ export const api = {
     }
     const resp = await fetch(url.toString());
     if (!resp.ok) {
-      throw new ApiError(resp.status, resp.statusText, await resp.text());
+      const body = await parseErrorBody(resp);
+      throw new ApiError(resp.status, resp.statusText, body);
     }
     return (await resp.json()) as import("./types").ProviderCredentialStatusResponse;
   },
@@ -1573,7 +1653,7 @@ export const api = {
       body: formData,
     });
     if (!resp.ok) {
-      const body = await resp.text();
+      const body = await parseErrorBody(resp);
       throw new ApiError(resp.status, resp.statusText, body);
     }
     return resp.json() as Promise<InstallStatusResponse>;
@@ -1609,10 +1689,12 @@ export const api = {
       body: { targets },
     });
     if (result.error !== undefined || !result.response.ok) {
+      const body = result.error ?? null;
       throw new ApiError(
         result.response.status,
         result.response.statusText,
-        result.error ?? null,
+        body,
+        parseProblemDetails(body),
       );
     }
     if (result.data === undefined) {

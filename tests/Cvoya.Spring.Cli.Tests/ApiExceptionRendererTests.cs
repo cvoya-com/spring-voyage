@@ -99,6 +99,61 @@ public class ApiExceptionRendererTests
     }
 
     [Fact]
+    public void Render_KnownProblemDetailsCode_TranslatesProseAndHidesTrace()
+    {
+        var problem = MissingGitHubBindingProblem();
+
+        var (_, _, stderr) = Capture((stdout, stderr) =>
+            new ApiExceptionRenderer().Render(
+                problem,
+                new CliRenderContext("table", Verbose: false, "Install failed", stdout, stderr)));
+
+        stderr.ShouldContain("Install failed [400]");
+        stderr.ShouldContain("This package needs a github connector binding.");
+        stderr.ShouldContain("Open the github step in the wizard and pick (or set up) a connector for the package.");
+        stderr.ShouldNotContain("ConnectorBindingMissing");
+        stderr.ShouldNotContain("traceId");
+        stderr.ShouldNotContain("{");
+    }
+
+    [Fact]
+    public void Render_JsonMode_KnownProblemDetailsCode_UsesTranslatedPayload()
+    {
+        var problem = MissingGitHubBindingProblem();
+
+        var (_, stdout, _) = Capture((so, se) =>
+            new ApiExceptionRenderer().Render(
+                problem,
+                new CliRenderContext("json", Verbose: false, "Install failed", so, se)));
+
+        var json = JsonSerializer.Deserialize<JsonElement>(stdout);
+        var error = json.GetProperty("error");
+        error.GetProperty("status").GetInt32().ShouldBe(400);
+        error.GetProperty("title").GetString().ShouldBe("This package needs a github connector binding.");
+        error.GetProperty("detail").GetString()
+            .ShouldBe("Open the github step in the wizard and pick (or set up) a connector for the package.");
+        stdout.ShouldNotContain("ConnectorBindingMissing");
+        stdout.ShouldNotContain("00-abc123-xyz-00");
+    }
+
+    [Fact]
+    public void Render_VerboseProblemDetails_EmitsTraceAndRawEnvelopeToStderr()
+    {
+        var problem = MissingGitHubBindingProblem();
+
+        var (_, _, stderr) = Capture((stdout, stderr) =>
+            new ApiExceptionRenderer().Render(
+                problem,
+                new CliRenderContext("table", Verbose: true, "Install failed", stdout, stderr)));
+
+        stderr.ShouldContain("This package needs a github connector binding.");
+        stderr.ShouldContain("traceId: 00-abc123-xyz-00");
+        stderr.ShouldContain("problemDetails:");
+        stderr.ShouldContain("\"code\": \"ConnectorBindingMissing\"");
+        stderr.ShouldContain("\"traceId\": \"00-abc123-xyz-00\"");
+    }
+
+    [Fact]
     public void Render_JsonMode_PreservesOperatorHintsFromProblemDetailsExtensions()
     {
         // #1068: the API host's `unit purge` gate emits anonymous
@@ -342,5 +397,31 @@ public class ApiExceptionRendererTests
         {
             return ex;
         }
+    }
+
+    private static ProblemDetails MissingGitHubBindingProblem()
+    {
+        var problem = new ProblemDetails
+        {
+            Title = "Bad Request",
+            Detail = "ConnectorBindingMissing: package requires connector 'github' (no binding supplied)",
+            Status = 400,
+            AdditionalData = new Dictionary<string, object>
+            {
+                ["code"] = "ConnectorBindingMissing",
+                ["missing"] = new[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["slug"] = "github",
+                        ["scope"] = "package",
+                        ["unitName"] = null,
+                    },
+                },
+                ["traceId"] = "00-abc123-xyz-00",
+            },
+        };
+        problem.ResponseStatusCode = 400;
+        return problem;
     }
 }

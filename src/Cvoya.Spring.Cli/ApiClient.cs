@@ -2544,7 +2544,7 @@ public class SpringApiClient
 
         if (!response.IsSuccessStatusCode)
         {
-            ThrowForStatus(response.StatusCode, responseJson);
+            ThrowForStatus(response, responseJson);
         }
 
         return System.Text.Json.JsonSerializer.Deserialize<PackageInstallResponse>(
@@ -2572,7 +2572,7 @@ public class SpringApiClient
 
         if (!response.IsSuccessStatusCode)
         {
-            ThrowForStatus(response.StatusCode, responseJson);
+            ThrowForStatus(response, responseJson);
         }
 
         return System.Text.Json.JsonSerializer.Deserialize<PackageInstallResponse>(
@@ -2600,7 +2600,7 @@ public class SpringApiClient
         var responseJson = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
         {
-            ThrowForStatus(response.StatusCode, responseJson);
+            ThrowForStatus(response, responseJson);
         }
 
         return System.Text.Json.JsonSerializer.Deserialize<PackageInstallResponse>(
@@ -2630,7 +2630,7 @@ public class SpringApiClient
         var responseJson = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
         {
-            ThrowForStatus(response.StatusCode, responseJson);
+            ThrowForStatus(response, responseJson);
         }
 
         return System.Text.Json.JsonSerializer.Deserialize<PackageInstallResponse>(
@@ -2658,7 +2658,7 @@ public class SpringApiClient
         if (!response.IsSuccessStatusCode)
         {
             var responseJson = await response.Content.ReadAsStringAsync(ct);
-            ThrowForStatus(response.StatusCode, responseJson);
+            ThrowForStatus(response, responseJson);
         }
 
         return true;
@@ -2690,7 +2690,7 @@ public class SpringApiClient
         if (!response.IsSuccessStatusCode)
         {
             var responseJson = await response.Content.ReadAsStringAsync(ct);
-            ThrowForStatus(response.StatusCode, responseJson);
+            ThrowForStatus(response, responseJson);
         }
 
         var responseBytes = await response.Content.ReadAsByteArrayAsync(ct);
@@ -2699,24 +2699,9 @@ public class SpringApiClient
         return new PackageExportResult(responseBytes, contentType, fileName);
     }
 
-    private static void ThrowForStatus(System.Net.HttpStatusCode statusCode, string responseJson)
+    private static void ThrowForStatus(HttpResponseMessage response, string responseJson)
     {
-        // Extract the problem-details message if present; fall back to status code.
-        string detail;
-        try
-        {
-            var doc = System.Text.Json.JsonDocument.Parse(responseJson);
-            detail = doc.RootElement.TryGetProperty("detail", out var d) ? d.GetString() ?? responseJson
-                   : doc.RootElement.TryGetProperty("title", out var t) ? t.GetString() ?? responseJson
-                   : responseJson;
-        }
-        catch
-        {
-            detail = responseJson;
-        }
-
-        throw new InvalidOperationException(
-            $"Request failed with status {(int)statusCode}: {detail}");
+        throw BuildApiException(response, responseJson);
     }
 
     /// <summary>

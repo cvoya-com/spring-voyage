@@ -16,183 +16,217 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Pins the human-readable shape of <see cref="ProblemDetailsFormatter"/>.
-/// The formatter closes #982: before it, the CLI's catch-all printed the
-/// Kiota <see cref="ProblemDetails"/>'s default <c>Exception.Message</c>
-/// ("Exception of type '…' was thrown.") instead of the server's title
-/// and detail. These tests lock the four shapes the issue calls out.
+/// Pins the user-facing ProblemDetails translations used by command
+/// catch-sites that still call the compatibility formatter.
 /// </summary>
 public class ProblemDetailsFormatterTests
 {
+    [Theory]
+    [MemberData(nameof(KnownCodeCases))]
+    public void Format_KnownCodes_RendersFriendlyOneLiner(
+        ProblemDetails problem,
+        string expectedTitle,
+        string expectedNextStep)
+    {
+        var rendered = ProblemDetailsFormatter.Format(problem);
+
+        rendered.ShouldContain(expectedTitle);
+        rendered.ShouldContain(expectedNextStep);
+        rendered.ShouldNotContain("API error");
+        rendered.ShouldNotContain("{");
+        rendered.ShouldNotContain("traceId");
+    }
+
+    public static IEnumerable<object[]> KnownCodeCases()
+    {
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "ConnectorBindingMissing",
+                    ["missing"] = new[]
+                    {
+                        new Dictionary<string, object?>
+                        {
+                            ["slug"] = "github",
+                            ["scope"] = "package",
+                            ["unitName"] = null,
+                        },
+                    },
+                    ["traceId"] = "00-abc",
+                },
+            },
+            "This package needs a github connector binding.",
+            "Open the github step in the wizard and pick (or set up) a connector for the package.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                Detail = "Package `spring-voyage/missing` was not found.",
+                AdditionalData = new Dictionary<string, object> { ["code"] = "PackageNotFound" },
+            },
+            "Couldn't find package `spring-voyage/missing`.",
+            "Run `spring package list` (or refresh the catalog) to confirm the package name and version.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object> { ["code"] = "UnitNotFound" },
+            },
+            "Unit not found.",
+            "It may have been deleted. Refresh the page or pick another unit.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object> { ["code"] = "AgentNotFound" },
+            },
+            "Agent not found.",
+            "It may have been deleted. Refresh the page or pick another agent.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "LifecycleConflict",
+                    ["action"] = "delete",
+                    ["currentStatus"] = "Running",
+                    ["hint"] = "Stop the unit before deleting it.",
+                },
+            },
+            "Can't delete this unit while it's `Running`.",
+            "Stop the unit before deleting it.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "CredentialMissing",
+                    ["credentialEnvVar"] = "OPENAI_API_KEY",
+                },
+            },
+            "Required credential `OPENAI_API_KEY` isn't set.",
+            "Set it in Config -> Secrets on this unit, on a parent unit, or on the tenant.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "CredentialInvalid",
+                    ["provider"] = "openai",
+                },
+            },
+            "The configured credential for `openai` was rejected by the provider.",
+            "Check the secret value and try again.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                Detail = "Display name is required.",
+                AdditionalData = new Dictionary<string, object> { ["code"] = "ValidationFailed" },
+            },
+            "The request was invalid.",
+            "Display name is required.",
+        };
+    }
+
     [Fact]
-    public void Format_TitleAndDetailOnly_RendersEmDashSeparator()
+    public void Format_InvalidState_UsesLifecycleTranslation()
     {
         var problem = new ProblemDetails
         {
-            Title = "Invalid state",
             Detail = "Unit 'portal-scratch-1' is Draft; revalidation is only allowed from Error or Stopped.",
-        };
-
-        var rendered = ProblemDetailsFormatter.Format(problem);
-
-        rendered.ShouldBe(
-            "Invalid state — Unit 'portal-scratch-1' is Draft; revalidation is only allowed from Error or Stopped.");
-    }
-
-    [Fact]
-    public void Format_WithCodeAndCurrentStatusExtensions_EmitsIndentedLines()
-    {
-        // Sorted alphabetically so the output is deterministic regardless of
-        // dictionary iteration order — operators reading the stderr stream
-        // should see the same shape on every run.
-        var problem = new ProblemDetails
-        {
-            Title = "Invalid state",
-            Detail = "Unit 'portal-scratch-1' is Draft; revalidation is only allowed from Error or Stopped.",
-            AdditionalData = new Dictionary<string, object>
-            {
-                ["code"] = "InvalidState",
-                ["currentStatus"] = "Draft",
-            },
-        };
-
-        var rendered = ProblemDetailsFormatter.Format(problem);
-
-        rendered.ShouldBe(
-            "Invalid state — Unit 'portal-scratch-1' is Draft; revalidation is only allowed from Error or Stopped."
-            + "\n  code: InvalidState"
-            + "\n  currentStatus: Draft");
-    }
-
-    [Fact]
-    public void Format_Minimal_NoDetail_EmitsJustTheTitle()
-    {
-        var problem = new ProblemDetails
-        {
-            Title = "Invalid state",
-        };
-
-        var rendered = ProblemDetailsFormatter.Format(problem);
-
-        rendered.ShouldBe("Invalid state");
-    }
-
-    [Fact]
-    public void Format_EmptyAdditionalData_OmitsExtensionBlock()
-    {
-        var problem = new ProblemDetails
-        {
-            Title = "Invalid state",
-            Detail = "Already revalidating.",
-            AdditionalData = new Dictionary<string, object>(),
-        };
-
-        var rendered = ProblemDetailsFormatter.Format(problem);
-
-        rendered.ShouldBe("Invalid state — Already revalidating.");
-    }
-
-    [Fact]
-    public void Format_NullTitle_WithStatusInt_FallsBackToStatusLine()
-    {
-        // ProblemDetails.Status is typed int? (narrowed from the [integer,string]
-        // union in the OpenAPI schema). When the server omits title but includes
-        // status (RFC 7807 allows title to default to the HTTP reason phrase),
-        // we emit "Status {value}" so the message isn't blank.
-        var problem = new ProblemDetails
-        {
-            Status = 409,
-            Detail = "Unit 'x' is Draft; revalidation is only allowed from Error or Stopped.",
-        };
-
-        var rendered = ProblemDetailsFormatter.Format(problem);
-
-        rendered.ShouldBe(
-            "Status 409 — Unit 'x' is Draft; revalidation is only allowed from Error or Stopped.");
-    }
-
-    [Fact]
-    public void Format_TraceIdExtension_IsEmitted()
-    {
-        var problem = new ProblemDetails
-        {
-            Title = "Internal error",
-            Detail = "The server hit an unexpected condition.",
-            AdditionalData = new Dictionary<string, object>
-            {
-                ["traceId"] = "00-abc123-xyz-00",
-            },
-        };
-
-        var rendered = ProblemDetailsFormatter.Format(problem);
-
-        rendered.ShouldContain("\n  traceId: 00-abc123-xyz-00");
-    }
-
-    [Fact]
-    public void Format_NonScalarExtension_IsSkipped()
-    {
-        // Nested objects/arrays aren't useful as a single indented line; the
-        // formatter deliberately drops them so operators aren't shown
-        // opaque Kiota UntypedObject.ToString() payloads.
-        var nested = new UntypedObject(new Dictionary<string, UntypedNode>
-        {
-            ["inner"] = new UntypedString("value"),
-        });
-        var problem = new ProblemDetails
-        {
-            Title = "Invalid state",
-            Detail = "Unit mismatch.",
-            AdditionalData = new Dictionary<string, object>
-            {
-                ["code"] = "InvalidState",
-                ["nested"] = nested,
-            },
-        };
-
-        var rendered = ProblemDetailsFormatter.Format(problem);
-
-        rendered.ShouldBe(
-            "Invalid state — Unit mismatch."
-            + "\n  code: InvalidState");
-    }
-
-    [Fact]
-    public void Format_UntypedStringScalar_Unwraps()
-    {
-        var problem = new ProblemDetails
-        {
-            Title = "Invalid state",
-            Detail = "Unit mismatch.",
             AdditionalData = new Dictionary<string, object>
             {
                 ["code"] = new UntypedString("InvalidState"),
+                ["currentStatus"] = new UntypedString("Draft"),
             },
         };
 
         var rendered = ProblemDetailsFormatter.Format(problem);
 
         rendered.ShouldBe(
-            "Invalid state — Unit mismatch."
-            + "\n  code: InvalidState");
+            "Can't revalidate this unit while it's `Draft`. "
+            + "Wait for the current operation to finish, then retry.");
+    }
+
+    [Theory]
+    [InlineData(
+        "ConfigurationIncomplete",
+        "This package is missing required configuration.",
+        "Complete the missing configuration, then retry the install.")]
+    [InlineData(
+        "UnknownConnectorSlug",
+        "This package doesn't declare a github connector binding.",
+        "Remove that connector binding or choose a connector required by this package.")]
+    [InlineData(
+        "MultiParentInheritanceConflict",
+        "Parent units disagree on inherited execution settings.",
+        "Remove a conflicting parent or set the inherited field explicitly.")]
+    public void Format_AdditionalInstallAndCreateCodes_RenderTranslations(
+        string code,
+        string expectedTitle,
+        string expectedNextStep)
+    {
+        var problem = new ProblemDetails
+        {
+            AdditionalData = new Dictionary<string, object>
+            {
+                ["code"] = code,
+                ["slug"] = "github",
+            },
+        };
+
+        var rendered = ProblemDetailsFormatter.Format(problem);
+
+        rendered.ShouldContain(expectedTitle);
+        rendered.ShouldContain(expectedNextStep);
     }
 
     [Fact]
-    public void Format_ExceptionOverload_RoutesProblemDetailsThroughFormatter()
+    public void Format_UnknownCode_UsesServerTitleAndDetail()
     {
-        // The catch-site convenience overload accepts any Exception; when it
-        // is actually a ProblemDetails (Kiota subclasses ApiException as
-        // ProblemDetails for the /problem+json error body), we render the
-        // structured fields instead of the useless default Message.
         var problem = new ProblemDetails
         {
-            Title = "Invalid state",
-            Detail = "Unit mismatch.",
+            Title = "Server supplied title",
+            Detail = "Server supplied detail.",
+            AdditionalData = new Dictionary<string, object>
+            {
+                ["code"] = "FutureCode",
+                ["traceId"] = "00-abc",
+            },
+        };
+
+        var rendered = ProblemDetailsFormatter.Format(problem);
+
+        rendered.ShouldBe("Server supplied title Server supplied detail.");
+        rendered.ShouldNotContain("traceId");
+    }
+
+    [Fact]
+    public void Format_ExceptionOverload_RoutesProblemDetailsThroughTranslator()
+    {
+        var problem = new ProblemDetails
+        {
+            AdditionalData = new Dictionary<string, object> { ["code"] = "AgentNotFound" },
         };
 
         var rendered = ProblemDetailsFormatter.Format((Exception)problem);
 
-        rendered.ShouldBe("Invalid state — Unit mismatch.");
+        rendered.ShouldBe(
+            "Agent not found. It may have been deleted. Refresh the page or pick another agent.");
     }
 
     [Fact]

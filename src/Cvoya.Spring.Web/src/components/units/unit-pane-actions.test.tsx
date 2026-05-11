@@ -476,18 +476,38 @@ describe("UnitPaneActions — Agent", () => {
 });
 
 describe("UnitPaneActions — error surfacing", () => {
-  it("emits a toast when startUnit fails", async () => {
+  it("emits a translated toast when startUnit returns ProblemDetails", async () => {
     useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
-    startUnitMock.mockRejectedValue(new Error("API error 500: boom"));
+    startUnitMock.mockRejectedValue(
+      new ApiError(409, "Conflict", {
+        type: "https://cvoya.com/problems/lifecycle-conflict",
+        title: "Conflict",
+        status: 409,
+        detail: "Unit 'alpha' is Running; start is only allowed from Stopped.",
+        code: "LifecycleConflict",
+        action: "start",
+        currentStatus: "Running",
+        traceId: "00-lifecycle",
+      }),
+    );
     render(wrap(<UnitPaneActions node={unitNode} />));
     await act(async () => {
       fireEvent.click(screen.getByTestId("unit-action-start"));
     });
     await waitFor(() => {
       expect(toastMock).toHaveBeenCalledWith(
-        expect.objectContaining({ title: "Start failed", variant: "destructive" }),
+        expect.objectContaining({
+          title: "Start failed",
+          variant: "destructive",
+          description:
+            "Can't start this unit while it's `Running`. Wait for the current operation to finish, then retry.",
+        }),
       );
     });
+    expect(JSON.stringify(toastMock.mock.calls)).not.toContain("API error 409");
+    expect(JSON.stringify(toastMock.mock.calls)).not.toContain(
+      "LifecycleConflict:",
+    );
   });
 });
 

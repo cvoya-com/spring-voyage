@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -24,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiError } from "@/lib/api/client";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import {
   useModelProviderModels,
   useModelProviders,
@@ -115,7 +117,7 @@ interface CreateState {
   agentId: string | null;
   installId: string | null;
   phase: SubmitPhase;
-  error: string | null;
+  error: unknown | null;
   successVariant: SuccessVariant | null;
   /**
    * ADR-0039 §6 (I6): structured 422 from the create call. When
@@ -734,8 +736,8 @@ export function AgentCreateForm({
         }
       }
 
-      const msg = err instanceof Error ? err.message : String(err);
-      setCreate((prev) => ({ ...prev, phase: "failed", error: msg }));
+      const msg = formatTranslatedError(err);
+      setCreate((prev) => ({ ...prev, phase: "failed", error: err }));
       toast({
         title: "Create failed",
         description: msg,
@@ -1397,15 +1399,7 @@ export function AgentCreateForm({
           {unitsQuery.isPending ? (
             <p className="text-sm text-muted-foreground">Loading units…</p>
           ) : unitsQuery.isError ? (
-            <p
-              role="alert"
-              className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            >
-              Could not load units:{" "}
-              {unitsQuery.error instanceof Error
-                ? unitsQuery.error.message
-                : String(unitsQuery.error)}
-            </p>
+            <ApiErrorMessage error={unitsQuery.error} />
           ) : (unitsQuery.data ?? []).length === 0 ? (
             <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
               No units exist yet. The agent will be created at tenant level.
@@ -1503,14 +1497,19 @@ export function AgentCreateForm({
       )}
 
       {/* ── Validation / submit errors ────────────────────────────── */}
-      {(validationMessage || create.error) && (
+      {validationMessage && (
         <p
           role="alert"
           className="mt-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
           data-testid="agent-create-error"
         >
-          {validationMessage ?? create.error}
+          {validationMessage}
         </p>
+      )}
+      {create.error !== null && (
+        <div className="mt-4" data-testid="agent-create-error">
+          <ApiErrorMessage error={create.error} />
+        </div>
       )}
 
       {/* ── Multi-parent inheritance conflict (ADR-0039 §6 / I6) ─── */}
@@ -1584,10 +1583,7 @@ function PackageConnectorRequirementsPanel({
   }
 
   if (packageQuery.isError) {
-    const message =
-      packageQuery.error instanceof Error
-        ? packageQuery.error.message
-        : "Could not load connector requirements.";
+    const message = formatTranslatedError(packageQuery.error);
     return (
       <div
         role="alert"
@@ -1666,10 +1662,7 @@ function PackageConnectorBindingPicker({
   }
 
   if (bindingsQuery.isError) {
-    const message =
-      bindingsQuery.error instanceof Error
-        ? bindingsQuery.error.message
-        : "Could not load bindings.";
+    const message = formatTranslatedError(bindingsQuery.error);
     return (
       <div
         role="alert"

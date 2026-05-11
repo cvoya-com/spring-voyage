@@ -48,6 +48,8 @@ vi.mock("@/lib/api/client", async () => {
   };
 });
 
+import { ApiError } from "@/lib/api/client";
+
 const toastMock = vi.fn();
 vi.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: toastMock }),
@@ -445,7 +447,14 @@ describe("CreateAgentPage", () => {
 
   it("surfaces an API error message inline (4xx from create endpoint)", async () => {
     createAgent.mockRejectedValueOnce(
-      new Error("Agent display name 'Ada' already exists in this tenant."),
+      new ApiError(400, "Bad Request", {
+        type: "https://cvoya.com/problems/validation-failed",
+        title: "Bad Request",
+        status: 400,
+        detail: "Agent display name 'Ada' already exists in this tenant.",
+        code: "ValidationFailed",
+        traceId: "00-agent-create",
+      }),
     );
 
     renderPage();
@@ -464,9 +473,14 @@ describe("CreateAgentPage", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("agent-create-error")).toHaveTextContent(
-        /already exists/i,
+        "The request was invalid.",
       );
     });
+    expect(screen.getByTestId("agent-create-error")).toHaveTextContent(
+      "Agent display name 'Ada' already exists in this tenant.",
+    );
+    expect(screen.queryByText(/API error 400/)).not.toBeInTheDocument();
+    expect(screen.getByText("Show details")).toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();
   });
 });

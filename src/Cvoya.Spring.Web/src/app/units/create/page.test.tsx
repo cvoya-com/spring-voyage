@@ -503,6 +503,69 @@ describe("CreateUnitPage — catalog branch (#1563)", () => {
       expect(pushMock).toHaveBeenCalledWith("/units");
     });
   });
+
+  it("translates missing connector ProblemDetails during catalog install", async () => {
+    listPackages.mockResolvedValue([
+      {
+        name: "spring-voyage/software-engineering",
+        description: "Software engineering team package.",
+        unitTemplateCount: 3,
+        agentTemplateCount: 0,
+        skillCount: 0,
+      },
+    ]);
+    installPackages.mockRejectedValueOnce({
+      status: 400,
+      statusText: "Bad Request",
+      body: {
+        type: "https://cvoya.com/problems/connector-binding-missing",
+        title: "Bad Request",
+        status: 400,
+        detail:
+          "ConnectorBindingMissing: package requires connector 'github' (no binding supplied)",
+        code: "ConnectorBindingMissing",
+        missing: [{ slug: "github", scope: "package", unitName: null }],
+        traceId: "00-install-trace",
+      },
+    });
+
+    renderPage();
+
+    const clickNext = async () => {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
+      });
+    };
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("source-card-catalog"));
+    });
+    await clickNext();
+
+    const pkgBtn = await screen.findByTestId(
+      "package-option-spring-voyage/software-engineering",
+    );
+    await act(async () => {
+      fireEvent.click(pkgBtn);
+    });
+    await clickNext();
+    await clickNext();
+
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("install-unit-button"));
+    });
+
+    const error = await screen.findByTestId("api-error-message");
+    expect(error).toHaveTextContent(
+      "This package needs a github connector binding.",
+    );
+    expect(error).toHaveTextContent(
+      "Open the github step in the wizard and pick (or set up) a connector for the package.",
+    );
+    expect(screen.queryByText(/API error 400/)).not.toBeInTheDocument();
+    expect(screen.getByText("Show details")).toBeInTheDocument();
+    expect(screen.getByText("00-install-trace")).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

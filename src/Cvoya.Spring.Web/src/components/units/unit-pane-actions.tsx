@@ -43,6 +43,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiError } from "@/lib/api/client";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useUnit } from "@/lib/api/queries";
 import type { UnitStatus } from "@/lib/api/types";
@@ -163,7 +164,7 @@ function UnitActions({ node }: { node: TreeNode }) {
   const onError = (verb: string) => (err: unknown) => {
     toast({
       title: `${verb} failed`,
-      description: err instanceof Error ? err.message : String(err),
+      description: formatTranslatedError(err),
       variant: "destructive",
     });
   };
@@ -479,7 +480,7 @@ function AgentActions({ id, name }: { id: string; name: string }) {
     onError: (err) => {
       toast({
         title: "Delete failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
       setConfirmOpen(false);
