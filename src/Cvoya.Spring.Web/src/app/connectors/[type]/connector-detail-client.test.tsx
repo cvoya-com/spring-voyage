@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
+import { ApiError } from "@/lib/api/client";
 import type {
   InstalledConnectorResponse,
   ConnectorUnitBindingResponse,
@@ -15,13 +16,18 @@ const getConnectorConfigSchema =
 const listConnectorBindings =
   vi.fn<(slugOrId: string) => Promise<ConnectorUnitBindingResponse[]>>();
 
-vi.mock("@/lib/api/client", () => ({
-  api: {
-    getConnector: (slug: string) => getConnector(slug),
-    getConnectorConfigSchema: (slug: string) => getConnectorConfigSchema(slug),
-    listConnectorBindings: (slug: string) => listConnectorBindings(slug),
-  },
-}));
+vi.mock("@/lib/api/client", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client");
+  return {
+    ...actual,
+    api: {
+      getConnector: (slug: string) => getConnector(slug),
+      getConnectorConfigSchema: (slug: string) => getConnectorConfigSchema(slug),
+      listConnectorBindings: (slug: string) => listConnectorBindings(slug),
+    },
+  };
+});
 
 vi.mock("next/link", () => ({
   default: ({
@@ -124,6 +130,33 @@ describe("ConnectorDetailClient", () => {
     expect(
       screen.getByRole("link", { name: "Connectors" }),
     ).toHaveAttribute("href", "/connectors");
+  });
+
+  it("renders translated copy when the connector load throws ProblemDetails (#2163)", async () => {
+    getConnector.mockRejectedValue(
+      new ApiError(404, "Not Found", {
+        type: "https://cvoya.com/problems/unit-not-found",
+        title: "Not Found",
+        status: 404,
+        detail: "UnitNotFound: connector deleted.",
+        code: "UnitNotFound",
+        traceId: "00-conn-detail",
+      }),
+    );
+
+    renderClient("github");
+
+    // Friendly title + next step are visible immediately (the lead copy
+    // for this surface is now the translator output, not the raw envelope).
+    await waitFor(() => {
+      expect(screen.getByText(/Unit not found\./)).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/It may have been deleted\. Refresh the page/),
+    ).toBeInTheDocument();
+    // No "API error 404" prose anywhere — the canonical leak the
+    // translator was introduced to fix (#2157) must stay absent.
+    expect(screen.queryByText(/API error 404/)).not.toBeInTheDocument();
   });
 
   it("falls back to a hint when the connector advertises no JSON Schema", async () => {

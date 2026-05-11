@@ -34,6 +34,7 @@ import {
 } from "react";
 import { ChevronDown, Loader2, Wifi, WifiOff } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useThread } from "@/lib/api/queries";
@@ -292,14 +293,10 @@ export function ConversationView({
   if (enableQuery && threadQuery.error) {
     return (
       <div
-        role="alert"
-        className="m-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        className="m-4"
         data-testid={testId ? `${testId}-error` : undefined}
       >
-        Could not load conversation:{" "}
-        {threadQuery.error instanceof Error
-          ? threadQuery.error.message
-          : String(threadQuery.error)}
+        <ApiErrorMessage error={threadQuery.error} />
       </div>
     );
   }

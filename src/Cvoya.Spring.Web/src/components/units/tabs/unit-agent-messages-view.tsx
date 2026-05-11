@@ -20,6 +20,7 @@
 
 import { useMemo } from "react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useThread, useThreads } from "@/lib/api/queries";
 import type { ThreadSummary } from "@/lib/api/types";
@@ -91,16 +92,9 @@ export function UnitAgentMessagesView({
 
   if (threadsQuery.error) {
     return (
-      <p
-        role="alert"
-        className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        data-testid={`${rootTestId}-error`}
-      >
-        Couldn&apos;t load conversation:{" "}
-        {threadsQuery.error instanceof Error
-          ? threadsQuery.error.message
-          : String(threadsQuery.error)}
-      </p>
+      <div data-testid={`${rootTestId}-error`}>
+        <ApiErrorMessage error={threadsQuery.error} />
+      </div>
     );
   }
 

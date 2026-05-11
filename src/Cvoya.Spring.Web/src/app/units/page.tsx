@@ -12,9 +12,10 @@
 
 import { Suspense, useCallback, useMemo, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { AlertCircle, Loader2, Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { usePathname, useSearchParams } from "next/navigation";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Card, CardContent } from "@/components/ui/card";
 import { UnitExplorer } from "@/components/units/unit-explorer";
 import type { TabName, TreeNode } from "@/components/units/aggregate";
@@ -92,21 +93,9 @@ function UnitExplorerRoute() {
 
   if (treeQuery.isError) {
     return (
-      <Card
-        role="alert"
-        data-testid="unit-explorer-error"
-        className="border-destructive/50 bg-destructive/5"
-      >
-        <CardContent className="flex items-start gap-2 p-4 text-sm text-destructive">
-          <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <div>
-            <p className="font-medium">Couldn&apos;t load the tenant tree.</p>
-            <p className="text-xs text-destructive/80">
-              {treeQuery.error instanceof Error
-                ? treeQuery.error.message
-                : "Unknown error"}
-            </p>
-          </div>
+      <Card data-testid="unit-explorer-error">
+        <CardContent className="p-4">
+          <ApiErrorMessage error={treeQuery.error} />
         </CardContent>
       </Card>
     );

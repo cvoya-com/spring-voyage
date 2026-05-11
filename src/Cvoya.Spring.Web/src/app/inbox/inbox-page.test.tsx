@@ -209,8 +209,38 @@ describe("InboxPage — layout and navigation (#1474)", () => {
     );
     await waitFor(() => {
       expect(screen.getByTestId("inbox-error")).toBeInTheDocument();
-      expect(screen.getByText(/Failed to load inbox/)).toBeInTheDocument();
     });
+    // No "API error N" prose — the translator-routed render keeps the
+    // friendly copy for the lead message (#2157, #2163).
+    expect(screen.queryByText(/API error/)).not.toBeInTheDocument();
+  });
+
+  it("renders translated copy when the inbox load throws ProblemDetails (#2163)", async () => {
+    const { ApiError } = await import("@/lib/api/client");
+    setupInbox(
+      null,
+      new ApiError(404, "Not Found", {
+        type: "https://cvoya.com/problems/unit-not-found",
+        title: "Not Found",
+        status: 404,
+        detail: "UnitNotFound: scope is gone.",
+        code: "UnitNotFound",
+        traceId: "00-inbox",
+      }),
+    );
+    render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-error")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Unit not found\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(/It may have been deleted\. Refresh the page/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/API error 404/)).not.toBeInTheDocument();
   });
 });
 

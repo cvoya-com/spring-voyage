@@ -25,11 +25,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { KeyRound, Plus, Trash2 } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type { AgentResponse, SecretMetadata } from "@/lib/api/types";
 
 type AddMode = "value" | "externalStoreKey";
@@ -40,21 +42,25 @@ export function AgentOverridesPanel() {
   // Agent directory + selection
   const [agents, setAgents] = useState<AgentResponse[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
-  const [agentsError, setAgentsError] = useState<string | null>(null);
+  const [agentsError, setAgentsError] = useState<unknown>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const [agentFilter, setAgentFilter] = useState<string>("");
 
   // Per-agent secrets
   const [secrets, setSecrets] = useState<SecretMetadata[] | null>(null);
   const [secretsLoading, setSecretsLoading] = useState(false);
-  const [secretsError, setSecretsError] = useState<string | null>(null);
+  const [secretsError, setSecretsError] = useState<unknown>(null);
 
   // Add-secret form
   const [addMode, setAddMode] = useState<AddMode>("value");
   const [newName, setNewName] = useState("");
   const [newValue, setNewValue] = useState("");
   const [newExternalKey, setNewExternalKey] = useState("");
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  // Static client-side validation message (string) and the API-error envelope
+  // (unknown) are tracked separately so the renderer can route the API path
+  // through the shared translator.
+  const [submitValidation, setSubmitValidation] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [deletingName, setDeletingName] = useState<string | null>(null);
@@ -72,7 +78,7 @@ export function AgentOverridesPanel() {
       })
       .catch((err) => {
         if (cancelled) return;
-        setAgentsError(err instanceof Error ? err.message : String(err));
+        setAgentsError(err);
         setAgents([]);
       })
       .finally(() => {
@@ -91,7 +97,7 @@ export function AgentOverridesPanel() {
         setSecrets(list.secrets ?? []);
         setSecretsError(null);
       } catch (err) {
-        setSecretsError(err instanceof Error ? err.message : String(err));
+        setSecretsError(err);
         setSecrets([]);
       }
     },
@@ -141,23 +147,25 @@ export function AgentOverridesPanel() {
     setNewName("");
     setNewValue("");
     setNewExternalKey("");
+    setSubmitValidation(null);
     setSubmitError(null);
   };
 
   const handleAdd = async () => {
     if (!selectedAgentId) return;
+    setSubmitValidation(null);
     setSubmitError(null);
 
     if (!newName.trim()) {
-      setSubmitError("Name is required.");
+      setSubmitValidation("Name is required.");
       return;
     }
     if (addMode === "value" && !newValue) {
-      setSubmitError("Value is required.");
+      setSubmitValidation("Value is required.");
       return;
     }
     if (addMode === "externalStoreKey" && !newExternalKey.trim()) {
-      setSubmitError("External store key is required.");
+      setSubmitValidation("External store key is required.");
       return;
     }
 
@@ -178,11 +186,10 @@ export function AgentOverridesPanel() {
       resetForm();
       await refreshSecrets(selectedAgentId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setSubmitError(message);
+      setSubmitError(err);
       toast({
         title: "Add failed",
-        description: message,
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     } finally {
@@ -198,10 +205,9 @@ export function AgentOverridesPanel() {
       toast({ title: "Agent override cleared", description: name });
       await refreshSecrets(selectedAgentId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       toast({
         title: "Delete failed",
-        description: message,
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     } finally {
@@ -219,11 +225,7 @@ export function AgentOverridesPanel() {
         server-side and never returned to the browser.
       </p>
 
-      {agentsError && (
-        <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {agentsError}
-        </p>
-      )}
+      {agentsError !== null && <ApiErrorMessage error={agentsError} />}
 
       <div className="space-y-2">
         <label className="block space-y-1">
@@ -290,11 +292,7 @@ export function AgentOverridesPanel() {
             </Badge>
           </div>
 
-          {secretsError && (
-            <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {secretsError}
-            </p>
-          )}
+          {secretsError !== null && <ApiErrorMessage error={secretsError} />}
 
           {secretsLoading ? (
             <p className="text-xs text-muted-foreground">Loading…</p>
@@ -403,11 +401,12 @@ export function AgentOverridesPanel() {
               </label>
             )}
 
-            {submitError && (
+            {submitValidation && (
               <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {submitError}
+                {submitValidation}
               </p>
             )}
+            {submitError !== null && <ApiErrorMessage error={submitError} />}
 
             <div className="flex justify-end">
               <Button

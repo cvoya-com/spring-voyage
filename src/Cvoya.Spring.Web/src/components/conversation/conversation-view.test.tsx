@@ -105,9 +105,14 @@ describe("ConversationView — fetch states", () => {
       error: new Error("boom"),
     });
     render(<ConversationView threadId="t-1" testId="cv" />);
-    const alert = screen.getByTestId("cv-error");
-    expect(alert).toHaveAttribute("role", "alert");
-    expect(alert).toHaveTextContent("boom");
+    const wrapper = screen.getByTestId("cv-error");
+    expect(wrapper).toBeInTheDocument();
+    // `<ApiErrorMessage>` carries `role="alert"` on its inner alert
+    // box and the friendly fallback copy when the error is not a
+    // ProblemDetails envelope (#2163).
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText("Something went wrong.")).toBeInTheDocument();
+    expect(screen.queryByText(/API error/)).not.toBeInTheDocument();
   });
 
   it("renders the not-found state when no data is returned", () => {

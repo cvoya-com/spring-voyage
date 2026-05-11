@@ -8,8 +8,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type {
   AgentResponse,
   SkillCatalogEntry,
@@ -38,7 +40,7 @@ export function SkillsTab({ unitId }: SkillsTabProps) {
     {},
   );
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -68,7 +70,7 @@ export function SkillsTab({ unitId }: SkillsTabProps) {
       setCatalog(skillCatalog);
       setAgentSkills(skillMap);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : String(err));
+      setLoadError(err);
     } finally {
       setLoading(false);
     }
@@ -107,7 +109,7 @@ export function SkillsTab({ unitId }: SkillsTabProps) {
       setAgentSkills((prev) => ({ ...prev, [agentId]: current }));
       toast({
         title: "Skill update failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     }
@@ -122,16 +124,14 @@ export function SkillsTab({ unitId }: SkillsTabProps) {
     byRegistry.set(skill.registry, list);
   }
 
-  if (loadError) {
+  if (loadError !== null) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Skills</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {loadError}
-          </p>
+          <ApiErrorMessage error={loadError} />
         </CardContent>
       </Card>
     );

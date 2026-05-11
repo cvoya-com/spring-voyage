@@ -91,6 +91,92 @@ describe("translateApiError", () => {
       "Parent units disagree on inherited execution settings.",
       "Remove a conflicting parent or set the inherited field explicitly.",
     ],
+    [
+      "ImagePullFailed",
+      {
+        code: "ImagePullFailed",
+        image: "ghcr.io/cvoya-com/agent-claude:latest",
+        detail: "manifest unknown for image ghcr.io/cvoya-com/agent-claude:latest.",
+      },
+      "Couldn't pull the agent image.",
+      "manifest unknown for image ghcr.io/cvoya-com/agent-claude:latest.",
+    ],
+    [
+      "ImagePullFailed (no detail)",
+      { code: "ImagePullFailed" },
+      "Couldn't pull the agent image.",
+      "Check that the image exists and the host can reach the registry.",
+    ],
+    [
+      "ImageStartFailed",
+      {
+        code: "ImageStartFailed",
+        detail: "Container exited immediately with status 125.",
+      },
+      "Couldn't start the agent container.",
+      "Container exited immediately with status 125.",
+    ],
+    [
+      "ImageStartFailed (no detail)",
+      { code: "ImageStartFailed" },
+      "Couldn't start the agent container.",
+      "Check the agent image and host runtime logs.",
+    ],
+    [
+      "ToolMissing (with tool)",
+      { code: "ToolMissing", tool: "claude" },
+      "The agent image is missing the claude CLI.",
+      "Pick a different agent image or install the CLI before retrying.",
+    ],
+    [
+      "ToolMissing (no tool)",
+      { code: "ToolMissing" },
+      "The agent image is missing the required CLI.",
+      "Pick a different agent image or install the CLI before retrying.",
+    ],
+    [
+      "CredentialFormatRejected",
+      {
+        code: "CredentialFormatRejected",
+        provider: "anthropic",
+        detail: "Token starts with sk-ant-oat (OAuth); REST requires sk-ant-api.",
+      },
+      "The configured credential's format isn't accepted by anthropic.",
+      "Token starts with sk-ant-oat (OAuth); REST requires sk-ant-api.",
+    ],
+    [
+      "CredentialFormatRejected (no detail)",
+      { code: "CredentialFormatRejected", provider: "anthropic" },
+      "The configured credential's format isn't accepted by anthropic.",
+      "Update the secret to a value of the right shape (see the provider's docs).",
+    ],
+    [
+      "ModelNotFound",
+      { code: "ModelNotFound", model: "claude-9-opus", provider: "anthropic" },
+      "Model `claude-9-opus` isn't available for anthropic.",
+      "Pick a model from the provider's catalogue or update the install.",
+    ],
+    [
+      "ProbeTimeout",
+      { code: "ProbeTimeout" },
+      "The runtime probe timed out.",
+      "Verify the agent host is responsive and retry; raise the probe timeout if this is expected.",
+    ],
+    [
+      "ProbeInternalError (with detail)",
+      {
+        code: "ProbeInternalError",
+        detail: "Interpreter threw NullReferenceException.",
+      },
+      "The runtime probe failed unexpectedly.",
+      "Interpreter threw NullReferenceException.",
+    ],
+    [
+      "ProbeInternalError (no detail)",
+      { code: "ProbeInternalError" },
+      "The runtime probe failed unexpectedly.",
+      "Check the host logs (`spring agent logs <id>` or `kubectl logs`) and retry.",
+    ],
   ])(
     "translates %s",
     (_code, problem, expectedTitle, expectedNextStep) => {

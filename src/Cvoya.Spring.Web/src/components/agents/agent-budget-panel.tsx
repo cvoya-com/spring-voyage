@@ -29,6 +29,7 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { useAgentBudget } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import { formatCost } from "@/lib/utils";
 
 interface AgentBudgetPanelProps {
@@ -63,7 +64,7 @@ export function AgentBudgetPanel({ agentId }: AgentBudgetPanelProps) {
     onError: (err) => {
       toast({
         title: "Failed to save budget",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     },

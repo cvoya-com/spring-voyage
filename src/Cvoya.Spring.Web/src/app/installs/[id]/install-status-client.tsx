@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +37,7 @@ import {
   useRetryInstall,
   useAbortInstall,
 } from "@/lib/api/queries";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type { InstallPackageDetail } from "@/lib/api/types";
 
 interface Props {
@@ -70,7 +72,7 @@ export default function InstallStatusClient({ id }: Props) {
     } catch (err) {
       toast({
         title: "Retry failed",
-        description: err instanceof Error ? err.message : "Unknown error",
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     }
@@ -92,7 +94,7 @@ export default function InstallStatusClient({ id }: Props) {
     } catch (err) {
       toast({
         title: "Abort failed",
-        description: err instanceof Error ? err.message : "Unknown error",
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     }
@@ -121,11 +123,19 @@ export default function InstallStatusClient({ id }: Props) {
         />
         <Card>
           <CardContent className="p-6">
-            <p className="text-sm text-destructive" role="alert" data-testid="install-not-found">
-              {statusQuery.error
-                ? `Failed to load install status: ${statusQuery.error.message}`
-                : `Install "${id}" not found. It may have been aborted or the id is invalid.`}
-            </p>
+            {statusQuery.error ? (
+              <div data-testid="install-not-found">
+                <ApiErrorMessage error={statusQuery.error} />
+              </div>
+            ) : (
+              <p
+                className="text-sm text-destructive"
+                role="alert"
+                data-testid="install-not-found"
+              >
+                {`Install "${id}" not found. It may have been aborted or the id is invalid.`}
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

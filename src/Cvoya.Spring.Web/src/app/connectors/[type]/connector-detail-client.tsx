@@ -29,6 +29,7 @@ import {
 import type { ReactNode } from "react";
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -67,9 +68,7 @@ export default function ConnectorDetailClient({ slugOrId }: Props) {
         />
         <Card>
           <CardContent className="p-6">
-            <p className="text-sm text-destructive" role="alert">
-              Failed to load connector: {query.error.message}
-            </p>
+            <ApiErrorMessage error={query.error} />
           </CardContent>
         </Card>
       </div>
@@ -192,9 +191,7 @@ function ConnectorDetailBody({
         {bindingsQuery.isPending ? (
           <Skeleton className="h-16" />
         ) : bindingsQuery.error ? (
-          <p className="text-sm text-destructive" role="alert">
-            Failed to load bound units: {bindingsQuery.error.message}
-          </p>
+          <ApiErrorMessage error={bindingsQuery.error} />
         ) : bindings.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No units are currently bound to this connector. Open a

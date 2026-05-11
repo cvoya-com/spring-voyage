@@ -4,6 +4,7 @@ import { createElement, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Github, Link2, Settings } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { getConnectorComponent } from "@/connectors/registry";
 import { api } from "@/lib/api/client";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type {
   InstalledConnectorResponse,
   UnitConnectorPointerResponse,
@@ -38,7 +40,7 @@ export interface ConnectorTabProps {
 export function ConnectorTab({ unitId }: ConnectorTabProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [pointer, setPointer] =
     useState<UnitConnectorPointerResponse | null>(null);
   const [connectors, setConnectors] = useState<InstalledConnectorResponse[]>([]);
@@ -69,7 +71,7 @@ export function ConnectorTab({ unitId }: ConnectorTabProps) {
         setLoadError(null);
       } catch (err) {
         if (cancelled) return;
-        setLoadError(err instanceof Error ? err.message : String(err));
+        setLoadError(err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -88,7 +90,7 @@ export function ConnectorTab({ unitId }: ConnectorTabProps) {
     } catch (err) {
       toast({
         title: "Failed to clear connector",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     }
@@ -105,11 +107,11 @@ export function ConnectorTab({ unitId }: ConnectorTabProps) {
     );
   }
 
-  if (loadError) {
+  if (loadError !== null) {
     return (
       <Card>
-        <CardContent className="p-6 text-sm text-destructive">
-          {loadError}
+        <CardContent className="p-6">
+          <ApiErrorMessage error={loadError} />
         </CardContent>
       </Card>
     );

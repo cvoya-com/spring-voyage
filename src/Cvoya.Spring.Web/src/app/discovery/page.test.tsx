@@ -19,11 +19,16 @@ import type {
 const searchDirectory =
   vi.fn<(body: DirectorySearchRequest) => Promise<DirectorySearchResponse>>();
 
-vi.mock("@/lib/api/client", () => ({
-  api: {
-    searchDirectory: (body: DirectorySearchRequest) => searchDirectory(body),
-  },
-}));
+vi.mock("@/lib/api/client", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client");
+  return {
+    ...actual,
+    api: {
+      searchDirectory: (body: DirectorySearchRequest) => searchDirectory(body),
+    },
+  };
+});
 
 vi.mock("next/link", () => ({
   default: ({
@@ -162,6 +167,31 @@ describe("/discovery", () => {
         searchDirectory.mock.calls[searchDirectory.mock.calls.length - 1];
       expect(last?.[0]?.text).toBe("python");
     });
+  });
+
+  it("renders translated copy when the directory search throws ProblemDetails (#2163)", async () => {
+    const { ApiError } = await import("@/lib/api/client");
+    searchDirectory.mockRejectedValue(
+      new ApiError(404, "Not Found", {
+        type: "https://cvoya.com/problems/unit-not-found",
+        title: "Not Found",
+        status: 404,
+        detail: "UnitNotFound: gone.",
+        code: "UnitNotFound",
+        traceId: "00-discovery",
+      }),
+    );
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("directory-error")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Unit not found\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(/It may have been deleted\. Refresh the page/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/API error 404/)).not.toBeInTheDocument();
   });
 
   it("sends typedOnly when the filter is enabled", async () => {

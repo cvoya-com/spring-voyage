@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import {
   useAgentInitiativeLevel,
   useAgentInitiativePolicy,
@@ -99,7 +100,7 @@ export function AgentInitiativePanel({ agentId }: AgentInitiativePanelProps) {
     onError: (err) => {
       toast({
         title: "Save failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     },

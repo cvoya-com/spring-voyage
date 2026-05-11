@@ -140,6 +140,160 @@ public class ProblemDetailsTranslatorTests
             "The request was invalid.",
             "Display name is required.",
         };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                Detail = "manifest unknown for image ghcr.io/cvoya-com/agent-claude.",
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "ImagePullFailed",
+                    ["image"] = "ghcr.io/cvoya-com/agent-claude:latest",
+                },
+            },
+            "Couldn't pull the agent image.",
+            "manifest unknown for image ghcr.io/cvoya-com/agent-claude.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "ImagePullFailed",
+                },
+            },
+            "Couldn't pull the agent image.",
+            "Check that the image exists and the host can reach the registry.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                Detail = "Container exited immediately with status 125.",
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "ImageStartFailed",
+                },
+            },
+            "Couldn't start the agent container.",
+            "Container exited immediately with status 125.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "ImageStartFailed",
+                },
+            },
+            "Couldn't start the agent container.",
+            "Check the agent image and host runtime logs.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "ToolMissing",
+                    ["tool"] = "claude",
+                },
+            },
+            "The agent image is missing the claude CLI.",
+            "Pick a different agent image or install the CLI before retrying.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "ToolMissing",
+                },
+            },
+            "The agent image is missing the required CLI.",
+            "Pick a different agent image or install the CLI before retrying.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                Detail = "Token starts with sk-ant-oat (OAuth); REST requires sk-ant-api.",
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "CredentialFormatRejected",
+                    ["provider"] = "anthropic",
+                },
+            },
+            "The configured credential's format isn't accepted by anthropic.",
+            "Token starts with sk-ant-oat (OAuth); REST requires sk-ant-api.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "CredentialFormatRejected",
+                    ["provider"] = "anthropic",
+                },
+            },
+            "The configured credential's format isn't accepted by anthropic.",
+            "Update the secret to a value of the right shape (see the provider's docs).",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "ModelNotFound",
+                    ["model"] = "claude-9-opus",
+                    ["provider"] = "anthropic",
+                },
+            },
+            "Model `claude-9-opus` isn't available for anthropic.",
+            "Pick a model from the provider's catalogue or update the install.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "ProbeTimeout",
+                },
+            },
+            "The runtime probe timed out.",
+            "Verify the agent host is responsive and retry; raise the probe timeout if this is expected.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                Detail = "Interpreter threw NullReferenceException.",
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "ProbeInternalError",
+                },
+            },
+            "The runtime probe failed unexpectedly.",
+            "Interpreter threw NullReferenceException.",
+        };
+        yield return new object[]
+        {
+            new ProblemDetails
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["code"] = "ProbeInternalError",
+                },
+            },
+            "The runtime probe failed unexpectedly.",
+            "Check the host logs (`spring agent logs <id>` or `kubectl logs`) and retry.",
+        };
     }
 
     [Fact]

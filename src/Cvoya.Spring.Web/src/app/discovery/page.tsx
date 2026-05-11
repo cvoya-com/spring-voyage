@@ -21,6 +21,7 @@ import { useMemo, useState } from "react";
 import { Compass, GraduationCap, Search } from "lucide-react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -130,8 +131,7 @@ export default function DirectoryPage() {
   const effectiveOffset = Number(searchQuery.data?.offset ?? 0);
   const hasMore = effectiveOffset + effectiveLimit < totalCount;
 
-  const loadError =
-    searchQuery.error instanceof Error ? searchQuery.error.message : null;
+  const loadError = searchQuery.error ?? null;
 
   const applySearch = () => {
     setOffset(0);
@@ -242,13 +242,9 @@ export default function DirectoryPage() {
       {loadError && (
         <Card>
           <CardContent className="p-6">
-            <p
-              className="text-sm text-destructive"
-              role="alert"
-              data-testid="directory-error"
-            >
-              Failed to load directory: {loadError}
-            </p>
+            <div data-testid="directory-error">
+              <ApiErrorMessage error={loadError} />
+            </div>
           </CardContent>
         </Card>
       )}

@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Check, Package, Search } from "lucide-react";
+import { Check, Package, Search } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -61,12 +62,6 @@ export function SourcePackagePicker({
     }
     onSelectionChange?.(packageName);
   };
-  const errorMessage =
-    packagesQuery.error instanceof Error
-      ? packagesQuery.error.message
-      : packagesQuery.error
-        ? String(packagesQuery.error)
-        : "Could not load package catalog.";
 
   return (
     <div className="space-y-4">
@@ -104,16 +99,7 @@ export function SourcePackagePicker({
             {packagesQuery.isPending ? (
               <PackagePickerSkeleton />
             ) : packagesQuery.isError ? (
-              <div
-                role="alert"
-                className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              >
-                <AlertTriangle
-                  className="mt-0.5 h-4 w-4 shrink-0"
-                  aria-hidden
-                />
-                <span>Failed to load catalog: {errorMessage}</span>
-              </div>
+              <ApiErrorMessage error={packagesQuery.error} />
             ) : filteredPackages.length === 0 ? (
               <p className="rounded-md border border-border bg-muted/30 px-3 py-6 text-center text-sm text-muted-foreground">
                 No packages found.

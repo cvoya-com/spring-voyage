@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { useTenantBudget } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import { formatCost } from "@/lib/utils";
 
 export function BudgetPanel() {
@@ -41,7 +42,7 @@ export function BudgetPanel() {
     onError: (err) => {
       toast({
         title: "Failed to save budget",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     },

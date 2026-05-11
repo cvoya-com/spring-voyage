@@ -26,6 +26,7 @@ import {
 } from "@/lib/api/queries";
 import { loadImageHistory } from "@/lib/image-history";
 import { queryKeys } from "@/lib/api/query-keys";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type {
   AgentExecutionResponse,
   UnitExecutionResponse,
@@ -187,7 +188,7 @@ export function AgentExecutionPanel({
     onError: (err) => {
       toast({
         title: "Save failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     },
@@ -205,7 +206,7 @@ export function AgentExecutionPanel({
     onError: (err) => {
       toast({
         title: "Clear failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     },

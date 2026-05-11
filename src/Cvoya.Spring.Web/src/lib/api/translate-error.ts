@@ -44,6 +44,22 @@ const translators: Record<string, ProblemTranslator> = {
       stringField(problem, "detail") ??
       "Remove a conflicting parent or set the inherited field explicitly.",
   }),
+  ImagePullFailed: translateImagePullFailed,
+  ImageStartFailed: translateImageStartFailed,
+  ToolMissing: translateToolMissing,
+  CredentialFormatRejected: translateCredentialFormatRejected,
+  ModelNotFound: translateModelNotFound,
+  ProbeTimeout: () => ({
+    title: "The runtime probe timed out.",
+    nextStep:
+      "Verify the agent host is responsive and retry; raise the probe timeout if this is expected.",
+  }),
+  ProbeInternalError: (problem) => ({
+    title: "The runtime probe failed unexpectedly.",
+    nextStep:
+      stringField(problem, "detail") ??
+      "Check the host logs (`spring agent logs <id>` or `kubectl logs`) and retry.",
+  }),
 };
 
 export function translateApiError(err: unknown): TranslatedError {
@@ -217,6 +233,59 @@ function translateUnknownConnectorSlug(
     title: `This package doesn't declare a ${slug} connector binding.`,
     nextStep:
       "Remove that connector binding or choose a connector required by this package.",
+  };
+}
+
+function translateImagePullFailed(problem: ParsedProblemDetails): TranslatedError {
+  return {
+    title: "Couldn't pull the agent image.",
+    nextStep:
+      stringField(problem, "detail") ??
+      "Check that the image exists and the host can reach the registry.",
+  };
+}
+
+function translateImageStartFailed(problem: ParsedProblemDetails): TranslatedError {
+  return {
+    title: "Couldn't start the agent container.",
+    nextStep:
+      stringField(problem, "detail") ??
+      "Check the agent image and host runtime logs.",
+  };
+}
+
+function translateToolMissing(problem: ParsedProblemDetails): TranslatedError {
+  const tool = stringField(problem, "tool") ?? "required";
+  return {
+    title: `The agent image is missing the ${tool} CLI.`,
+    nextStep: "Pick a different agent image or install the CLI before retrying.",
+  };
+}
+
+function translateCredentialFormatRejected(
+  problem: ParsedProblemDetails,
+): TranslatedError {
+  const provider =
+    stringField(problem, "provider") ??
+    stringField(problem, "modelProvider") ??
+    "this provider";
+  return {
+    title: `The configured credential's format isn't accepted by ${provider}.`,
+    nextStep:
+      stringField(problem, "detail") ??
+      "Update the secret to a value of the right shape (see the provider's docs).",
+  };
+}
+
+function translateModelNotFound(problem: ParsedProblemDetails): TranslatedError {
+  const model = stringField(problem, "model") ?? "(unknown)";
+  const provider =
+    stringField(problem, "provider") ??
+    stringField(problem, "modelProvider") ??
+    "this provider";
+  return {
+    title: `Model \`${model}\` isn't available for ${provider}.`,
+    nextStep: "Pick a model from the provider's catalogue or update the install.",
   };
 }
 

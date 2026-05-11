@@ -21,6 +21,7 @@
 
 import { useState, useMemo } from "react";
 import { Eye, MessageCircleQuestion } from "lucide-react";
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -180,15 +181,8 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
 
   if (threadQuery.error) {
     return (
-      <div
-        role="alert"
-        className="m-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        data-testid="engagement-detail-error"
-      >
-        Could not load engagement:{" "}
-        {threadQuery.error instanceof Error
-          ? threadQuery.error.message
-          : String(threadQuery.error)}
+      <div className="m-4" data-testid="engagement-detail-error">
+        <ApiErrorMessage error={threadQuery.error} />
       </div>
     );
   }

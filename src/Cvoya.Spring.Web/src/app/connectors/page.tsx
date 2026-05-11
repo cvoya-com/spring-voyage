@@ -33,6 +33,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Plug } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -139,9 +140,7 @@ function ConnectorCatalog() {
     return (
       <Card>
         <CardContent className="p-6">
-          <p className="text-sm text-destructive" role="alert">
-            Failed to load connectors: {query.error.message}
-          </p>
+          <ApiErrorMessage error={query.error} />
         </CardContent>
       </Card>
     );

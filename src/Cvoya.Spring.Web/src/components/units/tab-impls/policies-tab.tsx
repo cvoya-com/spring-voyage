@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { useUnitPolicy } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type {
   AgentExecutionMode,
   CostPolicy,
@@ -96,7 +97,7 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
     onError: (err) => {
       toast({
         title: "Save failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     },
@@ -118,7 +119,7 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
     onError: (err) => {
       toast({
         title: "Clear failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     },

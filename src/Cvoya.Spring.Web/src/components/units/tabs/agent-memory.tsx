@@ -8,6 +8,7 @@
 
 import { Brain } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { useMemories } from "@/lib/api/queries";
 import { timeAgo } from "@/lib/utils";
 
@@ -34,14 +35,9 @@ function AgentMemoryTab({ node }: TabContentProps) {
 
   if (error) {
     return (
-      <p
-        role="alert"
-        className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        data-testid="tab-agent-memory-error"
-      >
-        Couldn&apos;t load memory entries:{" "}
-        {error instanceof Error ? error.message : String(error)}
-      </p>
+      <div data-testid="tab-agent-memory-error">
+        <ApiErrorMessage error={error} />
+      </div>
     );
   }
 

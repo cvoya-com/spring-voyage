@@ -42,6 +42,7 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { useAgentDeployment, useAgentLogs } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type { PersistentAgentDeploymentResponse } from "@/lib/api/types";
 import { loadImageHistory } from "@/lib/image-history";
 import { timeAgo } from "@/lib/utils";
@@ -133,7 +134,7 @@ export function LifecyclePanel({
     } catch (err) {
       toast({
         title: "Deploy failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     } finally {
@@ -150,7 +151,7 @@ export function LifecyclePanel({
     } catch (err) {
       toast({
         title: "Undeploy failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     } finally {
@@ -173,7 +174,7 @@ export function LifecyclePanel({
     } catch (err) {
       toast({
         title: "Scale failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     } finally {

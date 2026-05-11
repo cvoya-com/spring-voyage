@@ -28,7 +28,6 @@ import {
   useState,
 } from "react";
 import {
-  AlertTriangle,
   Inbox as InboxIcon,
   Info,
   Loader2,
@@ -39,6 +38,7 @@ import {
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -331,15 +331,8 @@ function ThreadTimeline({ threadId, selfAddress }: ThreadTimelineProps) {
 
   if (threadQuery.error) {
     return (
-      <div
-        role="alert"
-        className="m-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        data-testid="inbox-thread-error"
-      >
-        Could not load thread:{" "}
-        {threadQuery.error instanceof Error
-          ? threadQuery.error.message
-          : String(threadQuery.error)}
+      <div className="m-4" data-testid="inbox-thread-error">
+        <ApiErrorMessage error={threadQuery.error} />
       </div>
     );
   }
@@ -559,8 +552,7 @@ function InboxPageContent() {
     markRead.mutate(threadId);
   };
 
-  const errorMessage =
-    inboxQuery.error instanceof Error ? inboxQuery.error.message : null;
+  const inboxError = inboxQuery.error ?? null;
 
   return (
     <div className="flex flex-col h-full space-y-0" data-testid="inbox-page">
@@ -603,22 +595,10 @@ function InboxPageContent() {
       </div>
 
       {/* Error banner */}
-      {errorMessage && (
-        <Card
-          className="border-destructive/50 bg-destructive/10 mb-4"
-          data-testid="inbox-error"
-        >
-          <CardContent className="flex items-start gap-2 p-4 text-sm text-destructive">
-            <AlertTriangle
-              className="h-4 w-4 shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            <div>
-              <p className="font-medium">Failed to load inbox.</p>
-              <p className="text-xs opacity-80">{errorMessage}</p>
-            </div>
-          </CardContent>
-        </Card>
+      {inboxError && (
+        <div className="mb-4" data-testid="inbox-error">
+          <ApiErrorMessage error={inboxError} />
+        </div>
       )}
 
       {/* Loading state */}
@@ -631,7 +611,7 @@ function InboxPageContent() {
           <Skeleton className="h-32" />
           <Skeleton className="h-32" />
         </div>
-      ) : items.length === 0 && !errorMessage ? (
+      ) : items.length === 0 && !inboxError ? (
         /* Empty state */
         <Card data-testid="inbox-empty">
           <CardContent className="space-y-2 p-10 text-center">

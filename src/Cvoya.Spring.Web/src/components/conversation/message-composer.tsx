@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type { ThreadDetail } from "@/lib/api/types";
 
 export type MessageKind = "information" | "answer";
@@ -219,7 +220,7 @@ export function MessageComposer({
       }
       toast({
         title: "Failed to send message",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     },

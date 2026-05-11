@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Activity, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,8 +58,7 @@ export function ActivityTab({ unitId }: { unitId: string }) {
       event.source.scheme === "unit" && event.source.path === unitId,
   });
 
-  const errorMessage =
-    error instanceof Error ? error.message : error ? String(error) : null;
+  const activityError = error ?? null;
 
   // Expanded-row tracker: clicking a row toggles its `id` in the set so
   // the structured `details` payload is shown inline. Kept in component
@@ -93,10 +93,10 @@ export function ActivityTab({ unitId }: { unitId: string }) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {errorMessage && (
-          <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive mb-3">
-            {errorMessage}
-          </p>
+        {activityError && (
+          <div className="mb-3">
+            <ApiErrorMessage error={activityError} />
+          </div>
         )}
         {isLoading && !result ? (
           <p className="text-sm text-muted-foreground">Loading activity...</p>

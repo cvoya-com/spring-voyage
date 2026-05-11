@@ -13,13 +13,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendThreadMessageMock = vi.fn();
 const sendMessageMock = vi.fn();
-vi.mock("@/lib/api/client", () => ({
-  api: {
-    sendThreadMessage: (id: string, body: unknown) =>
-      sendThreadMessageMock(id, body),
-    sendMessage: (body: unknown) => sendMessageMock(body),
-  },
-}));
+vi.mock("@/lib/api/client", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client");
+  return {
+    ...actual,
+    api: {
+      sendThreadMessage: (id: string, body: unknown) =>
+        sendThreadMessageMock(id, body),
+      sendMessage: (body: unknown) => sendMessageMock(body),
+    },
+  };
+});
 
 const toastMock = vi.fn();
 vi.mock("@/components/ui/toast", () => ({
@@ -288,7 +293,45 @@ describe("MessageComposer — send routing", () => {
       expect(toastMock).toHaveBeenCalledWith(
         expect.objectContaining({
           title: "Failed to send message",
-          description: "server-error",
+          // Non-ApiError values render through `formatTranslatedError`'s
+          // generic fallback (#2163); the "API error N" prose is gone.
+          description: "Something went wrong.",
+          variant: "destructive",
+        }),
+      );
+    });
+  });
+
+  it("toasts the translated copy when the send throws ProblemDetails (#2163)", async () => {
+    const { ApiError } = await import("@/lib/api/client");
+    sendThreadMessageMock.mockRejectedValue(
+      new ApiError(404, "Not Found", {
+        type: "https://cvoya.com/problems/agent-not-found",
+        title: "Not Found",
+        status: 404,
+        detail: "AgentNotFound: ada is gone.",
+        code: "AgentNotFound",
+        traceId: "00-composer",
+      }),
+    );
+    render(
+      wrap(
+        <MessageComposer
+          threadId="t-1"
+          recipient={{ scheme: "agent", path: "ada" }}
+        />,
+      ),
+    );
+    fireEvent.change(screen.getByTestId("message-composer-input"), {
+      target: { value: "Reply." },
+    });
+    fireEvent.click(screen.getByTestId("message-composer-send"));
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Failed to send message",
+          description:
+            "Agent not found. It may have been deleted. Refresh the page or pick another agent.",
           variant: "destructive",
         }),
       );

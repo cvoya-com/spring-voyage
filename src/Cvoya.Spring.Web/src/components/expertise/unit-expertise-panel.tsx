@@ -22,6 +22,7 @@ import { useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { GraduationCap, Layers } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -99,9 +100,7 @@ export function UnitExpertisePanel({ unitId }: UnitExpertisePanelProps) {
           {ownQuery.isPending ? (
             <Skeleton className="h-20" />
           ) : ownQuery.error ? (
-            <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {ownQuery.error.message}
-            </p>
+            <ApiErrorMessage error={ownQuery.error} />
           ) : (
             <ExpertiseEditor domains={domains} onSave={handleSaveOwn} />
           )}
@@ -127,9 +126,7 @@ export function UnitExpertisePanel({ unitId }: UnitExpertisePanelProps) {
           {aggregatedQuery.isPending ? (
             <Skeleton className="h-20" />
           ) : aggregatedQuery.error ? (
-            <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {aggregatedQuery.error.message}
-            </p>
+            <ApiErrorMessage error={aggregatedQuery.error} />
           ) : (
             <AggregatedExpertiseList
               entries={aggregated?.entries ?? []}

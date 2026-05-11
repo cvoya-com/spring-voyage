@@ -24,6 +24,7 @@ import {
   useUnitExecution,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type { UnitExecutionResponse } from "@/lib/api/types";
 import {
   RUNTIME_LIST,
@@ -171,7 +172,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     onError: (err) => {
       toast({
         title: "Save failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     },
@@ -189,7 +190,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     onError: (err) => {
       toast({
         title: "Clear failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     },

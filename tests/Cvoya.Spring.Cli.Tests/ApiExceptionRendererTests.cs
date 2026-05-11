@@ -345,16 +345,23 @@ public class ApiExceptionRendererTests
     }
 
     [Fact]
-    public void Render_ProblemDetails_WithCodeExtension_DoesNotAlterStderrText()
+    public void Render_ProblemDetails_WithCodeExtension_PreservesExitCodeAndRendersTranslation()
     {
-        // The formatter text output must be unchanged — #990 is purely an
-        // exit-code routing change. The message the operator sees on stderr
-        // must still reflect the ProblemDetails title / detail.
+        // #990 introduced the per-code exit-code routing. #2164 follows up by
+        // routing every translatable code through `ProblemDetailsTranslator`
+        // so the operator sees the friendly copy on stderr instead of the
+        // raw envelope. Both signals must coexist: the exit code is the
+        // catalogued one (22 for ToolMissing) AND stderr carries the
+        // translated copy, not the server-supplied title/detail.
         var problem = new ProblemDetails
         {
             Title = "Validation failed",
             Detail = "Tool is missing in the container image.",
-            AdditionalData = new Dictionary<string, object> { ["code"] = "ToolMissing" },
+            AdditionalData = new Dictionary<string, object>
+            {
+                ["code"] = "ToolMissing",
+                ["tool"] = "claude",
+            },
         };
         problem.ResponseStatusCode = 422;
 
@@ -364,8 +371,8 @@ public class ApiExceptionRendererTests
                 new CliRenderContext("table", Verbose: false, "Failed to create unit", so, se)));
 
         exitCode.ShouldBe(22); // ToolMissing
-        stderr.ShouldContain("Validation failed");
-        stderr.ShouldContain("Tool is missing");
+        stderr.ShouldContain("The agent image is missing the claude CLI.");
+        stderr.ShouldContain("Pick a different agent image");
     }
 
     /// <summary>
