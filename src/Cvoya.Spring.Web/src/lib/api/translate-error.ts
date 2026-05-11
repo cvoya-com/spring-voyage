@@ -17,6 +17,22 @@ type MissingConnector = {
   unitName?: string | null;
 };
 
+/**
+ * #2169: shape of one entry in the `missing[]` array on a
+ * `CredentialsMissing` ProblemDetails. Mirrors the CLI's
+ * `MissingCredentialEntry` so the wizard's inline retry form and the
+ * CLI's TTY prompt drive off the same fields. `provider` and
+ * `authMethod` are the (runtime, provider) edge keys the install
+ * service uses to write tenant secrets; `credentialEnvVar` is the
+ * operator-friendly label (e.g. `CLAUDE_CODE_OAUTH_TOKEN`).
+ */
+export type MissingCredentialEntry = {
+  provider: string;
+  authMethod: string;
+  secretName: string | null;
+  credentialEnvVar: string | null;
+};
+
 const translators: Record<string, ProblemTranslator> = {
   ConnectorBindingMissing: translateConnectorBindingMissing,
   PackageNotFound: translatePackageNotFound,
@@ -140,6 +156,58 @@ export function formatTranslatedError(err: unknown): string {
   return translated.nextStep
     ? `${translated.title} ${translated.nextStep}`
     : translated.title;
+}
+
+/**
+ * #2169: detect whether the given error is a `CredentialsMissing`
+ * ProblemDetails — the install pre-flight error that the wizard's
+ * inline retry form recovers from. Returns `false` for any other
+ * `ApiError` (or any non-`ApiError` value) so callers can fall back to
+ * the standard `<ApiErrorMessage>` rendering.
+ */
+export function isCredentialsMissingError(err: unknown): boolean {
+  const apiError = asApiError(err);
+  if (!apiError) return false;
+  const problem = apiError.problem ?? parseProblemDetails(apiError.body);
+  const code = problem?.code ?? stringField(problem, "error");
+  return code === "CredentialsMissing";
+}
+
+/**
+ * #2169: extract the structured `missing[]` array from a
+ * `CredentialsMissing` ProblemDetails so the wizard can render one
+ * input per missing `(provider, authMethod)` edge. Mirrors the CLI's
+ * `ExtractMissingCredentials` (`Cvoya.Spring.Cli/Commands/PackageCommand.cs`)
+ * — same wire shape, same provider+authMethod gating. Returns an empty
+ * array when the error is not `CredentialsMissing` or when the wire
+ * `missing[]` is absent / malformed.
+ */
+export function extractMissingCredentials(
+  err: unknown,
+): MissingCredentialEntry[] {
+  const apiError = asApiError(err);
+  if (!apiError) return [];
+  const problem = apiError.problem ?? parseProblemDetails(apiError.body);
+  if (!problem) return [];
+  const code = problem.code ?? stringField(problem, "error");
+  if (code !== "CredentialsMissing") return [];
+  const raw = problem.missing;
+  if (!Array.isArray(raw)) return [];
+
+  const out: MissingCredentialEntry[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const provider = fieldFromRecord(item, "provider");
+    const authMethod = fieldFromRecord(item, "authMethod");
+    if (!provider || !authMethod) continue;
+    out.push({
+      provider,
+      authMethod,
+      secretName: fieldFromRecord(item, "secretName") ?? null,
+      credentialEnvVar: fieldFromRecord(item, "credentialEnvVar") ?? null,
+    });
+  }
+  return out;
 }
 
 function translateConnectorBindingMissing(

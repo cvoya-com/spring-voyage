@@ -33,6 +33,7 @@ import {
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
+import { CredentialsMissingRetryForm } from "@/components/units/create/credentials-missing-retry-form";
 import {
   Card,
   CardContent,
@@ -42,7 +43,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
-import { formatTranslatedError } from "@/lib/api/translate-error";
+import {
+  extractMissingCredentials,
+  formatTranslatedError,
+  isCredentialsMissingError,
+} from "@/lib/api/translate-error";
 import { getConnectorWizardStep } from "@/connectors/registry";
 import {
   useModelProviderModels,
@@ -63,6 +68,7 @@ import {
 import { queryKeys } from "@/lib/api/query-keys";
 import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
 import type {
+  CredentialBindingPayload,
   InstalledModelProviderResponse,
   InstallStatusResponse,
   PackageConnectorBindings,
@@ -540,6 +546,15 @@ export default function CreateUnitPage() {
   const [stepError, setStepError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<unknown | null>(null);
   const [submitWarnings, setSubmitWarnings] = useState<string[]>([]);
+  // #2169: operator-supplied values for the inline credential-retry
+  // form, keyed by `${provider}:${authMethod}`. Survives across retry
+  // attempts (we only clear it when the install succeeds or the
+  // operator navigates away from the Install step) so a partially-
+  // filled form doesn't lose values when the server re-rejects with a
+  // shorter `missing[]`. See `CredentialsMissingRetryForm`.
+  const [credentialInputs, setCredentialInputs] = useState<
+    Record<string, string>
+  >({});
   // ADR-0035 install flow. After the install POST returns we store the
   // installId and poll GET /api/v1/installs/{id} every 2 s until
   // status reaches "active" (success) or "failed". On success we
@@ -1197,8 +1212,21 @@ export default function CreateUnitPage() {
   // PackageManifest schema does not yet support inline unit
   // definitions, so the wizard's scratch path stays on the direct
   // unit-create endpoint until the schema catches up.
-  const installMutation = useMutation({
-    mutationFn: async (): Promise<InstallStatusResponse> => {
+  // #2169: variables passed into `installMutation.mutate(...)`.
+  // Optional `credentials` carries operator-supplied values after a
+  // `CredentialsMissing` pre-flight rejection (catalog branch only).
+  type InstallMutationVariables = {
+    credentials?: CredentialBindingPayload[];
+  };
+  const installMutation = useMutation<
+    InstallStatusResponse,
+    unknown,
+    InstallMutationVariables | void
+  >({
+    mutationFn: async (
+      args,
+    ): Promise<InstallStatusResponse> => {
+      const variables = (args ?? {}) as InstallMutationVariables;
       if (form.source === "catalog") {
         if (!form.catalogPackageName) {
           throw new Error("No package selected.");
@@ -1209,11 +1237,16 @@ export default function CreateUnitPage() {
         // — package-scope inheritance lands every member unit on the
         // same binding unless the unit's manifest opts out.
         const bindings = buildCatalogConnectorBindings();
+        const credentials =
+          variables.credentials && variables.credentials.length > 0
+            ? variables.credentials
+            : undefined;
         return api.installPackages([
           {
             packageName: form.catalogPackageName,
             inputs: form.catalogInputs,
             connectorBindings: bindings,
+            ...(credentials ? { credentials } : {}),
           },
         ]);
       }
@@ -1305,6 +1338,12 @@ export default function CreateUnitPage() {
     onSuccess: (resp) => {
       setInstallId(resp.installId);
       setInstallStatus(resp);
+      // #2169: install accepted — drop any credential values the
+      // operator typed for the inline retry form. They're already
+      // persisted as tenant secrets server-side; retaining them in
+      // memory would leak across an unrelated re-install in the same
+      // tab session.
+      setCredentialInputs({});
       // Clear the wizard snapshot — the install exists; rehydrating
       // it would put the operator in "install the same package again".
       if (persistDebounceRef.current !== null) {
@@ -1324,8 +1363,17 @@ export default function CreateUnitPage() {
       }
     },
     onError: (err) => {
-      const message = formatTranslatedError(err);
       setSubmitError(err);
+      // #2169: when the failure is a `CredentialsMissing` pre-flight
+      // rejection, the inline retry form is the operator's primary
+      // surface — a redundant destructive toast competes with it for
+      // attention. The inline `<CredentialsMissingRetryForm>` carries
+      // the full friendly copy via `<ApiErrorMessage>`'s translator
+      // table.
+      if (isCredentialsMissingError(err)) {
+        return;
+      }
+      const message = formatTranslatedError(err);
       toast({
         title: "Install failed",
         description: message,
@@ -1333,6 +1381,24 @@ export default function CreateUnitPage() {
       });
     },
   });
+
+  // #2169: when the install pre-flight rejects with a structured
+  // `CredentialsMissing`, surface the inline retry form. Memoised so
+  // callers compare a stable reference; an empty array means "either
+  // no error or some other error" (the standard `<ApiErrorMessage>`
+  // takes over in that case).
+  const missingCredentials = useMemo(
+    () => extractMissingCredentials(submitError),
+    [submitError],
+  );
+  const showCredentialsRetryForm =
+    submitError !== null && missingCredentials.length > 0;
+  const handleRetryWithCredentials = useCallback(
+    (credentials: CredentialBindingPayload[]) => {
+      installMutation.mutate({ credentials });
+    },
+    [installMutation],
+  );
 
   // Poll install status every 2 s while a real (catalog-pipeline)
   // install is in flight. Scratch-branch ids are synthetic
@@ -2547,8 +2613,17 @@ export default function CreateUnitPage() {
                 }
               />
             </div>
-            {submitError !== null && (
-              <ApiErrorMessage error={submitError} />
+            {showCredentialsRetryForm ? (
+              <CredentialsMissingRetryForm
+                error={submitError}
+                missing={missingCredentials}
+                values={credentialInputs}
+                onValuesChange={setCredentialInputs}
+                onRetry={handleRetryWithCredentials}
+                submitting={submitting}
+              />
+            ) : (
+              submitError !== null && <ApiErrorMessage error={submitError} />
             )}
             {installId && installPending && (
               <div
@@ -2597,7 +2672,7 @@ export default function CreateUnitPage() {
                 </div>
               </div>
             )}
-            {!installId && (
+            {!installId && !showCredentialsRetryForm && (
               <Button
                 onClick={() => installMutation.mutate()}
                 disabled={submitting}

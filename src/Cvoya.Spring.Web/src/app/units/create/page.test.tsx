@@ -579,6 +579,264 @@ describe("CreateUnitPage — catalog branch (#1563)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Catalog branch — inline retry form for `CredentialsMissing` (#2169)
+// ---------------------------------------------------------------------------
+describe("CreateUnitPage — CredentialsMissing inline retry (#2169)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    seedDefaultMocks();
+    sessionStorage.clear();
+  });
+
+  /** Drive the wizard from step 1 to the catalog Install step with the
+   * Software Engineering package selected. */
+  async function advanceToCatalogInstallStep() {
+    listPackages.mockResolvedValue([
+      {
+        name: "spring-voyage/software-engineering",
+        description: "Software engineering team package.",
+        unitTemplateCount: 3,
+        agentTemplateCount: 0,
+        skillCount: 0,
+      },
+    ]);
+    renderPage();
+    const clickNext = async () => {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
+      });
+    };
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("source-card-catalog"));
+    });
+    await clickNext();
+    const pkgBtn = await screen.findByTestId(
+      "package-option-spring-voyage/software-engineering",
+    );
+    await act(async () => {
+      fireEvent.click(pkgBtn);
+    });
+    await clickNext(); // → Connector
+    await clickNext(); // → Install
+  }
+
+  function credentialsMissingProblem(missing: Record<string, unknown>[]) {
+    return {
+      status: 400,
+      statusText: "Bad Request",
+      body: {
+        type: "https://cvoya.com/problems/credentials-missing",
+        title: "Bad Request",
+        status: 400,
+        detail: "CredentialsMissing: package needs at least one credential.",
+        code: "CredentialsMissing",
+        missing,
+        traceId: "00-cred-trace",
+      },
+    };
+  }
+
+  it("renders inputs for each missing credential entry instead of the standard error message", async () => {
+    installPackages.mockRejectedValueOnce(
+      credentialsMissingProblem([
+        {
+          provider: "anthropic",
+          authMethod: "oauth-claude-code",
+          secretName: "claude-code-oauth-token",
+          credentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
+          scope: "tenant",
+          unitName: null,
+          consumingUnits: ["engineer"],
+        },
+      ]),
+    );
+
+    await advanceToCatalogInstallStep();
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("install-unit-button"));
+    });
+
+    // Inline retry form is the primary surface; the standard
+    // <ApiErrorMessage> does not render for this code.
+    const form = await screen.findByTestId("credentials-missing-retry-form");
+    expect(form).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("api-error-message"),
+    ).not.toBeInTheDocument();
+
+    // The credentialEnvVar surfaces as the human label.
+    expect(form).toHaveTextContent("CLAUDE_CODE_OAUTH_TOKEN");
+    expect(form).toHaveTextContent("anthropic / oauth-claude-code");
+
+    // Standard Install button is hidden in favour of the form's
+    // Retry install button.
+    expect(
+      screen.queryByTestId("install-unit-button"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("credentials-missing-retry-button"),
+    ).toBeInTheDocument();
+  });
+
+  it("re-fires installPackages with credentials[] populated when the operator pastes a value and clicks Retry", async () => {
+    installPackages
+      .mockRejectedValueOnce(
+        credentialsMissingProblem([
+          {
+            provider: "anthropic",
+            authMethod: "oauth-claude-code",
+            secretName: "claude-code-oauth-token",
+            credentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
+            scope: "tenant",
+            unitName: null,
+            consumingUnits: ["engineer"],
+          },
+        ]),
+      )
+      .mockResolvedValueOnce({
+        installId: "install-99",
+        status: "active",
+        packages: [],
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        error: null,
+      } satisfies InstallStatusResponse);
+    getInstallStatus.mockResolvedValue({
+      installId: "install-99",
+      status: "active",
+      packages: [],
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      error: null,
+    });
+
+    await advanceToCatalogInstallStep();
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("install-unit-button"));
+    });
+
+    const input = await screen.findByTestId(
+      "credentials-missing-input-anthropic-oauth-claude-code",
+    );
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "sk-test-token-value" } });
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByTestId("credentials-missing-retry-button"),
+      );
+    });
+
+    await waitFor(() => {
+      expect(installPackages).toHaveBeenCalledTimes(2);
+    });
+    // Second call carries the credentials payload; the first did not.
+    expect(installPackages).toHaveBeenLastCalledWith([
+      {
+        packageName: "spring-voyage/software-engineering",
+        inputs: {},
+        credentials: [
+          {
+            provider: "anthropic",
+            authMethod: "oauth-claude-code",
+            value: "sk-test-token-value",
+          },
+        ],
+      },
+    ]);
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith("/units");
+    });
+  });
+
+  it("keeps the inline form visible (and preserves typed values) when the server re-rejects with CredentialsMissing", async () => {
+    const rejection = credentialsMissingProblem([
+      {
+        provider: "anthropic",
+        authMethod: "oauth-claude-code",
+        secretName: "claude-code-oauth-token",
+        credentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
+        scope: "tenant",
+        unitName: null,
+        consumingUnits: ["engineer"],
+      },
+    ]);
+    installPackages
+      .mockRejectedValueOnce(rejection)
+      .mockRejectedValueOnce(rejection);
+
+    await advanceToCatalogInstallStep();
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("install-unit-button"));
+    });
+
+    const input = (await screen.findByTestId(
+      "credentials-missing-input-anthropic-oauth-claude-code",
+    )) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "first-attempt" } });
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByTestId("credentials-missing-retry-button"),
+      );
+    });
+
+    await waitFor(() => {
+      expect(installPackages).toHaveBeenCalledTimes(2);
+    });
+
+    // Form is still mounted; the typed value survived the retry; the
+    // standard <ApiErrorMessage> still does not appear.
+    expect(
+      screen.getByTestId("credentials-missing-retry-form"),
+    ).toBeInTheDocument();
+    const reRenderedInput = screen.getByTestId(
+      "credentials-missing-input-anthropic-oauth-claude-code",
+    ) as HTMLInputElement;
+    expect(reRenderedInput.value).toBe("first-attempt");
+    expect(
+      screen.queryByTestId("api-error-message"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not POST a no-op retry when no value has been entered", async () => {
+    installPackages.mockRejectedValueOnce(
+      credentialsMissingProblem([
+        {
+          provider: "anthropic",
+          authMethod: "oauth-claude-code",
+          secretName: "claude-code-oauth-token",
+          credentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
+          scope: "tenant",
+          unitName: null,
+          consumingUnits: ["engineer"],
+        },
+      ]),
+    );
+
+    await advanceToCatalogInstallStep();
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("install-unit-button"));
+    });
+
+    await screen.findByTestId("credentials-missing-retry-form");
+
+    // Retry button is disabled when no value is entered. Clicking it
+    // is a no-op; installPackages is not called a second time.
+    const retryBtn = screen.getByTestId(
+      "credentials-missing-retry-button",
+    ) as HTMLButtonElement;
+    expect(retryBtn.disabled).toBe(true);
+    await act(async () => {
+      fireEvent.click(retryBtn);
+    });
+    expect(installPackages).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Scratch branch — Source → Identity → Execution → Connector → Install
 // ---------------------------------------------------------------------------
 describe("CreateUnitPage — scratch branch (#1563)", () => {
