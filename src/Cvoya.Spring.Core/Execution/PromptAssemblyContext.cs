@@ -37,6 +37,23 @@ using Cvoya.Spring.Core.Skills;
 /// four-layer assembly; bundle prompts are additive and never interleave
 /// with agent-specific instructions.
 /// </param>
+/// <param name="PendingAmendments">
+/// Optional list of pending amendments queued for this agent.
+/// </param>
+/// <param name="PriorMessageSenderDisplayNames">
+/// Optional pre-resolved map from prior-message sender <see cref="Address"/>
+/// to a human-readable display name (#2129). When supplied,
+/// <c>ThreadContextBuilder</c> renders prior turns as
+/// <c>[ts] {DisplayName}: …</c> instead of leaking the raw
+/// <c>scheme://&lt;guid&gt;</c> wire form into Layer 3 — that wire shape
+/// is what weak LLMs were observed to mimic on output (see #2089). Built
+/// upstream by the actor (which has scoped access to
+/// <see cref="Cvoya.Spring.Core.Security.IParticipantDisplayNameResolver"/>)
+/// so the singleton prompt-assembly path stays free of scoped
+/// dependencies. When the map is <c>null</c> or omits an address,
+/// <c>ThreadContextBuilder</c> falls back to the address's scheme literal
+/// (e.g. <c>human</c> / <c>agent</c>) — never the raw GUID.
+/// </param>
 public record PromptAssemblyContext(
     IReadOnlyList<Address> Members,
     JsonElement? Policies,
@@ -46,4 +63,5 @@ public record PromptAssemblyContext(
     string? AgentInstructions,
     AgentMetadata? EffectiveMetadata = null,
     IReadOnlyList<SkillBundle>? SkillBundles = null,
-    IReadOnlyList<PendingAmendment>? PendingAmendments = null);
+    IReadOnlyList<PendingAmendment>? PendingAmendments = null,
+    IReadOnlyDictionary<Address, string>? PriorMessageSenderDisplayNames = null);

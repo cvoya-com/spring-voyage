@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;

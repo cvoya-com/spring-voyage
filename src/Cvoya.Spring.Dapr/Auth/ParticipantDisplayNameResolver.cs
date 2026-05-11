@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Host.Api.Services;
+namespace Cvoya.Spring.Dapr.Auth;
 
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Dapr.Data;
@@ -14,6 +14,16 @@ using Microsoft.Extensions.Logging;
 /// Resolves a wire-form participant address (post-#1629:
 /// <c>scheme:&lt;32-hex-no-dash&gt;</c>) into a human-readable display
 /// name by joining onto the appropriate definition / humans table.
+///
+/// <para>
+/// Lives in <c>Cvoya.Spring.Dapr</c> because the implementation depends
+/// on <see cref="SpringDbContext"/>; the interface
+/// (<see cref="IParticipantDisplayNameResolver"/>) lives in
+/// <c>Cvoya.Spring.Core</c> so both the API host (portal-side
+/// participant projection) and the in-process prompt-assembly path
+/// (#2129) can depend on it without coupling to the host or the data
+/// layer.
+/// </para>
 ///
 /// <para>
 /// Schemes covered:
@@ -43,8 +53,9 @@ using Microsoft.Extensions.Logging;
 ///   </description></item>
 ///   <item><description>
 ///     The row is missing (entity was deleted or never existed) → return
-///     the literal <c>&lt;deleted&gt;</c> placeholder so the portal can
-///     render a friendly tag without leaking GUIDs.
+///     <see cref="IParticipantDisplayNameResolver.DeletedDisplayName"/>
+///     (<c>&lt;deleted&gt;</c>) so the portal can render a friendly tag
+///     without leaking GUIDs.
 ///   </description></item>
 ///   <item><description>
 ///     The address itself is malformed / empty → return the address
@@ -64,14 +75,6 @@ internal sealed class ParticipantDisplayNameResolver(
     ILogger<ParticipantDisplayNameResolver> logger)
     : IParticipantDisplayNameResolver
 {
-    /// <summary>
-    /// Sentinel display name returned for participant addresses whose
-    /// backing entity (agent / unit / human) is no longer present in the
-    /// directory / humans table. Surfaces as a friendly tag in the
-    /// portal — see #1630, #1635.
-    /// </summary>
-    public const string DeletedDisplayName = "<deleted>";
-
     private readonly Dictionary<string, string> _cache = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
@@ -81,7 +84,9 @@ internal sealed class ParticipantDisplayNameResolver(
     {
         if (string.IsNullOrWhiteSpace(address))
         {
-            return string.IsNullOrEmpty(address) ? DeletedDisplayName : address;
+            return string.IsNullOrEmpty(address)
+                ? IParticipantDisplayNameResolver.DeletedDisplayName
+                : address;
         }
 
         if (_cache.TryGetValue(address, out var cached))
@@ -115,7 +120,9 @@ internal sealed class ParticipantDisplayNameResolver(
         {
             // Slug-shaped legacy address (e.g. "human://savas"). The slug
             // IS the human-readable label, so return it verbatim.
-            return string.IsNullOrEmpty(idText) ? DeletedDisplayName : idText;
+            return string.IsNullOrEmpty(idText)
+                ? IParticipantDisplayNameResolver.DeletedDisplayName
+                : idText;
         }
 
         if (string.Equals(scheme, "human", StringComparison.OrdinalIgnoreCase))
@@ -136,7 +143,7 @@ internal sealed class ParticipantDisplayNameResolver(
                     idGuid);
             }
 
-            return DeletedDisplayName;
+            return IParticipantDisplayNameResolver.DeletedDisplayName;
         }
 
         if (string.Equals(scheme, "agent", StringComparison.OrdinalIgnoreCase))
@@ -166,7 +173,7 @@ internal sealed class ParticipantDisplayNameResolver(
                     idGuid);
             }
 
-            return DeletedDisplayName;
+            return IParticipantDisplayNameResolver.DeletedDisplayName;
         }
 
         if (string.Equals(scheme, "unit", StringComparison.OrdinalIgnoreCase))
@@ -196,7 +203,7 @@ internal sealed class ParticipantDisplayNameResolver(
                     idGuid);
             }
 
-            return DeletedDisplayName;
+            return IParticipantDisplayNameResolver.DeletedDisplayName;
         }
 
         // Unknown scheme — return the id as-is rather than the deleted
