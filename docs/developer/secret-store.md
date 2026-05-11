@@ -110,24 +110,25 @@ A one-time rewrite is only needed if operators want to reclaim storage eagerly; 
 
 ---
 
-## Anthropic credentials: per-path routing (#1690)
+## Runtime credential identity (#2161)
 
-The `anthropic-api-key` slot accepts two credential shapes. Both are first-class; the platform routes each shape to the dispatch paths it can actually authenticate.
+LLM credentials are keyed by `(provider, authMethod)`, not provider alone. `CredentialNaming.SecretNameFor(provider, authMethod)` is the single source for persisted names:
 
-| Stored value | `IAgentRuntime` (in-container `claude` CLI) | `IAgentRuntime` validation probe (`claude --bare`) | `IAiProvider` (`AnthropicProvider` REST) | BYOI agents calling Anthropic REST directly |
-|---|---|---|---|---|
-| `sk-ant-api-…` (Platform API key) | Routed as `ANTHROPIC_API_KEY` | Routed as `ANTHROPIC_API_KEY` | Accepted | Accepted (when the agent image reads `ANTHROPIC_API_KEY` itself) |
-| `sk-ant-oat-…` (Claude.ai OAuth token) | Routed as `CLAUDE_CODE_OAUTH_TOKEN` | Probe drops `--bare` so the CLI's standard auth path picks it up | Rejected pre-flight by `ClaudeAgentRuntime.IsCredentialFormatAccepted` | Rejected — REST does not honour OAuth tokens |
-| Neither | Rejected pre-flight | Rejected pre-flight | Rejected pre-flight | Rejected pre-flight |
+| Secret name | Runtime/provider edge | Env var |
+|---|---|---|
+| `anthropic-oauth` | `claude-code` → `anthropic` | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `anthropic-api-key` | `spring-voyage` → `anthropic` | `ANTHROPIC_API_KEY` |
+| `openai-api-key` | `codex` → `openai`; `spring-voyage` → `openai` | `OPENAI_API_KEY` |
+| `google-api-key` | `gemini` → `google`; `spring-voyage` → `google` | `GOOGLE_API_KEY` |
+
+The runtime catalogue declares the edge auth method, the CLI and portal write that exact secret name, and `ILlmCredentialResolver.ResolveAsync(provider, authMethod, ...)` reads the same name at dispatch time. This prevents Claude Code OAuth tokens and Anthropic API keys from cross-binding through one shared slot.
 
 **Where the routing lives:**
 
-- **Format check (pre-flight):** `ClaudeAgentRuntime.IsCredentialFormatAccepted(string credential, CredentialDispatchPath dispatchPath)` — implemented in `src/Cvoya.Spring.AgentRuntimes.Claude/ClaudeAgentRuntime.cs`. Returns `false` for OAuth on `Rest`, `false` for neither-shape on every path. Empty values pass-through (the resolver's `NotConfigured` state owns "no credential").
-- **Env-var routing (in-container probes):** `ClaudeAgentRuntime.GetProbeSteps` switches on the OAuth prefix to set either `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` and to drop `--bare` for OAuth (so the CLI's standard auth path picks the token up).
-- **REST guard:** `AnthropicProvider.RejectOAuthToken` in `src/Cvoya.Spring.Dapr/Execution/AnthropicProvider.cs` fails-fast on OAuth tokens at REST-call time — keeps the 401 from looking like an "expired key" in the activity log.
-- **Status endpoint:** `GET /api/v1/platform/credentials/anthropic/status` reports both the scalar resolvability for the path the caller asked about (`?dispatchPath=`) and a `paths` matrix that names each path's verdict (`summary`: `all-paths` / `in-container-cli-only` / `format-rejected`).
-
-**Adding a runtime that accepts a new shape.** Implement `IAgentRuntime.IsCredentialFormatAccepted` to encode the per-path acceptance rules. The status endpoint reads the matrix automatically — adding a new dispatch path to `CredentialDispatchPath` flows through to the response without endpoint changes; adding a new `summary` label requires extending the switch in `SystemEndpoints.BuildPathResolvability`.
+- **Catalog edge:** `platform/runtime-catalog.yaml` names each runtime/provider `authMethod` and `credentialEnvVar`.
+- **Secret naming:** `Cvoya.Spring.Core.Catalog.CredentialNaming` maps the edge to a persisted name such as `anthropic-oauth`.
+- **Resolver:** `LlmCredentialResolver` resolves by `(provider, authMethod)` across agent, unit, parent-unit, and tenant scopes.
+- **Status endpoint:** `GET /api/v1/platform/credentials/{provider}/status?authMethod=...` reports whether the requested edge credential is configured without returning plaintext.
 
 > **Spring Voyage runtime: per-provider Conversation wiring.** The Spring Voyage runtime talks to the LLM through Dapr Conversation components. Per ADR-0038, the OSS deployment ships one component file per provider under `dapr/components/delegated-spring-voyage-agent/llm-{provider}.yaml` (`llm-anthropic`, `llm-openai`, `llm-google`, `llm-ollama`). The `SpringVoyageAgentLauncher` resolves credentials via `ILlmCredentialResolver`, propagates the per-provider env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`) into the daprd sidecar, and pins `SPRING_LLM_COMPONENT=llm-{provider}` so the Python agent dials the right component.
 

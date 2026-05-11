@@ -123,7 +123,7 @@ public interface ILlmCredentialResolver
 /// <param name="Source">Which tier produced the value.</param>
 /// <param name="SecretName">
 /// The canonical secret name the resolver looked for (e.g.
-/// <c>anthropic-api-key</c>). Always populated — even for
+/// <c>anthropic-oauth</c> or <c>anthropic-api-key</c>). Always populated — even for
 /// <see cref="LlmCredentialSource.NotFound"/> — so error messages and
 /// audit records can point operators at the exact name they must create.
 /// </param>

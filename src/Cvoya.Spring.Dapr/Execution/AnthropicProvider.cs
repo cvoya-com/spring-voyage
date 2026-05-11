@@ -336,11 +336,11 @@ public class AnthropicProvider(
             && credential.StartsWith(OAuthTokenPrefix, StringComparison.Ordinal))
         {
             throw new SpringException(
-                "CredentialFormatRejected: the AiProvider credential is a Claude.ai OAuth token (sk-ant-oat…), " +
+                "CredentialFormatRejected: the AiProvider credential is a Claude Code OAuth token, " +
                 "which the Anthropic Platform REST endpoint rejects. " +
                 "OAuth tokens are only usable through the `claude` CLI running inside a unit container — " +
                 "supply an Anthropic Platform API key (sk-ant-api…) for `AiProvider:ApiKey`, " +
-                "or keep the OAuth token as a unit/tenant secret (anthropic-api-key) used by the Claude agent runtime.");
+                "or keep the OAuth token as a unit/tenant secret (anthropic-oauth) used by the Claude agent runtime.");
         }
     }
 }

@@ -8,6 +8,7 @@ using System.CommandLine;
 using Cvoya.Spring.Cli.ErrorHandling;
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
+using Cvoya.Spring.Core.Catalog;
 
 using Microsoft.Kiota.Abstractions;
 
@@ -190,7 +191,7 @@ public static class UnitCommand
         var runtimeOption = new Option<string?>("--runtime")
         {
             Description = "Agent runtime id (e.g. claude-code, codex, gemini, spring-voyage). " +
-                "Drives the credential write target for --api-key / --api-key-from-file via the runtime → provider edge.",
+                "Drives the credential write target for inline credential flags via the runtime → provider edge.",
         };
         var modelProviderOption = new Option<string?>("--model-provider")
         {
@@ -204,9 +205,9 @@ public static class UnitCommand
         };
         hostingOption.AcceptOnlyFromAmong("ephemeral", "persistent");
 
-        // #626: inline credential entry. Pair these flags with --runtime
-        // (and optionally --model-provider for multi-provider runtimes)
-        // to supply the LLM API key at unit-create time. See
+        // #626 / #2161: inline credential entry. Pair these flags with
+        // --runtime (and --model-provider for multi-provider runtimes) to
+        // supply the edge-specific credential at unit-create time. See
         // `UnitCredentialOptions` for the full rejection matrix.
         var apiKeyOption = new Option<string?>("--api-key")
         {
@@ -218,10 +219,20 @@ public static class UnitCommand
             Description =
                 "Path to a file containing the LLM API key. Trailing newlines are stripped. Mutually exclusive with --api-key.",
         };
+        var oauthTokenOption = new Option<string?>("--oauth-token")
+        {
+            Description =
+                "OAuth token for an OAuth-only runtime/provider edge (Claude Code uses CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`). Mutually exclusive with --oauth-token-from-file.",
+        };
+        var oauthTokenFromFileOption = new Option<string?>("--oauth-token-from-file")
+        {
+            Description =
+                "Path to a file containing the OAuth token. Trailing newlines are stripped. Mutually exclusive with --oauth-token.",
+        };
         var saveAsTenantDefaultOption = new Option<bool>("--save-as-tenant-default")
         {
             Description =
-                "Pair with --api-key / --api-key-from-file to write the key as a tenant-default secret instead of a unit-scoped secret.",
+                "Pair with an inline credential flag to write the value as a tenant-default secret instead of a unit-scoped secret.",
         };
 
         // Review feedback on #744: every unit must have a parent. Either
@@ -260,6 +271,10 @@ public static class UnitCommand
             + "immediately after the create is accepted. Progress in the CLI is coarse — a single "
             + "\"Validating...\" indicator until terminal; the web portal renders per-step progress "
             + "via the SSE channel.\n\n"
+            + "Inline credentials are auth-method specific: use --oauth-token / --oauth-token-from-file "
+            + "for claude-code, and --api-key / --api-key-from-file for API-key edges such as codex, "
+            + "gemini, and spring-voyage with anthropic/openai/google. spring-voyage with ollama accepts "
+            + "no credential flags.\n\n"
             + UnitValidationExitCodes.HelpTable);
         command.Arguments.Add(nameArg);
         command.Options.Add(displayNameOption);
@@ -271,6 +286,8 @@ public static class UnitCommand
         command.Options.Add(hostingOption);
         command.Options.Add(apiKeyOption);
         command.Options.Add(apiKeyFromFileOption);
+        command.Options.Add(oauthTokenOption);
+        command.Options.Add(oauthTokenFromFileOption);
         command.Options.Add(saveAsTenantDefaultOption);
         command.Options.Add(parentUnitOption);
         command.Options.Add(topLevelOption);
@@ -284,9 +301,12 @@ public static class UnitCommand
             var model = parseResult.GetValue(modelOption);
             var color = parseResult.GetValue(colorOption);
             var runtimeId = parseResult.GetValue(runtimeOption);
+            var modelProviderId = parseResult.GetValue(modelProviderOption);
             var hosting = parseResult.GetValue(hostingOption);
             var apiKey = parseResult.GetValue(apiKeyOption);
             var apiKeyFromFile = parseResult.GetValue(apiKeyFromFileOption);
+            var oauthToken = parseResult.GetValue(oauthTokenOption);
+            var oauthTokenFromFile = parseResult.GetValue(oauthTokenFromFileOption);
             var saveAsTenantDefault = parseResult.GetValue(saveAsTenantDefaultOption);
             // Post-#1629 parent-unit ids are stable Guids on the wire; the
             // CLI accepts either Guid form OR a display-name, resolving the
@@ -346,10 +366,13 @@ public static class UnitCommand
             var credentialClient = ClientFactory.Create();
             var credentialResolution = await ResolveCredentialOptionsAsync(
                 runtimeId,
+                modelProviderId,
                 apiKey,
                 apiKeyFromFile,
+                oauthToken,
+                oauthTokenFromFile,
                 saveAsTenantDefault,
-                RuntimeSecretNameResolver(credentialClient),
+                ModelProviderInstalledResolver(credentialClient),
                 ct);
             if (credentialResolution.ErrorMessage is not null)
             {
@@ -1787,73 +1810,65 @@ public static class UnitCommand
 
     /// <summary>
     /// ADR-0038: adapter over <see cref="SpringApiClient.GetModelProviderAsync"/>
-    /// that satisfies the
-    /// <c>Func&lt;string, CancellationToken, Task&lt;string?&gt;&gt;</c>
-    /// resolver signature expected by
-    /// <see cref="ResolveCredentialOptionsAsync"/>. Returns the provider's
-    /// <c>CredentialSecretName</c> verbatim — <c>null</c> when the provider
-    /// is not installed on the current tenant, <see cref="string.Empty"/>
-    /// when the provider declares no credential (for example Ollama).
+    /// that satisfies the install-check resolver used by
+    /// <see cref="ResolveCredentialOptionsAsync"/>.
     /// </summary>
-    /// <remarks>
-    /// PR-2 will rewire the unit / agent CLI commands to ask for a
-    /// provider id directly; in Chunk A this resolver is invoked with the
-    /// runtime id which the host translates to a provider id internally.
-    /// </remarks>
-    private static Func<string, CancellationToken, Task<string?>> RuntimeSecretNameResolver(
+    private static Func<string, CancellationToken, Task<bool>> ModelProviderInstalledResolver(
         SpringApiClient client)
         => async (providerId, ct) =>
         {
             var provider = await client.GetModelProviderAsync(providerId, ct);
-            return provider?.CredentialSecretName;
+            return provider is not null;
         };
 
     /// <summary>
-    /// #626 / #742: resolve the inline-credential flags into a validated
-    /// payload. Handles mutual exclusion between <c>--api-key</c> and
-    /// <c>--api-key-from-file</c>, rejects keys on tool/provider
-    /// combinations that have no credential contract, fetches the
-    /// canonical secret name from the runtime registry via
-    /// <paramref name="runtimeSecretNameResolver"/>, and loads the file
-    /// contents when the <c>--api-key-from-file</c> path is used.
+    /// #626 / #742 / #2161: resolve the inline-credential flags into a
+    /// validated payload. Handles mutual exclusion inside and across the
+    /// API-key and OAuth-token flag families, rejects credentials on
+    /// runtime/provider combinations that have no credential contract,
+    /// derives the canonical secret name from the ADR-0038 edge, and loads
+    /// file contents when a <c>*-from-file</c> path is used.
     /// </summary>
-    /// <param name="runtimeSecretNameResolver">
-    /// Asks the platform for a given runtime id's <c>credentialSecretName</c>
-    /// (the string the resolver returns flows straight into the tenant /
-    /// unit secret write). <c>null</c> means "runtime not installed";
-    /// <see cref="string.Empty"/> means "runtime declares no credential"
-    /// (for example Ollama). The indirection keeps this method testable
-    /// without an API round-trip.
+    /// <param name="modelProviderInstalledResolver">
+    /// Asks the platform whether a provider id is installed on the current
+    /// tenant. The indirection keeps this method testable without an API
+    /// round-trip.
     /// </param>
     /// <remarks>
-    /// The secret-name mapping is sourced from the runtime catalogue
-    /// (ADR-0038) — the resolver passes the runtime id (or, in
-    /// multi-provider runtimes, the provider id) to the platform's
-    /// <c>GET /api/v1/tenant/model-providers/installs/{id}</c> which
-    /// returns the canonical <c>credentialSecretName</c>. CLI, portal,
-    /// and resolver stay in lock-step off the single authority.
+    /// The secret-name mapping mirrors
+    /// <see cref="CredentialNaming.SecretNameFor"/> so the CLI writes the
+    /// same <c>(provider, authMethod)</c> secret that launchers resolve at
+    /// dispatch time.
     /// </remarks>
     public static async Task<UnitCredentialOptions> ResolveCredentialOptionsAsync(
         string? runtimeId,
+        string? modelProviderId,
         string? apiKey,
         string? apiKeyFromFile,
+        string? oauthToken,
+        string? oauthTokenFromFile,
         bool saveAsTenantDefault,
-        Func<string, CancellationToken, Task<string?>> credentialSecretNameResolver,
+        Func<string, CancellationToken, Task<bool>> modelProviderInstalledResolver,
         CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(credentialSecretNameResolver);
+        ArgumentNullException.ThrowIfNull(modelProviderInstalledResolver);
 
         var hasKeyFlag = !string.IsNullOrEmpty(apiKey);
         var hasKeyFileFlag = !string.IsNullOrEmpty(apiKeyFromFile);
+        var hasOAuthTokenFlag = !string.IsNullOrEmpty(oauthToken);
+        var hasOAuthTokenFileFlag = !string.IsNullOrEmpty(oauthTokenFromFile);
+        var hasApiKeyFamily = hasKeyFlag || hasKeyFileFlag;
+        var hasOAuthFamily = hasOAuthTokenFlag || hasOAuthTokenFileFlag;
+        var hasAnyCredentialFlag = hasApiKeyFamily || hasOAuthFamily;
 
-        // --save-as-tenant-default is only meaningful with a key.
-        if (saveAsTenantDefault && !hasKeyFlag && !hasKeyFileFlag)
+        // --save-as-tenant-default is only meaningful with a credential.
+        if (saveAsTenantDefault && !hasAnyCredentialFlag)
         {
             return UnitCredentialOptions.Rejected(
-                "--save-as-tenant-default requires --api-key or --api-key-from-file.");
+                "--save-as-tenant-default requires --api-key, --api-key-from-file, --oauth-token, or --oauth-token-from-file.");
         }
 
-        if (!hasKeyFlag && !hasKeyFileFlag)
+        if (!hasAnyCredentialFlag)
         {
             return UnitCredentialOptions.None();
         }
@@ -1862,6 +1877,16 @@ public static class UnitCommand
         {
             return UnitCredentialOptions.Rejected(
                 "--api-key and --api-key-from-file are mutually exclusive. Pass exactly one.");
+        }
+        if (hasOAuthTokenFlag && hasOAuthTokenFileFlag)
+        {
+            return UnitCredentialOptions.Rejected(
+                "--oauth-token and --oauth-token-from-file are mutually exclusive. Pass exactly one.");
+        }
+        if (hasApiKeyFamily && hasOAuthFamily)
+        {
+            return UnitCredentialOptions.Rejected(
+                "API-key and OAuth-token flags are mutually exclusive. Pass exactly one credential value.");
         }
 
         // ADR-0038: --runtime names the credential routing key. The
@@ -1873,78 +1898,175 @@ public static class UnitCommand
         if (resolvedRuntimeId is null)
         {
             return UnitCredentialOptions.Rejected(
-                "--api-key / --api-key-from-file requires --runtime to name the runtime that owns the credential.");
+                "Inline credential flags require --runtime to name the runtime that owns the credential.");
         }
 
-        // Ollama's runtime id is known but its credential secret name
-        // is empty — "no credential to write", so the inline-key flags
-        // have nowhere to land.
-        var secretName = await credentialSecretNameResolver(resolvedRuntimeId, ct);
-        if (secretName is null)
+        var edgeResolution = ResolveRuntimeCredentialEdge(resolvedRuntimeId, modelProviderId);
+        if (edgeResolution.ErrorMessage is not null)
         {
-            return UnitCredentialOptions.Rejected(
-                $"Provider for runtime '{resolvedRuntimeId}' is not installed on the current tenant. " +
-                "Install it (`spring model-provider install " + resolvedRuntimeId + "`) before supplying an API key.");
+            return UnitCredentialOptions.Rejected(edgeResolution.ErrorMessage);
         }
-        if (secretName.Length == 0)
+        var edge = edgeResolution.Edge!;
+
+        if (edge.AuthMethod is null)
         {
             return UnitCredentialOptions.Rejected(
-                $"Runtime '{resolvedRuntimeId}' declares no credential (runs without an API key). " +
-                "Drop --api-key / --api-key-from-file for this runtime.");
+                $"Runtime '{edge.RuntimeId}' with provider '{edge.ProviderId}' declares no credential. " +
+                "Drop --api-key, --api-key-from-file, --oauth-token, and --oauth-token-from-file for this edge.");
+        }
+
+        if (edge.AuthMethod == AuthMethod.Oauth && hasApiKeyFamily)
+        {
+            return UnitCredentialOptions.Rejected(
+                $"Runtime '{edge.RuntimeId}' with provider '{edge.ProviderId}' requires an OAuth token injected as {edge.CredentialEnvVar}. " +
+                "Use --oauth-token or --oauth-token-from-file. Generate the token with `claude setup-token`.");
+        }
+        if (edge.AuthMethod == AuthMethod.ApiKey && hasOAuthFamily)
+        {
+            return UnitCredentialOptions.Rejected(
+                $"Runtime '{edge.RuntimeId}' with provider '{edge.ProviderId}' requires an API key injected as {edge.CredentialEnvVar}. " +
+                "Use --api-key or --api-key-from-file.");
+        }
+
+        var providerInstalled = await modelProviderInstalledResolver(edge.ProviderId, ct);
+        if (!providerInstalled)
+        {
+            return UnitCredentialOptions.Rejected(
+                $"Model provider '{edge.ProviderId}' for runtime '{edge.RuntimeId}' is not installed on the current tenant. " +
+                $"Install it (`spring model-provider install {edge.ProviderId}`) before supplying an inline credential.");
         }
 
         string? resolvedKey;
-        if (hasKeyFlag)
+        var valueDescription = edge.AuthMethod == AuthMethod.Oauth ? "OAuth token" : "API key";
+        var inlineValue = edge.AuthMethod == AuthMethod.Oauth ? oauthToken : apiKey;
+        var fileValue = edge.AuthMethod == AuthMethod.Oauth ? oauthTokenFromFile : apiKeyFromFile;
+        var inlineFlag = edge.AuthMethod == AuthMethod.Oauth ? "--oauth-token" : "--api-key";
+        var fileFlag = edge.AuthMethod == AuthMethod.Oauth ? "--oauth-token-from-file" : "--api-key-from-file";
+
+        if (!string.IsNullOrEmpty(inlineValue))
         {
-            resolvedKey = apiKey;
+            resolvedKey = inlineValue;
         }
         else
         {
             try
             {
-                resolvedKey = await File.ReadAllTextAsync(apiKeyFromFile!, ct);
+                resolvedKey = await File.ReadAllTextAsync(fileValue!, ct);
                 resolvedKey = resolvedKey.TrimEnd('\r', '\n');
             }
             catch (Exception ex)
             {
                 return UnitCredentialOptions.Rejected(
-                    $"Failed to read --api-key-from-file '{apiKeyFromFile}': {ex.Message}");
+                    $"Failed to read {fileFlag} '{fileValue}': {ex.Message}");
             }
         }
 
         if (string.IsNullOrEmpty(resolvedKey))
         {
             return UnitCredentialOptions.Rejected(
-                "Supplied API key is empty. Pass a non-empty value via --api-key or a file that contains one.");
+                $"Supplied {valueDescription} is empty. Pass a non-empty value via {inlineFlag} or a file that contains one.");
         }
 
+        var secretName = CredentialNaming.SecretNameFor(edge.ProviderId, edge.AuthMethod.Value);
         return new UnitCredentialOptions(
             Key: resolvedKey,
             SecretName: secretName,
             SaveAsTenantDefault: saveAsTenantDefault,
-            ErrorMessage: null);
+            ErrorMessage: null,
+            AuthMethod: edge.AuthMethod,
+            CredentialEnvVar: edge.CredentialEnvVar);
     }
+
+    private static RuntimeCredentialEdgeResolution ResolveRuntimeCredentialEdge(
+        string runtimeId,
+        string? modelProviderId)
+    {
+        var normalizedRuntime = runtimeId.Trim().ToLowerInvariant();
+        var normalizedProvider = string.IsNullOrWhiteSpace(modelProviderId)
+            ? null
+            : modelProviderId.Trim().ToLowerInvariant();
+
+        if (!RuntimeCredentialEdges.TryGetValue(normalizedRuntime, out var edges))
+        {
+            return RuntimeCredentialEdgeResolution.Rejected(
+                $"Runtime '{runtimeId}' is not recognised. Expected claude-code, codex, gemini, or spring-voyage.");
+        }
+
+        if (edges.Count == 1)
+        {
+            var edge = edges[0];
+            if (normalizedProvider is not null && normalizedProvider != edge.ProviderId)
+            {
+                return RuntimeCredentialEdgeResolution.Rejected(
+                    $"Runtime '{edge.RuntimeId}' is fixed to provider '{edge.ProviderId}'. " +
+                    $"Do not pass --model-provider {normalizedProvider} for this runtime.");
+            }
+            return RuntimeCredentialEdgeResolution.Resolved(edge);
+        }
+
+        if (normalizedProvider is null)
+        {
+            return RuntimeCredentialEdgeResolution.Rejected(
+                $"Runtime '{normalizedRuntime}' supports multiple providers. " +
+                "Pass --model-provider to choose the credential edge.");
+        }
+
+        var match = edges.FirstOrDefault(e => e.ProviderId == normalizedProvider);
+        if (match is null)
+        {
+            var allowed = string.Join(", ", edges.Select(e => e.ProviderId));
+            return RuntimeCredentialEdgeResolution.Rejected(
+                $"Runtime '{normalizedRuntime}' does not support provider '{normalizedProvider}'. " +
+                $"Expected one of: {allowed}.");
+        }
+
+        return RuntimeCredentialEdgeResolution.Resolved(match);
+    }
+
+    private static readonly IReadOnlyDictionary<string, IReadOnlyList<RuntimeCredentialEdge>> RuntimeCredentialEdges =
+        new Dictionary<string, IReadOnlyList<RuntimeCredentialEdge>>(StringComparer.Ordinal)
+        {
+            ["claude-code"] =
+            [
+                new("claude-code", "anthropic", AuthMethod.Oauth, "CLAUDE_CODE_OAUTH_TOKEN"),
+            ],
+            ["codex"] =
+            [
+                new("codex", "openai", AuthMethod.ApiKey, "OPENAI_API_KEY"),
+            ],
+            ["gemini"] =
+            [
+                new("gemini", "google", AuthMethod.ApiKey, "GOOGLE_API_KEY"),
+            ],
+            ["spring-voyage"] =
+            [
+                new("spring-voyage", "anthropic", AuthMethod.ApiKey, "ANTHROPIC_API_KEY"),
+                new("spring-voyage", "openai", AuthMethod.ApiKey, "OPENAI_API_KEY"),
+                new("spring-voyage", "google", AuthMethod.ApiKey, "GOOGLE_API_KEY"),
+                new("spring-voyage", "ollama", null, null),
+            ],
+        };
 }
 
 /// <summary>
-/// #626: validated result of the <c>--api-key</c> /
-/// <c>--api-key-from-file</c> / <c>--save-as-tenant-default</c> flag
-/// triple. Produced by <see cref="UnitCommand.ResolveCredentialOptionsAsync"/>
-/// and threaded through the unit-create executors so the tenant /
-/// unit secret writes happen with the right scope at the right time.
+/// #626 / #2161: validated result of the inline credential flags.
+/// Produced by <see cref="UnitCommand.ResolveCredentialOptionsAsync"/> and
+/// threaded through the unit-create executors so the tenant / unit secret
+/// writes happen with the right scope at the right time.
 /// </summary>
 /// <param name="Key">
-/// The resolved key value (from <c>--api-key</c> or the file named by
-/// <c>--api-key-from-file</c>). Empty when no key was supplied — the
+/// The resolved credential value (from an inline flag or a
+/// <c>*-from-file</c> flag). Empty when no credential was supplied — the
 /// executors check <see cref="SecretName"/> for null to detect that.
 /// </param>
 /// <param name="SecretName">
-/// The canonical secret name (<c>anthropic-api-key</c>,
-/// <c>openai-api-key</c>, or <c>google-api-key</c>) derived from the
-/// tool/provider. Null when no key was supplied.
+/// The canonical secret name (<c>anthropic-oauth</c>,
+/// <c>anthropic-api-key</c>, <c>openai-api-key</c>, or
+/// <c>google-api-key</c>) derived from the runtime/provider edge. Null
+/// when no credential was supplied.
 /// </param>
 /// <param name="SaveAsTenantDefault">
-/// Whether the key should be written as a tenant-scoped secret
+/// Whether the credential should be written as a tenant-scoped secret
 /// (<c>true</c>) or a unit-scoped override (<c>false</c>). Meaningful
 /// only when <see cref="SecretName"/> is non-null.
 /// </param>
@@ -1956,13 +2078,44 @@ public sealed record UnitCredentialOptions(
     string Key,
     string? SecretName,
     bool SaveAsTenantDefault,
-    string? ErrorMessage)
+    string? ErrorMessage,
+    AuthMethod? AuthMethod = null,
+    string? CredentialEnvVar = null)
 {
     /// <summary>No credential flags supplied — no secret write planned.</summary>
     public static UnitCredentialOptions None() =>
-        new(string.Empty, SecretName: null, SaveAsTenantDefault: false, ErrorMessage: null);
+        new(
+            string.Empty,
+            SecretName: null,
+            SaveAsTenantDefault: false,
+            ErrorMessage: null,
+            AuthMethod: null,
+            CredentialEnvVar: null);
 
     /// <summary>Flag combination rejected; the caller must surface the message and exit.</summary>
     public static UnitCredentialOptions Rejected(string message) =>
-        new(string.Empty, SecretName: null, SaveAsTenantDefault: false, ErrorMessage: message);
+        new(
+            string.Empty,
+            SecretName: null,
+            SaveAsTenantDefault: false,
+            ErrorMessage: message,
+            AuthMethod: null,
+            CredentialEnvVar: null);
+}
+
+internal sealed record RuntimeCredentialEdge(
+    string RuntimeId,
+    string ProviderId,
+    AuthMethod? AuthMethod,
+    string? CredentialEnvVar);
+
+internal sealed record RuntimeCredentialEdgeResolution(
+    RuntimeCredentialEdge? Edge,
+    string? ErrorMessage)
+{
+    public static RuntimeCredentialEdgeResolution Resolved(RuntimeCredentialEdge edge) =>
+        new(edge, ErrorMessage: null);
+
+    public static RuntimeCredentialEdgeResolution Rejected(string message) =>
+        new(Edge: null, ErrorMessage: message);
 }

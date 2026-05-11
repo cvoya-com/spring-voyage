@@ -8,9 +8,9 @@
 //
 // Shape note vs. tenant-defaults-panel.tsx:
 //  - Tenant defaults render a fixed-list of "known" credentials
-//    (anthropic-api-key, openai-api-key, google-api-key) since every
-//    unit inherits from there and the at-a-glance set/unset matrix is
-//    the primary use-case.
+//    (anthropic-oauth, anthropic-api-key, openai-api-key, google-api-key)
+//    since every unit inherits from there and the at-a-glance set/unset
+//    matrix is the primary use-case.
 //  - Agent overrides are per-agent and arbitrary-named — operators set
 //    whatever name the agent's runtime expects, and the panel never
 //    needs to know the catalog. The form mirrors the unit Secrets tab's

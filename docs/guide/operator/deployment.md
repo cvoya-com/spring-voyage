@@ -243,9 +243,9 @@ The GitHub variables follow the .NET `Section__Key` convention and bind to the `
 
 > **GitHub App private key — PEM contents, not a path.** `GitHub__PrivateKeyPem` is the **contents** of the `.pem` file: either inlined verbatim, inlined as a single line with `\n` separators, or an absolute container-visible path whose file contents are valid PEM. `~` is **not** expanded by `--env-file`, so a value like `~/secrets/key.pem` reaches the container as the literal string `~/secrets/key.pem` — mount the file at a known absolute path if you want to reference it by path. Passing a path that does not resolve to a valid PEM fails the host at startup with a targeted error rather than waiting to return a 502 from the first `list-installations` call. See [Architecture — Connectors § disabled-with-reason](../../architecture/connectors.md#disabled-with-reason-pattern) for the validation model. If either variable is missing, the GitHub connector boots in a disabled state and `GET /api/v1/connectors/github/actions/list-installations` returns a structured `404` the portal and CLI render as "GitHub App not configured" instead of attempting the JWT sign.
 
-### Tier-2 tenant-default credentials — LLM provider keys (post-deploy)
+### Tier-2 tenant-default credentials — LLM runtime credentials (post-deploy)
 
-**LLM API keys do NOT belong in `spring.env`.** They are tier-2
+**LLM runtime credentials do NOT belong in `spring.env`.** They are tier-2
 tenant-default credentials (issue #615) stored in the secret registry so
 they can be rotated without a restart, scoped per-unit, and audited.
 There is no env-variable fallback — if no tenant or unit secret is
@@ -256,6 +256,7 @@ Set them after `docker compose up -d`:
 
 ```bash
 # CLI
+spring secret create --scope tenant anthropic-oauth   --value "<token from claude setup-token>"
 spring secret create --scope tenant anthropic-api-key --value "sk-ant-..."
 spring secret create --scope tenant openai-api-key    --value "sk-..."
 spring secret create --scope tenant google-api-key    --value "AIza..."
@@ -264,7 +265,7 @@ spring secret create --scope tenant google-api-key    --value "AIza..."
 ```
 
 Units inherit these automatically; override per-unit with a same-name
-secret at unit scope. The platform does not read LLM provider API keys
+secret at unit scope. The platform does not read LLM runtime credentials
 from environment variables — credentials must be set at tenant or unit
 scope, or the feature fails cleanly. See [Managing Secrets](secrets.md)
 for the full two-tier resolution chain.

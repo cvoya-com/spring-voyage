@@ -209,8 +209,6 @@ public class LlmCredentialResolverTests
     {
         // ADR-0038: the resolver computes the canonical secret name as
         // `{provider}-api-key` for every (provider, ApiKey) edge.
-        // PR-1b switches to `{provider}-{authMethod-slug}` once wire DTOs
-        // expose the per-edge form.
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
@@ -228,6 +226,28 @@ public class LlmCredentialResolverTests
         result.Value.ShouldBe("value");
         result.Source.ShouldBe(LlmCredentialSource.Tenant);
         result.SecretName.ShouldBe(expectedSecretName);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OAuthMethod_UsesOAuthSecretName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var resolver = Substitute.For<ISecretResolver>();
+        resolver.ResolveWithPathAsync(
+                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant && r.Name == "anthropic-oauth"),
+                ct)
+            .Returns(new SecretResolution(
+                "oauth-token",
+                SecretResolvePath.Direct,
+                new SecretRef(SecretScope.Tenant, TenantId, "anthropic-oauth")));
+
+        var sut = CreateSut(resolver);
+
+        var result = await sut.ResolveAsync("anthropic", AuthMethod.Oauth, agentId: null, unitId: null, ct);
+
+        result.Value.ShouldBe("oauth-token");
+        result.Source.ShouldBe(LlmCredentialSource.Tenant);
+        result.SecretName.ShouldBe("anthropic-oauth");
     }
 
     [Fact]

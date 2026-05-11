@@ -31,7 +31,10 @@ const getModelProviderModels =
   >();
 const getProviderCredentialStatus =
   vi.fn<
-    (provider: string) => Promise<ProviderCredentialStatusResponse>
+    (
+      provider: string,
+      authMethod?: string,
+    ) => Promise<ProviderCredentialStatusResponse>
   >();
 
 vi.mock("@/lib/api/client", () => ({
@@ -43,8 +46,11 @@ vi.mock("@/lib/api/client", () => ({
     getUnitExecution: (id: string) => getUnitExecution(id),
     getModelProviderModels: (id: string) => getModelProviderModels(id),
     listModelProviders: () => Promise.resolve([]),
-    getProviderCredentialStatus: (provider: string) =>
-      getProviderCredentialStatus(provider),
+    getProviderCredentialStatus: (
+      provider: string,
+      _agentImage?: string,
+      authMethod?: string,
+    ) => getProviderCredentialStatus(provider, authMethod),
   },
 }));
 
@@ -210,6 +216,68 @@ describe("AgentExecutionPanel", () => {
       screen.queryByTestId("agent-execution-provider-select"),
     ).not.toBeInTheDocument();
   });
+
+  it("uses OAuth credential status for claude-code + anthropic", async () => {
+    getAgentExecution.mockResolvedValue({ runtime: "claude-code" });
+    getUnitExecution.mockResolvedValue({});
+    getProviderCredentialStatus.mockResolvedValue({
+      provider: "anthropic",
+      resolvable: false,
+      source: null,
+      suggestion: null,
+    });
+
+    render(
+      <Wrapper>
+        <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const status = await screen.findByTestId("agent-execution-credential-status");
+    expect(status).toHaveTextContent("Claude Code OAuth token");
+    await waitFor(() => {
+      expect(getProviderCredentialStatus).toHaveBeenCalledWith(
+        "anthropic",
+        "oauth",
+      );
+    });
+  });
+
+  it.each([
+    ["codex", "openai", "OpenAI API key"],
+    ["gemini", "google", "Google API key"],
+    ["spring-voyage", "anthropic", "Anthropic API key"],
+  ])(
+    "uses API-key credential status for %s + %s",
+    async (runtime, provider, label) => {
+      getAgentExecution.mockResolvedValue({
+        runtime,
+        model: { provider, id: "model-id" },
+      });
+      getUnitExecution.mockResolvedValue({});
+      getProviderCredentialStatus.mockResolvedValue({
+        provider,
+        resolvable: false,
+        source: null,
+        suggestion: null,
+      });
+
+      render(
+        <Wrapper>
+          <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+        </Wrapper>,
+      );
+
+      const status = await screen.findByTestId("agent-execution-credential-status");
+      expect(status).toHaveTextContent(label);
+      await waitFor(() => {
+        expect(getProviderCredentialStatus).toHaveBeenCalledWith(
+          provider,
+          "api-key",
+        );
+      });
+    },
+  );
 
   it("shows both Model Provider and Model when tool=spring-voyage", async () => {
     getAgentExecution.mockResolvedValue({ runtime: "spring-voyage" });

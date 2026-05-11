@@ -9,6 +9,7 @@ import type {
   InstalledModelProviderResponse,
   PackageDetail,
   PackageSummary,
+  ProviderCredentialStatusResponse,
   UnitExecutionResponse,
   UnitResponse,
 } from "@/lib/api/types";
@@ -22,6 +23,13 @@ const listUnits = vi.fn();
 const listModelProviders = vi.fn();
 const getModelProviderModels = vi.fn();
 const getUnitExecution = vi.fn();
+const getProviderCredentialStatus =
+  vi.fn<
+    (
+      provider: string,
+      authMethod?: string,
+    ) => Promise<ProviderCredentialStatusResponse>
+  >();
 const createAgent = vi.fn();
 const installPackages = vi.fn();
 const listPackages = vi.fn();
@@ -43,6 +51,11 @@ vi.mock("@/lib/api/client", async () => {
       listUnits: () => listUnits(),
       listModelProviders: () => listModelProviders(),
       getModelProviderModels: (id: string) => getModelProviderModels(id),
+      getProviderCredentialStatus: (
+        provider: string,
+        _agentImage?: string,
+        authMethod?: string,
+      ) => getProviderCredentialStatus(provider, authMethod),
       getUnitExecution: (id: string) => getUnitExecution(id),
       createAgent: (body: unknown) => createAgent(body),
       installPackages: (targets: unknown) => installPackages(targets),
@@ -218,6 +231,12 @@ beforeEach(() => {
     runtime: null,
     model: null,
   } as UnitExecutionResponse);
+  getProviderCredentialStatus.mockResolvedValue({
+    provider: "anthropic",
+    resolvable: true,
+    source: "tenant",
+    suggestion: null,
+  });
   createAgent.mockResolvedValue(makeAgent());
   installPackages.mockResolvedValue(makeInstallStatus());
   listPackages.mockResolvedValue([]);
@@ -647,6 +666,84 @@ describe("AgentCreateForm — direct create submit (K6)", () => {
       }),
     });
   });
+
+  it("shows Claude Code OAuth token status for the inherited default runtime", async () => {
+    getProviderCredentialStatus.mockResolvedValue({
+      provider: "anthropic",
+      resolvable: false,
+      source: null,
+      suggestion: null,
+    });
+
+    renderForm();
+
+    const status = await screen.findByTestId("agent-create-credential-status");
+    expect(status).toHaveTextContent("Claude Code OAuth token");
+    expect(status).toHaveTextContent("not configured");
+    await waitFor(() => {
+      expect(getProviderCredentialStatus).toHaveBeenCalledWith(
+        "anthropic",
+        "oauth",
+      );
+    });
+  });
+
+  it.each([
+    ["codex", "openai", "OpenAI API key"],
+    ["gemini", "google", "Google API key"],
+    ["spring-voyage", "anthropic", "Anthropic API key"],
+  ])(
+    "uses API-key credential status for %s + %s",
+    async (runtime, provider, label) => {
+      listModelProviders.mockResolvedValue([
+        makeProvider({
+          id: "anthropic",
+          displayName: "Anthropic",
+        }),
+        makeProvider({
+          id: "openai",
+          displayName: "OpenAI",
+          models: ["gpt-4o"],
+          defaultModel: "gpt-4o",
+          credentialSecretName: "openai-api-key",
+        }),
+        makeProvider({
+          id: "google",
+          displayName: "Google",
+          models: ["gemini-2.5-pro"],
+          defaultModel: "gemini-2.5-pro",
+          credentialSecretName: "google-api-key",
+        }),
+      ]);
+      getProviderCredentialStatus.mockResolvedValue({
+        provider,
+        resolvable: false,
+        source: null,
+        suggestion: null,
+      });
+
+      renderForm();
+      fireEvent.change(await screen.findByLabelText(/agent runtime/i), {
+        target: { value: runtime },
+      });
+      if (runtime === "spring-voyage") {
+        fireEvent.change(await screen.findByLabelText(/model provider/i), {
+          target: { value: provider },
+        });
+      }
+
+      await waitFor(() => {
+        expect(screen.getByTestId("agent-create-credential-status"))
+          .toHaveTextContent(label);
+      });
+      await waitFor(() => {
+        expect(getProviderCredentialStatus).toHaveBeenCalledWith(
+          provider,
+          "api-key",
+        );
+      });
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

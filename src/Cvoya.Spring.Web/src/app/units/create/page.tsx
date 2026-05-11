@@ -82,6 +82,10 @@ import {
   type HostingMode,
   type RuntimeId,
 } from "@/lib/ai-models";
+import {
+  runtimeCredentialDescriptor,
+  type RuntimeCredentialDescriptor,
+} from "@/lib/runtime-credentials";
 import { cn } from "@/lib/utils";
 import {
   WIZARD_STATE_SCHEMA_VERSION,
@@ -198,29 +202,6 @@ function stepLabel(source: Source | null, step: Step): string {
   }
 }
 
-// "Where do I get an API key?" deep links live on the wizard because
-// the model-provider descriptor's `credentialDisplayHint` is a
-// free-text hint — these URLs are the stable landing pages we know
-// operators should go to for each backend. The hint renders alongside
-// them. Keyed by the canonical provider id ("anthropic" / "openai" /
-// "google"); Ollama doesn't surface a "get an API key" path.
-const PROVIDER_KEY_HELP: Readonly<
-  Record<"anthropic" | "openai" | "google", { href: string; label: string }>
-> = {
-  anthropic: {
-    href: "https://console.anthropic.com/settings/keys",
-    label: "Get an Anthropic Console API key",
-  },
-  openai: {
-    href: "https://platform.openai.com/api-keys",
-    label: "Get an OpenAI API key",
-  },
-  google: {
-    href: "https://aistudio.google.com/app/apikey",
-    label: "Get a Google AI API key",
-  },
-};
-
 // PendingSecret was used by the old Secrets step (removed in ADR-0035).
 // Kept as a type for any future re-introduction but not used currently.
 
@@ -289,26 +270,25 @@ interface FormState {
 }
 
 /**
- * Resolve the installed model-provider entry the wizard needs a
- * credential for, given the structured (runtime, modelProviderId)
- * pair. Returns `null` when:
+ * Resolve the runtime/provider credential edge the wizard needs,
+ * given the structured (runtime, modelProviderId) pair. Returns `null`
+ * when:
  *   - no runtime is selected (custom),
  *   - the selected provider isn't installed on the tenant, or
- *   - the provider declares `CredentialKind === "None"` (e.g. Ollama).
+ *   - the runtime/provider edge declares no credential (e.g. Ollama).
  */
-function deriveRequiredCredentialProvider(
+function deriveRequiredCredentialDescriptor(
   runtime: RuntimeId,
   modelProviderId: string,
   providers: InstalledModelProviderResponse[] | null,
-): InstalledModelProviderResponse | null {
+): RuntimeCredentialDescriptor | null {
   if (!providers || providers.length === 0) return null;
   if (runtime === "custom") return null;
   const id = modelProviderId.trim().toLowerCase();
   if (!id) return null;
   const entry = providers.find((p) => p.id.toLowerCase() === id) ?? null;
   if (!entry) return null;
-  if (entry.credentialKind === "None") return null;
-  return entry;
+  return runtimeCredentialDescriptor(runtime, id);
 }
 
 /**
@@ -881,35 +861,25 @@ export default function CreateUnitPage() {
     );
   }
 
-  // ADR-0038: derive the installed model-provider entry the wizard
-  // needs a credential for. Returns `null` when no credential is
-  // required (custom runtime, uninstalled provider, or
-  // `credentialKind === "None"` — Ollama).
-  const requiredCredentialProviderEntry = useMemo(
+  // ADR-0038: derive the concrete runtime/provider credential edge the
+  // wizard needs. Returns `null` when no credential is required (custom
+  // runtime, uninstalled provider, or the spring-voyage/ollama edge).
+  const requiredCredential = useMemo(
     () =>
-      deriveRequiredCredentialProvider(
+      deriveRequiredCredentialDescriptor(
         form.runtime,
         form.modelProviderId,
         installedProviders.length > 0 ? installedProviders : null,
       ),
     [form.runtime, form.modelProviderId, installedProviders],
   );
-  // The credential UI only knows about the closed set of key-bearing
-  // providers. Ollama (credentialKind === "None") is filtered upstream
-  // by `deriveRequiredCredentialProvider`; anything else outside this
-  // set carries no key entry and we surface no credential prompt.
-  const requiredCredentialProvider: KeyedProviderId | null = (() => {
-    const id = requiredCredentialProviderEntry?.id;
-    if (id === "anthropic" || id === "openai" || id === "google") return id;
-    return null;
-  })();
 
   // Status probe runs whenever a provider needs a key. For the
   // ollama case it still runs so the existing reachability banner
   // stays visible; when the derivation returns null (custom runtime)
   // the query is disabled entirely.
   const credentialProbeProvider =
-    requiredCredentialProvider ??
+    requiredCredential?.providerId ??
     // Multi-provider runtime + ollama still gets the reachability probe.
     (form.modelProviderId === "ollama" ? "ollama" : null);
   const credentialStatusQuery = useProviderCredentialStatus(
@@ -927,6 +897,7 @@ export default function CreateUnitPage() {
         form.image.trim().length > 0
           ? form.image.trim()
           : undefined,
+      authMethod: requiredCredential?.authMethod,
     },
   );
   const credentialStatus = credentialStatusQuery.data ?? null;
@@ -1250,8 +1221,39 @@ export default function CreateUnitPage() {
       // Scratch branch: create the unit, then write image/runtime via
       // the dedicated execution endpoint (CreateUnitRequest does not
       // accept those two fields).
+      const credentialValue = form.credentialKey.trim();
+      const credentialPlan =
+        requiredCredential !== null && credentialValue.length > 0
+          ? {
+              descriptor: requiredCredential,
+              value: credentialValue,
+              saveAsTenantDefault: form.saveAsTenantDefault,
+            }
+          : null;
+
+      if (credentialPlan?.saveAsTenantDefault) {
+        const body = {
+          name: credentialPlan.descriptor.secretName,
+          value: credentialPlan.value,
+          externalStoreKey: null,
+        };
+        if (credentialStatus?.source === "tenant") {
+          await api.rotateTenantSecret(credentialPlan.descriptor.secretName, body);
+        } else {
+          await api.createTenantSecret(body);
+        }
+      }
+
       const req = buildScratchCreateRequest();
       const created = await api.createUnit(req.wire);
+      if (credentialPlan && !credentialPlan.saveAsTenantDefault) {
+        await api.createUnitSecret(created.name, {
+          name: credentialPlan.descriptor.secretName,
+          value: credentialPlan.value,
+          externalStoreKey: null,
+          propagate: null,
+        });
+      }
       const image = form.image.trim();
       if (image) {
         try {
@@ -1549,7 +1551,7 @@ export default function CreateUnitPage() {
   // default exists we let the operator proceed without supplying a
   // key, because the unit resolves from tenant at dispatch time.
   const missingCredential = useMemo(() => {
-    if (requiredCredentialProvider === null) return false;
+    if (requiredCredential === null) return false;
     if (form.credentialKey.trim().length > 0) return false;
     // Still loading the probe — don't block; the probe is best-effort
     // and we don't want a flaky network to jam the wizard.
@@ -1560,7 +1562,7 @@ export default function CreateUnitPage() {
     if (credentialStatus?.resolvable === true) return false;
     return true;
   }, [
-    requiredCredentialProvider,
+    requiredCredential,
     form.credentialKey,
     credentialStatus?.resolvable,
     credentialStatusQuery.isPending,
@@ -1568,8 +1570,8 @@ export default function CreateUnitPage() {
   ]);
 
   const missingCredentialMessage =
-    requiredCredentialProvider !== null
-      ? `Set the ${providerLabel(requiredCredentialProvider)} API key to continue.`
+    requiredCredential !== null
+      ? `Set the ${requiredCredential.label} to continue.`
       : null;
 
   // handleCreate is no longer used — install is triggered by the
@@ -2423,9 +2425,9 @@ export default function CreateUnitPage() {
                 </select>
               </label>
             )}
-            {requiredCredentialProvider !== null && (
+            {requiredCredential !== null && (
               <CredentialSection
-                requiredProvider={requiredCredentialProvider}
+                credential={requiredCredential}
                 status={credentialStatus}
                 statusPending={credentialStatusQuery.isPending}
                 statusError={credentialStatusQuery.isError}
@@ -3391,16 +3393,16 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 /**
  * #626: inline credential flow. Replaces the PR #627 "status badge +
  * deep link" card with a richer surface that lets the operator supply
- * an LLM API key from inside the wizard — either as a unit-scoped
+ * the runtime credential from inside the wizard — either as a unit-scoped
  * secret (toggle off) or as a new tenant default (toggle on).
  *
  * Rendered states:
- *   - `requiredProvider === null` → nothing (Ollama/custom paths).
+ *   - `credential === null` → nothing (Ollama/custom paths).
  *   - probe pending → nothing (the Provider dropdown already paints a
  *     loading state; a flashing "checking…" line would add noise).
  *   - Ollama (spring-voyage + provider=ollama) → reuses PR #627's
  *     reachability banner verbatim. No inline input — Ollama doesn't
- *     use API keys.
+ *     use credentials.
  *   - probe error → muted "could not verify" line.
  *   - resolvable (unit or tenant) → green confirmation badge. When the
  *     source is `tenant` we show an "Override" button that opens the
@@ -3415,16 +3417,13 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
  * key-free by design (PR #627), so we can re-render confidently from
  * its response without ever seeing plaintext.
  */
-type KeyedProviderId = "anthropic" | "openai" | "google";
-
 interface CredentialSectionProps {
   /**
-   * ADR-0038: provider id of the installed model-provider entry the
-   * wizard needs a credential for. Restricted to the closed set of
-   * key-bearing providers — Ollama (no credential) flows through the
-   * dedicated reachability banner outside this component.
+   * ADR-0038 runtime/provider edge the wizard needs a credential for.
+   * Ollama (no credential) flows through the dedicated reachability
+   * banner outside this component.
    */
-  requiredProvider: KeyedProviderId | null;
+  credential: RuntimeCredentialDescriptor | null;
   status:
     | import("@/lib/api/types").ProviderCredentialStatusResponse
     | null;
@@ -3443,7 +3442,7 @@ interface CredentialSectionProps {
 
 function CredentialSection(props: CredentialSectionProps) {
   const {
-    requiredProvider,
+    credential,
     status,
     statusPending,
     statusError,
@@ -3459,18 +3458,17 @@ function CredentialSection(props: CredentialSectionProps) {
   // Ollama reachability banner is still useful even when no API key is
   // required. Render it standalone (same shape as PR #627) when the
   // probe was run against Ollama.
-  if (requiredProvider === null) {
+  if (credential === null) {
     if (!ollamaProbe) return null;
     return <OllamaReachabilityBanner data={ollamaProbe} />;
   }
 
-  const displayName = providerLabel(requiredProvider);
-
   if (statusPending) return null;
 
   if (statusError || !status) {
-    // Even when the probe fails, the user still needs to enter an API
-    // key to proceed. Render the input alongside a muted "could not
+    // Even when the probe fails, the user still needs to enter the
+    // required credential to proceed. Render the input alongside a muted
+    // "could not
     // verify" message so the wizard never dead-ends on a flaky probe.
     // `status?.suggestion` carries an optional operator-facing hint from
     // the backend (may be absent on older servers — optional chaining
@@ -3486,18 +3484,18 @@ function CredentialSection(props: CredentialSectionProps) {
         <div className="flex items-start gap-2">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p className="flex-1">
-            {probeHint ?? `Could not verify ${displayName} credentials.`} Enter
-            a key below to save it as a unit-scoped secret, or tick the box to
-            save it as your tenant default.
+            {probeHint ?? `Could not verify ${credential.label}.`} Enter a
+            value below to save it as a unit-scoped secret, or tick the box
+            to save it as your tenant default.
           </p>
         </div>
         <CredentialInputControls
-          provider={requiredProvider}
+          credential={credential}
           credentialKey={credentialKey}
           saveAsTenantDefault={saveAsTenantDefault}
           onKeyChange={onKeyChange}
           onToggleSaveAsTenantDefault={onToggleSaveAsTenantDefault}
-          tenantToggleLabel={`Use this key as the default for all future units using ${displayName}.`}
+          tenantToggleLabel={`Use this ${credential.label} as the default for all future units using ${credential.runtimeId}.`}
         />
       </div>
     );
@@ -3506,11 +3504,11 @@ function CredentialSection(props: CredentialSectionProps) {
   if (status.resolvable) {
     const sourceText =
       status.source === "unit"
-        ? `${displayName} credentials: set on unit`
+        ? `${credential.label}: set on unit`
         : status.source === "tenant"
-          ? `${displayName} credentials: inherited from tenant default`
+          ? `${credential.label}: inherited from tenant default`
           : // Defensive — shouldn't happen for Anthropic/OpenAI/Google.
-            `${displayName} credentials resolvable`;
+            `${credential.label} resolvable`;
     return (
       <div className="space-y-2">
         <div
@@ -3542,12 +3540,12 @@ function CredentialSection(props: CredentialSectionProps) {
               default.
             </p>
             <CredentialInputControls
-              provider={requiredProvider}
+              credential={credential}
               credentialKey={credentialKey}
               saveAsTenantDefault={saveAsTenantDefault}
               onKeyChange={onKeyChange}
               onToggleSaveAsTenantDefault={onToggleSaveAsTenantDefault}
-              tenantToggleLabel={`Overwrite the tenant default for all future units using ${displayName}.`}
+              tenantToggleLabel={`Overwrite the tenant default for all future units using ${credential.runtimeId}.`}
             />
             <button
               type="button"
@@ -3576,18 +3574,18 @@ function CredentialSection(props: CredentialSectionProps) {
       <div className="flex items-start gap-2">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
         <p className="flex-1">
-          {displayName} credentials: not configured. Enter a key below to
-          save it as a unit-scoped secret, or tick the box to save it as
-          your tenant default.
+          {credential.label}: not configured. Enter a value below to save
+          it as a unit-scoped secret, or tick the box to save it as your
+          tenant default.
         </p>
       </div>
       <CredentialInputControls
-        provider={requiredProvider}
+        credential={credential}
         credentialKey={credentialKey}
         saveAsTenantDefault={saveAsTenantDefault}
         onKeyChange={onKeyChange}
         onToggleSaveAsTenantDefault={onToggleSaveAsTenantDefault}
-        tenantToggleLabel={`Use this key as the default for all future units using ${displayName}.`}
+        tenantToggleLabel={`Use this ${credential.label} as the default for all future units using ${credential.runtimeId}.`}
       />
     </div>
   );
@@ -3599,22 +3597,19 @@ function CredentialSection(props: CredentialSectionProps) {
  * Extracted so the two call sites cannot drift apart on labelling or
  * accessibility attributes.
  *
- * Issue #659: we render a small "Get an API key" deep link next to
- * the input so operators without a key can create one without leaving
- * the wizard. For Anthropic specifically, the hint clarifies that the
- * field expects a Console API key — not a Claude Code CLI OAuth token
- * from `claude setup-token`. OAuth-token support is tracked as a
- * separate follow-up; this PR only surfaces the distinction in copy.
+ * The help link and copy come from the runtime/provider credential edge,
+ * so Claude Code asks for its OAuth token while Spring Voyage with
+ * Anthropic asks for the provider API key.
  */
 function CredentialInputControls({
-  provider,
+  credential,
   credentialKey,
   saveAsTenantDefault,
   onKeyChange,
   onToggleSaveAsTenantDefault,
   tenantToggleLabel,
 }: {
-  provider: "anthropic" | "openai" | "google";
+  credential: RuntimeCredentialDescriptor;
   credentialKey: string;
   saveAsTenantDefault: boolean;
   onKeyChange: (value: string) => void;
@@ -3622,44 +3617,23 @@ function CredentialInputControls({
   tenantToggleLabel: string;
 }) {
   const [show, setShow] = useState(false);
-  const inputId = `credential-key-${provider}`;
-  const toggleId = `credential-save-tenant-${provider}`;
+  const inputId = `credential-key-${credential.runtimeId}-${credential.providerId}`;
+  const toggleId = `credential-save-tenant-${credential.runtimeId}-${credential.providerId}`;
   const inputType = show ? "text" : "password";
-  const displayName = providerLabel(provider);
-  const helpLink = PROVIDER_KEY_HELP[provider];
-  const anthropicClarification =
-    provider === "anthropic"
-      ? "Accepts a Console API key (sk-ant-api…) or a Claude.ai token from claude setup-token (sk-ant-oat…). Claude.ai tokens require the claude CLI on the host."
-      : null;
-
-  // #660: Anthropic accepts two credential formats — a Platform API key
-  // (from console.anthropic.com, starts with `sk-ant-api...`) and a
-  // Claude.ai OAuth token (from `claude setup-token`, starts with
-  // `sk-ant-oat...`). The label/placeholder reflect both so operators
-  // on a Claude.ai subscription (no Platform plan) know the token
-  // they already have will work.
-  const isAnthropic = provider === "anthropic";
-  const fieldLabel = isAnthropic
-    ? `${displayName} API key or Claude.ai token`
-    : `${displayName} API key`;
-  const fieldPlaceholder = isAnthropic
-    ? "Paste your Anthropic API key or Claude.ai token"
-    : `Paste your ${displayName} API key`;
-  const showHideLabel = isAnthropic ? "credential" : "API key";
 
   return (
     <div className="space-y-2">
       <label htmlFor={inputId} className="block space-y-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-xs text-muted-foreground">{fieldLabel}</span>
+          <span className="text-xs text-muted-foreground">{credential.label}</span>
           <a
-            href={helpLink.href}
+            href={credential.helpLink.href}
             target="_blank"
             rel="noopener noreferrer"
             data-testid="credential-help-link"
             className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-2 hover:underline"
           >
-            Get an API key
+            {credential.helpLink.label}
             <ExternalLink className="h-3 w-3" aria-hidden />
           </a>
         </div>
@@ -3669,7 +3643,7 @@ function CredentialInputControls({
             type={inputType}
             value={credentialKey}
             onChange={(e) => onKeyChange(e.target.value)}
-            placeholder={fieldPlaceholder}
+            placeholder={credential.placeholder}
             autoComplete="off"
             spellCheck={false}
             data-testid="credential-input"
@@ -3681,8 +3655,8 @@ function CredentialInputControls({
             onClick={() => setShow((s) => !s)}
             aria-label={
               show
-                ? `Hide ${displayName} ${showHideLabel}`
-                : `Show ${displayName} ${showHideLabel}`
+                ? `Hide ${credential.label}`
+                : `Show ${credential.label}`
             }
             aria-pressed={show}
             data-testid="credential-visibility-toggle"
@@ -3700,14 +3674,12 @@ function CredentialInputControls({
         </div>
       </label>
 
-      {anthropicClarification && (
-        <p
-          className="text-[11px] text-muted-foreground"
-          data-testid="credential-help-anthropic"
-        >
-          {anthropicClarification}
-        </p>
-      )}
+      <p
+        className="text-[11px] text-muted-foreground"
+        data-testid="credential-help-text"
+      >
+        {credential.helpText}
+      </p>
 
       {/*
         T-07 (#949): the wizard no longer validates the key against the
@@ -3771,104 +3743,6 @@ function OllamaReachabilityBanner({
         {data.suggestion ??
           "Ollama not reachable. Check that the Ollama server is running."}
       </p>
-    </div>
-  );
-}
-
-/**
- * Step 5 row that surfaces the tenant-default LLM credential for the
- * selected runtime (read-only) alongside an "Override" affordance. This
- * closes the gap where Step 5 previously showed "No secrets queued" even
- * when a tenant default existed — operators had no way to tell whether
- * the unit would inherit a key or needed one queued. The override flow
- * mirrors Step 2's: opening it reveals the shared credential input; the
- * entered value is written as a unit-scoped secret (or a new tenant
- * default when the checkbox is ticked) during the Finalize submit.
- */
-function TenantDefaultSecretRow({
-  provider,
-  secretName,
-  overrideOpen,
-  credentialKey,
-  saveAsTenantDefault,
-  onToggleOverride,
-  onKeyChange,
-  onToggleSaveAsTenantDefault,
-}: {
-  provider: "anthropic" | "openai" | "google";
-  secretName: string;
-  overrideOpen: boolean;
-  credentialKey: string;
-  saveAsTenantDefault: boolean;
-  onToggleOverride: (value: boolean) => void;
-  onKeyChange: (value: string) => void;
-  onToggleSaveAsTenantDefault: (value: boolean) => void;
-}) {
-  const displayName = providerLabel(provider);
-  return (
-    <div
-      data-testid="tenant-default-secret-row"
-      data-provider={provider}
-      className="space-y-2 rounded-md border border-border bg-muted/30 p-3"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <CheckCircle2
-              className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400"
-              aria-hidden
-            />
-            <span className="font-medium">
-              {displayName} tenant default
-            </span>
-          </div>
-          {secretName && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              This unit will inherit the tenant-default secret{" "}
-              <code className="rounded bg-background px-1 py-0.5 font-mono text-[11px]">
-                {secretName}
-              </code>{" "}
-              at dispatch time. No action needed unless you want to override
-              it for this unit.
-            </p>
-          )}
-        </div>
-        {!overrideOpen && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onToggleOverride(true)}
-            data-testid="tenant-default-override"
-          >
-            Override
-          </Button>
-        )}
-      </div>
-      {overrideOpen && (
-        <div className="space-y-2 rounded-md border border-border bg-background p-3">
-          <p className="text-xs text-muted-foreground">
-            The existing tenant default stays in place until you save a new
-            value. The current value is not shown — type a replacement below,
-            or click Cancel to keep the tenant default.
-          </p>
-          <CredentialInputControls
-            provider={provider}
-            credentialKey={credentialKey}
-            saveAsTenantDefault={saveAsTenantDefault}
-            onKeyChange={onKeyChange}
-            onToggleSaveAsTenantDefault={onToggleSaveAsTenantDefault}
-            tenantToggleLabel={`Overwrite the tenant default for all future units using ${displayName}.`}
-          />
-          <button
-            type="button"
-            data-testid="tenant-default-override-cancel"
-            onClick={() => onToggleOverride(false)}
-            className="text-xs font-medium underline underline-offset-2 text-muted-foreground"
-          >
-            Cancel override
-          </button>
-        </div>
-      )}
     </div>
   );
 }

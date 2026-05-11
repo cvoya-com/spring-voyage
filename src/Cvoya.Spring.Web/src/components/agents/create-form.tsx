@@ -29,6 +29,7 @@ import { formatTranslatedError } from "@/lib/api/translate-error";
 import {
   useModelProviderModels,
   useModelProviders,
+  useProviderCredentialStatus,
   useConnectorBindings,
   usePackage,
   useUnitExecution,
@@ -54,6 +55,11 @@ import {
   type HostingMode,
   type RuntimeId,
 } from "@/lib/ai-models";
+import {
+  providerDisplayName,
+  runtimeCredentialDescriptor,
+  type RuntimeCredentialDescriptor,
+} from "@/lib/runtime-credentials";
 import type {
   PackageConnectorBindings,
   PackageDetail,
@@ -507,6 +513,14 @@ export function AgentCreateForm({
   }, [form.modelProviderId, fixedProviderId, pickerProviders]);
 
   const activeProviderId = effectiveProviderId.trim().toLowerCase();
+  const credentialDescriptor = useMemo(
+    () =>
+      runtimeCredentialDescriptor(
+        effectiveRuntime,
+        activeProviderId.length > 0 ? activeProviderId : null,
+      ),
+    [effectiveRuntime, activeProviderId],
+  );
   const modelsQuery = useModelProviderModels(activeProviderId, {
     enabled: Boolean(activeProviderId),
   });
@@ -1332,6 +1346,13 @@ export function AgentCreateForm({
             </select>
           </InheritableField>
 
+          {activeProviderId.length > 0 && (
+            <AgentCreateCredentialStatus
+              providerId={activeProviderId}
+              credential={credentialDescriptor}
+            />
+          )}
+
           {/* Hosting — `hosting` field. Agent-exclusive (no unit-side
               counterpart) so the inherited value falls back to platform
               defaults at dispatch. */}
@@ -1635,6 +1656,78 @@ function PackageConnectorRequirementsPanel({
           </ul>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AgentCreateCredentialStatus({
+  providerId,
+  credential,
+}: {
+  providerId: string;
+  credential: RuntimeCredentialDescriptor | null;
+}) {
+  const { data, isPending, isError } = useProviderCredentialStatus(providerId, {
+    authMethod: credential?.authMethod,
+  });
+
+  if (providerId !== "ollama" && credential === null) return null;
+  if (isPending) return null;
+
+  const label = credential?.label ?? providerDisplayName(providerId);
+
+  if (isError || !data) {
+    return (
+      <p className="text-xs text-muted-foreground" role="status">
+        Could not verify {label}.
+      </p>
+    );
+  }
+
+  if (data.resolvable) {
+    const text =
+      data.source === "unit"
+        ? `${label}: set on unit`
+        : data.source === "tenant"
+          ? `${label}: inherited from tenant default`
+          : providerId === "ollama"
+            ? `${label} reachable`
+            : `${label} resolvable`;
+
+    return (
+      <div
+        role="status"
+        data-testid="agent-create-credential-status"
+        data-resolvable="true"
+        data-source={data.source ?? ""}
+        className="flex items-start gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-200"
+      >
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+        <span>{text}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      role="alert"
+      data-testid="agent-create-credential-status"
+      data-resolvable="false"
+      className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-foreground"
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+      {providerId === "ollama" ? (
+        <p>
+          {data.suggestion ??
+            "Ollama not reachable. Check that the Ollama server is running."}
+        </p>
+      ) : (
+        <p>
+          {label}: not configured. Configure the tenant default from
+          Settings before dispatch if the parent unit does not supply a
+          unit-scoped secret.
+        </p>
+      )}
     </div>
   );
 }

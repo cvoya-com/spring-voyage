@@ -2417,7 +2417,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Report whether an LLM provider's credentials / endpoint are configured and usable on the named dispatch path */
+        /** Report whether an LLM provider credential / endpoint is configured for the requested auth method */
         get: operations["GetProviderCredentialStatus"];
         put?: never;
         post?: never;
@@ -10203,6 +10203,7 @@ export interface operations {
         parameters: {
             query?: {
                 dispatchPath?: string;
+                authMethod?: string;
                 agentImage?: string;
             };
             header?: never;

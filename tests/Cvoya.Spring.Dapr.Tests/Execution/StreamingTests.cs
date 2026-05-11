@@ -178,7 +178,7 @@ public class StreamingTests
 
         var ex = await Should.ThrowAsync<Core.SpringException>(act);
         ex.Message.ShouldContain("CredentialFormatRejected");
-        ex.Message.ShouldContain("sk-ant-oat");
+        ex.Message.ShouldContain("Claude Code OAuth token");
         handler.CallCount.ShouldBe(0);
     }
 

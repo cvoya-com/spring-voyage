@@ -11,7 +11,7 @@ Spring Voyage distinguishes three tiers of configuration so credentials live whe
 | Tier | Location | Examples | Who sets it |
 |------|----------|----------|-------------|
 | **Tier 1 — platform-deploy** | Env / `spring.env` / startup config | DB connection, Dapr wiring, `GitHub__AppId` / `GitHub__PrivateKeyPem` / `GitHub__WebhookSecret` (identity of the Spring Voyage instance itself as a GitHub App — every deployment registers its own App, see [Register your GitHub App](github-app-setup.md)) | Ops team at deploy time |
-| **Tier 2 — tenant-default** | Database (`SecretScope.Tenant`) | LLM provider API keys (`anthropic-api-key`, `openai-api-key`, `google-api-key`), tenant-wide observability / monitoring tokens | Tenant admin post-deploy |
+| **Tier 2 — tenant-default** | Database (`SecretScope.Tenant`) | LLM runtime credentials (`anthropic-oauth`, `anthropic-api-key`, `openai-api-key`, `google-api-key`), tenant-wide observability / monitoring tokens | Tenant admin post-deploy |
 | **Tier 3 — unit-override** | Database (`SecretScope.Unit`) | Per-unit variants of any tier-2 credential (a unit that calls a different Anthropic account than the tenant default) | Unit operator |
 
 LLM provider credentials explicitly belong to **tier 2**, not tier 1 — they are workload credentials, not deployment identity. The platform's tier-2 resolver ([`ILlmCredentialResolver`](../../../src/Cvoya.Spring.Core/Execution/ILlmCredentialResolver.cs)) reads them through the chain:
@@ -159,12 +159,22 @@ spring secret create --scope unit --unit research-team \
   observability-token --value "research-team-override-..."
 ```
 
-### LLM credentials (tier-2 defaults + per-unit overrides)
+### LLM runtime credentials (tier-2 defaults + per-unit overrides)
 
-The tier-2 resolver looks up `anthropic-api-key`, `openai-api-key`, and `google-api-key` by name. Match these names exactly.
+The tier-2 resolver keys LLM credentials by provider and auth method. Match these names exactly:
+
+| Secret name | Runtime/provider edge | Injected environment variable |
+|---|---|---|
+| `anthropic-oauth` | Claude Code → Anthropic | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `anthropic-api-key` | Spring Voyage Agent → Anthropic | `ANTHROPIC_API_KEY` |
+| `openai-api-key` | Codex → OpenAI; Spring Voyage Agent → OpenAI | `OPENAI_API_KEY` |
+| `google-api-key` | Gemini → Google; Spring Voyage Agent → Google | `GOOGLE_API_KEY` |
 
 ```bash
-# Tenant default
+# Tenant default for Claude Code
+spring secret create --scope tenant anthropic-oauth --value "<token from claude setup-token>"
+
+# Tenant default for Spring Voyage Agent + Anthropic
 spring secret create --scope tenant anthropic-api-key --value "sk-ant-..."
 
 # Per-unit override (bills against a different Anthropic account)
@@ -172,66 +182,50 @@ spring secret create --scope unit --unit research-team \
   anthropic-api-key --value "sk-ant-research-..."
 ```
 
-Via portal: **Tenant defaults** panel at `/settings` for the tenant-wide key; unit's **Secrets** tab for per-unit overrides. The Secrets tab shows an "inherited from tenant" badge for transitively inherited secrets.
+Via portal: **Tenant defaults** panel at `/settings` for tenant-wide credentials; unit's **Secrets** tab for per-unit overrides. The Secrets tab shows an "inherited from tenant" badge for transitively inherited secrets.
 
-### Anthropic credentials: API key vs OAuth token (#1690)
+### Anthropic API keys vs Claude Code OAuth tokens
 
-Anthropic exposes two credential shapes. Both are first-class in Spring Voyage and both are stored in the same `anthropic-api-key` slot, but they authenticate different code paths:
+Anthropic has two Spring Voyage credential edges, and each edge has one auth method:
 
-| Stored value | `claude` CLI in container (full surface) | `claude --bare` probe | `AnthropicProvider` REST | Custom agent calling Anthropic REST |
-|---|---|---|---|---|
-| `sk-ant-api-…` (Platform API key, from `console.anthropic.com`) | Yes — via `ANTHROPIC_API_KEY` | Yes — via `ANTHROPIC_API_KEY` | Yes | Yes |
-| `sk-ant-oat-…` (Claude.ai OAuth token, output of `claude setup-token`) | Yes — via `CLAUDE_CODE_OAUTH_TOKEN` | No (silently ignored — looks like "Not logged in") | No (REST rejects) | No (REST rejects) |
-| Neither (typo, stale paste from a different provider) | No | No | No | No |
+| Runtime/provider edge | Auth method | Secret name | When to use |
+|---|---|---|---|
+| Claude Code → Anthropic | OAuth token | `anthropic-oauth` | Units running the Claude Code runtime and container image. Generate the token with `claude setup-token`. |
+| Spring Voyage Agent → Anthropic | API key | `anthropic-api-key` | Units where the platform-managed agent calls the Anthropic API through the Spring Voyage provider adapter. |
 
-**Pick the API key when:** your unit uses any agent image that calls the Anthropic Platform REST API directly — single-shot completions through `IAiProvider`, custom agent images that wrap the Anthropic SDK, or any third-party CLI that itself dials `api.anthropic.com`.
-
-**Pick the OAuth token when:** your unit uses the Claude Code container image (`ghcr.io/cvoya-com/claude-code-base`) and you want the full `claude` CLI surface — hooks, plugins, skills, keychain, auto-memory. OAuth tokens cannot authenticate the REST API; the platform's `IAiProvider` and any custom REST caller will see a 401.
-
-**Both code paths in the same fleet?** Pick whichever is the more common dispatch path; the other will probe-pass-but-runtime-fail and you will need to plan around it. The platform's pre-flight check (`GET /api/v1/platform/credentials/anthropic/status?dispatchPath=…`) reports per-path resolvability so the wizard / portal can warn you before the first message dispatches.
-
-> **`agent: spring-voyage, provider: anthropic` is not fully wired in v0.1.** The Dapr-Agent (`spring-voyage`) tool calls Anthropic via a Dapr Conversation component, and the OSS deployment ships only the Ollama Conversation YAML today. If you want to run Anthropic models, use the Claude Code agent (`agent: claude-code`) — it consumes `anthropic-api-key` directly through the in-container `claude` CLI and works on both credential shapes per the matrix above. See #1714 for the tracking issue.
-
-```bash
-# Anthropic Platform API key — works with REST and the in-container CLI
-spring secret create --scope tenant anthropic-api-key --value "sk-ant-api-..."
-
-# Claude.ai OAuth token — produced by `claude setup-token` on a
-# workstation that is signed in to claude.ai; works with the
-# in-container CLI only
-spring secret create --scope tenant anthropic-api-key --value "sk-ant-oat-..."
-```
+The names are intentionally separate. A Claude Code unit never reads `anthropic-api-key`, and a Spring Voyage Agent unit never reads `anthropic-oauth`.
 
 ## Supplying a credential during unit creation
 
-Both the portal wizard (`/units/create`) and `spring unit create` accept an LLM API key inline — the lowest-friction onboarding path.
+Both the portal wizard (`/units/create`) and `spring unit create` accept the runtime credential inline — the lowest-friction onboarding path.
 
 ### Via Portal
 
-1. Pick an execution tool on Step 1. The wizard derives the required provider (Claude Code → Anthropic, Codex → OpenAI, Gemini → Google, Ollama → none).
+1. Pick an execution runtime on Step 1. The wizard derives the required credential edge (Claude Code → Anthropic OAuth, Codex → OpenAI API key, Gemini → Google API key, Spring Voyage Agent → selected provider).
 2. If the credential is **not configured**, an inline input appears with a **"Save as tenant default"** checkbox. Unticked = unit-scoped secret; ticked = tenant-scoped secret (all future units inherit it).
 3. If a tenant default already exists, an **Override** button appears. Use it to set a per-unit override or rotate the tenant default.
-4. On blur the wizard validates the key against the provider's API. On success the Model dropdown appears seeded from the account's catalog.
+4. On blur the wizard validates the credential against the selected edge. On success the Model dropdown appears seeded from the account's catalog.
 
 The wizard never shows existing plaintext; Override clears the input.
 
 ### Via CLI
 
 ```bash
-# Unit-scoped override
+# Claude Code: unit-scoped OAuth token
 spring unit create research-team \
-  --tool claude-code \
-  --api-key-from-file ~/.secrets/anthropic-research.txt
+  --runtime claude-code \
+  --oauth-token-from-file ~/.secrets/claude-code-token.txt
 
-# Tenant default (all subsequent units inherit)
+# Spring Voyage Agent + Anthropic: tenant-default API key
 spring unit create platform \
-  --tool claude-code \
+  --runtime spring-voyage \
+  --model-provider anthropic \
   --api-key "sk-ant-xyz" \
   --save-as-tenant-default
 
-# Rejected — Ollama needs no API key
-spring unit create local-dev --tool dapr-agent --provider ollama --api-key "anything"
-# → "--api-key / --api-key-from-file is only valid for tools that need an LLM API key ..."
+# Rejected — Ollama needs no runtime credential
+spring unit create local-dev --runtime spring-voyage --model-provider ollama --api-key "anything"
+# → "Runtime 'spring-voyage' with provider 'ollama' does not require a credential."
 ```
 
 See [CLI & Web § Inline credential flags](../../architecture/cli-and-web.md#inline-credential-flags-626) for the full rejection matrix.

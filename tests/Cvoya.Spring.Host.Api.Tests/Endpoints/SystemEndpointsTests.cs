@@ -123,9 +123,6 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Status_Anthropic_TenantConfigured_ReportsTenantSource()
     {
         var ct = TestContext.Current.CancellationToken;
-        // #1690: the format check now rejects values that are neither
-        // sk-ant-api… nor sk-ant-oat… on every dispatch path, so the
-        // tenant-configured fixture must use a valid Anthropic shape.
         await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-api-tenant-default", ct);
 
         var response = await _client.GetAsync(
@@ -145,6 +142,76 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body.Source.ShouldBe("tenant");
         body.Suggestion.ShouldBeNull();
         body.Reason.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Status_Anthropic_OAuthMethod_ResolvesOauthSecret()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await SeedTenantSecretAsync("anthropic-oauth", "sk-ant-oat-fake-token", ct);
+
+        var response = await _client.GetAsync(
+            "/api/v1/platform/credentials/anthropic/status?authMethod=oauth", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var raw = await response.Content.ReadAsStringAsync(ct);
+        raw.ShouldNotContain("sk-ant-oat-fake-token");
+
+        var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Provider.ShouldBe("anthropic");
+        body.Resolvable.ShouldBeTrue();
+        body.Source.ShouldBe("tenant");
+        body.Reason.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Status_Anthropic_OAuthMethod_IgnoresApiKeySecret()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-api-tenant-default", ct);
+
+        var response = await _client.GetAsync(
+            "/api/v1/platform/credentials/anthropic/status?authMethod=oauth", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Provider.ShouldBe("anthropic");
+        body.Resolvable.ShouldBeFalse();
+        body.Source.ShouldBeNull();
+        body.Reason.ShouldBe("not-configured");
+        body.Suggestion.ShouldNotBeNullOrWhiteSpace();
+        body.Suggestion!.ShouldContain("anthropic-oauth");
+        body.Suggestion.ShouldNotContain("anthropic-api-key");
+    }
+
+    [Fact]
+    public async Task Status_UnsupportedAuthMethod_ReturnsBadRequest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await _client.GetAsync(
+            "/api/v1/platform/credentials/openai/status?authMethod=oauth", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        body.ShouldContain("unsupported-auth-method");
+    }
+
+    [Fact]
+    public async Task Status_UnknownAuthMethod_ReturnsBadRequest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await _client.GetAsync(
+            "/api/v1/platform/credentials/anthropic/status?authMethod=session", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        body.ShouldContain("unknown-auth-method");
     }
 
     [Fact]
@@ -226,14 +293,10 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Status_Anthropic_OAuthToken_RestPath_ReportsFormatRejected()
     {
-        // Regression guard for #1003: an OAuth token stored as the
-        // tenant-default credential decrypts cleanly, so the resolver
-        // returns it with Source=Tenant. But the Anthropic Platform REST
-        // endpoint (the IAiProvider dispatch path) rejects OAuth tokens
-        // with a 401 indistinguishable from a bad key — see #981.
-        // The probe must surface that mismatch pre-dispatch so the
-        // wizard does not show a green badge for a credential that
-        // will fail on the first message.
+        // Regression guard for #1003: a malformed / stale value in the
+        // API-key slot decrypts cleanly, so the resolver returns it with
+        // Source=Tenant. The probe must still reject its OAuth shape
+        // before a REST request sees a provider-side 401.
         var ct = TestContext.Current.CancellationToken;
         await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-oat-fake-token", ct);
 
@@ -269,12 +332,9 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Status_Anthropic_GibberishCredential_ReportsFormatRejectedOnAllPaths()
     {
         // #1690: a stored value that is neither sk-ant-api… nor sk-ant-oat…
-        // is rejected pre-flight on every path. Today the runtime probe
-        // would still fire the live API call, see the 400/422 response,
-        // and translate it to format-rejected — the pre-flight check
-        // saves that round-trip.
+        // is rejected pre-flight on every path.
         var ct = TestContext.Current.CancellationToken;
-        await SeedTenantSecretAsync("anthropic-api-key", "totally-not-a-key", ct);
+        await SeedTenantSecretAsync("anthropic-oauth", "totally-not-a-key", ct);
 
         var response = await _client.GetAsync(
             "/api/v1/platform/credentials/anthropic/status?dispatchPath=agent-runtime", ct);
@@ -295,12 +355,12 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Status_Anthropic_OAuthToken_AgentRuntimePath_ReportsResolvable()
     {
         // #1714: the Claude agent-runtime path is OAuth-only — an OAuth
-        // token resolves cleanly there, while the REST path rejects it
-        // pre-flight (API-key-only). The matrix reflects the strict
-        // per-path acceptance with `path-specific` and the explicit
-        // per-path entries.
+        // token resolves from the canonical anthropic-oauth slot there,
+        // while the REST path rejects its shape. The matrix reflects the
+        // strict per-path acceptance with `path-specific` and the
+        // explicit per-path entries.
         var ct = TestContext.Current.CancellationToken;
-        await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-oat-fake-token", ct);
+        await SeedTenantSecretAsync("anthropic-oauth", "sk-ant-oat-fake-token", ct);
 
         var response = await _client.GetAsync(
             "/api/v1/platform/credentials/anthropic/status?dispatchPath=agent-runtime", ct);
@@ -349,15 +409,13 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Status_Anthropic_ApiKey_AgentRuntimePath_RejectedPreFlight()
+    public async Task Status_Anthropic_ApiKeyInOauthSlot_AgentRuntimePath_RejectedPreFlight()
     {
-        // #1714: API keys belong on the Spring Voyage REST path, not the
-        // Claude agent-runtime path. The wizard surfaces format-rejected
-        // when the caller asks about agent-runtime so the operator is
-        // told to either regenerate via `claude setup-token` or switch
-        // to `agent: spring-voyage, provider: anthropic`.
+        // #2161: the Claude agent-runtime path reads the anthropic-oauth
+        // slot. If an operator somehow stores an API key in that slot,
+        // the probe must reject it before the launcher starts.
         var ct = TestContext.Current.CancellationToken;
-        await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-api-fake-key", ct);
+        await SeedTenantSecretAsync("anthropic-oauth", "sk-ant-api-fake-key", ct);
 
         var response = await _client.GetAsync(
             "/api/v1/platform/credentials/anthropic/status?dispatchPath=agent-runtime", ct);

@@ -42,7 +42,7 @@ public class ClaudeCodeLauncherTests
             .Returns(new LlmCredentialResolution(
                 Value: DefaultOAuthToken,
                 Source: LlmCredentialSource.Tenant,
-                SecretName: "anthropic-api-key"));
+                SecretName: "anthropic-oauth"));
 
         _callbackSupport = new LauncherCallbackTestSupport();
         var scopeFactory = TestScopeFactory.For(_credentialResolver);
@@ -232,7 +232,7 @@ public class ClaudeCodeLauncherTests
             .Returns(new LlmCredentialResolution(
                 Value: "sk-ant-api-not-allowed",
                 Source: LlmCredentialSource.Tenant,
-                SecretName: "anthropic-api-key"));
+                SecretName: "anthropic-oauth"));
 
         var ex = await Should.ThrowAsync<SpringException>(
             () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
@@ -252,12 +252,12 @@ public class ClaudeCodeLauncherTests
             .Returns(new LlmCredentialResolution(
                 Value: null,
                 Source: LlmCredentialSource.NotFound,
-                SecretName: "anthropic-api-key"));
+                SecretName: "anthropic-oauth"));
 
         var ex = await Should.ThrowAsync<SpringException>(
             () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
 
-        ex.Message.ShouldContain("anthropic-api-key");
+        ex.Message.ShouldContain("anthropic-oauth");
         ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
     }
 
@@ -272,7 +272,7 @@ public class ClaudeCodeLauncherTests
             .Returns(new LlmCredentialResolution(
                 Value: "totally-not-a-key",
                 Source: LlmCredentialSource.Tenant,
-                SecretName: "anthropic-api-key"));
+                SecretName: "anthropic-oauth"));
 
         await Should.ThrowAsync<SpringException>(
             () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
@@ -286,7 +286,7 @@ public class ClaudeCodeLauncherTests
             .Returns(new LlmCredentialResolution(
                 Value: null,
                 Source: LlmCredentialSource.Unreadable,
-                SecretName: "anthropic-api-key"));
+                SecretName: "anthropic-oauth"));
 
         await Should.ThrowAsync<SpringException>(
             () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
