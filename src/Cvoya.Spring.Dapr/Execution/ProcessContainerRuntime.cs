@@ -289,12 +289,21 @@ public class ProcessContainerRuntime(
         //
         // A non-zero inspect exit means the container is unknown to the runtime;
         // we surface that as InvalidOperationException so the API layer can 404.
+        // The `{{if .State.Health}}…{{end}}` guard handles the no-HEALTHCHECK
+        // case: when the image declares no HEALTHCHECK instruction, `Health`
+        // is the Go zero-value (a null pointer); the unguarded
+        // `{{.State.Health.Status}}` template would crash `podman inspect`
+        // with a non-zero exit and surface as "container is not known to the
+        // runtime" even though it exists and is running. With the guard the
+        // template emits the empty string for no-healthcheck containers,
+        // which the post-process branch below already maps to "healthy by
+        // convention".
         var (exitCode, stdout, stderr) = await RunProcessAsync(
             binaryName,
             [
                 "inspect",
                 "--format",
-                "{{.State.Health.Status}}",
+                "{{if .State.Health}}{{.State.Health.Status}}{{end}}",
                 containerId,
             ],
             ct);
@@ -446,7 +455,7 @@ public class ProcessContainerRuntime(
                     "--show-error",
                     "--fail",
                     "--max-time",
-                    "3",
+                    "10",
                     "--output",
                     "/dev/null",
                     url,
