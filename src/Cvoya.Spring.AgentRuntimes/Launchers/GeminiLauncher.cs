@@ -59,6 +59,55 @@ public class GeminiLauncher(
     internal const string WorkspaceMountPath = "/workspace";
     internal const string GeminiSettingsPath = ".gemini/settings.json";
 
+    /// <summary>
+    /// Bridge env var name carrying the CLI flag that *creates* a session
+    /// with a supplied id (ADR-0041 / #2094 / #2103). Read by
+    /// `deployment/agent-sidecar/src/config.ts:parseThreadBinding`. Kept as
+    /// a separate const here (rather than reused from <see cref="ClaudeCodeLauncher"/>)
+    /// so the Claude / Gemini launchers stay independently auditable —
+    /// they happen to ship identical flag names because both CLIs settled
+    /// on the same convention, but that's a coincidence, not a contract.
+    /// </summary>
+    internal const string ThreadIdArgCreateEnvVar = "SPRING_THREAD_ID_ARG_CREATE";
+
+    /// <summary>
+    /// Bridge env var name carrying the CLI flag that *resumes* a session
+    /// by id (ADR-0041 / #2094 / #2103).
+    /// </summary>
+    internal const string ThreadIdArgResumeEnvVar = "SPRING_THREAD_ID_ARG_RESUME";
+
+    /// <summary>
+    /// Gemini CLI flag that creates a fresh session with a caller-supplied
+    /// id. Documented in `packages/cli/src/config/config.ts` of
+    /// google-gemini/gemini-cli as: "Start a new session with a manually
+    /// provided UUID." The flag is mutually exclusive with <c>--resume</c>
+    /// and <c>--session-file</c> (gemini-cli `mutual-exclusivity.test.ts`).
+    /// </summary>
+    internal const string ThreadIdArgCreate = "--session-id";
+
+    /// <summary>
+    /// Gemini CLI flag that resumes a session by id. Documented in
+    /// `docs/cli/cli-reference.md` of google-gemini/gemini-cli:
+    /// <c>gemini -r "&lt;session-id&gt;"</c> resumes the session. The long
+    /// form is <c>--resume</c> per the same source.
+    /// </summary>
+    internal const string ThreadIdArgResume = "--resume";
+
+    /// <summary>
+    /// Env var Gemini CLI reads to locate its config / session-storage
+    /// home directory. Defined in `packages/core/src/utils/paths.ts`
+    /// (google-gemini/gemini-cli) — the <c>homedir()</c> helper returns
+    /// <c>process.env['GEMINI_CLI_HOME']</c> when set, otherwise
+    /// <c>os.homedir()</c>. The CLI then appends <c>.gemini/</c> to that
+    /// base for storage (sessions live at
+    /// <c>$GEMINI_CLI_HOME/.gemini/tmp/&lt;project-hash&gt;/chats/&lt;sid&gt;</c>),
+    /// so pointing this at <see cref="AgentWorkspaceContract.WorkspaceMountPath"/>
+    /// puts session files on the per-agent workspace volume and they
+    /// survive container restart. Documented under
+    /// <c>docs/cli/enterprise.md</c>.
+    /// </summary>
+    internal const string GeminiCliHomeEnvVar = "GEMINI_CLI_HOME";
+
     private const string SpringVoyageMcpServerName = "spring-voyage";
     private const string SpringOrchestrationMcpServerName = "spring-orchestration";
 
@@ -122,6 +171,35 @@ public class GeminiLauncher(
             // D3c: canonical path where the per-agent workspace volume is
             // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
+            // ADR-0041 / #2094 / #2103: tell the bridge how to bind the
+            // platform thread.id (= A2A 0.3 contextId) onto Gemini's
+            // session identifier. First message on a thread →
+            // `--session-id <id>` (mints a new session keyed by the UUID);
+            // subsequent messages → `--resume <id>` (loads the existing
+            // session file). The bridge picks create vs resume from a
+            // marker file persisted under the workspace volume (see
+            // GEMINI_CLI_HOME below) so the answer survives container
+            // restart. Both flags verified against the gemini-cli source
+            // tree (`packages/cli/src/config/config.ts`) — see the const
+            // doc-comments on ThreadIdArgCreate / ThreadIdArgResume.
+            [ThreadIdArgCreateEnvVar] = ThreadIdArgCreate,
+            [ThreadIdArgResumeEnvVar] = ThreadIdArgResume,
+            // ADR-0041 / #2103: anchor Gemini CLI's config and session
+            // storage on the per-agent workspace volume (D1 § 2.2.1,
+            // ADR-0029). gemini-cli's `homedir()` (paths.ts) returns
+            // GEMINI_CLI_HOME when set; the CLI then appends `.gemini/`
+            // and writes session files under
+            // `<home>/.gemini/tmp/<project-hash>/chats/<sid>.json`. Pointing
+            // GEMINI_CLI_HOME at the workspace mount makes those session
+            // files survive a container restart and lets the next
+            // `--resume <sid>` invocation pick them up. The workspace
+            // settings file the launcher writes
+            // (`<workspace>/.gemini/settings.json`) and the user-level
+            // settings file gemini-cli derives from this env var
+            // (`$GEMINI_CLI_HOME/.gemini/settings.json`) resolve to the
+            // same path; the CLI tolerates that — workspace and user
+            // settings are merged-or-equivalent on the same file.
+            [GeminiCliHomeEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
         };
 
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);

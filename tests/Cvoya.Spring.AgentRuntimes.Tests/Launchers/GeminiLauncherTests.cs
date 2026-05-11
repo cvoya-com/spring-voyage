@@ -239,6 +239,45 @@ public class GeminiLauncherTests
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
     }
 
+    [Fact]
+    public async Task PrepareAsync_SetsThreadIdBindingEnvVars_ToGeminiSessionFlags()
+    {
+        // ADR-0041 / #2103: the launcher tells the bridge to bind the
+        // platform thread.id onto Gemini's session identifier via
+        // `--session-id <id>` on first send and `--resume <id>` on
+        // subsequent sends. These two consts are the wire contract
+        // between the .NET launcher and `deployment/agent-sidecar/src/config.ts`
+        // — pinning them here surfaces accidental drift in a unit test
+        // rather than only at integration time.
+        var prep = await _launcher.PrepareAsync(
+            LauncherCallbackTestSupport.CreateContext(
+                prompt: "Be helpful.",
+                mcpToken: "gemini-secret-token"),
+            TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["SPRING_THREAD_ID_ARG_CREATE"].ShouldBe("--session-id");
+        prep.EnvironmentVariables["SPRING_THREAD_ID_ARG_RESUME"].ShouldBe("--resume");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_PointsGeminiCliHome_AtWorkspaceMountPath()
+    {
+        // ADR-0041 / #2103: GEMINI_CLI_HOME relocates Gemini's config and
+        // session-storage root. gemini-cli appends `.gemini/` to it and
+        // writes chat checkpoints at
+        // `<home>/.gemini/tmp/<project-hash>/chats/<sid>.json`. Anchoring
+        // it on the per-agent workspace volume is what makes session files
+        // survive container restart so the next `--resume <sid>` finds them.
+        var prep = await _launcher.PrepareAsync(
+            LauncherCallbackTestSupport.CreateContext(
+                prompt: "Be helpful.",
+                mcpToken: "gemini-secret-token"),
+            TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["GEMINI_CLI_HOME"]
+            .ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
+    }
+
     private static JsonDocument ParseGeminiSettings(AgentLaunchSpec prep) =>
         JsonDocument.Parse(prep.WorkspaceFiles[".gemini/settings.json"]);
 
