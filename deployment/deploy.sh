@@ -602,6 +602,7 @@ start_ollama() {
     run_container spring-ollama \
         -p "${OLLAMA_PORT:-11434}:11434" \
         -v spring-ollama-data:/root/.ollama \
+        -e OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-16384}" \
         ${gpu_args[@]+"${gpu_args[@]}"} \
         "${OLLAMA_IMAGE:-docker.io/ollama/ollama:latest}"
 
