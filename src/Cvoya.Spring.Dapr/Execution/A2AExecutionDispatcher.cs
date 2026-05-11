@@ -520,16 +520,72 @@ public class A2AExecutionDispatcher(
         Uri endpoint;
         string? containerId;
 
-        // Check if the agent service is already running and healthy.
-        if (persistentAgentRegistry.TryGet(agentId, out var entry) && entry is not null
-            && entry.HealthStatus == AgentHealthStatus.Healthy)
+        // Eager validation: the persistent dispatch path mints a per-message
+        // callback token scoped to the message's thread id. A malformed
+        // thread id (no parse, no Guid shape) cannot be issued as a token,
+        // and there is no point taking any expensive action (container
+        // probes, restarts, registry mutations) before failing on it.
+        // Mirrors the same check IssuePerMessageCallbackToken does — kept
+        // explicit at the top so the pre-flight probe (#2092) does not get
+        // a chance to flip a healthy entry to Unhealthy on a caller error.
+        if (string.IsNullOrWhiteSpace(message.ThreadId) ||
+            !GuidFormatter.TryParse(message.ThreadId, out _))
         {
-            endpoint = entry.Endpoint;
+            throw new SpringException(
+                $"Message '{message.Id:N}' has malformed thread id '{message.ThreadId ?? "(null)"}'; " +
+                "persistent A2A dispatch cannot issue a scoped SPRING_CALLBACK_TOKEN.");
+        }
+
+        // Check if the agent service is already running and healthy.
+        var entryFound = persistentAgentRegistry.TryGet(agentId, out var entry);
+        var entryHealthy = entryFound
+            && entry is not null
+            && entry.HealthStatus == AgentHealthStatus.Healthy;
+
+        if (entryHealthy)
+        {
+            // #2092: fast pre-flight HTTP probe to catch a container that
+            // crashed between the registry's last health-tick and now. The
+            // registry already polls every second after #2092 but that still
+            // leaves a sub-second window during which a freshly-crashed
+            // container would surface as a long A2A timeout instead of a
+            // clean restart. The probe is short-bounded (sub-second) so a
+            // healthy container pays only ~tens of ms of latency.
+            var preflightOk = await persistentAgentRegistry.ProbeLivenessAsync(
+                entry!, PersistentAgentRegistry.DispatchPreflightProbeTimeout, cancellationToken);
+
+            if (!preflightOk)
+            {
+                _logger.LogWarning(
+                    "Persistent agent {AgentId} pre-flight probe failed; " +
+                    "marking unhealthy and restarting before dispatch (#2092)",
+                    agentId);
+                persistentAgentRegistry.MarkUnhealthy(agentId);
+                entryHealthy = false;
+            }
+        }
+
+        if (entryHealthy)
+        {
+            endpoint = entry!.Endpoint;
             containerId = entry.ContainerId;
         }
         else
         {
             // Not running (or unhealthy) — auto-start the agent container.
+            // When an unhealthy entry exists, stop the old container first so
+            // we don't leak it or collide on its name (the daprd sidecar
+            // pre-allocates the container name; a leaked container with the
+            // same name would refuse to launch). StopContainerAsync preserves
+            // the per-agent workspace volume across restart per ADR-0029.
+            if (entryFound && entry is not null)
+            {
+                _logger.LogInformation(
+                    "Persistent agent {AgentId} is unhealthy; tearing down old container {ContainerId} before restart",
+                    agentId, entry.ContainerId);
+                await persistentAgentRegistry.StopContainerAsync(agentId, cancellationToken);
+            }
+
             (endpoint, containerId) = await StartPersistentAgentAsync(definition, message, cancellationToken);
         }
 
