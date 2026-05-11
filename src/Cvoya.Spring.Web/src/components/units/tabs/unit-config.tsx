@@ -15,10 +15,15 @@
 // `?node=` + `?tab=Config` — this keeps the sub-tab state private to
 // the Config surface (DetailPane's `tab` prop is still just the outer
 // tab name) while letting deep links round-trip through refresh.
+//
+// URL writes go through window.history.replaceState (not router.replace)
+// and reads go through useSyncExternalStore — same pattern as the outer
+// ?tab= management in app/units/page.tsx. Using router.replace triggers
+// an App Router RSC navigation on every sub-tab click, which starts a
+// React transition and blocks the UI until the navigation settles.
 
+import { useCallback, useSyncExternalStore } from "react";
 import { Settings } from "lucide-react";
-import { useCallback } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
   Tabs,
@@ -32,6 +37,12 @@ import { ConnectorTab } from "@/components/units/tab-impls/connector-tab";
 import { ExecutionTab } from "@/components/units/tab-impls/execution-tab";
 import { SecretsTab } from "@/components/units/tab-impls/secrets-tab";
 import { SkillsTab } from "@/components/units/tab-impls/skills-tab";
+import {
+  dispatchExplorerUrlChange,
+  getExplorerUrlSnapshot,
+  getServerExplorerUrlSnapshot,
+  subscribeExplorerUrl,
+} from "@/lib/explorer-url";
 
 import { registerTab, type TabContentProps } from "./index";
 
@@ -60,30 +71,33 @@ function parseSubTab(raw: string | null): SubTab {
 }
 
 function UnitConfigTab({ node }: TabContentProps) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const activeSubTab = parseSubTab(searchParams.get("subtab"));
-
-  // Mirror sub-tab selection into `?subtab=` while preserving the
-  // existing `?node=` + `?tab=Config` so the Explorer's deep-link
-  // contract still round-trips. Hook runs before the `kind` check —
-  // rules-of-hooks demands stable call order — and only writes the
-  // URL from inside a click handler.
-  const setActiveSubTab = useCallback(
-    (next: string) => {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("subtab", next);
-      const qs = params.toString();
-      // #1039 / #1053: Next.js 16 drops the canonical-URL update for
-      // bare `router.replace("?…")` calls — `replaceState` commits the
-      // stale query and the controlled `activeSubTab` derived from
-      // `useSearchParams()` snaps back. Pass the full pathname so the
-      // navigation sticks.
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-    },
-    [pathname, router, searchParams],
+  // Read the current URL via useSyncExternalStore so this component
+  // reacts to both its own replaceState writes and outer ?node/?tab
+  // changes dispatched by page.tsx — without triggering App Router
+  // navigations on every sub-tab click.
+  const search = useSyncExternalStore(
+    subscribeExplorerUrl,
+    getExplorerUrlSnapshot,
+    getServerExplorerUrlSnapshot,
   );
+  const activeSubTab = parseSubTab(new URLSearchParams(search).get("subtab"));
+
+  // Hook runs before the `kind` check — rules-of-hooks demands stable
+  // call order. Reads window.location.search at call time so the closure
+  // never captures a stale snapshot, and has no deps for the same reason.
+  const setActiveSubTab = useCallback((next: string) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("subtab", next);
+    const qs = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      qs
+        ? `${window.location.pathname}?${qs}`
+        : window.location.pathname,
+    );
+    dispatchExplorerUrlChange();
+  }, []);
 
   if (node.kind !== "Unit") return null;
 

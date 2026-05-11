@@ -1,60 +1,26 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { EXPLORER_URL_CHANGE_EVENT } from "@/lib/explorer-url";
 import type { UnitNode } from "../aggregate";
 
 // ---------------------------------------------------------------------------
-// Router + URL stubs. `router.replace` is spied so we can assert that
-// clicking a sub-tab writes `?subtab=<name>` into the URL, and the
-// observable `URLSearchParams` lets the controlled `<Tabs>` primitive
-// pick up a deep-link `?subtab=` on first render. Pattern matches the
-// connectors-page test and the `/units` route test.
+// URL helpers. The tab now writes sub-tab state via window.history.replaceState
+// (not router.replace) and reads it via useSyncExternalStore. Tests drive URL
+// changes by calling replaceState + dispatching the Explorer URL-change event,
+// which the useSyncExternalStore subscription picks up identically to
+// production.
 // ---------------------------------------------------------------------------
 
-const replaceMock = vi.fn();
-let currentSearchParams = new URLSearchParams();
-const subscribers = new Set<() => void>();
-
 function setSearchParams(next: URLSearchParams) {
-  currentSearchParams = next;
-  subscribers.forEach((fn) => fn());
+  const qs = next.toString();
+  window.history.replaceState(
+    null,
+    "",
+    qs ? `${window.location.pathname}?${qs}` : window.location.pathname,
+  );
+  window.dispatchEvent(new Event(EXPLORER_URL_CHANGE_EVENT));
 }
-
-vi.mock("next/navigation", async () => {
-  const [{ useSyncExternalStore }, { act: rtlAct }] = await Promise.all([
-    import("react"),
-    import("@testing-library/react"),
-  ]);
-  return {
-    useRouter: () => ({
-      push: vi.fn(),
-      replace: (url: string, opts?: { scroll?: boolean }) => {
-        replaceMock(url, opts);
-        // Accept both `?foo=bar` and `/path?foo=bar` — the tab now passes
-        // the pathname alongside the query (#1053) because Next.js 16's
-        // `router.replace("?…")` dropped the canonical-URL update.
-        const qIdx = url.indexOf("?");
-        const qs = qIdx >= 0 ? url.slice(qIdx + 1) : "";
-        rtlAct(() => {
-          setSearchParams(new URLSearchParams(qs));
-        });
-      },
-      refresh: vi.fn(),
-      back: vi.fn(),
-      prefetch: vi.fn(),
-    }),
-    usePathname: () => "/units",
-    useSearchParams: () =>
-      useSyncExternalStore(
-        (notify) => {
-          subscribers.add(notify);
-          return () => subscribers.delete(notify);
-        },
-        () => currentSearchParams,
-        () => currentSearchParams,
-      ),
-  };
-});
 
 // Legacy panels are mocked with a visible headline string so the
 // per-sub-tab render check can assert content is actually mounted
@@ -112,14 +78,16 @@ const unit: UnitNode = {
 };
 
 describe("UnitConfigTab — sub-tab layout (QUALITY-unit-config-subtabs)", () => {
+  let replaceStateSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
-    replaceMock.mockClear();
-    act(() => {
-      setSearchParams(new URLSearchParams());
-    });
+    // Reset to a clean /units URL before each test so window.location.pathname
+    // matches production and replaceState calls carry the expected prefix.
+    window.history.replaceState(null, "", "/units");
+    replaceStateSpy = vi.spyOn(window.history, "replaceState");
   });
   afterEach(() => {
-    subscribers.clear();
+    replaceStateSpy.mockRestore();
   });
 
   it("renders the Config container + six sub-tabs (Expertise added by #936)", () => {
@@ -207,25 +175,27 @@ describe("UnitConfigTab — sub-tab layout (QUALITY-unit-config-subtabs)", () =>
     ).toHaveAttribute("aria-selected", "true");
   });
 
-  it("writes ?subtab=<name> via router.replace while preserving node + tab when a sub-tab is clicked", () => {
+  it("writes ?subtab=<name> via replaceState while preserving node + tab when a sub-tab is clicked", () => {
     act(() => {
       setSearchParams(new URLSearchParams("node=engineering&tab=Config"));
     });
+    replaceStateSpy.mockClear();
     render(<UnitConfigTab node={unit} path={[unit]} />);
 
     fireEvent.click(screen.getByRole("tab", { name: "Secrets" }));
 
-    expect(replaceMock).toHaveBeenCalled();
-    const last = replaceMock.mock.calls.at(-1);
-    expect(last?.[0]).toMatch(/subtab=Secrets/);
-    // `node` + `tab` round-trip so the Explorer's deep-link contract
-    // stays intact.
-    expect(last?.[0]).toMatch(/node=engineering/);
-    expect(last?.[0]).toMatch(/tab=Config/);
-    expect(last?.[1]).toEqual({ scroll: false });
-    // #1053: navigation must be a `/path?query` URL, not the bare
-    // `?query` form Next.js 16 silently drops.
-    expect(last?.[0]).toMatch(/^\/units\?/);
+    // Filter to calls that write a subtab (the click handler's replaceState).
+    const subtabCalls = replaceStateSpy.mock.calls.filter(
+      ([, , url]) => typeof url === "string" && (url as string).includes("subtab="),
+    );
+    expect(subtabCalls.length).toBeGreaterThan(0);
+    const url = subtabCalls.at(-1)?.[2] as string;
+    expect(url).toMatch(/subtab=Secrets/);
+    // node + tab round-trip so the Explorer's deep-link contract stays intact.
+    expect(url).toMatch(/node=engineering/);
+    expect(url).toMatch(/tab=Config/);
+    // Must include the pathname, not a bare ?query string.
+    expect(url).toMatch(/^\/units\?/);
   });
 
   it("renders each sub-tab's panel body when that sub-tab is activated", () => {

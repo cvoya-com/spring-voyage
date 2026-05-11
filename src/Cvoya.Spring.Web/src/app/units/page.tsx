@@ -20,6 +20,12 @@ import { UnitExplorer } from "@/components/units/unit-explorer";
 import type { TabName, TreeNode } from "@/components/units/aggregate";
 import { useTenantTree } from "@/lib/api/queries";
 import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
+import {
+  dispatchExplorerUrlChange,
+  getExplorerUrlSnapshot,
+  getServerExplorerUrlSnapshot,
+  subscribeExplorerUrl,
+} from "@/lib/explorer-url";
 
 // Side-effect import — each tab module calls `registerTab(...)` at
 // module top-level (see `src/components/units/tabs/register-all.ts`),
@@ -28,25 +34,6 @@ import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
 // local to the Explorer route means hosted tab bundles stay lazy
 // until a user actually browses to `/units`.
 import "@/components/units/tabs/register-all";
-
-const EXPLORER_URL_CHANGE_EVENT = "spring-voyage:explorer-url-change";
-
-function subscribeExplorerUrl(onStoreChange: () => void): () => void {
-  window.addEventListener("popstate", onStoreChange);
-  window.addEventListener(EXPLORER_URL_CHANGE_EVENT, onStoreChange);
-  return () => {
-    window.removeEventListener("popstate", onStoreChange);
-    window.removeEventListener(EXPLORER_URL_CHANGE_EVENT, onStoreChange);
-  };
-}
-
-function getExplorerUrlSnapshot(): string {
-  return window.location.search;
-}
-
-function getServerExplorerUrlSnapshot(): string {
-  return "";
-}
 
 function UnitExplorerRoute() {
   const pathname = usePathname();
@@ -89,7 +76,7 @@ function UnitExplorerRoute() {
       // native history keeps the URL contract without letting a pending
       // route transition pin the visible tab.
       window.history.replaceState(null, "", target);
-      window.dispatchEvent(new Event(EXPLORER_URL_CHANGE_EVENT));
+      dispatchExplorerUrlChange();
     },
     [searchParams, pathname],
   );
