@@ -890,9 +890,11 @@ Message events (`MessageReceived` / `MessageSent`) always render through the bub
 
 Anything not in the table falls back to the raw event-type string and the `ListTree` icon.
 
-#### 16.6.3 Message-bubble body — address-folding (#2089)
+#### 16.6.3 Message-bubble body — address-folding & structured-payload card (#2089 / #2128)
 
-The chat bubble in `<ThreadEventRow>` renders `event.body` verbatim for `MessageReceived` events, with one transformation applied: any wire-form participant address present inside the body text (`scheme://<guid>`, `scheme:<guid>`, `scheme:id:<uuid>`, dashed or undashed) is folded down to the participant's display name through the shared resolver in `src/components/thread/role.ts` (`renderBodyWithResolvedAddresses` + `buildParticipantNameResolver`). Schemes recognised: `human`, `agent`, `unit`, `tenant`.
+The chat bubble in `<ThreadEventRow>` renders `event.body` verbatim for `MessageReceived` events, with two render-time transformations applied in order: the body is split into an optional leading JSON envelope and the surrounding prose (#2128); the prose half then has any wire-form participant addresses folded down to display names (#2089). Both transformations are pure render-time work; the body in storage is unchanged.
+
+**Address folding (#2089).** Any wire-form participant address present inside the prose text (`scheme://<guid>`, `scheme:<guid>`, `scheme:id:<uuid>`, dashed or undashed) is folded down to the participant's display name through the shared resolver in `src/components/thread/role.ts` (`renderBodyWithResolvedAddresses` + `buildParticipantNameResolver`). Schemes recognised: `human`, `agent`, `unit`, `tenant`.
 
 Why: a weak / noisy LLM may mimic the prompt-format the agent SDK uses to serialise prior turns and emit `[ts] human://<guid>: …` as part of its own reply body. Rendering that verbatim leaks platform-internal addressing into the conversational UI. Folding to the resolved display name is the same contract the participant header uses (#1635 / PR #1643 / #1645): the resolver is a thin pass-through over the server-supplied `ParticipantRef.displayName`.
 
@@ -902,7 +904,21 @@ Rules:
 - The lookup pool is the event's own `source` / `from` / `to` plus the thread's `summary.participants` (when `<ConversationView>` passes them through). Identity matching is on the participant's stable Guid (`idOf`), normalised to undashed lowercase, so dashed and undashed forms compare equal.
 - Unresolvable addresses render as the deleted-sentinel `<unknown>` (matches the server-side `<deleted>` sentinel shape so the voice stays consistent without leaking the raw GUID).
 - Idempotent: the rendered output no longer matches the address regex, so a thread refetch / SSE re-render produces the same string.
-- Storage is unchanged — the body in the database stays raw. This is a render-time transform.
+
+**Structured-payload card (#2128).** When a body's first non-whitespace character is `{` and the leading balanced `{ ... }` segment parses as a JSON **object** (arrays / primitives don't qualify), the row splits the body via `splitBodyIntoStructuredAndProse(body)` and renders:
+
+- The bubble carries the trailing prose only (still address-resolved). When the body is pure JSON the prose is empty and the bubble is omitted entirely so no empty-paragraph artifact appears.
+- A collapsed `<StructuredPayloadCard>` (`src/components/thread/structured-payload-card.tsx`) sits below the bubble in the same flex column. Visual vocabulary mirrors `<ThreadEventCard>` (§16.6.2): `rounded-md border border-border bg-muted/40`, chevron + `Braces` icon + outline badge labelled "Structured payload", expanded state opens a `bg-background/60 border-border/60 font-mono text-[11px]` `<pre>` with the payload pretty-printed at two-space indentation. The card root is a `<section>` with an `aria-label` matching the badge so screen-reader users land on a named landmark; the toggle is a real `<button>` exposing `aria-expanded`.
+
+Why: a weak / noisy LLM may emit a hallucinated tool-call result as a JSON object at the top of its natural-language reply. Rendering that verbatim drowns out the conversational text. Folding it into a collapsed card preserves the context (one click away) without it dominating the bubble.
+
+Rules:
+
+- Detection is **shape-only**. We do not validate the payload against any tool-result schema — that is an SDK-side concern. Anything that round-trips through `JSON.parse` as a top-level object gets the card.
+- The card defaults to **collapsed** so the bubble's prose stays visually dominant. Click (or keyboard activation on the `<button>`) expands; the expanded state pretty-prints with two-space indentation. No syntax highlighting in v0.1 — see `splitBodyIntoStructuredAndProse` for the open follow-up.
+- Idempotent: the prose half no longer starts with `{`, so re-rendering the row (or feeding the prose back through the splitter) is a no-op.
+- Storage is unchanged — the body in the database stays exactly as the agent emitted it. The split is presentational only.
+- Reuse vs fork: `<StructuredPayloadCard>` is a sibling of `<ThreadEventCard>` (§16.6.2), not a wrapper. `<ThreadEventCard>` is shaped around `ThreadEvent` semantics (id / type / severity / source); embedding free-floating JSON inside its slots would have warped the abstraction. The two components share the same visual vocabulary by convention (border / radius / padding / chevron / mono panel) — match, don't fork.
 
 ### 16.7 Global inbox badge (E2.6)
 

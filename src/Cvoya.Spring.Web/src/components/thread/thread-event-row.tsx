@@ -25,9 +25,11 @@ import {
   ROLE_STYLES,
   roleFromEvent,
   runtimeKindOf,
+  splitBodyIntoStructuredAndProse,
   type AddressLike,
   type ConversationRole,
 } from "./role";
+import { StructuredPayloadCard } from "./structured-payload-card";
 
 /**
  * Whether this event type should render as a collapsed call-out by
@@ -157,12 +159,21 @@ export function ThreadEventRow({
   // resolver. The event's own attribution participants are always merged
   // into the lookup so the sender / recipient resolve even on surfaces
   // that don't pass the full thread participants list.
+  //
+  // #2128: a body that starts with a JSON object is split — the leading
+  // envelope is folded into a collapsed structured-payload card below
+  // the bubble, and only the trailing prose flows through the bubble
+  // (still address-resolved). Detection is shape-only and the storage
+  // shape is unchanged; this is purely a render-time transform.
   const rawBody = isMessageReceived && event.body ? event.body : null;
+  const { structured, prose } = rawBody
+    ? splitBodyIntoStructuredAndProse(rawBody)
+    : { structured: null, prose: "" };
   const bodyText =
     rawBody === null
       ? null
       : renderBodyWithResolvedAddresses(
-          rawBody,
+          prose,
           buildParticipantNameResolver([
             event.source,
             event.from,
@@ -170,6 +181,11 @@ export function ThreadEventRow({
             ...(participants ?? []),
           ]),
         );
+  // When the body is a pure JSON envelope (no trailing prose) the bubble
+  // has nothing to say — render only the structured card to avoid an
+  // empty-paragraph artifact. The header (badge / name / timestamp) and
+  // the card both stay in the same column so the row reads as one unit.
+  const hasProseBubble = bodyText === null || bodyText !== "";
 
   // Display name resolution: shared helper passes through the
   // server-supplied `displayName` (#1635 / PR #1643 / #1645). When the
@@ -362,49 +378,58 @@ export function ThreadEventRow({
           {metaToggleButton}
         </div>
 
-        <div
-          className={cn(
-            "rounded-lg px-3 py-2 text-sm shadow-sm",
-            style.bubble,
-          )}
-        >
-          {collapsible ? (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="flex w-full items-center gap-2 text-left"
-              aria-expanded={expanded}
-            >
-              {expanded ? (
-                <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-              )}
-              {role === "tool" && (
-                <Wrench className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              )}
-              <span className="min-w-0 flex-1 truncate">
-                {role === "tool" ? "Tool call" : event.eventType}
-                {event.summary ? ` — ${event.summary}` : ""}
-              </span>
-            </button>
-          ) : (
-            <p className="whitespace-pre-wrap break-words">
-              {bodyText ?? event.summary}
-            </p>
-          )}
-
-          {expanded && collapsible && (
-            <div className="mt-2 space-y-1 rounded border border-black/5 bg-background/40 p-2 text-xs">
+        {hasProseBubble && (
+          <div
+            className={cn(
+              "rounded-lg px-3 py-2 text-sm shadow-sm",
+              style.bubble,
+            )}
+          >
+            {collapsible ? (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="flex w-full items-center gap-2 text-left"
+                aria-expanded={expanded}
+              >
+                {expanded ? (
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                )}
+                {role === "tool" && (
+                  <Wrench className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                )}
+                <span className="min-w-0 flex-1 truncate">
+                  {role === "tool" ? "Tool call" : event.eventType}
+                  {event.summary ? ` — ${event.summary}` : ""}
+                </span>
+              </button>
+            ) : (
               <p className="whitespace-pre-wrap break-words">
-                {event.summary}
+                {bodyText ?? event.summary}
               </p>
-              <p className="text-muted-foreground">
-                {event.eventType} · {event.severity}
-              </p>
-            </div>
-          )}
-        </div>
+            )}
+
+            {expanded && collapsible && (
+              <div className="mt-2 space-y-1 rounded border border-black/5 bg-background/40 p-2 text-xs">
+                <p className="whitespace-pre-wrap break-words">
+                  {event.summary}
+                </p>
+                <p className="text-muted-foreground">
+                  {event.eventType} · {event.severity}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {structured && (
+          <StructuredPayloadCard
+            payload={structured}
+            testIdPrefix={`${testIdPrefix}-${event.id}-payload`}
+          />
+        )}
 
         {metaPanel}
         {activityLinkFooter}

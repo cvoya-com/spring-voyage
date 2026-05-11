@@ -11,6 +11,7 @@ import {
   ROLE_STYLES,
   roleFromEvent,
   sameIdentity,
+  splitBodyIntoStructuredAndProse,
 } from "./role";
 
 describe("parseThreadSource", () => {
@@ -459,5 +460,103 @@ describe("buildParticipantNameResolver + renderBodyWithResolvedAddresses", () =>
         resolve,
       ),
     ).toBe("<unknown>");
+  });
+});
+
+// #2128: shape-only detection of a leading JSON envelope inside a body.
+// Pure helper, callable in isolation by anything that needs the same
+// split (the row, future tests, future surfaces). The helper does not
+// validate the payload against any tool-result schema — it is a render
+// affordance, not a semantic claim.
+describe("splitBodyIntoStructuredAndProse", () => {
+  it("returns null structured + raw prose when the body is empty", () => {
+    expect(splitBodyIntoStructuredAndProse("")).toEqual({
+      structured: null,
+      prose: "",
+    });
+  });
+
+  it("returns null structured + raw prose for a body that doesn't start with `{`", () => {
+    expect(splitBodyIntoStructuredAndProse("hello there")).toEqual({
+      structured: null,
+      prose: "hello there",
+    });
+  });
+
+  it("splits a body whose first non-whitespace token is a parseable JSON object", () => {
+    const body = '{"a":1} hello';
+    expect(splitBodyIntoStructuredAndProse(body)).toEqual({
+      structured: { a: 1 },
+      prose: "hello",
+    });
+  });
+
+  it("tolerates leading whitespace before the JSON envelope", () => {
+    const body = '   \n{"a":1}\n\nrest';
+    expect(splitBodyIntoStructuredAndProse(body)).toEqual({
+      structured: { a: 1 },
+      prose: "rest",
+    });
+  });
+
+  it("returns the parsed object and an empty prose when the body is pure JSON", () => {
+    const body = '{"a":1, "b":[1,2,3]}';
+    expect(splitBodyIntoStructuredAndProse(body)).toEqual({
+      structured: { a: 1, b: [1, 2, 3] },
+      prose: "",
+    });
+  });
+
+  it("returns null structured when the leading `{` doesn't parse", () => {
+    const body = "{not valid json}";
+    expect(splitBodyIntoStructuredAndProse(body)).toEqual({
+      structured: null,
+      prose: body,
+    });
+  });
+
+  it("returns null structured for a leading JSON array (not an object)", () => {
+    // Arrays are far less likely to be tool envelopes; we only fold
+    // top-level objects to keep the heuristic conservative.
+    const body = '[1,2,3] reply';
+    expect(splitBodyIntoStructuredAndProse(body)).toEqual({
+      structured: null,
+      prose: body,
+    });
+  });
+
+  it("respects strings that contain `}` characters when scanning the envelope", () => {
+    // Without proper string-aware scanning the inner `}` would close the
+    // top-level object early and JSON.parse would fail on the truncated
+    // slice — a regression vector for any body that includes braces in
+    // string values.
+    const body = '{"x":"a}b","y":1} prose';
+    expect(splitBodyIntoStructuredAndProse(body)).toEqual({
+      structured: { x: "a}b", y: 1 },
+      prose: "prose",
+    });
+  });
+
+  it("respects nested objects", () => {
+    const body = '{"outer":{"inner":{"deep":true}}} done';
+    expect(splitBodyIntoStructuredAndProse(body)).toEqual({
+      structured: { outer: { inner: { deep: true } } },
+      prose: "done",
+    });
+  });
+
+  it("is idempotent — feeding the prose half back returns the same prose", () => {
+    const body = '{"a":1} hello there';
+    const first = splitBodyIntoStructuredAndProse(body);
+    const second = splitBodyIntoStructuredAndProse(first.prose);
+    expect(second).toEqual({ structured: null, prose: "hello there" });
+  });
+
+  it("returns null structured when a leading `{` is never closed", () => {
+    const body = '{"a":1';
+    expect(splitBodyIntoStructuredAndProse(body)).toEqual({
+      structured: null,
+      prose: body,
+    });
   });
 });
