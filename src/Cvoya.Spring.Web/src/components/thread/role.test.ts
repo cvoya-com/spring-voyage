@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   addressOf,
+  buildParticipantNameResolver,
   idOf,
   isHumanAddress,
   parseThreadSource,
   participantDisplayName,
+  renderBodyWithResolvedAddresses,
   ROLE_STYLES,
   roleFromEvent,
   sameIdentity,
@@ -289,5 +291,173 @@ describe("participantDisplayName", () => {
     // through a navigation-form heuristic — the portal expects a
     // ParticipantRef with a server-resolved displayName.
     expect(participantDisplayName("agent://ada")).toBeNull();
+  });
+});
+
+// #2089 — body-text address-folding. A weak / noisy LLM may mimic the
+// prompt-format the agent SDK uses for prior turns and emit
+// `[ts] human://<guid>: …` inside its own reply body. The portal folds
+// every `scheme:[//]<guid>` form down to the participant's display
+// name so platform-internal addressing doesn't leak into the chat UI.
+describe("buildParticipantNameResolver + renderBodyWithResolvedAddresses", () => {
+  const SAVAS = {
+    id: "d6cb6b9d-436f-41d5-9927-f333f309abeb",
+    address: "human:d6cb6b9d436f41d59927f333f309abeb",
+    displayName: "Savas",
+  };
+  const ADA = {
+    id: "8c5fab2a-8e7e-4b9c-92f1-d8a3b4c5d6e7",
+    address: "agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7",
+    displayName: "ada",
+  };
+
+  it("folds the canonical post-#1629 `scheme://<32-hex>` form", () => {
+    const resolve = buildParticipantNameResolver([SAVAS]);
+    expect(
+      renderBodyWithResolvedAddresses(
+        "human://d6cb6b9d436f41d59927f333f309abeb: hi",
+        resolve,
+      ),
+    ).toBe("Savas: hi");
+  });
+
+  it("folds the colon-only canonical form `scheme:<32-hex>`", () => {
+    const resolve = buildParticipantNameResolver([SAVAS]);
+    expect(
+      renderBodyWithResolvedAddresses(
+        "ping human:d6cb6b9d436f41d59927f333f309abeb",
+        resolve,
+      ),
+    ).toBe("ping Savas");
+  });
+
+  it("folds the dashed-uuid path form", () => {
+    const resolve = buildParticipantNameResolver([SAVAS]);
+    expect(
+      renderBodyWithResolvedAddresses(
+        "human://d6cb6b9d-436f-41d5-9927-f333f309abeb says hi",
+        resolve,
+      ),
+    ).toBe("Savas says hi");
+  });
+
+  it("folds the explicit `scheme:id:<dashed-uuid>` identity form", () => {
+    const resolve = buildParticipantNameResolver([SAVAS]);
+    expect(
+      renderBodyWithResolvedAddresses(
+        "ack human:id:d6cb6b9d-436f-41d5-9927-f333f309abeb done",
+        resolve,
+      ),
+    ).toBe("ack Savas done");
+  });
+
+  it("folds multiple addresses in the same body", () => {
+    const resolve = buildParticipantNameResolver([SAVAS, ADA]);
+    expect(
+      renderBodyWithResolvedAddresses(
+        "human://d6cb6b9d436f41d59927f333f309abeb to agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7",
+        resolve,
+      ),
+    ).toBe("Savas to ada");
+  });
+
+  it("preserves surrounding prose and whitespace verbatim", () => {
+    const resolve = buildParticipantNameResolver([SAVAS]);
+    const before = `[2026-05-10 20:54:39Z] human://d6cb6b9d436f41d59927f333f309abeb: can you check?`;
+    expect(renderBodyWithResolvedAddresses(before, resolve)).toBe(
+      "[2026-05-10 20:54:39Z] Savas: can you check?",
+    );
+  });
+
+  it("renders <unknown> when the address cannot be resolved", () => {
+    const resolve = buildParticipantNameResolver([]);
+    expect(
+      renderBodyWithResolvedAddresses(
+        "human://d6cb6b9d436f41d59927f333f309abeb",
+        resolve,
+      ),
+    ).toBe("<unknown>");
+  });
+
+  it("passes through the server-supplied <deleted> sentinel", () => {
+    const resolve = buildParticipantNameResolver([
+      {
+        id: "d6cb6b9d-436f-41d5-9927-f333f309abeb",
+        address: "human:d6cb6b9d436f41d59927f333f309abeb",
+        displayName: "<deleted>",
+      },
+    ]);
+    expect(
+      renderBodyWithResolvedAddresses(
+        "human://d6cb6b9d436f41d59927f333f309abeb left",
+        resolve,
+      ),
+    ).toBe("<deleted> left");
+  });
+
+  it("is idempotent over already-rendered bodies", () => {
+    const resolve = buildParticipantNameResolver([SAVAS]);
+    const once = renderBodyWithResolvedAddresses(
+      "human://d6cb6b9d436f41d59927f333f309abeb",
+      resolve,
+    );
+    expect(renderBodyWithResolvedAddresses(once, resolve)).toBe(once);
+  });
+
+  it("ignores tokens that look like addresses but have a wrong-length path", () => {
+    const resolve = buildParticipantNameResolver([SAVAS]);
+    // not 32-hex and not a dashed UUID — should not be touched.
+    expect(
+      renderBodyWithResolvedAddresses(
+        "see http://human:abcd or human:notaguid",
+        resolve,
+      ),
+    ).toBe("see http://human:abcd or human:notaguid");
+  });
+
+  it("supports unit:// and tenant:// scheme prefixes", () => {
+    const unit = {
+      id: "11111111-2222-3333-4444-555555555555",
+      address: "unit:11111111222233334444555555555555",
+      displayName: "engineering",
+    };
+    const tenant = {
+      id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      address: "tenant:aaaaaaaabbbbccccddddeeeeeeeeeeee",
+      displayName: "Acme",
+    };
+    const resolve = buildParticipantNameResolver([unit, tenant]);
+    expect(
+      renderBodyWithResolvedAddresses(
+        "owner unit://11111111222233334444555555555555 in tenant://aaaaaaaabbbbccccddddeeeeeeeeeeee",
+        resolve,
+      ),
+    ).toBe("owner engineering in Acme");
+  });
+
+  it("returns the body unchanged when the resolver finds no addresses", () => {
+    const resolve = buildParticipantNameResolver([SAVAS]);
+    expect(renderBodyWithResolvedAddresses("just prose", resolve)).toBe(
+      "just prose",
+    );
+  });
+
+  it("returns an empty string for an empty body", () => {
+    const resolve = buildParticipantNameResolver([]);
+    expect(renderBodyWithResolvedAddresses("", resolve)).toBe("");
+  });
+
+  it("skips participants without an id (legacy plain-string entries)", () => {
+    // Plain-string participants have no stable id; the resolver cannot
+    // key them, so the address falls through to the <unknown> sentinel.
+    const resolve = buildParticipantNameResolver([
+      "human://d6cb6b9d436f41d59927f333f309abeb",
+    ]);
+    expect(
+      renderBodyWithResolvedAddresses(
+        "human://d6cb6b9d436f41d59927f333f309abeb",
+        resolve,
+      ),
+    ).toBe("<unknown>");
   });
 });

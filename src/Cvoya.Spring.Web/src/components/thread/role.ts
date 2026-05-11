@@ -224,6 +224,118 @@ export interface RoleStyle {
   label: string;
 }
 
+/**
+ * Regex that matches every wire-form participant address Spring has
+ * emitted, in any of the four shapes ADR-0036 / pre-#1629 lets through:
+ *
+ *   - canonical post-#1629:  `scheme:<32-hex>`
+ *   - navigation-form:       `scheme://<32-hex>`
+ *   - explicit identity:     `scheme:id:<dashed-uuid>` or `scheme:id:<32-hex>`
+ *   - dashed-uuid path:      `scheme://<dashed-uuid>` (legacy slug)
+ *
+ * The scheme must be one of the address schemes the platform's
+ * directory resolver understands (`human` / `agent` / `unit` / `tenant`).
+ * The leading boundary is asserted with a non-capturing lookbehind on a
+ * non-word character so we don't replace inside larger tokens (URLs,
+ * package names, etc).
+ *
+ * Used by {@link renderBodyWithResolvedAddresses} to fold raw addresses
+ * inside message bodies down to display names — extending the
+ * server-side ParticipantRef resolver (#1635 / #1645) to body text so a
+ * weak LLM that mimics the prompt-format and emits e.g.
+ * `human://<guid>: …` doesn't leak the platform's addressing scheme
+ * into the chat UI (#2089).
+ */
+const ADDRESS_FORM_REGEX =
+  /(?<![A-Za-z0-9_])(human|agent|unit|tenant)(:\/\/|:id:|:)([0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b/g;
+
+/**
+ * Folds every raw `scheme:<guid>` / `scheme://<guid>` / `scheme:id:<uuid>`
+ * occurrence inside a body string down to its resolved display name
+ * (#2089). The resolver is supplied by the caller — typically the thread
+ * row, which has the event's `source` / `from` / `to` ParticipantRefs
+ * plus the thread's participant list; consumers map the address (with
+ * its scheme prefix) to a `displayName` lookup.
+ *
+ * Rules:
+ *  - When the resolver returns a non-null string, that string replaces
+ *    the address in the rendered output (no link, no chip — keep it
+ *    conversational).
+ *  - When the resolver returns `null`, render the deleted-sentinel
+ *    `<unknown>` (matches the server-side `<deleted>` shape so the UI
+ *    voice stays consistent without leaking the raw GUID).
+ *  - Surrounding text and whitespace are preserved; the function is
+ *    idempotent over already-rendered bodies because the replaced text
+ *    no longer matches {@link ADDRESS_FORM_REGEX}.
+ *
+ * Returns the rendered string. Callers wrap it in a `<p>` (or whatever
+ * paragraph element they use); we do not emit React nodes here so the
+ * helper stays trivially testable.
+ */
+export function renderBodyWithResolvedAddresses(
+  body: string,
+  resolveDisplayName: (address: string) => string | null,
+): string {
+  if (!body) return body;
+  return body.replace(ADDRESS_FORM_REGEX, (match) => {
+    const resolved = resolveDisplayName(match);
+    return resolved ?? "<unknown>";
+  });
+}
+
+/**
+ * Builds an address → display-name resolver from a list of
+ * `ParticipantRef`-shaped values. The lookup is keyed on the
+ * participant's stable Guid identity (lowercase, undashed) so the same
+ * resolver matches every wire-form address Spring has emitted for the
+ * same actor — `human://savas`, `human:11111111…`,
+ * `human:id:11111111-1111-…`, `human://11111111-1111-…`.
+ *
+ * The lookup uses {@link idOf} as the key normaliser; entries without
+ * an id (legacy plain-string participants) are skipped because there is
+ * no stable primitive to match on. Callers needing to resolve those
+ * shapes should match by address-string equality at the call site.
+ *
+ * Returns a function suitable for passing to
+ * {@link renderBodyWithResolvedAddresses}: given a raw address string
+ * found inside a message body, returns the participant's
+ * `displayName` (or `null` when no match is found, so the caller can
+ * fall back to its preferred sentinel).
+ */
+export function buildParticipantNameResolver(
+  participants: ReadonlyArray<AddressLike>,
+): (address: string) => string | null {
+  // Normalise each known participant's id into the 32-char no-dash form
+  // so the lookup matches any wire shape the body might carry.
+  const byNormalisedId = new Map<string, string>();
+  for (const p of participants) {
+    const id = idOf(p);
+    if (!id) continue;
+    const display = participantDisplayName(p);
+    if (!display) continue;
+    byNormalisedId.set(normaliseGuid(id), display);
+  }
+
+  return (rawAddress: string): string | null => {
+    const parsed = parseThreadSource(rawAddress);
+    const normalised = normaliseGuid(parsed.path);
+    if (!normalised) return null;
+    return byNormalisedId.get(normalised) ?? null;
+  };
+}
+
+/**
+ * Strips the dashes and lowercases a GUID-shaped string so dashed and
+ * undashed forms compare equal. Returns the empty string when the input
+ * is not GUID-shaped (so callers using the result as a Map key get a
+ * deterministic miss rather than a partial match).
+ */
+function normaliseGuid(value: string): string {
+  if (!value) return "";
+  const stripped = value.replace(/-/g, "").toLowerCase();
+  return /^[0-9a-f]{32}$/.test(stripped) ? stripped : "";
+}
+
 export const ROLE_STYLES: Record<ConversationRole, RoleStyle> = {
   human: {
     align: "end",
