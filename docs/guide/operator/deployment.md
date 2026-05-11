@@ -1,6 +1,6 @@
 # Deployment
 
-This guide walks an operator from zero to a working single-host Spring Voyage deployment using Docker Compose or Podman. Kubernetes and multi-region deployments are covered in the Spring Voyage Cloud repository; this guide targets the open-source single-host scenario (workstation, home server, or a VPS).
+This guide walks an operator from zero to a working single-host Spring Voyage deployment using Docker Compose or Podman. Kubernetes and multi-region deployments are covered in the Spring Voyage Cloud repository; this guide targets the open-source single-host scenario (workstation, home server, or single server).
 
 For the architectural picture read [Architecture — Deployment](../../architecture/deployment.md) and [Architecture — Infrastructure](../../architecture/infrastructure.md) first. Operator tasks above provisioning (backups, DataProtection keys, migrations) live in [Developer — Operations](../../developer/operations.md).
 
@@ -104,20 +104,31 @@ Volumes persist across `down`/`up` cycles; `docker volume rm` clears them. To us
 cd deployment/
 cp spring.env.example spring.env && $EDITOR spring.env
 
-./deploy.sh build              # build platform + agent images
+./build.sh                     # build platform + agent images
+./build.sh clean               # remove local Spring Voyage image refs
 ./deploy.sh up                 # create network, start stack
 ./deploy.sh status             # list running containers
 ./deploy.sh logs spring-api    # tail one service
 ./deploy.sh down               # stop (volumes preserved)
+./deploy.sh clean              # destructive reset: containers, volumes, networks, local images
 ./deploy.sh restart            # down + up
 ```
+
+For host-installed Ollama, use `./deploy.sh up --local-ollama`; add
+`--ollama-port <port>` or `--ollama-endpoint <host-or-url>` when the
+service is not reachable on the default `127.0.0.1:11434` host port. Host mode
+removes any stale `spring-ollama` container and generates a delegated-agent
+Dapr component profile so Spring Voyage agent sidecars use the same host
+endpoint as the platform containers. Missing Ollama models are pulled by the
+`spring-voyage` agent runtime on first use unless `SPRING_OLLAMA_AUTO_PULL=false`
+is set for the agent.
 
 Rootless notes:
 - Podman 4.4+ required.
 - Ports 80 and 443 need `CAP_NET_BIND_SERVICE` or `net.ipv4.ip_unprivileged_port_start` lowered.
 - `host.containers.internal` requires Podman 4.1+ on Linux; older versions get `--add-host` added automatically.
 
-See `deployment/README.md` for remote deploy, per-user agent networks, and webhook relay.
+See `deployment/README.md` for per-user agent networks and webhook relay.
 
 ## Dapr components
 
@@ -384,5 +395,5 @@ If agents still cannot reach the host, confirm the per-user bridge network exist
 - [Developer — Setup](../../developer/setup.md) — local dev loop without containers (`dapr run` + `dotnet run`).
 - [Developer — Operations](../../developer/operations.md) — migrations, DataProtection keys, backups.
 - [Developer — Secret store](../../developer/secret-store.md) — per-agent / per-unit secret scoping and rotation.
-- [`deployment/README.md`](../../../deployment/README.md) — the deploy.sh reference, remote deploys, webhook relay.
+- [`deployment/README.md`](../../../deployment/README.md) — the build/deploy script reference, per-user agent networks, webhook relay.
 - [`dapr/README.md`](../../../dapr/README.md) — Dapr component and configuration reference.

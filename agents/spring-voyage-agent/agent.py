@@ -26,10 +26,9 @@ below are still honoured for backwards-compatibility with existing
 deployments:
 
   SPRING_MODEL          — LLM model name (default: llama3.2:3b). The
-                          Dapr Conversation component reads the model
-                          from its own metadata (deployed
-                          llm-*.yaml); SPRING_MODEL is kept
-                          here for telemetry / agent-card rendering.
+                          platform also propagates this into the paired
+                          daprd sidecar so llm-*.yaml can resolve it
+                          through secretstores.local.env.
   SPRING_LLM_PROVIDER   — Provider type label for telemetry / agent
                           card description (e.g. ``ollama``, ``openai``).
                           The actual Dapr Conversation component name is
@@ -49,6 +48,10 @@ deployments:
                           against runaway loops without imposing a wall
                           clock that would fight the upstream LLM
                           timeout.
+  SPRING_OLLAMA_AUTO_PULL — When provider is ``ollama``, pull the requested
+                          SPRING_MODEL at first message time if the local
+                          Ollama server does not already have it
+                          (default: true).
 
   The MCP endpoint and token are read from IAgentContext
   (SPRING_MCP_URL / SPRING_MCP_TOKEN) — the canonical D1-spec names
@@ -62,6 +65,8 @@ import asyncio
 import json
 import logging
 import os
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from typing import List
 
@@ -95,6 +100,7 @@ _agent_build: "AgentBuild | None" = None
 # Module-level reference to the IAgentContext from initialize().  on_message
 # uses it to resolve the per-thread workspace path (ADR-0041).
 _agent_context: IAgentContext | None = None
+_ollama_model_lock = asyncio.Lock()
 
 
 @dataclass
@@ -105,6 +111,11 @@ class AgentBuild:
     tools: List[AgentTool]
     system_prompt: str
     tools_by_name: dict[str, AgentTool]
+    provider: str = ""
+    model: str = ""
+    llm_provider_url: str = ""
+    ollama_auto_pull: bool = True
+    ollama_model_ready: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +143,7 @@ async def initialize(context: IAgentContext) -> None:
 
     model = os.environ.get("SPRING_MODEL", "llama3.2:3b")
     provider = os.environ.get("SPRING_LLM_PROVIDER", "ollama")
+    llm_provider_url = _string_attr(context, "llm_provider_url") or os.environ.get("SPRING_LLM_PROVIDER_URL", "")
     component_name = os.environ.get("SPRING_LLM_COMPONENT")
     if not component_name:
         # The launcher always sets SPRING_LLM_COMPONENT to `llm-<provider>`
@@ -184,6 +196,10 @@ async def initialize(context: IAgentContext) -> None:
         tools=tools,
         system_prompt=system_prompt,
         tools_by_name=tools_by_name,
+        provider=provider,
+        model=model,
+        llm_provider_url=llm_provider_url,
+        ollama_auto_pull=_env_bool("SPRING_OLLAMA_AUTO_PULL", default=True),
     )
 
 
@@ -228,6 +244,7 @@ async def on_message(message: Message):
         )
 
     try:
+        await _ensure_configured_model(_agent_build)
         result_text = await _run_agentic_loop(_agent_build, user_text)
         if not result_text:
             # An empty result means the loop exited without producing any
@@ -480,6 +497,120 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
             f"terminal response. Last assistant content: {fallback!r}"
         )
     raise RuntimeError(f"Agent loop exhausted {max_steps} steps without producing any assistant content.")
+
+
+async def _ensure_configured_model(build: AgentBuild) -> None:
+    """Perform provider-specific model readiness checks before the first turn."""
+    if build.provider.lower() != "ollama" or not build.ollama_auto_pull or build.ollama_model_ready:
+        return
+
+    async with _ollama_model_lock:
+        if build.ollama_model_ready:
+            return
+
+        await _ensure_ollama_model(build.model, build.llm_provider_url)
+        build.ollama_model_ready = True
+
+
+async def _ensure_ollama_model(model: str, provider_url: str) -> None:
+    """Ensure the requested Ollama model exists, pulling it on demand."""
+    if not model:
+        raise RuntimeError("SPRING_MODEL is empty; cannot request an Ollama model.")
+
+    base_url = _ollama_api_base_url(provider_url)
+    if not base_url:
+        raise RuntimeError("SPRING_LLM_PROVIDER_URL is empty; cannot check or pull the requested Ollama model.")
+
+    await asyncio.to_thread(_ensure_ollama_model_sync, model, base_url)
+
+
+def _ensure_ollama_model_sync(model: str, base_url: str) -> None:
+    show_timeout = _env_int("SPRING_OLLAMA_SHOW_TIMEOUT_SECONDS", default=10)
+    pull_timeout = _env_int("SPRING_OLLAMA_PULL_TIMEOUT_SECONDS", default=1800)
+
+    try:
+        _post_ollama_json(base_url, "/api/show", {"model": model}, timeout_seconds=show_timeout)
+        logger.info("Ollama model %s is already available at %s", model, base_url)
+        return
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise RuntimeError(
+                f"Ollama model check failed for {model!r} at {base_url}: {_http_error_summary(exc)}"
+            ) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Could not reach Ollama at {base_url} to check model {model!r}: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise RuntimeError(f"Timed out checking Ollama model {model!r} at {base_url}.") from exc
+
+    logger.info("Ollama model %s is not installed at %s; pulling it now", model, base_url)
+    try:
+        _post_ollama_json(base_url, "/api/pull", {"model": model, "stream": False}, timeout_seconds=pull_timeout)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            f"Ollama model {model!r} is not installed and automatic pull failed: {_http_error_summary(exc)}. "
+            "Verify the model name, or pull/create it on the Ollama host."
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"Ollama model {model!r} is not installed and automatic pull could not reach {base_url}: {exc.reason}"
+        ) from exc
+    except TimeoutError as exc:
+        raise RuntimeError(
+            f"Timed out pulling Ollama model {model!r} from {base_url}. "
+            "The pull may still be running on the Ollama host; retry the agent turn after it completes."
+        ) from exc
+
+    logger.info("Ollama model %s was pulled successfully from %s", model, base_url)
+
+
+def _post_ollama_json(base_url: str, path: str, payload: dict, *, timeout_seconds: int) -> str:
+    data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base_url}{path}",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        return response.read().decode("utf-8", errors="replace")
+
+
+def _ollama_api_base_url(provider_url: str) -> str:
+    base_url = provider_url.strip().rstrip("/")
+    if base_url.endswith("/v1"):
+        base_url = base_url[: -len("/v1")]
+    return base_url.rstrip("/")
+
+
+def _http_error_summary(exc: urllib.error.HTTPError) -> str:
+    body = exc.read().decode("utf-8", errors="replace").strip()
+    if body:
+        return f"HTTP {exc.code}: {body}"
+    return f"HTTP {exc.code}"
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _env_int(name: str, *, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        logger.warning("Ignoring invalid integer env var %s=%r; using %d", name, value, default)
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _string_attr(obj: object, name: str) -> str:
+    value = getattr(obj, name, "")
+    return value if isinstance(value, str) else ""
 
 
 def _resolve_tool_name(tool: AgentTool, fallback: str) -> str:

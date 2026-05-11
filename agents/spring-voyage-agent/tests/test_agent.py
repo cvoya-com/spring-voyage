@@ -13,6 +13,8 @@ These tests cover:
 
 from __future__ import annotations
 
+import io
+import urllib.error
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,6 +31,9 @@ from spring_voyage_agent_sdk.types import Sender
 import agent as agent_module
 from agent import (
     AgentBuild,
+    _ensure_configured_model,
+    _ensure_ollama_model_sync,
+    _ollama_api_base_url,
     _run_agentic_loop,
     initialize,
     on_message,
@@ -83,11 +88,13 @@ def _make_context(
     *,
     mcp_url: str = "",
     mcp_token: str = "",
+    llm_provider_url: str = "",
     agent_definition: dict | None = None,
 ) -> MagicMock:
     ctx = MagicMock()
     ctx.mcp_url = mcp_url
     ctx.mcp_token = mcp_token
+    ctx.llm_provider_url = llm_provider_url
     ctx.agent_definition = agent_definition or {}
     return ctx
 
@@ -250,9 +257,11 @@ class TestInitializeHook:
         monkeypatch.delenv("SPRING_AGENT_TOKEN", raising=False)
         # ADR-0038: SPRING_LLM_COMPONENT is required — the launcher always
         # pins `llm-<provider>` and there is no silent default.
+        monkeypatch.setenv("SPRING_MODEL", "qwen2.5:7b")
+        monkeypatch.setenv("SPRING_LLM_PROVIDER", "ollama")
         monkeypatch.setenv("SPRING_LLM_COMPONENT", "llm-ollama")
 
-        ctx = _make_context()
+        ctx = _make_context(llm_provider_url="http://ollama:11434/v1")
 
         with patch("agent.DaprChatClient") as mock_client_cls:
             mock_client_cls.return_value = MagicMock()
@@ -260,6 +269,9 @@ class TestInitializeHook:
 
         assert agent_module._agent_build is not None
         assert agent_module._agent_build.tools == []
+        assert agent_module._agent_build.provider == "ollama"
+        assert agent_module._agent_build.model == "qwen2.5:7b"
+        assert agent_module._agent_build.llm_provider_url == "http://ollama:11434/v1"
         # Component name comes from SPRING_LLM_COMPONENT (no default fallback).
         mock_client_cls.assert_called_once_with(component_name="llm-ollama")
 
@@ -336,6 +348,73 @@ class TestInitializeHook:
         assert agent_module._agent_build is not None
         assert len(agent_module._agent_build.tools) == 1
         assert agent_module._agent_build.tools_by_name["list-files"] is proxy
+
+
+class TestOllamaModelReadiness:
+    def test_ollama_api_base_url_strips_openai_suffix(self):
+        assert _ollama_api_base_url("http://ollama:11434/v1") == "http://ollama:11434"
+        assert _ollama_api_base_url("http://ollama:11434/v1/") == "http://ollama:11434"
+        assert _ollama_api_base_url("http://ollama:11434") == "http://ollama:11434"
+
+    @pytest.mark.asyncio
+    async def test_ensure_configured_model_pulls_ollama_once(self):
+        build = AgentBuild(
+            llm=MagicMock(),
+            tools=[],
+            system_prompt="",
+            tools_by_name={},
+            provider="ollama",
+            model="qwen2.5:7b",
+            llm_provider_url="http://ollama:11434/v1",
+        )
+
+        with patch("agent._ensure_ollama_model", new_callable=AsyncMock) as mock_ensure:
+            await _ensure_configured_model(build)
+            await _ensure_configured_model(build)
+
+        mock_ensure.assert_awaited_once_with("qwen2.5:7b", "http://ollama:11434/v1")
+        assert build.ollama_model_ready is True
+
+    @pytest.mark.asyncio
+    async def test_ensure_configured_model_skips_non_ollama_provider(self):
+        build = AgentBuild(
+            llm=MagicMock(),
+            tools=[],
+            system_prompt="",
+            tools_by_name={},
+            provider="openai",
+            model="gpt-4o",
+            llm_provider_url="https://api.openai.com/v1",
+        )
+
+        with patch("agent._ensure_ollama_model", new_callable=AsyncMock) as mock_ensure:
+            await _ensure_configured_model(build)
+
+        mock_ensure.assert_not_awaited()
+        assert build.ollama_model_ready is False
+
+    def test_missing_ollama_model_triggers_pull(self):
+        calls: list[tuple[str, dict]] = []
+
+        def fake_post(_base_url: str, path: str, payload: dict, *, timeout_seconds: int) -> str:
+            calls.append((path, payload))
+            if path == "/api/show":
+                raise urllib.error.HTTPError(
+                    url="http://ollama:11434/api/show",
+                    code=404,
+                    msg="not found",
+                    hdrs={},
+                    fp=io.BytesIO(b'{"error":"model not found"}'),
+                )
+            return "{}"
+
+        with patch("agent._post_ollama_json", side_effect=fake_post):
+            _ensure_ollama_model_sync("qwen2.5:7b", "http://ollama:11434")
+
+        assert calls == [
+            ("/api/show", {"model": "qwen2.5:7b"}),
+            ("/api/pull", {"model": "qwen2.5:7b", "stream": False}),
+        ]
 
 
 class TestOnMessageHook:

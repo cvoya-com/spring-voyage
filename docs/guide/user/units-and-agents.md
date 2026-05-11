@@ -231,7 +231,7 @@ OSS launchers (Claude Code, Codex, Gemini) use path 1; Dapr Agent uses path 3. S
 | `ghcr.io/cvoya-com/spring-voyage-agent:latest` | 3 | `spring-voyage-agent` | Yes — after `./deployment/build-agent-images.sh` runs |
 | `ghcr.io/cvoya-com/agent-base:<semver>` | 1 base | (none) | No — use as a `FROM` base, not as a dispatch target |
 
-`./deploy.sh build` runs `build-agent-images.sh` for you.
+`./deployment/build.sh` runs `build-agent-images.sh` for you.
 
 ## Persistent Agents
 

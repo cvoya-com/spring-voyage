@@ -164,9 +164,9 @@ Pre-release tags (e.g., `v0.1.0-alpha.20260504`) push only the immutable version
 
 The tag pushed to the container registry has the leading `v` stripped (e.g., git tag `v0.1.0` → image tag `0.1.0`).
 
-### Local and VPS deployment
+### Local deployment
 
-`deployment/deploy.sh` and `deployment/deploy-remote.sh` build images locally with Podman on the target host. The local build writes the same canonical GHCR refs that release builds publish, so the dispatcher can resolve runtime defaults from the local image store before any registry pull.
+`deployment/build.sh` builds images locally with Podman. The local build writes the same canonical GHCR refs that release builds publish, so the dispatcher can resolve runtime defaults from the local image store before any registry pull.
 
 ## Changelog
 

@@ -81,6 +81,26 @@ public class RuntimeInvocationPathTests
     }
 
     [Fact]
+    public async Task InvokeAsync_LeanOverload_DetachesDispatchFromCallerCancellation()
+    {
+        var subject = MakeAgent("test-agent");
+        var inbound = MakeMessage(MakeAgent("test-sender"), subject);
+        var path = MakePath();
+
+        using var requestCts = new CancellationTokenSource();
+
+        await path.InvokeAsync(subject, inbound, requestCts.Token);
+
+        await _dispatchCoordinator.Received(1).RunDispatchAsync(
+            agentId: subject.Path,
+            message: inbound,
+            context: Arg.Any<PromptAssemblyContext>(),
+            emitActivity: Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            onDispatchExit: Arg.Any<Func<string, Task>>(),
+            cancellationToken: Arg.Is<CancellationToken>(ct => !ct.CanBeCanceled));
+    }
+
+    [Fact]
     public async Task InvokeAsync_LeanOverload_PullsAgentInstructionsFromDefinition()
     {
         var subject = MakeAgent("test-agent");

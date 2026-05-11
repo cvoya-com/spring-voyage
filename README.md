@@ -21,7 +21,7 @@ For the full mental model, see the [Concepts overview](docs/concepts/overview.md
 
 - [User Guide](docs/guide/overview.md) — using the `spring` CLI and web portal ([Getting Started](docs/guide/intro/getting-started.md))
 - [Developer Guide](docs/developer/overview.md) — building, running, and contributing to the platform ([Setup](docs/developer/setup.md), [Operations](docs/developer/operations.md))
-- [Deployment Guide](docs/guide/deployment.md) — self-hosting on Docker Compose or Podman (zero-to-running, TLS, secrets, updates)
+- [Deployment Guide](docs/guide/operator/deployment.md) — self-hosting on Docker Compose or Podman (zero-to-running, TLS, secrets, updates)
 - [Architecture](docs/architecture/README.md) — how the concepts are realized as a running system
 - [Documentation index](docs/README.md) — concepts, architecture, user guide, developer guide, and reference
 
@@ -89,7 +89,7 @@ unset, the GitHub connector registers in a *disabled with reason* state and
 `GET /api/v1/connectors/github/actions/list-installations` returns a
 structured `404` the portal and CLI render as "GitHub App not configured"
 (issue #609). Set them when you are ready to use the GitHub connector; see
-[`docs/guide/deployment.md § Optional — connector credentials`](docs/guide/deployment.md#optional--connector-credentials)
+[`docs/guide/operator/deployment.md § Tier-1 platform credentials`](docs/guide/operator/deployment.md#tier-1-platform-credentials--github-app-identity-env-only)
 for the expected shape (PEM contents, not a path).
 
 **First-run GitHub bootstrap — recommended path.** Instead of walking the
@@ -146,7 +146,7 @@ For Dapr component layout (local vs. production profiles, secret stores, configs
 
 ## Self-Hosting
 
-To run the full stack (Postgres, Redis, Dapr control plane, API, Worker, web dashboard, Caddy with automatic TLS) on a single workstation or VPS, use the container-based deployment under [`deployment/`](deployment/README.md) instead of `dapr run`. Both Docker Compose and a Podman-native script are supported:
+To run the full stack (Postgres, Redis, Dapr control plane, API, Worker, web dashboard, Caddy with automatic TLS) on a single host, use the container-based deployment under [`deployment/`](deployment/README.md) instead of `dapr run`. Both Docker Compose and a Podman-native script are supported:
 
 ```bash
 cd deployment/
@@ -158,11 +158,12 @@ docker compose --env-file spring.env build
 docker compose --env-file spring.env up -d
 
 # Or Podman (deploy.sh)
-./deploy.sh build
+./build.sh
 ./deploy.sh up
+# ./deploy.sh clean  # destructive reset: containers, volumes, networks, local images
 ```
 
-You can skip the build step entirely if you point `SPRING_PLATFORM_IMAGE` and unit execution images at pre-published registry refs; the runtime pulls them on first `up`. For remote VPS deployments, `deploy-remote.sh` wraps SSH + rsync and supports the same registry flow via `SPRING_SKIP_SOURCE_SYNC=1`.
+You can skip the build step entirely if you point `SPRING_PLATFORM_IMAGE` and unit execution images at pre-published registry refs; the runtime pulls them on first `up`.
 
 **First-run follow-up: set LLM credentials.** LLM provider API keys are **tier-2 tenant-default credentials**, not deployment config — they do NOT live in `spring.env`. Three paths, pick whichever fits:
 
@@ -186,7 +187,7 @@ spring unit create first-team \
 
 Units inherit tenant defaults automatically. Override per unit via the Secrets tab on a unit detail page or `spring secret create --scope unit --unit <name> anthropic-api-key --value "..."`. The platform does not read LLM provider keys from environment variables — credentials must be set at tenant or unit scope. See [`docs/guide/secrets.md`](docs/guide/secrets.md) for the full three-tier model and resolution order.
 
-The canonical operator guide is [docs/guide/deployment.md](docs/guide/deployment.md) — it covers the zero-to-running walkthrough, container topology, Dapr components, Postgres/Redis configuration, Caddy + Let's Encrypt, secrets bootstrap, health checks, updates, and troubleshooting. The script-level reference (commands, environment variables, webhook relay, per-user agent networks) lives in [`deployment/README.md`](deployment/README.md).
+The canonical operator guide is [docs/guide/operator/deployment.md](docs/guide/operator/deployment.md) — it covers the zero-to-running walkthrough, container topology, Dapr components, Postgres/Redis configuration, Caddy + Let's Encrypt, secrets bootstrap, health checks, updates, and troubleshooting. The script-level reference (commands, environment variables, webhook relay, per-user agent networks) lives in [`deployment/README.md`](deployment/README.md).
 
 ## CLI
 
@@ -271,7 +272,7 @@ The dashboard consumes the API host endpoints. For local development, start the 
 │   └── Cvoya.Spring.Web/                     # Web dashboard (React/Next.js)
 ├── tests/                                    # xUnit test projects
 ├── dapr/                                     # Dapr components + config (local/production profiles)
-├── deployment/                               # Podman Compose, Caddy, deploy.sh
+├── deployment/                               # Podman Compose, Caddy, build/deploy scripts
 ├── packages/                                 # Domain packages (software-engineering, product-management)
 ├── docs/                                     # Concepts, architecture, user guide, developer guide
 ├── CONVENTIONS.md                            # Coding conventions (mandatory reading)
