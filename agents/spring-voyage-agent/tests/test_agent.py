@@ -214,6 +214,12 @@ class TestAgenticLoop:
 
     @pytest.mark.asyncio
     async def test_step_budget_caps_loop(self, monkeypatch):
+        # No-silent-swallow contract: when the loop exhausts max-steps
+        # without producing a terminal assistant message, we MUST raise
+        # a RuntimeError rather than return a placeholder string. The
+        # caller (on_message) translates the exception into a structured
+        # Response(error=...) so the platform records a failure event
+        # instead of completing the task with a fake artifact.
         monkeypatch.setenv("SPRING_AGENT_MAX_STEPS", "2")
 
         llm = MagicMock()
@@ -231,10 +237,10 @@ class TestAgenticLoop:
             tools_by_name={"echo": tool},
         )
 
-        result = await _run_agentic_loop(build, "loop forever")
+        with pytest.raises(RuntimeError, match="exhausted"):
+            await _run_agentic_loop(build, "loop forever")
 
         assert llm.generate.call_count == 2
-        assert "no final response" in result
 
 
 class TestInitializeHook:

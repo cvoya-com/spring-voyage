@@ -229,6 +229,34 @@ async def on_message(message: Message):
 
     try:
         result_text = await _run_agentic_loop(_agent_build, user_text)
+        if not result_text:
+            # An empty result means the loop exited without producing any
+            # visible text — typically because the LLM returned an empty
+            # assistant message with no tool calls (small models like
+            # llama3.2:3b sometimes do this when overwhelmed by a large
+            # tool catalog) or because max-steps exhausted with a blank
+            # last assistant. We surface this as an explicit error event
+            # so the platform records a failure rather than silently
+            # completing the task with no artifact.
+            logger.error(
+                "Agent loop returned empty result for message %s thread %s — "
+                "no content and no tool calls. Surfacing as error event.",
+                message.message_id,
+                message.thread_id,
+            )
+            yield Response(
+                error=(
+                    "Agent produced an empty response (LLM returned no "
+                    "content and no tool calls)."
+                )
+            )
+            return
+        logger.info(
+            "Agent loop completed for message %s thread %s (result_chars=%d)",
+            message.message_id,
+            message.thread_id,
+            len(result_text),
+        )
         yield Response(text=result_text, final=True)
     except Exception as exc:
         logger.exception("Agent loop failed for message %s", message.message_id)
@@ -275,6 +303,8 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
         messages.append(SystemMessage(content=build.system_prompt))
     messages.append(UserMessage(content=user_text))
 
+    loop = asyncio.get_event_loop()
+
     for step in range(max_steps):
         logger.info(
             "Agent loop step %d/%d (messages=%d, tools=%d)",
@@ -296,30 +326,89 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
         # Off-load the blocking call to the default executor so the event
         # loop stays responsive and the health probe continues to answer
         # 200 while the LLM call is in flight.
-        response = await asyncio.to_thread(build.llm.generate, messages=messages, tools=build.tools)
+        step_started = loop.time()
+        try:
+            response = await asyncio.to_thread(
+                build.llm.generate,
+                messages=messages,
+                tools=build.tools,
+            )
+        except Exception:
+            logger.exception(
+                "LLM generate() raised at step %d/%d after %.1fs",
+                step + 1,
+                max_steps,
+                loop.time() - step_started,
+            )
+            raise
+
+        step_elapsed = loop.time() - step_started
         assistant = response.get_message()
         if assistant is None:
+            logger.error(
+                "Step %d/%d returned no candidate message after %.1fs — "
+                "Dapr Conversation component or upstream LLM failed silently.",
+                step + 1,
+                max_steps,
+                step_elapsed,
+            )
             raise RuntimeError(
                 "LLM returned no candidate message — check Conversation component health.",
             )
 
+        tool_calls = getattr(assistant, "tool_calls", None) or []
+        content = assistant.content or ""
+        logger.info(
+            "Step %d/%d LLM responded in %.1fs (content_chars=%d, tool_calls=%d)",
+            step + 1,
+            max_steps,
+            step_elapsed,
+            len(content),
+            len(tool_calls),
+        )
+
         messages.append(assistant)
 
-        tool_calls = getattr(assistant, "tool_calls", None) or []
         if not tool_calls:
-            return assistant.content or ""
+            if not content:
+                logger.error(
+                    "Step %d/%d: LLM produced no content AND no tool calls. "
+                    "This is a malformed assistant turn — surfacing as error "
+                    "rather than silently returning an empty response.",
+                    step + 1,
+                    max_steps,
+                )
+                raise RuntimeError(
+                    f"LLM returned empty assistant message at step {step + 1} "
+                    "(no content and no tool calls). The model could not "
+                    "make progress with the current prompt or tool set.",
+                )
+            logger.info(
+                "Step %d/%d: terminal assistant response (%d chars)",
+                step + 1,
+                max_steps,
+                len(content),
+            )
+            return content
 
         # Run the requested tools sequentially. Errors per-tool are
         # surfaced back to the model so it can re-plan or apologise; we
-        # never abort the whole turn on a single tool failure.
+        # never abort the whole turn on a single tool failure, but every
+        # failure path emits a log so silence cannot hide a stuck call.
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
+            tool_started = loop.time()
             try:
                 tool_args = json.loads(tool_call.function.arguments or "{}")
             except json.JSONDecodeError as exc:
-                tool_args = {}
                 tool_result_text = f"Failed to decode tool arguments JSON for '{tool_name}': {exc}"
-                logger.warning(tool_result_text)
+                logger.warning(
+                    "Step %d/%d tool '%s': JSON decode failed: %s",
+                    step + 1,
+                    max_steps,
+                    tool_name,
+                    exc,
+                )
                 messages.append(
                     ToolMessage(
                         content=tool_result_text,
@@ -331,7 +420,12 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
             tool = build.tools_by_name.get(tool_name)
             if tool is None:
                 tool_result_text = f"Tool '{tool_name}' is not registered with this agent."
-                logger.warning(tool_result_text)
+                logger.warning(
+                    "Step %d/%d tool '%s' is not registered (model hallucinated a name)",
+                    step + 1,
+                    max_steps,
+                    tool_name,
+                )
                 messages.append(
                     ToolMessage(
                         content=tool_result_text,
@@ -342,8 +436,25 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
 
             try:
                 tool_result = await tool.arun(**tool_args)
+                tool_elapsed = loop.time() - tool_started
+                result_repr = str(tool_result) if tool_result is not None else ""
+                logger.info(
+                    "Step %d/%d tool '%s' returned in %.2fs (result_chars=%d)",
+                    step + 1,
+                    max_steps,
+                    tool_name,
+                    tool_elapsed,
+                    len(result_repr),
+                )
             except Exception as exc:
-                logger.exception("Tool %s failed", tool_name)
+                tool_elapsed = loop.time() - tool_started
+                logger.exception(
+                    "Step %d/%d tool '%s' raised after %.2fs",
+                    step + 1,
+                    max_steps,
+                    tool_name,
+                    tool_elapsed,
+                )
                 tool_result = f"Error invoking tool '{tool_name}': {exc}"
 
             messages.append(
@@ -353,15 +464,30 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
                 )
             )
 
-    # Loop budget exhausted without a final assistant message — return
-    # whatever the last assistant message said so the caller has *something*
-    # rather than a blank artifact.
+    # Loop budget exhausted without a terminal assistant message. We
+    # surface this as a structured error rather than returning the
+    # last (possibly blank) assistant content as a clean result. The
+    # last-assistant text, if any, is included in the error so the
+    # caller can still see what the model produced before giving up.
     last_assistant = next(
         (m for m in reversed(messages) if isinstance(m, AssistantMessage)),
         None,
     )
-    return (last_assistant.content if last_assistant else "") or (
-        f"(no final response after {max_steps} agent loop steps)"
+    fallback = (last_assistant.content if last_assistant else "") or ""
+    logger.error(
+        "Agent loop exhausted %d steps without a terminal response "
+        "(last_assistant_chars=%d). Surfacing as error.",
+        max_steps,
+        len(fallback),
+    )
+    if fallback:
+        raise RuntimeError(
+            f"Agent loop exhausted {max_steps} steps without producing a "
+            f"terminal response. Last assistant content: {fallback!r}"
+        )
+    raise RuntimeError(
+        f"Agent loop exhausted {max_steps} steps without producing any "
+        "assistant content."
     )
 
 
