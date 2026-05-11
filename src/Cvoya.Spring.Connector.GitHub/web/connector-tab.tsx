@@ -29,6 +29,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api } from "@/lib/api/client";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type {
   GitHubCollaboratorResponse,
   GitHubMissingOAuthResponse,
@@ -227,7 +228,7 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
       }
       setLoadError(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatTranslatedError(err);
       setLoadError(message);
     }
   }, [unitId, applyConfig]);
@@ -263,7 +264,7 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
           setReposError(null);
           setMissingOAuth(null);
         } else {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = formatTranslatedError(err);
           setReposError(message);
           setDisabledReason(null);
           setMissingOAuth(null);
@@ -307,7 +308,7 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
       const result = await api.beginGitHubOAuthAuthorize();
       window.open(result.authorizeUrl, "_blank", "noopener,noreferrer");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatTranslatedError(err);
       setOAuthLinkError(message);
     } finally {
       setLinkingOAuth(false);
@@ -333,7 +334,7 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
         setActiveSessionId(null);
         setMissingOAuth(missing);
       } else {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = formatTranslatedError(err);
         setReposError(message);
       }
       setRepositories([]);
@@ -369,7 +370,7 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
         setCollaboratorsError(null);
       } catch (err) {
         if (cancelled) return;
-        const message = err instanceof Error ? err.message : String(err);
+        const message = formatTranslatedError(err);
         setCollaborators([]);
         setCollaboratorsError(message);
       } finally {
@@ -416,7 +417,7 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
       applyConfig(resp);
       toast({ title: "Connector saved" });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatTranslatedError(err);
       setSaveError(message);
       toast({
         title: "Failed to save connector",

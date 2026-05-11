@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { Activity, DollarSign, RefreshCw, TrendingDown } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -127,8 +128,7 @@ function AgentActivityTab({ node }: TabContentProps) {
 
   if (node.kind !== "Agent") return null;
 
-  const errorMessage =
-    error instanceof Error ? error.message : error ? String(error) : null;
+  const activityError = error ?? null;
   const events = result?.items ?? [];
 
   const sparklinePoints =
@@ -251,13 +251,8 @@ function AgentActivityTab({ node }: TabContentProps) {
           </Button>
         </CardHeader>
         <CardContent>
-          {errorMessage ? (
-            <p
-              role="alert"
-              className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            >
-              {errorMessage}
-            </p>
+          {activityError ? (
+            <ApiErrorMessage error={activityError} />
           ) : isLoading ? (
             <p
               role="status"

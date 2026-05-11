@@ -18,6 +18,7 @@
 import { GraduationCap } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,9 +66,7 @@ export default function SettingsSkillsPage() {
       ) : query.error ? (
         <Card>
           <CardContent className="p-6">
-            <p className="text-sm text-destructive" role="alert">
-              Failed to load skills: {query.error.message}
-            </p>
+            <ApiErrorMessage error={query.error} />
           </CardContent>
         </Card>
       ) : skills.length === 0 ? (

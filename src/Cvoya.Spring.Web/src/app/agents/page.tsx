@@ -14,6 +14,7 @@ import { Bot } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import { AgentCard, type AgentCardAgent } from "@/components/cards/agent-card";
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
@@ -172,15 +173,9 @@ function AgentsContent() {
           <Skeleton className="h-24" />
         </div>
       ) : agentsQuery.isError ? (
-        <p
-          role="alert"
-          className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          data-testid="agents-error"
-        >
-          {agentsQuery.error instanceof Error
-            ? agentsQuery.error.message
-            : "Failed to load agents."}
-        </p>
+        <div data-testid="agents-error">
+          <ApiErrorMessage error={agentsQuery.error} />
+        </div>
       ) : filtered.length === 0 ? (
         <p
           className="text-sm text-muted-foreground"

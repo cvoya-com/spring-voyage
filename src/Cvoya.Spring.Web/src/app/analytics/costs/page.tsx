@@ -40,6 +40,7 @@ import { Breadcrumbs } from "@/components/breadcrumbs";
 import { StatCard } from "@/components/stat-card";
 import { CostAreaChart } from "@/components/analytics/cost-area-chart";
 import { Button } from "@/components/ui/button";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import {
   Card,
   CardContent,
@@ -296,7 +297,7 @@ function AnalyticsCostsContent() {
     onError: (err) => {
       toast({
         title: "Failed to save budget",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     },

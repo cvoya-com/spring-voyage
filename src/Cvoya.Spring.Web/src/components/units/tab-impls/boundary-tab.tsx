@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Eraser, EyeOff, Filter, Plus, Shield, Sparkles, Trash2 } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +20,7 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { useUnitBoundary } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type {
   BoundaryOpacityRuleDto,
   BoundaryProjectionRuleDto,
@@ -106,7 +108,7 @@ export function BoundaryTab({ unitId }: BoundaryTabProps) {
       setDirty(false);
       toast({ title: "Boundary saved" });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatTranslatedError(err);
       setSaveError(message);
       toast({
         title: "Save failed",
@@ -142,10 +144,9 @@ export function BoundaryTab({ unitId }: BoundaryTabProps) {
       setDirty(false);
       toast({ title: "Boundary updated from YAML" });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       toast({
         title: "Apply failed",
-        description: message,
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
       // Re-throw so BoundaryYamlUpload can render an inline error.
@@ -176,10 +177,9 @@ export function BoundaryTab({ unitId }: BoundaryTabProps) {
       });
       toast({ title: "Boundary cleared" });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       toast({
         title: "Clear failed",
-        description: message,
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     } finally {
@@ -209,10 +209,8 @@ export function BoundaryTab({ unitId }: BoundaryTabProps) {
   if (boundaryQuery.error) {
     return (
       <Card>
-        <CardContent className="p-6 text-sm text-destructive">
-          {boundaryQuery.error instanceof Error
-            ? boundaryQuery.error.message
-            : String(boundaryQuery.error)}
+        <CardContent className="p-6">
+          <ApiErrorMessage error={boundaryQuery.error} />
         </CardContent>
       </Card>
     );

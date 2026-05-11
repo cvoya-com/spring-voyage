@@ -20,6 +20,7 @@ import { Suspense, useMemo } from "react";
 import Link from "next/link";
 import { ArrowRight, Clock, Pause, Play, UserCheck } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { StatCard } from "@/components/stat-card";
 import { WaitsBarChart } from "@/components/analytics/waits-bar-chart";
@@ -206,9 +207,7 @@ function AnalyticsWaitsContent() {
               <Skeleton className="h-8 w-full" />
             </div>
           ) : query.isError ? (
-            <p className="text-sm text-destructive">
-              Failed to load wait times: {query.error.message}
-            </p>
+            <ApiErrorMessage error={query.error} />
           ) : sortedEntries.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No state transitions in this window.

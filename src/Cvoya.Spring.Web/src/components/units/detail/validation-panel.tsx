@@ -42,6 +42,7 @@ import {
   type UseMutationResult,
 } from "@tanstack/react-query";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -319,15 +320,12 @@ export default function ValidationPanel({
               {revalidateMutation.isPending ? "Starting…" : "Revalidate"}
             </Button>
             {revalidateMutation.isError && (
-              <span
-                role="alert"
-                className="text-xs text-destructive"
+              <div
+                className="w-full"
                 data-testid="validation-panel-revalidate-error"
               >
-                {revalidateMutation.error instanceof Error
-                  ? revalidateMutation.error.message
-                  : "Failed to revalidate."}
-              </span>
+                <ApiErrorMessage error={revalidateMutation.error} />
+              </div>
             )}
           </div>
         </CardContent>
@@ -606,15 +604,9 @@ function ErrorActions({
       </div>
 
       {revalidateMutation.isError && (
-        <p
-          role="alert"
-          className="text-xs text-destructive"
-          data-testid="validation-panel-retry-error"
-        >
-          {revalidateMutation.error instanceof Error
-            ? revalidateMutation.error.message
-            : "Failed to retry."}
-        </p>
+        <div data-testid="validation-panel-retry-error">
+          <ApiErrorMessage error={revalidateMutation.error} />
+        </div>
       )}
 
       {editing && (
@@ -668,15 +660,9 @@ function ErrorActions({
             </Button>
           </div>
           {editAndRetryMutation.isError && (
-            <p
-              role="alert"
-              className="text-xs text-destructive"
-              data-testid="validation-panel-credential-error"
-            >
-              {editAndRetryMutation.error instanceof Error
-                ? editAndRetryMutation.error.message
-                : "Failed to save credential."}
-            </p>
+            <div data-testid="validation-panel-credential-error">
+              <ApiErrorMessage error={editAndRetryMutation.error} />
+            </div>
           )}
         </div>
       )}

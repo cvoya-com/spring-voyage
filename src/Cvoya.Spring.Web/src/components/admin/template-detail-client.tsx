@@ -12,6 +12,7 @@ import { useState } from "react";
 import { Copy, FileCode } from "lucide-react";
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -76,9 +77,7 @@ export default function TemplateDetailClient({
         <Breadcrumbs items={crumbs} />
         <Card>
           <CardContent className="p-6">
-            <p className="text-sm text-destructive" role="alert">
-              Failed to load template: {query.error.message}
-            </p>
+            <ApiErrorMessage error={query.error} />
           </CardContent>
         </Card>
       </div>

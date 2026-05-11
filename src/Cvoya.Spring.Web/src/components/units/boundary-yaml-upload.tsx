@@ -6,6 +6,7 @@ import { FileUp, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import {
   BoundaryYamlParseError,
   parseBoundaryYaml,
@@ -116,7 +117,7 @@ export function BoundaryYamlUpload({
       setYamlText("");
       setFileName(null);
     } catch (err) {
-      setApplyError(err instanceof Error ? err.message : String(err));
+      setApplyError(formatTranslatedError(err));
     }
   };
 

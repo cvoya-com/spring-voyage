@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,6 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { useTenantTree } from "@/lib/api/queries";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import { cn } from "@/lib/utils";
 import type { TenantTreeNode } from "@/lib/api/types";
 
@@ -89,6 +91,9 @@ export function NewEngagementForm() {
   const [body, setBody] = useState("");
   const [filter, setFilter] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  // Tracks the unwrapped API failure from the create mutation so the
+  // renderer can route it through `<ApiErrorMessage>`.
+  const [submitError, setSubmitError] = useState<unknown>(null);
 
   const catalog = useMemo<ParticipantRef[]>(() => {
     if (!treeQuery.data) return [];
@@ -143,8 +148,7 @@ export function NewEngagementForm() {
             payload: body.trim(),
           });
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          fanoutErrors.push(refKey(ref) + ": " + message);
+          fanoutErrors.push(refKey(ref) + ": " + formatTranslatedError(err));
         }
       }
       return { threadId, fanoutErrors };
@@ -163,8 +167,7 @@ export function NewEngagementForm() {
       router.push("/engagement/" + threadId);
     },
     onError: (err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      setValidationError(message);
+      setSubmitError(err);
     },
   });
 
@@ -172,6 +175,7 @@ export function NewEngagementForm() {
     (e: React.FormEvent) => {
       e.preventDefault();
       setValidationError(null);
+      setSubmitError(null);
       if (selected.length === 0) {
         setValidationError("Pick at least one participant.");
         return;
@@ -296,15 +300,9 @@ export function NewEngagementForm() {
                 </div>
               )}
               {treeQuery.isError && (
-                <p
-                  className="p-2 text-xs text-destructive"
-                  data-testid="engagement-new-catalog-error"
-                >
-                  Failed to load tenant tree:{" "}
-                  {treeQuery.error instanceof Error
-                    ? treeQuery.error.message
-                    : "unknown error"}
-                </p>
+                <div className="p-2" data-testid="engagement-new-catalog-error">
+                  <ApiErrorMessage error={treeQuery.error} />
+                </div>
               )}
               {!treeQuery.isPending &&
                 !treeQuery.isError &&
@@ -405,6 +403,11 @@ export function NewEngagementForm() {
         >
           {validationError}
         </p>
+      )}
+      {submitError !== null && (
+        <div data-testid="engagement-new-error">
+          <ApiErrorMessage error={submitError} />
+        </div>
       )}
 
       <div className="flex items-center justify-end gap-2">

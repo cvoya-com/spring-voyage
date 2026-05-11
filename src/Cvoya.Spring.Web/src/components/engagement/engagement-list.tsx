@@ -22,13 +22,13 @@ import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import {
   MessagesSquare,
-  AlertCircle,
   Loader2,
   Eye,
   MessageCircleQuestion,
   ChevronDown,
 } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -528,22 +528,10 @@ export function EngagementList({
   if (threadsQuery.error) {
     return (
       <div
-        role="alert"
-        className={cn(
-          "flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 text-destructive",
-          variant === "sidebar"
-            ? "px-3 py-2 text-xs"
-            : "px-4 py-3 text-sm",
-        )}
+        className={cn(variant === "sidebar" ? "px-3 py-2" : "px-4 py-3")}
         data-testid="engagement-list-error"
       >
-        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-        <span>
-          Could not load engagements:{" "}
-          {threadsQuery.error instanceof Error
-            ? threadsQuery.error.message
-            : String(threadsQuery.error)}
-        </span>
+        <ApiErrorMessage error={threadsQuery.error} />
       </div>
     );
   }

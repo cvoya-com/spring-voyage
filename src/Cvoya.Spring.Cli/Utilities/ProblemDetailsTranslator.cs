@@ -35,6 +35,13 @@ public static class ProblemDetailsTranslator
         "ConfigurationIncomplete",
         "UnknownConnectorSlug",
         "MultiParentInheritanceConflict",
+        "ImagePullFailed",
+        "ImageStartFailed",
+        "ToolMissing",
+        "CredentialFormatRejected",
+        "ModelNotFound",
+        "ProbeTimeout",
+        "ProbeInternalError",
     };
 
     private static readonly JsonSerializerOptions RawJsonOptions = new()
@@ -90,6 +97,20 @@ public static class ProblemDetailsTranslator
                 "Parent units disagree on inherited execution settings.",
                 NullIfBlank(problem.Detail)
                     ?? "Remove a conflicting parent or set the inherited field explicitly.",
+                TraceId(problem)),
+            "ImagePullFailed" => ImagePullFailed(problem),
+            "ImageStartFailed" => ImageStartFailed(problem),
+            "ToolMissing" => ToolMissing(problem),
+            "CredentialFormatRejected" => CredentialFormatRejected(problem),
+            "ModelNotFound" => ModelNotFound(problem),
+            "ProbeTimeout" => new(
+                "The runtime probe timed out.",
+                "Verify the agent host is responsive and retry; raise the probe timeout if this is expected.",
+                TraceId(problem)),
+            "ProbeInternalError" => new(
+                "The runtime probe failed unexpectedly.",
+                NullIfBlank(problem.Detail)
+                    ?? "Check the host logs (`spring agent logs <id>` or `kubectl logs`) and retry.",
                 TraceId(problem)),
             _ => new(
                 NullIfBlank(problem.Title) ?? "Couldn't complete the request.",
@@ -232,6 +253,59 @@ public static class ProblemDetailsTranslator
         return new(
             $"This package doesn't declare a {slug} connector binding.",
             "Remove that connector binding or choose a connector required by this package.",
+            TraceId(problem));
+    }
+
+    private static TranslatedProblemDetails ImagePullFailed(ProblemDetails problem)
+    {
+        return new(
+            "Couldn't pull the agent image.",
+            NullIfBlank(problem.Detail)
+                ?? "Check that the image exists and the host can reach the registry.",
+            TraceId(problem));
+    }
+
+    private static TranslatedProblemDetails ImageStartFailed(ProblemDetails problem)
+    {
+        return new(
+            "Couldn't start the agent container.",
+            NullIfBlank(problem.Detail)
+                ?? "Check the agent image and host runtime logs.",
+            TraceId(problem));
+    }
+
+    private static TranslatedProblemDetails ToolMissing(ProblemDetails problem)
+    {
+        var tool = GetString(problem, "tool") ?? "required";
+        return new(
+            $"The agent image is missing the {tool} CLI.",
+            "Pick a different agent image or install the CLI before retrying.",
+            TraceId(problem));
+    }
+
+    private static TranslatedProblemDetails CredentialFormatRejected(ProblemDetails problem)
+    {
+        var provider =
+            GetString(problem, "provider")
+            ?? GetString(problem, "modelProvider")
+            ?? "this provider";
+        return new(
+            $"The configured credential's format isn't accepted by {provider}.",
+            NullIfBlank(problem.Detail)
+                ?? "Update the secret to a value of the right shape (see the provider's docs).",
+            TraceId(problem));
+    }
+
+    private static TranslatedProblemDetails ModelNotFound(ProblemDetails problem)
+    {
+        var model = GetString(problem, "model") ?? "(unknown)";
+        var provider =
+            GetString(problem, "provider")
+            ?? GetString(problem, "modelProvider")
+            ?? "this provider";
+        return new(
+            $"Model `{model}` isn't available for {provider}.",
+            "Pick a model from the provider's catalogue or update the install.",
             TraceId(problem));
     }
 

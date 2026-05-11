@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api/client";
 import { useAgentExpertise } from "@/lib/api/queries";
@@ -69,9 +70,7 @@ export function AgentExpertisePanel({ agentId }: AgentExpertisePanelProps) {
         {expertiseQuery.isPending ? (
           <Skeleton className="h-20" />
         ) : expertiseQuery.error ? (
-          <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {expertiseQuery.error.message}
-          </p>
+          <ApiErrorMessage error={expertiseQuery.error} />
         ) : (
           <ExpertiseEditor domains={domains} onSave={handleSave} />
         )}

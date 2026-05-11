@@ -25,11 +25,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { KeyRound, RotateCw, Trash2 } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type { SecretMetadata } from "@/lib/api/types";
 
 /**
@@ -73,7 +75,7 @@ export function TenantDefaultsPanel() {
   const { toast } = useToast();
   const [secrets, setSecrets] = useState<SecretMetadata[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [submittingName, setSubmittingName] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -82,8 +84,7 @@ export function TenantDefaultsPanel() {
       setSecrets(list.secrets ?? []);
       setLoadError(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setLoadError(message);
+      setLoadError(err);
       setSecrets([]);
     }
   }, []);
@@ -116,10 +117,9 @@ export function TenantDefaultsPanel() {
       }
       await refresh();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       toast({
         title: "Save failed",
-        description: message,
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     } finally {
@@ -134,10 +134,9 @@ export function TenantDefaultsPanel() {
       toast({ title: "Tenant default cleared", description: name });
       await refresh();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       toast({
         title: "Delete failed",
-        description: message,
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     } finally {
@@ -155,11 +154,7 @@ export function TenantDefaultsPanel() {
         browser.
       </p>
 
-      {loadError && (
-        <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {loadError}
-        </p>
-      )}
+      {loadError !== null && <ApiErrorMessage error={loadError} />}
 
       {loading ? (
         <p className="text-xs text-muted-foreground">Loading…</p>

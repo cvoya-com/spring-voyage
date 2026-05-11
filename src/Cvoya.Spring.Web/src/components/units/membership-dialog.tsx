@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useModelProviders } from "@/lib/api/queries";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type {
   AgentExecutionMode,
   InstalledModelProviderResponse,
@@ -151,7 +152,7 @@ export function MembershipDialog({
         executionMode,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatTranslatedError(err));
     } finally {
       setSubmitting(false);
     }

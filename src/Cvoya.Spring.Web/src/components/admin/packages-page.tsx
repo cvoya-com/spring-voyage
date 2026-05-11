@@ -25,6 +25,7 @@ import Link from "next/link";
 import { Package as PackageIcon, Upload } from "lucide-react";
 import { useRef } from "react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,9 +71,7 @@ export default function PackagesListPage() {
       ) : packagesQuery.error ? (
         <Card>
           <CardContent className="p-6">
-            <p className="text-sm text-destructive" role="alert">
-              Failed to load packages: {packagesQuery.error.message}
-            </p>
+            <ApiErrorMessage error={packagesQuery.error} />
           </CardContent>
         </Card>
       ) : packages.length === 0 ? (

@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import {
   EXPERTISE_LEVELS,
   type ExpertiseDomainDto,
@@ -134,7 +135,7 @@ export function ExpertiseEditor({
     } catch (err) {
       toast({
         title: "Failed to save expertise",
-        description: err instanceof Error ? err.message : String(err),
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     } finally {

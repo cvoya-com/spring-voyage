@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -560,9 +561,9 @@ export default function ActivityPage() {
         </CardHeader>
         <CardContent>
           {isError && (
-            <p className="mb-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error instanceof Error ? error.message : String(error)}
-            </p>
+            <div className="mb-3">
+              <ApiErrorMessage error={error} />
+            </div>
           )}
           {isLoading && !result ? (
             <p className="text-sm text-muted-foreground">Loading activity...</p>

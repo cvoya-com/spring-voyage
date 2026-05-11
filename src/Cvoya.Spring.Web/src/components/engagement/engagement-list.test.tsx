@@ -103,10 +103,14 @@ describe("EngagementList", () => {
       });
 
       render(<EngagementList slice="mine" />);
-      const alert = screen.getByTestId("engagement-list-error");
-      expect(alert).toBeInTheDocument();
-      expect(alert).toHaveAttribute("role", "alert");
-      expect(screen.getByText(/Network error/)).toBeInTheDocument();
+      expect(
+        screen.getByTestId("engagement-list-error"),
+      ).toBeInTheDocument();
+      // `<ApiErrorMessage>` renders the friendly fallback for non-
+      // ProblemDetails errors and carries `role="alert"` itself (#2163).
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      expect(screen.getByText("Something went wrong.")).toBeInTheDocument();
+      expect(screen.queryByText(/API error/)).not.toBeInTheDocument();
     });
   });
 

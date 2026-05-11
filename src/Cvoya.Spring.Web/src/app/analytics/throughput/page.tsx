@@ -18,6 +18,7 @@ import { Suspense, useMemo } from "react";
 import Link from "next/link";
 import { ArrowRight, BarChart3, Gauge } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { StatCard } from "@/components/stat-card";
 import { ThroughputBarChart } from "@/components/analytics/throughput-bar-chart";
@@ -191,9 +192,7 @@ function AnalyticsThroughputContent() {
               <Skeleton className="h-6 w-full" />
             </div>
           ) : query.isError ? (
-            <p className="text-sm text-destructive">
-              Failed to load throughput: {query.error.message}
-            </p>
+            <ApiErrorMessage error={query.error} />
           ) : sortedEntries.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No throughput in this window.

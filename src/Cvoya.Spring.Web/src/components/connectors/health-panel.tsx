@@ -16,6 +16,7 @@
 
 import { Plug } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -57,9 +58,7 @@ export function ConnectorHealthPanel() {
       ) : query.error ? (
         <Card>
           <CardContent className="p-6">
-            <p className="text-sm text-destructive" role="alert">
-              Failed to load connectors: {query.error.message}
-            </p>
+            <ApiErrorMessage error={query.error} />
           </CardContent>
         </Card>
       ) : connectors.length === 0 ? (

@@ -18,8 +18,10 @@
 import { useMemo, useState } from "react";
 import { Sparkles, X } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import {
   useAgentSkills,
   useSetAgentSkills,
@@ -66,16 +68,9 @@ function AgentSkillsTab({ node }: TabContentProps) {
 
   if (skillsQuery.error) {
     return (
-      <p
-        role="alert"
-        className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        data-testid="tab-agent-skills-error"
-      >
-        Couldn&apos;t load skills:{" "}
-        {skillsQuery.error instanceof Error
-          ? skillsQuery.error.message
-          : String(skillsQuery.error)}
-      </p>
+      <div data-testid="tab-agent-skills-error">
+        <ApiErrorMessage error={skillsQuery.error} />
+      </div>
     );
   }
 
@@ -87,7 +82,7 @@ function AgentSkillsTab({ node }: TabContentProps) {
       onError: (err) => {
         toast({
           title: failureTitle,
-          description: err instanceof Error ? err.message : String(err),
+          description: formatTranslatedError(err),
           variant: "destructive",
         });
       },

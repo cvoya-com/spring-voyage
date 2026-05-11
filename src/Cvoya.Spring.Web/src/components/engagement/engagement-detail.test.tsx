@@ -172,10 +172,14 @@ describe("EngagementDetail", () => {
       });
 
       render(<EngagementDetail threadId="thread-abc" />);
-      const alert = screen.getByTestId("engagement-detail-error");
-      expect(alert).toBeInTheDocument();
-      expect(alert).toHaveAttribute("role", "alert");
-      expect(screen.getByText(/Not found/)).toBeInTheDocument();
+      expect(
+        screen.getByTestId("engagement-detail-error"),
+      ).toBeInTheDocument();
+      // `<ApiErrorMessage>` renders the friendly fallback copy with
+      // its own `role="alert"` on the inner alert box (#2163).
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      expect(screen.getByText("Something went wrong.")).toBeInTheDocument();
+      expect(screen.queryByText(/API error/)).not.toBeInTheDocument();
     });
   });
 

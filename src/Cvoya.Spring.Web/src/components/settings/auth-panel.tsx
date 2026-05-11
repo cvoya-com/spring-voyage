@@ -33,12 +33,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, Plus, Trash2, X } from "lucide-react";
 
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { useAuthContext } from "@/lib/extensions";
 import { useAuthTokens, useCurrentUser } from "@/lib/api/queries";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/api/query-keys";
 
@@ -64,7 +66,11 @@ export function AuthPanel() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
+  // Static validation error (string) or an API error envelope (unknown).
+  // The renderer below routes the API-error path through `<ApiErrorMessage>`
+  // so every API ProblemDetails surfaces with its translated copy.
+  const [createValidation, setCreateValidation] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<unknown>(null);
 
   // One-shot reveal slot. Held only until the operator dismisses the
   // pill. Scrubbed to "" on dismiss and on unmount.
@@ -89,14 +95,16 @@ export function AuthPanel() {
   const resetCreateForm = () => {
     setCreating(false);
     setNewName("");
+    setCreateValidation(null);
     setCreateError(null);
   };
 
   const handleCreate = async () => {
+    setCreateValidation(null);
     setCreateError(null);
     const name = newName.trim();
     if (!name) {
-      setCreateError("Name is required.");
+      setCreateValidation("Name is required.");
       return;
     }
     setSubmitting(true);
@@ -110,9 +118,12 @@ export function AuthPanel() {
         queryKey: queryKeys.auth.tokens(),
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setCreateError(message);
-      toast({ title: "Create failed", description: message, variant: "destructive" });
+      setCreateError(err);
+      toast({
+        title: "Create failed",
+        description: formatTranslatedError(err),
+        variant: "destructive",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -149,10 +160,9 @@ export function AuthPanel() {
         queryKey: queryKeys.auth.tokens(),
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       toast({
         title: "Revoke failed",
-        description: message,
+        description: formatTranslatedError(err),
         variant: "destructive",
       });
     } finally {
@@ -304,11 +314,12 @@ export function AuthPanel() {
               data-testid="settings-auth-token-name-input"
             />
           </label>
-          {createError && (
+          {createValidation && (
             <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {createError}
+              {createValidation}
             </p>
           )}
+          {createError !== null && <ApiErrorMessage error={createError} />}
           <div className="flex gap-2">
             <Button
               size="sm"
