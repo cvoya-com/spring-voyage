@@ -244,12 +244,7 @@ async def on_message(message: Message):
                 message.message_id,
                 message.thread_id,
             )
-            yield Response(
-                error=(
-                    "Agent produced an empty response (LLM returned no "
-                    "content and no tool calls)."
-                )
-            )
+            yield Response(error=("Agent produced an empty response (LLM returned no content and no tool calls)."))
             return
         logger.info(
             "Agent loop completed for message %s thread %s (result_chars=%d)",
@@ -475,8 +470,7 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
     )
     fallback = (last_assistant.content if last_assistant else "") or ""
     logger.error(
-        "Agent loop exhausted %d steps without a terminal response "
-        "(last_assistant_chars=%d). Surfacing as error.",
+        "Agent loop exhausted %d steps without a terminal response (last_assistant_chars=%d). Surfacing as error.",
         max_steps,
         len(fallback),
     )
@@ -485,10 +479,7 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
             f"Agent loop exhausted {max_steps} steps without producing a "
             f"terminal response. Last assistant content: {fallback!r}"
         )
-    raise RuntimeError(
-        f"Agent loop exhausted {max_steps} steps without producing any "
-        "assistant content."
-    )
+    raise RuntimeError(f"Agent loop exhausted {max_steps} steps without producing any assistant content.")
 
 
 def _resolve_tool_name(tool: AgentTool, fallback: str) -> str:
