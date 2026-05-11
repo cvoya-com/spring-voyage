@@ -1,0 +1,31 @@
+apiVersion: spring.voyage/v1
+kind: Unit
+name: hello-world
+description: A minimal one-agent unit that greets and acknowledges. Ships without any connector requirement so the install path is exercisable in fast-pool E2E.
+ai:
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
+  prompt: |
+    You coordinate a single greeter agent. Route every incoming message to
+    the greeter and return its response unchanged. There is no other team
+    member; do not invent capabilities the package does not ship.
+members:
+  - agent: greeter
+execution:
+  image: ghcr.io/cvoya-com/claude-code-base:latest
+# #2115: deliberately no `requires:` block — the package's value is being
+# installable without a connector binding. Adding one here would defeat
+# the purpose.
+policies:
+  communication: through-unit
+  work_assignment: capability-match
+  expertise_sharing: advertise
+  initiative:
+    max_level: attentive
+    max_actions_per_hour: 10
+humans:
+  - identity: owner
+    permission: owner
+    notifications: ["escalation", "completion"]

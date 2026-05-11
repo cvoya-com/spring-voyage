@@ -31,6 +31,8 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     private static readonly Guid StrictAgentId = new("11111111-0000-0000-0000-000000000006");
     private static readonly Guid RemotedAgentId = new("11111111-0000-0000-0000-000000000007");
     private static readonly Guid FlakyAgentId = new("11111111-0000-0000-0000-000000000008");
+    private static readonly Guid NonGuidThreadAgentId = new("11111111-0000-0000-0000-000000000009");
+    private static readonly Guid UnknownThreadAgentId = new("11111111-0000-0000-0000-00000000000a");
 
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
@@ -470,6 +472,104 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
         problem.GetProperty("detail").GetString().ShouldBe("Domain messages must have a ThreadId");
         problem.GetProperty("code").GetString().ShouldBe(CallerValidationCodes.MissingThreadId);
+    }
+
+    // #2112: Domain sends with a malformed (non-Guid) ThreadId historically
+    // surfaced as a raw 500 from the IThreadRegistry path (an
+    // ArgumentException-shaped payload). The endpoint now validates the
+    // shape up-front and returns a structured 400 ProblemDetails — the
+    // E2E messaging scenarios that pass a stable client-supplied
+    // correlation id need a clean signal to distinguish "bad input" from
+    // "server failure" rather than a 500.
+
+    [Fact]
+    public async Task SendMessage_DomainWithNonGuidThreadId_Returns400()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Directory is wired but should never be reached — the threadId
+        // shape check fires before routing, so the agent stub is just a
+        // safety net for "the validation fired".
+        var entry = new DirectoryEntry(
+            new Address("agent", NonGuidThreadAgentId),
+            NonGuidThreadAgentId,
+            "Non-Guid Thread Agent",
+            "A test agent",
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == NonGuidThreadAgentId),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        var request = new SendMessageRequest(
+            new AddressDto("agent", NonGuidThreadAgentId.ToString("N")),
+            "Domain",
+            "my-human-thread",
+            JsonSerializer.SerializeToElement(new { Text = "hello" }));
+
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+        problem.GetProperty("status").GetInt32().ShouldBe(400);
+        // The detail names the offending field so callers can switch on it
+        // without parsing the prose.
+        var detail = problem.GetProperty("detail").GetString();
+        detail.ShouldNotBeNull();
+        detail.ShouldContain("ThreadId");
+        detail.ShouldContain("my-human-thread");
+    }
+
+    [Fact]
+    public async Task SendMessage_DomainWithGuidShapedButUnknownThreadId_Succeeds()
+    {
+        // #2112: Guid-shaped thread ids that the registry has not seen
+        // before are accepted as caller-supplied stable correlation ids —
+        // the registry is a participant-set lookup, not a thread-id
+        // existence gate. Rejecting unknown Guids here would block legit
+        // clients that thread under their own stable id (and would force
+        // every send to begin with a registry round-trip). The non-Guid
+        // case stays as a 400 (covered above); only well-formed Guids
+        // pass through.
+        var ct = TestContext.Current.CancellationToken;
+
+        var entry = new DirectoryEntry(
+            new Address("agent", UnknownThreadAgentId),
+            UnknownThreadAgentId,
+            "Unknown Thread Agent",
+            "A test agent",
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == UnknownThreadAgentId),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        var agent = Substitute.For<IAgent>();
+        Message? observed = null;
+        agent.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        _factory.AgentProxyResolver
+            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+                UnknownThreadAgentId.ToString("N"))
+            .Returns(agent);
+
+        var freshGuid = Guid.NewGuid().ToString();
+        var request = new SendMessageRequest(
+            new AddressDto("agent", UnknownThreadAgentId.ToString("N")),
+            "Domain",
+            freshGuid,
+            JsonSerializer.SerializeToElement(new { Text = "hello" }));
+
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
+        body.ShouldNotBeNull();
+        body!.ThreadId.ShouldBe(freshGuid);
+        observed.ShouldNotBeNull();
+        observed!.ThreadId.ShouldBe(freshGuid);
     }
 
     [Fact]
