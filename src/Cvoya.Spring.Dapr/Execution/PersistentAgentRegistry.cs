@@ -34,6 +34,15 @@ public class PersistentAgentRegistry(
     private readonly ContainerLifecycleManager _containerLifecycle = containerLifecycleManager;
     private readonly IServiceScopeFactory _scopeFactory = serviceScopeFactory;
     private readonly ConcurrentDictionary<string, PersistentAgentEntry> _entries = new();
+    // Number of concurrent in-flight A2A dispatches per agent. Incremented by
+    // BeginDispatch and decremented by DispatchScope.Dispose. The background
+    // health timer skips agents with InFlight > 0 (#2159): an agent that's
+    // actively serving an A2A call may block its own internal event loop for
+    // tens of seconds (e.g. a Python agent with a synchronous LLM call), and
+    // restarting the container under that load kills the in-flight inference
+    // for no good reason. Real dispatch failures are still detected and
+    // marked unhealthy by the catch block in A2AExecutionDispatcher.
+    private readonly ConcurrentDictionary<string, int> _inFlightDispatches = new();
     private Timer? _healthTimer;
     private int _healthCheckRunning;
 
@@ -64,7 +73,7 @@ public class PersistentAgentRegistry(
     /// <summary>
     /// Timeout for a single health-probe HTTP request.
     /// </summary>
-    internal static readonly TimeSpan HealthProbeTimeout = TimeSpan.FromSeconds(5);
+    internal static readonly TimeSpan HealthProbeTimeout = TimeSpan.FromSeconds(20);
 
     /// <summary>
     /// Registers or updates a persistent agent service.
@@ -139,13 +148,67 @@ public class PersistentAgentRegistry(
     }
 
     /// <summary>
+    /// Marks the start of an in-flight A2A dispatch against <paramref name="agentId"/>.
+    /// Returns an <see cref="IDisposable"/> that decrements the in-flight count
+    /// on dispose; while the count is greater than zero the background health
+    /// timer skips probes for this agent (#2159). The dispatch path remains
+    /// responsible for its own failure detection — if the A2A call fails the
+    /// catch block in <c>A2AExecutionDispatcher</c> still calls
+    /// <see cref="MarkUnhealthy"/>.
+    /// </summary>
+    /// <param name="agentId">The agent whose dispatch is starting.</param>
+    public IDisposable BeginDispatch(string agentId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        _inFlightDispatches.AddOrUpdate(agentId, 1, (_, v) => v + 1);
+        return new DispatchScope(this, agentId);
+    }
+
+    private void EndDispatch(string agentId)
+    {
+        _inFlightDispatches.AddOrUpdate(agentId, 0, (_, v) => v <= 1 ? 0 : v - 1);
+    }
+
+    internal bool HasInFlightDispatch(string agentId) =>
+        _inFlightDispatches.TryGetValue(agentId, out var count) && count > 0;
+
+    private sealed class DispatchScope : IDisposable
+    {
+        private readonly PersistentAgentRegistry _registry;
+        private readonly string _agentId;
+        private int _disposed;
+
+        public DispatchScope(PersistentAgentRegistry registry, string agentId)
+        {
+            _registry = registry;
+            _agentId = agentId;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                _registry.EndDispatch(_agentId);
+            }
+        }
+    }
+
+    /// <summary>
     /// Marks an agent as unhealthy so it will be restarted on the next health sweep.
     /// </summary>
     /// <param name="agentId">The agent identifier.</param>
-    public void MarkUnhealthy(string agentId)
+    /// <param name="containerId">
+    /// When provided, the mark is applied only if the registry entry still tracks this
+    /// specific container. A stale container ID (e.g. from a concurrent restart that
+    /// already replaced the container) must not poison the new container's health state.
+    /// </param>
+    public void MarkUnhealthy(string agentId, string? containerId = null)
     {
         if (_entries.TryGetValue(agentId, out var entry))
         {
+            if (containerId is not null && entry.ContainerId != containerId)
+                return;
+
             _entries[agentId] = entry with
             {
                 HealthStatus = AgentHealthStatus.Unhealthy,
@@ -314,6 +377,25 @@ public class PersistentAgentRegistry(
 
         foreach (var entry in entries)
         {
+            // #2159: skip the probe while a dispatch is in flight. The
+            // probe goes through `podman run --network container:<id>
+            // curl ...` which depends on the agent's own HTTP server being
+            // responsive — a Python agent that has blocked its asyncio loop
+            // on a slow LLM call (or any agent legitimately busy serving a
+            // request) will fail the probe even though it is doing exactly
+            // what it should be. Letting the timer drive a restart under
+            // those conditions kills the in-flight inference. Real failures
+            // are still observed: the dispatch path's own A2A call surfaces
+            // any RPC error via the catch block in A2AExecutionDispatcher,
+            // which calls MarkUnhealthy with the live container id.
+            if (HasInFlightDispatch(entry.AgentId))
+            {
+                _logger.LogDebug(
+                    "Skipping background health probe for agent {AgentId} — dispatch in flight",
+                    entry.AgentId);
+                continue;
+            }
+
             try
             {
                 var healthy = await ProbeHealthAsync(entry);
@@ -396,7 +478,7 @@ public class PersistentAgentRegistry(
     /// factor.
     /// </summary>
     internal static readonly TimeSpan DispatchPreflightProbeTimeout =
-        TimeSpan.FromMilliseconds(750);
+        TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// Probes the A2A Agent Card endpoint to verify the agent is healthy.

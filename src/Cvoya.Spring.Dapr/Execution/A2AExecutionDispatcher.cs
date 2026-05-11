@@ -560,7 +560,7 @@ public class A2AExecutionDispatcher(
                     "Persistent agent {AgentId} pre-flight probe failed; " +
                     "marking unhealthy and restarting before dispatch (#2092)",
                     agentId);
-                persistentAgentRegistry.MarkUnhealthy(agentId);
+                persistentAgentRegistry.MarkUnhealthy(agentId, entry!.ContainerId);
                 entryHealthy = false;
             }
         }
@@ -610,6 +610,13 @@ public class A2AExecutionDispatcher(
         var prompt = await promptAssembler.AssembleAsync(message, context, cancellationToken);
         var callbackToken = IssuePerMessageCallbackToken(message);
 
+        // #2159: register this dispatch as in flight so the background health
+        // timer doesn't probe (and possibly restart) the container while the
+        // agent is busy serving the A2A call. Real RPC failures are still
+        // caught below and surfaced via MarkUnhealthy with the live container
+        // id, so the in-flight suppression doesn't hide actual breakage.
+        using var dispatchScope = persistentAgentRegistry.BeginDispatch(agentId);
+
         try
         {
             return await SendA2AMessageAsync(
@@ -624,10 +631,12 @@ public class A2AExecutionDispatcher(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Container failed mid-dispatch — mark unhealthy for next dispatch.
+            // Pass the container ID so a concurrent restart that already replaced
+            // the container is not poisoned by a stale failure (#2159).
             _logger.LogWarning(ex,
                 "A2A call to persistent agent {AgentId} failed; marking unhealthy for restart",
                 agentId);
-            persistentAgentRegistry.MarkUnhealthy(agentId);
+            persistentAgentRegistry.MarkUnhealthy(agentId, containerId);
             throw;
         }
     }

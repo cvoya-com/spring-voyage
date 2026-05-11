@@ -58,6 +58,7 @@ deployments:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -282,7 +283,20 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
             len(messages),
             len(build.tools),
         )
-        response = build.llm.generate(messages=messages, tools=build.tools)
+        # DaprChatClient.generate is synchronous and blocks until daprd
+        # returns the Conversation call's response — which is the full LLM
+        # turn (Ollama on a slow host can take tens of seconds). Running it
+        # directly inside `async def on_message` blocks the asyncio event
+        # loop, which freezes uvicorn's request handling for the whole
+        # turn. That includes `GET /.well-known/agent.json`, which the
+        # platform's persistent-agent health probe relies on; three
+        # consecutive timeouts trip the restart threshold and kill the
+        # container mid-inference (issue #2159).
+        #
+        # Off-load the blocking call to the default executor so the event
+        # loop stays responsive and the health probe continues to answer
+        # 200 while the LLM call is in flight.
+        response = await asyncio.to_thread(build.llm.generate, messages=messages, tools=build.tools)
         assistant = response.get_message()
         if assistant is None:
             raise RuntimeError(
