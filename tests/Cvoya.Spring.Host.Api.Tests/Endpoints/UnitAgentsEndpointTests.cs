@@ -123,7 +123,9 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         var agents = await response.Content.ReadFromJsonAsync<List<AgentResponse>>(JsonOptions, ct);
         agents.ShouldNotBeNull();
         agents!.Count.ShouldBe(1);
-        agents[0].Name.ShouldBe("ada");
+        // #2114: Name carries the canonical hex; DisplayName is the human label.
+        agents[0].Name.ShouldBe(AgentAdaUuid.ToString("N"));
+        agents[0].DisplayName.ShouldBe("ada");
         agents[0].Model.ShouldBe("claude-opus");
         agents[0].Specialty.ShouldBe("reviewer");
         agents[0].Enabled.ShouldBeTrue();
@@ -204,7 +206,8 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         var agents = await response.Content.ReadFromJsonAsync<List<AgentResponse>>(JsonOptions, ct);
         agents.ShouldNotBeNull();
         agents!.Count.ShouldBe(3);
-        agents.Select(a => a.Name).ShouldBe(new[] { "ada", "babbage", "turing" }, ignoreOrder: true);
+        // #2114: Name carries the canonical hex; DisplayName is the human label.
+        agents.Select(a => a.DisplayName).ShouldBe(new[] { "ada", "babbage", "turing" }, ignoreOrder: true);
 
         ConcurrencyProbingMembershipRepository.PeakConcurrency
             .ShouldBe(1,

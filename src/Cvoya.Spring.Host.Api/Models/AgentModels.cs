@@ -51,6 +51,12 @@ public record CreateAgentRequest(
 /// projected with a default of <c>true</c> when unset so UI callers can
 /// treat it as non-nullable.
 /// </summary>
+/// <param name="Name">
+/// The canonical 32-char no-dash hex form of <see cref="Id"/>, suitable for
+/// use as a URL path segment (matches <see cref="UnitResponse.Name"/> per
+/// #2114). The human-readable label lives on <see cref="DisplayName"/>.
+/// </param>
+/// <param name="DisplayName">The human-readable display name.</param>
 /// <param name="HostingMode">
 /// The agent's declared hosting mode (<c>ephemeral</c> or <c>persistent</c>),
 /// read from the agent's persisted <c>execution.hosting</c> field. <c>null</c>

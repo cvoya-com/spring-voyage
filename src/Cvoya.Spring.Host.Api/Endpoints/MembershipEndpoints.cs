@@ -313,7 +313,7 @@ public static class MembershipEndpoints
     /// <summary>
     /// Projects a <see cref="UnitMembership"/> row into its wire representation.
     ///
-    /// Wire shape (#1492):
+    /// Wire shape (#2114, post-#1492):
     /// <list type="bullet">
     ///   <item><description>
     ///     <c>UnitId</c> carries the unit's identity-form address
@@ -321,11 +321,22 @@ public static class MembershipEndpoints
     ///     UUID — not a slug that could be reused after a delete/recreate.
     ///   </description></item>
     ///   <item><description>
-    ///     <c>AgentAddress</c> carries the agent's slug-form path (e.g. "ada")
-    ///     for backward-compat URL routing (portal uses this as a URL segment).
-    ///     The <c>Member</c> field carries the agent's identity-form address
-    ///     <c>agent:id:&lt;uuid&gt;</c> — the two together avoid duplication
-    ///     while preserving the routing convenience (see #1492 design note).
+    ///     <c>AgentAddress</c> carries the agent's canonical 32-char no-dash
+    ///     hex id (matches <c>AgentResponse.Name</c>). Suitable as a direct
+    ///     URL path segment in <c>/units/{unitId}/memberships/{agentAddress}</c>.
+    ///     Per ADR-0036 the wire form is identity, never display name — see
+    ///     #2114. Pre-#2114 this field was the agent's display name, which
+    ///     broke the cascade <c>spring unit purge</c> path (#2111) and caused
+    ///     the <c>spring unit members list</c> double-count (#2113).
+    ///   </description></item>
+    ///   <item><description>
+    ///     <c>AgentDisplayName</c> carries the human-readable label resolved
+    ///     from the directory entry. Empty when the directory entry is not
+    ///     available (deleted agent between read and projection); never null.
+    ///   </description></item>
+    ///   <item><description>
+    ///     <c>Member</c> field carries the agent's scheme-prefixed identity
+    ///     form <c>agent:&lt;hex&gt;</c> for the unified-row consumers.
     ///   </description></item>
     /// </list>
     /// </summary>
@@ -338,24 +349,26 @@ public static class MembershipEndpoints
         // Unit identity: emit unit:id:<uuid> form.
         var unitAddress = Address.ForIdentity(Address.UnitScheme, m.UnitId).ToString();
 
-        // Agent display name surfaces alongside the identity-form Member URI
-        // so wire callers (CLI, portal) can show a human-friendly label
-        // without an extra round-trip. Falls through to the bare hex when no
-        // directory entry is available — that keeps the field non-empty for
-        // pre-#1629 / unresolved cases.
-        string agentSlug;
+        // #2114: AgentAddress is the canonical 32-char no-dash hex id of the
+        // agent — never the display name. This mirrors UnitResponse.Name and
+        // AgentResponse.Name so the field is safe to use directly as a URL
+        // path segment without a slug→hex round-trip.
+        var agentAddress = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(m.AgentId);
+
+        // Resolve a human-readable label from the directory; default to empty
+        // when the entry isn't available (deleted between read + projection).
+        string agentDisplayName;
         if (agentActorIdMap is not null && agentActorIdMap.TryGetValue(m.AgentId, out var agentEntry))
         {
-            agentSlug = agentEntry.DisplayName;
+            agentDisplayName = agentEntry.DisplayName ?? string.Empty;
         }
         else if (agentEntryHint is not null)
         {
-            agentSlug = agentEntryHint.DisplayName;
+            agentDisplayName = agentEntryHint.DisplayName ?? string.Empty;
         }
         else
         {
-            // Fallback: emit the UUID hex so the field is never empty.
-            agentSlug = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(m.AgentId);
+            agentDisplayName = string.Empty;
         }
 
         // Member field: identity-form agent:id:<uuid>.
@@ -363,7 +376,8 @@ public static class MembershipEndpoints
 
         return new UnitMembershipResponse(
             unitAddress,
-            agentSlug,
+            agentAddress,
+            agentDisplayName,
             member,
             m.Model,
             m.Specialty,

@@ -25,7 +25,10 @@ public static class UnitCommand
     private static readonly OutputFormatter.Column<UnitMembershipResponse>[] MembershipColumns =
     {
         new("unit", m => m.UnitId),
-        new("agent", m => m.AgentAddress),
+        // #2114: AgentAddress is the canonical hex id; the "agent" table
+        // column prefers the human-readable display name and falls back to
+        // the hex id when the directory entry is unavailable.
+        new("agent", m => !string.IsNullOrWhiteSpace(m.AgentDisplayName) ? m.AgentDisplayName : m.AgentAddress),
         new("model", m => m.Model),
         new("specialty", m => m.Specialty),
         new("enabled", m => m.Enabled?.ToString().ToLowerInvariant()),
@@ -928,8 +931,17 @@ public static class UnitCommand
                 // verbatim instead of a Kiota stack trace (#1026).
                 foreach (var membership in memberships)
                 {
+                    // #2111 / #2114: AgentAddress is the canonical hex id of
+                    // the agent — pass it straight through as the URL path
+                    // segment. Pre-#2114 this field was the agent's display
+                    // name, which the API rejected with 500 because the
+                    // path-binder requires a Guid. The display label is now
+                    // surfaced separately for operator-friendly output.
                     var agentAddress = membership.AgentAddress ?? string.Empty;
-                    Console.WriteLine($"  - removing membership for agent '{agentAddress}'");
+                    var agentLabel = !string.IsNullOrWhiteSpace(membership.AgentDisplayName)
+                        ? membership.AgentDisplayName!
+                        : agentAddress;
+                    Console.WriteLine($"  - removing membership for agent '{agentLabel}'");
                     try
                     {
                         await client.DeleteMembershipAsync(id, agentAddress, ct);
@@ -937,7 +949,7 @@ public static class UnitCommand
                     catch (ApiException ex) when (IsLastMembershipConflict(ex))
                     {
                         Console.WriteLine(
-                            $"    - last unit membership for agent '{agentAddress}'; deleting the agent to complete the cascade");
+                            $"    - last unit membership for agent '{agentLabel}'; deleting the agent to complete the cascade");
                         await client.DeleteAgentAsync(agentAddress, ct);
                     }
                 }
