@@ -110,7 +110,8 @@ export function MessageComposer({
   const send = useMutation<
     Awaited<ReturnType<typeof api.sendMessage>>,
     Error,
-    { trimmed: string }
+    { trimmed: string },
+    { previousThread?: ThreadDetail | null; trimmed: string }
   >({
     mutationFn: async ({ trimmed }) => {
       if (!recipient) {
@@ -146,21 +147,28 @@ export function MessageComposer({
         payload: trimmed,
       });
     },
-    onSuccess: (_data, { trimmed }) => {
+    onMutate: async ({ trimmed }) => {
+      // Cancel any in-flight refetch so it doesn't overwrite the optimistic event.
+      if (threadId) {
+        await queryClient.cancelQueries({
+          queryKey: queryKeys.threads.detail(threadId),
+        });
+      }
+
+      // Clear the textarea immediately — user can start typing the next
+      // message while this one travels to the server.
       setText("");
 
-      // Optimistically inject the just-sent message into the thread
-      // detail cache so the timeline renders immediately. Only meaningful
-      // when we have an existing thread; for new threads the server's
-      // auto-generated id arrives on the next refetch.
+      // Inject a synthetic event so the timeline shows the message before
+      // the server acknowledges it. Only meaningful for existing threads;
+      // new-thread sends pick up the real event on the next refetch.
       if (threadId) {
         const key = queryKeys.threads.detail(threadId);
         const prev = queryClient.getQueryData<ThreadDetail | null>(key);
         if (prev) {
           // #2082: ParticipantRef.id is required on the contract. The
           // optimistic event is a placeholder that the refetch replaces
-          // with the real, server-resolved event; we just need a value
-          // that satisfies the type without claiming identity.
+          // with the real, server-resolved event.
           const syntheticEvent = {
             id: `optimistic-${Date.now()}`,
             eventType: "MessageReceived",
@@ -178,9 +186,12 @@ export function MessageComposer({
             ...prev,
             events: [...(prev.events ?? []), syntheticEvent],
           });
+          return { previousThread: prev, trimmed };
         }
       }
-
+      return { trimmed };
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.threads.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.activity.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.threads.inbox() });
@@ -191,7 +202,18 @@ export function MessageComposer({
       }
       onSendSuccess?.();
     },
-    onError: (err) => {
+    onError: (err, _vars, context) => {
+      // Roll back the optimistic thread update.
+      if (context?.previousThread && threadId) {
+        queryClient.setQueryData(
+          queryKeys.threads.detail(threadId),
+          context.previousThread,
+        );
+      }
+      // Restore the composed text so the user doesn't lose their work.
+      if (context?.trimmed) {
+        setText(context.trimmed);
+      }
       toast({
         title: "Failed to send message",
         description: err instanceof Error ? err.message : String(err),
