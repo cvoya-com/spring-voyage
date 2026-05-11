@@ -17,12 +17,15 @@ import type { ThreadEvent } from "@/lib/api/types";
 
 import {
   addressOf,
+  buildParticipantNameResolver,
   idOf,
   parseThreadSource,
   participantDisplayName,
+  renderBodyWithResolvedAddresses,
   ROLE_STYLES,
   roleFromEvent,
   runtimeKindOf,
+  type AddressLike,
   type ConversationRole,
 } from "./role";
 
@@ -81,6 +84,16 @@ interface ThreadEventRowProps {
    * where the dialog metaphor is wrong.
    */
   align?: "auto" | "start";
+  /**
+   * Thread-level participants (#2089). Used to resolve raw
+   * `scheme://<guid>` / `scheme:<guid>` addresses that a noisy LLM may
+   * leak into a `MessageReceived` body — they fold down to the
+   * participant's display name in the rendered bubble. The event's own
+   * `source` / `from` / `to` are always merged into the lookup, so the
+   * sender's name resolves even on surfaces that don't pass the full
+   * thread participants list.
+   */
+  participants?: ReadonlyArray<AddressLike>;
 }
 
 /**
@@ -112,6 +125,7 @@ export function ThreadEventRow({
   actions = "activity-link",
   testIdPrefix = "conversation-event",
   align = "auto",
+  participants,
 }: ThreadEventRowProps) {
   // Attribute MessageReceived bubbles to the sender (event.from) rather
   // than the receiver-projected event.source.
@@ -138,7 +152,24 @@ export function ThreadEventRow({
   const timestamp = new Date(event.timestamp);
   // Show the message body for all MessageReceived events so the thread
   // reads as a real conversation rather than a list of envelope summaries.
-  const bodyText = isMessageReceived && event.body ? event.body : null;
+  // Raw `scheme://<guid>` addresses leaked into the body by a noisy LLM
+  // (#2089) are folded down to participant display names via the shared
+  // resolver. The event's own attribution participants are always merged
+  // into the lookup so the sender / recipient resolve even on surfaces
+  // that don't pass the full thread participants list.
+  const rawBody = isMessageReceived && event.body ? event.body : null;
+  const bodyText =
+    rawBody === null
+      ? null
+      : renderBodyWithResolvedAddresses(
+          rawBody,
+          buildParticipantNameResolver([
+            event.source,
+            event.from,
+            event.to,
+            ...(participants ?? []),
+          ]),
+        );
 
   // Display name resolution: shared helper passes through the
   // server-supplied `displayName` (#1635 / PR #1643 / #1645). When the

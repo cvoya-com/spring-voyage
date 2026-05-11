@@ -890,6 +890,20 @@ Message events (`MessageReceived` / `MessageSent`) always render through the bub
 
 Anything not in the table falls back to the raw event-type string and the `ListTree` icon.
 
+#### 16.6.3 Message-bubble body — address-folding (#2089)
+
+The chat bubble in `<ThreadEventRow>` renders `event.body` verbatim for `MessageReceived` events, with one transformation applied: any wire-form participant address present inside the body text (`scheme://<guid>`, `scheme:<guid>`, `scheme:id:<uuid>`, dashed or undashed) is folded down to the participant's display name through the shared resolver in `src/components/thread/role.ts` (`renderBodyWithResolvedAddresses` + `buildParticipantNameResolver`). Schemes recognised: `human`, `agent`, `unit`, `tenant`.
+
+Why: a weak / noisy LLM may mimic the prompt-format the agent SDK uses to serialise prior turns and emit `[ts] human://<guid>: …` as part of its own reply body. Rendering that verbatim leaks platform-internal addressing into the conversational UI. Folding to the resolved display name is the same contract the participant header uses (#1635 / PR #1643 / #1645): the resolver is a thin pass-through over the server-supplied `ParticipantRef.displayName`.
+
+Rules:
+
+- Replacement is **plain text in place** — no link, no chip, no hover affordance. The bubble keeps its conversational voice.
+- The lookup pool is the event's own `source` / `from` / `to` plus the thread's `summary.participants` (when `<ConversationView>` passes them through). Identity matching is on the participant's stable Guid (`idOf`), normalised to undashed lowercase, so dashed and undashed forms compare equal.
+- Unresolvable addresses render as the deleted-sentinel `<unknown>` (matches the server-side `<deleted>` sentinel shape so the voice stays consistent without leaking the raw GUID).
+- Idempotent: the rendered output no longer matches the address regex, so a thread refetch / SSE re-render produces the same string.
+- Storage is unchanged — the body in the database stays raw. This is a render-time transform.
+
 ### 16.7 Global inbox badge (E2.6)
 
 `GlobalInboxBadge` in `engagement-shell.tsx` calls `useInbox()` and renders a rounded pill (`bg-warning text-warning-foreground h-4 min-w-4 px-1 text-[10px] rounded-full`) with the total count. The badge appears:

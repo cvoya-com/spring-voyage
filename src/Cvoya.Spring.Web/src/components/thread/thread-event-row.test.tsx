@@ -189,4 +189,139 @@ describe("ThreadEventRow", () => {
       expect(screen.queryByRole("alert")).toBeNull();
     });
   });
+
+  // #2089: body-text address-folding. A weak / noisy LLM may mimic the
+  // prompt-format the agent SDK uses for prior turns and emit
+  // `[ts] human://<guid>: …` inside its own reply body. The bubble must
+  // fold those raw addresses down to display names so platform-internal
+  // addressing doesn't leak into the chat UI.
+  describe("body-text address folding (#2089)", () => {
+    const SAVAS = {
+      id: "d6cb6b9d-436f-41d5-9927-f333f309abeb",
+      address: "human:d6cb6b9d436f41d59927f333f309abeb",
+      displayName: "Savas",
+    };
+    const ADA = {
+      id: "8c5fab2a-8e7e-4b9c-92f1-d8a3b4c5d6e7",
+      address: "agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7",
+      displayName: "ada",
+    };
+
+    it("renders the resolved display name in place of a raw human:// address", () => {
+      render(
+        <ThreadEventRow
+          event={makeEvent({
+            source: ADA,
+            body: "human://d6cb6b9d436f41d59927f333f309abeb: hello there",
+          })}
+          participants={[SAVAS, ADA]}
+        />,
+      );
+
+      expect(screen.getByText("Savas: hello there")).toBeTruthy();
+      expect(
+        screen.queryByText(/d6cb6b9d436f41d59927f333f309abeb/),
+      ).toBeNull();
+    });
+
+    it("replaces every address in a body with multiple references", () => {
+      render(
+        <ThreadEventRow
+          event={makeEvent({
+            source: ADA,
+            body:
+              "agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 → " +
+              "human://d6cb6b9d436f41d59927f333f309abeb",
+          })}
+          participants={[SAVAS, ADA]}
+        />,
+      );
+
+      expect(screen.getByText("ada → Savas")).toBeTruthy();
+    });
+
+    it("preserves prose around folded addresses", () => {
+      render(
+        <ThreadEventRow
+          event={makeEvent({
+            source: ADA,
+            body: "[2026-05-10 20:54:39Z] human://d6cb6b9d436f41d59927f333f309abeb: can you check?",
+          })}
+          participants={[SAVAS, ADA]}
+        />,
+      );
+
+      expect(
+        screen.getByText("[2026-05-10 20:54:39Z] Savas: can you check?"),
+      ).toBeTruthy();
+    });
+
+    it("renders <unknown> when the address can't be resolved against any participant", () => {
+      render(
+        <ThreadEventRow
+          event={makeEvent({
+            source: ADA,
+            // GUID that's not in the participants list and not the
+            // event's own source / from / to.
+            body: "ack human://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa done",
+          })}
+          participants={[SAVAS, ADA]}
+        />,
+      );
+
+      expect(screen.getByText("ack <unknown> done")).toBeTruthy();
+    });
+
+    it("resolves the event's own source / from / to even when no thread participants are passed", () => {
+      // No `participants` prop — we still want the message's own
+      // attribution to fold so a body that mentions the recipient by
+      // address renders cleanly. Surfaces that don't pass the full
+      // participants list (legacy / inbox) get this for free.
+      render(
+        <ThreadEventRow
+          event={makeEvent({
+            source: ADA,
+            from: ADA,
+            to: SAVAS,
+            body: "human://d6cb6b9d436f41d59927f333f309abeb you there?",
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Savas you there?")).toBeTruthy();
+    });
+
+    it("is a no-op when the body contains no address forms", () => {
+      render(
+        <ThreadEventRow
+          event={makeEvent({
+            source: ADA,
+            body: "Just prose, no addresses.",
+          })}
+          participants={[SAVAS, ADA]}
+        />,
+      );
+
+      expect(screen.getByText("Just prose, no addresses.")).toBeTruthy();
+    });
+
+    it("emits the rendered body as plain text (no aria-label / no link)", () => {
+      // Accessibility: the folded text should read the same to a screen
+      // reader as it does visually. We rely on the surrounding <p>'s
+      // text content; no special aria attribute on the replaced segment.
+      const { container } = render(
+        <ThreadEventRow
+          event={makeEvent({
+            source: ADA,
+            body: "human://d6cb6b9d436f41d59927f333f309abeb: hello",
+          })}
+          participants={[SAVAS, ADA]}
+        />,
+      );
+
+      // No anchor, no chip — just plain text inside the bubble paragraph.
+      expect(container.querySelector("a[href*='Savas']")).toBeNull();
+      expect(container.querySelector("[aria-label*='Savas']")).toBeNull();
+    });
+  });
 });

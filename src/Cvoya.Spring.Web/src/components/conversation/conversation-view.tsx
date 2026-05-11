@@ -384,6 +384,7 @@ export function ConversationView({
                     actions={rowActions}
                     testIdPrefix={rowTestIdPrefix}
                     align="start"
+                    participants={detail?.summary?.participants}
                   />
                 </div>
               );
@@ -408,6 +409,7 @@ export function ConversationView({
                 event={event}
                 actions={rowActions}
                 testIdPrefix={rowTestIdPrefix}
+                participants={detail?.summary?.participants}
               />
             );
           })
