@@ -124,6 +124,10 @@ function makeMembership(
   const base = {
     unitId: "engineering",
     agentAddress: "ada",
+    // #2114: agentDisplayName is non-nullable on the wire; default to the
+    // address so older fixtures that only set agentAddress still satisfy
+    // the contract.
+    agentDisplayName: overrides.agentDisplayName ?? overrides.agentAddress ?? "ada",
     model: null,
     specialty: null,
     enabled: true,

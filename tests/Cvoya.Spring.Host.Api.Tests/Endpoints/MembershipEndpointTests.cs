@@ -125,8 +125,15 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
         list.ShouldNotBeNull();
         list!.Count.ShouldBe(2);
-        list.ShouldContain(m => m.AgentAddress == "ada" && m.Specialty == "reviewer" && m.Enabled);
-        list.ShouldContain(m => m.AgentAddress == "hopper" && !m.Enabled);
+        // #2114: AgentAddress is the canonical 32-char no-dash hex id;
+        // AgentDisplayName carries the human-readable label.
+        list.ShouldContain(m => m.AgentAddress == AgentAdaUuid.ToString("N")
+            && m.AgentDisplayName == "ada"
+            && m.Specialty == "reviewer"
+            && m.Enabled);
+        list.ShouldContain(m => m.AgentAddress == AgentHopperUuid.ToString("N")
+            && m.AgentDisplayName == "hopper"
+            && !m.Enabled);
     }
 
     // #1060 / #1490: every projected row carries a unified `member` column
@@ -150,9 +157,14 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
         list.ShouldNotBeNull();
-        // Member must be the identity form, not the navigation form.
-        list!.ShouldContain(m => m.AgentAddress == "ada" && m.Member == $"agent:{AgentAdaUuid:N}");
-        list.ShouldContain(m => m.AgentAddress == "hopper" && m.Member == $"agent:{AgentHopperUuid:N}");
+        // #2114: AgentAddress is the canonical hex id; Member carries the
+        // scheme-prefixed identity form. AgentDisplayName carries the label.
+        list!.ShouldContain(m => m.AgentAddress == AgentAdaUuid.ToString("N")
+            && m.AgentDisplayName == "ada"
+            && m.Member == $"agent:{AgentAdaUuid:N}");
+        list.ShouldContain(m => m.AgentAddress == AgentHopperUuid.ToString("N")
+            && m.AgentDisplayName == "hopper"
+            && m.Member == $"agent:{AgentHopperUuid:N}");
     }
 
     // #1060 / #1490: the same projection applies to the /agents/{id}/memberships
@@ -173,6 +185,68 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
         list.ShouldNotBeNull();
         list!.ShouldAllBe(m => m.Member == $"agent:{AgentAdaUuid:N}");
+    }
+
+    // #2114: regression guard — AgentAddress on every membership row is the
+    // canonical 32-char no-dash hex form of the agent id, never a display
+    // name. This pins the new contract — pre-#2114 the field carried the
+    // display name, which broke `spring unit purge` (#2111) and caused the
+    // double-count in `spring unit members list` (#2113).
+    [Fact]
+    public async Task ListUnitMemberships_AgentAddress_IsCanonicalHexNeverDisplayName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        ArrangeDirectoryHit("unit", "engineering", UnitEngineeringUuid);
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
+
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitEngineeringUuid:N}/memberships", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
+        list.ShouldNotBeNull();
+        var row = list!.ShouldHaveSingleItem();
+        // #2114: AgentAddress is the canonical 32-char no-dash hex.
+        row.AgentAddress.ShouldBe(AgentAdaUuid.ToString("N"));
+        row.AgentAddress.ShouldNotBe("ada");
+        // The human-readable label is carried separately.
+        row.AgentDisplayName.ShouldBe("ada");
+    }
+
+    // #2114: regression guard — DELETE on the membership cascade must
+    // succeed when the CLI passes the now-aligned AgentAddress straight
+    // through as the URL path segment. This is the end-to-end contract that
+    // unblocks `spring unit purge` (#2111). The pre-#2114 wire shape would
+    // have produced a 500 here because the path-binder rejected the display
+    // name "ada" with `Address id 'ada' is not a valid Guid`.
+    [Fact]
+    public async Task DeleteMembership_UsingAgentAddressFromList_Succeeds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        ArrangeDirectoryHit("unit", "engineering", UnitEngineeringUuid);
+        ArrangeDirectoryHit("unit", "marketing", UnitMarketingUuid);
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+
+        // Two memberships so the DELETE doesn't trip the #744 last-membership
+        // invariant (409 Conflict). The cascade contract is what's being
+        // pinned — not the orphan-prevention rule.
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
+        await UpsertAsync(UnitMarketingUuid, AgentAdaUuid);
+
+        // Read the list back as the CLI does, then use the AgentAddress
+        // value verbatim as the URL path segment for the DELETE.
+        var listResponse = await _client.GetAsync(
+            $"/api/v1/tenant/units/{UnitEngineeringUuid:N}/memberships", ct);
+        listResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var list = await listResponse.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
+        var agentAddress = list!.ShouldHaveSingleItem().AgentAddress;
+
+        var deleteResponse = await _client.DeleteAsync(
+            $"/api/v1/tenant/units/{UnitEngineeringUuid:N}/memberships/{agentAddress}", ct);
+        deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
     }
 
     // #1490: Regression guard — after #1492, endpoints that encounter a

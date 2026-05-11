@@ -66,13 +66,40 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         var agents = await response.Content.ReadFromJsonAsync<List<AgentResponse>>(JsonOptions, ct);
         agents!.Count().ShouldBe(1);
-        // Post-#1629 the AgentResponse Name and DisplayName both project the
-        // entry's DisplayName (slug-form preserved for legacy compat); Id
-        // is the agent's Guid hex.
+        // #2114: AgentResponse.Name carries the canonical 32-char no-dash hex
+        // id (matches UnitResponse.Name); DisplayName carries the human label.
         agents![0].Id.ShouldBe(agentId);
-        agents[0].Name.ShouldBe("Test Agent");
+        agents[0].Name.ShouldBe(agentId.ToString("N"));
         agents[0].DisplayName.ShouldBe("Test Agent");
         agents[0].Role.ShouldBe("backend");
+    }
+
+    // #2114: regression guard — AgentResponse.Name must carry the canonical
+    // 32-char no-dash hex form of the actor id (matches UnitResponse.Name)
+    // even when the agent's display name is slug-shaped or otherwise
+    // address-looking. Pre-#2114 this field carried the display name,
+    // creating an asymmetry with UnitResponse that broke single-helper
+    // canonical-id extraction across the CLI / e2e surface.
+    [Fact]
+    public async Task ListAgents_AgentResponseName_IsCanonicalHexNeverDisplayName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        var entries = new List<DirectoryEntry>
+        {
+            new(new Address("agent", agentId), agentId, "Slug-Shaped Agent", "", null, DateTimeOffset.UtcNow),
+        };
+        _factory.DirectoryService.ListAllAsync(Arg.Any<CancellationToken>()).Returns(entries);
+
+        var response = await _client.GetAsync("/api/v1/tenant/agents", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var agents = await response.Content.ReadFromJsonAsync<List<AgentResponse>>(JsonOptions, ct);
+        var agent = agents!.ShouldHaveSingleItem();
+        // Name is hex; DisplayName is the human label.
+        agent.Name.ShouldBe(agentId.ToString("N"));
+        agent.Name.ShouldNotBe("Slug-Shaped Agent");
+        agent.DisplayName.ShouldBe("Slug-Shaped Agent");
     }
 
     [Fact]

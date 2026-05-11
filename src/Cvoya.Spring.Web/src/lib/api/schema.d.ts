@@ -3535,6 +3535,7 @@ export interface components {
         UnitMembershipResponse: {
             unitId: string;
             agentAddress: string;
+            agentDisplayName: string;
             member: string;
             model: null | string;
             specialty: null | string;

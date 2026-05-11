@@ -1463,7 +1463,11 @@ public static class AgentEndpoints
         InitiativeLevel? initiativeLevel = null) =>
         new(
             entry.ActorId,
-            entry.DisplayName,
+            // #2114: Name carries the canonical 32-char no-dash hex form
+            // (Address.Path) so it matches UnitResponse.Name and is safe to
+            // pass straight back into URL path params. Human-readable label
+            // lives on DisplayName.
+            entry.Address.Path,
             entry.DisplayName,
             entry.Description,
             entry.Role,

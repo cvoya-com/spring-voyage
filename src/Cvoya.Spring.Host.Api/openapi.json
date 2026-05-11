@@ -13076,6 +13076,7 @@
         "required": [
           "unitId",
           "agentAddress",
+          "agentDisplayName",
           "member",
           "model",
           "specialty",
@@ -13091,6 +13092,9 @@
             "type": "string"
           },
           "agentAddress": {
+            "type": "string"
+          },
+          "agentDisplayName": {
             "type": "string"
           },
           "member": {

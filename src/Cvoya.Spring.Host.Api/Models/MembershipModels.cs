@@ -12,15 +12,31 @@ using Cvoya.Spring.Core.Agents;
 /// these overrides lands in C2b-2 — in C2b-1 they are persisted but not
 /// yet consulted at dispatch time.
 /// </summary>
-/// <param name="UnitId">The unit this membership attaches the agent to.</param>
-/// <param name="AgentAddress">Canonical string form of the agent address (path for <c>scheme=agent</c>).</param>
+/// <param name="UnitId">
+/// The identity-form unit address (<c>unit:id:&lt;hex&gt;</c>) this
+/// membership attaches the agent to.
+/// </param>
+/// <param name="AgentAddress">
+/// The agent's canonical 32-char no-dash hex id (matches
+/// <see cref="AgentResponse.Name"/>). Suitable for use directly as a URL
+/// path segment in the <c>/units/{unitId}/memberships/{agentAddress}</c>
+/// surface. Per ADR-0036 the wire form is identity, never display name —
+/// see #2114 for the alignment with <see cref="UnitResponse"/> and
+/// <see cref="AgentResponse"/>.
+/// </param>
+/// <param name="AgentDisplayName">
+/// The agent's human-readable display name, looked up at projection time
+/// from the directory entry. May be empty when the directory entry is no
+/// longer available (e.g. the agent was deleted between membership read
+/// and projection); never <c>null</c>.
+/// </param>
 /// <param name="Member">
-/// Scheme-prefixed canonical address of the member (#1060). Always
-/// <c>agent://{AgentAddress}</c> on this DTO because <c>UnitMembershipResponse</c>
-/// only carries agent-scheme rows; the unified <c>member</c> column lets
-/// scripts consume mixed agent/sub-unit member rows from
-/// <c>spring unit members list --output json</c> without branching on
-/// <c>agentAddress</c> vs <c>subUnitId</c>.
+/// Scheme-prefixed canonical identity-form address of the member (#1060):
+/// always <c>agent:&lt;hex&gt;</c> for this DTO because
+/// <c>UnitMembershipResponse</c> only carries agent-scheme rows. The
+/// unified <c>member</c> column lets scripts consume mixed agent/sub-unit
+/// member rows from <c>spring unit members list --output json</c> without
+/// branching on <c>agentAddress</c> vs <c>subUnitId</c>.
 /// </param>
 /// <param name="Model">Per-membership model override, or <c>null</c> to inherit.</param>
 /// <param name="Specialty">Per-membership specialty override, or <c>null</c> to inherit.</param>
@@ -37,6 +53,7 @@ using Cvoya.Spring.Core.Agents;
 public record UnitMembershipResponse(
     string UnitId,
     string AgentAddress,
+    string AgentDisplayName,
     string Member,
     string? Model,
     string? Specialty,
