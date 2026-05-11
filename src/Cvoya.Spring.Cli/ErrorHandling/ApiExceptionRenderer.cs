@@ -12,6 +12,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Cli;
 using Cvoya.Spring.Cli.Generated.Models;
+using Cvoya.Spring.Cli.Utilities;
 
 using Microsoft.Kiota.Abstractions;
 using Microsoft.Kiota.Abstractions.Serialization;
@@ -81,12 +82,16 @@ public class ApiExceptionRenderer : IApiExceptionRenderer
 
         string? title = null;
         string? detail = null;
+        var recognizedProblemCode = false;
         var extensions = new Dictionary<string, string?>(StringComparer.Ordinal);
 
         if (exception is ProblemDetails problem)
         {
-            title = NullIfBlank(problem.Title);
-            detail = NullIfBlank(problem.Detail);
+            var translated = ProblemDetailsTranslator.Translate(problem);
+            recognizedProblemCode = ProblemDetailsTranslator.IsKnownCode(
+                ProblemDetailsTranslator.GetCode(problem));
+            title = translated.Title;
+            detail = translated.NextStep;
 
             if (status is null && problem.Status is int bodyStatus)
             {
@@ -94,10 +99,20 @@ public class ApiExceptionRenderer : IApiExceptionRenderer
             }
 
             CollectExtensions(problem.AdditionalData, extensions);
+            if (recognizedProblemCode)
+            {
+                extensions.Clear();
+            }
+            else
+            {
+                extensions.Remove("traceId");
+            }
         }
 
         title ??= MapStatusTitle(status);
-        var next = ExtractNextHints(extensions);
+        var next = recognizedProblemCode && !string.IsNullOrWhiteSpace(detail)
+            ? Array.Empty<string>()
+            : ExtractNextHints(extensions);
 
         return new CliErrorPayload(status, title, detail, next, extensions);
     }
@@ -122,7 +137,7 @@ public class ApiExceptionRenderer : IApiExceptionRenderer
 
         if (context.Verbose)
         {
-            (context.StdErr ?? Console.Error).WriteLine(exception.ToString());
+            EmitVerboseDiagnostics(exception, context.StdErr ?? Console.Error);
         }
     }
 
@@ -153,8 +168,7 @@ public class ApiExceptionRenderer : IApiExceptionRenderer
 
         if (context.Verbose || ShouldDumpStackTrace())
         {
-            stderr.WriteLine();
-            stderr.WriteLine(exception.ToString());
+            EmitVerboseDiagnostics(exception, stderr);
         }
     }
 
@@ -358,4 +372,23 @@ public class ApiExceptionRenderer : IApiExceptionRenderer
 
     private static string? NullIfBlank(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static void EmitVerboseDiagnostics(ApiException exception, TextWriter stderr)
+    {
+        stderr.WriteLine();
+        if (exception is ProblemDetails problem)
+        {
+            var traceId = ProblemDetailsTranslator.GetTraceId(problem);
+            if (!string.IsNullOrWhiteSpace(traceId))
+            {
+                stderr.WriteLine($"traceId: {traceId}");
+            }
+
+            stderr.WriteLine("problemDetails:");
+            stderr.WriteLine(ProblemDetailsTranslator.RawEnvelopeJson(problem));
+            stderr.WriteLine();
+        }
+
+        stderr.WriteLine(exception.ToString());
+    }
 }

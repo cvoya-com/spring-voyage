@@ -219,9 +219,16 @@ describe("GitHubConnectorWizardStep", () => {
     expect(mocked.getGitHubInstallUrl).toHaveBeenCalledTimes(1);
   });
 
-  it("renders the install-app link when listing repositories throws", async () => {
+  it("renders translated copy when listing repositories throws ProblemDetails", async () => {
     mocked.listGitHubRepositories.mockRejectedValue(
-      new Error("502 Bad Gateway"),
+      new ApiError(404, "Not Found", {
+        type: "https://cvoya.com/problems/unit-not-found",
+        title: "Not Found",
+        status: 404,
+        detail: "UnitNotFound: unit was deleted.",
+        code: "UnitNotFound",
+        traceId: "00-github-wizard",
+      }),
     );
     mocked.getGitHubInstallUrl.mockResolvedValue({
       url: "https://github.com/apps/spring-voyage/installations/new",
@@ -237,9 +244,12 @@ describe("GitHubConnectorWizardStep", () => {
         screen.getByRole("link", { name: /install github app/i }),
       ).toBeInTheDocument();
     });
+    expect(screen.getByText(/Unit not found\./)).toBeInTheDocument();
     expect(
-      screen.getByText(/502 Bad Gateway/, { exact: false }),
+      screen.getByText(/It may have been deleted\. Refresh the page/),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/API error 404/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/UnitNotFound:/)).not.toBeInTheDocument();
   });
 
   it("passes axe smoke with the install-app banner visible (#599)", async () => {

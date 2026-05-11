@@ -13,6 +13,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Cli.Commands;
+using Cvoya.Spring.Cli.Generated.Models;
 
 using Shouldly;
 
@@ -394,7 +395,7 @@ public class PackageInstallCommandTests
     }
 
     [Fact]
-    public async Task InstallPackagesAsync_MissingDepError_ThrowsWithServerMessage()
+    public async Task InstallPackagesAsync_MissingDepError_ThrowsProblemDetails()
     {
         var handler = new RecordingHandler((req, _) =>
             new HttpResponseMessage(HttpStatusCode.BadRequest)
@@ -413,11 +414,13 @@ public class PackageInstallCommandTests
             new SpringApiClient.PackageInstallTargetRequest("pkg-a", null),
         };
 
-        var ex = await Should.ThrowAsync<InvalidOperationException>(
+        var ex = await Should.ThrowAsync<ProblemDetails>(
             () => client.InstallPackagesAsync(targets, TestContext.Current.CancellationToken));
 
-        ex.Message.ShouldContain("not in the install batch");
-        ex.Message.ShouldContain("400");
+        ex.Detail.ShouldNotBeNull();
+        ex.Detail.ShouldContain("not in the install batch");
+        ex.Status.ShouldBe(400);
+        ex.ResponseStatusCode.ShouldBe(400);
     }
 
     [Fact]

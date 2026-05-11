@@ -30,6 +30,7 @@ import { Github, Loader2, Lock, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ApiError, api } from "@/lib/api/client";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import type {
   GitHubCollaboratorResponse,
   GitHubMissingOAuthResponse,
@@ -323,8 +324,7 @@ export function GitHubConnectorWizardStep({
           setReposError(null);
           setMissingOAuth(null);
         } else {
-          const message = err instanceof Error ? err.message : String(err);
-          setReposError(message);
+          setReposError(formatTranslatedError(err));
           setDisabledReason(null);
           setMissingOAuth(null);
         }
@@ -386,8 +386,7 @@ export function GitHubConnectorWizardStep({
       const result = await api.beginGitHubOAuthAuthorize();
       window.open(result.authorizeUrl, "_blank", "noopener,noreferrer");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setOAuthLinkError(message);
+      setOAuthLinkError(formatTranslatedError(err));
     } finally {
       setLinkingOAuth(false);
     }
@@ -420,8 +419,7 @@ export function GitHubConnectorWizardStep({
         setActiveSessionId(null);
         setMissingOAuth(missing);
       } else {
-        const message = err instanceof Error ? err.message : String(err);
-        setReposError(message);
+        setReposError(formatTranslatedError(err));
       }
       setRepositories([]);
     } finally {
@@ -472,9 +470,8 @@ export function GitHubConnectorWizardStep({
         setCollaboratorsError(null);
       } catch (err) {
         if (cancelled) return;
-        const message = err instanceof Error ? err.message : String(err);
         setCollaborators([]);
-        setCollaboratorsError(message);
+        setCollaboratorsError(formatTranslatedError(err));
       } finally {
         if (!cancelled) setCollaboratorsLoading(false);
       }

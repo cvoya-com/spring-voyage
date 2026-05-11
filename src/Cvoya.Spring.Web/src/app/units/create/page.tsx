@@ -32,6 +32,7 @@ import {
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Button } from "@/components/ui/button";
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import {
   Card,
   CardContent,
@@ -41,6 +42,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import { getConnectorWizardStep } from "@/connectors/registry";
 import {
   useModelProviderModels,
@@ -556,7 +558,7 @@ export default function CreateUnitPage() {
     return "base";
   });
   const [stepError, setStepError] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<unknown | null>(null);
   const [submitWarnings, setSubmitWarnings] = useState<string[]>([]);
   // ADR-0035 install flow. After the install POST returns we store the
   // installId and poll GET /api/v1/installs/{id} every 2 s until
@@ -693,9 +695,7 @@ export default function CreateUnitPage() {
   const packages = packagesQuery.data ?? null;
   const packagesLoading = packagesQuery.isPending;
   const packagesError = packagesQuery.isError
-    ? packagesQuery.error instanceof Error
-      ? packagesQuery.error.message
-      : String(packagesQuery.error)
+    ? formatTranslatedError(packagesQuery.error)
     : null;
 
   // #1615: detail for the currently-selected catalog package — surfaces
@@ -724,9 +724,7 @@ export default function CreateUnitPage() {
     selectedPackageQuery.isPending;
   const selectedPackageError =
     selectedPackageQuery.isError && form.catalogPackageName !== null
-      ? selectedPackageQuery.error instanceof Error
-        ? selectedPackageQuery.error.message
-        : String(selectedPackageQuery.error)
+      ? formatTranslatedError(selectedPackageQuery.error)
       : null;
 
   // #1672: the legacy `githubPrefill` shim has been removed. The catalog
@@ -778,9 +776,7 @@ export default function CreateUnitPage() {
   const connectorTypesQuery = useConnectorTypes();
   const connectorTypes = connectorTypesQuery.data ?? null;
   const connectorTypesError = connectorTypesQuery.isError
-    ? connectorTypesQuery.error instanceof Error
-      ? connectorTypesQuery.error.message
-      : String(connectorTypesQuery.error)
+    ? formatTranslatedError(connectorTypesQuery.error)
     : null;
 
   // ADR-0038: model providers installed on the current tenant. Feeds
@@ -1326,8 +1322,8 @@ export default function CreateUnitPage() {
       }
     },
     onError: (err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      setSubmitError(message);
+      const message = formatTranslatedError(err);
+      setSubmitError(err);
       toast({
         title: "Install failed",
         description: message,
@@ -1380,7 +1376,7 @@ export default function CreateUnitPage() {
       setInstallStatus(resp);
     },
     onError: (err) => {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatTranslatedError(err);
       toast({
         title: "Retry failed",
         description: message,
@@ -1401,7 +1397,7 @@ export default function CreateUnitPage() {
       router.push("/units");
     },
     onError: (err) => {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatTranslatedError(err);
       toast({
         title: "Abort failed",
         description: message,
@@ -1477,7 +1473,7 @@ export default function CreateUnitPage() {
       router.push("/units");
     },
     onError: (err) => {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatTranslatedError(err);
       toast({
         title: "Failed to cancel unit",
         description: message,
@@ -1509,7 +1505,7 @@ export default function CreateUnitPage() {
       setStep(2);
     },
     onError: (err) => {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatTranslatedError(err);
       toast({
         title: "Failed to remove the failed unit",
         description: message,
@@ -1530,7 +1526,7 @@ export default function CreateUnitPage() {
       setValidationSoftTimedOut(false);
     },
     onError: (err) => {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatTranslatedError(err);
       toast({
         title: "Failed to retry validation",
         description: message,
@@ -2549,10 +2545,8 @@ export default function CreateUnitPage() {
                 }
               />
             </div>
-            {submitError && (
-              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {submitError}
-              </p>
+            {submitError !== null && (
+              <ApiErrorMessage error={submitError} />
             )}
             {installId && installPending && (
               <div
@@ -2747,10 +2741,8 @@ export default function CreateUnitPage() {
             {submitWarnings.length > 0 && (
               <SubmitWarningsPanel warnings={submitWarnings} />
             )}
-            {submitError && (
-              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {submitError}
-              </p>
+            {submitError !== null && (
+              <ApiErrorMessage error={submitError} />
             )}
             {installId && installPending && (
               <div

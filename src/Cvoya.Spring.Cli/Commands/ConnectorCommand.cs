@@ -422,7 +422,7 @@ public static class ConnectorCommand
                 // events list). Surface the server's message verbatim so
                 // the operator can fix the request without guessing.
                 await Console.Error.WriteLineAsync(
-                    $"Failed to bind unit '{unitInput}' to connector '{type}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to bind unit '{unitInput}' to connector '{type}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -535,7 +535,7 @@ public static class ConnectorCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 403)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Provisioning connectors requires PlatformOperator role. {ProblemDetailsFormatter.Format(ex)}");
+                    $"Provisioning connectors requires PlatformOperator role. {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -583,13 +583,13 @@ public static class ConnectorCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Connector '{slug}' is not registered with the host. {ProblemDetailsFormatter.Format(ex)}");
+                    $"Connector '{slug}' is not registered with the host. {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 403)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Deprovisioning connectors requires PlatformOperator role. {ProblemDetailsFormatter.Format(ex)}");
+                    $"Deprovisioning connectors requires PlatformOperator role. {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -722,7 +722,7 @@ public static class ConnectorCommand
             {
                 await Console.Error.WriteLineAsync(
                     $"Connector '{slugOrId}' is not installed on the current tenant. " +
-                    $"{ProblemDetailsFormatter.Format(ex)}");
+                    $"{ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -875,7 +875,7 @@ public static class ConnectorCommand
     private static string FormatLabelRulesHttpError(
         string bindingId,
         Microsoft.Kiota.Abstractions.ApiException ex) =>
-        $"Failed to update label rules for binding {bindingId} (HTTP {ex.ResponseStatusCode}): {ProblemDetailsFormatter.Format(ex)}";
+        $"Failed to update label rules for binding {bindingId} (HTTP {ex.ResponseStatusCode}): {ProblemDetailsTranslator.Format(ex)}";
 
     private static Command CreateCredentialsCommand(Option<string> outputOption)
     {

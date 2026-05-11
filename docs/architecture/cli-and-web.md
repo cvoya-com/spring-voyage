@@ -191,6 +191,12 @@ The `spring` CLI's strongly-typed HTTP client (`src/Cvoya.Spring.Cli/Generated/`
 
 The OpenAPI document carries a `servers` entry (absolute URL, development placeholder) so Kiota can embed a default base URL rather than forcing every caller to set one on the request adapter. Real callers override `BaseUrl` on the adapter at runtime; the default is only used if no override is supplied.
 
+### ProblemDetails translation contract
+
+The API host uses `ProblemDetails` envelopes for non-2xx application errors. UX surfaces must treat the stable `code` extension as the translation key and render operator copy instead of the raw envelope. The portal API client preserves the parsed envelope on `ApiError.problem`; React surfaces call `translateApiError()` / `<ApiErrorMessage>` for inline copy and `formatTranslatedError()` for toast descriptions.
+
+The CLI mirrors the same contract with `ProblemDetailsTranslator` and the central `ApiExceptionRenderer`. Normal CLI output is a clean one-liner (or JSON error envelope) with friendly title/detail. Trace ids and the raw `ProblemDetails` body are diagnostic data: they appear only in `--verbose` / debug output, never in the default prose line.
+
 ### GitHub App bootstrap verb (#631)
 
 `spring github-app register` is the one-shot alternative to the ~10 manual

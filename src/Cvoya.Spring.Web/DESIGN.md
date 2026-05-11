@@ -498,6 +498,7 @@ Primitive library: `src/components/ui/`. Composites: `src/components/`. Entity c
 - **`data-table.tsx`** — Virtualised data-table (#911, `@tanstack/react-virtual`). Use for any list that can exceed ~50 rows (analytics breakdowns, large rosters). `role="grid"` with `aria-label`, sticky header row, row-level `role="row"` + `aria-rowindex`, cell `role="gridcell"`. Arrow-key / Home / End keyboard navigation. Props: `aria-label`, `columns`, `rows`, `renderCell`, `estimateSize` (default 48 px), `height` (default 320 px), `getRowKey`. Columns declare a `key`, `header`, and optional `className` applied to both `<th>` and all `<td>` in that column.
 - **`tabs.tsx`** — In-house `Tabs` / `TabsList` / `TabsTrigger` / `TabsContent` with full WAI-ARIA roles, `aria-selected`, `aria-controls`, roving `tabindex`, and arrow-key / Home / End navigation. Controlled mode (`value` + `onValueChange`) is available for pages that mirror tab state into the URL.
 - **`toast.tsx`** — `ToastProvider` at the root; `useToast()` returns `toast({ title, description?, variant })`. Stack at `fixed bottom-4 right-4 z-50`; auto-dismiss at 4 s; `animate-in slide-in-from-bottom-2`.
+- **`api-error-message.tsx`** — Shared destructive alert for translated API `ProblemDetails`. It renders friendly title + next-step copy up front and keeps trace id / raw envelope in a collapsed `Show details` disclosure for support correlation. Use this for inline API failures in forms and dialogs; toast-only surfaces use the same translator via `formatTranslatedError()`.
 - **`skeleton.tsx`** — `animate-pulse rounded-md bg-muted`. Mirror the post-load layout so the page doesn't shift.
 
 ### 12.2 Entity cards — `src/components/cards/`
@@ -600,6 +601,12 @@ Shape: outer block `role="alert"` with `data-testid="multi-parent-inheritance-co
 Block-while-showing contract: the form's submit button is **disabled** while the block is rendered, and the block clears on any form-state change (parent-set trim, runtime/model edit, etc.) so the operator can re-submit without an explicit "dismiss" affordance. Two operator-resolution paths land via the same path: trim the parent set so the conflict disappears, or set the conflicting field explicitly on the agent so it shadows the inherited values.
 
 Wire shape (`error: "MultiParentInheritanceConflict"`, `conflictingFields: { <field>: [{source|unitId, value}, ...] }`) is parsed by `parseMultiParentInheritanceConflict()` in `src/lib/agents/multi-parent-conflict.ts`. The parser accepts both `source` and `unitId` parent-key shapes because the v0.1 backend ships both under a single discriminator.
+
+#### 12.7.2 API ProblemDetails translations (#2157 phase 1)
+
+Portal API failures that arrive as RFC-7807-style envelopes are translated before they reach the operator. The typed API client preserves the parsed envelope on `ApiError.problem`; `src/lib/api/translate-error.ts` maps stable server `code` values to a one-sentence title plus an optional next step. Unknown codes fall back to the server title/detail while still hiding the raw JSON from the lead copy.
+
+Inline form/dialog failures use `<ApiErrorMessage error={err} />`: destructive-palette alert, `AlertTriangle`, prominent title, next-step paragraph, and collapsed `Show details` with `traceId` plus the raw envelope. Toast-only actions (unit lifecycle, connector wizard retry paths) call `formatTranslatedError(err)` so they share the same copy table. The lead copy must never show `API error <status>`, raw JSON, or trace ids.
 
 ### 12.8 Validation panel — `src/components/units/detail/validation-panel.tsx`
 

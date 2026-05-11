@@ -12,6 +12,9 @@ using System.Text.Json;
 
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
+using Cvoya.Spring.Cli.Utilities;
+
+using Microsoft.Kiota.Abstractions;
 
 /// <summary>
 /// Builds the <c>spring package</c> verb family (ADR-0035 decision 4).
@@ -270,6 +273,13 @@ public static class PackageCommand
                 {
                     result = await client.InstallPackageFromFileAsync(file, ct);
                 }
+                catch (ApiException ex)
+                {
+                    await Console.Error.WriteLineAsync(
+                        $"Install failed: {ProblemDetailsTranslator.Format(ex)}");
+                    Environment.Exit(MapInstallException(ex));
+                    return;
+                }
                 catch (Exception ex)
                 {
                     await Console.Error.WriteLineAsync(
@@ -335,6 +345,13 @@ public static class PackageCommand
             try
             {
                 catalogResult = await client.InstallPackagesAsync(targets, ct);
+            }
+            catch (ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Install failed: {ProblemDetailsTranslator.Format(ex)}");
+                Environment.Exit(MapInstallException(ex));
+                return;
             }
             catch (Exception ex)
             {
@@ -1203,26 +1220,19 @@ public static class PackageCommand
     }
 
     /// <summary>
-    /// Maps an exception from the install API methods to an exit code.
-    /// 400 → 2, 409 → 4, 5xx → 1.
+    /// Maps an install API exception to the documented exit code:
+    /// 400 → 2, 404 → 3, 409 → 4, anything else → 1. Non-<see cref="ApiException"/>
+    /// failures (cancellation, JSON-shape errors, …) collapse to 1.
     /// </summary>
     private static int MapInstallException(Exception ex)
-    {
-        // The HttpClient-based install methods throw InvalidOperationException
-        // with the status code in the message text (e.g. "Request failed with status 400:").
-        var msg = ex.Message;
-        if (msg.Contains("400") || msg.Contains("Bad request"))
+        => ex is ApiException apiException ? MapInstallException(apiException) : 1;
+
+    private static int MapInstallException(ApiException ex)
+        => ex.ResponseStatusCode switch
         {
-            return 2;
-        }
-        if (msg.Contains("404") || msg.Contains("Not Found"))
-        {
-            return 3;
-        }
-        if (msg.Contains("409") || msg.Contains("Conflict"))
-        {
-            return 4;
-        }
-        return 1;
-    }
+            400 => 2,
+            404 => 3,
+            409 => 4,
+            _ => 1,
+        };
 }

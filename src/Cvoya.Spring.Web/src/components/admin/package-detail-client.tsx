@@ -37,6 +37,7 @@ import { useState, type ReactNode } from "react";
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
+import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
@@ -44,6 +45,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePackage } from "@/lib/api/queries";
 import { useInstallPackages } from "@/lib/api/queries";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 
 interface Props {
   name: string;
@@ -62,7 +64,7 @@ export default function PackageDetailClient({ name }: Props) {
 
   const [installOpen, setInstallOpen] = useState(false);
   const [inputRows, setInputRows] = useState<InputRow[]>([]);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<unknown | null>(null);
 
   const installMutation = useInstallPackages();
 
@@ -115,9 +117,7 @@ export default function PackageDetailClient({ name }: Props) {
       setInstallOpen(false);
       router.push(`/installs/${result.installId}`);
     } catch (err) {
-      setSubmitError(
-        err instanceof Error ? err.message : "Install failed. Please try again.",
-      );
+      setSubmitError(err);
     }
   }
 
@@ -142,7 +142,7 @@ export default function PackageDetailClient({ name }: Props) {
         <Card>
           <CardContent className="p-6">
             <p className="text-sm text-destructive" role="alert">
-              Failed to load package: {query.error.message}
+              Failed to load package: {formatTranslatedError(query.error)}
             </p>
           </CardContent>
         </Card>
@@ -449,14 +449,10 @@ export default function PackageDetailClient({ name }: Props) {
             Add input
           </Button>
 
-          {submitError && (
-            <p
-              className="mt-3 text-sm text-destructive"
-              role="alert"
-              data-testid="install-error"
-            >
-              {submitError}
-            </p>
+          {submitError !== null && (
+            <div className="mt-3" data-testid="install-error">
+              <ApiErrorMessage error={submitError} />
+            </div>
           )}
         </form>
       </Dialog>

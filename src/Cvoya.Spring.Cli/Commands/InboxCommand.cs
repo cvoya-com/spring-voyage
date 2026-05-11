@@ -121,7 +121,7 @@ public static class InboxCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to load inbox item '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
+                await Console.Error.WriteLineAsync($"Failed to load inbox item '{idInput}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -199,7 +199,7 @@ public static class InboxCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to respond to '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
+                await Console.Error.WriteLineAsync($"Failed to respond to '{idInput}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });

@@ -147,7 +147,7 @@ public static class UnitHumansCommand
                 // error so an unauthorised operator / viewer sees the
                 // authorization failure, not a generic Kiota error.
                 await Console.Error.WriteLineAsync(
-                    $"Failed to set permission for human '{humanId}' on unit '{idOrName}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to set permission for human '{humanId}' on unit '{idOrName}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -196,7 +196,7 @@ public static class UnitHumansCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to remove human '{humanId}' from unit '{idOrName}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to remove human '{humanId}' from unit '{idOrName}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -244,7 +244,7 @@ public static class UnitHumansCommand
                 // caller sees 401 / 403 here, which is exactly the failure
                 // mode the "unauthorised viewer" test case exercises.
                 await Console.Error.WriteLineAsync(
-                    $"Failed to list humans for unit '{idOrName}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to list humans for unit '{idOrName}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });

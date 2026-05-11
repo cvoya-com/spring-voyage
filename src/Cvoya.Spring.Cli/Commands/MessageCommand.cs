@@ -166,7 +166,7 @@ public static class MessageCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to load message '{messageId}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to load message '{messageId}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });

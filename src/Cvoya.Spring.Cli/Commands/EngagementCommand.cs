@@ -151,7 +151,7 @@ public static class EngagementCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to list engagements: {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to list engagements: {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -319,7 +319,7 @@ public static class EngagementCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to send message into engagement '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to send message into engagement '{idInput}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -381,7 +381,7 @@ public static class EngagementCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to send answer into engagement '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to send answer into engagement '{idInput}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -444,7 +444,7 @@ public static class EngagementCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to load engagement '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to load engagement '{idInput}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });

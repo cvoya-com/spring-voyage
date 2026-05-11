@@ -229,9 +229,22 @@ describe("PackageDetailClient — Install button", () => {
     });
   });
 
-  it("API error shows error message in the dialog", async () => {
+  it("translates connector-binding ProblemDetails in the install dialog", async () => {
     getPackage.mockResolvedValue(makePackage());
-    installPackages.mockRejectedValue(new Error("Name collision: my-pkg already exists"));
+    installPackages.mockRejectedValue({
+      status: 400,
+      statusText: "Bad Request",
+      body: {
+        type: "https://cvoya.com/problems/connector-binding-missing",
+        title: "Bad Request",
+        status: 400,
+        detail:
+          "ConnectorBindingMissing: package requires connector 'github' (no binding supplied)",
+        code: "ConnectorBindingMissing",
+        missing: [{ slug: "github", scope: "package", unitName: null }],
+        traceId: "00-install-trace",
+      },
+    });
     renderPage();
     await waitFor(() => screen.getByTestId("install-button"));
     await act(async () => {
@@ -243,8 +256,14 @@ describe("PackageDetailClient — Install button", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("install-error")).toHaveTextContent(
-        "Name collision",
+        "This package needs a github connector binding.",
       );
     });
+    expect(screen.getByTestId("install-error")).toHaveTextContent(
+      "Open the github step in the wizard and pick (or set up) a connector for the package.",
+    );
+    expect(screen.queryByText(/API error 400/)).not.toBeInTheDocument();
+    expect(screen.getByText("Show details")).toBeInTheDocument();
+    expect(screen.getByText("00-install-trace")).toBeInTheDocument();
   });
 });
