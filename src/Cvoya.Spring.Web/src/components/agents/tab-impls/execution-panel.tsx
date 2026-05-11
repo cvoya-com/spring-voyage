@@ -38,6 +38,11 @@ import {
   isRuntimeProviderFixed,
   type HostingMode,
 } from "@/lib/ai-models";
+import {
+  providerDisplayName,
+  runtimeCredentialDescriptor,
+  type RuntimeCredentialDescriptor,
+} from "@/lib/runtime-credentials";
 
 /**
  * Agent Execution panel (ADR-0038).
@@ -144,6 +149,10 @@ export function AgentExecutionPanel({
         persisted?.model?.provider ??
         unitDefaults?.model?.provider ??
         null);
+  const credentialDescriptor = useMemo(
+    () => runtimeCredentialDescriptor(effectiveRuntime, effectiveProvider),
+    [effectiveRuntime, effectiveProvider],
+  );
 
   const modelsQuery = useModelProviderModels(effectiveProvider ?? "", {
     enabled: effectiveProvider !== null,
@@ -476,7 +485,10 @@ export function AgentExecutionPanel({
         </FieldRow>
 
         {effectiveProvider !== null && (
-          <CredentialStatusBanner providerId={effectiveProvider} />
+          <CredentialStatusBanner
+            providerId={effectiveProvider}
+            credential={credentialDescriptor}
+          />
         )}
 
         {/* Hosting — agent-exclusive. Unit defaults don't carry a
@@ -687,28 +699,40 @@ function HostingSelect({
  * Credential-status banner — identical palette to the wizard Step 1
  * and the unit Execution tab so the three surfaces share one axe sweep.
  */
-function CredentialStatusBanner({ providerId }: { providerId: string }) {
-  const { data, isPending, isError } = useProviderCredentialStatus(providerId);
+function CredentialStatusBanner({
+  providerId,
+  credential,
+}: {
+  providerId: string;
+  credential: RuntimeCredentialDescriptor | null;
+}) {
+  const { data, isPending, isError } = useProviderCredentialStatus(providerId, {
+    authMethod: credential?.authMethod,
+  });
+
+  if (providerId !== "ollama" && credential === null) return null;
 
   if (isPending) return null;
 
   if (isError || !data) {
     return (
       <p className="text-xs text-muted-foreground" role="status">
-        Could not verify {providerLabel(providerId)} credentials.
+        Could not verify {credential?.label ?? providerDisplayName(providerId)}.
       </p>
     );
   }
 
-  const displayName = providerLabel(providerId);
+  const displayName = credential?.label ?? providerDisplayName(providerId);
 
   if (data.resolvable) {
     const originHint =
       data.source === "unit"
-        ? `${displayName} credentials: set on unit`
+        ? `${displayName}: set on unit`
         : data.source === "tenant"
-          ? `${displayName} credentials: inherited from tenant default`
-          : `${displayName} reachable`;
+          ? `${displayName}: inherited from tenant default`
+          : providerId === "ollama"
+            ? `${displayName} reachable`
+            : `${displayName} resolvable`;
     return (
       <div
         role="status"
@@ -739,7 +763,7 @@ function CredentialStatusBanner({ providerId }: { providerId: string }) {
           </p>
         ) : (
           <p>
-            {displayName} credentials: not configured.{" "}
+            {displayName}: not configured.{" "}
             <Link
               href="/?drawer=settings"
               className="font-medium underline underline-offset-2"
@@ -751,19 +775,4 @@ function CredentialStatusBanner({ providerId }: { providerId: string }) {
       </div>
     </div>
   );
-}
-
-function providerLabel(providerId: string): string {
-  switch (providerId) {
-    case "anthropic":
-      return "Anthropic";
-    case "openai":
-      return "OpenAI";
-    case "google":
-      return "Google";
-    case "ollama":
-      return "Ollama";
-    default:
-      return providerId;
-  }
 }

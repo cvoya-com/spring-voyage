@@ -100,7 +100,7 @@ public class AnthropicProviderTests
     }
 
     /// <summary>
-    /// Verifies that a Claude.ai OAuth token (sk-ant-oat…) surfaces a
+    /// Verifies that a Claude Code OAuth token surfaces a
     /// structured <see cref="SpringException"/> at dispatch without
     /// hitting the REST endpoint, replacing the silent-502 behaviour
     /// reported in #981. OAuth tokens are only usable through the
@@ -126,7 +126,7 @@ public class AnthropicProviderTests
 
         var ex = await Should.ThrowAsync<SpringException>(act);
         ex.Message.ShouldContain("CredentialFormatRejected");
-        ex.Message.ShouldContain("sk-ant-oat");
+        ex.Message.ShouldContain("Claude Code OAuth token");
         handler.CallCount.ShouldBe(0);
     }
 

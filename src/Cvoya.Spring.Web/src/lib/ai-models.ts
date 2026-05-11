@@ -34,6 +34,20 @@ export type RuntimeId =
 /** ADR-0038 closed set of provider ids the platform recognises. */
 export type ProviderId = "anthropic" | "openai" | "google" | "ollama";
 
+/** ADR-0038 closed set of auth methods on runtime/provider edges. */
+export type AuthMethod = "oauth" | "api-key";
+
+/**
+ * One `(runtime, provider)` edge from `platform/runtime-catalog.yaml`.
+ * `authMethod: null` means the edge does not require a credential
+ * (the v0.1 example is `spring-voyage` -> `ollama`).
+ */
+export interface RuntimeProviderCredentialEdge {
+  providerId: ProviderId;
+  authMethod: AuthMethod | null;
+  credentialEnvVar: string | null;
+}
+
 /**
  * Static catalogue mirror of `runtime-catalog.yaml` for the four
  * runtimes shipped in v0.1 plus the deferred `custom` slot. Each entry
@@ -57,6 +71,7 @@ export interface RuntimeDescriptor {
   isProviderFixed: boolean;
   fixedProvider: ProviderId | null;
   allowedProviders: readonly ProviderId[];
+  credentialEdges: readonly RuntimeProviderCredentialEdge[];
   /**
    * Default container image for this runtime, mirrored from
    * `platform/runtime-catalog.yaml` (ADR-0038). The wizard pre-fills
@@ -76,6 +91,13 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
     isProviderFixed: true,
     fixedProvider: "anthropic",
     allowedProviders: ["anthropic"],
+    credentialEdges: [
+      {
+        providerId: "anthropic",
+        authMethod: "oauth",
+        credentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
+      },
+    ],
     defaultImage: "ghcr.io/cvoya-com/claude-code-base:latest",
   },
   codex: {
@@ -86,6 +108,13 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
     isProviderFixed: true,
     fixedProvider: "openai",
     allowedProviders: ["openai"],
+    credentialEdges: [
+      {
+        providerId: "openai",
+        authMethod: "api-key",
+        credentialEnvVar: "OPENAI_API_KEY",
+      },
+    ],
     defaultImage: "ghcr.io/cvoya-com/codex-base:latest",
   },
   gemini: {
@@ -96,6 +125,13 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
     isProviderFixed: true,
     fixedProvider: "google",
     allowedProviders: ["google"],
+    credentialEdges: [
+      {
+        providerId: "google",
+        authMethod: "api-key",
+        credentialEnvVar: "GOOGLE_API_KEY",
+      },
+    ],
     defaultImage: "ghcr.io/cvoya-com/gemini-base:latest",
   },
   "spring-voyage": {
@@ -106,6 +142,28 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
     isProviderFixed: false,
     fixedProvider: null,
     allowedProviders: ["anthropic", "openai", "google", "ollama"],
+    credentialEdges: [
+      {
+        providerId: "anthropic",
+        authMethod: "api-key",
+        credentialEnvVar: "ANTHROPIC_API_KEY",
+      },
+      {
+        providerId: "openai",
+        authMethod: "api-key",
+        credentialEnvVar: "OPENAI_API_KEY",
+      },
+      {
+        providerId: "google",
+        authMethod: "api-key",
+        credentialEnvVar: "GOOGLE_API_KEY",
+      },
+      {
+        providerId: "ollama",
+        authMethod: null,
+        credentialEnvVar: null,
+      },
+    ],
     defaultImage: "ghcr.io/cvoya-com/spring-voyage-agent:latest",
   },
   custom: {
@@ -116,6 +174,7 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
     isProviderFixed: false,
     fixedProvider: null,
     allowedProviders: [],
+    credentialEdges: [],
     defaultImage: "",
   },
 };
@@ -178,4 +237,33 @@ export function getAllowedProviders(
   const descriptor = RUNTIMES[runtimeId as RuntimeId];
   if (!descriptor) return null;
   return descriptor.allowedProviders;
+}
+
+/**
+ * Resolves the credential edge for a concrete runtime/provider pair.
+ * Returns `null` when either id is unknown or the runtime cannot dispatch
+ * against that provider.
+ */
+export function getRuntimeProviderCredentialEdge(
+  runtimeId: string | null,
+  providerId: string | null,
+): RuntimeProviderCredentialEdge | null {
+  if (runtimeId === null || providerId === null) return null;
+  const descriptor = RUNTIMES[runtimeId as RuntimeId];
+  if (!descriptor) return null;
+  const normalizedProvider = providerId.trim().toLowerCase();
+  return (
+    descriptor.credentialEdges.find(
+      (edge) => edge.providerId === normalizedProvider,
+    ) ?? null
+  );
+}
+
+/** Mirrors `Cvoya.Spring.Core.Catalog.CredentialNaming.SecretNameFor`. */
+export function credentialSecretNameFor(
+  providerId: string,
+  authMethod: AuthMethod,
+): string {
+  const slug = authMethod === "oauth" ? "oauth" : "api-key";
+  return `${providerId.trim().toLowerCase()}-${slug}`;
 }

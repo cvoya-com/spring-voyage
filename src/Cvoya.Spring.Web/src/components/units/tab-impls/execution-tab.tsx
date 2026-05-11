@@ -32,6 +32,11 @@ import {
   isRuntimeProviderFixed,
 } from "@/lib/ai-models";
 import { loadImageHistory } from "@/lib/image-history";
+import {
+  providerDisplayName,
+  runtimeCredentialDescriptor,
+  type RuntimeCredentialDescriptor,
+} from "@/lib/runtime-credentials";
 
 /**
  * Unit Execution tab (ADR-0038).
@@ -124,6 +129,10 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
   const effectiveProvider = providerFixed
     ? fixedProvider
     : (form.model?.provider ?? null);
+  const credentialDescriptor = useMemo(
+    () => runtimeCredentialDescriptor(runtimeId, effectiveProvider),
+    [runtimeId, effectiveProvider],
+  );
 
   // Model dropdown source: the per-provider catalogue.
   const modelsQuery = useModelProviderModels(effectiveProvider ?? "", {
@@ -424,7 +433,10 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
           </FieldRow>
 
           {effectiveProvider !== null && (
-            <CredentialStatusBanner providerId={effectiveProvider} />
+            <CredentialStatusBanner
+              providerId={effectiveProvider}
+              credential={credentialDescriptor}
+            />
           )}
 
           <div className="flex items-center justify-end gap-2 pt-2">
@@ -558,28 +570,40 @@ function SelectField({
  * unit-create wizard Step 1. Reused here so the Execution tab surfaces
  * "provider not configured" at edit time rather than at dispatch.
  */
-function CredentialStatusBanner({ providerId }: { providerId: string }) {
-  const { data, isPending, isError } = useProviderCredentialStatus(providerId);
+function CredentialStatusBanner({
+  providerId,
+  credential,
+}: {
+  providerId: string;
+  credential: RuntimeCredentialDescriptor | null;
+}) {
+  const { data, isPending, isError } = useProviderCredentialStatus(providerId, {
+    authMethod: credential?.authMethod,
+  });
+
+  if (providerId !== "ollama" && credential === null) return null;
 
   if (isPending) return null;
 
   if (isError || !data) {
     return (
       <p className="text-xs text-muted-foreground" role="status">
-        Could not verify {providerLabel(providerId)} credentials.
+        Could not verify {credential?.label ?? providerDisplayName(providerId)}.
       </p>
     );
   }
 
-  const displayName = providerLabel(providerId);
+  const displayName = credential?.label ?? providerDisplayName(providerId);
 
   if (data.resolvable) {
     const originHint =
       data.source === "unit"
-        ? `${displayName} credentials: set on unit`
+        ? `${displayName}: set on unit`
         : data.source === "tenant"
-          ? `${displayName} credentials: inherited from tenant default`
-          : `${displayName} reachable`;
+          ? `${displayName}: inherited from tenant default`
+          : providerId === "ollama"
+            ? `${displayName} reachable`
+            : `${displayName} resolvable`;
     return (
       <div
         role="status"
@@ -610,7 +634,7 @@ function CredentialStatusBanner({ providerId }: { providerId: string }) {
           </p>
         ) : (
           <p>
-            {displayName} credentials: not configured.{" "}
+            {displayName}: not configured.{" "}
             <Link
               href="/?drawer=settings"
               className="font-medium underline underline-offset-2"
@@ -622,19 +646,4 @@ function CredentialStatusBanner({ providerId }: { providerId: string }) {
       </div>
     </div>
   );
-}
-
-function providerLabel(providerId: string): string {
-  switch (providerId) {
-    case "anthropic":
-      return "Anthropic";
-    case "openai":
-      return "OpenAI";
-    case "google":
-      return "Google";
-    case "ollama":
-      return "Ollama";
-    default:
-      return providerId;
-  }
 }

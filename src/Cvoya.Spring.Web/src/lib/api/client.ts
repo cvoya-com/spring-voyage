@@ -1409,6 +1409,7 @@ export const api = {
   getProviderCredentialStatus: async (
     provider: string,
     agentImage?: string,
+    authMethod?: string,
   ): Promise<import("./types").ProviderCredentialStatusResponse> => {
     // #1397: pass the chosen agent image so the server can reference it in
     // the format-rejected error message. The parameter is optional — older
@@ -1418,6 +1419,9 @@ export const api = {
     );
     if (agentImage) {
       url.searchParams.set("agentImage", agentImage);
+    }
+    if (authMethod) {
+      url.searchParams.set("authMethod", authMethod);
     }
     const resp = await fetch(url.toString());
     if (!resp.ok) {

@@ -459,6 +459,22 @@ public class CommandParsingTests
         parseResult.GetValue<string>("--description").ShouldBe("Builds the product");
     }
 
+    [Fact]
+    public void UnitCreate_ParsesAuthMethodCredentialOptions()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit create eng-team --top-level --runtime claude-code --oauth-token token-value");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--runtime").ShouldBe("claude-code");
+        parseResult.GetValue<string>("--oauth-token").ShouldBe("token-value");
+    }
+
 
     [Fact]
     public void OutputOption_AcceptsJson()

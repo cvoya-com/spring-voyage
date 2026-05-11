@@ -140,7 +140,7 @@ $ spring unit execution set my-unit \
     --image ghcr.io/example/claude:1
 ```
 
-Inline credentials are still supplied via `--api-key` / `--api-key-from-file`, paired with `--runtime`. The CLI consults the runtime catalogue to pick the matching provider id and writes the secret on that provider's install row.
+Inline credentials are auth-method specific and paired with `--runtime`. Use `--oauth-token` / `--oauth-token-from-file` for Claude Code, which writes `anthropic-oauth` for `CLAUDE_CODE_OAUTH_TOKEN`. Use `--api-key` / `--api-key-from-file` for API-key edges such as Codex → OpenAI, Gemini → Google, and Spring Voyage Agent → Anthropic / OpenAI / Google. Spring Voyage Agent → Ollama rejects both credential flag families.
 
 ### `spring agent create` / `spring agent execution set`
 

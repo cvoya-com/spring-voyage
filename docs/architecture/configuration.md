@@ -114,7 +114,7 @@ Adding a requirement for a new subsystem:
 
 ## Out of scope
 
-- **Tier-2 tenant-default credentials** (LLM API keys). Those live behind `ILlmCredentialResolver` (PR #619) and the tenant-defaults panel. Mixing them into the tier-1 framework dilutes both — `/system/configuration` is "is the platform deployed correctly?", not "is this tenant's workload configured?".
+- **Tier-2 tenant-default credentials** (LLM runtime credentials). Those live behind `ILlmCredentialResolver` (PR #619) and the tenant-defaults panel. Mixing them into the tier-1 framework dilutes both — `/system/configuration` is "is the platform deployed correctly?", not "is this tenant's workload configured?".
 - **Dapr sidecar availability.** Not config — orchestration health. Kubernetes readiness probes and docker-compose `depends_on` handle "is the sidecar up"; a config requirement for Dapr would always report Met because the platform already aborts at startup if it can't reach the sidecar.
 - **Tenant-aware validation.** The OSS framework is single-tenant. The private cloud host can substitute a tenant-scoped `IStartupConfigurationValidator` (or wrap the endpoint with tenant-filtering middleware) by pre-registering before `AddCvoyaSpringDapr`.
 - **Revalidation endpoint.** Out of scope for PR 1; file a follow-up if operator-initiated refresh is useful.

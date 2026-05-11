@@ -132,12 +132,12 @@ Spring Voyage distinguishes three tiers of configuration so every piece of sensi
 | Tier | Surface | Examples | Owner |
 |------|---------|----------|-------|
 | **Tier 1 — platform-deploy** | `IConfiguration` / env / `spring.env` / `appsettings.json` | `ConnectionStrings__SpringDb`, Dapr component wiring, `DataProtection__KeysPath`, `GitHub__AppId` / `GitHub__PrivateKeyPem` / `GitHub__WebhookSecret` (identity of the Spring Voyage instance itself) | Ops team at deploy time |
-| **Tier 2 — tenant-default** | `SecretScope.Tenant` rows in the registry | LLM provider API keys (`anthropic-api-key`, `openai-api-key`, `google-api-key`), tenant-wide observability tokens | Tenant admin post-deploy via `spring secret --scope tenant` / Tenant defaults panel |
+| **Tier 2 — tenant-default** | `SecretScope.Tenant` rows in the registry | LLM runtime credentials (`anthropic-oauth`, `anthropic-api-key`, `openai-api-key`, `google-api-key`), tenant-wide observability tokens | Tenant admin post-deploy via `spring secret --scope tenant` / Tenant defaults panel |
 | **Tier 3 — unit-override** | `SecretScope.Unit` rows in the registry | Per-unit variants of any tier-2 credential | Unit operator via `spring secret --scope unit` / unit Secrets tab |
 
 ### Why the split matters
 
-- **LLM API keys are tier-2, not tier-1.** They describe a workload (this tenant's preferred Claude / OpenAI account), not the deployment (this server, bound to this GitHub App). Treating them as environment variables is structurally wrong — they cannot vary per-tenant (needed for hosted multi-tenant), cannot be scoped per-unit (needed for "this team uses a different key"), and cannot be rotated without a container restart. Tier-2 / tier-3 storage carries versioning, inheritance, and audit hooks for free. See issue #615 for the full migration rationale.
+- **LLM runtime credentials are tier-2, not tier-1.** They describe a workload (this tenant's preferred Claude / OpenAI account), not the deployment (this server, bound to this GitHub App). Treating them as environment variables is structurally wrong — they cannot vary per-tenant (needed for hosted multi-tenant), cannot be scoped per-unit (needed for "this team uses a different key"), and cannot be rotated without a container restart. Tier-2 / tier-3 storage carries versioning, inheritance, and audit hooks for free. See issue #615 for the full migration rationale.
 - **GitHub App credentials are tier-1.** They identify the Spring Voyage *instance itself* as a GitHub App — the keypair and webhook secret are issued by GitHub against this platform identity, not against a tenant's workload. They stay in env/startup config. Narrower validation work for tier-1 is tracked separately (see #609 / #616).
 - **GitHub App installation enumeration is single-tenant in OSS.** The default `IGitHubInstallationsClient` calls `GET /app/installations` with the App-level JWT, so any operator on the deployment sees every installation the App has been granted — fine for self-hosted single-tenant set-ups where the operator already controls the GitHub App. Multi-tenant deployments (commercial / cloud) override `IGitHubInstallationsClient` with an OAuth-session-aware implementation that calls `GET /user/installations` against the operator's session and filters the aggregated `/list-repositories` response to installations the operator can see. The portal's create-unit wizard never exposes a raw "App installation" picker — installation ids ride along on each repository row, so the only enumeration the operator ever sees is repositories they could reach in GitHub directly. ([#1133](https://github.com/cvoya-com/spring-voyage/issues/1133))
 
@@ -160,11 +160,11 @@ flowchart TD
 
 There is **no environment-variable fallback**. Credentials must be set at tenant scope (default) or unit scope (override) — the platform fails cleanly when neither is configured. The private cloud host swaps in its own tenant-scoped `ILlmCredentialResolver` via DI (per-tenant Key Vault, BYOK).
 
-The resolver **never throws** on a missing credential. Consumers that require a value surface a fail-clean operator error whose text names the exact secret the resolver looked for and points at both the unit and tenant surfaces — e.g. *"no LLM credentials configured for this unit; set via `spring secret --scope unit` or configure tenant defaults at `spring secret --scope tenant create anthropic-api-key …` / the portal's Tenant defaults panel."*
+The resolver **never throws** on a missing credential. Consumers that require a value surface a fail-clean operator error whose text names the exact secret the resolver looked for and points at both the unit and tenant surfaces — e.g. *"no LLM credentials configured for this unit; set via `spring secret --scope unit` or configure tenant defaults at `spring secret --scope tenant create anthropic-oauth …` / the portal's Tenant defaults panel."*
 
 ### Credential status endpoint — key-free by design
 
-`GET /api/v1/system/credentials/{provider}/status` (PR #627) powers both the PR #627 status banner and the #626 inline credential flow in the unit-creation wizard. The response shape is intentionally narrow:
+`GET /api/v1/platform/credentials/{provider}/status?authMethod=...` (PR #627, extended by #2161) powers both the status banner and the inline credential flow in the unit-creation wizard. The response shape is intentionally narrow:
 
 ```
 { "provider": "anthropic", "resolvable": true, "source": "tenant", "suggestion": null }

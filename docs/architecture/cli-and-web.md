@@ -137,42 +137,47 @@ This mirrors the portal wizard (#641 / PR #645), which hides the Provider dropdo
 
 ### Inline credential flags (#626)
 
-`spring unit create` accepts three paired flags for supplying the LLM API key at unit-create time:
+`spring unit create` accepts auth-method-specific flags for supplying the runtime credential at unit-create time:
 
 | Flag | Purpose |
 |------|---------|
-| `--api-key <value>` | Pass the key inline (one-liner form — suitable for scripts that already resolve secrets via another path). |
-| `--api-key-from-file <path>` | Read the key from a file; trailing newlines are stripped. Preferred in CI because the key never reaches shell history. Mutually exclusive with `--api-key`. |
-| `--save-as-tenant-default` | Boolean flag. When set, the key is written as a **tenant-scoped** secret (via `POST /api/v1/tenant/secrets`, or `PUT` when the slot already holds a value — the wizard's "override tenant default" path). When unset, the key is written as a **unit-scoped** secret (`POST /api/v1/units/{id}/secrets`) after the unit exists. |
+| `--oauth-token <value>` | Pass the OAuth token inline. Valid for OAuth-only edges, currently `claude-code` → `anthropic`; the value is injected as `CLAUDE_CODE_OAUTH_TOKEN`. |
+| `--oauth-token-from-file <path>` | Read the OAuth token from a file; trailing newlines are stripped. Mutually exclusive with `--oauth-token`. |
+| `--api-key <value>` | Pass the API key inline. Valid for API-key edges such as `codex` → `openai`, `gemini` → `google`, and `spring-voyage` → `anthropic` / `openai` / `google`. |
+| `--api-key-from-file <path>` | Read the API key from a file; trailing newlines are stripped. Preferred in CI because the key never reaches shell history. Mutually exclusive with `--api-key`. |
+| `--save-as-tenant-default` | Boolean flag. When set, the credential is written as a **tenant-scoped** secret (via `POST /api/v1/tenant/secrets`, or `PUT` when the slot already holds a value — the wizard's "override tenant default" path). When unset, the credential is written as a **unit-scoped** secret (`POST /api/v1/units/{id}/secrets`) after the unit exists. |
 
-The CLI derives the required provider from `--tool` + `--provider` using the same mapping as the wizard (`deriveRequiredCredentialProvider` in `src/Cvoya.Spring.Web/src/app/units/create/page.tsx` and `UnitCommand.DeriveRequiredCredentialProvider` in `src/Cvoya.Spring.Cli/Commands/UnitCommand.cs`). Rejection matrix:
+The CLI derives the required credential from the `(runtime, model-provider)` edge in `platform/runtime-catalog.yaml`, using the same mapping as the wizard. Rejection matrix:
 
-- `--tool=custom` + `--api-key` → rejected (no declared credential contract).
-- `--tool=spring-voyage --provider=ollama` + `--api-key` → rejected (Ollama is local; no API key).
-- `--save-as-tenant-default` without `--api-key` / `--api-key-from-file` → rejected (no value to write).
-- `--api-key` and `--api-key-from-file` together → rejected (pass exactly one).
+- `--runtime=claude-code` + `--api-key` / `--api-key-from-file` → rejected; use `--oauth-token` / `--oauth-token-from-file`.
+- `--runtime=codex|gemini` + `--oauth-token` / `--oauth-token-from-file` → rejected; use API-key flags.
+- `--runtime=spring-voyage --model-provider=ollama` + any credential flag → rejected (Ollama is local; no credential).
+- `--runtime=spring-voyage` + credential flag but no `--model-provider` → rejected (the edge is ambiguous).
+- `--save-as-tenant-default` without one credential flag → rejected (no value to write).
+- Inline and file variants in the same flag family together → rejected (pass exactly one).
+- OAuth-token flags and API-key flags together → rejected (one edge has one auth method).
 
-The canonical secret names are `anthropic-api-key`, `openai-api-key`, and `google-api-key`; the CLI picks one based on the derived provider and writes it under that name on the chosen scope. The backing `ILlmCredentialResolver` reads the same names at dispatch time, so the write/read sides cannot drift.
+The canonical secret names are `anthropic-oauth`, `anthropic-api-key`, `openai-api-key`, and `google-api-key`; the CLI picks one based on the derived runtime/provider edge and writes it under that name on the chosen scope. The backing `ILlmCredentialResolver` reads the same names at dispatch time, so the write/read sides cannot drift.
 
 **Example — per-unit override without touching the tenant default:**
 
 ```
-# Creates unit "research" and writes a unit-scoped anthropic-api-key
+# Creates unit "research" and writes a unit-scoped anthropic-oauth
 # using the plaintext read from the file.
 spring unit create research \
-  --tool claude-code \
-  --api-key-from-file ~/.secrets/anthropic-research.txt
+  --runtime claude-code \
+  --oauth-token-from-file ~/.secrets/claude-code-token.txt
 ```
 
 **Example — rotating the tenant default while creating a unit:**
 
 ```
-# When an anthropic-api-key already exists at tenant scope, this call
+# When openai-api-key already exists at tenant scope, this call
 # PUTs the new value (rotation) before creating the unit, so every
 # future unit inherits the fresh key.
 spring unit create default-pilot \
-  --tool claude-code \
-  --api-key-from-file ./new-key.txt \
+  --runtime codex \
+  --api-key-from-file ./new-openai-key.txt \
   --save-as-tenant-default
 ```
 

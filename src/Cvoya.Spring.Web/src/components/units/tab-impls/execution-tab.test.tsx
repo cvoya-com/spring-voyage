@@ -26,7 +26,10 @@ const listModelProviders =
   >();
 const getProviderCredentialStatus =
   vi.fn<
-    (provider: string) => Promise<ProviderCredentialStatusResponse>
+    (
+      provider: string,
+      authMethod?: "api-key" | "oauth",
+    ) => Promise<ProviderCredentialStatusResponse>
   >();
 
 vi.mock("@/lib/api/client", () => ({
@@ -37,8 +40,11 @@ vi.mock("@/lib/api/client", () => ({
     clearUnitExecution: (id: string) => clearUnitExecution(id),
     getModelProviderModels: (id: string) => getModelProviderModels(id),
     listModelProviders: () => listModelProviders(),
-    getProviderCredentialStatus: (provider: string) =>
-      getProviderCredentialStatus(provider),
+    getProviderCredentialStatus: (
+      provider: string,
+      _agentImage?: string | null,
+      authMethod?: "api-key" | "oauth",
+    ) => getProviderCredentialStatus(provider, authMethod),
   },
 }));
 
@@ -367,4 +373,78 @@ describe("ExecutionTab", () => {
     });
     expect(clearUnitExecution).toHaveBeenCalledWith("eng-team");
   });
+
+  it("checks Claude Code credentials as OAuth tokens", async () => {
+    getUnitExecution.mockResolvedValue({ runtime: "claude-code" });
+    getProviderCredentialStatus.mockResolvedValue({
+      provider: "anthropic",
+      resolvable: true,
+      source: "tenant",
+      suggestion: null,
+    });
+
+    render(
+      <Wrapper>
+        <ExecutionTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(getProviderCredentialStatus).toHaveBeenCalledWith(
+        "anthropic",
+        "oauth",
+      );
+    });
+    expect(
+      await screen.findByTestId("execution-credential-status"),
+    ).toHaveTextContent("Claude Code OAuth token: inherited from tenant default");
+  });
+
+  it.each([
+    {
+      runtime: "codex",
+      model: null,
+      provider: "openai",
+      label: "OpenAI API key",
+    },
+    {
+      runtime: "gemini",
+      model: null,
+      provider: "google",
+      label: "Google API key",
+    },
+    {
+      runtime: "spring-voyage",
+      model: { provider: "anthropic", id: "claude-sonnet-4-6" },
+      provider: "anthropic",
+      label: "Anthropic API key",
+    },
+  ])(
+    "checks $runtime credentials as API keys",
+    async ({ runtime, model, provider, label }) => {
+      getUnitExecution.mockResolvedValue({ runtime, model });
+      getProviderCredentialStatus.mockResolvedValue({
+        provider,
+        resolvable: false,
+        source: null,
+        suggestion: `${provider} missing`,
+      });
+
+      render(
+        <Wrapper>
+          <ExecutionTab unitId="eng-team" />
+        </Wrapper>,
+      );
+
+      await waitFor(() => {
+        expect(getProviderCredentialStatus).toHaveBeenCalledWith(
+          provider,
+          "api-key",
+        );
+      });
+      expect(
+        await screen.findByTestId("execution-credential-status"),
+      ).toHaveTextContent(`${label}: not configured`);
+    },
+  );
 });

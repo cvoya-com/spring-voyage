@@ -2,8 +2,8 @@
 
 // Tenant defaults panel (Settings drawer / #615). Surfaces tenant-scoped
 // secrets that act as inheritable defaults for every unit in the tenant
-// — LLM API keys (anthropic-api-key, openai-api-key, google-api-key) are
-// the primary use-case.
+// — LLM runtime credentials (anthropic-oauth, anthropic-api-key,
+// openai-api-key, google-api-key) are the primary use-case.
 //
 // Scope:
 //  - OSS ships a narrow, fixed list of "known" credential names so the
@@ -47,7 +47,13 @@ const KNOWN_CREDENTIALS: ReadonlyArray<{
     name: "anthropic-api-key",
     label: "Anthropic API key",
     description:
-      "Tenant default for the Anthropic (Claude) provider. Units inherit this unless they override with a same-name unit-scoped secret.",
+      "Tenant default for Spring Voyage agents that call Anthropic through the platform API. Units inherit this unless they override with a same-name unit-scoped secret.",
+  },
+  {
+    name: "anthropic-oauth",
+    label: "Claude Code OAuth token",
+    description:
+      "Tenant default for the Claude Code runtime. Generate the token with `claude setup-token`; units inherit this unless they override with a same-name unit-scoped secret.",
   },
   {
     name: "openai-api-key",

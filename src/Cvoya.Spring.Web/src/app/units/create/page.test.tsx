@@ -35,6 +35,7 @@ const abortInstall = vi.fn();
 const listPackages = vi.fn();
 const createTenantSecret = vi.fn();
 const rotateTenantSecret = vi.fn();
+const createUnitSecret = vi.fn();
 const deleteUnit = vi.fn();
 const revalidateUnit = vi.fn();
 const getUnit = vi.fn();
@@ -49,7 +50,11 @@ vi.mock("@/lib/api/client", () => ({
     listOllamaModels: () => listOllamaModels(),
     listModelProviders: () => listModelProviders(),
     getModelProviderModels: (id: string) => getModelProviderModels(id),
-    getProviderCredentialStatus: (p: string) => getProviderCredentialStatus(p),
+    getProviderCredentialStatus: (
+      p: string,
+      _agentImage?: string,
+      authMethod?: string,
+    ) => getProviderCredentialStatus(p, authMethod),
     getConnectorTypes: vi.fn().mockResolvedValue([]),
     listConnectorTypes: () => listConnectorTypes(),
     // ADR-0035 install API (catalog branch) + direct unit-create
@@ -63,6 +68,8 @@ vi.mock("@/lib/api/client", () => ({
     createTenantSecret: (body: unknown) => createTenantSecret(body),
     rotateTenantSecret: (name: string, body: unknown) =>
       rotateTenantSecret(name, body),
+    createUnitSecret: (name: string, body: unknown) =>
+      createUnitSecret(name, body),
     deleteUnit: (name: string) => deleteUnit(name),
     revalidateUnit: (name: string) => revalidateUnit(name),
     getUnit: (name: string) => getUnit(name),
@@ -288,6 +295,9 @@ function seedDefaultMocks() {
   deleteUnit.mockResolvedValue(undefined);
   revalidateUnit.mockResolvedValue(undefined);
   setUnitExecution.mockResolvedValue(undefined);
+  createTenantSecret.mockResolvedValue({});
+  rotateTenantSecret.mockResolvedValue({});
+  createUnitSecret.mockResolvedValue({});
   createUnit.mockResolvedValue({
     id: "unit-id",
     name: "acme",
@@ -814,6 +824,130 @@ describe("CreateUnitPage — credential-status banner (#598, preserved post-T-07
     ).toBeInTheDocument();
   });
 
+  it("labels claude-code + anthropic as a Claude Code OAuth token", async () => {
+    getProviderCredentialStatus.mockResolvedValue(
+      makeStatus({ provider: "anthropic", resolvable: false, source: null }),
+    );
+
+    renderPage();
+    await advanceToExecution();
+
+    expect(await screen.findByText("Claude Code OAuth token")).toBeInTheDocument();
+    expect(screen.getByTestId("credential-input")).toHaveAttribute(
+      "placeholder",
+      "Paste the OAuth token from claude setup-token",
+    );
+    expect(screen.getByTestId("credential-help-text")).toHaveTextContent(
+      "CLAUDE_CODE_OAUTH_TOKEN",
+    );
+    await waitFor(() => {
+      expect(getProviderCredentialStatus).toHaveBeenCalledWith(
+        "anthropic",
+        "oauth",
+      );
+    });
+  });
+
+  it.each([
+    {
+      runtime: "spring-voyage",
+      provider: "anthropic",
+      label: "Anthropic API key",
+      env: "ANTHROPIC_API_KEY",
+      placeholder: "Paste your Anthropic API key (sk-ant-api...)",
+    },
+    {
+      runtime: "spring-voyage",
+      provider: "openai",
+      label: "OpenAI API key",
+      env: "OPENAI_API_KEY",
+      placeholder: "Paste your OpenAI API key",
+    },
+    {
+      runtime: "spring-voyage",
+      provider: "google",
+      label: "Google API key",
+      env: "GOOGLE_API_KEY",
+      placeholder: "Paste your Google API key",
+    },
+    {
+      runtime: "codex",
+      provider: "openai",
+      label: "OpenAI API key",
+      env: "OPENAI_API_KEY",
+      placeholder: "Paste your OpenAI API key",
+    },
+    {
+      runtime: "gemini",
+      provider: "google",
+      label: "Google API key",
+      env: "GOOGLE_API_KEY",
+      placeholder: "Paste your Google API key",
+    },
+  ])(
+    "labels $runtime + $provider as $label",
+    async ({ runtime, provider, label, env, placeholder }) => {
+      getProviderCredentialStatus.mockResolvedValue(
+        makeStatus({ provider, resolvable: false, source: null }),
+      );
+
+      renderPage();
+      await advanceToExecution();
+      await selectTool(runtime);
+      if (runtime === "spring-voyage") {
+        const providerSelect = screen.getByLabelText(
+          /^Model Provider$/i,
+        ) as HTMLSelectElement;
+        await act(async () => {
+          fireEvent.change(providerSelect, { target: { value: provider } });
+        });
+      }
+
+      expect(await screen.findByText(label)).toBeInTheDocument();
+      expect(screen.getByTestId("credential-input")).toHaveAttribute(
+        "placeholder",
+        placeholder,
+      );
+      expect(screen.getByTestId("credential-help-text")).toHaveTextContent(env);
+      await waitFor(() => {
+        expect(getProviderCredentialStatus).toHaveBeenCalledWith(
+          provider,
+          "api-key",
+        );
+      });
+    },
+  );
+
+  it("saves typed Claude Code tokens under the OAuth secret name", async () => {
+    getProviderCredentialStatus.mockResolvedValue(
+      makeStatus({ provider: "anthropic", resolvable: false, source: null }),
+    );
+
+    renderPage();
+    await advanceToExecution();
+    fireEvent.change(await screen.findByTestId("credential-input"), {
+      target: { value: "oauth-token-value" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("install-unit-button"));
+    });
+
+    await waitFor(() => {
+      expect(createUnitSecret).toHaveBeenCalledWith("acme", {
+        name: "anthropic-oauth",
+        value: "oauth-token-value",
+        externalStoreKey: null,
+        propagate: null,
+      });
+    });
+  });
+
   it("passes axe a11y smoke with the warning banner visible", async () => {
     getProviderCredentialStatus.mockResolvedValue(
       makeStatus({
@@ -989,7 +1123,7 @@ describe("CreateUnitPage — provider help links (#659)", () => {
     sessionStorage.clear();
   });
 
-  it("renders an Anthropic help link when the derived provider is anthropic", async () => {
+  it("renders a Claude Code token help link for claude-code + anthropic", async () => {
     getProviderCredentialStatus.mockResolvedValue(
       makeStatus({ provider: "anthropic", resolvable: false, source: null }),
     );
@@ -997,9 +1131,24 @@ describe("CreateUnitPage — provider help links (#659)", () => {
     await advanceToExecution();
     const link = await screen.findByTestId("credential-help-link");
     expect(link.getAttribute("href")).toBe(
+      "https://code.claude.com/docs/en/authentication#generate-a-long-lived-token",
+    );
+    expect(link).toHaveTextContent(/Claude Code token/i);
+    expect(link.getAttribute("target")).toBe("_blank");
+  });
+
+  it("renders the Anthropic API key link for spring-voyage + anthropic", async () => {
+    getProviderCredentialStatus.mockResolvedValue(
+      makeStatus({ provider: "anthropic", resolvable: false, source: null }),
+    );
+    renderPage();
+    await advanceToExecution();
+    await selectTool("spring-voyage");
+    const link = await screen.findByTestId("credential-help-link");
+    expect(link.getAttribute("href")).toBe(
       "https://console.anthropic.com/settings/keys",
     );
-    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link).toHaveTextContent(/Anthropic API key/i);
   });
 
   it("renders an OpenAI help link when the tool is codex", async () => {

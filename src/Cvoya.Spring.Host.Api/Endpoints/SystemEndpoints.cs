@@ -73,6 +73,8 @@ public static class SystemEndpoints
     // both smaller and gives us a clear 400 surface for bad values.
     private const string DispatchPathRest = "rest";
     private const string DispatchPathAgentRuntime = "agent-runtime";
+    private const string AuthMethodApiKey = "api-key";
+    private const string AuthMethodOauth = "oauth";
 
     // Machine-readable values for ProviderCredentialStatusResponse.Paths.Summary.
     // Captures the per-path resolvability matrix surfaced by #1690 so
@@ -105,7 +107,7 @@ public static class SystemEndpoints
 
         group.MapGet("/credentials/{provider}/status", GetCredentialStatusAsync)
             .WithName("GetProviderCredentialStatus")
-            .WithSummary("Report whether an LLM provider's credentials / endpoint are configured and usable on the named dispatch path")
+            .WithSummary("Report whether an LLM provider credential / endpoint is configured for the requested auth method")
             .Produces<ProviderCredentialStatusResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest);
 
@@ -120,21 +122,30 @@ public static class SystemEndpoints
         IHttpClientFactory httpClientFactory,
         IOptions<OllamaOptions> ollamaOptions,
         [FromQuery] string? dispatchPath,
+        [FromQuery] string? authMethod,
         [FromQuery] string? agentImage,
         CancellationToken cancellationToken)
     {
         var normalized = (provider ?? string.Empty).Trim().ToLowerInvariant();
 
-        // Conservative default: when the caller does not name a dispatch
-        // path we evaluate against the strictest one (REST). Callers that
-        // only ever run the in-container path can opt into the more
-        // lenient evaluation explicitly.
+        // Conservative legacy default: when neither authMethod nor a
+        // dispatch path is supplied, the old caller contract maps to the
+        // REST/API-key edge. Runtime-aware callers should pass authMethod
+        // directly; dispatchPath remains for path-matrix compatibility.
         if (!TryParseDispatchPath(dispatchPath, out var path))
         {
             return Results.BadRequest(new
             {
                 error = "unknown-dispatch-path",
                 message = $"dispatchPath must be '{DispatchPathRest}' or '{DispatchPathAgentRuntime}' when supplied.",
+            });
+        }
+        if (!TryParseAuthMethod(authMethod, out var requestedAuthMethod))
+        {
+            return Results.BadRequest(new
+            {
+                error = "unknown-auth-method",
+                message = $"authMethod must be '{AuthMethodApiKey}' or '{AuthMethodOauth}' when supplied.",
             });
         }
 
@@ -151,14 +162,25 @@ public static class SystemEndpoints
                     var adapter = providerEntry is not null
                         ? adapterRegistry.Get(providerEntry.Adapter)
                         : null;
+                    var probeMethod = requestedAuthMethod
+                        ?? (path == CredentialDispatchPath.AgentRuntime
+                            ? AuthMethod.Oauth
+                            : AuthMethod.ApiKey);
+
+                    if (providerEntry is not null
+                        && !providerEntry.AuthMethods.Contains(probeMethod))
+                    {
+                        return Results.BadRequest(new
+                        {
+                            error = "unsupported-auth-method",
+                            message = $"Provider '{normalized}' does not support authMethod '{FormatAuthMethod(probeMethod)}'.",
+                        });
+                    }
 
                     // ADR-0038: the resolver is keyed on (provider, authMethod).
-                    // The wizard probes against API-key shape — the Claude OAuth
-                    // path is exercised separately when the operator picks the
-                    // claude-code runtime.
                     var resolution = await credentialResolver.ResolveAsync(
                         normalized,
-                        Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey,
+                        probeMethod,
                         agentId: null,
                         unitId: null,
                         cancellationToken);
@@ -172,17 +194,15 @@ public static class SystemEndpoints
                         ? null
                         : BuildCredentialSuggestion(normalized, resolution.SecretName, resolution.Source);
 
-                    // Pre-flight format check against the named dispatch path.
-                    // Adapters apply method-specific format rules (e.g.
-                    // Anthropic OAuth tokens vs API keys); we map the dispatch
-                    // path to the auth method the path consumes.
+                    // Pre-flight format check against the requested auth
+                    // method. Adapters apply method-specific format rules
+                    // (e.g. Anthropic OAuth tokens vs API keys). Legacy
+                    // callers without authMethod still map through
+                    // dispatchPath above.
                     if (resolvable
                         && providerEntry is not null
                         && adapter is not null)
                     {
-                        var probeMethod = path == CredentialDispatchPath.AgentRuntime
-                            ? AuthMethod.Oauth
-                            : AuthMethod.ApiKey;
                         if (!adapter.IsCredentialFormatAccepted(providerEntry, resolution.Value!, probeMethod))
                         {
                             resolvable = false;
@@ -322,11 +342,11 @@ public static class SystemEndpoints
                     "To fix: either replace the 'anthropic-api-key' secret with an Anthropic Platform " +
                     "API key (sk-ant-api…) from console.anthropic.com so it works with the REST path, " +
                     "or pick an agent image that includes the `claude` CLI and use the Claude Code runtime " +
-                    "with an OAuth token (sk-ant-oat…).";
+                    "with an OAuth token generated by `claude setup-token`.";
             }
 
             // Generic copy when no image context was provided.
-            return "The stored credential is a Claude.ai OAuth token (sk-ant-oat…), which the " +
+            return "The stored credential is a Claude Code OAuth token, which the " +
                 "Anthropic Platform REST API rejects. OAuth tokens require the `claude` CLI " +
                 "installed inside the agent image and only work with the Claude Code in-container path. " +
                 "To fix: either replace the 'anthropic-api-key' secret with an Anthropic Platform API " +
@@ -428,6 +448,36 @@ public static class SystemEndpoints
         }
     }
 
+    private static bool TryParseAuthMethod(string? raw, out AuthMethod? method)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            method = null;
+            return true;
+        }
+
+        switch (raw.Trim().ToLowerInvariant())
+        {
+            case AuthMethodApiKey:
+                method = AuthMethod.ApiKey;
+                return true;
+            case AuthMethodOauth:
+                method = AuthMethod.Oauth;
+                return true;
+            default:
+                method = null;
+                return false;
+        }
+    }
+
+    private static string FormatAuthMethod(AuthMethod method) =>
+        method switch
+        {
+            AuthMethod.ApiKey => AuthMethodApiKey,
+            AuthMethod.Oauth => AuthMethodOauth,
+            _ => method.ToString(),
+        };
+
     private static async Task<(bool Reachable, string Reason)> ProbeOllamaAsync(
         IHttpClientFactory factory,
         string baseUrl,
@@ -466,12 +516,13 @@ public static class SystemEndpoints
 /// <param name="Provider">Echoes the requested provider id.</param>
 /// <param name="Resolvable">
 /// <c>true</c> when the platform can obtain the credential <b>and</b>
-/// its format is accepted by the dispatch path selected via the
-/// <c>?dispatchPath</c> query parameter (for
-/// Anthropic/OpenAI/Google: a non-empty secret exists at unit or
-/// tenant scope, its ciphertext authenticates, and the runtime's
-/// pre-flight format check clears). For Ollama: <c>true</c> when the
-/// configured base URL responded to a health probe.
+/// its format is accepted by the auth method selected via
+/// <c>?authMethod</c> (or, for legacy callers, the auth method derived
+/// from <c>?dispatchPath</c>). For Anthropic/OpenAI/Google: a non-empty
+/// secret exists at unit or tenant scope, its ciphertext authenticates,
+/// and the provider adapter's pre-flight format check clears. For
+/// Ollama: <c>true</c> when the configured base URL responded to a
+/// health probe.
 /// </param>
 /// <param name="Source">
 /// Which tier produced the credential — <c>"unit"</c> or <c>"tenant"</c>
@@ -490,8 +541,8 @@ public static class SystemEndpoints
 /// decrypt — typically an at-rest key rotation), <c>"unreachable"</c>
 /// (Ollama health probe failed), and <c>"format-rejected"</c> (the
 /// stored value decrypts but its shape is known-incompatible with the
-/// dispatch path that will consume it — for example a Claude.ai OAuth
-/// token resolved for the Anthropic REST path). <c>null</c> when
+/// requested auth method — for example an Anthropic API key stored in
+/// the Claude Code OAuth slot). <c>null</c> when
 /// resolvable. The portal uses this to pick a specific banner copy;
 /// additional codes may be appended in later waves.
 /// </param>
@@ -502,9 +553,10 @@ public static class SystemEndpoints
 /// the only signal available); populated when a credential decrypts so
 /// the portal can render which dispatch paths will accept it. The
 /// scalar <see cref="Resolvable"/> + <see cref="Source"/> fields stay
-/// the canonical "yes/no" answer for the path the caller asked about
-/// via <c>?dispatchPath=</c>; <see cref="Paths"/> is the richer view
-/// that decouples per-shape capability from per-call evaluation.
+/// the canonical "yes/no" answer for the auth method the caller asked
+/// about via <c>?authMethod=</c>; <see cref="Paths"/> is the richer view
+/// that decouples per-shape dispatch capability from per-call
+/// evaluation.
 /// </param>
 public record ProviderCredentialStatusResponse(
     [property: JsonPropertyName("provider")] string Provider,

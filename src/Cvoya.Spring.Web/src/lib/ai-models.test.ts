@@ -6,8 +6,10 @@ import {
   HOSTING_MODES,
   RUNTIMES,
   RUNTIME_LIST,
+  credentialSecretNameFor,
   getAllowedProviders,
   getFixedProvider,
+  getRuntimeProviderCredentialEdge,
   isRuntimeProviderFixed,
 } from "./ai-models";
 
@@ -101,5 +103,30 @@ describe("getAllowedProviders", () => {
   it("returns null for unknown runtime ids", () => {
     expect(getAllowedProviders(null)).toBeNull();
     expect(getAllowedProviders("nonsense")).toBeNull();
+  });
+});
+
+describe("runtime credential edges", () => {
+  it("projects the ADR-0038 auth-method matrix", () => {
+    expect(getRuntimeProviderCredentialEdge("claude-code", "anthropic"))
+      .toMatchObject({
+        authMethod: "oauth",
+        credentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
+      });
+    expect(getRuntimeProviderCredentialEdge("spring-voyage", "anthropic"))
+      .toMatchObject({
+        authMethod: "api-key",
+        credentialEnvVar: "ANTHROPIC_API_KEY",
+      });
+    expect(getRuntimeProviderCredentialEdge("spring-voyage", "ollama"))
+      .toMatchObject({
+        authMethod: null,
+        credentialEnvVar: null,
+      });
+  });
+
+  it("uses the canonical credential secret naming helper", () => {
+    expect(credentialSecretNameFor("anthropic", "oauth")).toBe("anthropic-oauth");
+    expect(credentialSecretNameFor("anthropic", "api-key")).toBe("anthropic-api-key");
   });
 });

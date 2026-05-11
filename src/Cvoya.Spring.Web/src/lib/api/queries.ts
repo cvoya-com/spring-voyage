@@ -1367,16 +1367,29 @@ export function useProviderCredentialStatus(
      *  When supplied the server can reference the chosen image in the error
      *  message so operators understand which image triggered the mismatch. */
     agentImage?: string;
+    /** ADR-0038: auth method consumed by the active runtime/provider edge. */
+    authMethod?: "api-key" | "oauth";
   },
 ): UseQueryResult<import("./types").ProviderCredentialStatusResponse | null, Error> {
   const agentImage = opts?.agentImage;
+  const authMethod = opts?.authMethod;
   return useQuery({
     // #1397: include agentImage in the query key so changing the image
     // selection triggers a fresh probe rather than serving the cached result.
-    queryKey: ["system", "credentials", provider, agentImage ?? null] as const,
+    queryKey: [
+      "system",
+      "credentials",
+      provider,
+      agentImage ?? null,
+      authMethod ?? null,
+    ] as const,
     queryFn: async () => {
       try {
-        return await api.getProviderCredentialStatus(provider, agentImage);
+        return await api.getProviderCredentialStatus(
+          provider,
+          agentImage,
+          authMethod,
+        );
       } catch {
         // Anonymous / offline / server-error — surface null so the banner
         // can render a muted "could not verify" fallback. The query

@@ -88,14 +88,10 @@ public sealed class LlmCredentialResolver : ILlmCredentialResolver
             return new LlmCredentialResolution(null, LlmCredentialSource.NotFound, string.Empty);
         }
 
-        // ADR-0038: legacy-compat — the wire DTOs still emit the
-        // `{provider}-api-key` shape so the resolver's cache key matches
-        // what tenants have stored. PR-1b switched the wire surface to
-        // the canonical (provider, authMethod) form via
-        // CredentialNaming.SecretNameFor; this branch will collapse to
-        // the helper call once stored secrets have all been re-keyed
-        // under the canonical name.
-        var secretName = $"{providerId.ToLowerInvariant()}-api-key";
+        // ADR-0038 / #2161: credentials are keyed by provider and auth
+        // method. Claude Code therefore resolves anthropic-oauth while
+        // Spring Voyage Agent + Anthropic resolves anthropic-api-key.
+        var secretName = CredentialNaming.SecretNameFor(providerId, authMethod);
 
         // A SecretUnreadableException at any tier means a slot exists but
         // its ciphertext did not authenticate — typically because the

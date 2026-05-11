@@ -39,11 +39,11 @@ A **Settings** hub at `/settings` collects cross-cutting configuration (the in-s
 | Panel | What it does | CLI equivalent |
 |-------|--------------|----------------|
 | **Tenant budget** | Read and edit the tenant-wide daily cost ceiling | `spring cost set-budget --scope tenant --amount <n> --period daily` |
-| **Tenant defaults** | Set / rotate tenant-scoped LLM credentials (`anthropic-api-key`, `openai-api-key`, `google-api-key`) | `spring secret --scope tenant {create,rotate,delete} <name>` |
+| **Tenant defaults** | Set / rotate tenant-scoped LLM credentials (`anthropic-oauth`, `anthropic-api-key`, `openai-api-key`, `google-api-key`) | `spring secret --scope tenant {create,rotate,delete} <name>` |
 | **Account** | Current user and API tokens | `spring auth token list` |
 | **About** | Version, build hash, license | `spring platform info` |
 
-The **Tenant defaults** panel is the recommended first-run step after deploy: paste the Anthropic / OpenAI / Google key, click **Set**, and every unit in the tenant inherits it immediately — no restart needed. See [Managing Secrets](../operator/secrets.md) for the full resolution chain.
+The **Tenant defaults** panel is the recommended first-run step after deploy: paste the Claude Code OAuth token or Anthropic / OpenAI / Google API key, click **Set**, and every unit in the tenant inherits it immediately — no restart needed. See [Managing Secrets](../operator/secrets.md) for the full resolution chain.
 
 ## Dashboard (`/`)
 

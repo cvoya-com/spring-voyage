@@ -53,11 +53,11 @@ Before installing the package, confirm all of the following:
 
   Note the numeric ID for the repository you will bind the unit to.
 
-- [ ] **Tenant-default LLM provider key is set.** The sub-unit agents need an LLM. Set the tenant default if you haven't already:
+- [ ] **Tenant-default LLM runtime credential is set.** The sub-unit agents need an LLM. Set the tenant default if you haven't already:
 
   ```bash
-  spring secret create --scope tenant anthropic-api-key --value "<sk-ant-...>"
-  # or the OpenAI / Google / Ollama equivalent
+  spring secret create --scope tenant anthropic-oauth --value "<token from claude setup-token>"
+  # or the API-key secret for the runtime/provider edge you choose
   ```
 
   Verify: `spring secret list --scope tenant`.
@@ -161,7 +161,7 @@ Expected response: cites scope discipline, references `docs/plan/v0.1/README.md`
 | ------- | ------------ | ---------- |
 | `podman images \| grep spring-voyage-agent-oss` shows nothing | OSS images not built or pulled | Run `./deployment/build-agent-images.sh --tag dev` and check the output of each step. |
 | `"GitHub App not configured"` in the portal or CLI | App credentials not in `spring.env`, or the App is not installed on the target repository | Run `spring github-app register` and confirm the App is installed on the target repo (`spring github-app list-installations` should show a row for that repo). The API and Worker hosts validate GitHub credentials at startup; check `spring system configuration "GitHub Connector"` for the reported state. |
-| HTTP 502 from an agent turn | Tenant-default LLM key is missing or invalid | Confirm the key is set: `spring secret list --scope tenant`. Create it if absent: `spring secret create --scope tenant anthropic-api-key --value "<sk-ant-...>"`. Restart the worker container after setting a new key if the host is already running. |
+| HTTP 502 from an agent turn | Tenant-default LLM runtime credential is missing or invalid | Confirm the credential is set: `spring secret list --scope tenant`. For Claude Code, create it if absent: `spring secret create --scope tenant anthropic-oauth --value "<token from claude setup-token>"`. Restart the worker container after setting a new credential if the host is already running. |
 | Sub-unit stays in `Validating` indefinitely | Image pull failed or the OSS image tag is not available locally | Confirm the image is present (`podman images`). If using `:latest` and no release has published it yet, build locally (`./deployment/build-agent-images.sh`) and update the sub-unit's `execution.image` tag to `:dev`. |
 
 ---

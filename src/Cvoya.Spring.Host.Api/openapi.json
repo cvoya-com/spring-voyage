@@ -8752,7 +8752,7 @@
         "tags": [
           "System"
         ],
-        "summary": "Report whether an LLM provider's credentials / endpoint are configured and usable on the named dispatch path",
+        "summary": "Report whether an LLM provider credential / endpoint is configured for the requested auth method",
         "operationId": "GetProviderCredentialStatus",
         "parameters": [
           {
@@ -8765,6 +8765,13 @@
           },
           {
             "name": "dispatchPath",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "authMethod",
             "in": "query",
             "schema": {
               "type": "string"
