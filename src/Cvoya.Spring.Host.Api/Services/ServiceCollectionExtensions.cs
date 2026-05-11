@@ -34,11 +34,11 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IPackageExportService, PackageExportService>();
         services.TryAddScoped<IAuthenticatedCallerAccessor, AuthenticatedCallerAccessor>();
 
-        // Participant display-name resolution (#1485). Registered as scoped so the
-        // per-request cache in ParticipantDisplayNameResolver stays request-bounded.
-        // TryAdd so the private cloud repo can register a tenant-aware variant ahead of
-        // this call.
-        services.TryAddScoped<IParticipantDisplayNameResolver, ParticipantDisplayNameResolver>();
+        // IParticipantDisplayNameResolver is registered by AddCvoyaSpringDapr
+        // — see ServiceCollectionExtensions.Infrastructure.cs. The interface
+        // moved to Cvoya.Spring.Core and the implementation to Cvoya.Spring.Dapr
+        // in #2129 so the prompt-assembly path (ThreadContextBuilder) can call
+        // it without depending on the API host.
 
         // OSS default: grant every authenticated caller all three platform
         // roles (PlatformOperator / TenantOperator / TenantUser). The cloud

@@ -11,6 +11,13 @@ using Cvoya.Spring.Core.Execution;
 /// </summary>
 public class PlatformPromptProvider : IPlatformPromptProvider
 {
+    // The trailing "Reply with natural-language text only…" line is the
+    // option-(3) lever from #2129: a system-side instruction that complements
+    // the option-(1) prior-turn formatter change in ThreadContextBuilder.
+    // Weak LLMs were observed mimicking the prior-turn shape ("[ts] sender:
+    // text") on output (#2089); telling the model up front that the timestamp
+    // / sender prefix is input-only — separately from changing the input
+    // shape itself — costs one prompt line and tightens the contract.
     private const string PlatformPrompt =
         """
         You are an AI agent running on the Spring Voyage platform.
@@ -20,6 +27,7 @@ public class PlatformPromptProvider : IPlatformPromptProvider
         - Respond only within the scope of your assigned role and skills.
         - If you are unsure about an action, ask for clarification rather than guessing.
         - Report errors and unexpected states back to the platform.
+        - Reply with natural-language text only. Do not echo the timestamp or sender prefix used in the conversation history.
         """;
 
     /// <inheritdoc />

@@ -26,4 +26,23 @@ public class PlatformPromptProviderTests
 
         result.ShouldNotBeNullOrWhiteSpace();
     }
+
+    /// <summary>
+    /// Pins the option-(3) instruction added by #2129 — a system-side
+    /// counterweight to the prior-turn formatter change in
+    /// <c>ThreadContextBuilder</c>. Weak LLMs were observed mimicking the
+    /// prior-turn shape on output (#2089); telling the model up front that
+    /// the timestamp / sender prefix is input-only tightens the contract
+    /// in addition to scrubbing the leak from the input shape itself.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_IncludesNoEchoInstruction()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("Reply with natural-language text only.");
+        result.ShouldContain("Do not echo the timestamp or sender prefix");
+    }
 }

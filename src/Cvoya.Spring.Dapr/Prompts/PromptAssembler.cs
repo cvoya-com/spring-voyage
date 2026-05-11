@@ -58,9 +58,15 @@ public class PromptAssembler(
             }
 
             // Layer 3: Thread context
+            // Pass the pre-resolved sender display-name map (#2129) so the
+            // builder can fold raw scheme:<guid> sender prefixes down to
+            // human-readable names. The actor builds the map upstream where
+            // it has scoped access to IParticipantDisplayNameResolver; the
+            // assembler stays singleton-safe.
             var threadContext = threadContextBuilder.Build(
                 context.PriorMessages,
-                context.LastCheckpoint);
+                context.LastCheckpoint,
+                context.PriorMessageSenderDisplayNames);
 
             if (!string.IsNullOrWhiteSpace(threadContext))
             {

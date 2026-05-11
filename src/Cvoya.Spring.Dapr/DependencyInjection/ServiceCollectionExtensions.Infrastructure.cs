@@ -225,6 +225,16 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // register a tenant-aware implementation ahead of the OSS default.
         services.TryAddScoped<IHumanIdentityResolver, HumanIdentityResolver>();
 
+        // Participant display-name resolver (#1485). Lifted from Host.Api
+        // to Dapr (interface in Core) by #2129 so the prompt-assembly path
+        // (ThreadContextBuilder, in this assembly) can fold raw
+        // scheme:<guid> sender prefixes down to display names before the
+        // text reaches the LLM. Scoped per request so the per-call cache in
+        // ParticipantDisplayNameResolver stays request-bounded. TryAddScoped
+        // so the cloud overlay can register a tenant-aware implementation
+        // ahead of the OSS default.
+        services.TryAddScoped<IParticipantDisplayNameResolver, Auth.ParticipantDisplayNameResolver>();
+
         // Thread registry (#2047 / ADR-0030). Scoped because it consults
         // SpringDbContext which is scoped per request. TryAddScoped so a
         // cloud overlay can register a tenant-aware decorator ahead of the
