@@ -129,7 +129,7 @@ public static class ThreadCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to load thread '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
+                await Console.Error.WriteLineAsync($"Failed to load thread '{idInput}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -188,7 +188,7 @@ public static class ThreadCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to send to thread '{threadInput}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to send to thread '{threadInput}': {ProblemDetailsTranslator.Format(ex)}");
                 Environment.Exit(1);
             }
         });

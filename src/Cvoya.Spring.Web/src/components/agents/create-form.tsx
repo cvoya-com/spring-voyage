@@ -1497,7 +1497,10 @@ export function AgentCreateForm({
       )}
 
       {/* ── Validation / submit errors ────────────────────────────── */}
-      {validationMessage && (
+      {/* Mutually exclusive: clearSubmitFeedback() resets both before
+          runCreate(), so the shared `agent-create-error` testid never
+          matches two elements at once. */}
+      {validationMessage ? (
         <p
           role="alert"
           className="mt-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
@@ -1505,12 +1508,11 @@ export function AgentCreateForm({
         >
           {validationMessage}
         </p>
-      )}
-      {create.error !== null && (
+      ) : create.error !== null ? (
         <div className="mt-4" data-testid="agent-create-error">
           <ApiErrorMessage error={create.error} />
         </div>
-      )}
+      ) : null}
 
       {/* ── Multi-parent inheritance conflict (ADR-0039 §6 / I6) ─── */}
       {create.multiParentConflict !== null && (

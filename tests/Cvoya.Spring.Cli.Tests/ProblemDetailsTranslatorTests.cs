@@ -16,10 +16,10 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Pins the user-facing ProblemDetails translations used by command
-/// catch-sites that still call the compatibility formatter.
+/// Pins the user-facing ProblemDetails translations rendered by command
+/// catch-sites via <see cref="ProblemDetailsTranslator"/>.
 /// </summary>
-public class ProblemDetailsFormatterTests
+public class ProblemDetailsTranslatorTests
 {
     [Theory]
     [MemberData(nameof(KnownCodeCases))]
@@ -28,7 +28,7 @@ public class ProblemDetailsFormatterTests
         string expectedTitle,
         string expectedNextStep)
     {
-        var rendered = ProblemDetailsFormatter.Format(problem);
+        var rendered = ProblemDetailsTranslator.Format(problem);
 
         rendered.ShouldContain(expectedTitle);
         rendered.ShouldContain(expectedNextStep);
@@ -155,7 +155,7 @@ public class ProblemDetailsFormatterTests
             },
         };
 
-        var rendered = ProblemDetailsFormatter.Format(problem);
+        var rendered = ProblemDetailsTranslator.Format(problem);
 
         rendered.ShouldBe(
             "Can't revalidate this unit while it's `Draft`. "
@@ -189,7 +189,7 @@ public class ProblemDetailsFormatterTests
             },
         };
 
-        var rendered = ProblemDetailsFormatter.Format(problem);
+        var rendered = ProblemDetailsTranslator.Format(problem);
 
         rendered.ShouldContain(expectedTitle);
         rendered.ShouldContain(expectedNextStep);
@@ -209,7 +209,7 @@ public class ProblemDetailsFormatterTests
             },
         };
 
-        var rendered = ProblemDetailsFormatter.Format(problem);
+        var rendered = ProblemDetailsTranslator.Format(problem);
 
         rendered.ShouldBe("Server supplied title Server supplied detail.");
         rendered.ShouldNotContain("traceId");
@@ -223,7 +223,7 @@ public class ProblemDetailsFormatterTests
             AdditionalData = new Dictionary<string, object> { ["code"] = "AgentNotFound" },
         };
 
-        var rendered = ProblemDetailsFormatter.Format((Exception)problem);
+        var rendered = ProblemDetailsTranslator.Format((Exception)problem);
 
         rendered.ShouldBe(
             "Agent not found. It may have been deleted. Refresh the page or pick another agent.");
@@ -234,6 +234,6 @@ public class ProblemDetailsFormatterTests
     {
         var ex = new InvalidOperationException("boom");
 
-        ProblemDetailsFormatter.Format(ex).ShouldBe("boom");
+        ProblemDetailsTranslator.Format(ex).ShouldBe("boom");
     }
 }

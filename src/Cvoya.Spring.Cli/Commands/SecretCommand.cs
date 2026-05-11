@@ -301,7 +301,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to create secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
+                DieWith($"Failed to create secret '{name}': {ProblemDetailsTranslator.Format(ex)}");
             }
         });
 
@@ -357,7 +357,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to list secrets for scope '{scope}': {ProblemDetailsFormatter.Format(ex)}");
+                DieWith($"Failed to list secrets for scope '{scope}': {ProblemDetailsTranslator.Format(ex)}");
             }
         });
 
@@ -476,7 +476,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to get secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
+                DieWith($"Failed to get secret '{name}': {ProblemDetailsTranslator.Format(ex)}");
             }
         });
 
@@ -613,7 +613,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to rotate secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
+                DieWith($"Failed to rotate secret '{name}': {ProblemDetailsTranslator.Format(ex)}");
             }
         });
 
@@ -673,7 +673,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to list versions for secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
+                DieWith($"Failed to list versions for secret '{name}': {ProblemDetailsTranslator.Format(ex)}");
             }
         });
 
@@ -761,7 +761,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to prune secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
+                DieWith($"Failed to prune secret '{name}': {ProblemDetailsTranslator.Format(ex)}");
             }
         });
 
@@ -825,7 +825,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to delete secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
+                DieWith($"Failed to delete secret '{name}': {ProblemDetailsTranslator.Format(ex)}");
             }
         });
 

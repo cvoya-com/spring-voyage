@@ -1220,42 +1220,19 @@ public static class PackageCommand
     }
 
     /// <summary>
-    /// Maps an exception from the install API methods to an exit code.
-    /// 400 → 2, 409 → 4, 5xx → 1.
+    /// Maps an install API exception to the documented exit code:
+    /// 400 → 2, 404 → 3, 409 → 4, anything else → 1. Non-<see cref="ApiException"/>
+    /// failures (cancellation, JSON-shape errors, …) collapse to 1.
     /// </summary>
     private static int MapInstallException(Exception ex)
-    {
-        if (ex is ApiException apiException)
-        {
-            return MapInstallException(apiException);
-        }
-
-        // The HttpClient-based install methods throw InvalidOperationException
-        // with the status code in the message text (e.g. "Request failed with status 400:").
-        var msg = ex.Message;
-        if (msg.Contains("400") || msg.Contains("Bad request"))
-        {
-            return 2;
-        }
-        if (msg.Contains("404") || msg.Contains("Not Found"))
-        {
-            return 3;
-        }
-        if (msg.Contains("409") || msg.Contains("Conflict"))
-        {
-            return 4;
-        }
-        return 1;
-    }
+        => ex is ApiException apiException ? MapInstallException(apiException) : 1;
 
     private static int MapInstallException(ApiException ex)
-    {
-        return ex.ResponseStatusCode switch
+        => ex.ResponseStatusCode switch
         {
             400 => 2,
             404 => 3,
             409 => 4,
             _ => 1,
         };
-    }
 }

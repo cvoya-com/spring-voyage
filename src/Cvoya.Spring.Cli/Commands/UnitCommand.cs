@@ -388,7 +388,7 @@ public static class UnitCommand
                 catch (Exception ex)
                 {
                     await Console.Error.WriteLineAsync(
-                        $"Failed to write tenant default '{credentialResolution.SecretName}': {Utilities.ProblemDetailsFormatter.Format(ex)}");
+                        $"Failed to write tenant default '{credentialResolution.SecretName}': {Utilities.ProblemDetailsTranslator.Format(ex)}");
                     Environment.Exit(1);
                     return;
                 }
@@ -422,7 +422,7 @@ public static class UnitCommand
                 catch (Exception ex)
                 {
                     await Console.Error.WriteLineAsync(
-                        $"warning: unit secret '{credentialResolution.SecretName}' not written: {Utilities.ProblemDetailsFormatter.Format(ex)}");
+                        $"warning: unit secret '{credentialResolution.SecretName}' not written: {Utilities.ProblemDetailsTranslator.Format(ex)}");
                 }
             }
 
@@ -642,12 +642,12 @@ public static class UnitCommand
     /// structured RFC-7807 ProblemDetails body the Kiota runtime throws a
     /// <see cref="ProblemDetails"/>, whose default
     /// <see cref="Exception.Message"/> is the type-name string. Route
-    /// through <see cref="Utilities.ProblemDetailsFormatter"/> so
+    /// through <see cref="Utilities.ProblemDetailsTranslator"/> so
     /// operators see the server's Title/Detail/extensions instead.
     /// </summary>
     internal static string ExtractServerDetail(ApiException ex)
     {
-        var message = Utilities.ProblemDetailsFormatter.Format(ex);
+        var message = Utilities.ProblemDetailsTranslator.Format(ex);
         return string.IsNullOrWhiteSpace(message)
             ? "server rejected the request."
             : message;
