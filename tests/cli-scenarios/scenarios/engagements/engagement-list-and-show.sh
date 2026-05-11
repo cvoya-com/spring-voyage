@@ -13,7 +13,6 @@ source "${HERE}/../../_lib.sh"
 
 unit="$(e2e::unit_name engmnt)"
 agent="$(e2e::agent_name engmnt)"
-thread_id="e2e-engmnt-$(date +%s)-$$"
 
 cleanup() {
     e2e::cleanup_unit "${unit}"
@@ -33,24 +32,35 @@ code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "agent create succeeds"
 
-# Extract the agent's Guid from the create response so we can address it in
-# canonical `agent:<guid>` form (ADR-0036). The legacy `agent://<name>` shape
-# was retired with #1653.
-agent_id="$(printf '%s' "${body}" | awk -F'"' '/"id":/ { print $4; exit }')"
-if [[ -z "${agent_id}" ]]; then
+# Canonical hex form for the agent address. The CLI's `message send` accepts
+# `agent:<no-dashes-guid>` (see `spring message send --help`); the dashed
+# form returns 400 with ProblemDetails.
+agent_id_hex="$(printf '%s' "${body}" | awk -F'"' '/"id":/ { gsub(/-/, "", $4); print $4; exit }')"
+if [[ -z "${agent_id_hex}" ]]; then
     e2e::fail "could not extract agent id from create response: ${body:0:200}"
     e2e::summary
     exit 1
 fi
-agent_address="agent:${agent_id}"
+agent_address="agent:${agent_id_hex}"
 
 # --- Kick off an engagement by sending a Domain message ---------------------
-e2e::log "spring message send ${agent_address} '...' --thread ${thread_id}"
-response="$(e2e::cli --output json message send "${agent_address}" "Hello, just creating an engagement." --thread "${thread_id}")"
+# Omit --thread; the server allocates a canonical thread id (hex Guid form)
+# and echoes it in the response. The previous form passed a human-shaped
+# thread id but the server now validates threads as Guids.
+e2e::log "spring message send ${agent_address} '...'"
+response="$(e2e::cli --output json message send "${agent_address}" "Hello, just creating an engagement.")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "message send succeeds"
 e2e::expect_contains "messageId" "${body}" "send response carries a messageId"
+e2e::expect_contains "threadId" "${body}" "send response carries a threadId"
+# Capture the server-generated threadId for the assertions below.
+thread_id="$(printf '%s' "${body}" | awk -F'"' '/"threadId":/ { print $4; exit }')"
+if [[ -z "${thread_id}" ]]; then
+    e2e::fail "could not extract threadId from send response: ${body:0:200}"
+    e2e::summary
+    exit 1
+fi
 
 # --- engagement list scoped to the agent ------------------------------------
 # The engagement index is eventually consistent w.r.t. the message

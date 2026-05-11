@@ -75,6 +75,38 @@ public static class ActivityCommand
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             var client = ClientFactory.Create();
+
+            // When --source is `unit:<idOrName>` or `agent:<idOrName>`, resolve
+            // the path segment through CliResolver so the wire filter carries
+            // the canonical no-dash hex form the API expects.
+            if (!string.IsNullOrWhiteSpace(source))
+            {
+                var colonIdx = source.IndexOf(':');
+                if (colonIdx > 0)
+                {
+                    var scheme = source[..colonIdx];
+                    var path = source[(colonIdx + 1)..];
+                    if (!string.IsNullOrWhiteSpace(path)
+                        && (scheme == "unit" || scheme == "agent"))
+                    {
+                        var resolver = new CliResolver(client);
+                        try
+                        {
+                            var resolvedPath = scheme == "unit"
+                                ? await resolver.ResolveUnitIdAsync(path, parentContext: null, ct)
+                                : await resolver.ResolveAgentIdAsync(path, unitContext: null, ct);
+                            source = $"{scheme}:{resolvedPath}";
+                        }
+                        catch (CliResolutionException ex)
+                        {
+                            CliResolutionPrinter.Write(Console.Error, ex);
+                            Environment.Exit(1);
+                            return;
+                        }
+                    }
+                }
+            }
+
             var result = await client.QueryActivityAsync(
                 source: source,
                 eventType: type,

@@ -27,7 +27,7 @@ if [[ "${code}" == "0" ]]; then
 else
     e2e::fail "minimal unit creation — expected exit 0, got ${code}: ${body:0:500}"
 fi
-e2e::expect_contains "\"name\": \"${name}\"" "${body}" "create response carries the unit name"
+e2e::expect_contains "\"displayName\": \"${name}\"" "${body}" "create response carries the unit display name"
 
 # Confirm the new unit shows up in the list.
 e2e::log "spring unit list --output json"
@@ -39,6 +39,6 @@ if [[ "${list_code}" == "0" ]]; then
 else
     e2e::fail "unit list — expected exit 0, got ${list_code}: ${list_body:0:500}"
 fi
-e2e::expect_contains "\"name\": \"${name}\"" "${list_body}" "list contains the new unit"
+e2e::expect_contains "\"displayName\": \"${name}\"" "${list_body}" "list contains the new unit"
 
 e2e::summary

@@ -8,6 +8,10 @@
 # from raw HTTP. The goal here is to prove the per-dimension verbs correctly
 # merge into / out of the unified policy envelope without clobbering the
 # other slots.
+#
+# Note: the `label-routing` dimension has been removed from UnitPolicy;
+# `spring unit policy --help` no longer lists it, so every label-routing
+# step that used to live here has been dropped.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -20,7 +24,11 @@ trap 'e2e::cleanup_unit "${unit}"' EXIT
 e2e::log "spring unit create ${unit}"
 response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
+body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
+# Canonical hex id for direct HTTP calls below — the API now rejects the
+# human display name in URL path params.
+unit_id="$(printf '%s' "${body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
 # --- skill: set + get + clear round-trip (proves the merge) ------------------
 e2e::log "spring unit policy skill set ${unit} --allowed github,filesystem --blocked shell"
@@ -39,8 +47,8 @@ e2e::expect_status "0" "${code}" "policy model set succeeds"
 
 # Raw HTTP GET proves both dimensions survived — the per-dimension verb must
 # never clobber the slots it didn't touch.
-e2e::log "GET /api/v1/units/${unit}/policy (expect skill AND model present)"
-response="$(e2e::http GET "/api/v1/tenant/units/${unit}/policy")"
+e2e::log "GET /api/v1/tenant/units/${unit_id}/policy (expect skill AND model present)"
+response="$(e2e::http GET "/api/v1/tenant/units/${unit_id}/policy")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "GET /policy returns 200"
@@ -65,14 +73,8 @@ response="$(e2e::cli --output json unit policy initiative set "${unit}" --max-le
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "policy initiative set succeeds"
 
-# --- label-routing: trigger map + status-label roundtrip (#389) --------------
-e2e::log "spring unit policy label-routing set ${unit} --trigger agent:backend=backend-engineer --add-on-assign in-progress --remove-on-assign agent:backend"
-response="$(e2e::cli --output json unit policy label-routing set "${unit}" --trigger agent:backend=backend-engineer --add-on-assign in-progress --remove-on-assign agent:backend)"
-code="${response##*$'\n'}"
-e2e::expect_status "0" "${code}" "policy label-routing set succeeds"
-
 # --- get each dimension returns the current slot + inheritance chain ---------
-for dim in skill model cost execution-mode initiative label-routing; do
+for dim in skill model cost execution-mode initiative; do
     e2e::log "spring unit policy ${dim} get ${unit}"
     response="$(e2e::cli --output json unit policy "${dim}" get "${unit}")"
     code="${response##*$'\n'}"
@@ -83,15 +85,15 @@ for dim in skill model cost execution-mode initiative label-routing; do
 done
 
 # --- clear each dimension and verify it comes back empty ---------------------
-for dim in skill model cost execution-mode initiative label-routing; do
+for dim in skill model cost execution-mode initiative; do
     e2e::log "spring unit policy ${dim} clear ${unit}"
     response="$(e2e::cli --output json unit policy "${dim}" clear "${unit}")"
     code="${response##*$'\n'}"
     e2e::expect_status "0" "${code}" "policy ${dim} clear succeeds"
 done
 
-e2e::log "GET /api/v1/units/${unit}/policy (expect empty after all-clear)"
-response="$(e2e::http GET "/api/v1/tenant/units/${unit}/policy")"
+e2e::log "GET /api/v1/tenant/units/${unit_id}/policy (expect empty after all-clear)"
+response="$(e2e::http GET "/api/v1/tenant/units/${unit_id}/policy")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "GET /policy returns 200 after clear"
@@ -100,6 +102,5 @@ e2e::expect_contains "\"model\":null" "${body}" "model cleared"
 e2e::expect_contains "\"cost\":null" "${body}" "cost cleared"
 e2e::expect_contains "\"executionMode\":null" "${body}" "executionMode cleared"
 e2e::expect_contains "\"initiative\":null" "${body}" "initiative cleared"
-e2e::expect_contains "\"labelRouting\":null" "${body}" "labelRouting cleared"
 
 e2e::summary

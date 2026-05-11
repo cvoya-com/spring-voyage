@@ -26,7 +26,10 @@ response="$(e2e::cli_unit_create --output json "${parent}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "parent unit create succeeds"
-e2e::expect_contains "\"name\": \"${parent}\"" "${body}" "parent create response carries the unit name"
+e2e::expect_contains "\"displayName\": \"${parent}\"" "${body}" "parent create response carries the unit display name"
+# Capture canonical hex id from the parent's create response — required for raw HTTP
+# calls which now reject the human display name in URL path params.
+parent_id="$(printf '%s' "${body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
 # Child binds to the parent via --parent-unit — this exercises the
 # non-top-level code path added by #744 alongside the parent's top-level
@@ -36,7 +39,8 @@ response="$(e2e::cli_unit_create --output json "${child}" --parent-unit "${paren
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "child unit create succeeds"
-e2e::expect_contains "\"name\": \"${child}\"" "${body}" "child create response carries the unit name"
+e2e::expect_contains "\"displayName\": \"${child}\"" "${body}" "child create response carries the unit display name"
+child_id="$(printf '%s' "${body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
 # --- Add child as member of parent (CLI, #331) --------------------------------
 # `spring unit members add <parent> --unit <child>` POSTs to the scheme-
@@ -53,12 +57,12 @@ e2e::expect_status "0" "${code}" "add child as member of parent via CLI succeeds
 # the actor's StatusQuery payload. That payload includes the current member
 # list; we assert the child's address appears in the raw JSON rather than
 # parsing the full shape (which would couple us to the actor's reply schema).
-e2e::log "GET /api/v1/units/${parent}"
-response="$(e2e::http GET "/api/v1/tenant/units/${parent}")"
+e2e::log "GET /api/v1/tenant/units/${parent_id}"
+response="$(e2e::http GET "/api/v1/tenant/units/${parent_id}")"
 status="${response##*$'\n'}"
 resp_body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "get parent unit returns 200"
-e2e::expect_contains "${child}" "${resp_body}" "parent detail response mentions the child address"
+e2e::expect_contains "${child_id}" "${resp_body}" "parent detail response mentions the child address (canonical hex id)"
 e2e::expect_contains "\"unit\"" "${resp_body}" "parent detail response carries the unit scheme marker"
 
 # --- Verify via `spring unit members list <parent> --output json` (#352) ------
@@ -75,6 +79,6 @@ e2e::expect_contains "\"scheme\": \"unit\"" "${body}" "members list emits scheme
 # #1060: the unified `member` field is the scheme-prefixed canonical
 # address (`unit://<child>` for the sub-unit row here), so scripts can
 # read the member id without branching on agentAddress vs subUnitId.
-e2e::expect_contains "\"member\": \"unit://${child}\"" "${body}" "members list emits the child's scheme-prefixed address on the unit row"
+e2e::expect_contains "\"member\": \"unit://${child_id}\"" "${body}" "members list emits the child's scheme-prefixed address on the unit row"
 
 e2e::summary

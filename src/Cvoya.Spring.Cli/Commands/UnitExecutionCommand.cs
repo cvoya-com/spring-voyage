@@ -81,9 +81,21 @@ public static class UnitExecutionCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var defaults = await client.GetUnitExecutionAsync(unitId, ct);
 
@@ -102,7 +114,7 @@ public static class UnitExecutionCommand
                 return;
             }
 
-            Console.WriteLine($"Unit:     {unitId}");
+            Console.WriteLine($"Unit:     {idOrName}");
             Console.WriteLine($"  image:             {defaults.Image ?? "(unset)"}");
             Console.WriteLine($"  runtime:           {defaults.Runtime ?? "(unset)"}");
             Console.WriteLine($"  model_provider:    {defaults.Model?.AiModelDto?.Provider ?? "(unset)"}");
@@ -151,7 +163,7 @@ public static class UnitExecutionCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var image = parseResult.GetValue(imageOption);
             var runtime = parseResult.GetValue(runtimeOption);
             var modelProvider = parseResult.GetValue(modelProviderOption);
@@ -170,6 +182,18 @@ public static class UnitExecutionCommand
             }
 
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             // ADR-0038: structured execution.model = {provider, id}.
             var modelDto = (!string.IsNullOrWhiteSpace(modelProvider) && !string.IsNullOrWhiteSpace(model))
@@ -199,7 +223,7 @@ public static class UnitExecutionCommand
             }
             else
             {
-                Console.WriteLine($"Unit '{unitId}' execution updated.");
+                Console.WriteLine($"Unit '{idOrName}' execution updated.");
                 Console.WriteLine($"  image:             {stored.Image ?? "(unset)"}");
                 Console.WriteLine($"  runtime:           {stored.Runtime ?? "(unset)"}");
                 Console.WriteLine($"  model_provider:    {stored.Model?.AiModelDto?.Provider ?? "(unset)"}");
@@ -231,10 +255,22 @@ public static class UnitExecutionCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var field = parseResult.GetValue(fieldOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             if (string.IsNullOrWhiteSpace(field))
             {
@@ -255,7 +291,7 @@ public static class UnitExecutionCommand
                 }
                 else
                 {
-                    Console.WriteLine($"Unit '{unitId}' execution block cleared.");
+                    Console.WriteLine($"Unit '{idOrName}' execution block cleared.");
                 }
                 return;
             }
@@ -314,7 +350,7 @@ public static class UnitExecutionCommand
             }
             else
             {
-                Console.WriteLine($"Unit '{unitId}' execution.{field} cleared.");
+                Console.WriteLine($"Unit '{idOrName}' execution.{field} cleared.");
             }
         });
 

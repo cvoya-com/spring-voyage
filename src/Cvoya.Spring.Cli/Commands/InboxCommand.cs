@@ -86,9 +86,13 @@ public static class InboxCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idInput = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+
+            var id = Guid.TryParse(idInput, out var parsedThreadId)
+                ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parsedThreadId)
+                : idInput;
 
             try
             {
@@ -117,7 +121,7 @@ public static class InboxCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to load inbox item '{id}': {ProblemDetailsFormatter.Format(ex)}");
+                await Console.Error.WriteLineAsync($"Failed to load inbox item '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -148,11 +152,15 @@ public static class InboxCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idInput = parseResult.GetValue(idArg)!;
             var text = parseResult.GetValue(textArg)!;
             var addressOverride = parseResult.GetValue(addressOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+
+            var id = Guid.TryParse(idInput, out var parsedThreadId)
+                ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parsedThreadId)
+                : idInput;
 
             // When --to is omitted we resolve the requester from the inbox
             // itself so `respond <id> "..."` works with no extra bookkeeping.
@@ -164,13 +172,16 @@ public static class InboxCommand
             else
             {
                 var inbox = await client.ListInboxAsync(ct);
+                // Match against either the canonical (resolved) id or the
+                // user-typed input so the lookup works for both shapes.
                 var match = inbox.FirstOrDefault(i =>
-                    string.Equals(i.ThreadId, id, StringComparison.Ordinal));
+                    string.Equals(i.ThreadId, id, StringComparison.Ordinal)
+                    || string.Equals(i.ThreadId, idInput, StringComparison.Ordinal));
                 var fromAddress = match?.From?.Address;
                 if (match is null || string.IsNullOrEmpty(fromAddress))
                 {
                     await Console.Error.WriteLineAsync(
-                        $"No inbox row found for thread '{id}'. Pass --to <address> to force a reply target.");
+                        $"No inbox row found for thread '{idInput}'. Pass --to <address> to force a reply target.");
                     Environment.Exit(1);
                     return;
                 }
@@ -188,7 +199,7 @@ public static class InboxCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to respond to '{id}': {ProblemDetailsFormatter.Format(ex)}");
+                await Console.Error.WriteLineAsync($"Failed to respond to '{idInput}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });

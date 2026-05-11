@@ -101,13 +101,25 @@ public static class UnitHumansCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var humanId = parseResult.GetValue(identityArg)!;
             var permission = parseResult.GetValue(permissionOption)!;
             var identity = parseResult.GetValue(displayIdentityOption);
             var notificationsRaw = parseResult.GetValue(notificationsOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             try
             {
@@ -126,7 +138,7 @@ public static class UnitHumansCommand
                 else
                 {
                     Console.WriteLine(
-                        $"Human '{response.HumanId}' granted '{response.Permission}' permission on unit '{unitId}'.");
+                        $"Human '{response.HumanId}' granted '{response.Permission}' permission on unit '{idOrName}'.");
                 }
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
@@ -135,7 +147,7 @@ public static class UnitHumansCommand
                 // error so an unauthorised operator / viewer sees the
                 // authorization failure, not a generic Kiota error.
                 await Console.Error.WriteLineAsync(
-                    $"Failed to set permission for human '{humanId}' on unit '{unitId}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to set permission for human '{humanId}' on unit '{idOrName}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -160,19 +172,31 @@ public static class UnitHumansCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var humanId = parseResult.GetValue(identityArg)!;
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             try
             {
                 await client.RemoveUnitHumanPermissionAsync(unitId, humanId, ct);
-                Console.WriteLine($"Human '{humanId}' removed from unit '{unitId}'.");
+                Console.WriteLine($"Human '{humanId}' removed from unit '{idOrName}'.");
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to remove human '{humanId}' from unit '{unitId}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to remove human '{humanId}' from unit '{idOrName}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -190,9 +214,21 @@ public static class UnitHumansCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
+            var idOrName = parseResult.GetValue(unitArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             try
             {
@@ -208,7 +244,7 @@ public static class UnitHumansCommand
                 // caller sees 401 / 403 here, which is exactly the failure
                 // mode the "unauthorised viewer" test case exercises.
                 await Console.Error.WriteLineAsync(
-                    $"Failed to list humans for unit '{unitId}': {ProblemDetailsFormatter.Format(ex)}");
+                    $"Failed to list humans for unit '{idOrName}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });

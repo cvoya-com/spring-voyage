@@ -22,14 +22,18 @@ trap 'e2e::cleanup_unit "${unit}"' EXIT
 e2e::log "spring unit create ${unit}"
 response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
+body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
+# Capture the canonical hex id — required for direct HTTP calls below;
+# passing the human display name in URL path params now returns 400/500.
+unit_id="$(printf '%s' "${body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
 # --- Initial GET returns UnitPolicy.Empty ------------------------------------
 # Post-#162 a unit that has never had a policy persisted must return the
 # canonical empty shape (all dimensions null) so callers never branch on
 # 404 vs no-policy. Verify that here to guard the wire contract.
-e2e::log "GET /api/v1/tenant/units/${unit}/policy (expect empty shape)"
-response="$(e2e::http GET "/api/v1/tenant/units/${unit}/policy")"
+e2e::log "GET /api/v1/tenant/units/${unit_id}/policy (expect empty shape)"
+response="$(e2e::http GET "/api/v1/tenant/units/${unit_id}/policy")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "GET /policy returns 200 even when none set"
@@ -41,8 +45,8 @@ e2e::expect_contains "\"model\":null" "${body}" "empty policy exposes model=null
 # The response echoes the canonical post-write shape — assert it round-trips
 # verbatim. This guards against the PUT handler silently dropping fields.
 policy_body='{"skill":{"allowed":["send_message"],"blocked":["shell_exec"]},"model":{"allowed":["gpt-4o-mini"],"blocked":["gpt-4o"]}}'
-e2e::log "PUT /api/v1/tenant/units/${unit}/policy (skill+model rules)"
-response="$(e2e::http PUT "/api/v1/tenant/units/${unit}/policy" "${policy_body}")"
+e2e::log "PUT /api/v1/tenant/units/${unit_id}/policy (skill+model rules)"
+response="$(e2e::http PUT "/api/v1/tenant/units/${unit_id}/policy" "${policy_body}")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "PUT /policy accepts the request"
@@ -53,8 +57,8 @@ e2e::expect_contains "\"gpt-4o\"" "${body}" "PUT response carries the blocked mo
 
 # --- GET must now return the persisted policy --------------------------------
 # Re-read proves the PUT actually persisted (not just echoed the request).
-e2e::log "GET /api/v1/tenant/units/${unit}/policy (expect the PUT body to round-trip)"
-response="$(e2e::http GET "/api/v1/tenant/units/${unit}/policy")"
+e2e::log "GET /api/v1/tenant/units/${unit_id}/policy (expect the PUT body to round-trip)"
+response="$(e2e::http GET "/api/v1/tenant/units/${unit_id}/policy")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "GET /policy returns 200 after PUT"
@@ -67,12 +71,12 @@ e2e::expect_contains "\"gpt-4o\"" "${body}" "GET round-trips the blocked model"
 # The canonical "clear" shape is { skill: null, model: null, ... } — verify
 # a subsequent GET reflects the cleared state so operators can reset a
 # unit's policy without deleting the unit.
-e2e::log "PUT /api/v1/tenant/units/${unit}/policy (clear)"
-response="$(e2e::http PUT "/api/v1/tenant/units/${unit}/policy" '{}')"
+e2e::log "PUT /api/v1/tenant/units/${unit_id}/policy (clear)"
+response="$(e2e::http PUT "/api/v1/tenant/units/${unit_id}/policy" '{}')"
 status="${response##*$'\n'}"
 e2e::expect_status "200" "${status}" "PUT /policy accepts an empty body"
 
-response="$(e2e::http GET "/api/v1/tenant/units/${unit}/policy")"
+response="$(e2e::http GET "/api/v1/tenant/units/${unit_id}/policy")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "GET /policy returns 200 after clear"
@@ -82,9 +86,11 @@ e2e::expect_contains "\"model\":null" "${body}" "cleared policy exposes model=nu
 # --- Unknown unit returns 404 ------------------------------------------------
 # Contract guard: GET on a non-existent unit must 404 (not 200 with empty),
 # so callers can tell "no such unit" apart from "exists but no policy".
-missing_unit="$(e2e::unit_name policy-missing-$(date +%s%N))"
-e2e::log "GET /api/v1/tenant/units/${missing_unit}/policy (expect 404)"
-response="$(e2e::http GET "/api/v1/tenant/units/${missing_unit}/policy")"
+# Use a random hex Guid — the API rejects names in the URL path now, so a
+# human-shaped "missing" id would 400 (Guid parse) instead of 404.
+missing_unit_id="$(printf '%032x' "$(date +%s%N)" | cut -c1-32)"
+e2e::log "GET /api/v1/tenant/units/${missing_unit_id}/policy (expect 404)"
+response="$(e2e::http GET "/api/v1/tenant/units/${missing_unit_id}/policy")"
 status="${response##*$'\n'}"
 e2e::expect_status "404" "${status}" "GET /policy on unknown unit returns 404"
 

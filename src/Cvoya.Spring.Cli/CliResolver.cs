@@ -215,6 +215,29 @@ public sealed class CliResolver
         => !string.IsNullOrWhiteSpace(candidate)
            && string.Equals(candidate.Trim(), query.Trim(), StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Convenience wrapper that resolves a unit idOrName to the canonical
+    /// 32-char no-dash hex form the API expects in URL params (the value
+    /// produced by <see cref="Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(Guid)"/>).
+    /// Throws <see cref="CliResolutionException"/> on 0/n matches.
+    /// </summary>
+    public async Task<string> ResolveUnitIdAsync(
+        string idOrName,
+        Guid? parentContext,
+        CancellationToken ct)
+        => Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(
+            await ResolveUnitAsync(idOrName, parentContext, ct));
+
+    /// <summary>
+    /// Convenience wrapper that resolves an agent idOrName to the canonical
+    /// 32-char no-dash hex form. See <see cref="ResolveUnitIdAsync"/>.
+    /// </summary>
+    public async Task<string> ResolveAgentIdAsync(
+        string idOrName,
+        Guid? unitContext,
+        CancellationToken ct)
+        => Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(
+            await ResolveAgentAsync(idOrName, unitContext, ct));
 }
 
 /// <summary>

@@ -93,7 +93,7 @@ public static class CostCommand
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var scope = parseResult.GetValue(scopeOption)!;
-            var target = parseResult.GetValue(targetOption);
+            var targetInput = parseResult.GetValue(targetOption);
             var amount = parseResult.GetValue(amountOption);
             var period = parseResult.GetValue(periodOption) ?? "daily";
             var output = parseResult.GetValue(outputOption) ?? "table";
@@ -105,7 +105,7 @@ public static class CostCommand
                 return;
             }
 
-            if ((scope == "unit" || scope == "agent") && string.IsNullOrEmpty(target))
+            if ((scope == "unit" || scope == "agent") && string.IsNullOrEmpty(targetInput))
             {
                 await Console.Error.WriteLineAsync($"--target is required for --scope {scope}.");
                 Environment.Exit(1);
@@ -115,11 +115,29 @@ public static class CostCommand
             var dailyAmount = NormaliseToDailyBudget(amount, period);
             var client = ClientFactory.Create();
 
+            string? resolvedTarget = null;
+            if (scope is "unit" or "agent")
+            {
+                var resolver = new CliResolver(client);
+                try
+                {
+                    resolvedTarget = scope == "unit"
+                        ? await resolver.ResolveUnitIdAsync(targetInput!, parentContext: null, ct)
+                        : await resolver.ResolveAgentIdAsync(targetInput!, unitContext: null, ct);
+                }
+                catch (CliResolutionException ex)
+                {
+                    CliResolutionPrinter.Write(Console.Error, ex);
+                    Environment.Exit(1);
+                    return;
+                }
+            }
+
             Generated.Models.BudgetResponse result = scope switch
             {
                 "tenant" => await client.SetTenantBudgetAsync(dailyAmount, ct),
-                "unit" => await client.SetUnitBudgetAsync(target!, dailyAmount, ct),
-                "agent" => await client.SetAgentBudgetAsync(target!, dailyAmount, ct),
+                "unit" => await client.SetUnitBudgetAsync(resolvedTarget!, dailyAmount, ct),
+                "agent" => await client.SetAgentBudgetAsync(resolvedTarget!, dailyAmount, ct),
                 _ => throw new InvalidOperationException($"Unsupported scope '{scope}'."),
             };
 
@@ -134,7 +152,7 @@ public static class CostCommand
                     : $"{amount.ToString("0.####", CultureInfo.InvariantCulture)} {period}";
                 var row = new BudgetRow(
                     scope,
-                    target ?? string.Empty,
+                    targetInput ?? string.Empty,
                     (result.DailyBudget ?? 0d).ToString("0.####", CultureInfo.InvariantCulture),
                     derivedFrom);
                 Console.WriteLine(OutputFormatter.FormatTable(row, BudgetColumns));

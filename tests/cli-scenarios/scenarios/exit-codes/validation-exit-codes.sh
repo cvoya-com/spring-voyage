@@ -67,15 +67,12 @@ e2e::expect_contains "CredentialInvalid" "${body}" "help text mentions Credentia
 e2e::expect_contains "ProbeTimeout" "${body}" "help text mentions ProbeTimeout (code 26)"
 
 # --- 2: parse-level rejection returns exit 2 --------------------------------
-# #1732: --tool was dropped. Validate the equivalent rejection on --agent
-# by passing an unknown runtime id. The server-side dispatcher rejects it
-# at validation time; here we just confirm the CLI accepts the option name.
-# Passing an unrecognised --agent value gets through CLI parsing (no
-# allow-list — operators can install custom runtimes) but the server
-# rejects it later. Skip the parse-level rejection assertion.
+# #1732: --tool was dropped. The current CLI uses --runtime <id>, with no
+# server-side allow-list at parse time (operators can install custom
+# runtimes), so there is no parse-level rejection to assert here.
 
 # --- 3: server-side validation failure → non-zero exit ----------------------
-# Create a unit with --agent=claude but no API key configured in the
+# Create a unit with --runtime claude-code but no API key configured in the
 # test stack. The backend validation workflow will attempt to pull/start the
 # container image, find the credential missing, and terminate in a non-Success
 # state. The CLI's wait loop translates that to a non-zero exit code from the
@@ -92,10 +89,10 @@ e2e::expect_contains "ProbeTimeout" "${body}" "help text mentions ProbeTimeout (
 val_unit="$(e2e::unit_name validation-exit)"
 trap 'e2e::cleanup_unit "${val_unit}"' EXIT
 
-e2e::log "spring unit create ${val_unit} --agent claude --top-level (server-side validation)"
+e2e::log "spring unit create ${val_unit} --runtime claude-code --top-level (server-side validation)"
 response="$(e2e::cli_unit_create --output json \
     "${val_unit}" \
-    --agent claude \
+    --runtime claude-code \
     --no-wait \
     2>&1 || true)"
 code="${response##*$'\n'}"

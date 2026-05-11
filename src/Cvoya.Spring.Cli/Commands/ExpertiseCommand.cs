@@ -71,9 +71,23 @@ public static class ExpertiseCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = isAgent
+                    ? await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct)
+                    : await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var domains = isAgent
                 ? await client.GetAgentExpertiseAsync(id, ct)
@@ -118,9 +132,23 @@ public static class ExpertiseCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = isAgent
+                    ? await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct)
+                    : await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             IReadOnlyList<ExpertiseDomainDto> body;
             if (parseResult.GetValue(clearOption))
@@ -166,9 +194,21 @@ public static class ExpertiseCommand
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var id = parseResult.GetValue(idArg)!;
+            var idOrName = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            string id;
+            try
+            {
+                id = await resolver.ResolveUnitIdAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
 
             var aggregated = await client.GetUnitAggregatedExpertiseAsync(id, ct);
 
