@@ -98,6 +98,7 @@ export function MessageComposer({
   const queryClient = useQueryClient();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
+  const [isQueuing, setIsQueuing] = useState(false);
 
   // Focus the textarea when the parent flips into answer mode so the
   // user can start typing the answer without an extra click.
@@ -155,9 +156,10 @@ export function MessageComposer({
         });
       }
 
-      // Clear the textarea immediately — user can start typing the next
-      // message while this one travels to the server.
+      // Clear the textarea and release the button in the same batch as
+      // the cache inject below — all three happen in one React render.
       setText("");
+      setIsQueuing(false);
 
       // Inject a synthetic event so the timeline shows the message before
       // the server acknowledges it. Only meaningful for existing threads;
@@ -203,6 +205,7 @@ export function MessageComposer({
       onSendSuccess?.();
     },
     onError: (err, _vars, context) => {
+      setIsQueuing(false);
       // Roll back the optimistic thread update.
       if (context?.previousThread && threadId) {
         queryClient.setQueryData(
@@ -224,7 +227,8 @@ export function MessageComposer({
 
   const submit = () => {
     const trimmed = text.trim();
-    if (send.isPending || !trimmed) return;
+    if (send.isPending || isQueuing || !trimmed) return;
+    setIsQueuing(true);
     send.mutate({ trimmed });
   };
 
@@ -241,7 +245,7 @@ export function MessageComposer({
   };
 
   const isAnswerMode = kind === "answer";
-  const sendTooltip = send.isPending ? "Sending…" : "⌘/Ctrl+Enter to send";
+  const sendTooltip = isQueuing ? "Sending…" : "⌘/Ctrl+Enter to send";
   const sendLabel = isAnswerMode ? "Send answer" : "Send";
   const sendAriaLabel = isAnswerMode
     ? "Send answer (⌘/Ctrl+Enter)"
@@ -255,8 +259,7 @@ export function MessageComposer({
         ? `Message ${recipient.scheme}://${recipient.path}…`
         : "Type a message…");
 
-  const disabled =
-    send.isPending || !text.trim() || !recipient;
+  const disabled = isQueuing || !text.trim() || !recipient;
 
   return (
     // shrink-0 keeps the composer at its intrinsic height inside a flex
@@ -308,7 +311,7 @@ export function MessageComposer({
           className="min-w-0 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           aria-label={isAnswerMode ? "Your answer" : "Message text"}
           data-testid={`${testId}-input`}
-          disabled={send.isPending || !recipient}
+          disabled={isQueuing || !recipient}
         />
         <Button
           type="submit"
@@ -323,7 +326,7 @@ export function MessageComposer({
               : "",
           ].join(" ")}
         >
-          {send.isPending ? (
+          {isQueuing ? (
             <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden="true" />
           ) : (
             <Send className="mr-1 h-4 w-4" aria-hidden="true" />
