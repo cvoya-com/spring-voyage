@@ -85,6 +85,7 @@ function TenantOverviewTab({ node }: TabContentProps) {
               status: mapStatus(u.status),
               cost: roll.cost,
             }}
+            onSelect={(id) => dispatchSelect(id)}
             onOpenTab={(id) => dispatchSelect(id)}
           />
         );

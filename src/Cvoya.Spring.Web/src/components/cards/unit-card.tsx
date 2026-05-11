@@ -89,6 +89,14 @@ interface UnitCardProps {
    * call sites keep working unchanged.
    */
   onOpenTab?: (unitName: string, tab: CardTabName) => void;
+  /**
+   * When provided, the card's primary click (overlay + "Open" link) calls
+   * this instead of navigating via Next.js `<Link>`. Use inside the
+   * Explorer so clicking a card dispatches selection through the in-memory
+   * bridge rather than triggering an App Router same-route RSC navigation
+   * (the same stuck-click bug fixed for tab clicks in #2145).
+   */
+  onSelect?: (unitName: string) => void;
   className?: string;
 }
 
@@ -124,6 +132,7 @@ export function UnitCard({
   unit,
   onDelete,
   onOpenTab,
+  onSelect,
   className,
 }: UnitCardProps) {
   const status = unit.status ?? "Draft";
@@ -182,6 +191,7 @@ export function UnitCard({
           href={href}
           aria-label={`Open unit ${unit.displayName}`}
           data-testid={`unit-card-link-${unit.name}`}
+          onClick={onSelect ? (e) => { e.preventDefault(); onSelect(unit.name); } : undefined}
           className="flex items-start justify-between gap-2 rounded-sm focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
         >
           <div className="min-w-0 flex-1">
@@ -263,6 +273,7 @@ export function UnitCard({
           <div className="flex items-center gap-1">
             <Link
               href={href}
+              onClick={onSelect ? (e) => { e.preventDefault(); onSelect(unit.name); } : undefined}
               className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
               data-testid={`unit-open-${unit.name}`}
             >
