@@ -701,6 +701,18 @@ The container image `<input>` on step 2 ("Execution") is wired to a `<datalist i
 
 **No backend.** The list is entirely frontend-managed; no API round-trip is needed. If the image field is blank at submit time, nothing is recorded.
 
+### 12.13.1 Create-unit wizard — Install step: inline credential retry (#2169)
+
+When the catalog Install POST returns `400 CredentialsMissing`, the Install step replaces the standard `<ApiErrorMessage>` with an inline retry form (`<CredentialsMissingRetryForm>`, `src/components/units/create/credentials-missing-retry-form.tsx`). This closes the loop the operator otherwise has to escape via *Settings → Tenant defaults*; mirrors the CLI's `TryPromptForMissingCredentialsAsync` flow (`src/Cvoya.Spring.Cli/Commands/PackageCommand.cs`).
+
+**Surface.** Destructive palette (same tokens as `<ApiErrorMessage>`): `role="alert"`, `rounded-md border border-destructive/50 bg-destructive/10`, `AlertTriangle` in `text-destructive`. Title and detail prose come from `translateApiError(err).title` / a fixed next-step sentence — never raw JSON. Hidden when the failure is any other code (`<ApiErrorMessage>` takes over for those).
+
+**Inputs.** One `<Input type="password">` per `missing[]` entry, keyed by `${provider}:${authMethod}`. Label is the entry's `credentialEnvVar` (e.g. `CLAUDE_CODE_OAUTH_TOKEN`) when present, falling back to `secretName`, then `${provider} / ${authMethod}`. Each input has a Show / Hide toggle (`Eye` / `EyeOff`). `data-testid="credentials-missing-input-<provider>-<authMethod>"`.
+
+**Retry.** Single primary `Retry install` button (`RefreshCw` glyph, `data-testid="credentials-missing-retry-button"`). Disabled until at least one value is entered (mirrors the CLI's "no values supplied → don't retry" gate). Submitting trims each value and re-fires `installPackages([{ ..., credentials: [{ provider, authMethod, value }, …] }])`; the install service writes the values as tenant secrets (idempotent rotate on re-supply) before Phase 1 runs. Repeated `CredentialsMissing` rejections keep the form mounted with the typed values intact.
+
+**Toast suppression.** When the failure is `CredentialsMissing` the wizard does not raise the standard "Install failed" destructive toast — the inline form is the operator's primary surface and a competing toast adds noise.
+
 ### 12.14 Inbox page — two-pane list-detail (#1474, polished #1482)
 
 `/inbox` redesigned as a two-pane list-detail layout. The old grid-of-`<InboxCard>`s is replaced.

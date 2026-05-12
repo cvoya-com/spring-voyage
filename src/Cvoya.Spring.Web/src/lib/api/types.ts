@@ -426,6 +426,14 @@ export type UnitMembershipResponse = Schemas["UnitMembershipResponse"];
 /** One target within a package install request (POST /api/v1/packages/install). */
 export type PackageInstallTarget = Schemas["PackageInstallTarget"];
 
+/**
+ * One entry in `PackageInstallTarget.credentials[]` (#2159, #2169) —
+ * lets the install endpoint write a tenant secret for a missing
+ * `(provider, authMethod)` edge as part of the install request, so
+ * the operator does not have to leave the wizard / CLI session.
+ */
+export type CredentialBindingPayload = Schemas["CredentialBindingPayload"];
+
 /** Response body shared by POST /api/v1/packages/install, GET /api/v1/installs/{id}, and POST /api/v1/installs/{id}/retry. */
 export type InstallStatusResponse = Schemas["InstallStatusResponse"];
 

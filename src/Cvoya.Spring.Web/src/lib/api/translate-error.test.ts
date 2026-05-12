@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "./client";
-import { translateApiError } from "./translate-error";
+import {
+  extractMissingCredentials,
+  isCredentialsMissingError,
+  translateApiError,
+} from "./translate-error";
 
 describe("translateApiError", () => {
   it.each([
@@ -289,5 +293,128 @@ describe("translateApiError", () => {
 
     expect(translated.title).toBe("Something went wrong.");
     expect(translated.details?.raw).toBe("Error: boom");
+  });
+});
+
+// #2169
+describe("isCredentialsMissingError", () => {
+  it("returns true for an ApiError carrying a CredentialsMissing problem", () => {
+    expect(
+      isCredentialsMissingError(
+        new ApiError(400, "Bad Request", {
+          code: "CredentialsMissing",
+          title: "Bad Request",
+          status: 400,
+          missing: [{ provider: "anthropic", authMethod: "oauth-claude-code" }],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for a different ApiError code", () => {
+    expect(
+      isCredentialsMissingError(
+        new ApiError(400, "Bad Request", {
+          code: "ConnectorBindingMissing",
+          title: "Bad Request",
+          status: 400,
+          missing: [{ slug: "github" }],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("returns false for non-ApiError values", () => {
+    expect(isCredentialsMissingError(new Error("boom"))).toBe(false);
+    expect(isCredentialsMissingError(undefined)).toBe(false);
+    expect(isCredentialsMissingError(null)).toBe(false);
+    expect(isCredentialsMissingError("oops")).toBe(false);
+  });
+});
+
+// #2169
+describe("extractMissingCredentials", () => {
+  it("returns one entry per (provider, authMethod) edge in the missing[] array", () => {
+    const entries = extractMissingCredentials(
+      new ApiError(400, "Bad Request", {
+        code: "CredentialsMissing",
+        title: "Bad Request",
+        status: 400,
+        missing: [
+          {
+            provider: "anthropic",
+            authMethod: "oauth-claude-code",
+            secretName: "claude-code-oauth-token",
+            credentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
+            scope: "tenant",
+            unitName: null,
+            consumingUnits: ["engineer"],
+          },
+          {
+            provider: "openai",
+            authMethod: "api-key",
+            secretName: "openai-api-key",
+            credentialEnvVar: "OPENAI_API_KEY",
+          },
+        ],
+      }),
+    );
+
+    expect(entries).toEqual([
+      {
+        provider: "anthropic",
+        authMethod: "oauth-claude-code",
+        secretName: "claude-code-oauth-token",
+        credentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
+      },
+      {
+        provider: "openai",
+        authMethod: "api-key",
+        secretName: "openai-api-key",
+        credentialEnvVar: "OPENAI_API_KEY",
+      },
+    ]);
+  });
+
+  it("skips entries that lack a provider or authMethod", () => {
+    const entries = extractMissingCredentials(
+      new ApiError(400, "Bad Request", {
+        code: "CredentialsMissing",
+        title: "Bad Request",
+        status: 400,
+        missing: [
+          { provider: "anthropic", authMethod: "" },
+          { provider: "", authMethod: "api-key" },
+          { provider: "openai", authMethod: "api-key" },
+        ],
+      }),
+    );
+
+    expect(entries).toEqual([
+      {
+        provider: "openai",
+        authMethod: "api-key",
+        secretName: null,
+        credentialEnvVar: null,
+      },
+    ]);
+  });
+
+  it("returns [] for non-CredentialsMissing errors", () => {
+    expect(
+      extractMissingCredentials(
+        new ApiError(400, "Bad Request", {
+          code: "ConnectorBindingMissing",
+          title: "Bad Request",
+          status: 400,
+          missing: [{ slug: "github" }],
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("returns [] for non-ApiError values", () => {
+    expect(extractMissingCredentials(new Error("boom"))).toEqual([]);
+    expect(extractMissingCredentials(undefined)).toEqual([]);
   });
 });
