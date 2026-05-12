@@ -43,7 +43,7 @@ Re-running `install.sh` on an existing install fails fast and tells the operator
 
 `devops/install/uninstall.sh` ships at the same release URL as `install.sh` and is also bundled into the deployment tarball so it survives install-root cleanup. Two modes:
 
-- **Default** — stops containers, removes platform images/volumes/networks, deletes `~/.spring-voyage/releases/`, `~/.spring-voyage/current`, `~/.local/bin/spring`, `~/.local/bin/spring-voyage`. **Preserves** `spring.env`, `~/.spring-voyage/host/`, `~/.spring-voyage/workspaces/`. Prints the preserved paths and how to delete them.
+- **Default** — stops containers, removes platform images/volumes/networks, deletes `~/.spring-voyage/releases/`, `~/.spring-voyage/current`, `~/.local/bin/spring`, `~/.local/bin/voyage`. **Preserves** `spring.env`, `~/.spring-voyage/host/`, `~/.spring-voyage/workspaces/`. Prints the preserved paths and how to delete them.
 - **`--purge`** — everything above plus `spring.env`, `~/.spring-voyage/host/`, `~/.spring-voyage/workspaces/`. Factory-reset.
 
 Both modes prompt for confirmation (skipped with `--yes`). Both are idempotent. The default mode never destroys operator data without an explicit second-step opt-in.

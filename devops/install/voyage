@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# spring-voyage — operator-facing wrapper installed by devops/install/install.sh
-# as ~/.local/bin/spring-voyage. Dispatches install / uninstall / status /
+# voyage — operator-facing wrapper installed by devops/install/install.sh
+# as ~/.local/bin/voyage. Dispatches install / uninstall / status /
 # logs / restart / version to the bundle scripts and `deploy.sh` so operators
 # never need to remember where the install root or spring.env live.
 #
@@ -62,12 +62,12 @@ bad()    { printf "  ${RED}FAIL${NC}  %s\n" "$*"; }
 # ---------------------------------------------------------------------------
 usage() {
   cat <<'USAGE'
-Usage: spring-voyage <command> [args...]
+Usage: voyage <command> [args...]
 
 Commands:
   status          Show install version, container/dispatcher health, log paths.
   logs [service]  Tail container or dispatcher logs.
-                  `spring-voyage logs dispatcher` tails the host-process log.
+                  `voyage logs dispatcher` tails the host-process log.
   restart         Restart the stack.
   install         (Re)install Spring Voyage from a release.
   uninstall       Uninstall (preserves operator data; use --purge for factory reset).
@@ -88,7 +88,7 @@ USAGE
 require_bundle() {
   if [[ ! -e "${BUNDLE}" && ! -L "${BUNDLE}" ]]; then
     bad "No installed bundle at ${BUNDLE}."
-    info "Run \`spring-voyage install\` to (re)install."
+    info "Run \`voyage install\` to (re)install."
     exit 1
   fi
 }
@@ -135,7 +135,7 @@ cmd_version() {
   local v image
   v="$(manifest_field version)"
   image="$(manifest_field platform_image)"
-  printf 'spring-voyage version %s\n' "${v:-unknown}"
+  printf 'voyage version %s\n' "${v:-unknown}"
   if [[ -n "${image}" ]]; then
     printf 'platform image:        %s\n' "${image}"
   fi
@@ -200,7 +200,7 @@ cmd_status() {
 
   header "Logs"
   info "containers:  podman logs spring-api  (also: spring-web, spring-worker, …)"
-  info "dispatcher:  spring-voyage logs dispatcher   (file: ${DISPATCHER_LOG_FILE})"
+  info "dispatcher:  voyage logs dispatcher   (file: ${DISPATCHER_LOG_FILE})"
   printf '\n'
 }
 
@@ -209,7 +209,7 @@ cmd_logs() {
   if [[ "${service}" == "dispatcher" ]]; then
     if [[ ! -f "${DISPATCHER_LOG_FILE}" ]]; then
       bad "Dispatcher log file not found at ${DISPATCHER_LOG_FILE}"
-      info "If the dispatcher has never started, check \`spring-voyage status\`."
+      info "If the dispatcher has never started, check \`voyage status\`."
       exit 1
     fi
     exec tail -F "${DISPATCHER_LOG_FILE}"

@@ -159,8 +159,8 @@ The installer downloads the deployment bundle, dispatcher binary, and `spring` C
 Teardown is symmetric:
 
 ```bash
-spring-voyage uninstall            # preserves spring.env + host state + workspaces
-spring-voyage uninstall --purge    # factory reset
+voyage uninstall            # preserves spring.env + host state + workspaces
+voyage uninstall --purge    # factory reset
 ```
 
 ### Build from source
