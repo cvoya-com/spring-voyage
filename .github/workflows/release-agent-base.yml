@@ -1,4 +1,4 @@
-name: Release agent-base + sidecar
+name: Release spring-voyage-agent-base + sidecar
 
 # PR 3a of #1087 (#1095). Publishes three artifacts on tag push:
 #   - ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>      (OCI image, multi-arch)
