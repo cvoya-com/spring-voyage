@@ -125,10 +125,9 @@ Releases are triggered by tag pushes only — never by merges to `main`. The tab
 | --- | --- | --- |
 | [`release-agent-base.yml`](../../.github/workflows/release-agent-base.yml) | `agent-base-v*` | `ghcr.io/cvoya-com/agent-base`, `@cvoya/spring-voyage-agent-sidecar` npm package, SEA binaries |
 | [`release-oss-agent-images.yml`](../../.github/workflows/release-oss-agent-images.yml) | `oss-agents-v*` | Four OSS role images (software-engineering, design, product-management, program-management) |
-| [`release.yml`](../../.github/workflows/release.yml) | `v*` | `ghcr.io/cvoya-com/claude-code-base`, `ghcr.io/cvoya-com/agent-base`, `ghcr.io/cvoya-com/spring-voyage-agent`, GitHub Release |
-| [`release-spring-dispatcher.yml`](../../.github/workflows/release-spring-dispatcher.yml) | `dispatcher-v*` | Self-contained dispatcher binaries (5 RIDs) |
+| [`release.yml`](../../.github/workflows/release.yml) | `v*` | `ghcr.io/cvoya-com/claude-code-base`, `ghcr.io/cvoya-com/agent-base`, `ghcr.io/cvoya-com/spring-voyage-agent`, `ghcr.io/cvoya-com/spring-voyage` (platform image), self-contained `spring` CLI binaries (5 RIDs), self-contained dispatcher binaries (5 RIDs), deployment bundle (`spring-voyage-<v>-bundle.tar.gz`), `SHA256SUMS`, GitHub Release |
 
-`scripts/release.sh` orchestrates steps 1–3 in dependency order. The dispatcher workflow is independent and not driven by the release script.
+`scripts/release.sh` orchestrates the agent-image and platform release tags in dependency order. The previous `release-spring-dispatcher.yml` (tag prefix `dispatcher-v*`) was absorbed into `release.yml`'s `publish-dispatcher` job in [#2172](https://github.com/cvoya-com/spring-voyage/issues/2172), so the platform image, deployment bundle, dispatcher binaries, and `spring` CLI binaries now share a single `v*.*.*` tag flow.
 
 Each release workflow calls `gh api -X PATCH /orgs/cvoya-com/packages/container/<name> -F visibility=public` after pushing, so packages are publicly pullable from the first publish onward.
 
@@ -144,6 +143,7 @@ Container images are published to the GitHub Container Registry (`ghcr.io/cvoya-
 
 | Image | Published by | Description |
 | --- | --- | --- |
+| `ghcr.io/cvoya-com/spring-voyage` | `release.yml` | Platform image (API + Worker + Web + Dapr CLI); consumed by `deploy.sh` via `SPRING_PLATFORM_IMAGE`. |
 | `ghcr.io/cvoya-com/claude-code-base` | `release.yml` | Claude Code runtime image; the default image for the `claude-code` runtime. |
 | `ghcr.io/cvoya-com/agent-base` | `release-agent-base.yml`, `release.yml` | BYOI conformance path-1 base image; bundles the A2A sidecar bridge. |
 | `ghcr.io/cvoya-com/spring-voyage-agent` | `release.yml` | Dapr-native A2A agent (path-3). |

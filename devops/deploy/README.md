@@ -289,8 +289,8 @@ Leave it unset to use the default `InfiniteTimeSpan`.
 
 #### Self-contained release artifacts
 
-Each `dispatcher-vMAJOR.MINOR.PATCH` tag triggers
-[`.github/workflows/release-spring-dispatcher.yml`](../../.github/workflows/release-spring-dispatcher.yml)
+Each `vMAJOR.MINOR.PATCH` tag triggers the `publish-dispatcher` job in
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml)
 which publishes a self-contained, single-file binary per RID
 (`linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`) and
 uploads each one as a release asset. The host script's binary
@@ -298,12 +298,17 @@ discovery handles native executables transparently:
 
 ```bash
 curl -L -o dispatcher.tar.gz \
-  https://github.com/cvoya-com/spring-voyage/releases/download/dispatcher-v0.1.0/spring-dispatcher-0.1.0-linux-x64.tar.gz
+  https://github.com/cvoya-com/spring-voyage/releases/download/v0.1.0/spring-dispatcher-0.1.0-linux-x64.tar.gz
 tar xf dispatcher.tar.gz
 SPRING_DISPATCHER_BIN="$PWD/Cvoya.Spring.Dispatcher" \
   ./spring-voyage-host.sh start
 ./spring-voyage-host.sh status   # version: 0.1.0
 ```
+
+The dispatcher binary used to be released under a separate
+`dispatcher-vMAJOR.MINOR.PATCH` tag and a dedicated workflow; that
+flow was absorbed into the unified `v*.*.*` release in
+[#2172](https://github.com/cvoya-com/spring-voyage/issues/2172).
 
 Operators using release artifacts do **not** need `dotnet` on the
 host. The `--rebuild` flag still requires `dotnet` because it shells
