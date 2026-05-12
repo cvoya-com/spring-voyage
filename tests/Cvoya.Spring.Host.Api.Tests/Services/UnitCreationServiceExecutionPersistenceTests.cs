@@ -98,11 +98,14 @@ public class UnitCreationServiceExecutionPersistenceTests
         execution.ValueKind.ShouldBe(JsonValueKind.Object);
         execution.GetProperty("image").GetString()
             .ShouldBe("ghcr.io/cvoya/sv-oss-software-engineering:latest");
-        // ADR-0038: tool/provider no longer persisted. The internal
-        // `agent` slot (renamed to `runtime` on the wire) carries the
-        // catalogue runtime id.
+        // ADR-0038: tool is no longer persisted. The internal `agent` slot
+        // (renamed to `runtime` on the wire) carries the catalogue runtime
+        // id. #2204: the manifest's `ai.model.provider` is now persisted
+        // onto the same execution row so the auto-start gate (and any
+        // downstream consumers that key off `Provider`) see a consistent
+        // shape with what the manifest declared.
         execution.TryGetProperty("tool", out _).ShouldBeFalse();
-        execution.TryGetProperty("provider", out _).ShouldBeFalse();
+        execution.GetProperty("provider").GetString().ShouldBe("anthropic");
         execution.GetProperty("agent").GetString().ShouldBe("claude-code");
         execution.GetProperty("model").GetString().ShouldBe("claude-sonnet-4");
     }

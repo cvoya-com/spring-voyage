@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
@@ -67,6 +68,7 @@ public class UnitCreationService : IUnitCreationService
     private readonly IUnitExecutionStore? _executionStore;
     private readonly IUnitMembershipTenantGuard? _tenantGuard;
     private readonly ILlmCredentialResolver? _credentialResolver;
+    private readonly IRuntimeCatalog? _runtimeCatalog;
     private readonly ILogger<UnitCreationService> _logger;
 
     /// <summary>
@@ -92,7 +94,8 @@ public class UnitCreationService : IUnitCreationService
         IUnitBoundaryStore? boundaryStore = null,
         IUnitExecutionStore? executionStore = null,
         IUnitMembershipTenantGuard? tenantGuard = null,
-        ILlmCredentialResolver? credentialResolver = null)
+        ILlmCredentialResolver? credentialResolver = null,
+        IRuntimeCatalog? runtimeCatalog = null)
     {
         ArgumentNullException.ThrowIfNull(memberGraphStore);
         ArgumentNullException.ThrowIfNull(tenantContext);
@@ -112,11 +115,12 @@ public class UnitCreationService : IUnitCreationService
         _executionStore = executionStore;
         _tenantGuard = tenantGuard;
         _credentialResolver = credentialResolver;
+        _runtimeCatalog = runtimeCatalog;
         _logger = loggerFactory.CreateLogger<UnitCreationService>();
     }
 
     /// <inheritdoc />
-    public Task<UnitCreationResult> CreateAsync(
+    public async Task<UnitCreationResult> CreateAsync(
         CreateUnitRequest request,
         CancellationToken cancellationToken)
     {
@@ -126,7 +130,7 @@ public class UnitCreationService : IUnitCreationService
         var parentInfo = ValidateParentRequest(
             request.ParentUnitIds, request.IsTopLevel);
 
-        return CreateCoreAsync(
+        var result = await CreateCoreAsync(
             name: request.Name,
             displayName: request.DisplayName,
             description: request.Description,
@@ -148,6 +152,21 @@ public class UnitCreationService : IUnitCreationService
             parentInfo: parentInfo,
             preMintedActorId: null,
             cancellationToken);
+
+        // #2204: evaluate the auto-start gate after all persistence is done.
+        // Direct-create callers typically have no execution config at this
+        // point (no `ai.runtime` / `image`), so the gate stays closed and the
+        // unit lands in Draft — same as before. Operators that supply
+        // execution config separately can then call /revalidate (which keeps
+        // its legacy "settle in Stopped" behaviour) or future flows that
+        // configure execution atomically at create time.
+        var promotedStatus = await TryAutoStartValidationAsync(
+            result.Unit.Id, request.DisplayName, cancellationToken);
+        if (promotedStatus != result.Unit.Status)
+        {
+            result = result with { Unit = result.Unit with { Status = promotedStatus } };
+        }
+        return result;
     }
 
     /// <inheritdoc />
@@ -249,7 +268,16 @@ public class UnitCreationService : IUnitCreationService
         // "runtime" by PR-1b). The validator reads `defaults.Agent` as
         // the agent-runtime registry id.
         var manifestAgent = manifest.Ai?.Runtime;
-        if (manifest.Execution is { IsEmpty: false } || !string.IsNullOrWhiteSpace(manifestAgent))
+        // #2204: also forward the manifest's `ai.model.provider` so the
+        // persisted execution row reflects the manifest. The validation
+        // scheduler can derive provider from the runtime via the catalogue,
+        // but the auto-start gate needs the row to carry image + runtime +
+        // model — and writing the provider keeps the persisted shape honest
+        // with what `PersistUnitExecutionAsync`'s docstring promised.
+        var manifestProvider = manifest.Ai?.Model?.Provider;
+        if (manifest.Execution is { IsEmpty: false }
+            || !string.IsNullOrWhiteSpace(manifestAgent)
+            || !string.IsNullOrWhiteSpace(manifestProvider))
         {
             // #1666: IUnitExecutionStore is keyed by the unit's actor Guid
             // (DbUnitExecutionStore parses the id with GuidFormatter.TryParse
@@ -263,7 +291,20 @@ public class UnitCreationService : IUnitCreationService
                 result.Unit.Id,
                 manifest.Execution ?? new ExecutionManifest(),
                 manifestAgent,
+                manifestProvider,
                 cancellationToken);
+        }
+
+        // #2204: evaluate the auto-start gate after the execution row is on
+        // disk. For package-installed units the manifest's `ai.runtime` /
+        // `ai.model` / `execution.image` (incl. package-level inheritance)
+        // all flow through, so the gate passes whenever the tenant has a
+        // resolvable credential for the runtime's first provider edge.
+        var promotedStatus = await TryAutoStartValidationAsync(
+            result.Unit.Id, displayName, cancellationToken);
+        if (promotedStatus != result.Unit.Status)
+        {
+            result = result with { Unit = result.Unit with { Status = promotedStatus } };
         }
 
         return result;
@@ -287,6 +328,7 @@ public class UnitCreationService : IUnitCreationService
         Guid unitActorId,
         ExecutionManifest execution,
         string? agent,
+        string? provider,
         CancellationToken cancellationToken)
     {
         if (_executionStore is null)
@@ -302,11 +344,14 @@ public class UnitCreationService : IUnitCreationService
             // ADR-0038: ExecutionManifest no longer carries `provider`
             // (intrinsic to ai.model.provider) or `tool` (derived from
             // ai.runtime via the catalogue). The internal store retains
-            // the Provider slot during PR-1b transitional work — fed
-            // from the structured manifest model when present.
+            // the Provider slot during PR-1b transitional work — #2204
+            // re-wires it to actually receive the structured manifest's
+            // `ai.model.provider` value so the persisted row matches the
+            // manifest and the auto-start gate has all three slots (image,
+            // runtime, model) populated.
             var defaults = new UnitExecutionDefaults(
                 Image: execution.Image,
-                Provider: null,
+                Provider: provider,
                 Model: execution.Model,
                 Agent: agent);
             // #1666: the store is Guid-keyed — see DbUnitExecutionStore
@@ -862,46 +907,15 @@ public class UnitCreationService : IUnitCreationService
                 }
             }
 
-            // When the request supplies a full execution config
-            // (model + provider + a resolvable credential), transition
-            // the unit straight into Validating so the Dapr
-            // UnitValidationWorkflow can run the in-container probe.
-            // Partial configs leave the unit in Draft — the user can
-            // finish configuration and then call /revalidate (or
-            // update + revalidate) to kick off validation.
+            // The auto-start gate (#2156 / #2204) is deliberately NOT evaluated
+            // here. CreateCoreAsync runs before the manifest path's
+            // PersistUnitExecutionAsync write, so the unit's execution defaults
+            // (image / runtime / model) are not yet on disk when this method
+            // returns. Evaluating the gate here would always fail on manifest-
+            // installed units. The caller invokes
+            // <see cref="TryAutoStartValidationAsync"/> after all execution
+            // defaults have been persisted.
             var initialStatus = UnitStatus.Draft;
-            var fullyConfigured = await IsFullyConfiguredForValidationAsync(
-                actorGuid, model, provider, cancellationToken);
-            if (fullyConfigured)
-            {
-                try
-                {
-                    var transitionResult = await proxy.TransitionAsync(
-                        UnitStatus.Validating, cancellationToken);
-                    if (transitionResult is { Success: true })
-                    {
-                        initialStatus = UnitStatus.Validating;
-                        // #2156: mark the unit for automatic transition into
-                        // Running once validation succeeds. The actor's
-                        // CompleteValidationAsync consumes and clears this
-                        // flag so a subsequent manual revalidation falls
-                        // back to the legacy "settle in Stopped" behaviour.
-                        await proxy.SetPendingAutoStartAsync(cancellationToken);
-                    }
-                    else
-                    {
-                        _logger.LogWarning(
-                            "Unit '{UnitName}' failed to transition to Validating on creation: {Reason}. Staying in Draft.",
-                            name, transitionResult?.RejectionReason ?? "unknown");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Unit '{UnitName}' transition to Validating failed on creation. Staying in Draft.",
-                        name);
-                }
-            }
 
             // Bind the connector *after* the actor is reachable — the store
             // talks to the unit actor, which needs the directory entry in
@@ -954,63 +968,162 @@ public class UnitCreationService : IUnitCreationService
     }
 
     /// <summary>
-    /// Returns <c>true</c> when the unit has enough configuration to kick
-    /// off backend validation at creation time: a model, a provider /
-    /// runtime, and a resolvable credential (or a runtime that declares
-    /// no credential is needed). Partial configs leave the unit in
-    /// <see cref="UnitStatus.Draft"/> — the operator finishes
-    /// configuration and then calls <c>/revalidate</c>.
+    /// #2204: evaluates the auto-start gate against the unit's persisted
+    /// execution defaults and, when the gate passes, transitions the unit to
+    /// <see cref="UnitStatus.Validating"/> and marks the
+    /// <c>Unit:PendingAutoStart</c> flag so
+    /// <see cref="IUnitActor.CompleteValidationAsync"/> drives the unit on
+    /// through <c>Stopped → Starting → Running</c> once validation succeeds.
+    /// Returns the resulting status (<see cref="UnitStatus.Validating"/> on a
+    /// successful transition, otherwise <see cref="UnitStatus.Draft"/>).
     /// </summary>
-    private async Task<bool> IsFullyConfiguredForValidationAsync(
-        Guid unitId,
-        string? model,
-        string? provider,
+    /// <remarks>
+    /// <para>
+    /// Per ADR-0038 the unit does not carry a flat <c>provider</c> slot — the
+    /// provider is intrinsic to <c>ai.model</c>. The gate therefore mirrors the
+    /// resolution chain used by
+    /// <c>UnitValidationWorkflowScheduler.ScheduleAsync</c>: read
+    /// <see cref="UnitExecutionDefaults"/> from <see cref="IUnitExecutionStore"/>,
+    /// resolve the agent-runtime registry id from
+    /// <see cref="UnitExecutionDefaults.Agent"/> (Provider as a last-ditch
+    /// fallback for spring-voyage-style runtimes), then look up the
+    /// catalogue runtime's first provider edge for the
+    /// <c>(providerId, authMethod)</c> pair the launcher actually consumes.
+    /// </para>
+    /// <para>
+    /// Skipped when image, runtime, or model is missing, when the runtime
+    /// catalogue does not know the runtime, or when the credential resolver
+    /// reports <c>NotFound</c>. Skipping is silent — partial configs land in
+    /// <see cref="UnitStatus.Draft"/> exactly as before; the operator finishes
+    /// configuration and calls <c>/revalidate</c>.
+    /// </para>
+    /// </remarks>
+    private async Task<UnitStatus> TryAutoStartValidationAsync(
+        Guid unitActorGuid,
+        string unitName,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(provider))
+        if (_executionStore is null)
         {
-            return false;
+            return UnitStatus.Draft;
         }
 
-        // Credential resolution is the last gate. When no resolver is
-        // wired (legacy test harnesses), fall back to "model + provider
-        // supplied == ready" which matches the pre-T-05 behaviour.
-        if (_credentialResolver is null)
-        {
-            return true;
-        }
-
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorGuid);
+        UnitExecutionDefaults? defaults;
         try
         {
-            // ADR-0038 (#1770): the resolver is keyed on (provider,
-            // authMethod). The unit-creation gate today only resolves the
-            // tenant-default secret to flip the Draft → Ready state; pass
-            // ApiKey as the auth method since that matches the legacy
-            // {provider}-api-key shape the resolver still falls back on.
-            var resolution = await _credentialResolver.ResolveAsync(
-                providerId: provider,
-                authMethod: Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey,
-                agentId: null,
-                unitId: unitId,
-                cancellationToken);
+            defaults = await _executionStore.GetAsync(actorId, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex,
+                "Unit '{UnitName}' auto-start gate: failed to read execution defaults; leaving unit in Draft.",
+                unitName);
+            return UnitStatus.Draft;
+        }
 
-            // A non-null value means we have a credential to hand to the
-            // workflow. The "no credential required" path (Ollama) is
-            // covered by the runtime-level filter inside the scheduler
-            // and probe activities — it still reports NotFound here
-            // because the secret resolver short-circuits on the empty
-            // secret name. Treat NotFound as "we don't yet have enough
-            // to probe" and leave the unit in Draft; users configure
-            // credentials explicitly for that path.
-            return !string.IsNullOrEmpty(resolution.Value);
+        if (defaults is null || defaults.IsEmpty
+            || string.IsNullOrWhiteSpace(defaults.Image)
+            || string.IsNullOrWhiteSpace(defaults.Model))
+        {
+            return UnitStatus.Draft;
+        }
+
+        var runtimeId = ResolveAgentRuntimeId(defaults);
+        if (string.IsNullOrWhiteSpace(runtimeId))
+        {
+            return UnitStatus.Draft;
+        }
+
+        // Mirror UnitValidationWorkflowScheduler.cs: the catalogue runtime's
+        // first provider edge carries the auth method the launcher consumes.
+        // Without a runtime catalogue (legacy test harness) we cannot derive
+        // the provider, so the gate stays closed — the same fail-safe shape
+        // the scheduler uses when its catalogue lookup misses.
+        if (_runtimeCatalog is null)
+        {
+            return UnitStatus.Draft;
+        }
+
+        var catalogRuntime = _runtimeCatalog.GetAgentRuntime(runtimeId);
+        if (catalogRuntime is null || catalogRuntime.ModelProviders.Count == 0)
+        {
+            return UnitStatus.Draft;
+        }
+
+        var edge = catalogRuntime.ModelProviders[0];
+        var providerId = edge.Id;
+        var authMethod = edge.AuthMethod;
+
+        // Runtimes that declare no credential (Ollama edge: AuthMethod == null)
+        // are auto-startable as soon as image + runtime + model are present —
+        // the probe layer skips the credential step.
+        if (authMethod is not null && _credentialResolver is not null)
+        {
+            try
+            {
+                var resolution = await _credentialResolver.ResolveAsync(
+                    providerId: providerId,
+                    authMethod: authMethod.Value,
+                    agentId: null,
+                    unitId: unitActorGuid,
+                    cancellationToken);
+                if (string.IsNullOrEmpty(resolution.Value))
+                {
+                    return UnitStatus.Draft;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Unit '{UnitName}' auto-start gate: credential resolution threw; leaving unit in Draft.",
+                    unitName);
+                return UnitStatus.Draft;
+            }
+        }
+
+        // All preconditions met — drive the actor into Validating and arm the
+        // post-validation auto-start. The flag is consumed once by
+        // CompleteValidationAsync (#2156), so a later manual /revalidate
+        // still settles in Stopped.
+        try
+        {
+            var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
+                new ActorId(actorId), nameof(UnitActor));
+            var transitionResult = await proxy.TransitionAsync(
+                UnitStatus.Validating, cancellationToken);
+            if (transitionResult is { Success: true })
+            {
+                await proxy.SetPendingAutoStartAsync(cancellationToken);
+                return UnitStatus.Validating;
+            }
+
+            _logger.LogWarning(
+                "Unit '{UnitName}' failed to transition to Validating on creation: {Reason}. Staying in Draft.",
+                unitName, transitionResult?.RejectionReason ?? "unknown");
+            return UnitStatus.Draft;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "Unit {UnitId} credential resolution threw during creation; leaving unit in Draft.",
-                unitId);
-            return false;
+                "Unit '{UnitName}' transition to Validating threw on creation. Staying in Draft.",
+                unitName);
+            return UnitStatus.Draft;
         }
+    }
+
+    /// <summary>
+    /// Mirrors <c>UnitValidationWorkflowScheduler.ResolveAgentRuntimeId</c>:
+    /// the agent-runtime registry id is on <see cref="UnitExecutionDefaults.Agent"/>;
+    /// <see cref="UnitExecutionDefaults.Provider"/> is a last-ditch fallback
+    /// because spring-voyage-style runtimes carry the same string in both
+    /// slots.
+    /// </summary>
+    private static string? ResolveAgentRuntimeId(UnitExecutionDefaults defaults)
+    {
+        if (!string.IsNullOrWhiteSpace(defaults.Agent)) return defaults.Agent;
+        if (!string.IsNullOrWhiteSpace(defaults.Provider)) return defaults.Provider;
+        return null;
     }
 
     /// <summary>
