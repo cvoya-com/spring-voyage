@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# spring-voyage — operator-facing wrapper installed by devops/install/install.sh
+# as ~/.local/bin/spring-voyage. Dispatches install / uninstall / status to
+# the bundle scripts and `deploy.sh` so operators never need to remember
+# where the install root or spring.env live.
+#
+# Configuration is read from the environment so the script is identical
+# across installs:
+#
+#   SPRING_VOYAGE_HOME   Install root. Default: ~/.spring-voyage
+#   SPRING_ENV_FILE      spring.env path. Default: ${SPRING_VOYAGE_HOME}/spring.env
+#
+# Tests:  devops/install/tests/test-install.sh
+# Design: docs/decisions/0042-local-operator-installer.md
+
+set -euo pipefail
+
+INSTALL_ROOT="${SPRING_VOYAGE_HOME:-${HOME}/.spring-voyage}"
+BUNDLE="${INSTALL_ROOT}/current"
+SPRING_ENV="${SPRING_ENV_FILE:-${INSTALL_ROOT}/spring.env}"
+
+# Canonical release entry-point for the `install` subcommand.
+RELEASE_INSTALL_URL="https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh"
+
+case "${1:-help}" in
+  install)
+    shift
+    exec curl -fSL "${RELEASE_INSTALL_URL}" | bash "$@" ;;
+  uninstall)
+    shift
+    if [[ -x "${BUNDLE}/uninstall.sh" ]]; then
+      SPRING_VOYAGE_HOME="${INSTALL_ROOT}" exec "${BUNDLE}/uninstall.sh" "$@"
+    else
+      echo "uninstall.sh not found in ${BUNDLE}. Re-download via install.sh." >&2
+      exit 1
+    fi ;;
+  status)
+    shift
+    if [[ -x "${BUNDLE}/deploy.sh" ]]; then
+      SPRING_ENV_FILE="${SPRING_ENV}" exec "${BUNDLE}/deploy.sh" status "$@"
+    else
+      echo "deploy.sh not found in ${BUNDLE}." >&2
+      exit 1
+    fi ;;
+  -h|--help|help|*)
+    cat <<'USAGE'
+spring-voyage <command>
+
+Commands:
+  install     Re-run the installer (download latest release).
+  uninstall   Tear down the stack. --purge removes operator data too.
+  status      Show container + host-service status (delegates to deploy.sh status).
+
+For day-to-day platform CLI use, run `spring` instead.
+USAGE
+    ;;
+esac

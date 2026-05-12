@@ -31,9 +31,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 INSTALL_SH="${INSTALL_DIR}/install.sh"
 UNINSTALL_SH="${INSTALL_DIR}/uninstall.sh"
+WRAPPER_SH="${INSTALL_DIR}/spring-voyage"
 
 [[ -x "${INSTALL_SH}" ]] || { echo "install.sh not executable: ${INSTALL_SH}" >&2; exit 1; }
 [[ -x "${UNINSTALL_SH}" ]] || { echo "uninstall.sh not executable: ${UNINSTALL_SH}" >&2; exit 1; }
+[[ -x "${WRAPPER_SH}" ]] || { echo "spring-voyage wrapper not executable: ${WRAPPER_SH}" >&2; exit 1; }
 
 FIXTURE_VERSION="0.0.0-test"
 FIXTURE_TAG="v${FIXTURE_VERSION}"
@@ -124,6 +126,12 @@ EOFENV
   # release pipelines copy uninstall.sh into the bundle from devops/install/.
   cp "${UNINSTALL_SH}" "${stage}/uninstall.sh"
   chmod +x "${stage}/uninstall.sh"
+
+  # Fixture spring-voyage wrapper — same rationale as uninstall.sh above.
+  # The real release-pipeline copies devops/install/spring-voyage into the
+  # bundle so install.sh can `cp` it to ~/.local/bin/.
+  cp "${WRAPPER_SH}" "${stage}/spring-voyage"
+  chmod +x "${stage}/spring-voyage"
 
   # Dapr components placeholder.
   echo '# fixture' > "${stage}/dapr/components/delegated-spring-voyage-agent/README.md"

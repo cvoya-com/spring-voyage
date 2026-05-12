@@ -481,50 +481,19 @@ ln -snf "${CLI_BIN}"    "${BIN_DIR}/spring"
 ok "Symlinked ${INSTALL_ROOT}/current -> ${BUNDLE_DIR}"
 ok "Symlinked ${BIN_DIR}/spring -> ${CLI_BIN}"
 
-# spring-voyage wrapper: dispatches install|uninstall|status to the bundle.
+# spring-voyage wrapper: status / logs / restart / install / uninstall / version.
+# The wrapper script ships in the bundle as bundle/spring-voyage (see
+# .github/workflows/release.yml). We copy it (not symlink) so a later
+# uninstall that removes the install root leaves the wrapper in place
+# long enough to be removed by uninstall.sh itself. install.sh runs
+# from a curl pipe with no checked-out tree, so the bundle is the only
+# checked-in source available at install time.
 WRAPPER_PATH="${BIN_DIR}/spring-voyage"
-cat > "${WRAPPER_PATH}" <<EOF
-#!/usr/bin/env bash
-# spring-voyage — thin wrapper installed by install.sh.
-# Dispatches \`install|uninstall|status\` to the bundle scripts and \`deploy.sh\`.
-set -euo pipefail
-INSTALL_ROOT="${INSTALL_ROOT}"
-BUNDLE="\${INSTALL_ROOT}/current"
-SPRING_ENV="\${SPRING_ENV_FILE:-\${INSTALL_ROOT}/spring.env}"
-case "\${1:-help}" in
-  install)
-    shift
-    exec curl -fSL "${RELEASE_DOWNLOAD_PREFIX}/latest/download/install.sh" | bash "\$@" ;;
-  uninstall)
-    shift
-    if [[ -x "\${BUNDLE}/uninstall.sh" ]]; then
-      SPRING_VOYAGE_HOME="\${INSTALL_ROOT}" exec "\${BUNDLE}/uninstall.sh" "\$@"
-    else
-      echo "uninstall.sh not found in \${BUNDLE}. Re-download via install.sh." >&2
-      exit 1
-    fi ;;
-  status)
-    shift
-    if [[ -x "\${BUNDLE}/deploy.sh" ]]; then
-      SPRING_ENV_FILE="\${SPRING_ENV}" exec "\${BUNDLE}/deploy.sh" status "\$@"
-    else
-      echo "deploy.sh not found in \${BUNDLE}." >&2
-      exit 1
-    fi ;;
-  -h|--help|help|*)
-    cat <<'USAGE'
-spring-voyage <command>
-
-Commands:
-  install     Re-run the installer (download latest release).
-  uninstall   Tear down the stack. --purge removes operator data too.
-  status      Show container + host-service status (delegates to deploy.sh status).
-
-For day-to-day platform CLI use, run \`spring\` instead.
-USAGE
-    ;;
-esac
-EOF
+WRAPPER_SRC="${BUNDLE_DIR}/spring-voyage"
+if [[ ! -f "${WRAPPER_SRC}" ]]; then
+  fail "Bundle is missing spring-voyage wrapper at ${WRAPPER_SRC}."
+fi
+cp "${WRAPPER_SRC}" "${WRAPPER_PATH}"
 chmod +x "${WRAPPER_PATH}"
 ok "Wrote ${WRAPPER_PATH}"
 
