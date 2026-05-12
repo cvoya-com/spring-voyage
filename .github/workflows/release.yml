@@ -282,8 +282,6 @@ jobs:
 
       - name: Build all agent images
         shell: bash
-        env:
-          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           bash devops/build/build-agent-images.sh --tag "${RELEASE_VERSION}" --ghcr-only
@@ -295,9 +293,6 @@ jobs:
       - name: Tag and push claude-code-base
         shell: bash
         env:
-          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
-          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
-          IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
           TARGET_BASE: ${{ env.CLAUDE_CODE_IMAGE }}
         run: |
           set -euo pipefail
@@ -350,9 +345,6 @@ jobs:
       - name: Tag and push spring-voyage-agent (native A2A runtime)
         shell: bash
         env:
-          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
-          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
-          IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
           TARGET_BASE: ${{ env.SPRING_VOYAGE_AGENT_IMAGE }}
         run: |
           set -euo pipefail
@@ -428,7 +420,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
       MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
-      TARGET_BASE: ${{ env.SPRING_VOYAGE_PLATFORM_IMAGE }}
+      TARGET_BASE: ghcr.io/cvoya-com/spring-voyage
 
     steps:
       - uses: actions/checkout@v6
@@ -836,7 +828,7 @@ jobs:
     env:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
-      PLATFORM_IMAGE_REPO: ${{ env.SPRING_VOYAGE_PLATFORM_IMAGE }}
+      PLATFORM_IMAGE_REPO: ghcr.io/cvoya-com/spring-voyage
 
     steps:
       - uses: actions/checkout@v6
@@ -1091,7 +1083,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          notes="$(bash scripts/extract-changelog-section.sh "Unreleased")"
+          notes="$(bash devops/release/extract-changelog-section.sh "Unreleased")"
           if [[ -z "$notes" ]]; then
             echo "::warning::## [Unreleased] section in CHANGELOG.md is empty — release notes will be empty."
           fi

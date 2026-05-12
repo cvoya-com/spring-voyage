@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/extract-changelog-section.sh — extract a named section from CHANGELOG.md
+# devops/release/extract-changelog-section.sh — extract a named section from CHANGELOG.md
 #
 # Prints the body of the first matching section header to stdout so the
 # release.yml workflow can feed it directly into gh release create --notes.
@@ -22,7 +22,7 @@ set -euo pipefail
 
 SECTION="${1:-Unreleased}"
 
-CHANGELOG="${BASH_SOURCE[0]%/*}/../CHANGELOG.md"
+CHANGELOG="${BASH_SOURCE[0]%/*}/../../CHANGELOG.md"
 if [[ ! -f "$CHANGELOG" ]]; then
     echo "::error::CHANGELOG.md not found at $CHANGELOG" >&2
     exit 1

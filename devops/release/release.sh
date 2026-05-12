@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# scripts/release.sh — Spring Voyage release orchestration
+# devops/release/release.sh — Spring Voyage release orchestration
 #
 # Publishes a coherent Spring Voyage release by pushing component tags in
 # dependency order and waiting for each workflow to succeed before proceeding.
 #
 # Usage:
-#   ./scripts/release.sh [OPTIONS] <semver>
+#   ./devops/release/release.sh [OPTIONS] <semver>
 #
 # Arguments:
 #   <semver>   Base semantic version, e.g. v1.0.0 or 1.0.0 (leading v optional).
@@ -19,10 +19,10 @@
 #   -h, --help              Show this help and exit.
 #
 # Examples:
-#   ./scripts/release.sh v1.0.0 --pre alpha     →  v1.0.0-alpha.20260504
-#   ./scripts/release.sh 1.0.0  --pre rc        →  v1.0.0-rc.20260504
-#   ./scripts/release.sh v1.0.0                 →  v1.0.0  (stable)
-#   ./scripts/release.sh v1.0.0 --pre alpha --plan
+#   ./devops/release/release.sh v1.0.0 --pre alpha     →  v1.0.0-alpha.20260504
+#   ./devops/release/release.sh 1.0.0  --pre rc        →  v1.0.0-rc.20260504
+#   ./devops/release/release.sh v1.0.0                 →  v1.0.0  (stable)
+#   ./devops/release/release.sh v1.0.0 --pre alpha --plan
 #
 # Tag chain pushed (in order, each waited on before the next):
 #   agent-base-v<version>   →  release-agent-base.yml
@@ -35,8 +35,8 @@
 #   anonymously pullable via `podman manifest inspect --no-creds`.
 #
 # Requirements:
-#   - gh-app CLI at ~/.claude/skills/github-app/bin/gh-app
-#   - gh CLI (for `gh run watch`)
+#   - gh CLI authenticated (`gh auth status`) with repo + workflow scopes
+#   - git remote `origin` pointing at cvoya-com/spring-voyage with push access
 #   - podman (for anonymous-pull verification; skipped with --plan)
 #   - Run from the repository root on a clean checkout of main.
 
@@ -45,7 +45,6 @@ set -euo pipefail
 # ── Constants ────────────────────────────────────────────────────────────────
 
 REPO="cvoya-com/spring-voyage"
-GH_APP="${HOME}/.claude/skills/github-app/bin/gh-app"
 PACKAGES_GLOB="packages/**/*.yaml"
 
 # ── Parse arguments ──────────────────────────────────────────────────────────
@@ -119,8 +118,7 @@ if [[ -n "$PRE_RELEASE" ]]; then
   if [[ "$FORCE_RETAG" != "true" ]]; then
     CANDIDATE="${FULL_SEMVER}"
     COUNTER=1
-    while GH_TOKEN="$(${GH_APP} token)" gh api "repos/${REPO}/git/refs/tags/v${CANDIDATE}" \
-          --silent 2>/dev/null; do
+    while gh api "repos/${REPO}/git/refs/tags/v${CANDIDATE}" --silent 2>/dev/null; do
       CANDIDATE="${FULL_SEMVER}.${COUNTER}"
       COUNTER=$((COUNTER + 1))
     done
@@ -162,8 +160,7 @@ fi
 
 if [[ -z "$PRE_RELEASE" && "$FORCE_RETAG" != "true" ]]; then
   for tag in "$TAG_AGENT_BASE" "$TAG_OSS_AGENTS" "$TAG_PLATFORM"; do
-    if GH_TOKEN="$(${GH_APP} token)" gh api "repos/${REPO}/git/refs/tags/${tag}" \
-       --silent 2>/dev/null; then
+    if gh api "repos/${REPO}/git/refs/tags/${tag}" --silent 2>/dev/null; then
       echo "::error::Tag '${tag}' already exists in ${REPO}."
       echo "         Use --force-retag to override (this will re-trigger the workflow)."
       exit 1
@@ -171,7 +168,7 @@ if [[ -z "$PRE_RELEASE" && "$FORCE_RETAG" != "true" ]]; then
   done
 fi
 
-# ── Helper: push a tag via gh-app and wait for the triggered workflow ─────────
+# ── Helper: push a tag and wait for the triggered workflow ────────────────────
 
 push_and_wait() {
   local tag="$1"
@@ -179,15 +176,16 @@ push_and_wait() {
 
   echo ""
   echo "▶  Pushing tag ${tag} …"
-  "${GH_APP}" push-tag "${tag}"
+  git tag "${tag}"
+  git push origin "${tag}"
 
   echo "   Waiting for workflow '${workflow_name}' …"
   # Give GitHub a few seconds to register the run before watching.
   sleep 5
-  GH_TOKEN="$(${GH_APP} token)" gh run watch \
+  gh run watch \
     --repo "${REPO}" \
     --exit-status \
-    "$(GH_TOKEN="$(${GH_APP} token)" gh run list \
+    "$(gh run list \
         --repo "${REPO}" \
         --workflow "${workflow_name}" \
         --branch "refs/tags/${tag}" \
