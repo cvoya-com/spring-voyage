@@ -792,7 +792,260 @@ jobs:
           fail_on_unmatched_files: true
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
 
-  # ── 6. GitHub Release ──────────────────────────────────────────────────────
+  # ── 7. Publish deployment bundle + SHA256SUMS (#2172) ──────────────────────
+  #
+  # Assembles the operator-facing deployment bundle and a SHA256SUMS file
+  # covering every release asset. Runs last among the publish-* jobs so it
+  # can download the dispatcher and CLI archives from the workflow's own
+  # artifact store and checksum them in one pass.
+  #
+  # Bundle contents (extracted by the installer under
+  # ~/.spring-voyage/releases/<v>/bundle/):
+  #   deploy.sh, setup.sh, spring-voyage-host.sh, relay.sh           — from devops/deploy/
+  #   Caddyfile, Caddyfile.multi-host, docker-compose.yml             — from devops/deploy/
+  #   spring.env.example                                              — from devops/deploy/
+  #   scripts/dispatcher-smoke.sh, scripts/test-spring-voyage-host.sh — from devops/deploy/scripts/
+  #   dapr/components/delegated-spring-voyage-agent/...               — from repo root (required:
+  #                                                                     setup.sh writes
+  #                                                                     Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath
+  #                                                                     pointing at this tree)
+  #   manifest.json                                                   — generated here
+  #   README.md                                                       — generated here
+  #   LICENSE                                                         — from repo root LICENSE.md
+  # Explicitly NOT included:
+  #   - devops/build/ — source-build artifacts; operators with the bundle don't build images locally
+  #   - uninstall.sh   — ships with the installer in #2180, not in PR1 (#2172)
+  #
+  # SHA256SUMS covers: bundle tarball + 5 dispatcher archives + 5 CLI
+  # archives. Platform image is intentionally excluded (it's a registry
+  # artifact with its own GHCR digest, not a release-attached download).
+  publish-bundle:
+    name: Publish deployment bundle and SHA256SUMS
+    runs-on: ubuntu-latest
+    needs:
+      - resolve
+      - ci-gate
+      - publish-platform-image
+      - publish-spring-cli
+      - publish-dispatcher
+    timeout-minutes: 20
+    env:
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+      PLATFORM_IMAGE_REPO: ${{ env.SPRING_VOYAGE_PLATFORM_IMAGE }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Assemble bundle staging tree
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          stage="stage/bundle"
+          rm -rf stage
+          mkdir -p "${stage}/scripts"
+
+          # devops/deploy/ — operator scripts and config.
+          cp devops/deploy/deploy.sh              "${stage}/"
+          cp devops/deploy/setup.sh               "${stage}/"
+          cp devops/deploy/spring-voyage-host.sh  "${stage}/"
+          cp devops/deploy/relay.sh               "${stage}/"
+          cp devops/deploy/Caddyfile              "${stage}/"
+          cp devops/deploy/Caddyfile.multi-host   "${stage}/"
+          cp devops/deploy/docker-compose.yml     "${stage}/"
+          cp devops/deploy/spring.env.example     "${stage}/"
+          cp devops/deploy/scripts/dispatcher-smoke.sh        "${stage}/scripts/"
+          cp devops/deploy/scripts/test-spring-voyage-host.sh "${stage}/scripts/"
+
+          # dapr/components/delegated-spring-voyage-agent/ — REQUIRED. setup.sh
+          # writes Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath
+          # pointing at this tree, so a source-free install can't function
+          # without it.
+          mkdir -p "${stage}/dapr/components"
+          cp -R dapr/components/delegated-spring-voyage-agent \
+            "${stage}/dapr/components/"
+
+          # LICENSE — repo-root LICENSE.md, renamed to the conventional bundle name.
+          cp LICENSE.md "${stage}/LICENSE"
+
+          # manifest.json — pinned version + image refs the installer reads to
+          # resolve which platform image to pull and which dispatcher/CLI
+          # asset filenames to download.
+          cat >"${stage}/manifest.json" <<EOF
+          {
+            "bundle_schema_version": 1,
+            "version": "${RELEASE_VERSION}",
+            "platform_image": "${PLATFORM_IMAGE_REPO}:${RELEASE_VERSION}",
+            "dispatcher_version": "${RELEASE_VERSION}",
+            "cli_version": "${RELEASE_VERSION}"
+          }
+          EOF
+
+          # README.md — short, operator-facing pointer. The full operator
+          # narrative lives at docs/guide/operator/deployment.md in the
+          # main repo; the installer (#2180) prints a final summary that
+          # references it. Keep this short on purpose — operators consume
+          # docs/ for the deep narrative, not a duplicated README in the
+          # bundle.
+          cat >"${stage}/README.md" <<EOF
+          # Spring Voyage deployment bundle
+
+          Version: ${RELEASE_VERSION}
+          Platform image: ${PLATFORM_IMAGE_REPO}:${RELEASE_VERSION}
+
+          This bundle ships the operator-facing slice of the Spring Voyage
+          repository: deployment scripts, runtime configuration, and the
+          Dapr component manifests required by a source-free install. It
+          is consumed by the source-free installer (see
+          https://github.com/cvoya-com/spring-voyage/issues/2158); a
+          contributor with a clone of the repo does not need this tarball.
+
+          ## Layout
+
+          \`\`\`
+          deploy.sh                         Container lifecycle (\`deploy.sh up|down|status\`)
+          setup.sh                          One-shot spring.env bootstrap helper
+          spring-voyage-host.sh             Dispatcher host-process wrapper
+          relay.sh                          Caddy relay helper
+          Caddyfile, Caddyfile.multi-host   Caddy reverse-proxy configuration
+          docker-compose.yml                Docker-compatible runtime (Podman is the supported path)
+          spring.env.example                Template for the per-deployment spring.env
+          scripts/                          Smoke tests for the dispatcher and host wrapper
+          dapr/components/                  Dapr component manifests consumed by the platform sidecar
+          manifest.json                     Version pinning (image, dispatcher, CLI)
+          \`\`\`
+
+          ## Operator entry point
+
+          For a fresh install on a Podman host, follow the installer flow
+          (#2180). Operators who prefer to drive the bundle by hand:
+
+          \`\`\`bash
+          # 1. Generate spring.env from spring.env.example (edit hostnames,
+          #    secrets, AES key, image refs as documented inline).
+          cp spring.env.example spring.env
+          \$EDITOR spring.env
+
+          # 2. Start the stack.
+          SPRING_ENV_FILE=\$PWD/spring.env ./deploy.sh up
+          \`\`\`
+
+          See https://github.com/cvoya-com/spring-voyage/blob/main/docs/guide/operator/deployment.md
+          for the canonical operator narrative, secret-handling guidance,
+          and the spring.env reference.
+          EOF
+
+          archive_name="spring-voyage-${RELEASE_VERSION}-bundle.tar.gz"
+          tar -C stage -czf "${archive_name}" bundle
+          echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
+          ls -lh "${archive_name}"
+          echo "--- bundle contents ---"
+          tar -tzf "${archive_name}" | sort
+
+      - name: Upload bundle to workflow artifacts
+        uses: actions/upload-artifact@v7
+        env:
+          ARCHIVE_NAME: ${{ steps.bundle.outputs.archive_name }}
+        with:
+          name: ${{ env.ARCHIVE_NAME }}
+          path: ${{ env.ARCHIVE_NAME }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Attach bundle to the GitHub release
+        uses: softprops/action-gh-release@v3
+        env:
+          ARCHIVE_NAME: ${{ steps.bundle.outputs.archive_name }}
+        with:
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          files: ${{ env.ARCHIVE_NAME }}
+          fail_on_unmatched_files: true
+          prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
+
+      - name: Download dispatcher and CLI archives from workflow artifacts
+        uses: actions/download-artifact@v8
+        with:
+          # actions/download-artifact@v8 with no `name` downloads every
+          # artifact uploaded by this workflow run. The SHA256SUMS step
+          # explicitly enumerates the file names it expects below, so a
+          # stray artifact would just be ignored.
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        id: sums
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Stage every release-attached asset in one flat directory so
+          # `sha256sum <file>` produces filename-only lines (the canonical
+          # `sha256sum -c` consumable format).
+          sums_stage="sums-stage"
+          rm -rf "${sums_stage}"
+          mkdir -p "${sums_stage}"
+
+          bundle_name="${{ steps.bundle.outputs.archive_name }}"
+          cp "${bundle_name}" "${sums_stage}/"
+
+          # Dispatcher: spring-dispatcher-<v>-<rid>.{tar.gz|zip}
+          dispatcher_prefix="spring-dispatcher-${RELEASE_VERSION}-"
+          for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
+            name="${dispatcher_prefix}${rid}.tar.gz"
+            src="artifacts/${name}"
+            [[ -f "${src}" ]] || { echo "::error::missing dispatcher artifact ${src}"; exit 1; }
+            cp "${src}" "${sums_stage}/"
+          done
+          win_name="${dispatcher_prefix}win-x64.zip"
+          src="artifacts/${win_name}"
+          [[ -f "${src}" ]] || { echo "::error::missing dispatcher artifact ${src}"; exit 1; }
+          cp "${src}" "${sums_stage}/"
+
+          # CLI: spring-<v>-<rid>.{tar.gz|zip}
+          cli_prefix="spring-${RELEASE_VERSION}-"
+          for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
+            name="${cli_prefix}${rid}.tar.gz"
+            src="artifacts/${name}"
+            [[ -f "${src}" ]] || { echo "::error::missing CLI artifact ${src}"; exit 1; }
+            cp "${src}" "${sums_stage}/"
+          done
+          win_name="${cli_prefix}win-x64.zip"
+          src="artifacts/${win_name}"
+          [[ -f "${src}" ]] || { echo "::error::missing CLI artifact ${src}"; exit 1; }
+          cp "${src}" "${sums_stage}/"
+
+          # `sha256sum *` against the staging dir produces lines like
+          # `<hex>  spring-voyage-<v>-bundle.tar.gz` — exactly what
+          # `sha256sum -c SHA256SUMS` expects when the operator unpacks
+          # the assets into one directory.
+          ( cd "${sums_stage}" && sha256sum -- * | sort ) > SHA256SUMS
+
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+
+      - name: Attach SHA256SUMS to the GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          files: SHA256SUMS
+          fail_on_unmatched_files: true
+          prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
+
+      - name: Bundle publish summary
+        shell: bash
+        run: |
+          {
+            echo "### Deployment bundle and checksums published"
+            echo
+            echo "| Asset | Notes |"
+            echo "| --- | --- |"
+            echo "| \`${{ steps.bundle.outputs.archive_name }}\` | Operator deployment bundle (devops/deploy/ slice + dapr/components/delegated-spring-voyage-agent/ + manifest.json) |"
+            echo "| \`SHA256SUMS\` | Covers bundle + 5 dispatcher archives + 5 CLI archives |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 8. GitHub Release ──────────────────────────────────────────────────────
   #
   # Creates the GitHub Release using the ## [Unreleased] section of
   # CHANGELOG.md as the release notes. The maintainer's pre-release PR
@@ -804,7 +1057,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [resolve, ci-gate, publish-images, publish-platform-image, publish-spring-cli, publish-dispatcher]
+    needs: [resolve, ci-gate, publish-images, publish-platform-image, publish-spring-cli, publish-dispatcher, publish-bundle]
     timeout-minutes: 10
     env:
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
@@ -826,6 +1079,50 @@ jobs:
           # Write to a temp file so multiline content survives the GITHUB_OUTPUT
           # 256 KB limit and avoids any quoting pitfalls.
           echo "$notes" > /tmp/release-notes.md
+
+      - name: Append release-asset reference table
+        shell: bash
+        env:
+          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+        run: |
+          set -euo pipefail
+          # The release notes are sourced from CHANGELOG.md [Unreleased]. As
+          # of #2172, every v*.*.* tag publishes a uniform set of asset
+          # classes (platform image, spring CLI, dispatcher, deployment
+          # bundle, SHA256SUMS) — append a reference table so operators
+          # browsing the GitHub Release page don't have to cross-reference
+          # docs/developer/releases.md.
+          {
+            echo
+            echo "---"
+            echo
+            echo "## Release assets"
+            echo
+            echo "### Container images (GHCR)"
+            echo
+            echo "| Image | Tags |"
+            echo "| --- | --- |"
+            if [[ "$IS_PRERELEASE" == "false" ]]; then
+              echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/claude-code-base\`        | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/agent-base\`              | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`     | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+            else
+              echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
+              echo "| \`ghcr.io/cvoya-com/claude-code-base\`        | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/agent-base\`              | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`     | \`${RELEASE_VERSION}\` (pre-release) |"
+            fi
+            echo
+            echo "### Release-attached files"
+            echo
+            echo "| Asset | Description |"
+            echo "| --- | --- |"
+            echo "| \`spring-voyage-${RELEASE_VERSION}-bundle.tar.gz\` | Deployment bundle (operator scripts, Caddy config, Dapr components, \`manifest.json\`). |"
+            echo "| \`spring-${RELEASE_VERSION}-{linux-x64,linux-arm64,osx-x64,osx-arm64,win-x64}.{tar.gz,zip}\` | Self-contained \`spring\` CLI binaries (5 RIDs). |"
+            echo "| \`spring-dispatcher-${RELEASE_VERSION}-{linux-x64,linux-arm64,osx-x64,osx-arm64,win-x64}.{tar.gz,zip}\` | Self-contained dispatcher host binaries (5 RIDs). |"
+            echo "| \`SHA256SUMS\` | sha256sum-compatible checksums for every release-attached file above. |"
+          } >> /tmp/release-notes.md
 
       - name: Create or update GitHub Release
         shell: bash
