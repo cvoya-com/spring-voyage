@@ -30,7 +30,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../" && pwd)"
 cd "${REPO_ROOT}"
 
 SCAN_PATHS=(src)
@@ -100,7 +100,7 @@ IContainerRuntime instead — DispatcherClientContainerRuntime forwards
 every operation to the dispatcher over HTTP.
 
 If this is a legitimate dispatcher-only addition, add the path to the
-ALLOWED_PATHS array in scripts/audit-no-container-cli.sh.
+ALLOWED_PATHS array in devops/ci/audit-no-container-cli.sh.
 EOF
     exit 1
 fi

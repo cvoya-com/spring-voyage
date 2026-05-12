@@ -179,19 +179,30 @@ push_and_wait() {
   git tag "${tag}"
   git push origin "${tag}"
 
-  echo "   Waiting for workflow '${workflow_name}' …"
-  # Give GitHub a few seconds to register the run before watching.
-  sleep 5
+  echo "   Waiting for workflow '${workflow_name}' to register …"
+  local run_id=""
+  local attempt=0
+  while [[ -z "$run_id" || "$run_id" == "null" ]]; do
+    attempt=$((attempt + 1))
+    if (( attempt > 36 )); then
+      echo "::error::Timed out waiting for workflow '${workflow_name}' to start for tag '${tag}' (3 min)"
+      exit 1
+    fi
+    sleep 5
+    run_id="$(gh run list \
+      --repo "${REPO}" \
+      --workflow "${workflow_name}" \
+      --branch "${tag}" \
+      --limit 1 \
+      --json databaseId \
+      --jq '.[0].databaseId' 2>/dev/null || true)"
+  done
+
+  echo "   Watching run ${run_id} …"
   gh run watch \
     --repo "${REPO}" \
     --exit-status \
-    "$(gh run list \
-        --repo "${REPO}" \
-        --workflow "${workflow_name}" \
-        --branch "refs/tags/${tag}" \
-        --limit 1 \
-        --json databaseId \
-        --jq '.[0].databaseId')"
+    "${run_id}"
 
   echo "✓  ${workflow_name} succeeded."
 }

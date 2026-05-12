@@ -5,10 +5,10 @@
 # release.yml workflow can feed it directly into gh release create --notes.
 #
 # Usage:
-#   scripts/extract-changelog-section.sh [SECTION]
+#   devops/release/extract-changelog-section.sh [SECTION]
 #
 # SECTION defaults to "Unreleased". To extract a specific version:
-#   scripts/extract-changelog-section.sh "1.0.0"
+#   devops/release/extract-changelog-section.sh "1.0.0"
 #
 # The script matches the first `## [SECTION]` header (case-insensitive for
 # "Unreleased"; exact otherwise) and emits every line until the next `## [`

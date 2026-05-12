@@ -74,7 +74,7 @@ jobs:
             connectors_web:
               - 'src/Cvoya.Spring.Connector.*/web/**'
               - 'src/Cvoya.Spring.Web/src/connectors/**'
-              - 'scripts/validate-connector-web.sh'
+              - 'devops/ci/validate-connector-web.sh'
               - 'package.json'
               - 'package-lock.json'
             web:
@@ -545,7 +545,7 @@ jobs:
 
       - name: Validate connector web submodules
         shell: bash
-        run: bash scripts/validate-connector-web.sh
+        run: bash devops/ci/validate-connector-web.sh
 
   docs-evergreen-framing:
     name: Lint docs (evergreen framing)
@@ -1217,7 +1217,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Run worker-side container CLI audit
         shell: bash
-        run: bash scripts/audit-no-container-cli.sh
+        run: bash devops/ci/audit-no-container-cli.sh
 
   agent-images-smoke:
     name: Agent images build + smoke
