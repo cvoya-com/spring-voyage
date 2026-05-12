@@ -31,9 +31,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 INSTALL_SH="${INSTALL_DIR}/install.sh"
 UNINSTALL_SH="${INSTALL_DIR}/uninstall.sh"
+WRAPPER_SH="${INSTALL_DIR}/spring-voyage"
 
 [[ -x "${INSTALL_SH}" ]] || { echo "install.sh not executable: ${INSTALL_SH}" >&2; exit 1; }
 [[ -x "${UNINSTALL_SH}" ]] || { echo "uninstall.sh not executable: ${UNINSTALL_SH}" >&2; exit 1; }
+[[ -x "${WRAPPER_SH}" ]] || { echo "spring-voyage wrapper not executable: ${WRAPPER_SH}" >&2; exit 1; }
 
 FIXTURE_VERSION="0.0.0-test"
 FIXTURE_TAG="v${FIXTURE_VERSION}"
@@ -124,6 +126,12 @@ EOFENV
   # release pipelines copy uninstall.sh into the bundle from devops/install/.
   cp "${UNINSTALL_SH}" "${stage}/uninstall.sh"
   chmod +x "${stage}/uninstall.sh"
+
+  # Fixture spring-voyage wrapper — same rationale as uninstall.sh above.
+  # The real release-pipeline copies devops/install/spring-voyage into the
+  # bundle so install.sh can `cp` it to ~/.local/bin/.
+  cp "${WRAPPER_SH}" "${stage}/spring-voyage"
+  chmod +x "${stage}/spring-voyage"
 
   # Dapr components placeholder.
   echo '# fixture' > "${stage}/dapr/components/delegated-spring-voyage-agent/README.md"
@@ -584,6 +592,182 @@ time.sleep(30)
     wait "$LISTENER_PID" 2>/dev/null || true
   fi
 fi
+
+# ===========================================================================
+# Wrapper subcommands (#2173) — these run against a fresh install fixture so
+# we don't depend on Cases 5–10 having mutated HOME_DIR_1's filesystem.
+# ===========================================================================
+hdr "Case 12 — wrapper: version + status + logs + restart + help"
+HOME_DIR_W="${TMP_BASE}/home-wrapper"
+STUB_DIR_W="${TMP_BASE}/stub-wrapper"
+mkdir -p "${HOME_DIR_W}"
+make_stub_path "${STUB_DIR_W}" "Linux" "x86_64"
+if run_install "${HOME_DIR_W}" "${STUB_DIR_W}" --no-start >"${TMP_BASE}/run-wrapper-install.out" 2>&1; then
+  ok "install for wrapper tests exit 0"
+else
+  bad "install for wrapper tests failed"
+  cat "${TMP_BASE}/run-wrapper-install.out" >&2
+fi
+
+WRAPPER_W="${HOME_DIR_W}/.local/bin/spring-voyage"
+assert_path_exists "${WRAPPER_W}" "wrapper installed at ~/.local/bin/spring-voyage"
+
+# version: prints the fixture version + platform image. Run with
+# SPRING_VOYAGE_HOME pointing at the test install so the wrapper finds
+# the right manifest.json without depending on the real $HOME.
+if SPRING_VOYAGE_HOME="${HOME_DIR_W}/.spring-voyage" \
+   bash "${WRAPPER_W}" version >"${TMP_BASE}/wrapper-version.out" 2>&1; then
+  ok "spring-voyage version exit 0"
+else
+  bad "spring-voyage version exited non-zero"
+  cat "${TMP_BASE}/wrapper-version.out" >&2
+fi
+if grep -q "spring-voyage version ${FIXTURE_VERSION}" "${TMP_BASE}/wrapper-version.out"; then
+  ok "spring-voyage version prints fixture version ${FIXTURE_VERSION}"
+else
+  bad "spring-voyage version missing fixture version"
+  cat "${TMP_BASE}/wrapper-version.out" >&2
+fi
+if grep -q "platform image" "${TMP_BASE}/wrapper-version.out"; then
+  ok "spring-voyage version prints platform image tag"
+else
+  bad "spring-voyage version missing platform image line"
+fi
+
+# The fixture deploy.sh records invocations to deploy.log; we use that to
+# assert that status / restart / logs reach it.
+DEPLOY_LOG_W="${HOME_DIR_W}/.spring-voyage/deploy.log"
+: > "${DEPLOY_LOG_W}"
+
+# status with no dispatcher PID file → reports "not running".
+rm -f "${HOME_DIR_W}/.spring-voyage/host/spring-dispatcher.pid"
+if SPRING_VOYAGE_HOME="${HOME_DIR_W}/.spring-voyage" \
+   bash "${WRAPPER_W}" status >"${TMP_BASE}/wrapper-status-down.out" 2>&1; then
+  ok "spring-voyage status (no dispatcher) exit 0"
+else
+  bad "spring-voyage status (no dispatcher) exited non-zero"
+  cat "${TMP_BASE}/wrapper-status-down.out" >&2
+fi
+if grep -q "not running" "${TMP_BASE}/wrapper-status-down.out"; then
+  ok "status reports dispatcher 'not running' when no PID file"
+else
+  bad "status missing 'not running' dispatcher line"
+  cat "${TMP_BASE}/wrapper-status-down.out" >&2
+fi
+if grep -q "version ${FIXTURE_VERSION}" "${TMP_BASE}/wrapper-status-down.out"; then
+  ok "status includes manifest version"
+else
+  bad "status missing manifest version line"
+fi
+if grep -q "deploy.sh status" "${DEPLOY_LOG_W}"; then
+  ok "status delegated container check to deploy.sh"
+else
+  bad "deploy.log missing 'deploy.sh status' entry"
+fi
+
+# status with a live PID (use our own — guaranteed alive) → reports "running (PID N)".
+mkdir -p "${HOME_DIR_W}/.spring-voyage/host"
+echo "$$" > "${HOME_DIR_W}/.spring-voyage/host/spring-dispatcher.pid"
+if SPRING_VOYAGE_HOME="${HOME_DIR_W}/.spring-voyage" \
+   bash "${WRAPPER_W}" status >"${TMP_BASE}/wrapper-status-up.out" 2>&1; then
+  ok "spring-voyage status (live dispatcher) exit 0"
+else
+  bad "spring-voyage status (live dispatcher) exited non-zero"
+  cat "${TMP_BASE}/wrapper-status-up.out" >&2
+fi
+if grep -qE "running \(PID $$\)" "${TMP_BASE}/wrapper-status-up.out"; then
+  ok "status reports 'running (PID N)' for live dispatcher"
+else
+  bad "status missing 'running (PID $$)' line"
+  cat "${TMP_BASE}/wrapper-status-up.out" >&2
+fi
+rm -f "${HOME_DIR_W}/.spring-voyage/host/spring-dispatcher.pid"
+
+# logs dispatcher → tails the dispatcher log file. Stub `tail` via a
+# PATH-injected dir that records args; the wrapper uses `exec tail -F` so
+# the stub just needs to record args and exit 0.
+LOGS_STUB_DIR="${TMP_BASE}/stub-logs"
+mkdir -p "${LOGS_STUB_DIR}"
+cat > "${LOGS_STUB_DIR}/tail" <<TAIL
+#!/usr/bin/env bash
+printf '%s\n' "tail \$*" > "${TMP_BASE}/tail-args.out"
+exit 0
+TAIL
+chmod +x "${LOGS_STUB_DIR}/tail"
+
+# Ensure the dispatcher log file exists so the wrapper doesn't bail early.
+mkdir -p "${HOME_DIR_W}/.spring-voyage/host"
+touch "${HOME_DIR_W}/.spring-voyage/host/spring-dispatcher.log"
+
+if PATH="${LOGS_STUB_DIR}:${PATH}" \
+   SPRING_VOYAGE_HOME="${HOME_DIR_W}/.spring-voyage" \
+   bash "${WRAPPER_W}" logs dispatcher >"${TMP_BASE}/wrapper-logs-dispatcher.out" 2>&1; then
+  ok "spring-voyage logs dispatcher exit 0"
+else
+  bad "spring-voyage logs dispatcher exited non-zero"
+  cat "${TMP_BASE}/wrapper-logs-dispatcher.out" >&2
+fi
+if [[ -f "${TMP_BASE}/tail-args.out" ]] && \
+   grep -q "tail -F .*spring-dispatcher.log" "${TMP_BASE}/tail-args.out"; then
+  ok "logs dispatcher invokes 'tail -F <dispatcher.log>'"
+else
+  bad "logs dispatcher did not invoke 'tail -F <dispatcher.log>'"
+  [[ -f "${TMP_BASE}/tail-args.out" ]] && cat "${TMP_BASE}/tail-args.out" >&2
+fi
+
+# logs <service> → delegates to deploy.sh logs <service>.
+: > "${DEPLOY_LOG_W}"
+if SPRING_VOYAGE_HOME="${HOME_DIR_W}/.spring-voyage" \
+   bash "${WRAPPER_W}" logs spring-api >"${TMP_BASE}/wrapper-logs-svc.out" 2>&1; then
+  ok "spring-voyage logs <service> exit 0"
+else
+  bad "spring-voyage logs <service> exited non-zero"
+  cat "${TMP_BASE}/wrapper-logs-svc.out" >&2
+fi
+if grep -q "deploy.sh logs spring-api" "${DEPLOY_LOG_W}"; then
+  ok "logs <service> delegated to deploy.sh logs spring-api"
+else
+  bad "deploy.log missing 'deploy.sh logs spring-api' entry"
+  cat "${DEPLOY_LOG_W}" >&2
+fi
+
+# restart → delegates to deploy.sh restart.
+: > "${DEPLOY_LOG_W}"
+if SPRING_VOYAGE_HOME="${HOME_DIR_W}/.spring-voyage" \
+   bash "${WRAPPER_W}" restart >"${TMP_BASE}/wrapper-restart.out" 2>&1; then
+  ok "spring-voyage restart exit 0"
+else
+  bad "spring-voyage restart exited non-zero"
+  cat "${TMP_BASE}/wrapper-restart.out" >&2
+fi
+if grep -q "deploy.sh restart" "${DEPLOY_LOG_W}"; then
+  ok "restart delegated to deploy.sh restart"
+else
+  bad "deploy.log missing 'deploy.sh restart' entry"
+  cat "${DEPLOY_LOG_W}" >&2
+fi
+
+# --help, help, and bare invocation all exit 0 with usage that lists the
+# new subcommands.
+for help_args in "--help" "-h" "help" ""; do
+  label="${help_args:-<bare>}"
+  if SPRING_VOYAGE_HOME="${HOME_DIR_W}/.spring-voyage" \
+     bash "${WRAPPER_W}" ${help_args} >"${TMP_BASE}/wrapper-help-${label}.out" 2>&1; then
+    ok "spring-voyage ${label} exit 0"
+  else
+    bad "spring-voyage ${label} exited non-zero"
+    cat "${TMP_BASE}/wrapper-help-${label}.out" >&2
+  fi
+  if grep -q "^  status " "${TMP_BASE}/wrapper-help-${label}.out" \
+     && grep -q "^  logs " "${TMP_BASE}/wrapper-help-${label}.out" \
+     && grep -q "^  restart " "${TMP_BASE}/wrapper-help-${label}.out" \
+     && grep -q "^  version " "${TMP_BASE}/wrapper-help-${label}.out"; then
+    ok "spring-voyage ${label} usage lists status / logs / restart / version"
+  else
+    bad "spring-voyage ${label} usage missing one of status / logs / restart / version"
+    cat "${TMP_BASE}/wrapper-help-${label}.out" >&2
+  fi
+done
 
 # ===========================================================================
 # Summary

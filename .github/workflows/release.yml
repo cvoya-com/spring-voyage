@@ -869,6 +869,13 @@ jobs:
           cp devops/install/uninstall.sh          "${stage}/"
           chmod +x "${stage}/uninstall.sh"
 
+          # devops/install/spring-voyage — operator wrapper, installed
+          # by install.sh as ${BIN_DIR}/spring-voyage. Ships in the
+          # bundle so install.sh has a known checked-in source and a
+          # re-install (`spring-voyage install`) can refresh it (#2173).
+          cp devops/install/spring-voyage         "${stage}/"
+          chmod +x "${stage}/spring-voyage"
+
           # dapr/components/delegated-spring-voyage-agent/ — REQUIRED. setup.sh
           # writes Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath
           # pointing at this tree, so a source-free install can't function
@@ -926,6 +933,7 @@ jobs:
           dapr/components/                  Dapr component manifests consumed by the platform sidecar
           manifest.json                     Version pinning (image, dispatcher, CLI)
           uninstall.sh                      Bundle-side uninstall (invoked by \`spring-voyage uninstall\`)
+          spring-voyage                     Operator wrapper (status / logs / restart / version / install / uninstall)
           \`\`\`
 
           ## Operator entry point
