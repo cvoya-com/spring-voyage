@@ -88,7 +88,9 @@ Production deployments that need transparent key rotation should externalize key
 
 ## Per-Tenant Dapr Component Isolation
 
-By default the OSS store uses a single Dapr component (`Secrets:StoreComponent`, defaulting to `statestore`) for every tenant. Structural tenant isolation comes from the registry; the shared component is a dev convenience.
+By default the OSS store uses a single Dapr component (`Secrets:StoreComponent`, defaulting to `secretsstore`) for every tenant. Structural tenant isolation comes from the registry; the shared component is a dev convenience.
+
+The `secretsstore` component (shipped under `dapr/components/production/`) is a second `state.postgresql` instance pinned to `keyPrefix: none`, so every host (`spring-api`, `spring-worker`, dispatcher) reads and writes through the same key namespace. The default `statestore` component uses Dapr's `keyPrefix: appid` and was therefore unsuitable for cross-host secret resolution (#2212).
 
 Set `Secrets:ComponentNameFormat` to a template containing `{tenantId}` to switch to per-tenant components:
 

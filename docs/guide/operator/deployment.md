@@ -256,6 +256,10 @@ Components live under `dapr/` at the repo root. Two profiles ship in-tree: `dapr
 
 `dapr/components/production/statestore.yaml` uses `state.postgresql` backed by `spring-postgres`. The connection string is pulled from the `secretstore` component (never inlined in the YAML). Swap to `state.redis` in this file to trade ACID semantics for speed — keep the component name `statestore`.
 
+### Secrets-backing state store (`secretsstore`)
+
+`dapr/components/production/secretsstore.yaml` is a second `state.postgresql` component dedicated to the OSS application-layer secret store (`DaprStateBackedSecretStore`). It pins `keyPrefix: none` so every host (`spring-api`, `spring-worker`, dispatcher) reads and writes through the same key namespace; the default `statestore` component uses Dapr's standard `keyPrefix: appid`, which silently scoped each secret by sidecar app-id and broke cross-host credential resolution (#2212). The actor / general state store cannot share `keyPrefix: none` because the Dapr actor runtime relies on the per-app prefix to partition actor state — hence the dedicated component.
+
 ### Pub/sub (`pubsub`)
 
 `dapr/components/production/pubsub.yaml` uses `pubsub.redis` (Redis Streams). For multi-broker deployments (NATS, RabbitMQ, Kafka) swap this file. The platform keys off the component **name** (`pubsub`), not the implementation.

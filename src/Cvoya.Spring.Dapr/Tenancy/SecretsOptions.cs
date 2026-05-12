@@ -39,9 +39,15 @@ public class SecretsOptions
     /// The Dapr state store component name used by the OSS
     /// <see cref="Cvoya.Spring.Dapr.Secrets.DaprStateBackedSecretStore"/>
     /// when <see cref="ComponentNameFormat"/> is not set. Defaults to the
-    /// platform's shared <c>statestore</c> component.
+    /// dedicated <c>secretsstore</c> component shipped under
+    /// <c>dapr/components/production/</c>, which pins
+    /// <c>keyPrefix: none</c> so every host (API, worker, dispatcher)
+    /// shares one secret-key namespace. The default <c>statestore</c>
+    /// component uses Dapr's standard <c>keyPrefix: appid</c> — secrets
+    /// written through it would land under <c>spring-api||secrets/{key}</c>
+    /// and be invisible to <c>spring-worker</c> reads (#2212).
     /// </summary>
-    public string StoreComponent { get; set; } = "statestore";
+    public string StoreComponent { get; set; } = "secretsstore";
 
     /// <summary>
     /// Optional per-tenant Dapr component-name template. When set, the

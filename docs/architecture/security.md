@@ -242,7 +242,7 @@ If neither is configured the encryptor refuses to start. A startup self-check al
 
 ### Per-tenant component isolation
 
-By default all tenants share a single Dapr component (`Secrets:StoreComponent`, defaulting to `statestore`). Operators can set `Secrets:ComponentNameFormat` (e.g. `"statestore-{tenantId}"`) to route each tenant to a dedicated component at call time — defense in depth on top of the registry's tenant filter.
+By default all tenants share a single Dapr component (`Secrets:StoreComponent`, defaulting to `secretsstore`). Operators can set `Secrets:ComponentNameFormat` (e.g. `"secretsstore-{tenantId}"`) to route each tenant to a dedicated component at call time — defense in depth on top of the registry's tenant filter. The default `secretsstore` component pins `keyPrefix: none` so every host (API, worker, dispatcher) reads through the same namespace; the platform's general `statestore` cannot share that setting because the actor runtime relies on per-app prefixing for actor-state partitioning (#2212).
 
 ### Multi-version coexistence and rotation
 
