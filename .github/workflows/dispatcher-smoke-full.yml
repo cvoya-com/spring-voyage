@@ -66,6 +66,20 @@ jobs:
           cd devops/deploy
           ./deploy.sh up
 
+      - name: Verify deploy.sh published dispatcher from HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_sha="$(git rev-parse HEAD)"
+          dispatcher_status="$(devops/deploy/spring-voyage-host.sh status 2>&1)"
+          dispatcher_version="$(sed -n 's/.*version:[[:space:]]*//p' <<<"${dispatcher_status}" | tail -n1)"
+          if [[ "${dispatcher_version}" != *"${expected_sha}"* ]]; then
+            echo "::error::dispatcher version '${dispatcher_version}' does not include HEAD ${expected_sha}"
+            echo "${dispatcher_status}"
+            exit 1
+          fi
+          echo "dispatcher version matches HEAD: ${dispatcher_version}"
+
       - name: Run dispatcher smoke against the running stack
         shell: bash
         run: bash devops/deploy/scripts/dispatcher-smoke.sh

@@ -1151,6 +1151,10 @@ jobs:
         shell: bash
         run: bash devops/deploy/scripts/test-spring-voyage-host.sh
 
+      - name: Verify deploy.sh forces dispatcher rebuild
+        shell: bash
+        run: bash devops/deploy/scripts/test-deploy-dispatcher-rebuild.sh
+
   dispatcher-smoke:
     name: Dispatcher smoke (Tier 1)
     runs-on: ubuntu-latest

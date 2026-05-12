@@ -21,8 +21,8 @@
 #   …plus ephemeral / persistent agent containers launched at dispatch time.
 #
 # In addition to the container stack, deploy.sh delegates to
-# `spring-voyage-host.sh` to start/stop the spring-dispatcher service as a
-# host process. The dispatcher is no longer containerised in the OSS
+# `spring-voyage-host.sh` to rebuild/start/stop the spring-dispatcher service
+# as a host process. The dispatcher is no longer containerised in the OSS
 # deployment because the rootless Podman socket cannot be reliably
 # bind-mounted into a container on macOS arm64 / libkrun (issue #1063);
 # moving the dispatcher to the host gives Linux/macOS/Windows a single,
@@ -832,20 +832,18 @@ start_worker() {
 # operator; advanced workflows (bounce dispatcher only, tail dispatcher
 # logs without touching the stack) call the host script directly.
 #
-# `restart` (not `start`) is deliberate — see #1675. `spring-voyage-host.sh
-# start` short-circuits when a dispatcher PID is already live, which left
-# stale dispatchers serving prior code (and, in the reported case, a
-# deleted worktree cwd) for operators who ran `build.sh &&
-# deploy.sh up` expecting a fresh process. `restart` is a clean
-# stop+start — a cold start path is an idempotent no-op on the stop
-# side, so this is safe on a fresh machine too. `spring-voyage-host.sh
-# build` (invoked by `build.sh`) has already published the new
-# binary by the time we get here, so the restarted process picks up
-# whatever was just published.
+# `restart --rebuild` (not `start`) is deliberate — see #1675 and #2220.
+# `spring-voyage-host.sh start` short-circuits when a dispatcher PID is already
+# live, which left stale dispatchers serving prior code (and, in the reported
+# case, a deleted worktree cwd) for operators who ran `deploy.sh up` after a
+# fresh pull. `restart` is a clean stop+start — a cold start path is an
+# idempotent no-op on the stop side, so this is safe on a fresh machine too.
+# `--rebuild` forces a publish before the new process launches so deploy.sh up
+# is self-sufficient even when `build.sh` was not run immediately beforehand.
 start_dispatcher() {
     [[ -x "${HOST_SCRIPT}" ]] || die "host-services script not found at ${HOST_SCRIPT} — run 'chmod +x ${HOST_SCRIPT}'"
-    log "bouncing spring-dispatcher via ${HOST_SCRIPT##"${REPO_ROOT}"/} (restart)"
-    "${HOST_SCRIPT}" restart
+    log "bouncing spring-dispatcher via ${HOST_SCRIPT##"${REPO_ROOT}"/} (restart --rebuild)"
+    "${HOST_SCRIPT}" restart --rebuild
 }
 
 stop_dispatcher() {
