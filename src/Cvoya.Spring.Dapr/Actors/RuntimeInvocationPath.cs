@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.Extensions.Logging;
 
@@ -71,7 +72,6 @@ public class RuntimeInvocationPath(
     ILogger<RuntimeInvocationPath> logger) : IRuntimeInvocationPath
 {
     private readonly IReadOnlyList<ISkillRegistry> _skillRegistries = skillRegistries.ToList();
-    private const string DispatchReturnedNoResponseReason = "dispatch returned no response";
 
     /// <inheritdoc />
     public async Task InvokeAsync(
@@ -251,7 +251,7 @@ public class RuntimeInvocationPath(
 
         return reason =>
         {
-            if (!string.Equals(reason, DispatchReturnedNoResponseReason, StringComparison.Ordinal))
+            if (!string.Equals(reason, AgentDispatchCoordinator.DispatchNoResponseReason, StringComparison.Ordinal))
             {
                 return Task.CompletedTask;
             }

@@ -32,6 +32,17 @@ public class AgentDispatchCoordinator(
     MessageRouter messageRouter,
     ILogger<AgentDispatchCoordinator> logger) : IAgentDispatchCoordinator
 {
+    /// <summary>
+    /// Reason string signalled through <c>onDispatchExit</c> when the
+    /// dispatcher returns a null response. Shared with
+    /// <see cref="Actors.RuntimeInvocationPath"/> so the lean path can
+    /// recognise this exit cause and surface a corresponding "no response"
+    /// activity row. Promoted to an internal constant so the coordinator
+    /// and consumers stay in lockstep — changing the literal in one place
+    /// would silently disable the consumer's recognition logic (#2222).
+    /// </summary>
+    internal const string DispatchNoResponseReason = "dispatch returned no response";
+
     /// <inheritdoc />
     public async Task RunDispatchAsync(
         string agentId,
@@ -54,7 +65,7 @@ public class AgentDispatchCoordinator(
                 // per-thread exit so the mailbox can drain any messages
                 // appended during the dispatch (per-thread FIFO) or mark
                 // the channel idle.
-                await onDispatchExit("dispatch returned no response");
+                await onDispatchExit(DispatchNoResponseReason);
                 return;
             }
 
