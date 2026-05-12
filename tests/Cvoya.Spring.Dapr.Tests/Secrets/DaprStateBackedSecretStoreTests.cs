@@ -8,14 +8,11 @@ using System.Collections.Generic;
 
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;
-using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Secrets;
 using Cvoya.Spring.Dapr.Tenancy;
 
 using global::Dapr.Client;
 
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -87,22 +84,11 @@ public class DaprStateBackedSecretStoreTests : IDisposable
         });
         var logger = Substitute.For<ILogger<DaprStateBackedSecretStore>>();
 
-        // The unit tests exercise only the Dapr-mediated read/write paths;
-        // the #2212 PostgreSQL fallback never runs here. Provide an empty
-        // service provider so the singleton constructor still gets a
-        // non-null IServiceScopeFactory — if a test happens to drive the
-        // canonical-miss + legacy-tenant-miss combination the fallback's
-        // GetRequiredService<SpringDbContext>() throws and the test fails
-        // loudly rather than silently swallowing the assertion target.
-        var scopeFactory = new ServiceCollection().BuildServiceProvider()
-            .GetRequiredService<IServiceScopeFactory>();
-
         return new DaprStateBackedSecretStore(
             _dapr,
             encryptor ?? RealEncryptor(),
             tenantContext ?? TenantContext(),
             opts,
-            scopeFactory,
             logger);
     }
 
@@ -308,41 +294,4 @@ public class DaprStateBackedSecretStoreTests : IDisposable
         result.ShouldBe("hunter2");
     }
 
-    [Fact]
-    public async Task ReadAsync_AllFallbacksMiss_ReturnsNullGracefully()
-    {
-        // #2212 regression guard: when the canonical key, the
-        // legacy-tenant-prefixed key, and the API-legacy PostgreSQL
-        // lookup all miss the store must surface a clean null rather
-        // than throw. The EF in-memory provider used here exercises the
-        // PostgreSQL fallback's IsRelational() short-circuit (the
-        // production SQL path is covered by the integration tests).
-        var ct = TestContext.Current.CancellationToken;
-
-        var services = new ServiceCollection();
-        services.AddDbContext<SpringDbContext>(opt =>
-            opt.UseInMemoryDatabase($"SecretFallbackTest-{Guid.NewGuid():N}"));
-        var provider = services.BuildServiceProvider();
-        var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
-
-        var opts = Options.Create(new SecretsOptions
-        {
-            StoreComponent = Component,
-            KeyPrefix = "secrets/",
-        });
-        var logger = Substitute.For<ILogger<DaprStateBackedSecretStore>>();
-        var sut = new DaprStateBackedSecretStore(
-            _dapr,
-            RealEncryptor(),
-            TenantContext(),
-            opts,
-            scopeFactory,
-            logger);
-
-        // Both Dapr lookups return null by default — only the API-legacy
-        // PostgreSQL path remains, and the in-memory provider's
-        // IsRelational() = false short-circuits it.
-        var result = await sut.ReadAsync("missing-key", ct);
-        result.ShouldBeNull();
-    }
 }
