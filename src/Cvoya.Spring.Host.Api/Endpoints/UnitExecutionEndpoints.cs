@@ -9,6 +9,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Host.Api.Models;
+using Cvoya.Spring.Host.Api.Services;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -101,6 +102,7 @@ public static class UnitExecutionEndpoints
         HttpContext httpContext,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitExecutionStore store,
+        [FromServices] IUnitCreationService creationService,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("unit", id), cancellationToken);
@@ -177,6 +179,11 @@ public static class UnitExecutionEndpoints
 
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
         await store.SetAsync(actorId, defaults, cancellationToken);
+        // Trigger the auto-start gate after execution defaults are saved.
+        // Covers the scratch-wizard path where createUnit fires before
+        // setUnitExecution, so the gate inside UnitCreationService.CreateAsync
+        // always runs with empty defaults and the unit stays in Draft.
+        await creationService.TryAutoStartAsync(entry.ActorId, id, cancellationToken);
         var stored = await store.GetAsync(actorId, cancellationToken);
         return Results.Ok(ToResponse(stored));
     }
