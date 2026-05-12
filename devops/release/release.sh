@@ -119,9 +119,6 @@ if [[ -n "$PRE_RELEASE" ]]; then
     CANDIDATE="${FULL_SEMVER}"
     COUNTER=1
     tag_exists() {
-      git tag -l "agent-base-v${1}" | grep -q . ||
-      git tag -l "oss-agents-v${1}" | grep -q . ||
-      git tag -l "v${1}" | grep -q . ||
       gh api "repos/${REPO}/git/refs/tags/agent-base-v${1}" --silent 2>/dev/null ||
       gh api "repos/${REPO}/git/refs/tags/oss-agents-v${1}" --silent 2>/dev/null ||
       gh api "repos/${REPO}/git/refs/tags/v${1}" --silent 2>/dev/null
@@ -163,6 +160,26 @@ if [[ "$DRY_RUN" == "true" ]]; then
   echo "          referenced in packages/**/*.yaml"
   exit 0
 fi
+
+# ── Local/remote tag divergence check ────────────────────────────────────────
+#
+# A local tag that has no matching remote tag is unexpected state — it means
+# a previous run was interrupted after `git tag` but before `git push`, or
+# the remote tag was deleted without cleaning up locally.  We fail hard here
+# so the operator can decide: delete the local tag (`git tag -d <tag>`) and
+# reuse this version, or start fresh with a new version.
+
+for tag in "$TAG_AGENT_BASE" "$TAG_OSS_AGENTS" "$TAG_PLATFORM"; do
+  if git tag -l "${tag}" | grep -q .; then
+    if ! gh api "repos/${REPO}/git/refs/tags/${tag}" --silent 2>/dev/null; then
+      echo "::error::Local tag '${tag}' exists but is not on ${REPO}."
+      echo "         Remote tags were likely deleted without cleaning up locally."
+      echo "         To reuse this version:  git tag -d ${tag}"
+      echo "         To use the next version: git tag -d ${TAG_AGENT_BASE} ${TAG_OSS_AGENTS} ${TAG_PLATFORM}"
+      exit 1
+    fi
+  fi
+done
 
 # ── Idempotency guard (stable releases only — pre-release handled above) ──────
 
