@@ -2,7 +2,7 @@
 
 A small TypeScript bridge that wraps a stdin/stdout-based CLI behind an [A2A 0.3.x](https://a2a-protocol.org/) endpoint. Spring Voyage's `A2AExecutionDispatcher` talks to every agent over A2A — this sidecar is what lets a tool like `claude`, `codex`, or `gemini` participate in that protocol without modifying the tool itself.
 
-This is **path 2** of the BYOI (Bring-Your-Own-Image) conformance contract from [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087): pull the bridge into any base image you control. Path 1 (`FROM ghcr.io/cvoya-com/agent-base`) is the recommended default — it's just this same bridge, pre-installed.
+This is **path 2** of the BYOI (Bring-Your-Own-Image) conformance contract from [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087): pull the bridge into any base image you control. Path 1 (`FROM ghcr.io/cvoya-com/spring-voyage-agent-base`) is the recommended default — it's just this same bridge, pre-installed.
 
 ## Wire contract
 
@@ -71,10 +71,10 @@ curl -s -X POST http://localhost:8999/ \
 
 ## Docker
 
-The companion `agent-base` image at `ghcr.io/cvoya-com/agent-base:1.0.0` is built from `devops/build/Dockerfile.agent-base`. It bundles `tini`, Node 22, and a pre-installed copy of this bridge under `/opt/spring-voyage/sidecar/`. Use it as a base for any custom agent image:
+The companion `agent-base` image at `ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0` is built from `devops/build/Dockerfile.agent-base`. It bundles `tini`, Node 22, and a pre-installed copy of this bridge under `/opt/spring-voyage/sidecar/`. Use it as a base for any custom agent image:
 
 ```dockerfile
-FROM ghcr.io/cvoya-com/agent-base:1.0.0
+FROM ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0
 
 # Install your CLI tool of choice
 RUN npm install -g @anthropic-ai/claude-code
@@ -90,7 +90,7 @@ If you can't `FROM` the base image (you need a non-Debian distro, you ship a roo
 
 ## Versioning
 
-- Semver on the npm package (`@cvoya/spring-voyage-agent-sidecar`) and the OCI tag (`ghcr.io/cvoya-com/agent-base`).
+- Semver on the npm package (`@cvoya/spring-voyage-agent-sidecar`) and the OCI tag (`ghcr.io/cvoya-com/spring-voyage-agent-base`).
 - N-2 backward compatibility: a Spring Voyage worker dialing this bridge will accept bridge versions within the last 2 major releases.
 - A2A protocol pinned to `0.3.x`. Any bump to 0.4 or 1.0 is a deliberate breaking change with a deprecation window on the dispatcher side. The protocol version is on the Agent Card so the dispatcher can log skew.
 

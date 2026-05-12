@@ -11,7 +11,7 @@
 #
 # The example below extends the Claude Code path-1 image. Swap the FROM
 # for `localhost/spring-voyage-agent:latest` when extending the
-# Dapr Agent (path 3) runtime, or for `ghcr.io/cvoya-com/agent-base:1.0.0`
+# Dapr Agent (path 3) runtime, or for `ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0`
 # when you want a bare bridge image with your own CLI on top.
 #
 # Build it with:

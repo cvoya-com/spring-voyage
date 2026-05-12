@@ -24,4 +24,4 @@ content:
 # OSS team images) override field-wise. `inherit:` is omitted, so every
 # member participates by default.
 execution:
-  image: ghcr.io/cvoya-com/claude-code-base:latest
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest

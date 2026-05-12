@@ -118,7 +118,12 @@ if [[ -n "$PRE_RELEASE" ]]; then
   if [[ "$FORCE_RETAG" != "true" ]]; then
     CANDIDATE="${FULL_SEMVER}"
     COUNTER=1
-    while gh api "repos/${REPO}/git/refs/tags/v${CANDIDATE}" --silent 2>/dev/null; do
+    tag_exists() {
+      gh api "repos/${REPO}/git/refs/tags/agent-base-v${1}" --silent 2>/dev/null ||
+      gh api "repos/${REPO}/git/refs/tags/oss-agents-v${1}" --silent 2>/dev/null ||
+      gh api "repos/${REPO}/git/refs/tags/v${1}" --silent 2>/dev/null
+    }
+    while tag_exists "${CANDIDATE}"; do
       CANDIDATE="${FULL_SEMVER}.${COUNTER}"
       COUNTER=$((COUNTER + 1))
     done

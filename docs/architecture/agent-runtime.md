@@ -643,7 +643,7 @@ An image conforms when the running container, after launch by the dispatcher, ex
 
 | Path | Recipe                                                                                                                                              | When to pick it                                                                                                |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 1    | `FROM ghcr.io/cvoya-com/agent-base:<semver>` and `RUN`-install your CLI tool. ENTRYPOINT is left as-is — the bridge runs on `:8999` automatically.       | Default. Fastest path. Works for anything that can run on Debian 12 + Node 22.                                  |
+| 1    | `FROM ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` and `RUN`-install your CLI tool. ENTRYPOINT is left as-is — the bridge runs on `:8999` automatically.       | Default. Fastest path. Works for anything that can run on Debian 12 + Node 22.                                  |
 | 2    | Pull the bridge into a custom base. Either `npm install -g @cvoya/spring-voyage-agent-sidecar` (Node-bearing image), or copy the static binary from each GitHub Release (`spring-voyage-agent-sidecar-linux-amd64`, `linux-arm64`, `darwin-arm64`) into a Node-less image. Set the binary as the `ENTRYPOINT`. | You need a non-Debian distro, a rootless image with non-default UIDs, or you can't have Node in the runtime layer. |
 | 3    | Implement A2A 0.3.x natively in your image. No bridge involved. The launcher must speak directly to your endpoint.                                  | You already speak A2A natively (e.g., the Python Dapr Agent at `SpringVoyageAgentLauncher`).                            |
 
@@ -659,10 +659,10 @@ The Tier B native launcher (`SpringVoyageAgentLauncher`) is the canonical exampl
 ### Local verification
 
 ```bash
-devops/build/build-sidecar.sh                          # builds ghcr.io/cvoya-com/agent-base:dev
+devops/build/build-sidecar.sh                          # builds ghcr.io/cvoya-com/spring-voyage-agent-base:dev
 docker run --rm -p 8999:8999 \
   -e SPRING_AGENT_ARGV='["true"]' \
-  ghcr.io/cvoya-com/agent-base:dev &
+  ghcr.io/cvoya-com/spring-voyage-agent-base:dev &
 
 curl -s http://localhost:8999/.well-known/agent.json | jq '.protocolVersion, .version'
 curl -s -X POST http://localhost:8999/ \

@@ -29,7 +29,7 @@ Navigate to `/settings/packages/hello-world` and click **Install**. The wizard r
 
 ## Agent runtime
 
-The unit and agent both use the `claude-code` runtime backed by `claude-sonnet-4-6`, so the install Phase-2 activator finds a runtime it knows how to start. The container image is `ghcr.io/cvoya-com/claude-code-base:latest`, the same baseline the other catalog packages use.
+The unit and agent both use the `claude-code` runtime backed by `claude-sonnet-4-6`, so the install Phase-2 activator finds a runtime it knows how to start. The container image is `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest`, the same baseline the other catalog packages use.
 
 ## Policies
 

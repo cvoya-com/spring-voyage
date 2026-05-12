@@ -26,7 +26,7 @@
 #     -t ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:dev \
 #     .
 
-ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:latest
+ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:latest
 ARG CLAUDE_CODE_VERSION=2.1.98
 # .NET 10 SDK — installed via the official `dotnet-install.sh` script rather
 # than the apt feed. Microsoft has not published a Debian trixie (13) feed,

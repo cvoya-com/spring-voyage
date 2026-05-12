@@ -6,7 +6,7 @@
 # path 1). It layers the TypeScript A2A bridge sidecar onto the existing
 # `Dockerfile.agent` runtime so an operator can:
 #
-#   FROM ghcr.io/cvoya-com/agent-base:1.0.0
+#   FROM ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0
 #   RUN npm install -g @anthropic-ai/claude-code   # or any other CLI
 #
 # and immediately have a container that the Spring Voyage dispatcher can

@@ -5,12 +5,12 @@ CLI tooling the agent process can shell out to. Use this template when
 your agent workflow needs a tool that isn't shipped with the
 per-tool images produced by `devops/build/build-agent-images.sh` (added
 in PR 3b of #1087, #1096) — for example
-`ghcr.io/cvoya-com/claude-code-base:latest` (Claude Code path 1)
+`ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest` (Claude Code path 1)
 or `ghcr.io/cvoya-com/spring-voyage-agent:latest` (Dapr Agent path 3).
 
 ## What this Dockerfile does
 
-Inherits `ghcr.io/cvoya-com/claude-code-base:latest`, switches to
+Inherits `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest`, switches to
 root long enough to install extra packages via `apt-get`, then drops
 back to the non-root `agent` user so the runtime identity matches the
 base image.

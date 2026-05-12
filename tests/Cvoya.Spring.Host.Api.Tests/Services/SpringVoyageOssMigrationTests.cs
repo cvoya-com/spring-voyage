@@ -43,7 +43,7 @@ public class SpringVoyageOssMigrationTests
 
         // Umbrella inherits the package-level image.
         execution.ByUnit["spring-voyage-oss"].Image
-            .ShouldBe("ghcr.io/cvoya-com/claude-code-base:latest");
+            .ShouldBe("ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest");
 
         // Each sub-unit keeps its own team-specific image.
         execution.ByUnit["sv-oss-software-engineering"].Image
@@ -71,7 +71,7 @@ public class SpringVoyageOssMigrationTests
         resolved.Execution.ShouldNotBeNull(
             "the OSS package declares an execution: block under #1679");
         resolved.Execution!.Image
-            .ShouldBe("ghcr.io/cvoya-com/claude-code-base:latest");
+            .ShouldBe("ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest");
         // No `inherit:` selector — every member participates by default.
         resolved.Execution.InheritUnits.ShouldBeNull();
     }

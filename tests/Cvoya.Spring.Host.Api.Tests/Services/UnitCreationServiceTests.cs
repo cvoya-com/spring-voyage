@@ -522,7 +522,7 @@ public class UnitCreationServiceTests
             new Cvoya.Spring.Core.Catalog.AgentRuntime(
                 Id: "claude-code",
                 DisplayName: "Claude Code",
-                DefaultImage: "ghcr.io/cvoya-com/claude-code-base:latest",
+                DefaultImage: "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
                 Launcher: "claude-code-cli",
                 ThreadBinding: new Cvoya.Spring.Core.Catalog.ThreadBinding(
                     Cvoya.Spring.Core.Catalog.ThreadBindingKind.CliArg, "--resume", null),
@@ -544,7 +544,7 @@ public class UnitCreationServiceTests
         fixture.ExecutionStore
             .GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new Cvoya.Spring.Core.Execution.UnitExecutionDefaults(
-                Image: "ghcr.io/cvoya-com/claude-code-base:latest",
+                Image: "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
                 Provider: "anthropic",
                 Model: "claude-opus-4-7",
                 Agent: "claude-code"));
@@ -579,7 +579,7 @@ public class UnitCreationServiceTests
             },
             Execution = new ExecutionManifest
             {
-                Image = "ghcr.io/cvoya-com/claude-code-base:latest",
+                Image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
                 Model = "claude-opus-4-7",
             },
         };
@@ -607,7 +607,7 @@ public class UnitCreationServiceTests
             new Cvoya.Spring.Core.Catalog.AgentRuntime(
                 Id: "claude-code",
                 DisplayName: "Claude Code",
-                DefaultImage: "ghcr.io/cvoya-com/claude-code-base:latest",
+                DefaultImage: "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
                 Launcher: "claude-code-cli",
                 ThreadBinding: new Cvoya.Spring.Core.Catalog.ThreadBinding(
                     Cvoya.Spring.Core.Catalog.ThreadBindingKind.CliArg, "--resume", null),
@@ -626,7 +626,7 @@ public class UnitCreationServiceTests
         fixture.ExecutionStore
             .GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new Cvoya.Spring.Core.Execution.UnitExecutionDefaults(
-                Image: "ghcr.io/cvoya-com/claude-code-base:latest",
+                Image: "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
                 Provider: "anthropic",
                 Model: "claude-opus-4-7",
                 Agent: "claude-code"));
@@ -653,7 +653,7 @@ public class UnitCreationServiceTests
             },
             Execution = new ExecutionManifest
             {
-                Image = "ghcr.io/cvoya-com/claude-code-base:latest",
+                Image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
                 Model = "claude-opus-4-7",
             },
         };

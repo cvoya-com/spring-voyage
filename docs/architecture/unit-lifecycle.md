@@ -71,7 +71,7 @@ spring unit set engineering-team \
 
 # Set default execution environment for member agents
 spring unit set engineering-team \
-  --execution-image ghcr.io/cvoya-com/claude-code-base:latest
+  --execution-image ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 
 # Add agents (creates them if they don't exist)
 spring agent create ada \
@@ -123,7 +123,7 @@ unit:
       provider: ollama
       id: llama3.2:3b
   execution:
-    image: ghcr.io/cvoya-com/claude-code-base:latest
+    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
     model: llama3.2:3b
   members:
     - agent: agents/ada.yaml           # references agent definition file

@@ -25,7 +25,7 @@ agent:
       provider: anthropic
       id: claude-sonnet-4-6
   execution:
-    image: ghcr.io/cvoya-com/claude-code-base:latest          # container image; host config selects docker/podman
+    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest          # container image; host config selects docker/podman
 
   cloning:
     policy: ephemeral-with-memory
@@ -64,7 +64,7 @@ Spring Voyage does **not** implement its own in-platform tool-use loop. The `Hos
 
 ```yaml
 execution:
-  image: ghcr.io/cvoya-com/claude-code-base:latest          # container image
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest          # container image
 ```
 
 Agents that don't specify `execution.<field>` inherit the default from their parent unit's `execution` block via the agent → unit → fail resolution chain (see [Units & Agents](units.md)). The `IAgentDefinitionProvider` merges the unit-level block onto the agent-declared block at dispatch time, and both HTTP / CLI surfaces edit the same persisted JSON document the resolver reads. Multi-parent agents must define their own field whenever the selected parents disagree — `IExecutionConfigInheritanceResolver` enforces this and returns a structured 422 with the diverging fields ([ADR-0039 § 6](../decisions/0039-units-are-agents.md#6-inheritance-top-level-under-tenant-multi-parent-override-reparenting-validation)).

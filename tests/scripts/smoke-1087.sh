@@ -12,7 +12,7 @@
 # for the rationale.
 #
 # What's exercised today:
-#   - Path 1 (FROM ghcr.io/cvoya-com/agent-base): the claude-code image
+#   - Path 1 (FROM ghcr.io/cvoya-com/spring-voyage-agent-base): the claude-code image
 #     booted with a benign `cat` argv so the bridge actually spawns a
 #     subprocess, pipes the request body to its stdin, and surfaces the
 #     stdout as an A2A artifact. This is the real round-trip the
@@ -298,7 +298,7 @@ assert_a2a_roundtrip() {
 # key, no network egress, no model. We're verifying the bridge / A2A
 # wire path, not Claude itself.
 run_path1() {
-    local image="ghcr.io/cvoya-com/claude-code-base:${TAG}"
+    local image="ghcr.io/cvoya-com/spring-voyage-claude-code-base:${TAG}"
     local port name
     port="$(free_port)"
     name="spring-voyage-smoke-1087-path1-${NAME_SUFFIX}"

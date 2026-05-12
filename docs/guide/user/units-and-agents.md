@@ -34,7 +34,7 @@ Set execution defaults (image, runtime, tool, provider, model) independently:
 # Set one or more execution defaults (partial update — pass only flags you want to change)
 spring unit execution set <name> \
   --agent claude \
-  --image ghcr.io/cvoya-com/claude-code-base:latest \
+  --image ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest \
   --runtime podman \
   --model claude-sonnet-4-6
 ```
@@ -217,7 +217,7 @@ Three conformance paths:
 
 | Path | When to use |
 |------|-------------|
-| 1 (default) | `FROM ghcr.io/cvoya-com/agent-base:<semver>` + install your CLI tool. Works on Debian 12 + Node 22. |
+| 1 (default) | `FROM ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` + install your CLI tool. Works on Debian 12 + Node 22. |
 | 2 | Non-Debian / Node-less image — pull `@cvoya/spring-voyage-agent-sidecar` via npm or a SEA binary. |
 | 3 | Image already speaks A2A natively (e.g. `dapr-agents`). No bridge involved. |
 
@@ -227,9 +227,9 @@ OSS launchers (Claude Code, Codex, Gemini) use path 1; Dapr Agent uses path 3. S
 
 | Image | Path | `tool:` | Ready to dispatch? |
 |-------|------|---------|-------------------|
-| `ghcr.io/cvoya-com/claude-code-base:latest` | 1 | `claude-code` | Yes — after `./devops/build/build-agent-images.sh` runs |
+| `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest` | 1 | `claude-code` | Yes — after `./devops/build/build-agent-images.sh` runs |
 | `ghcr.io/cvoya-com/spring-voyage-agent:latest` | 3 | `spring-voyage-agent` | Yes — after `./devops/build/build-agent-images.sh` runs |
-| `ghcr.io/cvoya-com/agent-base:<semver>` | 1 base | (none) | No — use as a `FROM` base, not as a dispatch target |
+| `ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` | 1 base | (none) | No — use as a `FROM` base, not as a dispatch target |
 
 `./devops/build/build.sh` runs `build-agent-images.sh` for you.
 

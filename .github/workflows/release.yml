@@ -54,7 +54,7 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   REGISTRY: ghcr.io
-  CLAUDE_CODE_IMAGE: ghcr.io/cvoya-com/claude-code-base
+  CLAUDE_CODE_IMAGE: ghcr.io/cvoya-com/spring-voyage-claude-code-base
   SPRING_VOYAGE_AGENT_IMAGE: ghcr.io/cvoya-com/spring-voyage-agent
   # #2172: platform image consumed by deploy.sh via SPRING_PLATFORM_IMAGE.
   SPRING_VOYAGE_PLATFORM_IMAGE: ghcr.io/cvoya-com/spring-voyage
@@ -288,7 +288,7 @@ jobs:
 
       # The build script tags:
       #   ghcr.io/cvoya-com/spring-voyage-agent-base:<tag> (re-tagged below)
-      #   ghcr.io/cvoya-com/claude-code-base:<tag>          (ready to push)
+      #   ghcr.io/cvoya-com/spring-voyage-claude-code-base:<tag>          (ready to push)
       #   ghcr.io/cvoya-com/spring-voyage-agent:<tag>       (ready to push)
       - name: Tag and push claude-code-base
         shell: bash
@@ -314,7 +314,7 @@ jobs:
             echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for claude-code-base"
           fi
 
-      - name: Tag and push agent-base
+      - name: Push spring-voyage-agent-base
         shell: bash
         env:
           RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
@@ -322,24 +322,19 @@ jobs:
           IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
         run: |
           set -euo pipefail
-          TARGET_BASE="ghcr.io/cvoya-com/agent-base"
+          BASE="ghcr.io/cvoya-com/spring-voyage-agent-base"
 
-          # build-agent-images.sh tags the image as spring-voyage-agent-base locally.
-          docker tag "ghcr.io/cvoya-com/spring-voyage-agent-base:${RELEASE_VERSION}" \
-            "${TARGET_BASE}:${RELEASE_VERSION}"
-          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
-          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
+          docker push "${BASE}:${RELEASE_VERSION}"
+          echo "Pushed ${BASE}:${RELEASE_VERSION}"
 
           if [[ "$IS_PRERELEASE" == "false" ]]; then
-            docker tag "ghcr.io/cvoya-com/spring-voyage-agent-base:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:${MAJOR_MINOR}"
-            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
-            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
+            docker tag "${BASE}:${RELEASE_VERSION}" "${BASE}:${MAJOR_MINOR}"
+            docker push "${BASE}:${MAJOR_MINOR}"
+            echo "Pushed ${BASE}:${MAJOR_MINOR}"
 
-            docker tag "ghcr.io/cvoya-com/spring-voyage-agent-base:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:latest"
-            docker push "${TARGET_BASE}:latest"
-            echo "Pushed ${TARGET_BASE}:latest"
+            docker tag "${BASE}:${RELEASE_VERSION}" "${BASE}:latest"
+            docker push "${BASE}:latest"
+            echo "Pushed ${BASE}:latest"
           fi
 
       - name: Tag and push spring-voyage-agent (native A2A runtime)
@@ -388,12 +383,12 @@ jobs:
             echo "| Image | Tags |"
             echo "| --- | --- |"
             if [[ "$IS_PRERELEASE" == "false" ]]; then
-              echo "| \`ghcr.io/cvoya-com/claude-code-base\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/agent-base\`   | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`   | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
               echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
             else
-              echo "| \`ghcr.io/cvoya-com/claude-code-base\` | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
-              echo "| \`ghcr.io/cvoya-com/agent-base\`   | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\` | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`   | \`${RELEASE_VERSION}\` (pre-release) |"
               echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | \`${RELEASE_VERSION}\` (pre-release) |"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
@@ -1117,13 +1112,13 @@ jobs:
             echo "| --- | --- |"
             if [[ "$IS_PRERELEASE" == "false" ]]; then
               echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/claude-code-base\`        | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/agent-base\`              | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`              | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
               echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`     | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
             else
               echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
-              echo "| \`ghcr.io/cvoya-com/claude-code-base\`        | \`${RELEASE_VERSION}\` (pre-release) |"
-              echo "| \`ghcr.io/cvoya-com/agent-base\`              | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`              | \`${RELEASE_VERSION}\` (pre-release) |"
               echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`     | \`${RELEASE_VERSION}\` (pre-release) |"
             fi
             echo

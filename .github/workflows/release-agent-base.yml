@@ -1,7 +1,7 @@
 name: Release agent-base + sidecar
 
 # PR 3a of #1087 (#1095). Publishes three artifacts on tag push:
-#   - ghcr.io/cvoya-com/agent-base:<semver>      (OCI image, multi-arch)
+#   - ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>      (OCI image, multi-arch)
 #   - @cvoya/spring-voyage-agent-sidecar     (npm package)
 #   - GitHub Release with linux-amd64, linux-arm64, darwin-arm64 SEA binaries
 #
@@ -149,7 +149,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api -X PATCH /orgs/cvoya-com/packages/container/agent-base \
+          gh api -X PATCH /orgs/cvoya-com/packages/container/spring-voyage-agent-base \
             -F visibility=public
 
   publish-npm:

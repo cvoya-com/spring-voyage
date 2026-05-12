@@ -38,7 +38,7 @@ spring agent create \
     --role engineer \
     --unit my-team \
     --runtime claude-code \
-    --image ghcr.io/cvoya-com/claude-code-base:latest
+    --image ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 
 # Look up the agent's id (display-name search), then send a message
 spring agent show my-agent --unit my-team           # prints the canonical Guid

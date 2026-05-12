@@ -229,9 +229,9 @@ An agent dispatches in a container. The platform ships two reference tool-bearin
 
 | Image | Conformance path | Use it for |
 | ----------------- | ---------------- | ---------- |
-| `ghcr.io/cvoya-com/claude-code-base:latest` | path 1 (bridge) | Anthropic Claude Code CLI on top of the agent-base bridge. |
+| `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest` | path 1 (bridge) | Anthropic Claude Code CLI on top of the agent-base bridge. |
 | `ghcr.io/cvoya-com/spring-voyage-agent:latest`        | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
-| `ghcr.io/cvoya-com/agent-base:<semver>`                | path 1 base     | Bring your own CLI on top of the bridge sidecar. |
+| `ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>`                | path 1 base     | Bring your own CLI on top of the bridge sidecar. |
 
 To layer extra tooling on top, the shortest path is a Dockerfile that extends one of the bases. Two starter templates ship under [`devops/build/examples/dockerfiles/`](devops/build/examples/dockerfiles/):
 

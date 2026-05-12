@@ -47,7 +47,7 @@ const runningDeployment = {
   running: true,
   healthStatus: "healthy",
   replicas: 1,
-  image: "ghcr.io/cvoya-com/claude-code-base:2.1.98",
+  image: "ghcr.io/cvoya-com/spring-voyage-claude-code-base:2.1.98",
   endpoint: "http://agent-1:8080",
   containerId: "abc1234567890def",
   startedAt: new Date().toISOString(),
@@ -116,7 +116,7 @@ describe("LifecyclePanel", () => {
         <LifecyclePanel agentId="agent-1" />
       </Wrapper>,
     );
-    const image = "ghcr.io/cvoya-com/claude-code-base:latest";
+    const image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest";
     fireEvent.change(screen.getByTestId("agent-lifecycle-image-input"), {
       target: { value: image },
     });
@@ -177,7 +177,7 @@ describe("LifecyclePanel", () => {
     ).toHaveTextContent(/running/i);
     expect(screen.getByTestId("agent-lifecycle-details")).toBeInTheDocument();
     expect(
-      screen.getByText("ghcr.io/cvoya-com/claude-code-base:2.1.98"),
+      screen.getByText("ghcr.io/cvoya-com/spring-voyage-claude-code-base:2.1.98"),
     ).toBeInTheDocument();
   });
 

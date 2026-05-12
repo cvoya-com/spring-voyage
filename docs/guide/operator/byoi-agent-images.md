@@ -20,7 +20,7 @@ Pick **one** of three paths to satisfy that contract:
 
 | Path | Recipe                                                                                                                                                     |
 |------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 1    | `FROM ghcr.io/cvoya-com/agent-base:<semver>` and `RUN`-install your CLI tool. The bridge is the image's ENTRYPOINT and runs on `:8999` automatically.       |
+| 1    | `FROM ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` and `RUN`-install your CLI tool. The bridge is the image's ENTRYPOINT and runs on `:8999` automatically.       |
 | 2    | Pull the bridge into a custom base. Either `npm i -g @cvoya/spring-voyage-agent-sidecar` (Node-bearing image), or copy the static binary from each GitHub Release into a Node-less image. Set the bridge as the ENTRYPOINT. |
 | 3    | Implement A2A 0.3.x natively in your image. No bridge involved.                                                                                            |
 
@@ -54,7 +54,7 @@ Two consequences for image authors:
 
 ---
 
-## Path 1 — `FROM ghcr.io/cvoya-com/agent-base`
+## Path 1 — `FROM ghcr.io/cvoya-com/spring-voyage-agent-base`
 
 This is the recommended path. The `agent-base` image bundles `tini`, Node 22, and a pre-installed copy of the A2A bridge under `/opt/spring-voyage/sidecar/`. The image's ENTRYPOINT runs the bridge on `:8999`. You add your CLI tool on top.
 
@@ -62,7 +62,7 @@ This is the recommended path. The `agent-base` image bundles `tini`, Node 22, an
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
-FROM ghcr.io/cvoya-com/agent-base:1.0.0
+FROM ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0
 
 # Install the CLI tool you want the agent to invoke. The bridge spawns
 # whatever is in SPRING_AGENT_ARGV at message/send time, so anything that
@@ -288,7 +288,7 @@ The dispatcher polls `GET /.well-known/agent.json` until the bridge / A2A server
 # a no-op argv — it boots, binds :8999, never invokes anything real).
 docker run --rm -d --name byoi-smoke -p 8999:8999 \
   -e SPRING_AGENT_ARGV='["true"]' \
-  ghcr.io/cvoya-com/agent-base:1.0.0
+  ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0
 
 # Wait for the agent card.
 for i in $(seq 1 30); do

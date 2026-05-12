@@ -140,7 +140,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:latest
+            AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

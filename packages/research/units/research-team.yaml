@@ -25,7 +25,7 @@ members:
   - agent: literature-reviewer
   - agent: data-analyst
 execution:
-  image: ghcr.io/cvoya-com/claude-code-base:latest
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 policies:
   communication: through-unit
   work_assignment: capability-match

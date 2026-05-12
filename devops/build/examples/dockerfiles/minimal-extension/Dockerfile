@@ -10,7 +10,7 @@
 #
 # Pick the right base for your tool. The default below is the Claude Code
 # image; swap in `localhost/spring-voyage-agent:latest` for the Dapr
-# Agent path-3 runtime, or `ghcr.io/cvoya-com/agent-base:1.0.0` if you only
+# Agent path-3 runtime, or `ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0` if you only
 # want the bridge sidecar and will install your own CLI on top.
 #
 # Build it with:

@@ -162,7 +162,7 @@ smoke_one() {
     done
 }
 
-CLAUDE_IMAGE="ghcr.io/cvoya-com/claude-code-base:${TAG}"
+CLAUDE_IMAGE="ghcr.io/cvoya-com/spring-voyage-claude-code-base:${TAG}"
 SV_AGENT_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent:${TAG}"
 
 # ---- 1. claude-code (path 1) --------------------------------------------

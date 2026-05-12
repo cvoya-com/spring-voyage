@@ -51,8 +51,8 @@ on top:
 
 | Base image                                              | Conformance path | Use it for |
 | ------------------------------------------------------- | ---------------- | ---------- |
-| `ghcr.io/cvoya-com/agent-base:<semver>`                     | path 1 (bridge)  | Bring your own CLI; the bridge handles A2A. |
-| `ghcr.io/cvoya-com/claude-code-base:latest`      | path 1 (bridge)  | Claude Code CLI baked in; ready to dispatch. |
+| `ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>`                     | path 1 (bridge)  | Bring your own CLI; the bridge handles A2A. |
+| `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest`      | path 1 (bridge)  | Claude Code CLI baked in; ready to dispatch. |
 | `ghcr.io/cvoya-com/spring-voyage-agent:latest`             | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<semver>` | path 1 (bridge) | OSS dogfooding SE team — .NET SDK, gh CLI, Playwright + browsers. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<semver>` | path 1 (bridge) | OSS dogfooding design team — Playwright Chromium, Mermaid CLI, ImageMagick. |

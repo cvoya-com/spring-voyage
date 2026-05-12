@@ -98,7 +98,7 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
         credentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
       },
     ],
-    defaultImage: "ghcr.io/cvoya-com/claude-code-base:latest",
+    defaultImage: "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
   },
   codex: {
     id: "codex",
@@ -115,7 +115,7 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
         credentialEnvVar: "OPENAI_API_KEY",
       },
     ],
-    defaultImage: "ghcr.io/cvoya-com/codex-base:latest",
+    defaultImage: "ghcr.io/cvoya-com/spring-voyage-codex-base:latest",
   },
   gemini: {
     id: "gemini",
@@ -132,7 +132,7 @@ export const RUNTIMES: Readonly<Record<RuntimeId, RuntimeDescriptor>> = {
         credentialEnvVar: "GOOGLE_API_KEY",
       },
     ],
-    defaultImage: "ghcr.io/cvoya-com/gemini-base:latest",
+    defaultImage: "ghcr.io/cvoya-com/spring-voyage-gemini-base:latest",
   },
   "spring-voyage": {
     id: "spring-voyage",

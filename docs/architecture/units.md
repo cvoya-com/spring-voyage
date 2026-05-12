@@ -56,7 +56,7 @@ unit:
   # #1732: 'tool' was dropped — the launcher is derived from
   # the runtime registry via ai.runtime.
   execution:
-    image: ghcr.io/cvoya-com/claude-code-base:latest
+    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
     provider: anthropic              # spring-voyage runtime kind only (#598 gating)
     model: claude-sonnet             # spring-voyage runtime kind only (#598 gating)
 
@@ -124,7 +124,7 @@ unit:
       provider: anthropic
       id: claude-sonnet-4-6
   execution:
-    image: ghcr.io/cvoya-com/claude-code-base:latest
+    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
   instructions: |
     You coordinate a research team. Use `list_children` to see who's
     available, `inspect_child` to read declared expertise, and

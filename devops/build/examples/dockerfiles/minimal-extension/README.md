@@ -5,10 +5,10 @@ tool-bearing agent images shipped by `devops/build/build-agent-images.sh`
 (the entry point added in PR 3b of #1087, #1096) under your own name so
 unit / agent manifests reference a stable, pinned identifier.
 
-The example below extends `ghcr.io/cvoya-com/claude-code-base:latest`
+The example below extends `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest`
 (BYOI conformance path 1 — agent-base bridge + Claude Code CLI).
 Substitute `ghcr.io/cvoya-com/spring-voyage-agent:latest` for the Dapr
-Agent path-3 runtime, or `ghcr.io/cvoya-com/agent-base:1.0.0` if you only
+Agent path-3 runtime, or `ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0` if you only
 want the bridge sidecar and will install your own CLI on top.
 
 ## What this Dockerfile does

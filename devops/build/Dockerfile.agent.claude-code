@@ -33,7 +33,7 @@
 #   docker build \
 #     -f devops/build/Dockerfile.agent.claude-code \
 #     -t localhost/spring-voyage-agent-claude-code:latest \
-#     --build-arg AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:dev \
+#     --build-arg AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:dev \
 #     .
 #
 # `AGENT_BASE_IMAGE` defaults to the public ghcr.io tag pinned by this PR.
@@ -41,7 +41,7 @@
 # `devops/build/build-sidecar.sh`) when the published image isn't yet in your
 # pull cache.
 
-ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:1.0.0
+ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0
 
 FROM ${AGENT_BASE_IMAGE}
 

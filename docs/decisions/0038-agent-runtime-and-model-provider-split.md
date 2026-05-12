@@ -84,7 +84,7 @@ The shape (full file in decision 3):
 agentRuntimes:
   - id: claude-code
     displayName: Claude Code
-    defaultImage: ghcr.io/cvoya-com/claude-code-base:latest
+    defaultImage: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
     launcher: claude-code-cli            # IAgentRuntimeLauncher strategy id
     threadBinding:
       kind: cli-arg
@@ -98,7 +98,7 @@ agentRuntimes:
         credentialEnvVar: CLAUDE_CODE_OAUTH_TOKEN
   - id: codex
     displayName: Codex
-    defaultImage: ghcr.io/cvoya-com/codex-base:latest
+    defaultImage: ghcr.io/cvoya-com/spring-voyage-codex-base:latest
     launcher: codex-cli
     threadBinding:
       kind: cli-arg
@@ -112,7 +112,7 @@ agentRuntimes:
         credentialEnvVar: OPENAI_API_KEY
   - id: gemini
     displayName: Gemini CLI
-    defaultImage: ghcr.io/cvoya-com/gemini-base:latest
+    defaultImage: ghcr.io/cvoya-com/spring-voyage-gemini-base:latest
     launcher: gemini-cli
     threadBinding:
       kind: cli-arg

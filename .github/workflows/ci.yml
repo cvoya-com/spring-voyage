@@ -1255,7 +1255,7 @@ jobs:
 
       - name: Build agent images (offline-safe — agent-base from local sources)
         shell: bash
-        # `--skip-agent-base=0` (the default) builds ghcr.io/cvoya-com/agent-base:dev
+        # `--skip-agent-base=0` (the default) builds ghcr.io/cvoya-com/spring-voyage-agent-base:dev
         # locally first so the claude-code FROM resolves without a GHCR pull.
         # That way a PR can be tested before the corresponding agent-base
         # tag is published.

@@ -282,7 +282,7 @@ repair before sidecars start, merging accidental `spring.state` rows back into
 
 The reference agent runtime images are published to GHCR by `release.yml`:
 
-- `ghcr.io/cvoya-com/claude-code-base` — Claude Code on the A2A bridge.
+- `ghcr.io/cvoya-com/spring-voyage-claude-code-base` — Claude Code on the A2A bridge.
 - `ghcr.io/cvoya-com/spring-voyage-agent` — native path-3 A2A runtime.
 
 ### Tag → GHCR flow
@@ -298,11 +298,11 @@ A manual `workflow_dispatch` input is also available for republishing an existin
 
 ```bash
 # Pull by platform release
-docker pull ghcr.io/cvoya-com/claude-code-base:1.0.0
+docker pull ghcr.io/cvoya-com/spring-voyage-claude-code-base:1.0.0
 docker pull ghcr.io/cvoya-com/spring-voyage-agent:1.0.0
 
 # Pull the latest stable release
-docker pull ghcr.io/cvoya-com/claude-code-base:latest
+docker pull ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 docker pull ghcr.io/cvoya-com/spring-voyage-agent:latest
 ```
 

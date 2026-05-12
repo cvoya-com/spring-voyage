@@ -5,8 +5,8 @@
 #
 # Builds eight images, in dependency order:
 #   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>  (path-1 BYOI base)
-#   2. ghcr.io/cvoya-com/claude-code-base:<tag>           (path-1 reference, FROMs #1)
-#   3. ghcr.io/cvoya-com/gemini-base:<tag>                (path-1 reference, FROMs #1)
+#   2. ghcr.io/cvoya-com/spring-voyage-claude-code-base:<tag>           (path-1 reference, FROMs #1)
+#   3. ghcr.io/cvoya-com/spring-voyage-gemini-base:<tag>                (path-1 reference, FROMs #1)
 #   4. ghcr.io/cvoya-com/spring-voyage-agent:<tag>        (path-3 native A2A)
 #   5. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #1)
 #   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<tag>                (FROMs #1)
@@ -55,8 +55,8 @@ Usage: devops/build/build-agent-images.sh [options]
 
 Builds, in order:
   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>
-  2. ghcr.io/cvoya-com/claude-code-base:<tag>
-  3. ghcr.io/cvoya-com/gemini-base:<tag>
+  2. ghcr.io/cvoya-com/spring-voyage-claude-code-base:<tag>
+  3. ghcr.io/cvoya-com/spring-voyage-gemini-base:<tag>
   4. ghcr.io/cvoya-com/spring-voyage-agent:<tag>
   5. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #1)
   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<tag>                (FROMs #1)
@@ -174,9 +174,9 @@ fi
 log() { printf '[build-agent-images] %s\n' "$*" >&2; }
 
 AGENT_BASE_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-base"
-CLAUDE_IMAGE="ghcr.io/cvoya-com/claude-code-base"
+CLAUDE_IMAGE="ghcr.io/cvoya-com/spring-voyage-claude-code-base"
 CLAUDE_LOCAL_ALIAS="localhost/spring-voyage-agent-claude-code"
-GEMINI_IMAGE="ghcr.io/cvoya-com/gemini-base"
+GEMINI_IMAGE="ghcr.io/cvoya-com/spring-voyage-gemini-base"
 GEMINI_LOCAL_ALIAS="localhost/spring-voyage-agent-gemini"
 SV_AGENT_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent"
 SV_AGENT_LOCAL_ALIAS="localhost/spring-voyage-agent"

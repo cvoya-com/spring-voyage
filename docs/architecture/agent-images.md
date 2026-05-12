@@ -4,9 +4,9 @@ Spring Voyage ships two classes of container image for running agents:
 
 | Image | GHCR reference | Purpose |
 |-------|----------------|---------|
-| `agent-base` | `ghcr.io/cvoya-com/agent-base:latest` | BYOI minimal — the A2A sidecar bridge only. Operators layer their own CLI on top. |
-| `claude-code-base` | `ghcr.io/cvoya-com/claude-code-base:latest` | Claude Code CLI on top of the agent-base bridge. |
-| `gemini-base` | `ghcr.io/cvoya-com/gemini-base:latest` | Google Gemini CLI on top of the agent-base bridge. |
+| `agent-base` | `ghcr.io/cvoya-com/spring-voyage-agent-base:latest` | BYOI minimal — the A2A sidecar bridge only. Operators layer their own CLI on top. |
+| `claude-code-base` | `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest` | Claude Code CLI on top of the agent-base bridge. |
+| `gemini-base` | `ghcr.io/cvoya-com/spring-voyage-gemini-base:latest` | Google Gemini CLI on top of the agent-base bridge. |
 | `spring-voyage-agent` | `ghcr.io/cvoya-com/spring-voyage-agent:latest` | Path-3 native A2A image used by the `spring-voyage` runtime. |
 
 Per ADR-0038, every entry under `agentRuntimes` in `platform/runtime-catalog.yaml` declares a `defaultImage`. The unit-creation wizard pre-fills the image field with the selected runtime's `defaultImage`. This repository builds the `claude-code-base`, `gemini-base`, and `spring-voyage-agent` references; `codex-base` is an external runtime image.
@@ -35,7 +35,7 @@ The minimal layer an operator needs to plug any CLI into the Spring Voyage dispa
 **Example:**
 
 ```dockerfile
-FROM ghcr.io/cvoya-com/agent-base:latest
+FROM ghcr.io/cvoya-com/spring-voyage-agent-base:latest
 USER root
 RUN npm install -g my-private-agent-cli@1.2.3
 USER agent
@@ -47,8 +47,8 @@ Built by `devops/build/build-agent-images.sh` for local dev and CI verification.
 
 | Image | Source file | Tool kind |
 |-------|-------------|-----------|
-| `ghcr.io/cvoya-com/claude-code-base:dev` | `devops/build/Dockerfile.agent.claude-code` | `claude-code-cli` |
-| `ghcr.io/cvoya-com/gemini-base:dev` | `devops/build/Dockerfile.agent.gemini` | `gemini-cli` |
+| `ghcr.io/cvoya-com/spring-voyage-claude-code-base:dev` | `devops/build/Dockerfile.agent.claude-code` | `claude-code-cli` |
+| `ghcr.io/cvoya-com/spring-voyage-gemini-base:dev` | `devops/build/Dockerfile.agent.gemini` | `gemini-cli` |
 | `ghcr.io/cvoya-com/spring-voyage-agent:dev` | `devops/build/Dockerfile.agent.dapr` | `spring-voyage-agent` (native A2A, Python) |
 
 **When to use per-runtime images:**
@@ -63,7 +63,7 @@ Built by `devops/build/build-agent-images.sh` for local dev and CI verification.
 Layer your toolchain on top of the runtime's `defaultImage` from `platform/runtime-catalog.yaml`. For example, the OSS dogfooding role images extend `spring-voyage-agent-base` and install the Claude Code CLI alongside role-specific tools:
 
 ```dockerfile
-FROM ghcr.io/cvoya-com/claude-code-base:latest
+FROM ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 USER root
 # Example: add a domain-specific dotnet SDK
 RUN apt-get update \
@@ -77,7 +77,7 @@ USER agent
 For a completely custom agent CLI that is not one of the OSS runtimes:
 
 ```dockerfile
-FROM ghcr.io/cvoya-com/agent-base:latest
+FROM ghcr.io/cvoya-com/spring-voyage-agent-base:latest
 USER root
 RUN npm install -g my-private-agent-cli@1.2.3 \
  && command -v my-agent >/dev/null
@@ -93,6 +93,6 @@ instead of pulling from the registry:
 
 ```bash
 DOCKER=podman devops/build/build-agent-images.sh --tag latest --skip-oss
-podman image inspect ghcr.io/cvoya-com/claude-code-base:latest
+podman image inspect ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 podman image inspect ghcr.io/cvoya-com/spring-voyage-agent:latest
 ```

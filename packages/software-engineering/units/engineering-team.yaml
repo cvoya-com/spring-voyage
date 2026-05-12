@@ -21,7 +21,7 @@ members:
   - agent: backend-engineer
   - agent: qa-engineer
 execution:
-  image: ghcr.io/cvoya-com/claude-code-base:latest
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 requires:
   - connector: github
 policies:

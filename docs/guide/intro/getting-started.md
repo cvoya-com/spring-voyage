@@ -69,7 +69,7 @@ This is the container image that member agents will use by default:
 
 ```
 spring unit set engineering-team \
-  --execution-image ghcr.io/cvoya-com/claude-code-base:latest
+  --execution-image ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 ```
 
 ## Creating Agents

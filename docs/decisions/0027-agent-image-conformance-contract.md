@@ -1,6 +1,6 @@
 # 0027 — Agent-image conformance contract (A2A 0.3.x on `:8999`, three conformance paths)
 
-- **Status:** Accepted — 2026-04-22 — `A2AExecutionDispatcher` speaks A2A 0.3.x to every agent container on `${AgentLaunchSpec.A2APort}` (default `8999`). An image conforms by satisfying one of three paths: (1) `FROM ghcr.io/cvoya-com/agent-base:<semver>` and inherit the bundled bridge; (2) install the bridge via npm or copy the SEA binary into a custom base; (3) implement A2A 0.3.x natively. The bridge versioning is semver with N-2 backward compatibility on the dispatcher side; A2A is pinned to 0.3.x. Bind-mounted and co-launched sidecars are rejected.
+- **Status:** Accepted — 2026-04-22 — `A2AExecutionDispatcher` speaks A2A 0.3.x to every agent container on `${AgentLaunchSpec.A2APort}` (default `8999`). An image conforms by satisfying one of three paths: (1) `FROM ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` and inherit the bundled bridge; (2) install the bridge via npm or copy the SEA binary into a custom base; (3) implement A2A 0.3.x natively. The bridge versioning is semver with N-2 backward compatibility on the dispatcher side; A2A is pinned to 0.3.x. Bind-mounted and co-launched sidecars are rejected.
 - **Date:** 2026-04-22
 - **Closes:** [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087)
 - **Related code:** `src/Cvoya.Spring.AgentSidecar/` (bridge source), `devops/build/Dockerfile.agent-base`, `devops/build/Dockerfile.agent.claude-code`, `devops/build/Dockerfile.agent.dapr`, `.github/workflows/release-agent-base.yml`, `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Core/Execution/IAgentToolLauncher.cs` (`AgentLaunchSpec.A2APort`).
@@ -45,7 +45,7 @@ That's the entire contract. There is no required base distro, no required user, 
 
 | Path | Recipe | When to pick it |
 |------|--------|-----------------|
-| **1** | `FROM ghcr.io/cvoya-com/agent-base:<semver>` and `RUN`-install your CLI tool. ENTRYPOINT is left as-is — the bundled bridge runs on `:8999` automatically. | Default. Fastest path. Works for anything that runs on Debian 12 + Node 22. |
+| **1** | `FROM ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` and `RUN`-install your CLI tool. ENTRYPOINT is left as-is — the bundled bridge runs on `:8999` automatically. | Default. Fastest path. Works for anything that runs on Debian 12 + Node 22. |
 | **2** | Pull the bridge into a custom base. Either `npm install -g @cvoya/spring-voyage-agent-sidecar` (Node-bearing image), or copy the static binary from each GitHub Release (`spring-voyage-agent-sidecar-{linux-amd64,linux-arm64,darwin-arm64}`) into a Node-less image. Set the binary as the `ENTRYPOINT`. | Non-Debian distro, rootless image with non-default UIDs, or you can't have Node in the runtime layer. |
 | **3** | Implement A2A 0.3.x natively in your image. No bridge involved. | The image already speaks A2A natively (e.g. the Python Dapr Agent at `SpringVoyageAgentLauncher`). |
 
@@ -53,7 +53,7 @@ The Tier-A CLI launchers (Claude Code, Codex, Gemini) all use path 1 by default;
 
 ### Versioning commitment
 
-- **Bridge.** Semver on the npm package (`@cvoya/spring-voyage-agent-sidecar`) and the OCI tag (`ghcr.io/cvoya-com/agent-base`). N-2 backward compatibility: a Spring Voyage worker dialing this bridge accepts versions within the last 2 majors. The bridge stamps its version on the `x-spring-voyage-bridge-version` header and the Agent Card so the dispatcher logs version skew.
+- **Bridge.** Semver on the npm package (`@cvoya/spring-voyage-agent-sidecar`) and the OCI tag (`ghcr.io/cvoya-com/spring-voyage-agent-base`). N-2 backward compatibility: a Spring Voyage worker dialing this bridge accepts versions within the last 2 majors. The bridge stamps its version on the `x-spring-voyage-bridge-version` header and the Agent Card so the dispatcher logs version skew.
 - **A2A.** Pinned to `0.3.x`. A bump to `0.4.x` or `1.x` is a deliberate breaking change with a deprecation window on the dispatcher side; the protocol version on the Agent Card lets the dispatcher refuse mismatches early.
 - **Release shape.** Bridge releases are cut on tags shaped `agent-base-vX.Y.Z`. The release workflow publishes the OCI image, the npm package, and the SEA binaries in lockstep so all three paths advance together.
 

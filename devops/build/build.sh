@@ -83,8 +83,8 @@ local_image_refs() {
         "ghcr.io/cvoya-com/spring-voyage-agent-oss-design:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:${agent_tag}" \
-        "ghcr.io/cvoya-com/claude-code-base:${agent_tag}" \
-        "ghcr.io/cvoya-com/gemini-base:${agent_tag}" \
+        "ghcr.io/cvoya-com/spring-voyage-claude-code-base:${agent_tag}" \
+        "ghcr.io/cvoya-com/spring-voyage-gemini-base:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-agent:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-agent-base:${agent_tag}"
 }

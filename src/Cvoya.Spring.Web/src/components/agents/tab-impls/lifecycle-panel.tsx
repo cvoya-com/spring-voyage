@@ -275,7 +275,7 @@ export function LifecyclePanel({
               type="text"
               value={imageOverride}
               onChange={(e) => setImageOverride(e.target.value)}
-              placeholder="e.g. ghcr.io/cvoya-com/claude-code-base:2.1.98"
+              placeholder="e.g. ghcr.io/cvoya-com/spring-voyage-claude-code-base:2.1.98"
               list={imageHistory.length > 0 ? "agent-lifecycle-image-suggestions" : undefined}
               className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               data-testid="agent-lifecycle-image-input"

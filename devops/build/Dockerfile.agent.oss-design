@@ -26,7 +26,7 @@
 #     -t ghcr.io/cvoya-com/spring-voyage-agent-oss-design:dev \
 #     .
 
-ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:latest
+ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:latest
 ARG CLAUDE_CODE_VERSION=2.1.98
 # Playwright 1.55.0 added official Debian 13 "Trixie" support. Bump from
 # 1.49.1 so the build uses trixie-native browser binaries instead of the

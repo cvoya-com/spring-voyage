@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the agent-base image locally for development. The published
-# image (ghcr.io/cvoya-com/agent-base) is built by the
+# image (ghcr.io/cvoya-com/spring-voyage-agent-base) is built by the
 # release-agent-base.yml CI workflow on tag push; this script is the
 # escape hatch for hacking on the bridge from a developer laptop.
 #
@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 TAG="${1:-dev}"
-IMAGE="ghcr.io/cvoya-com/agent-base"
+IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-base"
 DOCKERFILE="${SCRIPT_DIR}/Dockerfile.agent-base"
 
 if [[ ! -f "${DOCKERFILE}" ]]; then

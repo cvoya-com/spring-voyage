@@ -164,7 +164,7 @@ public class DbAgentDefinitionProviderTests
             Definition = JsonSerializer.SerializeToElement(new
             {
                 instructions = "Be careful.",
-                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/claude-code-base:latest" }
+                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
             })
         };
 
@@ -173,7 +173,7 @@ public class DbAgentDefinitionProviderTests
         def.Instructions.ShouldBe("Be careful.");
         def.Execution.ShouldNotBeNull();
         def.Execution!.AgentRuntimeId.ShouldBe("claude");
-        def.Execution.Image.ShouldBe("ghcr.io/cvoya-com/claude-code-base:latest");
+        def.Execution.Image.ShouldBe("ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest");
     }
 
     [Fact]
@@ -244,7 +244,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/claude-code-base:latest", hosting = "persistent" }
+                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest", hosting = "persistent" }
             })
         };
 
@@ -263,7 +263,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/claude-code-base:latest" }
+                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
             })
         };
 
@@ -286,7 +286,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/claude-code-base:latest", hosting = "pooled" }
+                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest", hosting = "pooled" }
             })
         };
 

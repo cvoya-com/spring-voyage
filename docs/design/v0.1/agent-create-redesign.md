@@ -245,7 +245,7 @@ The strip is non-editable. It is the operator's confirmation that they are creat
 │                           inherited from Engineering Team: (resolved)  │
 │                                                                        │
 │  Container image          ┌──────────────────────────────────────┐     │
-│                           │ ghcr.io/cvoya-com/claude-code-base… │     │
+│                           │ ghcr.io/cvoya-com/spring-voyage-claude-code-base… │     │
 │                           └──────────────────────────────────────┘     │
 │                           inherited from Engineering Team             │
 │                                                                        │
