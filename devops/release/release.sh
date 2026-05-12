@@ -119,6 +119,9 @@ if [[ -n "$PRE_RELEASE" ]]; then
     CANDIDATE="${FULL_SEMVER}"
     COUNTER=1
     tag_exists() {
+      git tag -l "agent-base-v${1}" | grep -q . ||
+      git tag -l "oss-agents-v${1}" | grep -q . ||
+      git tag -l "v${1}" | grep -q . ||
       gh api "repos/${REPO}/git/refs/tags/agent-base-v${1}" --silent 2>/dev/null ||
       gh api "repos/${REPO}/git/refs/tags/oss-agents-v${1}" --silent 2>/dev/null ||
       gh api "repos/${REPO}/git/refs/tags/v${1}" --silent 2>/dev/null
