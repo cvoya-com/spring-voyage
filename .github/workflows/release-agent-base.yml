@@ -79,9 +79,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: deployment/agent-sidecar/package-lock.json
+          cache-dependency-path: src/Cvoya.Spring.AgentSidecar/package-lock.json
       - name: Install + test
-        working-directory: deployment/agent-sidecar
+        working-directory: src/Cvoya.Spring.AgentSidecar
         run: |
           npm ci --no-audit --no-fund
           npm run lint
@@ -136,7 +136,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: deployment/Dockerfile.agent-base
+          file: devops/build/Dockerfile.agent-base
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -165,22 +165,22 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
           cache: npm
-          cache-dependency-path: deployment/agent-sidecar/package-lock.json
+          cache-dependency-path: src/Cvoya.Spring.AgentSidecar/package-lock.json
 
       - name: Sync package.json version with tag
-        working-directory: deployment/agent-sidecar
+        working-directory: src/Cvoya.Spring.AgentSidecar
         run: |
           set -euo pipefail
           npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
 
       - name: Install + build
-        working-directory: deployment/agent-sidecar
+        working-directory: src/Cvoya.Spring.AgentSidecar
         run: |
           npm ci --no-audit --no-fund
           npm run build
 
       - name: Publish (with provenance)
-        working-directory: deployment/agent-sidecar
+        working-directory: src/Cvoya.Spring.AgentSidecar
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -214,16 +214,16 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: deployment/agent-sidecar/package-lock.json
+          cache-dependency-path: src/Cvoya.Spring.AgentSidecar/package-lock.json
 
       - name: Install + build
-        working-directory: deployment/agent-sidecar
+        working-directory: src/Cvoya.Spring.AgentSidecar
         run: |
           npm ci --no-audit --no-fund
           npm run build
 
       - name: Bundle entrypoint into a single file
-        working-directory: deployment/agent-sidecar
+        working-directory: src/Cvoya.Spring.AgentSidecar
         run: |
           set -euo pipefail
           npx --yes esbuild@0.24.0 dist/cli.js \
@@ -234,7 +234,7 @@ jobs:
             --outfile=dist/sidecar-bundle.cjs
 
       - name: Build Node SEA binary
-        working-directory: deployment/agent-sidecar
+        working-directory: src/Cvoya.Spring.AgentSidecar
         env:
           OUT_NAME: spring-voyage-agent-sidecar-${{ matrix.target }}
           RUNNER_OS: ${{ runner.os }}
@@ -265,7 +265,7 @@ jobs:
           fi
 
       - name: Smoke test the binary
-        working-directory: deployment/agent-sidecar
+        working-directory: src/Cvoya.Spring.AgentSidecar
         env:
           OUT_NAME: spring-voyage-agent-sidecar-${{ matrix.target }}
         run: |
@@ -288,7 +288,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: sidecar-binary-${{ matrix.target }}
-          path: deployment/agent-sidecar/dist/spring-voyage-agent-sidecar-${{ matrix.target }}
+          path: src/Cvoya.Spring.AgentSidecar/dist/spring-voyage-agent-sidecar-${{ matrix.target }}
           if-no-files-found: error
 
   release:

@@ -84,13 +84,13 @@ jobs:
       matrix:
         include:
           - name: spring-voyage-agent-oss-software-engineering
-            dockerfile: deployment/Dockerfile.agent.oss-software-engineering
+            dockerfile: devops/build/Dockerfile.agent.oss-software-engineering
           - name: spring-voyage-agent-oss-design
-            dockerfile: deployment/Dockerfile.agent.oss-design
+            dockerfile: devops/build/Dockerfile.agent.oss-design
           - name: spring-voyage-agent-oss-product-management
-            dockerfile: deployment/Dockerfile.agent.oss-product-management
+            dockerfile: devops/build/Dockerfile.agent.oss-product-management
           - name: spring-voyage-agent-oss-program-management
-            dockerfile: deployment/Dockerfile.agent.oss-program-management
+            dockerfile: devops/build/Dockerfile.agent.oss-program-management
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: cvoya-com/${{ matrix.name }}

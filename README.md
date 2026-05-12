@@ -94,7 +94,7 @@ for the expected shape (PEM contents, not a path).
 
 **First-run GitHub bootstrap — recommended path.** Instead of walking the
 ~10 manual GitHub-docs steps to register a new App and copy its secrets
-into `deployment/spring.env`, run one CLI verb:
+into `devops/deploy/spring.env`, run one CLI verb:
 
 ```bash
 spring github-app register --name "Spring Voyage (<your-deployment>)"
@@ -104,7 +104,7 @@ The verb drives GitHub's [App-from-manifest flow](https://docs.github.com/en/app
 it opens your browser on a pre-filled "create App" page, receives the
 conversion code on a loopback listener, and writes `GitHub__AppId`,
 `GitHub__PrivateKeyPem`, `GitHub__WebhookSecret`, and the OAuth client
-id/secret into `deployment/spring.env`. Pass `--org <slug>` to register
+id/secret into `devops/deploy/spring.env`. Pass `--org <slug>` to register
 under an organisation or `--write-secrets` to persist via platform-scoped
 secrets instead. See [`docs/architecture/cli-and-web.md`](docs/architecture/cli-and-web.md#github-app-bootstrap-verb-631)
 for the full flag list.
@@ -146,10 +146,10 @@ For Dapr component layout (local vs. production profiles, secret stores, configs
 
 ## Self-Hosting
 
-To run the full stack (Postgres, Redis, Dapr control plane, API, Worker, web dashboard, Caddy with automatic TLS) on a single host, use the container-based deployment under [`deployment/`](deployment/README.md) instead of `dapr run`. Both Docker Compose and a Podman-native script are supported:
+To run the full stack (Postgres, Redis, Dapr control plane, API, Worker, web dashboard, Caddy with automatic TLS) on a single host, use the container-based deployment under [`devops/deploy/`](devops/deploy/README.md) instead of `dapr run`. Both Docker Compose and a Podman-native script are supported:
 
 ```bash
-cd deployment/
+cd devops/deploy/
 cp spring.env.example spring.env
 $EDITOR spring.env                                # deploy-time config: hostname, DB password, image tags
 
@@ -158,7 +158,7 @@ docker compose --env-file spring.env build
 docker compose --env-file spring.env up -d
 
 # Or Podman (deploy.sh)
-./build.sh
+../build/build.sh
 ./deploy.sh up
 # ./deploy.sh clean  # destructive reset: containers, volumes, networks, local images
 ```
@@ -187,7 +187,7 @@ spring unit create first-team \
 
 Units inherit tenant defaults automatically. Override per unit via the Secrets tab on a unit detail page or `spring secret create --scope unit --unit <name> anthropic-api-key --value "..."`. The platform does not read LLM provider keys from environment variables — credentials must be set at tenant or unit scope. See [`docs/guide/secrets.md`](docs/guide/secrets.md) for the full three-tier model and resolution order.
 
-The canonical operator guide is [docs/guide/operator/deployment.md](docs/guide/operator/deployment.md) — it covers the zero-to-running walkthrough, container topology, Dapr components, Postgres/Redis configuration, Caddy + Let's Encrypt, secrets bootstrap, health checks, updates, and troubleshooting. The script-level reference (commands, environment variables, webhook relay, per-user agent networks) lives in [`deployment/README.md`](deployment/README.md).
+The canonical operator guide is [docs/guide/operator/deployment.md](docs/guide/operator/deployment.md) — it covers the zero-to-running walkthrough, container topology, Dapr components, Postgres/Redis configuration, Caddy + Let's Encrypt, secrets bootstrap, health checks, updates, and troubleshooting. The script-level reference (commands, environment variables, webhook relay, per-user agent networks) lives in [`devops/deploy/README.md`](devops/deploy/README.md).
 
 ## CLI
 
@@ -206,7 +206,7 @@ See the [Getting Started guide](docs/guide/intro/getting-started.md) for a full 
 
 ### Custom agent images
 
-An agent dispatches in a container. The platform ships two reference tool-bearing images plus a bridge base image (PR 3b of [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087), [#1096](https://github.com/cvoya-com/spring-voyage/issues/1096)), all built by `./deployment/build-agent-images.sh`:
+An agent dispatches in a container. The platform ships two reference tool-bearing images plus a bridge base image (PR 3b of [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087), [#1096](https://github.com/cvoya-com/spring-voyage/issues/1096)), all built by `./devops/build/build-agent-images.sh`:
 
 | Image | Conformance path | Use it for |
 | ----------------- | ---------------- | ---------- |
@@ -214,12 +214,12 @@ An agent dispatches in a container. The platform ships two reference tool-bearin
 | `ghcr.io/cvoya-com/spring-voyage-agent:latest`        | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
 | `ghcr.io/cvoya-com/agent-base:<semver>`                | path 1 base     | Bring your own CLI on top of the bridge sidecar. |
 
-To layer extra tooling on top, the shortest path is a Dockerfile that extends one of the bases. Two starter templates ship under [`deployment/examples/dockerfiles/`](deployment/examples/dockerfiles/):
+To layer extra tooling on top, the shortest path is a Dockerfile that extends one of the bases. Two starter templates ship under [`devops/build/examples/dockerfiles/`](devops/build/examples/dockerfiles/):
 
 | Template | When to use |
 | -------- | ----------- |
-| [`minimal-extension`](deployment/examples/dockerfiles/minimal-extension/) | Re-tag a base image under your own registry. |
-| [`custom-tools`](deployment/examples/dockerfiles/custom-tools/) | Layer extra CLI tools on top of the base. |
+| [`minimal-extension`](devops/build/examples/dockerfiles/minimal-extension/) | Re-tag a base image under your own registry. |
+| [`custom-tools`](devops/build/examples/dockerfiles/custom-tools/) | Layer extra CLI tools on top of the base. |
 
 Reference the built image through a unit's or agent's `execution.image` field — either from a YAML manifest or through the portal's new **Execution** tab (unit detail / agent detail). The five-field execution block (`image`, `runtime`, `tool`, `provider`, `model`) plus the **agent → unit → fail** resolution chain is described in [`docs/architecture/units.md`](docs/architecture/units.md#unit-execution-defaults-and-the-agent--unit--fail-resolution-chain-601-b-wide).
 
@@ -272,7 +272,7 @@ The dashboard consumes the API host endpoints. For local development, start the 
 │   └── Cvoya.Spring.Web/                     # Web dashboard (React/Next.js)
 ├── tests/                                    # xUnit test projects
 ├── dapr/                                     # Dapr components + config (local/production profiles)
-├── deployment/                               # Podman Compose, Caddy, build/deploy scripts
+├── devops/                                   # Build (Dockerfiles, build*.sh), deploy (Podman/compose, Caddy, setup), install (source-free)
 ├── packages/                                 # Domain packages (software-engineering, product-management)
 ├── docs/                                     # Concepts, architecture, user guide, developer guide
 ├── CONVENTIONS.md                            # Coding conventions (mandatory reading)

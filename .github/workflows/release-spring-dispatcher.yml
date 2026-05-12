@@ -14,7 +14,7 @@ name: Release spring-dispatcher
 #     https://github.com/cvoya-com/spring-voyage/releases/download/dispatcher-v0.1.0/spring-dispatcher-0.1.0-linux-x64.tar.gz
 #   tar xf dispatcher.tar.gz
 #   SPRING_DISPATCHER_BIN="$PWD/Cvoya.Spring.Dispatcher" \
-#     ./deployment/spring-voyage-host.sh start
+#     ./devops/deploy/spring-voyage-host.sh start
 #
 # spring-voyage-host.sh's discover_binary detects the native
 # executable and skips the `dotnet` invocation.
@@ -152,12 +152,12 @@ jobs:
           cat >"${stage_dir}/README.txt" <<EOF
           spring-dispatcher ${VERSION_LABEL} (${RID})
 
-          Run as a long-lived host process via deployment/spring-voyage-host.sh:
+          Run as a long-lived host process via devops/deploy/spring-voyage-host.sh:
 
               SPRING_DISPATCHER_BIN="\$PWD/${EXECUTABLE}" \\
                 ./spring-voyage-host.sh start
 
-          See https://github.com/cvoya-com/spring-voyage/blob/main/deployment/README.md.
+          See https://github.com/cvoya-com/spring-voyage/blob/main/devops/deploy/README.md.
           EOF
 
           archive_name="spring-dispatcher-${VERSION_LABEL}-${RID}.${ARCHIVE}"

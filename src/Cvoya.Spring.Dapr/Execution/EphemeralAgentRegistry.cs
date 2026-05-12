@@ -51,7 +51,7 @@ public class EphemeralAgentRegistry(
     /// <summary>
     /// Default grace period the SIGTERM → SIGKILL teardown waits before
     /// escalating. Mirrors the bridge's <c>AGENT_CANCEL_GRACE_MS</c> default
-    /// in <c>deployment/agent-sidecar/src/config.ts</c>.
+    /// in <c>src/Cvoya.Spring.AgentSidecar/src/config.ts</c>.
     /// </summary>
     public static readonly TimeSpan DefaultCancellationGrace = TimeSpan.FromSeconds(10);
 

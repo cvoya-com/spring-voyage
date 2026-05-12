@@ -11,7 +11,7 @@ Spring Voyage ships two classes of container image for running agents:
 
 Per ADR-0038, every entry under `agentRuntimes` in `platform/runtime-catalog.yaml` declares a `defaultImage`. The unit-creation wizard pre-fills the image field with the selected runtime's `defaultImage`. This repository builds the `claude-code-base`, `gemini-base`, and `spring-voyage-agent` references; `codex-base` is an external runtime image.
 
-For local development before GHCR publishing, `deployment/build-agent-images.sh`
+For local development before GHCR publishing, `devops/build/build-agent-images.sh`
 tags built images with their canonical `ghcr.io/cvoya-com/...:<tag>`
 references in the local container store. The dispatcher checks the exact
 configured image with `image inspect` before it attempts a network pull, so a
@@ -20,7 +20,7 @@ offline.
 
 ## agent-base (BYOI minimal)
 
-**Source:** `deployment/Dockerfile.agent-base`
+**Source:** `devops/build/Dockerfile.agent-base`
 **Published by:** `release-agent-base.yml` on `agent-base-v*` tags.
 
 The minimal layer an operator needs to plug any CLI into the Spring Voyage dispatcher:
@@ -43,13 +43,13 @@ USER agent
 
 ## Per-runtime images
 
-Built by `deployment/build-agent-images.sh` for local dev and CI verification.
+Built by `devops/build/build-agent-images.sh` for local dev and CI verification.
 
 | Image | Source file | Tool kind |
 |-------|-------------|-----------|
-| `ghcr.io/cvoya-com/claude-code-base:dev` | `deployment/Dockerfile.agent.claude-code` | `claude-code-cli` |
-| `ghcr.io/cvoya-com/gemini-base:dev` | `deployment/Dockerfile.agent.gemini` | `gemini-cli` |
-| `ghcr.io/cvoya-com/spring-voyage-agent:dev` | `deployment/Dockerfile.agent.dapr` | `spring-voyage-agent` (native A2A, Python) |
+| `ghcr.io/cvoya-com/claude-code-base:dev` | `devops/build/Dockerfile.agent.claude-code` | `claude-code-cli` |
+| `ghcr.io/cvoya-com/gemini-base:dev` | `devops/build/Dockerfile.agent.gemini` | `gemini-cli` |
+| `ghcr.io/cvoya-com/spring-voyage-agent:dev` | `devops/build/Dockerfile.agent.dapr` | `spring-voyage-agent` (native A2A, Python) |
 
 **When to use per-runtime images:**
 - Smaller attack surface / image size for deployments where only one CLI is needed.
@@ -92,7 +92,7 @@ Before GHCR publishing is enabled, verify the dispatcher-visible local cache
 instead of pulling from the registry:
 
 ```bash
-DOCKER=podman deployment/build-agent-images.sh --tag latest --skip-oss
+DOCKER=podman devops/build/build-agent-images.sh --tag latest --skip-oss
 podman image inspect ghcr.io/cvoya-com/claude-code-base:latest
 podman image inspect ghcr.io/cvoya-com/spring-voyage-agent:latest
 ```

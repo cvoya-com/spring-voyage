@@ -95,25 +95,25 @@ jobs:
               # workflows meaningfully.
               - '.github/workflows/**'
             dispatcher_host:
-              - 'deployment/spring-voyage-host.sh'
-              - 'deployment/scripts/**'
-              - 'deployment/deploy.sh'
-              - 'deployment/docker-compose.yml'
-              - 'deployment/spring.env.example'
+              - 'devops/deploy/spring-voyage-host.sh'
+              - 'devops/deploy/scripts/**'
+              - 'devops/deploy/deploy.sh'
+              - 'devops/deploy/docker-compose.yml'
+              - 'devops/deploy/spring.env.example'
               - 'src/Cvoya.Spring.Dispatcher/**'
             agent_images:
               # build-agent-images.sh builds every Dockerfile.agent.* in
-              # `deployment/` (agent-base + claude-code + dapr + the four
+              # `devops/build/` (agent-base + claude-code + dapr + the four
               # OSS role images). Globbing the family keeps the smoke
               # job in sync with what the script actually builds, so a
               # change to e.g. `Dockerfile.agent.oss-software-engineering`
               # is exercised end-to-end on its own PR rather than
               # slipping in unvalidated and only surfacing on a later
               # workflow-touching PR.
-              - 'deployment/Dockerfile.agent-base'
-              - 'deployment/Dockerfile.agent.*'
-              - 'deployment/build-agent-images.sh'
-              - 'deployment/agent-sidecar/**'
+              - 'devops/build/Dockerfile.agent-base'
+              - 'devops/build/Dockerfile.agent.*'
+              - 'devops/build/build-agent-images.sh'
+              - 'src/Cvoya.Spring.AgentSidecar/**'
               - 'agents/spring-voyage-agent/**'
               - 'tests/scripts/smoke-agent-images.sh'
               - 'tests/scripts/smoke-1087.sh'
@@ -1149,7 +1149,7 @@ jobs:
 
       - name: Run idempotence test driver
         shell: bash
-        run: bash deployment/scripts/test-spring-voyage-host.sh
+        run: bash devops/deploy/scripts/test-spring-voyage-host.sh
 
   dispatcher-smoke:
     name: Dispatcher smoke (Tier 1)
@@ -1196,7 +1196,7 @@ jobs:
 
       - name: Run dispatcher smoke driver
         shell: bash
-        run: bash deployment/scripts/dispatcher-smoke.sh
+        run: bash devops/deploy/scripts/dispatcher-smoke.sh
 
   audit-no-container-cli:
     name: Audit (no worker-side podman/docker)
@@ -1231,7 +1231,7 @@ jobs:
     #
     # Static-input check (it bakes the PR's own Dockerfiles), so it is
     # safe to skip in the merge queue — a pass on the pull_request run
-    # stays valid through the queue. Path-filtered to the deployment +
+    # stays valid through the queue. Path-filtered to the devops/build +
     # python-agent surface so unrelated PRs don't pay the build cost.
     if: >
       github.event_name != 'merge_group' &&
@@ -1255,7 +1255,7 @@ jobs:
         # locally first so the claude-code FROM resolves without a GHCR pull.
         # That way a PR can be tested before the corresponding agent-base
         # tag is published.
-        run: bash deployment/build-agent-images.sh --tag dev
+        run: bash devops/build/build-agent-images.sh --tag dev
 
       - name: Smoke each image (curl /.well-known/agent.json)
         shell: bash

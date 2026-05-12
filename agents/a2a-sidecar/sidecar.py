@@ -70,7 +70,7 @@ def _build_task_response(
     - status.message carries kind: "message" (AgentMessage discriminator)
     - parts carry kind: "text" (PartConverterViaKindDiscriminator)
 
-    Mirrors deployment/agent-sidecar/src/a2a.ts buildTaskResponse (#1368).
+    Mirrors src/Cvoya.Spring.AgentSidecar/src/a2a.ts buildTaskResponse (#1368).
     """
     response: dict = {
         # A2A v0.3 kind discriminator ([JsonRequired] on AgentTask).

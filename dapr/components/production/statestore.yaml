@@ -8,7 +8,7 @@
 # (secretstores.local.env) via `secretKeyRef`, so the Postgres password
 # never lands in the image or in git. Provide it as the
 # `SPRING_POSTGRES_CONNECTION_STRING` environment variable on the Dapr
-# sidecar container (wired via `deployment/spring.env`).
+# sidecar container (wired via `devops/deploy/spring.env`).
 #
 # Host `spring-postgres` resolves over the `spring-net` Podman bridge.
 apiVersion: dapr.io/v1alpha1

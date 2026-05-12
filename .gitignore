@@ -29,9 +29,9 @@ coverage/
 dapr/secrets.json
 
 ## Deployment env file (not committed; keep spring.env.example only)
-deployment/spring.env
+devops/deploy/spring.env
 
-## Repo-local dispatcher publish output. `deployment/spring-voyage-host.sh`
+## Repo-local dispatcher publish output. `devops/deploy/spring-voyage-host.sh`
 ## publishes the spring-dispatcher binary here on `start`/`build` so that
 ## `discover_binary` has a stable, config- and TFM-agnostic path to run from
 ## (see PUBLISH_DIR_DEFAULT in the host script). Operators can redirect with

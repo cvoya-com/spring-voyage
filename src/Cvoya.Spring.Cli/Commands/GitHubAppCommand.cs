@@ -78,7 +78,7 @@ public static class GitHubAppCommand
         var writeEnvOption = new Option<bool>("--write-env")
         {
             Description =
-                "Append the resolved credentials to deployment/spring.env (the " +
+                "Append the resolved credentials to devops/deploy/spring.env (the " +
                 "default persistence target — zero runtime dependencies).",
             DefaultValueFactory = _ => false,
         };
@@ -93,7 +93,7 @@ public static class GitHubAppCommand
         {
             Description =
                 "Override the spring.env path written to by --write-env. Defaults " +
-                "to ./deployment/spring.env relative to the current working directory.",
+                "to ./devops/deploy/spring.env relative to the current working directory.",
         };
         var dryRunOption = new Option<bool>("--dry-run")
         {
@@ -200,7 +200,7 @@ public static class GitHubAppCommand
         };
         var writeEnvOption = new Option<bool>("--write-env")
         {
-            Description = "Persist the new key to deployment/spring.env (default when neither flag is set).",
+            Description = "Persist the new key to devops/deploy/spring.env (default when neither flag is set).",
             DefaultValueFactory = _ => false,
         };
         var writeSecretsOption = new Option<bool>("--write-secrets")
@@ -423,7 +423,7 @@ public static class GitHubAppCommand
         };
         var writeEnvOption = new Option<bool>("--write-env")
         {
-            Description = "Persist the new secret to deployment/spring.env (default when neither flag is set).",
+            Description = "Persist the new secret to devops/deploy/spring.env (default when neither flag is set).",
             DefaultValueFactory = _ => false,
         };
         var writeSecretsOption = new Option<bool>("--write-secrets")
@@ -635,7 +635,7 @@ public static class GitHubAppCommand
 
     private static string ResolveEnvPath(string? envFilePathOverride)
         => string.IsNullOrWhiteSpace(envFilePathOverride)
-            ? Path.Combine(Directory.GetCurrentDirectory(), "deployment", "spring.env")
+            ? Path.Combine(Directory.GetCurrentDirectory(), "devops", "deploy", "spring.env")
             : envFilePathOverride;
 
     // ------------------------------------------------------------------
@@ -858,7 +858,7 @@ public static class GitHubAppCommand
         // Derive from the configured deployment endpoint. We can't know
         // whether that endpoint is reachable from the public internet —
         // that's the operator's responsibility — but the default makes
-        // local-dev + relay setups (deployment/relay.sh) work out of
+        // local-dev + relay setups (devops/deploy/relay.sh) work out of
         // the box.
         var config = CliConfig.Load();
         var endpoint = Environment.GetEnvironmentVariable("SPRING_API_URL")
@@ -877,7 +877,7 @@ public static class GitHubAppCommand
         // --env-path explicitly. We don't try to walk-up; guessing the
         // repo root opens us to subtle bugs when the CLI is installed
         // as a global tool.
-        return Path.Combine(Directory.GetCurrentDirectory(), "deployment", "spring.env");
+        return Path.Combine(Directory.GetCurrentDirectory(), "devops", "deploy", "spring.env");
     }
 
     private static void PrintPreamble(

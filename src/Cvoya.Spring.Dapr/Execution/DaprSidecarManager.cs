@@ -141,7 +141,7 @@ public class DaprSidecarManager(
         // as soon as components + control plane are reachable, without also
         // waiting for the paired app container — which we only start AFTER
         // this method returns true (chicken-and-egg otherwise). Mirrors
-        // deployment/deploy.sh's wait_sidecar_ready helper.
+        // devops/deploy/deploy.sh's wait_sidecar_ready helper.
         //
         // The probe runs in a throwaway curl container on the sidecar's
         // bridge network; the upstream daprio/daprd image is distroless so
@@ -229,7 +229,7 @@ public class DaprSidecarManager(
             // cross-container connection, the readiness probe times out
             // after 30s, and the dispatch tears the sidecar down before
             // ever reaching the app launch. Matches what
-            // `deployment/deploy.sh` passes for `spring-api-dapr` /
+            // `devops/deploy/deploy.sh` passes for `spring-api-dapr` /
             // `spring-worker-dapr`.
             "--dapr-listen-addresses", "0.0.0.0",
         };

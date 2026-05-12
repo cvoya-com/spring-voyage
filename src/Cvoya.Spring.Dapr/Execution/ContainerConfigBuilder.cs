@@ -54,7 +54,7 @@ public static class ContainerConfigBuilder
     /// (eventually, see issue #1166) workflow containers. The platform
     /// services that an agent needs to reach (the dispatcher / MCP server
     /// on the host, the Ollama backend) are dual-attached to this network
-    /// in <c>deployment/deploy.sh</c> so DNS resolves from inside the
+    /// in <c>devops/deploy/deploy.sh</c> so DNS resolves from inside the
     /// tenant namespace too.
     /// </summary>
     /// <remarks>

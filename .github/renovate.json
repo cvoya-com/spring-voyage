@@ -46,18 +46,18 @@
       "groupSlug": "gemini-cli"
     },
     {
-      "description": "agent-sidecar TypeScript build toolchain (devDependencies only — not shipped in production images).",
-      "matchFileNames": ["deployment/agent-sidecar/package.json"],
-      "groupName": "agent-sidecar devDependencies",
+      "description": "AgentSidecar TypeScript build toolchain (devDependencies only — not shipped in production images).",
+      "matchFileNames": ["src/Cvoya.Spring.AgentSidecar/package.json"],
+      "groupName": "AgentSidecar devDependencies",
       "groupSlug": "agent-sidecar-dev"
     }
   ],
 
   "dockerfile": {
-    "fileMatch": ["^deployment/Dockerfile(\\.[a-zA-Z0-9._-]+)?$"]
+    "fileMatch": ["^devops/build/Dockerfile(\\.[a-zA-Z0-9._-]+)?$"]
   },
 
   "npm": {
-    "fileMatch": ["^deployment/agent-sidecar/package\\.json$"]
+    "fileMatch": ["^src/Cvoya\\.Spring\\.AgentSidecar/package\\.json$"]
   }
 }

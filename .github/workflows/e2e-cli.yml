@@ -114,7 +114,7 @@ jobs:
 
       # ── Stack bringup ──────────────────────────────────────────────────────
       # Bring up Postgres so the API host can boot. The full docker-compose
-      # stack (deployment/docker-compose.yml) requires a cloud-hosted Postgres
+      # stack (devops/deploy/docker-compose.yml) requires a cloud-hosted Postgres
       # and Dapr placement service; for CI we use a minimal Postgres-only
       # container and launch the .NET API host directly via `dotnet run`.
       #

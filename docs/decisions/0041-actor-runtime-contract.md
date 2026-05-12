@@ -3,7 +3,7 @@
 - **Status:** Proposed — 2026-05-10 — supersedes the implicit "long-lived in-process state per agent" assumption with an explicit two-mode contract bound to `concurrent_threads`. Sharpens [ADR-0026](0026-per-agent-container-scope.md) (per-agent container scope) by specifying *what happens inside* the container when N threads share it.
 - **Date:** 2026-05-10
 - **Tracks:** [#2090](https://github.com/cvoya-com/spring-voyage/issues/2090). Triggered by [#2088](https://github.com/cvoya-com/spring-voyage/issues/2088) / PR [#2093](https://github.com/cvoya-com/spring-voyage/pull/2093) (uvicorn-after-turn shutdown).
-- **Related code:** `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Dapr/Execution/PersistentAgentRegistry.cs`, `src/Cvoya.Spring.Dapr/Actors/AgentActor.cs` (per-thread channels from #2076 / #2078), `agents/spring-voyage-agent-sdk/spring_voyage_agent_sdk/runtime.py`, `deployment/agent-sidecar/src/bridge.ts`.
+- **Related code:** `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Dapr/Execution/PersistentAgentRegistry.cs`, `src/Cvoya.Spring.Dapr/Actors/AgentActor.cs` (per-thread channels from #2076 / #2078), `agents/spring-voyage-agent-sdk/spring_voyage_agent_sdk/runtime.py`, `src/Cvoya.Spring.AgentSidecar/src/bridge.ts`.
 - **Related docs:** [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md), [`docs/architecture/agent-sdk.md`](../architecture/agent-sdk.md), [ADR-0026 — Per-agent container scope](0026-per-agent-container-scope.md), [ADR-0017 — A Unit IS an Agent](0017-unit-is-an-agent-composite.md), [ADR-0030 — Thread model](0030-thread-model.md), [ADR-0036 — Single-identity model](0036-single-identity-model.md).
 
 ## Context
@@ -77,7 +77,7 @@ The contract is documented in author-facing docs ([`docs/architecture/agent-sdk.
 ### Gains
 
 - **Unifies the Python SDK and CLI runtime paths under one contract.** Both become "actor-serialized at the platform, thread-keyed memory at the runtime, single-thread-active-at-a-time semantics." The literal #2088 fix (keep uvicorn alive) and the CLI-runtime session-resume wiring are the same architectural answer expressed at two different layers.
-- **No new lifecycle code for `concurrent_threads: true` on CLI runtimes.** `bridge.ts` already spawns per `message/send` with no serialization (`deployment/agent-sidecar/src/bridge.ts:61`) — concurrent A2A requests already produce concurrent children. The new bit is the deterministic `thread.id` → session-id wiring, which is a documentation + small implementation change.
+- **No new lifecycle code for `concurrent_threads: true` on CLI runtimes.** `bridge.ts` already spawns per `message/send` with no serialization (`src/Cvoya.Spring.AgentSidecar/src/bridge.ts:61`) — concurrent A2A requests already produce concurrent children. The new bit is the deterministic `thread.id` → session-id wiring, which is a documentation + small implementation change.
 - **`thread.id` reuse keeps identifiers traceable end-to-end.** A session file on disk inside an agent container can be matched 1:1 to a Spring Voyage thread without an indirection table. Debugging across the actor mailbox, the dispatcher, the bridge, and the runtime's local files reads as one identifier.
 - **Per-agent isolation matches per-agent credential / image / cancellation surface from ADR-0026.** Blast radius rules from ADR-0026 still hold; nothing in this ADR widens them.
 

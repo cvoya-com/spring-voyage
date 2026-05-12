@@ -239,7 +239,7 @@ jobs:
 
   # ── 3. Publish container images ────────────────────────────────────────────
   #
-  # Builds the three agent images via deployment/build-agent-images.sh and
+  # Builds the three agent images via devops/build/build-agent-images.sh and
   # pushes them to ghcr.io/cvoya/* under the versioned and floating tags
   # defined in docs/developer/releases.md.
   #
@@ -278,7 +278,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          bash deployment/build-agent-images.sh --tag "${RELEASE_VERSION}" --ghcr-only
+          bash devops/build/build-agent-images.sh --tag "${RELEASE_VERSION}" --ghcr-only
 
       # The build script tags:
       #   ghcr.io/cvoya-com/spring-voyage-agent-base:<tag> (re-tagged below)

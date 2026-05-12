@@ -225,7 +225,7 @@ public interface IContainerRuntime
     /// <remarks>
     /// <para>
     /// Mirrors the <c>wait_sidecar_ready</c> helper in
-    /// <c>deployment/deploy.sh</c>: the dispatcher runs
+    /// <c>devops/deploy/deploy.sh</c>: the dispatcher runs
     /// <c>&lt;runtime&gt; run --rm --network &lt;network&gt; &lt;probeImage&gt; …</c>
     /// with a short per-attempt deadline so a real outage still surfaces via
     /// the caller's polling loop. The probe container is removed on exit.

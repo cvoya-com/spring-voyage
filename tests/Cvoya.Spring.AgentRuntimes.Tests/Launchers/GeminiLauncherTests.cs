@@ -246,7 +246,7 @@ public class GeminiLauncherTests
         // platform thread.id onto Gemini's session identifier via
         // `--session-id <id>` on first send and `--resume <id>` on
         // subsequent sends. These two consts are the wire contract
-        // between the .NET launcher and `deployment/agent-sidecar/src/config.ts`
+        // between the .NET launcher and `src/Cvoya.Spring.AgentSidecar/src/config.ts`
         // — pinning them here surfaces accidental drift in a unit test
         // rather than only at integration time.
         var prep = await _launcher.PrepareAsync(
@@ -267,7 +267,7 @@ public class GeminiLauncherTests
         // session-id flag onto — Gemini agent containers literally could
         // not execute end-to-end. The default argv must be JSON-encoded
         // (the bridge does JSON.parse, see
-        // `deployment/agent-sidecar/src/config.ts:parseArgv`) and must
+        // `src/Cvoya.Spring.AgentSidecar/src/config.ts:parseArgv`) and must
         // produce a complete spawn vector once the bridge appends
         // [--session-id|--resume, <thread.id>] to it.
         //

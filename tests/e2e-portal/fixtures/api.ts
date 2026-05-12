@@ -20,7 +20,7 @@ import { OLLAMA_BASE_URL } from "./runtime.js";
  * API base URL. Resolution order:
  *   1. `SPRING_API_URL` — set explicitly to point at the API host.
  *   2. `PLAYWRIGHT_BASE_URL` — same origin as the portal (Caddy proxies
- *      `/api/*` to the API host in `deployment/Caddyfile`).
+ *      `/api/*` to the API host in `devops/deploy/Caddyfile`).
  *   3. `http://localhost` — single-host docker-compose default.
  */
 export const API_BASE_URL: string =

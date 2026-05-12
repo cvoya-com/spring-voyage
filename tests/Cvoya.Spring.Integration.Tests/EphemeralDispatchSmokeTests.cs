@@ -36,7 +36,7 @@ using Xunit;
 /// <see cref="ProcessContainerRuntime.StopAsync"/> against an
 /// <c>alpine:latest</c> container running <c>sh -c "sleep 5; echo hello"</c>.
 /// We don't stand up a real A2A bridge here — that's covered by the
-/// dispatcher-smoke shell script in <c>deployment/scripts/</c> and by CI's
+/// dispatcher-smoke shell script in <c>devops/deploy/scripts/</c> and by CI's
 /// agent-image smoke. This test asserts the lifecycle plumbing the new
 /// ephemeral path adds (detached start, registry tracking, registry-driven
 /// teardown) works end-to-end without `sleep infinity` hanging the dispatch.
@@ -111,7 +111,7 @@ public class EphemeralDispatchSmokeTests
 
     /// <summary>
     /// End-to-end wire smoke for issue #1198: spin up the actual
-    /// <c>deployment/agent-sidecar/</c> bridge as a Node subprocess on
+    /// <c>src/Cvoya.Spring.AgentSidecar/</c> bridge as a Node subprocess on
     /// a free port, then call it with the dispatcher's real
     /// <see cref="A2A.V0_3.A2AClient"/> over A2A. Asserts that
     /// <c>SendMessageAsync</c> deserializes the bridge's v0.3 response
@@ -119,7 +119,7 @@ public class EphemeralDispatchSmokeTests
     /// kind-discriminated-result contract end-to-end.
     ///
     /// Gated on <c>SPRING_RUN_DOCKER_SMOKE=1</c>. The bridge must be
-    /// built first (<c>cd deployment/agent-sidecar &amp;&amp; npm install
+    /// built first (<c>cd src/Cvoya.Spring.AgentSidecar &amp;&amp; npm install
     /// &amp;&amp; npm run build</c>); the test skips with a clear message
     /// if the built artifact isn't on disk.
     /// </summary>
@@ -133,12 +133,12 @@ public class EphemeralDispatchSmokeTests
         }
 
         var repoRoot = ResolveRepoRoot();
-        var bridgeDist = Path.Combine(repoRoot, "deployment", "agent-sidecar", "dist", "cli.js");
+        var bridgeDist = Path.Combine(repoRoot, "src", "Cvoya.Spring.AgentSidecar", "dist", "cli.js");
         if (!File.Exists(bridgeDist))
         {
             Assert.Skip(
                 $"Bridge dist not found at '{bridgeDist}'. " +
-                "Run 'npm install && npm run build' in deployment/agent-sidecar first.");
+                "Run 'npm install && npm run build' in src/Cvoya.Spring.AgentSidecar first.");
         }
 
         var port = FindFreeTcpPort();

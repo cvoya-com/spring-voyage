@@ -7,7 +7,7 @@
 # pulling @cvoya/spring-voyage-agent-sidecar from npmjs.org (which is
 # only published on agent-base-vX.Y.Z release tags and therefore can't
 # be relied on per-PR), the smoke driver runs `npm pack` against the
-# in-tree deployment/agent-sidecar/ sources and `npm i -g`s the
+# in-tree src/Cvoya.Spring.AgentSidecar/ sources and `npm i -g`s the
 # resulting tarball below. End-state inside the image is identical to
 # the public recipe; it's just sourced from the working tree.
 #
@@ -16,7 +16,7 @@
 # this directory ahead of `docker build`, then deletes it on exit.
 
 # node:22-alpine matches the `engines.node: ">=22"` declared in
-# deployment/agent-sidecar/package.json. Alpine keeps the image small
+# src/Cvoya.Spring.AgentSidecar/package.json. Alpine keeps the image small
 # and is intentionally a different base than the path-1 agent-base
 # image — the whole point of path 2 is to prove the bridge can be
 # dropped into an arbitrary Node-bearing distro. Pinned to an exact
@@ -42,7 +42,7 @@ RUN npm install -g ./sidecar.tgz \
 
 WORKDIR /
 
-# Default A2A port from deployment/agent-sidecar/src/config.ts. The
+# Default A2A port from src/Cvoya.Spring.AgentSidecar/src/config.ts. The
 # smoke driver publishes this on a random host port via `-p`, mirrors
 # the path-1 contract.
 EXPOSE 8999

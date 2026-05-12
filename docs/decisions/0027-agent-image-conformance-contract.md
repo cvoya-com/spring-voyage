@@ -3,8 +3,8 @@
 - **Status:** Accepted — 2026-04-22 — `A2AExecutionDispatcher` speaks A2A 0.3.x to every agent container on `${AgentLaunchSpec.A2APort}` (default `8999`). An image conforms by satisfying one of three paths: (1) `FROM ghcr.io/cvoya-com/agent-base:<semver>` and inherit the bundled bridge; (2) install the bridge via npm or copy the SEA binary into a custom base; (3) implement A2A 0.3.x natively. The bridge versioning is semver with N-2 backward compatibility on the dispatcher side; A2A is pinned to 0.3.x. Bind-mounted and co-launched sidecars are rejected.
 - **Date:** 2026-04-22
 - **Closes:** [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087)
-- **Related code:** `deployment/agent-sidecar/` (bridge source), `deployment/Dockerfile.agent-base`, `deployment/Dockerfile.agent.claude-code`, `deployment/Dockerfile.agent.dapr`, `.github/workflows/release-agent-base.yml`, `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Core/Execution/IAgentToolLauncher.cs` (`AgentLaunchSpec.A2APort`).
-- **Related docs:** [`docs/architecture/agent-runtime.md` § 7 BYOI conformance contract](../architecture/agent-runtime.md#7-byoi-conformance-contract), [`docs/guide/byoi-agent-images.md`](../guide/operator/byoi-agent-images.md), [`deployment/agent-sidecar/README.md`](../../deployment/agent-sidecar/README.md), [ADR 0025 — Unified agent launch contract](0025-unified-agent-launch-contract.md), [ADR 0026 — Per-agent container scope](0026-per-agent-container-scope.md).
+- **Related code:** `src/Cvoya.Spring.AgentSidecar/` (bridge source), `devops/build/Dockerfile.agent-base`, `devops/build/Dockerfile.agent.claude-code`, `devops/build/Dockerfile.agent.dapr`, `.github/workflows/release-agent-base.yml`, `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Core/Execution/IAgentToolLauncher.cs` (`AgentLaunchSpec.A2APort`).
+- **Related docs:** [`docs/architecture/agent-runtime.md` § 7 BYOI conformance contract](../architecture/agent-runtime.md#7-byoi-conformance-contract), [`docs/guide/byoi-agent-images.md`](../guide/operator/byoi-agent-images.md), [`src/Cvoya.Spring.AgentSidecar/README.md`](../../src/Cvoya.Spring.AgentSidecar/README.md), [ADR 0025 — Unified agent launch contract](0025-unified-agent-launch-contract.md), [ADR 0026 — Per-agent container scope](0026-per-agent-container-scope.md).
 
 ## Context
 
@@ -81,7 +81,7 @@ The Tier-A CLI launchers (Claude Code, Codex, Gemini) all use path 1 by default;
 
 ### Known follow-ups
 
-- **Path-2 (npm-installed bridge) reference image** — a Dockerfile under `deployment/examples/dockerfiles/` that exercises the npm install path end-to-end, plus a CI smoke. Filed as a follow-up so the OSS sample set is complete.
+- **Path-2 (npm-installed bridge) reference image** — a Dockerfile under `devops/build/examples/dockerfiles/` that exercises the npm install path end-to-end, plus a CI smoke. Filed as a follow-up so the OSS sample set is complete.
 - **Bridge upgrade automation** — when an operator's custom image pins a bridge version, surface "your bridge is N versions behind" in the agent's status payload (not just dispatcher logs).
 
 ## Revisit criteria

@@ -690,7 +690,7 @@ ADR 0001 is superseded by a new ADR that records "standalone is the decision; st
    - **Long-running workflow status** (§5.2) — the same stream can feed the per-agent running-indicator without a polling loop.
    A follow-up section below proposes the concrete wiring.
 3. **Hosted extension model works unchanged.** Spring Voyage Cloud (private repo) consumes the same Next.js app as a git submodule. Standalone mode means tenant-aware middleware + per-route server handlers can be added via the extension slots proposed in §4 without forking the web tier. Static export would have forced all of that into an external edge/CDN layer instead.
-4. **Deployment story is not meaningfully worse.** The shipped `deployment/Dockerfile` already runs Node to serve the portal — this was the case before and after the flip. The ADR's original worry ("every self-hoster needs a Node process") was already invalidated by the existing container topology.
+4. **Deployment story is not meaningfully worse.** The shipped `devops/build/Dockerfile` already runs Node to serve the portal — this was the case before and after the flip. The ADR's original worry ("every self-hoster needs a Node process") was already invalidated by the existing container topology.
 5. **Component vocabulary is in good shape.** `components/ui/*` is a reasonable shadcn-style primitive set. Tailwind 4 is current. `openapi-fetch` + `openapi-typescript` gives us fully-typed API calls. No framework-level change is warranted.
 6. **Rejected alternatives.**
    - *Remix / React Router 7* — would be a Next.js replacement for functionality we already have.

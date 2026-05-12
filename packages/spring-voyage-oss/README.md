@@ -41,7 +41,7 @@ Each sub-unit pins an OSS-flavored agent image:
 The four images `FROM` `spring-voyage-agent-base`, install the Claude Code CLI, and add per-role tooling. Build them locally with:
 
 ```bash
-./deployment/build-agent-images.sh --tag dev
+./devops/build/build-agent-images.sh --tag dev
 ```
 
 The release workflow `.github/workflows/release-oss-agent-images.yml` publishes multi-arch images to GHCR on `oss-agents-v*` tag pushes.

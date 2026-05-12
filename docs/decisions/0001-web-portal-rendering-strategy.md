@@ -33,10 +33,10 @@ The decision to finalise: stay on static export, switch to SSR, or go hybrid (SS
 Because hard loads of an arbitrary `/units/<id>` or `/agents/<id>` URL aren't prerendered, the serving layer must rewrite **unknown paths inside a known `[id]` tree to the route's exported shell**, which then reads the id from the URL at runtime. Concretely:
 
 - **Local dev (`next dev`).** Unaffected — dev server handles dynamic routes natively.
-- **Static host / CDN.** Configure a rewrite rule so `/units/*` → `/units/[id].html` (and likewise `/agents/*`). For nginx this is `try_files $uri $uri.html /units/[id].html =404;`. For S3/CloudFront, use a CloudFront Function or Lambda@Edge that rewrites unknown segments to the shell. The existing deployment topology (documented in `docs/architecture/cli-and-web.md` and `deployment/Dockerfile`) is responsible for this mapping.
+- **Static host / CDN.** Configure a rewrite rule so `/units/*` → `/units/[id].html` (and likewise `/agents/*`). For nginx this is `try_files $uri $uri.html /units/[id].html =404;`. For S3/CloudFront, use a CloudFront Function or Lambda@Edge that rewrites unknown segments to the shell. The existing deployment topology (documented in `docs/architecture/cli-and-web.md` and `devops/build/Dockerfile`) is responsible for this mapping.
 - **Unknown ids.** The client already renders a "not found" state when the API returns 404 for the id. No extra work needed once the rewrite is in place.
 
-The `deployment/Dockerfile` comment claiming the build expects `output: "standalone"` is stale and will be corrected as follow-up tidy-up — it is not part of this decision.
+The `devops/build/Dockerfile` comment claiming the build expects `output: "standalone"` is stale and will be corrected as follow-up tidy-up — it is not part of this decision.
 
 ## Consequences — convention for future dynamic routes
 

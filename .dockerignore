@@ -1,4 +1,4 @@
-# Exclude node_modules so COPY instructions in deployment/Dockerfile do
+# Exclude node_modules so COPY instructions in devops/build/Dockerfile do
 # not overwrite the workspace-local node_modules that `npm ci` creates
 # inside the container. Without this, the host's (potentially pnpm-
 # generated) shims in src/*/node_modules/.bin/ clobber the npm symlinks
