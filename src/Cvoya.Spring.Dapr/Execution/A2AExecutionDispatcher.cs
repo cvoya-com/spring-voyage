@@ -839,6 +839,18 @@ public class A2AExecutionDispatcher(
         // is what the Python a2a-sdk server in the spring-voyage image expects.
         // Parts is List<Part> with derived TextPart/FilePart/DataPart; the
         // discriminator (`kind`) is set by the constructor on each subtype.
+        //
+        // ContextId externalization: ADR-0041 says thread.id IS the runtime's
+        // session identifier. Spring Voyage stores ids in no-dash "N" form
+        // (GuidFormatter), but Claude Code's `--session-id` (and other CLI
+        // agents wired by the bridge) reject anything that isn't a standard
+        // 8-4-4-4-12 dashed UUID. Convert at the wire boundary so internal
+        // surfaces stay no-dash while external CLIs see the form they expect.
+        // The response path uses originalMessage.ThreadId (not the wire echo),
+        // so the inbound mapping is unaffected.
+        var contextIdWire = GuidFormatter.TryParse(originalMessage.ThreadId, out var threadGuid)
+            ? GuidFormatter.FormatExternal(threadGuid)
+            : originalMessage.ThreadId;
         var request = new MessageSendParams
         {
             Message = new AgentMessage
@@ -846,7 +858,7 @@ public class A2AExecutionDispatcher(
                 Role = MessageRole.User,
                 Parts = [new TextPart { Text = userMessage }],
                 MessageId = originalMessage.Id.ToString(),
-                ContextId = originalMessage.ThreadId,
+                ContextId = contextIdWire,
                 Metadata = BuildA2AMessageMetadata(callbackToken),
             },
             Configuration = new MessageSendConfiguration

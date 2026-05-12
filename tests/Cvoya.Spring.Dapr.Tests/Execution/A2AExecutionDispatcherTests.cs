@@ -14,6 +14,7 @@ using A2A.V0_3;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
@@ -268,6 +269,22 @@ public class A2AExecutionDispatcherTests
         return metadataToken.GetString();
     }
 
+    private static string? ReadContextIdFromA2ARequest(byte[] body)
+    {
+        using var document = JsonDocument.Parse(body);
+        if (!document.RootElement.TryGetProperty("params", out var parameters) ||
+            parameters.ValueKind != JsonValueKind.Object ||
+            !parameters.TryGetProperty("message", out var message) ||
+            message.ValueKind != JsonValueKind.Object ||
+            !message.TryGetProperty("contextId", out var contextId) ||
+            contextId.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return contextId.GetString();
+    }
+
     [Fact]
     public async Task DispatchAsync_EphemeralAgent_StartsContainerInDetachedMode()
     {
@@ -481,6 +498,26 @@ public class A2AExecutionDispatcherTests
         var payload = result.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Output").GetString().ShouldBe("hello from agent");
         payload.GetProperty("ExitCode").GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EphemeralAgent_EmitsContextIdInDashedUuidForm()
+    {
+        // Spring Voyage stores thread ids in no-dash GuidFormatter "N" form, but
+        // the A2A wire boundary externalizes them as standard 8-4-4-4-12 dashed
+        // UUIDs so CLI agents reached via the bridge (Claude Code's
+        // `--session-id`, etc.) accept them as valid session identifiers.
+        var threadGuid = Guid.Parse("eeeeeeee-1111-2222-3333-444444444444");
+        var message = CreateMessage(threadId: GuidFormatter.Format(threadGuid));
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("the prompt");
+        var recorder = InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        recorder.Calls.Count.ShouldBe(1);
+        ReadContextIdFromA2ARequest(recorder.Calls[0].Body)
+            .ShouldBe(threadGuid.ToString("D"));
     }
 
     [Fact]
