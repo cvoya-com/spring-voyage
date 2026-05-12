@@ -7,7 +7,7 @@ This guide walks you through setting up Spring Voyage and creating your first un
 Build the CLI from source (requires [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)):
 
 ```
-git clone https://github.com/savasp/spring-voyage.git
+git clone https://github.com/cvoya-com/spring-voyage.git
 cd spring-voyage
 dotnet build src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
 

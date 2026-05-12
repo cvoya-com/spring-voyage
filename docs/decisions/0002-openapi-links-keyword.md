@@ -2,12 +2,12 @@
 
 - **Status:** Deferred — current approach (plain URL strings) stays; revisit when codegen support matures.
 - **Date:** 2026-04-13
-- **Closes:** [#195](https://github.com/savasp/spring-voyage/issues/195)
+- **Closes:** [#195](https://github.com/cvoya-com/spring-voyage/issues/195)
 - **Related code:** `src/Cvoya.Spring.Host.Api/Models/ConnectorModels.cs`, `src/Cvoya.Spring.Host.Api/Endpoints/ConnectorEndpoints.cs`, `src/Cvoya.Spring.Host.Api/openapi.json`
 
 ## Context
 
-The generic connector API (introduced with [#121](https://github.com/savasp/spring-voyage/issues/121) and [#125](https://github.com/savasp/spring-voyage/issues/125)) lets clients discover connector-owned endpoints at runtime. `ConnectorTypeResponse` and `UnitConnectorPointerResponse` carry the discovery pointers as plain strings:
+The generic connector API (introduced with [#121](https://github.com/cvoya-com/spring-voyage/issues/121) and [#125](https://github.com/cvoya-com/spring-voyage/issues/125)) lets clients discover connector-owned endpoints at runtime. `ConnectorTypeResponse` and `UnitConnectorPointerResponse` carry the discovery pointers as plain strings:
 
 - `configUrl` — template for the per-unit typed config endpoint (with a `{unitId}` placeholder)
 - `actionsBaseUrl` — base URL under which the connector's typed actions are mounted

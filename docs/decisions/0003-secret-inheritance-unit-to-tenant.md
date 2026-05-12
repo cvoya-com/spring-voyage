@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — automatic Unit → Tenant fall-through at resolve time, gated by a turn-off flag.
 - **Date:** 2026-04-13
-- **Closes:** [#204](https://github.com/savasp/spring-voyage/issues/204)
+- **Closes:** [#204](https://github.com/cvoya-com/spring-voyage/issues/204)
 - **Related code:** `src/Cvoya.Spring.Dapr/Secrets/ComposedSecretResolver.cs`, `src/Cvoya.Spring.Core/Secrets/ISecretResolver.cs`, `src/Cvoya.Spring.Core/Secrets/SecretResolution.cs`, `src/Cvoya.Spring.Core/Secrets/SecretResolvePath.cs`, `src/Cvoya.Spring.Core/Secrets/ISecretAccessPolicy.cs`, `src/Cvoya.Spring.Dapr/Tenancy/SecretsOptions.cs`
 
 ## Context

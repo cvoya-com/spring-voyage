@@ -143,6 +143,7 @@ No versions have been tagged yet. The entries below capture the repository's his
 
 ### Fixed
 
+- Repoint `savasp/spring-voyage` URLs in README CI badge, quick-start docs, and ADRs 0001–0004 to the canonical `cvoya-com/spring-voyage` ([#2186](https://github.com/cvoya-com/spring-voyage/issues/2186)).
 - `UnitMembershipBackfillService` no longer crashes the host when the Dapr sidecar isn't ready on startup ([#387](https://github.com/cvoya-com/spring-voyage/pull/387)).
 - `UnitActor` orchestration resolution ([#313](https://github.com/cvoya-com/spring-voyage/pull/313)).
 - Actor-proxy type name and Dapr control-plane flags ([#310](https://github.com/cvoya-com/spring-voyage/pull/310)).

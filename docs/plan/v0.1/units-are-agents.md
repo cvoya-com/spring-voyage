@@ -1023,7 +1023,7 @@ M5 ← E18
 
 ## GitHub issue filing plan
 
-Pending user approval, the following actions execute as the `savasp-agent` App identity. **No issues are filed before approval.**
+Pending user approval, the following actions execute as the project's GitHub App identity. **No issues are filed before approval.**
 
 ### 1. Umbrella
 
