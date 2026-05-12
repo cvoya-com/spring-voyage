@@ -49,7 +49,11 @@ public class UnitActorStrategyResolverTests
         var actorId = TestSlugIds.HexFor("runtime-unit");
         var runtimeInvocationPath = Substitute.For<IRuntimeInvocationPath>();
         runtimeInvocationPath
-            .InvokeAsync(Arg.Any<Address>(), Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .InvokeAsync(
+                Arg.Any<Address>(),
+                Arg.Any<Message>(),
+                Arg.Any<CancellationToken>(),
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
             .Returns(Task.CompletedTask);
 
         var actor = BuildActor(actorId, runtimeInvocationPath);
@@ -69,7 +73,8 @@ public class UnitActorStrategyResolverTests
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", actorId),
             incoming,
-            Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
     }
 
     private static UnitActor BuildActor(string actorId, IRuntimeInvocationPath runtimeInvocationPath)

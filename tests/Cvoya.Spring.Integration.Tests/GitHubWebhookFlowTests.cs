@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Integration.Tests;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Integration.Tests.TestHelpers;
@@ -34,7 +35,11 @@ public class GitHubWebhookFlowTests
         // Capture what the runtime path receives.
         Message? capturedMessage = null;
         runtimeInvocationPath
-            .InvokeAsync(Arg.Any<Address>(), Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .InvokeAsync(
+                Arg.Any<Address>(),
+                Arg.Any<Message>(),
+                Arg.Any<CancellationToken>(),
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
             .Returns(callInfo =>
             {
                 capturedMessage = callInfo.ArgAt<Message>(1);
@@ -75,7 +80,8 @@ public class GitHubWebhookFlowTests
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("flow-unit")),
             webhookMessage,
-            Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
     }
 
     [Fact]

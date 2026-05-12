@@ -211,6 +211,73 @@ public class RuntimeInvocationPathTests
     }
 
     [Fact]
+    public async Task InvokeAsync_LeanOverload_NoEmitDelegate_ForwardsNoOpToCoordinator()
+    {
+        // #2211: when no emitActivity delegate is supplied (existing
+        // call shape preserved), the lean overload must still pass a
+        // non-null no-op delegate to the dispatch coordinator so the
+        // coordinator's signature is satisfied and any error events it
+        // emits are silently dropped — the original behaviour.
+        var subject = MakeAgent("test-agent");
+        var inbound = MakeMessage(MakeAgent("test-sender"), subject);
+        var path = MakePath();
+
+        Func<ActivityEvent, CancellationToken, Task>? captured = null;
+        await _dispatchCoordinator.RunDispatchAsync(
+            Arg.Any<string>(),
+            Arg.Any<Message>(),
+            Arg.Any<PromptAssemblyContext>(),
+            Arg.Do<Func<ActivityEvent, CancellationToken, Task>>(d => captured = d),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
+
+        await path.InvokeAsync(subject, inbound, TestContext.Current.CancellationToken);
+
+        captured.ShouldNotBeNull();
+        // Invoking the no-op must complete synchronously without throwing.
+        await captured!(
+            new ActivityEvent(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                subject,
+                ActivityEventType.ErrorOccurred,
+                ActivitySeverity.Error,
+                "irrelevant",
+                null,
+                null),
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_LeanOverload_WithEmitDelegate_ForwardsItToCoordinator()
+    {
+        // #2211: the lean overload must forward a caller-supplied
+        // emitActivity delegate to the dispatch coordinator so that
+        // ErrorOccurred events (e.g. credential-resolution failures)
+        // surface in the caller's Activity feed instead of being
+        // dropped by the no-op default.
+        var subject = MakeAgent("test-agent");
+        var inbound = MakeMessage(MakeAgent("test-sender"), subject);
+        var path = MakePath();
+
+        Func<ActivityEvent, CancellationToken, Task> emit = (_, _) => Task.CompletedTask;
+
+        await path.InvokeAsync(
+            subject,
+            inbound,
+            TestContext.Current.CancellationToken,
+            emitActivity: emit);
+
+        await _dispatchCoordinator.Received(1).RunDispatchAsync(
+            agentId: subject.Path,
+            message: inbound,
+            context: Arg.Any<PromptAssemblyContext>(),
+            emitActivity: emit,
+            onDispatchExit: Arg.Any<Func<string, Task>>(),
+            cancellationToken: Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task InvokeAsync_RichOverload_DoesNotConsultDefinitionOrToolProvider()
     {
         var subject = MakeAgent("test-agent");

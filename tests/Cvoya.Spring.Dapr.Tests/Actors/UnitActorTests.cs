@@ -80,7 +80,11 @@ public class UnitActorTests
             .Returns(new ConditionalValue<UnitStatus>(false, default));
 
         _runtimeInvocationPath
-            .InvokeAsync(Arg.Any<Address>(), Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .InvokeAsync(
+                Arg.Any<Address>(),
+                Arg.Any<Message>(),
+                Arg.Any<CancellationToken>(),
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
             .Returns(Task.CompletedTask);
 
         _stateManager.ClearReceivedCalls();
@@ -132,7 +136,8 @@ public class UnitActorTests
         await _runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestUnitActorId),
             message,
-            Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
     }
 
     [Fact]
@@ -146,7 +151,10 @@ public class UnitActorTests
         // runtime path; the actor must not preload the EF member graph
         // for a Domain message that does not need it.
         await _runtimeInvocationPath.Received(1).InvokeAsync(
-            Arg.Any<Address>(), message, Arg.Any<CancellationToken>());
+            Arg.Any<Address>(),
+            message,
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
     }
 
     [Fact]
@@ -159,7 +167,28 @@ public class UnitActorTests
         await _runtimeInvocationPath.Received(1).InvokeAsync(
             Arg.Any<Address>(),
             message,
-            Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_DomainMessage_ForwardsNonNullActivityDelegateToRuntimePath()
+    {
+        // #2211: the unit actor must pass its own activity-emission
+        // delegate to the lean runtime-invocation path so that
+        // ErrorOccurred events from the dispatch coordinator (e.g.
+        // credential-resolution failures) surface in the unit's
+        // Activity feed instead of being silently dropped by the
+        // lean overload's no-op default.
+        var message = CreateMessage();
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _runtimeInvocationPath.Received(1).InvokeAsync(
+            Arg.Any<Address>(),
+            message,
+            Arg.Any<CancellationToken>(),
+            Arg.Is<Func<ActivityEvent, CancellationToken, Task>?>(d => d != null));
     }
 
     // --- Control Message Tests ---
@@ -357,7 +386,11 @@ public class UnitActorTests
     {
         var message = CreateMessage();
         _runtimeInvocationPath
-            .InvokeAsync(Arg.Any<Address>(), message, Arg.Any<CancellationToken>())
+            .InvokeAsync(
+                Arg.Any<Address>(),
+                message,
+                Arg.Any<CancellationToken>(),
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
             .Returns(_ => throw new InvalidOperationException("Runtime path failed"));
 
         var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
@@ -558,7 +591,11 @@ public class UnitActorTests
     {
         var message = CreateMessage();
         _runtimeInvocationPath
-            .InvokeAsync(Arg.Any<Address>(), message, Arg.Any<CancellationToken>())
+            .InvokeAsync(
+                Arg.Any<Address>(),
+                message,
+                Arg.Any<CancellationToken>(),
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
             .Returns(_ => throw new InvalidOperationException("Runtime path failed"));
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
@@ -1056,7 +1093,8 @@ public class UnitActorTests
         await _runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestUnitActorId),
             message,
-            Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
     }
 
     // #939 — Draft → Starting is rejected; units must pass through Validating first
