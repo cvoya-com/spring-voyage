@@ -83,6 +83,7 @@ public class DaprStateBackedSecretStoreTests : IDisposable
             KeyPrefix = "secrets/",
         });
         var logger = Substitute.For<ILogger<DaprStateBackedSecretStore>>();
+
         return new DaprStateBackedSecretStore(
             _dapr,
             encryptor ?? RealEncryptor(),
@@ -292,4 +293,5 @@ public class DaprStateBackedSecretStoreTests : IDisposable
         var result = await sut.ReadAsync("abc", ct);
         result.ShouldBe("hunter2");
     }
+
 }

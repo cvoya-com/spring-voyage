@@ -12,6 +12,7 @@ dapr/
 │   │   └── secretstore.yaml
 │   └── production/      # Podman-hosted Postgres + Redis (devops/deploy/)
 │       ├── statestore.yaml
+│       ├── secretsstore.yaml
 │       ├── pubsub.yaml
 │       └── secretstore.yaml
 └── config/
@@ -21,8 +22,11 @@ dapr/
 
 Every component uses `apiVersion: dapr.io/v1alpha1` and `kind: Component`.
 Configurations use `kind: Configuration`. Both profiles expose the same
-component names (`statestore`, `pubsub`, `secretstore`), so application code
-references them identically regardless of environment.
+core component names (`statestore`, `pubsub`, `secretstore`), so application
+code references them identically regardless of environment. The production
+profile additionally ships a `secretsstore` component dedicated to the
+OSS application-layer secret store (`DaprStateBackedSecretStore`); see
+[Secrets](#secrets) below for why.
 
 ## Local development (`dapr run`)
 
@@ -85,6 +89,22 @@ YAML via `secretKeyRef`. For cloud-grade secret management (Azure Key
 Vault, HashiCorp Vault, Kubernetes Secrets) swap `secretstore.yaml` for
 the corresponding Dapr secret store — the rest of the profile is
 unchanged as long as the component is named `secretstore`.
+
+#### `secretsstore` vs `statestore` (production)
+
+The application-layer secret store
+(`Cvoya.Spring.Dapr.Secrets.DaprStateBackedSecretStore`) writes envelope-
+encrypted secret blobs through Dapr state management. The default
+`statestore` component uses Dapr's standard `keyPrefix: appid`, so a
+secret written by the API sidecar lands at `spring-api||secrets/{key}`
+and is invisible to `spring-worker` reading the same logical key. That
+broke every dispatcher credential resolution (#2212).
+
+`secretsstore.yaml` is the dedicated Postgres-backed component for the
+secret store; it pins `keyPrefix: none` so every host shares the same
+key namespace. The actor / general state store cannot adopt the same
+setting because the Dapr actor runtime relies on the per-app prefix to
+partition actor state, hence the split.
 
 ## Validating components
 
