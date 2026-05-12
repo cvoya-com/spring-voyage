@@ -70,6 +70,7 @@ export const queryKeys = {
     policy: (id: string) => ["units", "policy", id] as const,
     boundary: (id: string) => ["units", "boundary", id] as const,
     execution: (id: string) => ["units", "execution", id] as const,
+    memberHosting: (id: string) => ["units", "memberHosting", id] as const,
     ownExpertise: (id: string) => ["units", "ownExpertise", id] as const,
     aggregatedExpertise: (id: string) =>
       ["units", "aggregatedExpertise", id] as const,

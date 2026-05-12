@@ -1,13 +1,21 @@
 import type { ReactNode } from "react";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { expectNoAxeViolations } from "@/test/a11y";
 import type {
+  AgentResponse,
   ProviderCredentialStatusResponse,
   UnitExecutionResponse,
+  UnitMembershipResponse,
 } from "@/lib/api/types";
 
 const getUnitExecution = vi.fn<(id: string) => Promise<UnitExecutionResponse>>();
@@ -31,6 +39,8 @@ const getProviderCredentialStatus =
       authMethod?: "api-key" | "oauth",
     ) => Promise<ProviderCredentialStatusResponse>
   >();
+const listUnitMemberships = vi.fn<() => Promise<UnitMembershipResponse[]>>();
+const listAgents = vi.fn<() => Promise<AgentResponse[]>>();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -45,6 +55,8 @@ vi.mock("@/lib/api/client", () => ({
       _agentImage?: string | null,
       authMethod?: "api-key" | "oauth",
     ) => getProviderCredentialStatus(provider, authMethod),
+    listUnitMemberships: () => listUnitMemberships(),
+    listAgents: () => listAgents(),
   },
 }));
 
@@ -79,6 +91,43 @@ function Wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
+function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
+  return {
+    id: "00000000-0000-0000-0000-000000000001",
+    name: "agent-a",
+    displayName: "Ada",
+    description: "",
+    role: null,
+    registeredAt: "2026-05-12T00:00:00Z",
+    model: null,
+    specialty: null,
+    enabled: true,
+    executionMode: "Auto",
+    parentUnit: "eng-team",
+    hostingMode: null,
+    ...overrides,
+  };
+}
+
+function makeMembership(
+  overrides: Partial<UnitMembershipResponse> = {},
+): UnitMembershipResponse {
+  return {
+    unitId: "eng-team",
+    agentAddress: "agent-a",
+    agentDisplayName: "Ada",
+    member: "agent-a",
+    model: null,
+    specialty: null,
+    enabled: true,
+    executionMode: null,
+    createdAt: "2026-05-12T00:00:00Z",
+    updatedAt: "2026-05-12T00:00:00Z",
+    isPrimary: true,
+    ...overrides,
+  };
+}
+
 describe("ExecutionTab", () => {
   beforeEach(() => {
     getUnitExecution.mockReset();
@@ -87,6 +136,8 @@ describe("ExecutionTab", () => {
     getModelProviderModels.mockReset();
     listModelProviders.mockReset();
     getProviderCredentialStatus.mockReset();
+    listUnitMemberships.mockReset();
+    listAgents.mockReset();
     toastMock.mockReset();
     // Default: no models fetched + no credential probe so the banner
     // doesn't pop up unless the test sets it.
@@ -98,6 +149,8 @@ describe("ExecutionTab", () => {
       source: "tenant",
       suggestion: null,
     });
+    listUnitMemberships.mockResolvedValue([]);
+    listAgents.mockResolvedValue([]);
   });
 
   it("renders Image, Agent Runtime and Model fields by default; Model Provider hidden until agent=spring-voyage", async () => {
@@ -124,6 +177,94 @@ describe("ExecutionTab", () => {
     // Model is always rendered — starts as plain input because no
     // catalog has loaded.
     expect(screen.getByTestId("execution-model-input")).toBeInTheDocument();
+  });
+
+  it("summarizes member agent hosting and links to the agent Config tab", async () => {
+    getUnitExecution.mockResolvedValue({});
+    listUnitMemberships.mockResolvedValue([
+      makeMembership({
+        agentAddress: "agent-a",
+        agentDisplayName: "Ada",
+      }),
+      makeMembership({
+        agentAddress: "agent-b",
+        agentDisplayName: "Grace",
+        member: "agent-b",
+      }),
+    ]);
+    listAgents.mockResolvedValue([
+      makeAgent({
+        name: "agent-a",
+        displayName: "Ada",
+        hostingMode: "persistent",
+      }),
+      makeAgent({
+        id: "00000000-0000-0000-0000-000000000002",
+        name: "agent-b",
+        displayName: "Grace",
+        hostingMode: "ephemeral",
+      }),
+    ]);
+
+    render(
+      <Wrapper>
+        <ExecutionTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const card = await screen.findByTestId("unit-member-hosting-card");
+    await waitFor(() => {
+      expect(
+        within(card).getByTestId("unit-member-hosting-summary"),
+      ).toHaveTextContent("1 persistent");
+    });
+    expect(
+      within(card).getByTestId("unit-member-hosting-summary"),
+    ).toHaveTextContent("1 ephemeral");
+
+    const adaRow = within(card).getByTestId("unit-member-hosting-agent-a");
+    expect(adaRow).toHaveTextContent("Ada");
+    expect(adaRow).toHaveTextContent("Persistent");
+    expect(
+      within(adaRow).getByRole("link", { name: "Edit hosting for Ada" }),
+    ).toHaveAttribute("href", "/units?node=agent-a&tab=Config");
+
+    const graceRow = within(card).getByTestId("unit-member-hosting-agent-b");
+    expect(graceRow).toHaveTextContent("Grace");
+    expect(graceRow).toHaveTextContent("Ephemeral");
+  });
+
+  it("shows unset member hosting as the persistent default", async () => {
+    getUnitExecution.mockResolvedValue({});
+    listUnitMemberships.mockResolvedValue([
+      makeMembership({
+        agentAddress: "agent-a",
+        agentDisplayName: "Ada",
+      }),
+    ]);
+    listAgents.mockResolvedValue([
+      makeAgent({
+        name: "agent-a",
+        displayName: "Ada",
+        hostingMode: null,
+      }),
+    ]);
+
+    render(
+      <Wrapper>
+        <ExecutionTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const row = await screen.findByTestId("unit-member-hosting-agent-a");
+    expect(row).toHaveTextContent("Persistent");
+    expect(row).toHaveTextContent("Default");
+    expect(screen.getByTestId("unit-member-hosting-summary")).toHaveTextContent(
+      "1 persistent",
+    );
+    expect(screen.getByTestId("unit-member-hosting-summary")).toHaveTextContent(
+      "0 ephemeral",
+    );
   });
 
   it("hides Model Provider but keeps Model visible when agent is claude-code (#641)", async () => {

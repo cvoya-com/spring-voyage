@@ -243,18 +243,17 @@ Also accepts YAML upload (drop-zone) — both camelCase CLI export and snake_cas
 
 ### Execution
 
-Unit-level defaults inherited by member agents: `image`, `runtime`, `tool`, `provider`, `model`. Each field is independently clearable.
+Unit-level defaults inherited by member agents: `image`, `runtime`, and structured `model` (`provider`, `id`). Each field is independently clearable. Hosting remains agent-owned; this tab also shows a read-only member-agent hosting summary (`persistent` / `ephemeral`) with links to each agent's Config → Execution panel.
 
 | Field | CLI flag |
 |-------|----------|
 | Image | `--image <ref>` |
-| Runtime | `--runtime docker\|podman` |
-| Tool | `--tool <key>` |
-| Provider | `--provider <key>` (dapr-agent only) |
+| Agent runtime | `--runtime <id>` |
+| Model provider | `--model-provider <id>` |
 | Model | `--model <id>` |
 
 ```bash
-spring unit execution set <unit> --image ghcr.io/example/agent:latest --tool claude-code
+spring unit execution set <unit> --image ghcr.io/example/agent:latest --runtime claude-code
 spring unit execution clear <unit> --field image
 ```
 
