@@ -115,6 +115,8 @@ public class DbAgentDefinitionProvider(
                         if (unitDefaults is not null)
                         {
                             var merged = Merge(projected.Execution, unitDefaults);
+                            // Assign (not return) so a Merge result with no runtime id can still
+                            // fall through to the unit-definitions fallback below (#2208).
                             projected = projected with { Execution = merged };
                         }
                     }
@@ -249,6 +251,11 @@ public class DbAgentDefinitionProvider(
             }
         }
 
+        // Deliberate null-Execution path (#2208): when the unit row exists but
+        // its JSON has no `execution.agent` runtime slot, return a definition
+        // with Execution: null so the dispatcher can surface a precise
+        // "no execution configuration" error instead of a misleading
+        // "subject not found" 404.
         return new AgentDefinition(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id),
             unit.DisplayName,

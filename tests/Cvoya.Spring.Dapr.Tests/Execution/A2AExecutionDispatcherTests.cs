@@ -586,6 +586,43 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
+    public async Task DispatchAsync_DefinitionWithoutExecution_ThrowsWithGuidance()
+    {
+        // #2208 / #2224: backstops the visibility chain. The provider now
+        // returns a definition with Execution: null when a unit row exists
+        // but lacks `execution.agent`; the dispatcher must turn that into a
+        // SpringException citing the missing execution configuration so the
+        // coordinator can emit a visible ErrorOccurred activity row.
+        // Without this guarantee, UnitRuntimeDispatchVisibilityTests (which
+        // mocks the dispatcher) is a green-but-meaningless assertion.
+        var message = CreateMessage();
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId: AgentId,
+                Name: "Misconfigured",
+                Instructions: "instructions",
+                Execution: null));
+
+        var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+        var ex = await Should.ThrowAsync<SpringException>(act);
+
+        ex.Message.ShouldContain(AgentId);
+        ex.Message.ShouldContain("no execution configuration");
+
+        // No container side-effects and no callback token issued — the throw
+        // must precede any dispatch work.
+        _callbackTokenIssuer.DidNotReceive().Issue(Arg.Any<CallbackToken>());
+        await _containerRuntime.DidNotReceive().StartAsync(
+            Arg.Any<ContainerConfig>(),
+            Arg.Any<CancellationToken>());
+        await _containerRuntime.DidNotReceive().SendHttpJsonAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<byte[]>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task DispatchAsync_AgentClaude_SelectsClaudeCodeCliLauncher()
     {
         // #1732 regression: setting ai.agent: claude on a unit / agent
