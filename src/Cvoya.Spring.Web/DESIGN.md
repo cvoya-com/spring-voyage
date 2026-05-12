@@ -713,6 +713,10 @@ When the catalog Install POST returns `400 CredentialsMissing`, the Install step
 
 **Toast suppression.** When the failure is `CredentialsMissing` the wizard does not raise the standard "Install failed" destructive toast — the inline form is the operator's primary surface and a competing toast adds noise.
 
+### 12.13.2 GitHub connector OAuth handoff
+
+The GitHub connector surfaces the same missing-OAuth panel in the Create-unit wizard connector step and the unit Connector tab. The panel uses the Info/context palette from § 12.4, a `Github` glyph inside the secondary `Link GitHub account` button, and no session-id input. Clicking opens the connector-owned GitHub authorize URL in a popup with portal origin stored in the OAuth client state. When GitHub redirects to `/api/v1/tenant/connectors/github/oauth/callback`, the callback page posts `{ type: "spring-voyage:github-oauth-session", sessionId, login }` to the opener and writes the same payload to `localStorage` as a same-origin fallback. The opener stores only the opaque session id in `sessionStorage` under `springvoyage:github-oauth-session-id`, clears the missing-OAuth panel, and immediately re-fetches the repository dropdown.
+
 ### 12.14 Inbox page — two-pane list-detail (#1474, polished #1482)
 
 `/inbox` redesigned as a two-pane list-detail layout. The old grid-of-`<InboxCard>`s is replaced.

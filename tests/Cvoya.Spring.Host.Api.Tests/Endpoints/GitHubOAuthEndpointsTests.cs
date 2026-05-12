@@ -73,11 +73,22 @@ public class GitHubOAuthEndpointsTests
     }
 
     [Fact]
-    public async Task Callback_HappyPath_ReturnsSession()
+    public async Task Callback_HappyPath_ReturnsBrowserHandoffPage()
     {
         var service = Substitute.For<IGitHubOAuthService>();
         service.HandleCallbackAsync("the-code", "the-state", Arg.Any<CancellationToken>())
             .Returns(new CallbackResult("sess-1", "octocat", null, null));
+        service.GetSessionAsync("sess-1", Arg.Any<CancellationToken>())
+            .Returns(new OAuthSession(
+                SessionId: "sess-1",
+                Login: "octocat",
+                UserId: 42L,
+                Scopes: "repo",
+                AccessTokenStoreKey: "secret-key",
+                RefreshTokenStoreKey: null,
+                ExpiresAt: null,
+                CreatedAt: DateTimeOffset.UtcNow,
+                ClientState: """{"targetOrigin":"http://localhost:3000/ignored-path"}"""));
 
         await using var factory = CreateFactory(oauthService: service);
         var client = factory.CreateClient();
@@ -87,14 +98,18 @@ public class GitHubOAuthEndpointsTests
             "/api/v1/tenant/connectors/github/oauth/callback?code=the-code&state=the-state", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var body = await response.Content.ReadFromJsonAsync<OAuthCallbackResponse>(ct);
-        body.ShouldNotBeNull();
-        body!.SessionId.ShouldBe("sess-1");
-        body.Login.ShouldBe("octocat");
+        response.Content.Headers.ContentType!.MediaType.ShouldBe("text/html");
+        var body = await response.Content.ReadAsStringAsync(ct);
+        body.ShouldContain("spring-voyage:github-oauth-session");
+        body.ShouldContain("springvoyage:github-oauth-callback");
+        body.ShouldContain("sess-1");
+        body.ShouldContain("octocat");
+        body.ShouldContain("http://localhost:3000");
+        body.ShouldNotContain("secret-key");
     }
 
     [Fact]
-    public async Task Callback_InvalidState_Returns400()
+    public async Task Callback_InvalidState_Returns400BrowserHandoffPage()
     {
         var service = Substitute.For<IGitHubOAuthService>();
         service.HandleCallbackAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -108,10 +123,15 @@ public class GitHubOAuthEndpointsTests
             "/api/v1/tenant/connectors/github/oauth/callback?code=c&state=s", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType.ShouldBe("text/html");
+        var body = await response.Content.ReadAsStringAsync(ct);
+        body.ShouldContain("spring-voyage:github-oauth-session");
+        body.ShouldContain("invalid_state");
+        body.ShouldContain("Expired.");
     }
 
     [Fact]
-    public async Task Callback_GitHubError_Returns400WithErrorExtension()
+    public async Task Callback_GitHubError_Returns400BrowserHandoffPage()
     {
         // Caller-cancelled consent: GitHub redirects with ?error=access_denied.
         await using var factory = CreateFactory(oauthService: Substitute.For<IGitHubOAuthService>());
@@ -122,8 +142,10 @@ public class GitHubOAuthEndpointsTests
             "/api/v1/tenant/connectors/github/oauth/callback?error=access_denied&error_description=User%20declined", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType.ShouldBe("text/html");
         var content = await response.Content.ReadAsStringAsync(ct);
         content.ShouldContain("access_denied");
+        content.ShouldContain("User declined");
     }
 
     [Fact]

@@ -6575,7 +6575,7 @@
         "tags": [
           "Connectors.GitHub.OAuth"
         ],
-        "summary": "Consume the OAuth callback: validate state, exchange code, issue a session",
+        "summary": "Consume the OAuth callback, issue a session, and notify the portal opener",
         "operationId": "HandleGitHubOAuthCallback",
         "parameters": [
           {
@@ -6611,9 +6611,9 @@
           "200": {
             "description": "OK",
             "content": {
-              "application/json": {
+              "text/html": {
                 "schema": {
-                  "$ref": "#/components/schemas/OAuthCallbackResponse"
+                  "type": "string"
                 }
               }
             }
@@ -6621,9 +6621,9 @@
           "400": {
             "description": "Bad Request",
             "content": {
-              "application/problem+json": {
+              "text/html": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "type": "string"
                 }
               }
             }
@@ -6631,9 +6631,9 @@
           "502": {
             "description": "Bad Gateway",
             "content": {
-              "application/problem+json": {
+              "text/html": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "type": "string"
                 }
               }
             }
@@ -11635,21 +11635,6 @@
             "type": "string"
           },
           "state": {
-            "type": "string"
-          }
-        }
-      },
-      "OAuthCallbackResponse": {
-        "required": [
-          "sessionId",
-          "login"
-        ],
-        "type": "object",
-        "properties": {
-          "sessionId": {
-            "type": "string"
-          },
-          "login": {
             "type": "string"
           }
         }

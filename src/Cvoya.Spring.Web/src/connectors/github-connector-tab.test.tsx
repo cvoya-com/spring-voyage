@@ -27,6 +27,7 @@ vi.mock("@/lib/api/client", async () => {
       listGitHubRepositories: vi.fn(),
       listGitHubCollaborators: vi.fn(),
       getGitHubInstallUrl: vi.fn(),
+      beginGitHubOAuthAuthorize: vi.fn(),
       getUnitGitHubConfig: vi.fn(),
       putUnitGitHubConfig: vi.fn(),
     },

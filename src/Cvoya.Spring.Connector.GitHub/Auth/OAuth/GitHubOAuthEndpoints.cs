@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 
+using System.Text.Json;
+
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -33,11 +35,11 @@ public static class GitHubOAuthEndpoints
 
         group.MapGet("/oauth/callback", CallbackAsync)
             .WithName("HandleGitHubOAuthCallback")
-            .WithSummary("Consume the OAuth callback: validate state, exchange code, issue a session")
+            .WithSummary("Consume the OAuth callback, issue a session, and notify the portal opener")
             .WithTags("Connectors.GitHub.OAuth")
-            .Produces<OAuthCallbackResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status502BadGateway);
+            .Produces<string>(StatusCodes.Status200OK, "text/html")
+            .Produces<string>(StatusCodes.Status400BadRequest, "text/html")
+            .Produces<string>(StatusCodes.Status502BadGateway, "text/html");
 
         group.MapPost("/oauth/revoke/{sessionId}", RevokeAsync)
             .WithName("RevokeGitHubOAuthSession")
@@ -84,6 +86,7 @@ public static class GitHubOAuthEndpoints
         [FromQuery] string? state,
         [FromQuery] string? error,
         [FromQuery(Name = "error_description")] string? errorDescription,
+        [FromServices] IOAuthStateStore stateStore,
         [FromServices] IGitHubOAuthService service,
         CancellationToken ct)
     {
@@ -92,14 +95,14 @@ public static class GitHubOAuthEndpoints
         // unchanged so the portal can display GitHub's own wording.
         if (!string.IsNullOrEmpty(error))
         {
-            return Results.Problem(
-                title: "GitHub rejected the OAuth authorization",
-                detail: errorDescription ?? error,
-                statusCode: StatusCodes.Status400BadRequest,
-                extensions: new Dictionary<string, object?>
-                {
-                    ["error"] = error,
-                });
+            var targetOrigin = await ConsumeTargetOriginAsync(state, stateStore, ct);
+            return CallbackPage(
+                sessionId: null,
+                login: null,
+                error: error,
+                reason: errorDescription ?? error,
+                targetOrigin: targetOrigin,
+                statusCode: StatusCodes.Status400BadRequest);
         }
 
         try
@@ -112,25 +115,143 @@ public static class GitHubOAuthEndpoints
                     "invalid_state" or "invalid_request" => StatusCodes.Status400BadRequest,
                     _ => StatusCodes.Status502BadGateway,
                 };
-                return Results.Problem(
-                    title: "GitHub OAuth callback failed",
-                    detail: result.ErrorDescription ?? result.Error,
-                    statusCode: status,
-                    extensions: new Dictionary<string, object?>
-                    {
-                        ["error"] = result.Error,
-                    });
+                return CallbackPage(
+                    sessionId: null,
+                    login: null,
+                    error: result.Error ?? "callback_failed",
+                    reason: result.ErrorDescription ?? result.Error,
+                    targetOrigin: null,
+                    statusCode: status);
             }
 
-            return Results.Ok(new OAuthCallbackResponse(result.SessionId, result.Login!));
+            var session = await service.GetSessionAsync(result.SessionId, ct);
+            return CallbackPage(
+                sessionId: result.SessionId,
+                login: result.Login,
+                error: null,
+                reason: null,
+                targetOrigin: TryReadTargetOrigin(session?.ClientState),
+                statusCode: StatusCodes.Status200OK);
         }
         catch (InvalidOperationException ex)
         {
-            return Results.Problem(
-                title: "GitHub OAuth is not configured",
-                detail: ex.Message,
+            return CallbackPage(
+                sessionId: null,
+                login: null,
+                error: "oauth_not_configured",
+                reason: ex.Message,
+                targetOrigin: null,
                 statusCode: StatusCodes.Status502BadGateway);
         }
+    }
+
+    private static IResult CallbackPage(
+        string? sessionId,
+        string? login,
+        string? error,
+        string? reason,
+        string? targetOrigin,
+        int statusCode)
+    {
+        var message = JsonSerializer.Serialize(new
+        {
+            type = "spring-voyage:github-oauth-session",
+            sessionId,
+            login,
+            error,
+            reason,
+        });
+        var storageKey = JsonSerializer.Serialize("springvoyage:github-oauth-callback");
+        var target = targetOrigin is null
+            ? "window.location.origin"
+            : JsonSerializer.Serialize(targetOrigin);
+        var title = error is null ? "GitHub account linked" : "GitHub authorization failed";
+        var detail = error is null
+            ? "You can return to Spring Voyage."
+            : "Return to Spring Voyage and try linking your GitHub account again.";
+
+        var html = $$"""
+            <!doctype html>
+            <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <title>{{title}}</title>
+            </head>
+            <body>
+              <main>
+                <h1>{{title}}</h1>
+                <p>{{detail}}</p>
+              </main>
+              <script>
+                (() => {
+                  const message = {{message}};
+                  const targetOrigin = {{target}};
+                  try {
+                    if (window.opener && !window.opener.closed) {
+                      window.opener.postMessage(message, targetOrigin);
+                    }
+                  } catch {
+                  }
+                  try {
+                    window.localStorage.setItem({{storageKey}}, JSON.stringify({
+                      ...message,
+                      deliveredAt: Date.now()
+                    }));
+                  } catch {
+                  }
+                  window.close();
+                })();
+              </script>
+            </body>
+            </html>
+            """;
+        return Results.Content(html, "text/html; charset=utf-8", statusCode: statusCode);
+    }
+
+    private static string? TryReadTargetOrigin(string? clientState)
+    {
+        if (string.IsNullOrWhiteSpace(clientState))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(clientState);
+            if (!document.RootElement.TryGetProperty("targetOrigin", out var originElement) ||
+                originElement.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            var origin = originElement.GetString();
+            if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                return null;
+            }
+
+            return uri.GetLeftPart(UriPartial.Authority);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<string?> ConsumeTargetOriginAsync(
+        string? state,
+        IOAuthStateStore stateStore,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(state))
+        {
+            return null;
+        }
+
+        var entry = await stateStore.ConsumeAsync(state, ct);
+        return TryReadTargetOrigin(entry?.ClientState);
     }
 
     private static async Task<IResult> RevokeAsync(
@@ -191,11 +312,6 @@ public record OAuthAuthorizeRequest(IReadOnlyList<string>? Scopes, string? Clien
 /// <param name="AuthorizeUrl">The URL to redirect the user to.</param>
 /// <param name="State">The state value stored server-side — surfaced for tests/debug, not secret.</param>
 public record OAuthAuthorizeResponse(string AuthorizeUrl, string State);
-
-/// <summary>Response shape for <c>GET /oauth/callback</c>.</summary>
-/// <param name="SessionId">The issued session id. Caller uses this as the OAuth handle.</param>
-/// <param name="Login">The GitHub login the session authenticates as.</param>
-public record OAuthCallbackResponse(string SessionId, string Login);
 
 /// <summary>Response shape for <c>GET /oauth/session/{sessionId}</c>.</summary>
 public record OAuthSessionResponse(

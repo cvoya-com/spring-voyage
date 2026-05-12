@@ -666,8 +666,10 @@ public class GitHubConnectorType : IConnectorType
         //
         // The 401 body carries an `authorizeUrl` minted from
         // IGitHubOAuthService.BeginAuthorizationAsync (when GitHub:OAuth
-        // is configured) so the portal can render a "Link your GitHub
-        // account" button without a second round-trip.
+        // is configured) so the portal can tell configured deployments
+        // apart from ones that still need OAuth App setup. The browser UI
+        // starts its own authorize request with portal callback state when
+        // the operator clicks "Link GitHub account".
         //
         // No CLI / integration caller drives this endpoint today (the
         // CLI lets operators set owner/repo by hand on the create-unit
