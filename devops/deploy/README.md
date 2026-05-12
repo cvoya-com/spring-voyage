@@ -2,10 +2,16 @@
 
 Podman-based deployment scripts and runtime config for running Spring Voyage on
 a single machine. Consumed by both source-clone operators (via
-[`devops/build/`](../build/README.md) and `./deploy.sh`) and the installer
-(see [`devops/install/`](../install/README.md)) — both paths run the same
-scripts. For Kubernetes / cloud-scale deployment see the private Spring Voyage
-Cloud repository — this directory targets the open-source single-host scenario.
+[`devops/build/`](../build/README.md) and `./deploy.sh`) and the source-free
+installer (see [`devops/install/`](../install/README.md) — `curl … install.sh | bash`)
+— both paths run the same scripts. For Kubernetes / cloud-scale deployment see
+the private Spring Voyage Cloud repository — this directory targets the
+open-source single-host scenario.
+
+Source-free operators do not need to touch this directory directly; the
+installer copies its contents into `~/.spring-voyage/current/` and runs
+`deploy.sh up` for you. The reference material below is the canonical
+script-level documentation that both audiences share.
 
 The Dockerfiles, `build.sh`, and the agent-image build scripts live next door
 under [`devops/build/`](../build/README.md). The TypeScript agent sidecar source
