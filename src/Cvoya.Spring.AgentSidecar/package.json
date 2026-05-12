@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "description": "A2A 0.3.x bridge sidecar for stdin/stdout-based CLI agents on Spring Voyage. Conformance path 2 of the BYOI contract (#1087).",
   "license": "BUSL-1.1",
-  "homepage": "https://github.com/cvoya-com/spring-voyage/tree/main/deployment/agent-sidecar",
+  "homepage": "https://github.com/cvoya-com/spring-voyage/tree/main/src/Cvoya.Spring.AgentSidecar",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cvoya-com/spring-voyage.git",
-    "directory": "deployment/agent-sidecar"
+    "directory": "src/Cvoya.Spring.AgentSidecar"
   },
   "bugs": {
     "url": "https://github.com/cvoya-com/spring-voyage/issues"

@@ -74,7 +74,7 @@ public sealed class DatabaseConfigurationRequirement(
 
     /// <inheritdoc />
     public Uri? DocumentationUrl { get; } =
-        new Uri("https://github.com/cvoya-com/spring-voyage/blob/main/deployment/README.md", UriKind.Absolute);
+        new Uri("https://github.com/cvoya-com/spring-voyage/blob/main/devops/deploy/README.md", UriKind.Absolute);
 
     /// <inheritdoc />
     public Task<ConfigurationRequirementStatus> ValidateAsync(CancellationToken cancellationToken)
@@ -96,7 +96,7 @@ public sealed class DatabaseConfigurationRequirement(
                 reason: "ConnectionStrings:SpringDb is not set.",
                 suggestion:
                     "Set the ConnectionStrings:SpringDb configuration value (environment variable " +
-                    "ConnectionStrings__SpringDb=...) to a valid PostgreSQL connection string. See deployment/README.md.",
+                    "ConnectionStrings__SpringDb=...) to a valid PostgreSQL connection string. See devops/deploy/README.md.",
                 fatalError: new InvalidOperationException(
                     "No connection string found for SpringDbContext. Set the " +
                     "ConnectionStrings:SpringDb configuration value (environment variable " +

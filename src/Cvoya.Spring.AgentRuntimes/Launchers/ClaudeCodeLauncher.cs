@@ -60,7 +60,7 @@ public class ClaudeCodeLauncher(
     /// <summary>
     /// Bridge env var name carrying the CLI flag that *creates* a session
     /// with a supplied id (ADR-0041 / #2094). Read by
-    /// `deployment/agent-sidecar/src/config.ts:parseThreadBinding`.
+    /// `src/Cvoya.Spring.AgentSidecar/src/config.ts:parseThreadBinding`.
     /// </summary>
     internal const string ThreadIdArgCreateEnvVar = "SPRING_THREAD_ID_ARG_CREATE";
 
@@ -118,7 +118,7 @@ public class ClaudeCodeLauncher(
     ///   dispatcher can map to <see cref="Cvoya.Spring.Core.Messaging.StreamEvent"/>s.</item>
     /// </list>
     /// Source: matches the smoke argv used by the agent-sidecar config tests
-    /// (<c>deployment/agent-sidecar/test/config.test.ts</c>) and is the
+    /// (<c>src/Cvoya.Spring.AgentSidecar/test/config.test.ts</c>) and is the
     /// BYOI path-1 baseline documented in #1097. Since PR 5 of #1087
     /// (#1098) the dispatcher no longer runs <c>sleep infinity</c>: the
     /// argv below is JSON-encoded into <c>SPRING_AGENT_ARGV</c> and
@@ -218,7 +218,7 @@ public class ClaudeCodeLauncher(
             ["SPRING_THREAD_ID"] = context.ThreadId,
             ["SPRING_SYSTEM_PROMPT"] = prompt,
             // The bridge parses this back into argv via JSON.parse — see
-            // deployment/agent-sidecar/src/config.ts. Hand-rolling the
+            // src/Cvoya.Spring.AgentSidecar/src/config.ts. Hand-rolling the
             // encoding is forbidden (see issue text); JsonSerializer
             // gives us stable, double-quoted output.
             ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(DefaultClaudeArgv),

@@ -62,7 +62,7 @@ public class GeminiLauncher(
     /// <summary>
     /// Bridge env var name carrying the CLI flag that *creates* a session
     /// with a supplied id (ADR-0041 / #2094 / #2103). Read by
-    /// `deployment/agent-sidecar/src/config.ts:parseThreadBinding`. Kept as
+    /// `src/Cvoya.Spring.AgentSidecar/src/config.ts:parseThreadBinding`. Kept as
     /// a separate const here (rather than reused from <see cref="ClaudeCodeLauncher"/>)
     /// so the Claude / Gemini launchers stay independently auditable —
     /// they happen to ship identical flag names because both CLIs settled
@@ -112,7 +112,7 @@ public class GeminiLauncher(
     /// Argv vector the A2A bridge (agent-base ENTRYPOINT) spawns inside
     /// the Gemini container on every <c>message/send</c>. Encoded as a
     /// JSON array string in <c>SPRING_AGENT_ARGV</c> so the bridge
-    /// (<c>deployment/agent-sidecar/src/config.ts</c>) can recover the
+    /// (<c>src/Cvoya.Spring.AgentSidecar/src/config.ts</c>) can recover the
     /// exact quoting/whitespace via <c>JSON.parse</c> instead of shell
     /// splitting (#1063 history). The bridge appends
     /// <c>[--session-id|--resume, &lt;thread.id&gt;]</c> to this vector
@@ -127,7 +127,7 @@ public class GeminiLauncher(
     ///   with the given prompt. Appended to input on stdin (if any)."
     ///   The empty string is the trigger; the actual user message arrives
     ///   via stdin (which the bridge's <c>runAgentBridge({stdin: userText})</c>
-    ///   already pipes in — see <c>deployment/agent-sidecar/src/bridge.ts</c>).
+    ///   already pipes in — see <c>src/Cvoya.Spring.AgentSidecar/src/bridge.ts</c>).
     ///   Without <c>--prompt</c> the CLI's default is interactive mode and
     ///   it never exits, hanging the bridge — empirically confirmed.</item>
     ///   <item><c>--output-format stream-json</c> emits newline-delimited
@@ -225,7 +225,7 @@ public class GeminiLauncher(
             ["SPRING_THREAD_ID"] = context.ThreadId,
             ["SPRING_SYSTEM_PROMPT"] = prompt,
             // #2108: the bridge parses this back into argv via JSON.parse —
-            // see deployment/agent-sidecar/src/config.ts. Hand-rolling the
+            // see src/Cvoya.Spring.AgentSidecar/src/config.ts. Hand-rolling the
             // encoding is forbidden (#1063 history); JsonSerializer gives
             // us stable, double-quoted output. The bridge appends
             // [--session-id|--resume, <thread.id>] to this vector per the
