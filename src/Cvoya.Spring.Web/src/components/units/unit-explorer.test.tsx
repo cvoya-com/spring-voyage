@@ -1,4 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  fireEvent,
+  render as _baseRender,
+  screen,
+  type RenderResult,
+} from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The Explorer pane now hosts `<UnitPaneActions>` (#980 item 3). Stub it
@@ -8,6 +15,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./unit-pane-actions", () => ({
   UnitPaneActions: () => null,
 }));
+
+// #2183: <UnitTree> calls useIssueCounts which requires a QueryClient.
+// Wrap every render with a permissive client so these scaffold tests
+// don't have to model issue-counts data.
+function render(ui: ReactElement): RenderResult {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  return _baseRender(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
 
 import type { TreeNode } from "./aggregate";
 import {

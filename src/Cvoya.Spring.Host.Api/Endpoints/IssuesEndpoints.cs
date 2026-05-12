@@ -47,7 +47,70 @@ public static class IssuesEndpoints
             .Produces<IssuesViewResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // #2183: batch open-issue counts for tree-explorer badges. Pass
+        // `subjects=unit:<guid>,agent:<guid>,…` (canonical no-dash hex);
+        // empty / unrecognised tokens are silently skipped.
+        group.MapGet("/api/v1/tenant/issues/counts", GetIssueCountsAsync)
+            .WithTags("Issues")
+            .WithName("GetIssueCounts")
+            .WithSummary("Batch open-issue counts for many subjects in one round-trip.")
+            .Produces<IssueCountsResponse>(StatusCodes.Status200OK);
+
         return group;
+    }
+
+    private static async Task<IResult> GetIssueCountsAsync(
+        [FromServices] IIssueReader reader,
+        [FromQuery] string? subjects,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(subjects))
+        {
+            return Results.Ok(new IssueCountsResponse(Array.Empty<IssueCountEntryResponse>()));
+        }
+
+        var requested = new List<IssueSubject>();
+        foreach (var token in subjects.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (TryParseSubject(token, out var subject))
+            {
+                requested.Add(subject);
+            }
+        }
+        if (requested.Count == 0)
+        {
+            return Results.Ok(new IssueCountsResponse(Array.Empty<IssueCountEntryResponse>()));
+        }
+
+        var counts = await reader.CountOpenAsync(requested, cancellationToken);
+        var entries = counts
+            .Select(kvp => new IssueCountEntryResponse(
+                SubjectKind: FormatKind(kvp.Key.Kind),
+                SubjectId: kvp.Key.Id,
+                ErrorCount: kvp.Value.ErrorCount,
+                WarningCount: kvp.Value.WarningCount))
+            .ToList();
+        return Results.Ok(new IssueCountsResponse(entries));
+    }
+
+    private static bool TryParseSubject(string token, out IssueSubject subject)
+    {
+        subject = default!;
+        var colon = token.IndexOf(':');
+        if (colon <= 0 || colon == token.Length - 1) return false;
+        var kind = token[..colon].ToLowerInvariant() switch
+        {
+            "unit" => IssueSubjectKind.Unit,
+            "agent" => IssueSubjectKind.Agent,
+            _ => (IssueSubjectKind?)null,
+        };
+        if (kind is null) return false;
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(token[(colon + 1)..], out var id))
+        {
+            return false;
+        }
+        subject = new IssueSubject(kind.Value, id);
+        return true;
     }
 
     private static async Task<IResult> GetUnitIssuesAsync(

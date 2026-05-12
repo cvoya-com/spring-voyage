@@ -256,7 +256,8 @@ public static class TenantTreeEndpoints
                 Kind: "Unit",
                 Status: ToWireStatus(status),
                 Desc: description,
-                Children: Array.Empty<TenantTreeNode>());
+                Children: Array.Empty<TenantTreeNode>(),
+                DefinitionId: unit.ActorId);
         }
 
         var rows = membershipsByUnit.TryGetValue(unitPath, out var list)
@@ -302,7 +303,8 @@ public static class TenantTreeEndpoints
             Kind: "Unit",
             Status: ToWireStatus(status),
             Desc: description,
-            Children: allChildren);
+            Children: allChildren,
+            DefinitionId: unit.ActorId);
     }
 
     /// <summary>
@@ -381,6 +383,7 @@ public static class TenantTreeEndpoints
             Status: "running",
             Desc: string.IsNullOrWhiteSpace(agent.Description) ? null : agent.Description,
             Role: agent.Role,
-            PrimaryParentId: primary);
+            PrimaryParentId: primary,
+            DefinitionId: agent.Address.Id);
     }
 }

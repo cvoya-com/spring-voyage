@@ -83,3 +83,19 @@ public sealed record IssueChildSummaryResponse(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("errorCount")] int ErrorCount,
     [property: JsonPropertyName("warningCount")] int WarningCount);
+
+/// <summary>
+/// Wire shape for <c>GET /api/v1/tenant/issues/counts?subjects=…</c>
+/// (#2183). Per-subject open-issue counts so the tree explorer can
+/// render badges across an entire hierarchy in one round-trip.
+/// Subjects with zero open issues are omitted from <see cref="Counts"/>.
+/// </summary>
+public sealed record IssueCountsResponse(
+    [property: JsonPropertyName("counts")] IReadOnlyList<IssueCountEntryResponse> Counts);
+
+/// <summary>One subject's open-issue counts within an <see cref="IssueCountsResponse"/>.</summary>
+public sealed record IssueCountEntryResponse(
+    [property: JsonPropertyName("subjectKind")] string SubjectKind,
+    [property: JsonPropertyName("subjectId")] Guid SubjectId,
+    [property: JsonPropertyName("errorCount")] int ErrorCount,
+    [property: JsonPropertyName("warningCount")] int WarningCount);

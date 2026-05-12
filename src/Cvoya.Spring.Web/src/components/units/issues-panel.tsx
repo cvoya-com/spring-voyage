@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 
 import { AlertTriangle, ChevronRight, Info } from "lucide-react";
 
@@ -35,8 +36,15 @@ export interface IssuesPanelProps {
 }
 
 export function IssuesPanel({ view, subjectKind }: IssuesPanelProps) {
-  const own = view?.own ?? [];
+  // Hooks first — early returns must come after every hook call so
+  // React's call order stays stable across renders.
+  const own = useMemo(() => view?.own ?? [], [view]);
   const rollup = view?.descendants ?? null;
+  // #2160 PR B: group own issues by source so the operator can scan
+  // operational concerns by category (validation / runtime / credential
+  // / configuration / …). Single-source panels skip the heading row to
+  // stay tight; multi-source panels render one heading per group.
+  const ownBySource = useMemo(() => groupIssuesBySource(own), [own]);
 
   const hasOwn = own.length > 0;
   const hasDescendantIssues =
@@ -65,11 +73,15 @@ export function IssuesPanel({ view, subjectKind }: IssuesPanelProps) {
   return (
     <div data-testid="issues-panel" data-has-issues="true" className="space-y-3">
       {hasOwn && (
-        <ul className="space-y-2">
-          {own.map((issue) => (
-            <IssueRow key={issue.id} issue={issue} />
+        <div className="space-y-3" data-testid="issues-panel-own">
+          {ownBySource.map((group) => (
+            <SourceGroup
+              key={group.source}
+              group={group}
+              singleGroup={ownBySource.length === 1}
+            />
           ))}
-        </ul>
+        </div>
       )}
 
       {hasDescendantIssues && rollup && (
@@ -77,6 +89,58 @@ export function IssuesPanel({ view, subjectKind }: IssuesPanelProps) {
       )}
     </div>
   );
+}
+
+interface SourceGroup {
+  source: string;
+  issues: IssueResponse[];
+}
+
+function groupIssuesBySource(issues: IssueResponse[]): SourceGroup[] {
+  const order: string[] = [];
+  const buckets = new Map<string, IssueResponse[]>();
+  for (const issue of issues) {
+    const source = issue.source ?? "other";
+    if (!buckets.has(source)) {
+      order.push(source);
+      buckets.set(source, []);
+    }
+    buckets.get(source)!.push(issue);
+  }
+  return order.map((source) => ({ source, issues: buckets.get(source)! }));
+}
+
+function SourceGroup({
+  group,
+  singleGroup,
+}: {
+  group: SourceGroup;
+  singleGroup: boolean;
+}) {
+  return (
+    <div data-testid={`issues-panel-source-${group.source}`}>
+      {!singleGroup && (
+        <p className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+          {humaniseSource(group.source)}
+        </p>
+      )}
+      <ul className="space-y-2">
+        {group.issues.map((issue) => (
+          <IssueRow key={issue.id} issue={issue} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function humaniseSource(source: string): string {
+  // Stable codes are kebab/snake/CamelCase identifiers. Render them as
+  // operator-readable headings without inventing a per-source map —
+  // adding new sources should not require touching the panel.
+  return source
+    .replace(/[-_]/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/^\w/, (c) => c.toUpperCase());
 }
 
 function IssueRow({ issue }: { issue: IssueResponse }) {

@@ -1709,6 +1709,20 @@ export const api = {
       }),
     ),
 
+  // #2183: batch open-issue counts for the tree explorer's per-row
+  // badges. Pass `subjects: ["unit:<guid>", "agent:<guid>", …]`; the
+  // server omits subjects with zero open issues from the response.
+  getIssueCounts: async (subjects: readonly string[]) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/issues/counts", {
+        params: {
+          query: subjects.length > 0
+            ? ({ subjects: subjects.join(",") } as never)
+            : undefined,
+        },
+      }),
+    ),
+
   // Package install (ADR-0035 decision 11 — two-phase atomic install).
   // POST /api/v1/packages/install — install one or more packages from the catalog.
   // Returns 201 with InstallStatusResponse; Phase-2 failures show status=failed.

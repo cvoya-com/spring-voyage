@@ -5622,6 +5622,36 @@
         }
       }
     },
+    "/api/v1/tenant/issues/counts": {
+      "get": {
+        "tags": [
+          "Issues"
+        ],
+        "summary": "Batch open-issue counts for many subjects in one round-trip.",
+        "operationId": "GetIssueCounts",
+        "parameters": [
+          {
+            "name": "subjects",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueCountsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/skills": {
       "get": {
         "tags": [
@@ -11020,6 +11050,46 @@
           }
         }
       },
+      "IssueCountEntryResponse": {
+        "required": [
+          "subjectKind",
+          "subjectId",
+          "errorCount",
+          "warningCount"
+        ],
+        "type": "object",
+        "properties": {
+          "subjectKind": {
+            "type": "string"
+          },
+          "subjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "errorCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "warningCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "IssueCountsResponse": {
+        "required": [
+          "counts"
+        ],
+        "type": "object",
+        "properties": {
+          "counts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueCountEntryResponse"
+            }
+          }
+        }
+      },
       "IssueDescendantRollupResponse": {
         "required": [
           "errorCount",
@@ -12717,6 +12787,13 @@
             "items": {
               "$ref": "#/components/schemas/TenantTreeNode"
             }
+          },
+          "definitionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -14016,6 +14093,9 @@
     },
     {
       "name": "Dashboard"
+    },
+    {
+      "name": "Issues"
     },
     {
       "name": "Skills"

@@ -37,6 +37,13 @@ public record TenantTreeResponse(TenantTreeNode Tree);
 /// opened from one well-known tree position.
 /// </param>
 /// <param name="Children">Direct children, or <c>null</c> for leaves.</param>
+/// <param name="DefinitionId">
+/// Stable definition Guid for unit / agent nodes — <c>UnitDefinitionEntity.Id</c>
+/// or <c>AgentDefinitionEntity.Id</c>. Null for the synthesized Tenant root
+/// (which has no DB row). Carried so callers that query subject-keyed
+/// surfaces (#2183 issue counts, future per-subject metrics) can address
+/// rows directly without re-resolving the navigation slug.
+/// </param>
 public record TenantTreeNode(
     string Id,
     string Name,
@@ -48,4 +55,5 @@ public record TenantTreeNode(
     string? Role = null,
     int? Skills = null,
     string? PrimaryParentId = null,
-    IReadOnlyList<TenantTreeNode>? Children = null);
+    IReadOnlyList<TenantTreeNode>? Children = null,
+    Guid? DefinitionId = null);

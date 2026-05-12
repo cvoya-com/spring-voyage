@@ -174,6 +174,8 @@ export const queryKeys = {
     all: ["issues"] as const,
     unit: (id: string) => ["issues", "unit", id] as const,
     agent: (id: string) => ["issues", "agent", id] as const,
+    counts: (subjects: readonly string[]) =>
+      ["issues", "counts", ...[...subjects].sort()] as const,
   },
 
   connectors: {

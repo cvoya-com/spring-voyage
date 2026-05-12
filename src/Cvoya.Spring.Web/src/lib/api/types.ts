@@ -751,6 +751,12 @@ export type IssueResponse = Schemas["IssueResponse"];
 /** Per-immediate-child issue summary used by the Overview drill-down list. */
 export type IssueChildSummaryResponse = Schemas["IssueChildSummaryResponse"];
 
+// `IssueCountsResponse` and `IssueCountEntryResponse` are intentionally
+// not re-exported — the `useIssueCounts` hook in `lib/api/queries.ts`
+// returns the openapi-fetch inferred shape directly, and the only
+// consumer (`<UnitTree>`) destructures it inline. Re-exporting them
+// would trip knip with no current call site.
+
 /**
  * Response from `GET /api/v1/system/credentials/{provider}/status`
  * (#598). Reports whether an LLM provider's credentials (or endpoint,
