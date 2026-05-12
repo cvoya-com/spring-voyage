@@ -6,11 +6,15 @@ namespace Cvoya.Spring.Dapr.Tests.Actors;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
 using Microsoft.Extensions.Logging;
@@ -37,6 +41,8 @@ public class RuntimeInvocationPathTests
 
     private static Address MakeAgent(string slug) => Address.For(Address.AgentScheme, TestSlugIds.HexFor(slug));
 
+    private static Address MakeUnit(string slug) => Address.For(Address.UnitScheme, TestSlugIds.HexFor(slug));
+
     private static Message MakeMessage(Address from, Address to, string? threadId = null)
         => new(
             Guid.NewGuid(),
@@ -47,7 +53,9 @@ public class RuntimeInvocationPathTests
             JsonSerializer.SerializeToElement(new { hello = "world" }),
             DateTimeOffset.UtcNow);
 
-    private RuntimeInvocationPath MakePath(IEnumerable<ISkillRegistry>? skillRegistries = null)
+    private RuntimeInvocationPath MakePath(
+        IEnumerable<ISkillRegistry>? skillRegistries = null,
+        IAgentDispatchCoordinator? dispatchCoordinator = null)
     {
         _toolProvider
             .GetOrchestrationTools(Arg.Any<Address>(), Arg.Any<Guid>())
@@ -57,8 +65,21 @@ public class RuntimeInvocationPathTests
             _definitionProvider,
             skillRegistries ?? Array.Empty<ISkillRegistry>(),
             _toolProvider,
-            _dispatchCoordinator,
+            dispatchCoordinator ?? _dispatchCoordinator,
             _logger);
+    }
+
+    private static MessageRouter MakeRouter()
+    {
+        var loggerFactory = Substitute.For<ILoggerFactory>();
+        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
+
+        return Substitute.For<MessageRouter>(
+            Substitute.For<IDirectoryService>(),
+            Substitute.For<IAgentProxyResolver>(),
+            Substitute.For<IPermissionService>(),
+            loggerFactory,
+            NullMessageWriterScopeFactory.Create());
     }
 
     [Fact]
@@ -249,18 +270,38 @@ public class RuntimeInvocationPathTests
     }
 
     [Fact]
-    public async Task InvokeAsync_LeanOverload_WithEmitDelegate_ForwardsItToCoordinator()
+    public async Task InvokeAsync_LeanOverload_WithEmitDelegate_ForwardsSubjectRewritingDelegateToCoordinator()
     {
         // #2211: the lean overload must forward a caller-supplied
         // emitActivity delegate to the dispatch coordinator so that
         // ErrorOccurred events (e.g. credential-resolution failures)
         // surface in the caller's Activity feed instead of being
         // dropped by the no-op default.
-        var subject = MakeAgent("test-agent");
+        //
+        // #2207: the coordinator still builds agent-shaped events for
+        // the rich AgentActor path. The lean path adapts the event source
+        // back to the actual subject so unit invocations surface in the
+        // unit activity stream.
+        var subject = MakeUnit("test-unit");
         var inbound = MakeMessage(MakeAgent("test-sender"), subject);
         var path = MakePath();
 
-        Func<ActivityEvent, CancellationToken, Task> emit = (_, _) => Task.CompletedTask;
+        var publishedEvents = new List<ActivityEvent>();
+        Func<ActivityEvent, CancellationToken, Task> emit = (activityEvent, _) =>
+        {
+            publishedEvents.Add(activityEvent);
+            return Task.CompletedTask;
+        };
+
+        Func<ActivityEvent, CancellationToken, Task>? capturedEmit = null;
+        await _dispatchCoordinator.RunDispatchAsync(
+            Arg.Any<string>(),
+            Arg.Any<Message>(),
+            Arg.Any<PromptAssemblyContext>(),
+            Arg.Do<Func<ActivityEvent, CancellationToken, Task>>(d => capturedEmit = d),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
+        _dispatchCoordinator.ClearReceivedCalls();
 
         await path.InvokeAsync(
             subject,
@@ -272,9 +313,102 @@ public class RuntimeInvocationPathTests
             agentId: subject.Path,
             message: inbound,
             context: Arg.Any<PromptAssemblyContext>(),
-            emitActivity: emit,
+            emitActivity: Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
             onDispatchExit: Arg.Any<Func<string, Task>>(),
             cancellationToken: Arg.Any<CancellationToken>());
+
+        capturedEmit.ShouldNotBeNull();
+        var coordinatorEvent = new ActivityEvent(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            MakeAgent("test-unit"),
+            ActivityEventType.ErrorOccurred,
+            ActivitySeverity.Error,
+            "Dispatch failed: missing execution config",
+            null,
+            inbound.ThreadId);
+
+        await capturedEmit!(coordinatorEvent, CancellationToken.None);
+
+        publishedEvents.Count.ShouldBe(1);
+        publishedEvents[0].Source.ShouldBe(subject);
+        publishedEvents[0].EventType.ShouldBe(ActivityEventType.ErrorOccurred);
+        publishedEvents[0].Summary.ShouldBe(coordinatorEvent.Summary);
+        publishedEvents[0].CorrelationId.ShouldBe(inbound.ThreadId);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_LeanOverload_DispatcherThrows_PublishesErrorActivity()
+    {
+        var subject = MakeUnit("test-unit");
+        var inbound = MakeMessage(MakeAgent("test-sender"), subject);
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns<Message?>(_ => throw new InvalidOperationException("simulated dispatch failure"));
+
+        var coordinator = new AgentDispatchCoordinator(
+            dispatcher,
+            MakeRouter(),
+            Substitute.For<ILogger<AgentDispatchCoordinator>>());
+        var path = MakePath(dispatchCoordinator: coordinator);
+        var publishedEvents = new List<ActivityEvent>();
+
+        await path.InvokeAsync(
+            subject,
+            inbound,
+            TestContext.Current.CancellationToken,
+            emitActivity: (activityEvent, _) =>
+            {
+                publishedEvents.Add(activityEvent);
+                return Task.CompletedTask;
+            });
+
+        publishedEvents.Count.ShouldBe(1);
+        var published = publishedEvents[0];
+        published.Source.ShouldBe(subject);
+        published.EventType.ShouldBe(ActivityEventType.ErrorOccurred);
+        published.Severity.ShouldBe(ActivitySeverity.Error);
+        published.CorrelationId.ShouldBe(inbound.ThreadId);
+        published.Summary.ShouldContain("simulated dispatch failure");
+        published.Details.ShouldNotBeNull();
+        published.Details.Value.GetProperty("error").GetString().ShouldBe("simulated dispatch failure");
+    }
+
+    [Fact]
+    public async Task InvokeAsync_LeanOverload_DispatcherReturnsNull_PublishesNoResponseActivity()
+    {
+        var subject = MakeUnit("test-unit");
+        var inbound = MakeMessage(MakeAgent("test-sender"), subject);
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+
+        var coordinator = new AgentDispatchCoordinator(
+            dispatcher,
+            MakeRouter(),
+            Substitute.For<ILogger<AgentDispatchCoordinator>>());
+        var path = MakePath(dispatchCoordinator: coordinator);
+        var publishedEvents = new List<ActivityEvent>();
+
+        await path.InvokeAsync(
+            subject,
+            inbound,
+            TestContext.Current.CancellationToken,
+            emitActivity: (activityEvent, _) =>
+            {
+                publishedEvents.Add(activityEvent);
+                return Task.CompletedTask;
+            });
+
+        publishedEvents.Count.ShouldBe(1);
+        var published = publishedEvents[0];
+        published.Source.ShouldBe(subject);
+        published.EventType.ShouldBe(ActivityEventType.WorkflowStepCompleted);
+        published.Severity.ShouldBe(ActivitySeverity.Info);
+        published.CorrelationId.ShouldBe(inbound.ThreadId);
+        published.Summary.ShouldContain("no response");
+        published.Details.ShouldNotBeNull();
+        published.Details.Value.GetProperty("reason").GetString().ShouldBe("dispatch returned no response");
     }
 
     [Fact]

@@ -28,7 +28,7 @@ Activity events cover the full spectrum of agent behavior:
 - **StateChanged** -- the agent's internal state changed
 - **InitiativeTriggered** -- the agent decided to act autonomously
 - **ReflectionCompleted** -- the agent finished a cognition cycle
-- **WorkflowStepCompleted** -- a workflow step finished
+- **WorkflowStepCompleted** -- a workflow or runtime dispatch step finished
 - **CostIncurred** -- an LLM call was made (with cost)
 - **TokenDelta** -- live LLM token streaming
 
