@@ -221,14 +221,6 @@ public static class StateKeys
     // #1732 is silently ignored.
 
     /// <summary>
-    /// State key for the <see cref="ContainerSupervisorActor"/>'s persisted
-    /// supervision state (container id, hosting mode, restart count, etc.).
-    /// Stored on the <c>ContainerSupervisorActor</c> (keyed by agent id).
-    /// D3d — ADR-0029 § "Failure recovery".
-    /// </summary>
-    public const string SupervisorState = "Supervisor:State";
-
-    /// <summary>
     /// State key for the human actor's per-thread read cursor map
     /// (<c>Dictionary&lt;string, DateTimeOffset&gt;</c> mapping
     /// <c>threadId → lastReadAt</c>). Absent entries mean the thread

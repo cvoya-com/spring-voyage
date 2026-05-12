@@ -189,48 +189,6 @@ public class AgentContextBuilder(
         return Task.FromResult(new AgentBootstrapContext(envVars, contextFiles));
     }
 
-    /// <inheritdoc />
-    public Task<AgentBootstrapContext> RefreshForRestartAsync(
-        SupervisorRestartContext restartContext,
-        CancellationToken cancellationToken = default)
-    {
-        // Mint a fresh bootstrap bundle using the supervisor's persisted identity.
-        // A supervisor-driven restart is agent-level, not thread-level, so we
-        // supply a minimal synthetic AgentLaunchContext — no prompt, no thread id,
-        // no agent-definition YAML, no tenant-config JSON.
-        //
-        // The MCP server requires a session bound to an agent + thread; we use a
-        // synthetic restart-sentinel thread id so the MCP server can attribute tool
-        // calls from the restarted container to a known session rather than to an
-        // unknown caller. The supervisor does NOT cache the resulting tokens — they
-        // are consumed immediately by RestartAsync per D1 spec § 2.2.3.
-
-        _logger.LogInformation(
-            "Refreshing IAgentContext credentials for supervisor restart of agent {AgentId} " +
-            "(tenant={TenantId} unit={UnitId})",
-            restartContext.AgentId,
-            restartContext.TenantId,
-            restartContext.UnitId ?? "(none)");
-
-        // Issue a fresh MCP session for this restart. Use a synthetic thread id
-        // that scopes the session to this restart event (not to any specific user
-        // thread — the restarted agent will serve whichever thread dispatches next).
-        var restartThreadId = $"restart:{restartContext.AgentId}:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
-        var mcpSession = mcpServer.IssueSession(restartContext.AgentId, restartThreadId);
-
-        var syntheticLaunchContext = new AgentLaunchContext(
-            AgentId: restartContext.AgentId,
-            ThreadId: string.Empty,  // restarts are agent-level; SPRING_THREAD_ID omitted
-            Prompt: string.Empty,
-            McpEndpoint: mcpServer.Endpoint ?? string.Empty,
-            McpToken: mcpSession.Token,
-            TenantId: restartContext.TenantId,
-            UnitId: restartContext.UnitId,
-            ConcurrentThreads: restartContext.ConcurrentThreads);
-
-        return BuildAsync(syntheticLaunchContext, cancellationToken);
-    }
-
     /// <summary>
     /// Resolves the LLM provider endpoint URL from operator configuration.
     /// Falls back to the Ollama base URL (OSS default) when no override is set.

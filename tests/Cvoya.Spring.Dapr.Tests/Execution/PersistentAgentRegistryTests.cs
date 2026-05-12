@@ -357,26 +357,27 @@ public class PersistentAgentRegistryTests : IDisposable
     }
 
     [Fact]
-    public void HealthCheckInterval_IsSubSecondOrSecond_For2092CrashDetection()
+    public void HealthCheckInterval_StaysBoundedForBackgroundCrashDetection()
     {
-        // #2092: the registry must observe a crashed persistent agent
-        // within ~1s of the A2A endpoint going unreachable. The original
-        // 30s sweep cadence missed the cold-path requirement; this asserts
-        // the post-#2092 cadence so a future "let's loosen this" change
-        // re-trips the regression on the way out.
+        // The registry's only crash-detection guarantee for background-detected
+        // crashes is "the dashboard status chip stops lying within a few seconds."
+        // The dispatch path runs its own pre-flight probe (#2092) so real inbound
+        // turns never wait on this sweep. #2203 relaxed the cadence from 1s back
+        // to 5s once that became clear; this asserts the upper bound so a future
+        // loosening trips the regression on the way out.
         PersistentAgentRegistry.HealthCheckInterval.ShouldBeLessThanOrEqualTo(
-            TimeSpan.FromSeconds(1));
+            TimeSpan.FromSeconds(5));
     }
 
     [Fact]
     public async Task RunHealthChecksAsync_CrashedAgent_DetectedInSingleSweep()
     {
         // #2092: a single probe failure from a crashed agent flips
-        // HealthStatus to Unhealthy on the very next sweep. Combined
-        // with the 1s sweep cadence (HealthCheckInterval), the registry
-        // surfaces a crash within the bounded latency the issue asks for
-        // — without waiting for UnhealthyThreshold consecutive failures
-        // (the threshold only gates the more-expensive background restart).
+        // HealthStatus to Unhealthy on the very next sweep — without
+        // waiting for UnhealthyThreshold consecutive failures (the
+        // threshold only gates the more-expensive background restart).
+        // The sweep cadence itself is bounded by HealthCheckInterval and
+        // pinned by HealthCheckInterval_StaysBoundedForBackgroundCrashDetection.
         var probeResults = new Queue<bool>([true, false]);
         _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -468,6 +469,73 @@ public class PersistentAgentRegistryTests : IDisposable
 
         var entries = _registry.GetAllEntries();
         entries.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task RunHealthChecksAsync_SkipsAgentsWithInFlightDispatch()
+    {
+        // #2159: while a dispatch is in flight against an agent, the
+        // background sweep must NOT probe it. A Python agent serving a
+        // synchronous LLM call may legitimately block its event loop for
+        // tens of seconds — letting the timer flag that as a crash kills
+        // the in-flight inference for no good reason. The dispatch path's
+        // own catch block still surfaces real failures via MarkUnhealthy.
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(false));
+
+        var endpoint = new Uri("http://localhost:8999/");
+        _registry.Register("agent-1", endpoint, "container-1");
+
+        using (_registry.BeginDispatch("agent-1"))
+        {
+            await _registry.RunHealthChecksAsync();
+
+            // Probe was skipped: status stays Healthy and no probe call was issued.
+            _registry.TryGet("agent-1", out var duringEntry);
+            duringEntry!.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
+            duringEntry.ConsecutiveFailures.ShouldBe(0);
+
+            await _containerRuntime.DidNotReceive().ProbeContainerHttpAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        }
+
+        // After the dispatch scope is disposed, the sweep runs the probe
+        // again and the still-failing probe flips the entry to Unhealthy.
+        await _registry.RunHealthChecksAsync();
+        _registry.TryGet("agent-1", out var afterEntry);
+        afterEntry!.HealthStatus.ShouldBe(AgentHealthStatus.Unhealthy);
+    }
+
+    [Fact]
+    public async Task RunHealthChecksAsync_RestartAttemptFailure_DropsEntry()
+    {
+        // The registry's restart path is one-shot: TryRestartAsync calls
+        // PersistentAgentLifecycle.DeployAsync, and if that throws, the
+        // entry is removed from the registry rather than retried in place.
+        // This caps the per-tick restart attempt to a single try — a
+        // permanently broken agent doesn't loop forever inside the timer.
+        // Re-deploys go through the explicit `spring agent deploy` path.
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(false));
+
+        // Definition with an image is required so TryRestartAsync proceeds
+        // past its "no image" early return into the DeployAsync call.
+        var definition = new AgentDefinition("agent-1", "Test Agent", null,
+            new AgentExecutionConfig("claude-code", "image:v1", Hosting: AgentHostingMode.Persistent));
+        _registry.Register("agent-1", new Uri("http://localhost:8999/"), "container-1", definition);
+
+        // Default _agentProvider.GetByIdAsync returns null, so DeployAsync
+        // throws SpringException — that's the catch path under test.
+
+        for (var i = 0; i < PersistentAgentRegistry.UnhealthyThreshold; i++)
+        {
+            await _registry.RunHealthChecksAsync();
+        }
+
+        _registry.TryGet("agent-1", out var entry);
+        entry.ShouldBeNull();
     }
 
     /// <summary>
