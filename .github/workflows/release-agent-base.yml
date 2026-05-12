@@ -145,6 +145,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Make GHCR package public
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
