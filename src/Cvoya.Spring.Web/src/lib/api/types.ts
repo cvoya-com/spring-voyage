@@ -729,6 +729,20 @@ export type MemoriesResponse = Schemas["MemoriesResponse"];
 /** One memory entry. See {@link MemoriesResponse}. */
 export type MemoryEntry = Schemas["MemoryEntry"];
 
+// ---------------------------------------------------------------------------
+// Issues (#2160). Read-only surface — producer-cleared, no operator
+// dismiss in v0.1 (#2174 tracks ack/dismiss for v0.2).
+// ---------------------------------------------------------------------------
+
+/** Response shape for `GET /api/v1/tenant/(units|agents)/{id}/issues`. */
+export type IssuesViewResponse = Schemas["IssuesViewResponse"];
+
+/** One open issue against a unit or agent. */
+export type IssueResponse = Schemas["IssueResponse"];
+
+/** Per-immediate-child issue summary used by the Overview drill-down list. */
+export type IssueChildSummaryResponse = Schemas["IssueChildSummaryResponse"];
+
 /**
  * Response from `GET /api/v1/system/credentials/{provider}/status`
  * (#598). Reports whether an LLM provider's credentials (or endpoint,

@@ -1683,6 +1683,32 @@ export const api = {
       }),
     ),
 
+  // #2160: operational issues — currently-open Errors / Warnings against
+  // a unit or agent, plus the transitively-aggregated descendant rollup
+  // for units. The Overview tab and `spring (unit|agent) issues` ride
+  // these endpoints. `includeDescendants` defaults to true server-side
+  // for units and is meaningless for agents.
+  getUnitIssues: async (
+    id: string,
+    options?: { includeDescendants?: boolean },
+  ) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/units/{id}/issues", {
+        params: {
+          path: { id },
+          query: options?.includeDescendants === false
+            ? ({ includeDescendants: false } as never)
+            : undefined,
+        },
+      }),
+    ),
+  getAgentIssues: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/issues", {
+        params: { path: { id } },
+      }),
+    ),
+
   // Package install (ADR-0035 decision 11 — two-phase atomic install).
   // POST /api/v1/packages/install — install one or more packages from the catalog.
   // Returns 201 with InstallStatusResponse; Phase-2 failures show status=failed.

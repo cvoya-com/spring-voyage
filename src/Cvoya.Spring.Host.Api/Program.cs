@@ -485,6 +485,8 @@ public partial class Program
             app.MapDashboardEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapTenantTreeEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapMemoriesEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+            // #2160: operational-issues read surface (Overview + CLI consumer).
+            app.MapIssuesEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapSkillsEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             // Connectors: platform-level (PlatformOperator-gated) provision /
             // deprovision. Self-gates internally — do NOT add a second

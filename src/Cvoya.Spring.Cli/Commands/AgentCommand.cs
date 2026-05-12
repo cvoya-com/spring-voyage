@@ -120,6 +120,8 @@ public static class AgentCommand
         // Unit defaults merge at dispatch; this verb edits the on-disk
         // agent slot only.
         agentCommand.Subcommands.Add(AgentExecutionCommand.Create(outputOption));
+        // #2160: open operational issues against this agent.
+        agentCommand.Subcommands.Add(IssuesCommand.CreateAgentSubcommand(outputOption));
 
         // #1377: `spring agent health <id>` — read the health status of a
         // persistent agent's backing container from the deployment endpoint.

@@ -26,12 +26,13 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/stat-card";
-import { useUnit, useUnitCostTimeseries, useUnitExecution } from "@/lib/api/queries";
+import { useUnit, useUnitCostTimeseries, useUnitExecution, useUnitIssues } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatCost } from "@/lib/utils";
 
 import { aggregate, type UnitNode } from "../aggregate";
 import ValidationPanel from "../detail/validation-panel";
+import { IssuesPanel } from "../issues-panel";
 import { UnitOverviewExpertiseCard } from "../unit-overview-expertise-card";
 
 import { registerTab, type TabContentProps } from "./index";
@@ -148,16 +149,13 @@ function UnitOverviewTab({ node }: TabContentProps) {
         <p className="text-sm text-muted-foreground">{unit.desc}</p>
       ) : null}
       {/*
-       * #1665: surface the unit's most recent validation error and the
-       * structured remediation copy when the unit is in `Error`. The
-       * existing `<ValidationPanel>` already maps the persisted
-       * `lastValidationError` blob to friendly per-code copy and
-       * exposes the retry / edit-credential affordances; reusing it
-       * here keeps the Overview tab and the create-wizard's
-       * post-validation step in lockstep. We deliberately scope this
-       * to `Error` only — for healthy units the panel would clutter
-       * the Overview, and the four-step probe animation while
-       * `Validating` already lives on the live status surface.
+       * #1665 / #2160: the unit's most recent validation error keeps
+       * its dedicated panel when the unit is in `Error` (the panel
+       * exposes the unique Edit-credential & retry affordance). The
+       * broader operational-issues surface (#2160) lives below it and
+       * is shown whenever the unit OR its descendants have any open
+       * issues — so a parent unit signals that one of its children is
+       * stuck, even if the parent itself is healthy.
        */}
       {liveUnit && liveUnit.status === "Error" && (
         <ValidationPanel
@@ -167,6 +165,8 @@ function UnitOverviewTab({ node }: TabContentProps) {
           modelProvider={executionQuery.data?.model?.provider ?? null}
         />
       )}
+      <UnitIssuesSection unitName={unit.name} />
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
           label="Agents"
@@ -275,5 +275,15 @@ function UnitOverviewTab({ node }: TabContentProps) {
 }
 
 registerTab("Unit", "Overview", UnitOverviewTab);
+
+/**
+ * #2160: thin wrapper that fetches the unit's issues view and renders
+ * the panel. Extracted so the Overview tab body stays declarative
+ * and the hook is colocated with its only call site.
+ */
+function UnitIssuesSection({ unitName }: { unitName: string }) {
+  const { data } = useUnitIssues(unitName, { includeDescendants: true });
+  return <IssuesPanel view={data ?? null} subjectKind="unit" />;
+}
 
 export default UnitOverviewTab;

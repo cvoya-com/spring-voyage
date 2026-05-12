@@ -44,6 +44,11 @@ public class UnitActor : Actor, IUnitActor
     private readonly IUnitExecutionStore? _unitExecutionStore;
     private readonly IUnitHumanPermissionStore? _humanPermissionStore;
     private readonly IUnitConnectorStartDispatcher? _connectorStartDispatcher;
+    // #2160: producer-side seam for the operational-issues surface.
+    // Optional so legacy test harnesses that construct the actor with a
+    // partial dependency set still wire up — when null, transitions
+    // simply don't publish issues, matching pre-#2160 behaviour.
+    private readonly Cvoya.Spring.Core.Issues.IIssueWriter? _issueWriter;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UnitActor"/> class.
@@ -133,7 +138,8 @@ public class UnitActor : Actor, IUnitActor
         IAgentExecutionStore? agentExecutionStore = null,
         IUnitExecutionStore? unitExecutionStore = null,
         IUnitHumanPermissionStore? humanPermissionStore = null,
-        IUnitConnectorStartDispatcher? connectorStartDispatcher = null)
+        IUnitConnectorStartDispatcher? connectorStartDispatcher = null,
+        Cvoya.Spring.Core.Issues.IIssueWriter? issueWriter = null)
         : base(host)
     {
         ArgumentNullException.ThrowIfNull(stateCoordinator);
@@ -159,6 +165,7 @@ public class UnitActor : Actor, IUnitActor
         _unitExecutionStore = unitExecutionStore;
         _humanPermissionStore = humanPermissionStore;
         _connectorStartDispatcher = connectorStartDispatcher;
+        _issueWriter = issueWriter;
     }
 
     private static IUnitValidationCoordinator BuildDefaultValidationCoordinator(
@@ -631,7 +638,76 @@ public class UnitActor : Actor, IUnitActor
             await TryAutoStartAsync(ct);
         }
 
+        // #2160: publish the validation outcome to the operational-issues
+        // surface so the Overview tab + CLI see this validation run as
+        // a first-class issue. Producer-cleared model: a successful
+        // transition to Stopped clears every prior validation-source
+        // issue; a transition to Error opens an issue keyed on the
+        // failure code. Best-effort — never let issue-publish failures
+        // mask the validation outcome itself.
+        if (_issueWriter is not null && result.Success)
+        {
+            await TryPublishValidationIssueAsync(result.CurrentStatus, completion.Failure, ct);
+        }
+
         return result;
+    }
+
+    /// <summary>
+    /// #2160: bridge the unit-validation outcome to the issue surface.
+    /// </summary>
+    private async Task TryPublishValidationIssueAsync(
+        UnitStatus newStatus,
+        Cvoya.Spring.Core.Units.UnitValidationError? failure,
+        CancellationToken ct)
+    {
+        try
+        {
+            var subjectGuid = await ResolveOwnSubjectIdAsync(ct);
+            if (subjectGuid is null)
+            {
+                return;
+            }
+            var subject = new Cvoya.Spring.Core.Issues.IssueSubject(
+                Cvoya.Spring.Core.Issues.IssueSubjectKind.Unit,
+                subjectGuid.Value);
+
+            if (newStatus == Cvoya.Spring.Core.Units.UnitStatus.Error && failure is not null)
+            {
+                var title = string.IsNullOrWhiteSpace(failure.Message)
+                    ? $"Validation failed at step {failure.Step}."
+                    : failure.Message;
+                await _issueWriter!.UpsertAsync(
+                    subject,
+                    Cvoya.Spring.Core.Issues.IssueSeverity.Error,
+                    source: "validation",
+                    code: failure.Code,
+                    title: title,
+                    detail: null,
+                    traceId: null,
+                    ct);
+            }
+            else
+            {
+                // Stopped / Running / etc. — validation cleared, drop
+                // any prior validation-source issues this unit had.
+                await _issueWriter!.ClearAsync(subject, source: "validation", code: null, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to publish validation issue for unit {UnitId}.",
+                Id.GetId());
+        }
+    }
+
+    private async Task<Guid?> ResolveOwnSubjectIdAsync(CancellationToken ct)
+    {
+        var address = Address.For("unit", Id.GetId());
+        var entry = await _directoryService.ResolveAsync(address, ct);
+        return entry?.ActorId;
     }
 
     /// <inheritdoc />
