@@ -998,6 +998,13 @@ public class UnitCreationService : IUnitCreationService
     /// configuration and calls <c>/revalidate</c>.
     /// </para>
     /// </remarks>
+    /// <inheritdoc />
+    public Task<UnitStatus> TryAutoStartAsync(
+        Guid unitActorGuid,
+        string unitName,
+        CancellationToken cancellationToken)
+        => TryAutoStartValidationAsync(unitActorGuid, unitName, cancellationToken);
+
     private async Task<UnitStatus> TryAutoStartValidationAsync(
         Guid unitActorGuid,
         string unitName,

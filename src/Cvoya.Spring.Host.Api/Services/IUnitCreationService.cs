@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Host.Api.Models;
 
 /// <summary>
@@ -27,6 +28,19 @@ public interface IUnitCreationService
     /// </summary>
     Task<UnitCreationResult> CreateAsync(
         CreateUnitRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Evaluates the auto-start gate for an existing unit and, when all
+    /// preconditions are met (image, runtime, model, credential), transitions
+    /// it from <see cref="UnitStatus.Draft"/> to <see cref="UnitStatus.Validating"/>
+    /// and arms the post-validation auto-start flag. Returns the unit's
+    /// resulting status — <see cref="UnitStatus.Validating"/> on success,
+    /// <see cref="UnitStatus.Draft"/> when any precondition is unmet.
+    /// </summary>
+    Task<UnitStatus> TryAutoStartAsync(
+        Guid unitActorGuid,
+        string unitName,
         CancellationToken cancellationToken);
 
     /// <summary>
