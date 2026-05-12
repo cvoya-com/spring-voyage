@@ -150,6 +150,49 @@ describe("ExecutionTab", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("selects and saves a model for a fixed-provider runtime", async () => {
+    getUnitExecution.mockResolvedValue({ runtime: "claude-code" });
+    getModelProviderModels.mockImplementation(async (id: string) => {
+      if (id === "anthropic") {
+        return [
+          { id: "claude-sonnet-4-6", displayName: "claude-sonnet-4-6", contextWindow: null },
+          { id: "claude-opus-4-7", displayName: "claude-opus-4-7", contextWindow: null },
+        ];
+      }
+      return [];
+    });
+    setUnitExecution.mockImplementation(async (_id, body) => body);
+
+    render(
+      <Wrapper>
+        <ExecutionTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const modelSelect = (await screen.findByTestId(
+      "execution-model-select",
+    )) as HTMLSelectElement;
+    fireEvent.change(modelSelect, {
+      target: { value: "claude-sonnet-4-6" },
+    });
+
+    expect(modelSelect.value).toBe("claude-sonnet-4-6");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+
+    await waitFor(() => {
+      expect(setUnitExecution).toHaveBeenCalledTimes(1);
+    });
+    const [, body] = setUnitExecution.mock.calls[0];
+    expect(body).toMatchObject({
+      runtime: "claude-code",
+      model: {
+        provider: "anthropic",
+        id: "claude-sonnet-4-6",
+      },
+    });
+  });
+
   it("renders a Model dropdown populated from the runtime's catalog when agent=codex (#641)", async () => {
     getUnitExecution.mockResolvedValue({ runtime: "codex" });
     getModelProviderModels.mockImplementation(async (id: string) => {
@@ -202,6 +245,53 @@ describe("ExecutionTab", () => {
     // Model renders as a free-text input because no Provider is
     // selected yet, so there's no catalog to drive a dropdown.
     expect(screen.getByTestId("execution-model-input")).toBeInTheDocument();
+  });
+
+  it("keeps Model Provider selected as a catalog filter before the model is chosen", async () => {
+    getUnitExecution.mockResolvedValue({ runtime: "spring-voyage" });
+    listModelProviders.mockResolvedValue([{ id: "anthropic" }]);
+    getModelProviderModels.mockImplementation(async (id: string) => {
+      if (id === "anthropic") {
+        return [
+          { id: "claude-sonnet-4-6", displayName: "claude-sonnet-4-6", contextWindow: null },
+        ];
+      }
+      return [];
+    });
+    setUnitExecution.mockImplementation(async (_id, body) => body);
+
+    render(
+      <Wrapper>
+        <ExecutionTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const providerSelect = (await screen.findByTestId(
+      "execution-provider-select",
+    )) as HTMLSelectElement;
+    fireEvent.change(providerSelect, { target: { value: "anthropic" } });
+
+    expect(providerSelect.value).toBe("anthropic");
+    await waitFor(() => {
+      expect(getModelProviderModels).toHaveBeenCalledWith("anthropic");
+    });
+
+    const modelSelect = (await screen.findByTestId(
+      "execution-model-select",
+    )) as HTMLSelectElement;
+    fireEvent.change(modelSelect, {
+      target: { value: "claude-sonnet-4-6" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+
+    await waitFor(() => {
+      expect(setUnitExecution).toHaveBeenCalledTimes(1);
+    });
+    const [, body] = setUnitExecution.mock.calls[0];
+    expect(body?.model).toEqual({
+      provider: "anthropic",
+      id: "claude-sonnet-4-6",
+    });
   });
 
   it("keeps the Model slot visible when agent=custom (always rendered post-#1702)", async () => {
