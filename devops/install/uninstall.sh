@@ -159,15 +159,29 @@ fi
 if [[ -n "$BUNDLE_DIR" && -x "${BUNDLE_DIR}/deploy.sh" ]]; then
   DEPLOY_SH="${BUNDLE_DIR}/deploy.sh"
 
-  # Check for running containers when --force is not set.
+  # Check for running containers and a live dispatcher when --force is not set.
   if [[ "$FORCE" -eq 0 ]]; then
+    running=""
     if command -v podman >/dev/null 2>&1; then
       running="$(podman ps --format '{{.Names}}' 2>/dev/null | grep -E '^spring-' || true)"
-      if [[ -n "$running" ]]; then
-        warn "Containers still running:"
-        printf '%s\n' "$running" | sed 's/^/      - /' >&2
-        info "We will attempt deploy.sh down + clean to stop them. Rerun with --force to bypass this check."
+    fi
+    dispatcher_pid_file="${INSTALL_ROOT}/host/spring-dispatcher.pid"
+    dispatcher_live_pid=""
+    if [[ -f "${dispatcher_pid_file}" ]]; then
+      pid="$(tr -d '[:space:]' < "${dispatcher_pid_file}" 2>/dev/null || true)"
+      if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        dispatcher_live_pid="$pid"
       fi
+    fi
+    if [[ -n "$running" || -n "$dispatcher_live_pid" ]]; then
+      warn "Spring Voyage services still running:"
+      if [[ -n "$running" ]]; then
+        printf '%s\n' "$running" | sed 's/^/      - container: /' >&2
+      fi
+      if [[ -n "$dispatcher_live_pid" ]]; then
+        printf '      - dispatcher: PID %s (%s)\n' "$dispatcher_live_pid" "$dispatcher_pid_file" >&2
+      fi
+      info "We will attempt deploy.sh down + clean to stop them. Rerun with --force to bypass this check."
     fi
   fi
 
@@ -180,6 +194,7 @@ if [[ -n "$BUNDLE_DIR" && -x "${BUNDLE_DIR}/deploy.sh" ]]; then
 else
   warn "No deploy.sh found under ${INSTALL_ROOT}; skipping container teardown."
   info "If containers are still running, stop them manually with: podman stop \$(podman ps -q --filter name=spring-)"
+  info "Also stop the host dispatcher: kill \$(cat ~/.spring-voyage/host/spring-dispatcher.pid) 2>/dev/null"
 fi
 
 # ---------------------------------------------------------------------------

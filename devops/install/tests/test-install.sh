@@ -284,6 +284,23 @@ run_uninstall() {
     bash "${UNINSTALL_SH}" "$@"
 }
 
+# Variant of run_install that DOES NOT pass SPRING_INSTALL_SKIP_PORT_CHECK so
+# port-conflict tests can exercise the real port-availability path. The caller
+# may pass SPRING_DISPATCHER_PORT to point the dispatcher check at a port the
+# test fixture controls.
+run_install_with_port_check() {
+  local home_dir="$1"; shift
+  local stub_dir="$1"; shift
+  HOME="${home_dir}" \
+    SPRING_VOYAGE_VERSION="${FIXTURE_VERSION}" \
+    FIXTURE_RELEASE_DIR="${TMP_BASE}/release" \
+    SPRING_FIXTURE_PODMAN_LOG="${home_dir}/.spring-voyage/podman.log" \
+    SPRING_FIXTURE_CLI_LOG="${home_dir}/.spring-voyage/cli.log" \
+    SPRING_DISPATCHER_PORT="${SPRING_DISPATCHER_PORT:-}" \
+    PATH="${stub_dir}:${PATH}" \
+    bash "${INSTALL_SH}" --yes "$@"
+}
+
 # ---------------------------------------------------------------------------
 # Build fixtures once.
 # ---------------------------------------------------------------------------
@@ -436,6 +453,136 @@ if run_uninstall "${HOME_DIR_1}" --yes --force >"${TMP_BASE}/uninstall3.out" 2>&
 else
   bad "second uninstall failed"
   cat "${TMP_BASE}/uninstall3.out" >&2
+fi
+
+# ===========================================================================
+# Case 8: stale dispatcher PID (alive) fails install
+# ===========================================================================
+hdr "Case 8 — stale dispatcher (alive PID) fails install"
+HOME_DIR_8="${TMP_BASE}/home-8"
+STUB_DIR_8="${TMP_BASE}/stub-8"
+mkdir -p "${HOME_DIR_8}/.spring-voyage/host"
+make_stub_path "${STUB_DIR_8}" "Linux" "x86_64"
+# Use the test runner's own PID — guaranteed alive for the duration of the run.
+echo "$$" > "${HOME_DIR_8}/.spring-voyage/host/spring-dispatcher.pid"
+if run_install "${HOME_DIR_8}" "${STUB_DIR_8}" --no-start >"${TMP_BASE}/run8.out" 2>&1; then
+  bad "install.sh succeeded with a live stale dispatcher PID; expected failure"
+else
+  ok "install.sh refused install with a live stale dispatcher PID"
+fi
+if grep -q "Stale dispatcher process detected" "${TMP_BASE}/run8.out"; then
+  ok "output mentions 'Stale dispatcher process detected'"
+else
+  bad "output missing 'Stale dispatcher process detected'"
+  cat "${TMP_BASE}/run8.out" >&2
+fi
+# PID file must NOT be silently removed when the process is alive — operator
+# expects to see it after the message so they can act on the PID.
+assert_path_exists "${HOME_DIR_8}/.spring-voyage/host/spring-dispatcher.pid" "live stale PID file preserved"
+
+# ===========================================================================
+# Case 9: dead PID file is cleaned up silently and install proceeds
+# ===========================================================================
+hdr "Case 9 — dead dispatcher PID file is cleaned up silently"
+HOME_DIR_9="${TMP_BASE}/home-9"
+STUB_DIR_9="${TMP_BASE}/stub-9"
+mkdir -p "${HOME_DIR_9}/.spring-voyage/host"
+make_stub_path "${STUB_DIR_9}" "Linux" "x86_64"
+# Spawn and immediately reap a subshell to get a recently-dead PID. The
+# kernel will not have re-used it within the test's lifetime on any
+# reasonable system.
+( exec sleep 0 ) &
+dead_pid="$!"
+wait "$dead_pid" 2>/dev/null || true
+# Belt and braces: also try a clearly-out-of-range PID if 'kill -0' would
+# still say the recycled PID is alive. Pick a high PID; kill -0 will report
+# ESRCH on any sane host because no process with PID 999999 exists.
+if kill -0 "$dead_pid" 2>/dev/null; then
+  dead_pid="999999"
+fi
+echo "$dead_pid" > "${HOME_DIR_9}/.spring-voyage/host/spring-dispatcher.pid"
+if run_install "${HOME_DIR_9}" "${STUB_DIR_9}" --no-start >"${TMP_BASE}/run9.out" 2>&1; then
+  ok "install.sh succeeded past dead PID file"
+else
+  bad "install.sh failed despite PID file pointing at a dead process"
+  cat "${TMP_BASE}/run9.out" >&2
+fi
+assert_path_absent "${HOME_DIR_9}/.spring-voyage/host/spring-dispatcher.pid" "dead PID file silently removed"
+
+# ===========================================================================
+# Case 10: --force bypasses stale-dispatcher check
+# ===========================================================================
+hdr "Case 10 — --force bypasses stale-dispatcher check"
+HOME_DIR_10="${TMP_BASE}/home-10"
+STUB_DIR_10="${TMP_BASE}/stub-10"
+mkdir -p "${HOME_DIR_10}/.spring-voyage/host"
+make_stub_path "${STUB_DIR_10}" "Linux" "x86_64"
+echo "$$" > "${HOME_DIR_10}/.spring-voyage/host/spring-dispatcher.pid"
+if run_install "${HOME_DIR_10}" "${STUB_DIR_10}" --no-start --force >"${TMP_BASE}/run10.out" 2>&1; then
+  ok "install.sh --force proceeded past live stale dispatcher"
+else
+  bad "install.sh --force still failed on stale dispatcher"
+  cat "${TMP_BASE}/run10.out" >&2
+fi
+if grep -q "Stale dispatcher PID.*alive" "${TMP_BASE}/run10.out"; then
+  ok "--force emitted stale-dispatcher warning"
+else
+  bad "--force did not emit stale-dispatcher warning"
+  cat "${TMP_BASE}/run10.out" >&2
+fi
+
+# ===========================================================================
+# Case 11: dispatcher port conflict fails install
+# ===========================================================================
+# We bind a TCP listener on a high free port and tell the installer to treat
+# that port as the dispatcher port (via SPRING_DISPATCHER_PORT). This avoids
+# colliding with 8090 if the developer machine has a real dispatcher running.
+hdr "Case 11 — dispatcher port conflict fails install"
+HOME_DIR_11="${TMP_BASE}/home-11"
+STUB_DIR_11="${TMP_BASE}/stub-11"
+mkdir -p "${HOME_DIR_11}"
+make_stub_path "${STUB_DIR_11}" "Linux" "x86_64"
+
+# Pick a high port and bind it with python3. We require python3 here because
+# `nc -l` semantics differ wildly between BSD/macOS netcat and GNU netcat.
+if ! command -v python3 >/dev/null 2>&1; then
+  note "skipping Case 11: python3 not available to bind the test port"
+else
+  TEST_DISPATCHER_PORT="19790"
+  python3 -c "
+import socket, sys, time
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', ${TEST_DISPATCHER_PORT}))
+s.listen()
+sys.stdout.write('ready\n'); sys.stdout.flush()
+time.sleep(30)
+" > "${TMP_BASE}/listener.out" &
+  LISTENER_PID="$!"
+  # Wait for 'ready' or up to ~3s.
+  for _ in 1 2 3 4 5 6; do
+    if grep -q ready "${TMP_BASE}/listener.out" 2>/dev/null; then break; fi
+    sleep 0.5
+  done
+  if ! kill -0 "$LISTENER_PID" 2>/dev/null; then
+    bad "test listener failed to start on port ${TEST_DISPATCHER_PORT}"
+  else
+    if SPRING_DISPATCHER_PORT="${TEST_DISPATCHER_PORT}" \
+       run_install_with_port_check "${HOME_DIR_11}" "${STUB_DIR_11}" --no-start \
+       >"${TMP_BASE}/run11.out" 2>&1; then
+      bad "install.sh succeeded with dispatcher port ${TEST_DISPATCHER_PORT} bound; expected failure"
+    else
+      ok "install.sh refused install with dispatcher port ${TEST_DISPATCHER_PORT} bound"
+    fi
+    if grep -q "already bound" "${TMP_BASE}/run11.out" && grep -q "${TEST_DISPATCHER_PORT}" "${TMP_BASE}/run11.out"; then
+      ok "output mentions the conflicting dispatcher port ${TEST_DISPATCHER_PORT}"
+    else
+      bad "output missing 'already bound' or the port number"
+      cat "${TMP_BASE}/run11.out" >&2
+    fi
+    kill "$LISTENER_PID" 2>/dev/null || true
+    wait "$LISTENER_PID" 2>/dev/null || true
+  fi
 fi
 
 # ===========================================================================

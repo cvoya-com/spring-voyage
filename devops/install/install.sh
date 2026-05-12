@@ -215,6 +215,27 @@ if [[ -e "${INSTALL_ROOT}/current" || -L "${INSTALL_ROOT}/current" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Pre-flight: stale dispatcher process
+# ---------------------------------------------------------------------------
+# A prior install (or a crashed run) may have left ~/.spring-voyage/host/spring-dispatcher.pid
+# pointing at a still-alive dispatcher. Re-running install on top of that
+# silently shadows the existing process; the new install's deploy.sh up
+# fails on the dispatcher port instead. Catch it explicitly here.
+DISPATCHER_PID_FILE="${INSTALL_ROOT}/host/spring-dispatcher.pid"
+if [[ -f "${DISPATCHER_PID_FILE}" ]]; then
+  dispatcher_pid="$(tr -d '[:space:]' < "${DISPATCHER_PID_FILE}" 2>/dev/null || true)"
+  if [[ -n "${dispatcher_pid}" ]] && kill -0 "${dispatcher_pid}" 2>/dev/null; then
+    if [[ "$FORCE" -eq 0 ]]; then
+      fail "Stale dispatcher process detected (PID ${dispatcher_pid} from a prior install). Run \`kill ${dispatcher_pid}\` or \`~/.spring-voyage/current/spring-voyage-host.sh stop\` before retrying."
+    fi
+    warn "Stale dispatcher PID ${dispatcher_pid} is alive; --force was passed, continuing."
+  else
+    info "Found stale dispatcher PID file at ${DISPATCHER_PID_FILE} (PID ${dispatcher_pid:-unknown} not alive); removing."
+    rm -f "${DISPATCHER_PID_FILE}"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Pre-flight: ports
 # ---------------------------------------------------------------------------
 port_in_use() {
@@ -234,16 +255,19 @@ port_in_use() {
 if [[ "${SPRING_INSTALL_SKIP_PORT_CHECK:-0}" == "1" ]]; then
   warn "SPRING_INSTALL_SKIP_PORT_CHECK=1 — skipping port-availability check (intended for tests / sandboxed runs)."
 else
+  # Dispatcher port matches the default in spring.env.example
+  # (SPRING_DISPATCHER_PORT=8090). Operator overrides via env take effect.
+  DISPATCHER_PORT="${SPRING_DISPATCHER_PORT:-8090}"
   PORT_CONFLICTS=()
-  for port in 80 443; do
+  for port in 80 443 "${DISPATCHER_PORT}"; do
     if port_in_use "$port"; then
       PORT_CONFLICTS+=("$port")
     fi
   done
   if (( ${#PORT_CONFLICTS[@]} > 0 )); then
-    fail "Port(s) already bound: ${PORT_CONFLICTS[*]}. Caddy needs 80 and 443 free. Stop the service holding the port (e.g. system nginx) and rerun."
+    fail "Port(s) already bound: ${PORT_CONFLICTS[*]}. Caddy needs 80 and 443 free, and the dispatcher needs ${DISPATCHER_PORT}. Stop the service holding the port (e.g. system nginx, a prior dispatcher) and rerun."
   fi
-  ok "Ports 80, 443 free"
+  ok "Ports 80, 443, ${DISPATCHER_PORT} free"
 fi
 
 # ---------------------------------------------------------------------------
@@ -639,13 +663,14 @@ WEB_URL="https://${DEPLOY_HOSTNAME}"
 
 cat <<EOF
 
-  Install root:    ${INSTALL_ROOT}
-  spring.env:      ${SPRING_ENV_FILE}
-  Current symlink: ${INSTALL_ROOT}/current -> ${BUNDLE_DIR}
-  CLI:             ${BIN_DIR}/spring
-  Wrapper:         ${BIN_DIR}/spring-voyage
-  Logs:            podman logs spring-api (and friends)
-  Web URL:         ${WEB_URL}
+  Install root:        ${INSTALL_ROOT}
+  spring.env:          ${SPRING_ENV_FILE}
+  Current symlink:     ${INSTALL_ROOT}/current -> ${BUNDLE_DIR}
+  CLI:                 ${BIN_DIR}/spring
+  Wrapper:             ${BIN_DIR}/spring-voyage
+  Logs (containers):   podman logs spring-api (and friends)
+  Logs (dispatcher):   ${INSTALL_ROOT}/host/spring-dispatcher.log
+  Web URL:             ${WEB_URL}
 
   To tear down later:
     spring-voyage uninstall            # preserves spring.env + workspaces
