@@ -678,6 +678,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/packages/{name}/required-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-(provider, authMethod) credentials the package's units consume; pre-empts CredentialsMissing on install. */
+        get: operations["GetPackageRequiredCredentials"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/packages/{name}/{version}": {
         parameters: {
             query?: never;
@@ -3256,6 +3273,16 @@ export interface components {
             connectorBindings?: null | components["schemas"]["PackageConnectorBindings"];
             version?: null | string;
             credentials?: null | components["schemas"]["CredentialBindingPayload"][];
+        };
+        PackageRequiredCredentialEntryResponse: {
+            provider: string;
+            authMethod: string;
+            secretName: string;
+            credentialEnvVar: string;
+            consumingUnits: string[];
+        };
+        PackageRequiredCredentialsResponse: {
+            required: components["schemas"]["PackageRequiredCredentialEntryResponse"][];
         };
         PackageSummary: {
             name: string;
@@ -5846,6 +5873,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PackageDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GetPackageRequiredCredentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageRequiredCredentialsResponse"];
                 };
             };
             /** @description Not Found */

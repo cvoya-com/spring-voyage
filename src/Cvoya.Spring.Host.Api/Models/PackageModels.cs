@@ -199,6 +199,39 @@ public record WorkflowSummary(
     string Path);
 
 /// <summary>
+/// Response body for <c>GET /api/v1/tenant/packages/{name}/required-credentials</c>
+/// (#2181). Lets the install wizard render credential inputs for any
+/// <c>(provider, authMethod)</c> edge a member unit consumes — without
+/// the operator having to hit Install first and recover from
+/// <c>CredentialsMissing</c>. Computed by the same
+/// <see cref="Services.CredentialBindingResolver"/> the install
+/// pre-flight uses, so the two surfaces never disagree.
+/// </summary>
+/// <param name="Required">
+/// One entry per distinct <c>(provider, authMethod)</c> edge consumed
+/// by a member unit. Empty when the package's units have no LLM
+/// requirement (e.g. only Ollama-backed units).
+/// </param>
+public record PackageRequiredCredentialsResponse(
+    IReadOnlyList<PackageRequiredCredentialEntryResponse> Required);
+
+/// <summary>
+/// One required-credential edge surfaced by
+/// <see cref="PackageRequiredCredentialsResponse"/>.
+/// </summary>
+/// <param name="Provider">Provider id — <c>anthropic</c>, <c>openai</c>, …</param>
+/// <param name="AuthMethod">Auth method on the edge — <c>oauth</c> or <c>api-key</c>.</param>
+/// <param name="SecretName">Canonical secret name the resolver looks for at install time.</param>
+/// <param name="CredentialEnvVar">Env var the runtime launcher reads the resolved value from.</param>
+/// <param name="ConsumingUnits">Member units whose runtime/provider edge consumes this credential.</param>
+public record PackageRequiredCredentialEntryResponse(
+    string Provider,
+    string AuthMethod,
+    string SecretName,
+    string CredentialEnvVar,
+    IReadOnlyList<string> ConsumingUnits);
+
+/// <summary>
 /// Response body for <c>GET /api/v1/packages/{package}/templates/{name}</c>.
 /// Carries the template manifest's raw YAML so the portal's detail page
 /// can render the exact text a user would <c>spring apply</c>. The

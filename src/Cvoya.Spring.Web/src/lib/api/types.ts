@@ -163,6 +163,21 @@ export type PackageSummary = Schemas["PackageSummary"];
 export type PackageDetail = Schemas["PackageDetail"];
 
 /**
+ * Per-(provider, authMethod) credential edges a package's units
+ * consume (#2181). Returned by
+ * `GET /api/v1/tenant/packages/{name}/required-credentials` so the
+ * install wizard can prompt for any unsatisfied tenant secrets BEFORE
+ * the operator clicks Install. Computed by the same backend resolver
+ * the install pre-flight uses.
+ */
+export type PackageRequiredCredentialsResponse =
+  Schemas["PackageRequiredCredentialsResponse"];
+
+/** One required-credential edge within `PackageRequiredCredentialsResponse`. */
+export type PackageRequiredCredentialEntryResponse =
+  Schemas["PackageRequiredCredentialEntryResponse"];
+
+/**
  * Single declared input on a {@link PackageDetail}. Mirrors the
  * <c>inputs:</c> entries in the package's <c>package.yaml</c>; the
  * unit-creation wizard renders one form field per entry on the catalog

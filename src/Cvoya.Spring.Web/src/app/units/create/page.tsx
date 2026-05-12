@@ -35,6 +35,10 @@ import { Button } from "@/components/ui/button";
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { CredentialsMissingRetryForm } from "@/components/units/create/credentials-missing-retry-form";
 import {
+  PackageCredentialRequirementsPanel,
+  buildCredentialPayloadFromValues,
+} from "@/components/units/create/package-credential-requirements-panel";
+import {
   Card,
   CardContent,
   CardHeader,
@@ -55,6 +59,7 @@ import {
   useConnectorTypes,
   useOllamaModels,
   usePackage,
+  usePackageRequiredCredentials,
   usePackages,
   useProviderCredentialStatus,
   useTenantTree,
@@ -721,6 +726,22 @@ export default function CreateUnitPage() {
     selectedPackageQuery.isError && form.catalogPackageName !== null
       ? formatTranslatedError(selectedPackageQuery.error)
       : null;
+
+  // #2181: pre-fetch the package's required-credential edges so the
+  // Install step can prompt for any unsatisfied tenant secrets BEFORE
+  // the operator clicks Install. The reactive `<CredentialsMissingRetryForm>`
+  // stays as the fallback for races (operator removed the secret
+  // between page-load and click).
+  const requiredCredentialsQuery = usePackageRequiredCredentials(
+    form.catalogPackageName ?? "",
+    {
+      enabled: form.source === "catalog" && form.catalogPackageName !== null,
+    },
+  );
+  const requiredCredentials = useMemo(
+    () => requiredCredentialsQuery.data?.required ?? [],
+    [requiredCredentialsQuery.data],
+  );
 
   // #1672: the legacy `githubPrefill` shim has been removed. The catalog
   // package now declares its connector dependency through the manifest's
@@ -2673,13 +2694,32 @@ export default function CreateUnitPage() {
               </div>
             )}
             {!installId && !showCredentialsRetryForm && (
-              <Button
-                onClick={() => installMutation.mutate()}
-                disabled={submitting}
-                data-testid="install-unit-button"
-              >
-                {submitting ? "Installing…" : "Install"}
-              </Button>
+              <>
+                {/* #2181: pre-emptive credential inputs alongside the
+                    connector requirements panel. Hidden when nothing is
+                    needed; survives across retry attempts because
+                    `credentialInputs` is shared with the reactive form. */}
+                <PackageCredentialRequirementsPanel
+                  packageName={form.catalogPackageName}
+                  values={credentialInputs}
+                  onValuesChange={setCredentialInputs}
+                />
+                <Button
+                  onClick={() => {
+                    const credentials = buildCredentialPayloadFromValues(
+                      requiredCredentials,
+                      credentialInputs,
+                    );
+                    installMutation.mutate(
+                      credentials.length > 0 ? { credentials } : undefined,
+                    );
+                  }}
+                  disabled={submitting}
+                  data-testid="install-unit-button"
+                >
+                  {submitting ? "Installing…" : "Install"}
+                </Button>
+              </>
             )}
           </CardContent>
         </Card>
