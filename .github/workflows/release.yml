@@ -2,11 +2,17 @@ name: Release
 
 # Fires when a v*.*.*[-prerelease] tag is pushed to the repository.
 # Jobs:
-#   1. resolve          — validate the tag shape and emit version components.
-#   2. ci-gate          — verify the tagged commit's CI run on main was green
-#                         (Checks API lookup against the resolved SHA).
-#   3. publish-images   — build and push all agent container images to GHCR.
-#   4. github-release   — create the GitHub Release from CHANGELOG.md.
+#   1. resolve                 — validate the tag shape and emit version components.
+#   2. ci-gate                 — verify the tagged commit's CI run on main was green
+#                                (Checks API lookup against the resolved SHA).
+#   3. publish-images          — build and push all agent container images to GHCR.
+#   4. publish-platform-image  — build and push the platform image to GHCR (#2172).
+#   5. publish-spring-cli      — publish self-contained `spring` CLI binaries (#2172).
+#   6. publish-dispatcher      — publish self-contained dispatcher binaries (#2172;
+#                                absorbed from the deprecated release-spring-dispatcher.yml).
+#   7. publish-bundle          — assemble the operator deployment bundle and
+#                                SHA256SUMS over all release assets (#2172).
+#   8. github-release          — create the GitHub Release from CHANGELOG.md.
 #
 # Why ci-gate instead of re-running build/test (#2027): tags must point at a
 # commit that is already on main, and main is gated by ci.yml's "Required
@@ -50,6 +56,8 @@ env:
   REGISTRY: ghcr.io
   CLAUDE_CODE_IMAGE: ghcr.io/cvoya-com/claude-code-base
   SPRING_VOYAGE_AGENT_IMAGE: ghcr.io/cvoya-com/spring-voyage-agent
+  # #2172: platform image consumed by deploy.sh via SPRING_PLATFORM_IMAGE.
+  SPRING_VOYAGE_PLATFORM_IMAGE: ghcr.io/cvoya-com/spring-voyage
 
 jobs:
   # ── 1. Resolve ─────────────────────────────────────────────────────────────
@@ -397,7 +405,104 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 4. GitHub Release ──────────────────────────────────────────────────────
+  # ── 4. Publish platform image (#2172) ──────────────────────────────────────
+  #
+  # Builds the platform image from devops/build/Dockerfile (the multi-stage
+  # API + Worker + Web + Dapr CLI image whose local-clone build today produces
+  # `localhost/spring-voyage:latest`) and pushes it to GHCR under the same
+  # versioned/floating tagging scheme as the agent images.
+  #
+  # Same single-arch (linux/amd64) pattern as `publish-images`. Multi-arch
+  # is a follow-up if/when operator demand surfaces; ship the same shape as
+  # the existing release path for v0.1.
+  #
+  # The image is consumed by the installer (#2180) — it points spring.env's
+  # SPRING_PLATFORM_IMAGE at this ref so deploy.sh up uses it instead of the
+  # locally built `localhost/...` reference.
+  publish-platform-image:
+    name: Build and push platform image
+    runs-on: ubuntu-latest
+    needs: [resolve, ci-gate]
+    timeout-minutes: 45
+    env:
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+      IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+      TARGET_BASE: ${{ env.SPRING_VOYAGE_PLATFORM_IMAGE }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify docker is on PATH
+        shell: bash
+        run: docker version
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build platform image
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Dockerfile expects the repo root as the build context — it COPYs
+          # SpringVoyage.slnx, src/, platform/, packages/, dapr/, etc. Build
+          # via `docker build -f` against the repo root, matching how
+          # devops/build/build.sh does it locally with podman.
+          docker build \
+            -f devops/build/Dockerfile \
+            -t "${TARGET_BASE}:${RELEASE_VERSION}" \
+            .
+
+      - name: Tag and push platform image
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Immutable version tag — always pushed, stable and pre-release alike.
+          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
+          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
+
+          if [[ "$IS_PRERELEASE" == "false" ]]; then
+            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:${MAJOR_MINOR}"
+            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
+            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
+
+            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:latest"
+            docker push "${TARGET_BASE}:latest"
+            echo "Pushed ${TARGET_BASE}:latest"
+          else
+            echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for spring-voyage platform image"
+          fi
+
+      - name: Make GHCR package public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api -X PATCH "/orgs/cvoya-com/packages/container/spring-voyage" \
+            -F visibility=public
+
+      - name: Platform image publish summary
+        shell: bash
+        run: |
+          {
+            echo "### Platform image published"
+            echo
+            echo "| Image | Tags |"
+            echo "| --- | --- |"
+            if [[ "$IS_PRERELEASE" == "false" ]]; then
+              echo "| \`${TARGET_BASE}\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+            else
+              echo "| \`${TARGET_BASE}\` | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 5. GitHub Release ──────────────────────────────────────────────────────
   #
   # Creates the GitHub Release using the ## [Unreleased] section of
   # CHANGELOG.md as the release notes. The maintainer's pre-release PR
@@ -409,7 +514,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [resolve, ci-gate, publish-images]
+    needs: [resolve, ci-gate, publish-images, publish-platform-image]
     timeout-minutes: 10
     env:
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
