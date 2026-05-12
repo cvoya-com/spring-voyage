@@ -63,7 +63,21 @@ public interface IRuntimeInvocationPath
     /// publishing the runtime's response.
     /// </param>
     /// <param name="ct">A token to cancel the pipeline.</param>
-    Task InvokeAsync(Address subject, Message inbound, CancellationToken ct);
+    /// <param name="emitActivity">
+    /// Optional per-caller activity-emission delegate. When non-null, the
+    /// pipeline forwards it to
+    /// <see cref="IAgentDispatchCoordinator.RunDispatchAsync"/> so error
+    /// events (e.g. credential resolution failures) surface through the
+    /// caller's activity-publishing pipeline. When null, activity events
+    /// emitted by the dispatch coordinator are dropped — preserving the
+    /// original lean-overload behaviour for callers that have no activity
+    /// channel of their own (#2211).
+    /// </param>
+    Task InvokeAsync(
+        Address subject,
+        Message inbound,
+        CancellationToken ct,
+        Func<ActivityEvent, CancellationToken, Task>? emitActivity = null);
 
     /// <summary>
     /// Rich overload used while a caller still owns its own per-subject

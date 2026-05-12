@@ -71,7 +71,11 @@ public class RuntimeInvocationPath(
     private readonly IReadOnlyList<ISkillRegistry> _skillRegistries = skillRegistries.ToList();
 
     /// <inheritdoc />
-    public async Task InvokeAsync(Address subject, Message inbound, CancellationToken ct)
+    public async Task InvokeAsync(
+        Address subject,
+        Message inbound,
+        CancellationToken ct,
+        Func<ActivityEvent, CancellationToken, Task>? emitActivity = null)
     {
         var context = await BuildContextAsync(subject, inbound, ct);
 
@@ -81,11 +85,18 @@ public class RuntimeInvocationPath(
         // is built, client disconnects must not cancel the long-running A2A
         // dispatch; otherwise the agent may finish but the platform stops
         // polling before it can route the response back to the human thread.
+        //
+        // When the caller supplies an activity-emission delegate (e.g. the
+        // unit actor's own EmitActivityEventAsync), forward it so dispatch
+        // errors — credential-resolution failures in particular — surface
+        // in the caller's Activity feed. When null, fall back to a no-op
+        // so callers without an activity channel still see the original
+        // lean-overload behaviour (#2211).
         await dispatchCoordinator.RunDispatchAsync(
             agentId: subject.Path,
             message: inbound,
             context: context,
-            emitActivity: (_, _) => Task.CompletedTask,
+            emitActivity: emitActivity ?? ((_, _) => Task.CompletedTask),
             onDispatchExit: _ => Task.CompletedTask,
             cancellationToken: CancellationToken.None);
     }

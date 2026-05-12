@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Integration.Tests;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Integration.Tests.TestHelpers;
@@ -32,7 +33,8 @@ public class UnitOrchestrationTests
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("orch-unit")),
             message,
-            Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
     }
 
     [Fact]
@@ -51,7 +53,8 @@ public class UnitOrchestrationTests
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("orch-unit")),
             message,
-            Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
     }
 
     [Fact]
@@ -94,7 +97,8 @@ public class UnitOrchestrationTests
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("addr-unit")),
             message,
-            Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
     }
 
     // --- Nested Unit Membership (#98 + #2052) ---
@@ -116,7 +120,8 @@ public class UnitOrchestrationTests
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("parent-unit")),
             incoming,
-            Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
     }
 
     [Fact]

@@ -1134,7 +1134,18 @@ public class UnitActor : Actor, IUnitActor
             "Unit {ActorId} invoking runtime path for domain message {MessageId}",
             Id.GetId(), message.Id);
 
-        await _runtimeInvocationPath.InvokeAsync(Address, message, ct);
+        // Forward the unit actor's own activity-emission delegate so that
+        // dispatch errors (e.g. credential-resolution failures) surface in
+        // the unit's Activity feed rather than being silently dropped by
+        // the lean overload's no-op default (#2211). `onDispatchExit` stays
+        // a no-op for now — units do not yet track per-thread mailbox
+        // channels, so there is no per-thread state to drain when the
+        // dispatcher returns.
+        await _runtimeInvocationPath.InvokeAsync(
+            Address,
+            message,
+            ct,
+            emitActivity: EmitActivityEventAsync);
         return null;
     }
 

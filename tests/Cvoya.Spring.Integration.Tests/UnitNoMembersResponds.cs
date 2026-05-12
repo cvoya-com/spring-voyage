@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Integration.Tests;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Integration.Tests.TestHelpers;
 
@@ -29,6 +30,7 @@ public class UnitNoMembersResponds
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("no-members-unit")),
             message,
-            Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
     }
 }

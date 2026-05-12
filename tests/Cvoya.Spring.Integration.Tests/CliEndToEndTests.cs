@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Integration.Tests;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Integration.Tests.TestHelpers;
@@ -48,7 +49,8 @@ public class CliEndToEndTests
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("cli-unit")),
             message,
-            Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>(),
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
 
         // Step 4: Check unit status.
         var statusQuery = MessageFactory.CreateStatusQuery("cli-requester", "cli-unit", toType: "unit");

@@ -217,7 +217,11 @@ public static class ActorTestHost
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         runtimeInvocationPath ??= Substitute.For<IRuntimeInvocationPath>();
         runtimeInvocationPath
-            .InvokeAsync(Arg.Any<CoreMessaging.Address>(), Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .InvokeAsync(
+                Arg.Any<CoreMessaging.Address>(),
+                Arg.Any<Message>(),
+                Arg.Any<CancellationToken>(),
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
             .Returns(Task.CompletedTask);
         directoryService ??= Substitute.For<IDirectoryService>();
         actorProxyFactory ??= Substitute.For<IActorProxyFactory>();
