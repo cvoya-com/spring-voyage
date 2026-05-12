@@ -113,9 +113,11 @@ No versions have been tagged yet. The entries below capture the repository's his
 
 ### Changed
 
+- **Announce version family aligned to `1.0.0-alpha.<date>`.** The first public pre-release is cut as `v1.0.0-alpha.<yyyymmdd>` (dot-separated SemVer prerelease). Version markers in `src/Cvoya.Spring.Web/package.json`, the MCP server `serverInfo` payload, release-doc examples, installer/release scripts, and operator/architecture deployment docs are aligned to the new family. Issue-tracker milestones (`v0.1`, `v0.2`) and `docs/plan/v0.1/` are planning buckets and retain their names.
+
 #### Operations & deployment
 
-- **Operator wrapper renamed from `spring-voyage` to `voyage`.** The wrapper that ships with `install.sh` (`status | logs | restart | version | install | uninstall`) is now `~/.local/bin/voyage`; the checked-in source moves from `devops/install/spring-voyage` to `devops/install/voyage`. `spring` (the developer/tenant CLI) and `spring-voyage` shared a prefix that collided with shell autocomplete and visual scanning; the product name "Spring Voyage" splits cleanly into `spring` (developer/tenant) and `voyage` (operator/platform). Pure rename — no functional changes. Landed before the first `v1.0.0-alpha-<date>` release, so no operator has installed the wrapper yet and there is no migration cost.
+- **Operator wrapper renamed from `spring-voyage` to `voyage`.** The wrapper that ships with `install.sh` (`status | logs | restart | version | install | uninstall`) is now `~/.local/bin/voyage`; the checked-in source moves from `devops/install/spring-voyage` to `devops/install/voyage`. `spring` (the developer/tenant CLI) and `spring-voyage` shared a prefix that collided with shell autocomplete and visual scanning; the product name "Spring Voyage" splits cleanly into `spring` (developer/tenant) and `voyage` (operator/platform). Pure rename — no functional changes. Landed before the first `v1.0.0-alpha.<date>` release, so no operator has installed the wrapper yet and there is no migration cost.
 
 #### Single-identity model (#1629 — pre-v0.1 cutover)
 

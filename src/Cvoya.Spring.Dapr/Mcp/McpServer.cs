@@ -560,7 +560,7 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         return new
         {
             protocolVersion = "2024-11-05",
-            serverInfo = new { name = "spring-voyage-mcp", version = "0.1.0" },
+            serverInfo = new { name = "spring-voyage-mcp", version = "1.0.0" },
             capabilities = new
             {
                 tools = new { }

@@ -66,7 +66,7 @@ Usage:
   install.sh [--version <tag>] [--root <dir>] [--yes] [--force] [--no-start]
 
 Options:
-  --version <tag>   Release tag to install (e.g. v0.1.0). Defaults to
+  --version <tag>   Release tag to install (e.g. v1.0.0). Defaults to
                     $SPRING_VOYAGE_VERSION or the latest stable release.
   --root <dir>      Install root (default: ~/.spring-voyage).
   --yes             Non-interactive. Uses DEPLOY_HOSTNAME=localhost and
