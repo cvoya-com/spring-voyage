@@ -66,17 +66,45 @@ interface ExecutionTabProps {
 
 const FIELD_UNSET = "__unset__";
 
+type ModelDraft = {
+  provider: string | null;
+  id: string | null;
+};
+
+type UnitExecutionDraft = Omit<UnitExecutionResponse, "model"> & {
+  model: ModelDraft | null;
+};
+
 function isEmpty(block: UnitExecutionResponse): boolean {
   return !block.image && !block.runtime && !block.model;
 }
 
 function persistedToForm(
   persisted: UnitExecutionResponse | null,
-): UnitExecutionResponse {
+): UnitExecutionDraft {
   return {
     image: persisted?.image ?? null,
     runtime: persisted?.runtime ?? null,
-    model: persisted?.model ?? null,
+    model: persisted?.model
+      ? {
+          provider: persisted.model.provider,
+          id: persisted.model.id,
+        }
+      : null,
+  };
+}
+
+function toPayload(form: UnitExecutionDraft): UnitExecutionResponse {
+  return {
+    image: form.image ?? null,
+    runtime: form.runtime ?? null,
+    model:
+      form.model?.provider && form.model.id
+        ? {
+            provider: form.model.provider,
+            id: form.model.id,
+          }
+        : null,
   };
 }
 
@@ -92,10 +120,10 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
 
   const persisted = executionQuery.data ?? null;
 
-  // Local draft mirrors the wire shape directly. No flat-form
-  // intermediate; no `formToWire` projector. Re-seeded whenever the
-  // server identity changes.
-  const [form, setForm] = useState<UnitExecutionResponse>(() =>
+  // Local draft keeps a provider-only selection so the provider picker
+  // can act as a model-catalogue filter. Saves still go through
+  // `toPayload`, which only emits complete `{ provider, id }` models.
+  const [form, setForm] = useState<UnitExecutionDraft>(() =>
     persistedToForm(null),
   );
   const [seededFor, setSeededFor] = useState<string | null>(null);
@@ -110,12 +138,13 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
   }
 
   const dirty = useMemo(() => {
-    const current = persistedToForm(persisted);
+    const current = toPayload(persistedToForm(persisted));
+    const next = toPayload(form);
     return (
-      form.image !== current.image ||
-      form.runtime !== current.runtime ||
-      (form.model?.provider ?? null) !== (current.model?.provider ?? null) ||
-      (form.model?.id ?? null) !== (current.model?.id ?? null)
+      next.image !== current.image ||
+      next.runtime !== current.runtime ||
+      (next.model?.provider ?? null) !== (current.model?.provider ?? null) ||
+      (next.model?.id ?? null) !== (current.model?.id ?? null)
     );
   }, [form, persisted]);
 
@@ -196,16 +225,22 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     },
   });
 
-  // Mutate the model object as a unit. Setting either provider or id
-  // alone produces a partial model — the wire shape requires both
-  // keys, so we collapse partial entries to `null`.
+  // Mutate the model object as a draft unit. The UI may hold provider
+  // without id while it loads a catalogue; `toPayload` strips partial
+  // model drafts before save.
   const setModelField = (key: "provider" | "id", value: string | null) => {
     setForm((prev) => {
+      const previousProvider = prev.model?.provider ?? null;
       const nextProvider =
-        key === "provider" ? value : (prev.model?.provider ?? null);
-      const nextId = key === "id" ? value : (prev.model?.id ?? null);
+        key === "provider" ? value : (previousProvider ?? effectiveProvider);
+      const nextId =
+        key === "id"
+          ? value
+          : value && value === previousProvider
+            ? (prev.model?.id ?? null)
+            : null;
       const model =
-        nextProvider && nextId
+        nextProvider || nextId
           ? { provider: nextProvider, id: nextId }
           : null;
       return { ...prev, model };
@@ -228,7 +263,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
           ? (prev.model?.id ?? null)
           : null;
       const model =
-        nextProvider && keepModelId
+        nextProvider || keepModelId
           ? { provider: nextProvider, id: keepModelId }
           : null;
       return { ...prev, runtime: next, model };
@@ -242,13 +277,20 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     if (field === "image") next = { ...form, image: null };
     if (field === "runtime") next = { ...form, runtime: null, model: null };
     if (field === "providerOnly") next = { ...form, model: null };
-    if (field === "model") next = { ...form, model: null };
+    if (field === "model") {
+      next = {
+        ...form,
+        model: form.model?.provider
+          ? { provider: form.model.provider, id: null }
+          : null,
+      };
+    }
     setForm(next);
-    setMutation.mutate(next);
+    setMutation.mutate(toPayload(next));
   };
 
   const handleSave = () => {
-    setMutation.mutate(form);
+    setMutation.mutate(toPayload(form));
   };
 
   if (executionQuery.isPending) {
