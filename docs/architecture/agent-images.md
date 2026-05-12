@@ -21,7 +21,7 @@ offline.
 ## agent-base (BYOI minimal)
 
 **Source:** `devops/build/Dockerfile.agent-base`
-**Published by:** `release-agent-base.yml` on `agent-base-v*` tags.
+**Published by:** `release.yml` on `spring-voyage-v*` tags (unified release pipeline; see [#2229](https://github.com/cvoya-com/spring-voyage/issues/2229)).
 
 The minimal layer an operator needs to plug any CLI into the Spring Voyage dispatcher:
 

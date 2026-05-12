@@ -44,7 +44,7 @@ The four images `FROM` `spring-voyage-agent-base`, install the Claude Code CLI, 
 ./devops/build/build-agent-images.sh --tag dev
 ```
 
-The release workflow `.github/workflows/release-oss-agent-images.yml` publishes multi-arch images to GHCR on `oss-agents-v*` tag pushes.
+The unified release workflow `.github/workflows/release.yml` publishes multi-arch images to GHCR on `spring-voyage-v*` tag pushes (see [#2229](https://github.com/cvoya-com/spring-voyage/issues/2229)).
 
 ## Installing the package
 
