@@ -114,24 +114,32 @@ public class ClaudeCodeLauncher(
     ///   it consumes stdin and writes to stdout instead of opening a TUI.</item>
     ///   <item><c>--dangerously-skip-permissions</c> waives the per-tool
     ///   confirmation prompt — the container is the sandbox.</item>
-    ///   <item><c>--output-format stream-json</c> emits structured JSON the
-    ///   dispatcher can map to <see cref="Cvoya.Spring.Core.Messaging.StreamEvent"/>s.</item>
     /// </list>
-    /// Source: matches the smoke argv used by the agent-sidecar config tests
-    /// (<c>src/Cvoya.Spring.AgentSidecar/test/config.test.ts</c>) and is the
-    /// BYOI path-1 baseline documented in #1097. Since PR 5 of #1087
-    /// (#1098) the dispatcher no longer runs <c>sleep infinity</c>: the
-    /// argv below is JSON-encoded into <c>SPRING_AGENT_ARGV</c> and
-    /// exec'd by the agent-base bridge on every <c>message/send</c>,
-    /// with the user's prompt fed via stdin.
+    /// <para>
+    /// <b>Why no <c>--output-format stream-json</c>:</b> the Claude CLI rejects
+    /// <c>--print --output-format stream-json</c> without a companion
+    /// <c>--verbose</c>, and even if both are passed the A2A sidecar
+    /// (<c>src/Cvoya.Spring.AgentSidecar/src/bridge.ts</c>) currently forwards
+    /// stdout verbatim into the A2A response body — the user would see raw
+    /// NDJSON instead of the assistant's reply. Plain text output is what the
+    /// bridge actually consumes today; re-enabling stream-json (with the
+    /// matching parser on the sidecar side, so events become
+    /// <see cref="Cvoya.Spring.Core.Messaging.StreamEvent"/>s) is tracked in
+    /// issue #2226.
+    /// </para>
+    /// <para>
+    /// Source: BYOI path-1 baseline documented in #1097. Since PR 5 of #1087
+    /// (#1098) the dispatcher no longer runs <c>sleep infinity</c>: the argv
+    /// below is JSON-encoded into <c>SPRING_AGENT_ARGV</c> and exec'd by the
+    /// agent-base bridge on every <c>message/send</c>, with the user's prompt
+    /// fed via stdin.
+    /// </para>
     /// </remarks>
     internal static readonly string[] DefaultClaudeArgv =
     [
         "claude",
         "--print",
-        "--dangerously-skip-permissions",
-        "--output-format",
-        "stream-json"
+        "--dangerously-skip-permissions"
     ];
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<ClaudeCodeLauncher>();

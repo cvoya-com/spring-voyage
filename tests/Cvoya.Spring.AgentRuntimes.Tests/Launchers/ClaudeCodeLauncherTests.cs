@@ -168,8 +168,6 @@ public class ClaudeCodeLauncherTests
             "claude",
             "--print",
             "--dangerously-skip-permissions",
-            "--output-format",
-            "stream-json",
         });
     }
 
