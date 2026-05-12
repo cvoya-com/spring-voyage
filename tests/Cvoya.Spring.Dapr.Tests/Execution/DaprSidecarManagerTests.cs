@@ -184,11 +184,15 @@ public class DaprSidecarManagerTests
     }
 
     [Fact]
-    public async Task WaitForHealthyAsync_ReturnsTrueOnFirstHealthyProbe()
+    public async Task WaitForHealthyAsync_ProbesSidecarViaPairedAppContainerExec()
     {
+        // #2198: the daprd-readiness probe must exec into the *paired app
+        // container* (which ships curl) and curl daprd by container DNS
+        // name. Daprd is distroless — there is no curl/wget to exec into
+        // it directly. ADR 0028 Decision A keeps the dispatcher off tenant
+        // networks, so exec is the only mechanism available.
         var runtime = Substitute.For<IContainerRuntime>();
-        runtime.ProbeHttpFromTransientContainerAsync(
-                Arg.Any<string>(),
+        runtime.ProbeContainerHttpAsync(
                 Arg.Any<string>(),
                 Arg.Is<string>(u => u.Contains("/v1.0/healthz/outbound")),
                 Arg.Any<CancellationToken>())
@@ -198,17 +202,16 @@ public class DaprSidecarManagerTests
 
         var healthy = await manager.WaitForHealthyAsync(
             new DaprSidecarInfo("sidecar-1", 3500, 50001, "spring-net-test"),
+            "paired-app-container-1",
             TimeSpan.FromSeconds(5),
             TestContext.Current.CancellationToken);
 
         healthy.ShouldBeTrue();
-        // Probe target is the sidecar's own DNS name on the bridge (not
-        // localhost), and the URL hits /healthz/outbound so daprd reports
-        // ready before the paired app container is up — the lifecycle only
-        // starts the app after this returns.
-        await runtime.Received().ProbeHttpFromTransientContainerAsync(
-            "docker.io/curlimages/curl:latest",
-            "spring-net-test",
+        // Probe target is the sidecar's own DNS name on the per-app bridge
+        // (not localhost), and the URL hits /healthz/outbound so daprd
+        // reports ready as soon as control-plane + components are reachable.
+        await runtime.Received().ProbeContainerHttpAsync(
+            "paired-app-container-1",
             "http://sidecar-1:3500/v1.0/healthz/outbound",
             Arg.Any<CancellationToken>());
     }
@@ -217,8 +220,8 @@ public class DaprSidecarManagerTests
     public async Task WaitForHealthyAsync_ReturnsFalseOnTimeout()
     {
         var runtime = Substitute.For<IContainerRuntime>();
-        runtime.ProbeHttpFromTransientContainerAsync(
-                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        runtime.ProbeContainerHttpAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
 
         var manager = CreateManager(runtime, new DaprSidecarOptions
@@ -231,10 +234,24 @@ public class DaprSidecarManagerTests
 
         var healthy = await manager.WaitForHealthyAsync(
             new DaprSidecarInfo("sidecar-1", 3500, 50001, "spring-net-test"),
+            "paired-app-container-1",
             TimeSpan.FromMilliseconds(50),
             TestContext.Current.CancellationToken);
 
         healthy.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task WaitForHealthyAsync_RejectsEmptyPairedAppContainerId()
+    {
+        var manager = CreateManager();
+
+        await Should.ThrowAsync<ArgumentException>(() =>
+            manager.WaitForHealthyAsync(
+                new DaprSidecarInfo("sidecar-1", 3500, 50001, "spring-net-test"),
+                pairedAppContainerId: string.Empty,
+                TimeSpan.FromSeconds(1),
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]

@@ -209,7 +209,7 @@ public class PersistentDispatchIntegrationTests
         // rather than the new pre-flight-routed restart path. The crash-
         // detection pre-flight semantics are covered by the dedicated
         // test below (PreFlight_DeadAgent_RoutesToRestart).
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(true);
 
@@ -244,7 +244,7 @@ public class PersistentDispatchIntegrationTests
         _persistentRegistry.Register(AgentId, endpoint, "dead-container");
 
         // Probe always returns false — agent endpoint is unreachable.
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(false);
 
@@ -306,7 +306,7 @@ public class PersistentDispatchIntegrationTests
         var endpoint = new Uri("http://healthy-container:8999/");
         _persistentRegistry.Register(AgentId, endpoint, "healthy-container");
 
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(true);
 

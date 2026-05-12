@@ -534,23 +534,21 @@ public class ContainerSupervisorActor(
 
     private async Task<bool> IsContainerAliveAsync(string containerId, CancellationToken cancellationToken)
     {
-        // Issue a lightweight HTTP probe from the host to the container's
-        // A2A Agent Card endpoint. The host-side probe resolves the
-        // container's bridge IP via `podman inspect` and issues a plain
-        // HTTP GET from the dispatcher process — no `podman exec`, no
-        // in-container binary (`wget`, `curl`) required. This is the
-        // canonical post-#1175 readiness probe for any agent container
-        // regardless of base image.
+        // Issue a lightweight HTTP probe to the container's A2A Agent Card
+        // endpoint. Per ADR 0028 Decision A and #2198, the dispatcher reaches
+        // into a tenant container via `podman exec` rather than joining its
+        // network — the agent base image carries `curl`, so the dispatcher
+        // shells `curl` inside the container's own loopback namespace.
         //
-        // Note: ProbeHttpFromHostAsync returns false for non-2xx responses
-        // and for inspect / network errors, so we cannot distinguish
+        // Note: ProbeContainerHttpAsync returns false for non-2xx responses
+        // and for exec / network errors, so we cannot distinguish
         // "running but not ready" from "crashed." We treat the latter as a
         // transient restart candidate — the restart is idempotent and the
         // workspace volume ensures state continuity.
         try
         {
             // Probe the well-known A2A agent-card endpoint.
-            var alive = await containerRuntime.ProbeHttpFromHostAsync(
+            var alive = await containerRuntime.ProbeContainerHttpAsync(
                 containerId,
                 "http://localhost:8999/.well-known/agent.json",
                 cancellationToken);
@@ -560,7 +558,7 @@ public class ContainerSupervisorActor(
         {
             _logger.LogDebug(
                 ex,
-                "ProbeHttpFromHostAsync for container {ContainerId} threw; treating as not alive",
+                "ProbeContainerHttpAsync for container {ContainerId} threw; treating as not alive",
                 containerId);
             return false;
         }

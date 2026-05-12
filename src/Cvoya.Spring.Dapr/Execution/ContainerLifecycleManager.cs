@@ -28,13 +28,25 @@ public class ContainerLifecycleManager(
     private readonly DaprSidecarOptions _sidecarOptions = sidecarOptions.Value;
 
     /// <summary>
-    /// Launches an application container with a Dapr sidecar on a shared network.
-    /// Creates the network, starts the sidecar, waits for it to become healthy,
-    /// then starts the app container.
+    /// Launches an application container with a Dapr sidecar on a shared
+    /// network. Creates the network, starts the sidecar, then starts the
+    /// app container detached, waits for the sidecar to become healthy by
+    /// exec'ing into the running app, and finally blocks until the app
+    /// exits — returning its exit code + captured output.
     /// </summary>
     /// <param name="config">The container configuration. Must have <see cref="ContainerConfig.DaprEnabled"/> set to true.</param>
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>The result of the application container execution, along with sidecar and network info.</returns>
+    /// <remarks>
+    /// #2198 reordered the lifecycle from "start daprd → wait healthy → run
+    /// app (blocking)" to "start daprd → start app (detached) → wait healthy
+    /// (probing daprd via exec into app) → wait for app exit". The new shape
+    /// is required because daprd is distroless — its readiness can only be
+    /// probed by exec'ing into a same-bridge peer that ships curl, and the
+    /// only such peer here is the paired app container. The Dapr SDK inside
+    /// the app handles the brief window where the app is up but daprd is
+    /// not yet ready via its own connect-retry policy.
+    /// </remarks>
     public async Task<ContainerLifecycleResult> LaunchWithSidecarAsync(ContainerConfig config, CancellationToken ct = default)
     {
         var networkName = config.NetworkName ?? $"spring-net-{Guid.NewGuid():N}"[..32];
@@ -72,28 +84,24 @@ public class ContainerLifecycleManager(
         await CreateNetworkAsync(tenantNetwork, ct);
 
         DaprSidecarInfo? sidecarInfo = null;
+        string? appContainerId = null;
         try
         {
-            // Step 2: Start the Dapr sidecar.
+            // Step 2: Start the Dapr sidecar (detached, no health wait yet).
             var sidecarConfig = BuildDaprSidecarConfig(
                 appId, appPort, daprHttpPort, daprGrpcPort, networkName, tenantNetwork, config);
 
             sidecarInfo = await sidecarManager.StartSidecarAsync(sidecarConfig, ct);
 
-            // Step 3: Wait for sidecar health.
-            var healthy = await sidecarManager.WaitForHealthyAsync(
-                sidecarInfo, DefaultHealthTimeout, ct);
-
-            if (!healthy)
-            {
-                throw new InvalidOperationException(
-                    $"Dapr sidecar {sidecarInfo.SidecarId} did not become healthy within {DefaultHealthTimeout}.");
-            }
-
-            // Step 4: Augment the app config with Dapr env vars and network.
-            // Sibling daprd is not on 127.0.0.1 — only DAPR_HTTP_PORT/GRPC_PORT
-            // makes Dapr + durabletask clients default to loopback and fail
-            // (see deploy.sh: DAPR_HTTP_ENDPOINT / DAPR_GRPC_ENDPOINT per app).
+            // Step 3: Start the app container (detached) on the same per-app
+            // bridge so we have a target to `podman exec` into when probing
+            // daprd readiness. The Dapr SDK inside the app retries on
+            // sidecar-not-ready, so it's safe to start the app before the
+            // sidecar's health check completes.
+            //
+            // Sibling daprd is not on 127.0.0.1 — set DAPR_HTTP_ENDPOINT /
+            // DAPR_GRPC_ENDPOINT to the sidecar container DNS name so Dapr +
+            // durabletask clients don't default to loopback (#308).
             var augmentedEnv = new Dictionary<string, string>(
                 config.EnvironmentVariables ?? new Dictionary<string, string>());
             AddDaprSidecarClientEnv(augmentedEnv, sidecarInfo);
@@ -102,11 +110,26 @@ public class ContainerLifecycleManager(
             {
                 NetworkName = networkName,
                 AdditionalNetworks = MergeAdditionalNetworks(config.AdditionalNetworks, tenantNetwork),
-                EnvironmentVariables = augmentedEnv
+                EnvironmentVariables = augmentedEnv,
             };
 
-            // Step 5: Run the application container.
-            var result = await containerRuntime.RunAsync(augmentedConfig, ct);
+            appContainerId = await containerRuntime.StartAsync(augmentedConfig, ct);
+
+            // Step 4: Wait for sidecar health by exec'ing into the running
+            // app container. See DaprSidecarManager.WaitForHealthyAsync.
+            var healthy = await sidecarManager.WaitForHealthyAsync(
+                sidecarInfo, appContainerId, DefaultHealthTimeout, ct);
+
+            if (!healthy)
+            {
+                throw new InvalidOperationException(
+                    $"Dapr sidecar {sidecarInfo.SidecarId} did not become healthy within {DefaultHealthTimeout}.");
+            }
+
+            // Step 5: Wait for the application container to exit. This is
+            // the blocking half of the previous RunAsync — split out so we
+            // can probe daprd between Start and Wait.
+            var result = await containerRuntime.WaitForExitAsync(appContainerId, ct);
 
             _logger.LogInformation(
                 EventIds.LifecycleCompleted,
@@ -121,8 +144,9 @@ public class ContainerLifecycleManager(
                 EventIds.LifecycleFailed, ex,
                 "Container lifecycle failed for app {AppId}. Cleaning up.", appId);
 
-            // Best-effort teardown on failure.
-            await TeardownAsync(null, sidecarInfo?.SidecarId, networkName, CancellationToken.None);
+            // Best-effort teardown on failure — including the app container,
+            // which is now started before the health check.
+            await TeardownAsync(appContainerId, sidecarInfo?.SidecarId, networkName, CancellationToken.None);
             throw;
         }
     }
@@ -172,22 +196,17 @@ public class ContainerLifecycleManager(
             ?? $"spring-persistent-{Guid.NewGuid():N}";
 
         DaprSidecarInfo? sidecarInfo = null;
+        string? containerId = null;
         try
         {
             var sidecarConfig = BuildDaprSidecarConfig(
                 appId, appPort, daprHttpPort, daprGrpcPort, networkName,
                 tenantNetwork, config, appChannelAddress: agentContainerName);
 
+            // Step 1: start daprd (no health wait yet; #2198 reordered so
+            // the app comes up first to give the daprd-readiness probe a
+            // peer to exec into).
             sidecarInfo = await sidecarManager.StartSidecarAsync(sidecarConfig, ct);
-
-            var healthy = await sidecarManager.WaitForHealthyAsync(
-                sidecarInfo, DefaultHealthTimeout, ct);
-
-            if (!healthy)
-            {
-                throw new InvalidOperationException(
-                    $"Dapr sidecar {sidecarInfo.SidecarId} did not become healthy within {DefaultHealthTimeout}.");
-            }
 
             var augmentedEnv = new Dictionary<string, string>(
                 config.EnvironmentVariables ?? new Dictionary<string, string>());
@@ -201,7 +220,21 @@ public class ContainerLifecycleManager(
                 ContainerName = agentContainerName,
             };
 
-            var containerId = await containerRuntime.StartAsync(augmentedConfig, ct);
+            // Step 2: start the app container (detached). The Dapr SDK in
+            // the app retries on sidecar-not-ready, so it's safe to start
+            // the app before the sidecar's health check completes.
+            containerId = await containerRuntime.StartAsync(augmentedConfig, ct);
+
+            // Step 3: wait for sidecar health by exec'ing into the app
+            // container. See DaprSidecarManager.WaitForHealthyAsync.
+            var healthy = await sidecarManager.WaitForHealthyAsync(
+                sidecarInfo, containerId, DefaultHealthTimeout, ct);
+
+            if (!healthy)
+            {
+                throw new InvalidOperationException(
+                    $"Dapr sidecar {sidecarInfo.SidecarId} did not become healthy within {DefaultHealthTimeout}.");
+            }
 
             _logger.LogInformation(
                 EventIds.LifecycleCompleted,
@@ -217,7 +250,7 @@ public class ContainerLifecycleManager(
                 EventIds.LifecycleFailed, ex,
                 "Detached sidecar lifecycle failed for app {AppId}. Cleaning up.", appId);
 
-            await TeardownAsync(null, sidecarInfo?.SidecarId, networkName, CancellationToken.None);
+            await TeardownAsync(containerId, sidecarInfo?.SidecarId, networkName, CancellationToken.None);
             throw;
         }
     }

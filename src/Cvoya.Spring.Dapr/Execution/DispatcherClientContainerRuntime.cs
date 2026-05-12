@@ -242,7 +242,6 @@ public class DispatcherClientContainerRuntime(
     }
 
     /// <inheritdoc />
-#pragma warning disable CS0618 // Implementing the deprecated interface member; retained for backward-compat (#1351).
     public async Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
@@ -275,73 +274,43 @@ public class DispatcherClientContainerRuntime(
         var parsed = await response.Content.ReadFromJsonAsync<DispatcherProbeResponse>(JsonOptions, ct);
         return parsed?.Healthy ?? false;
     }
-#pragma warning restore CS0618
 
     /// <inheritdoc />
-    public async Task<bool> ProbeHttpFromHostAsync(
-        string containerId,
-        string url,
-        CancellationToken ct = default)
+    public async Task<ContainerResult> WaitForExitAsync(string containerId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(url);
 
         var httpClient = CreateClient();
-        var uri = $"v1/containers/{Uri.EscapeDataString(containerId)}/probe-from-host";
-        var request = new DispatcherProbeFromHostRequest { Url = url };
+        var uri = $"v1/containers/{Uri.EscapeDataString(containerId)}/wait-for-exit";
 
-        using var response = await httpClient.PostAsJsonAsync(uri, request, JsonOptions, ct);
+        // Long-poll: the dispatcher holds the connection open until the
+        // container actually exits. The HttpClient's per-request timeout is
+        // governed by the worker-side configuration (DispatcherClientOptions
+        // sets a long default). Caller-provided cancellation is honoured.
+        using var response = await httpClient.PostAsync(uri, content: null, ct);
 
-        // Mirror ProbeContainerHttpAsync: 404 (container unknown) collapses
-        // to "not healthy" so the polling loop treats a vanished container as
-        // a probe failure rather than a hard exception.
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            return false;
+            throw new InvalidOperationException(
+                $"Container '{containerId}' is not known to the dispatcher.");
         }
 
         if (!response.IsSuccessStatusCode)
         {
             var body = await SafeReadBodyAsync(response, ct);
             throw new InvalidOperationException(
-                $"Dispatcher returned {(int)response.StatusCode} on host probe of {containerId} at {url}: {body}");
+                $"Dispatcher returned {(int)response.StatusCode} waiting on container {containerId}: {body}");
         }
 
-        var parsed = await response.Content.ReadFromJsonAsync<DispatcherProbeFromHostResponse>(JsonOptions, ct);
-        return parsed?.Healthy ?? false;
-    }
+        var parsed = await response.Content.ReadFromJsonAsync<DispatcherWaitForExitResponse>(JsonOptions, ct)
+            ?? throw new InvalidOperationException(
+                "Dispatcher returned an empty response body for the wait-for-exit call.");
 
-    /// <inheritdoc />
-    public async Task<bool> ProbeHttpFromTransientContainerAsync(
-        string probeImage,
-        string network,
-        string url,
-        CancellationToken ct = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(probeImage);
-        ArgumentException.ThrowIfNullOrWhiteSpace(network);
-        ArgumentException.ThrowIfNullOrWhiteSpace(url);
-
-        var httpClient = CreateClient();
-        var request = new DispatcherTransientProbeRequest
-        {
-            ProbeImage = probeImage,
-            Network = network,
-            Url = url,
-        };
-
-        using var response = await httpClient.PostAsJsonAsync(
-            "v1/probes/transient", request, JsonOptions, ct);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var body = await SafeReadBodyAsync(response, ct);
-            throw new InvalidOperationException(
-                $"Dispatcher returned {(int)response.StatusCode} for transient probe of {url} on {network}: {body}");
-        }
-
-        var parsed = await response.Content.ReadFromJsonAsync<DispatcherTransientProbeResponse>(JsonOptions, ct);
-        return parsed?.Healthy ?? false;
+        return new ContainerResult(
+            ContainerId: parsed.Id,
+            ExitCode: parsed.ExitCode,
+            StandardOutput: parsed.StandardOutput ?? string.Empty,
+            StandardError: parsed.StandardError ?? string.Empty);
     }
 
     /// <inheritdoc />
@@ -774,43 +743,20 @@ public class DispatcherClientContainerRuntime(
     }
 
     /// <summary>
-    /// Wire shape sent to <c>POST /v1/containers/{id}/probe-from-host</c>.
-    /// Mirrors <c>ProbeFromHostRequest</c> on the dispatcher side; duplicated
-    /// here so the worker package does not take a build dependency on the
-    /// dispatcher package (issue #1175).
+    /// Wire shape returned by <c>POST /v1/containers/{id}/wait-for-exit</c> —
+    /// the long-poll primitive added in #2198 so <c>ContainerLifecycleManager</c>
+    /// can decompose Run into Start + (probe daprd via exec into app) + Wait.
     /// </summary>
-    internal record DispatcherProbeFromHostRequest
+    internal record DispatcherWaitForExitResponse
     {
-        public required string Url { get; init; }
-    }
+        public required string Id { get; init; }
+        public required int ExitCode { get; init; }
 
-    /// <summary>
-    /// Wire shape returned by <c>POST /v1/containers/{id}/probe-from-host</c>.
-    /// </summary>
-    internal record DispatcherProbeFromHostResponse
-    {
-        public required bool Healthy { get; init; }
-    }
+        [JsonPropertyName("stdout")]
+        public string? StandardOutput { get; init; }
 
-    /// <summary>
-    /// Wire shape sent to <c>POST /v1/probes/transient</c>. Mirrors
-    /// <c>TransientProbeHttpRequest</c> on the dispatcher side; duplicated
-    /// here so the worker package does not take a build dependency on the
-    /// dispatcher package.
-    /// </summary>
-    internal record DispatcherTransientProbeRequest
-    {
-        public required string ProbeImage { get; init; }
-        public required string Network { get; init; }
-        public required string Url { get; init; }
-    }
-
-    /// <summary>
-    /// Wire shape returned by <c>POST /v1/probes/transient</c>.
-    /// </summary>
-    internal record DispatcherTransientProbeResponse
-    {
-        public required bool Healthy { get; init; }
+        [JsonPropertyName("stderr")]
+        public string? StandardError { get; init; }
     }
 
     /// <summary>

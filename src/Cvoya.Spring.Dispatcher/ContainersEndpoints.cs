@@ -34,10 +34,10 @@ public static class ContainersEndpoints
             new(6006, nameof(ContainerProbeRequested));
         public static readonly Microsoft.Extensions.Logging.EventId ContainerA2ARequested =
             new(6007, nameof(ContainerA2ARequested));
-        public static readonly Microsoft.Extensions.Logging.EventId ContainerProbeFromHostRequested =
-            new(6008, nameof(ContainerProbeFromHostRequested));
         public static readonly Microsoft.Extensions.Logging.EventId ContainerHealthRequested =
             new(6009, nameof(ContainerHealthRequested));
+        public static readonly Microsoft.Extensions.Logging.EventId ContainerWaitForExitRequested =
+            new(6010, nameof(ContainerWaitForExitRequested));
     }
 
     /// <summary>
@@ -51,7 +51,7 @@ public static class ContainersEndpoints
         group.MapGet("/{id}/logs", GetLogsAsync);
         group.MapGet("/{id}/health", GetHealthAsync);
         group.MapPost("/{id}/probe", ProbeAsync);
-        group.MapPost("/{id}/probe-from-host", ProbeFromHostAsync);
+        group.MapPost("/{id}/wait-for-exit", WaitForExitAsync);
         group.MapPost("/{id}/a2a", SendA2AAsync);
         group.MapDelete("/{id}", StopAsync);
 
@@ -406,11 +406,16 @@ public static class ContainersEndpoints
 
     /// <summary>
     /// <c>POST /v1/containers/{id}/probe</c> — run a one-shot HTTP probe
-    /// (<c>wget --spider</c>) inside the named container's network
-    /// namespace and return whether the URL answered 2xx. Used by the
-    /// worker-side <c>DaprSidecarManager</c> to poll
-    /// <c>/v1.0/healthz</c> on a sidecar without holding its own
-    /// container CLI binding (Stage 2 of #522 / #1063).
+    /// (<c>curl</c>) inside the named container's network namespace and
+    /// return whether the URL answered 2xx. Used by the worker-side
+    /// <c>DaprSidecarManager</c> to poll <c>/v1.0/healthz/outbound</c> on
+    /// a paired daprd sidecar by exec'ing into the app container, and by
+    /// agent-readiness call sites (<c>A2AExecutionDispatcher</c>,
+    /// <c>PersistentAgentRegistry</c>, <c>ContainerSupervisorActor</c>) to
+    /// probe <c>http://localhost:8999/.well-known/agent.json</c> inside the
+    /// agent container itself. Per ADR 0028 Decision A, <c>podman exec</c>
+    /// is the only mechanism the dispatcher uses to reach into a tenant
+    /// container.
     /// </summary>
     internal static async Task<IResult> ProbeAsync(
         string id,
@@ -443,23 +448,21 @@ public static class ContainersEndpoints
             EventIds.ContainerProbeRequested,
             "Probing container id={ContainerId} url={Url}", id, request.Url);
 
-#pragma warning disable CS0618 // ProbeContainerHttpAsync is deprecated; this dispatcher endpoint is the explicit backward-compat call site (#1351).
         var healthy = await runtime.ProbeContainerHttpAsync(id, request.Url, cancellationToken);
-#pragma warning restore CS0618
         return Results.Ok(new ProbeContainerHttpResponse { Healthy = healthy });
     }
 
     /// <summary>
-    /// <c>POST /v1/containers/{id}/probe-from-host</c> — probe an HTTP
-    /// endpoint from the dispatcher host process by resolving the container's
-    /// host-visible IP and issuing a plain HTTP GET. Requires no binary
-    /// (<c>wget</c>, <c>curl</c>) inside the workload image. Replaces the
-    /// in-container <c>podman exec … wget --spider</c> probe for A2A
-    /// readiness checks (issue #1175).
+    /// <c>POST /v1/containers/{id}/wait-for-exit</c> — long-poll until the
+    /// named (already-started) container exits, then return the exit code +
+    /// captured stdout / stderr. Added in #2198 so
+    /// <c>ContainerLifecycleManager</c> can decompose Run into Start +
+    /// (probe daprd via exec into app) + Wait — necessary because daprd
+    /// itself is distroless and has no curl/wget, so its readiness must be
+    /// probed via exec into a peer container that does.
     /// </summary>
-    internal static async Task<IResult> ProbeFromHostAsync(
+    internal static async Task<IResult> WaitForExitAsync(
         string id,
-        [FromBody] ProbeFromHostRequest request,
         IContainerRuntime runtime,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -475,21 +478,31 @@ public static class ContainersEndpoints
             });
         }
 
-        if (string.IsNullOrWhiteSpace(request.Url))
+        logger.LogInformation(
+            EventIds.ContainerWaitForExitRequested,
+            "Waiting for container id={ContainerId} to exit", id);
+
+        try
         {
-            return Results.BadRequest(new DispatcherErrorResponse
+            var result = await runtime.WaitForExitAsync(id, cancellationToken);
+            return Results.Ok(new WaitForExitResponse
             {
-                Code = "url_required",
-                Message = "Field 'url' is required.",
+                Id = result.ContainerId,
+                ExitCode = result.ExitCode,
+                StandardOutput = result.StandardOutput,
+                StandardError = result.StandardError,
             });
         }
-
-        logger.LogInformation(
-            EventIds.ContainerProbeFromHostRequested,
-            "Host probe for container id={ContainerId} url={Url}", id, request.Url);
-
-        var healthy = await runtime.ProbeHttpFromHostAsync(id, request.Url, cancellationToken);
-        return Results.Ok(new ProbeFromHostResponse { Healthy = healthy });
+        catch (InvalidOperationException ex) when (ex.Message.Contains("no container", StringComparison.OrdinalIgnoreCase))
+        {
+            // ProcessContainerRuntime surfaces unknown-container as
+            // InvalidOperationException with stderr embedded; map to 404.
+            return Results.NotFound(new DispatcherErrorResponse
+            {
+                Code = "container_not_found",
+                Message = ex.Message,
+            });
+        }
     }
 
     /// <summary>

@@ -227,7 +227,7 @@ public class A2AExecutionDispatcherTests
     /// Wires the container runtime so both halves of the A2A roundtrip — the
     /// readiness probe AND the JSON-RPC <c>message/send</c> POST — answer
     /// successfully. Both legs go through <see cref="IContainerRuntime"/>
-    /// since #1160 closed: <see cref="IContainerRuntime.ProbeHttpFromHostAsync"/>
+    /// since #1160 closed: <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>
     /// covers readiness (from the host process — no in-container wget, issue #1175)
     /// and <see cref="IContainerRuntime.SendHttpJsonAsync"/>
     /// covers the message-send call (the worker no longer talks HTTP directly
@@ -237,7 +237,7 @@ public class A2AExecutionDispatcherTests
     private SendHttpJsonRecorder InstallA2AStub(string responseText = "agent reply")
     {
         var recorder = new SendHttpJsonRecorder(responseText);
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(true));
         _containerRuntime.SendHttpJsonAsync(
@@ -445,7 +445,7 @@ public class A2AExecutionDispatcherTests
     public async Task DispatchAsync_EphemeralAgent_ReadinessProbe_DispatchedThroughHostProbe()
     {
         // #1175: the readiness probe must go through
-        // IContainerRuntime.ProbeHttpFromHostAsync — no in-container wget,
+        // IContainerRuntime.ProbeContainerHttpAsync — no in-container wget,
         // no podman exec. The dispatcher host resolves the container's IP
         // and issues a plain HTTP GET from its own process, so the probe
         // works for any base image (Alpine, distroless, BYOI).
@@ -456,7 +456,7 @@ public class A2AExecutionDispatcherTests
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
-        await _containerRuntime.Received().ProbeHttpFromHostAsync(
+        await _containerRuntime.Received().ProbeContainerHttpAsync(
             ContainerId,
             Arg.Is<string>(url => url.EndsWith("/.well-known/agent.json")),
             Arg.Any<CancellationToken>());
@@ -768,7 +768,7 @@ public class A2AExecutionDispatcherTests
         // (see #1160 / #1175). Readiness answers healthy immediately so the
         // dispatcher proceeds to the JSON-RPC POST, which we hold open via
         // SendHttpJsonAsync until the test fires the cancel.
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(true));
         var sendStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -980,9 +980,9 @@ public class A2AExecutionDispatcherTests
         _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Returns(ContainerId);
 
-        // ProbeHttpFromHostAsync never returns healthy — the loop runs until
+        // ProbeContainerHttpAsync never returns healthy — the loop runs until
         // the internal CancelAfter fires the timeout token.
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
 
@@ -1021,7 +1021,7 @@ public class A2AExecutionDispatcherTests
             .Returns(ContainerId);
 
         // Readiness probe passes immediately so dispatch proceeds to the A2A roundtrip.
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(true));
 
