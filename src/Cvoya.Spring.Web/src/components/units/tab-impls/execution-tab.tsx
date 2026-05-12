@@ -33,7 +33,6 @@ import {
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatTranslatedError } from "@/lib/api/translate-error";
 import type {
-  AgentResponse,
   UnitExecutionResponse,
   UnitMembershipResponse,
 } from "@/lib/api/types";
@@ -119,31 +118,24 @@ function hostingLabel(mode: HostingMode): string {
 
 function memberHostingRow(
   membership: UnitMembershipResponse,
-  agent: AgentResponse | undefined,
 ): MemberHostingRow {
-  const agentAddress = agent?.name ?? membership.agentAddress;
-  const declaredHosting = agent?.hostingMode ?? null;
+  // PR-#2223 follow-up: hosting is now projected onto the membership row
+  // server-side (M lookups instead of N) so the unit Execution tab no
+  // longer needs the full-tenant /agents fan-out to render this card.
+  const declaredHosting = membership.agentHostingMode ?? null;
   return {
-    agentAddress,
+    agentAddress: membership.agentAddress,
     displayName:
-      agent?.displayName ||
-      membership.agentDisplayName ||
-      membership.agentAddress,
+      membership.agentDisplayName || membership.agentAddress,
     hosting: normalizeHostingMode(declaredHosting),
     declared: isHostingMode(declaredHosting),
-    href: `/units?node=${encodeURIComponent(agentAddress)}&tab=Config`,
+    href: `/units?node=${encodeURIComponent(membership.agentAddress)}&tab=Config`,
   };
 }
 
 async function loadMemberHosting(unitId: string): Promise<MemberHostingRow[]> {
-  const [memberships, agents] = await Promise.all([
-    api.listUnitMemberships(unitId),
-    api.listAgents(),
-  ]);
-  const agentByName = new Map(agents.map((agent) => [agent.name, agent]));
-  return memberships.map((membership) =>
-    memberHostingRow(membership, agentByName.get(membership.agentAddress)),
-  );
+  const memberships = await api.listUnitMemberships(unitId);
+  return memberships.map(memberHostingRow);
 }
 
 function persistedToForm(

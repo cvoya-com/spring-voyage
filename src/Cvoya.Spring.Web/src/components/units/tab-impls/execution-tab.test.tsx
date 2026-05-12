@@ -12,7 +12,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { expectNoAxeViolations } from "@/test/a11y";
 import type {
-  AgentResponse,
   ProviderCredentialStatusResponse,
   UnitExecutionResponse,
   UnitMembershipResponse,
@@ -40,7 +39,6 @@ const getProviderCredentialStatus =
     ) => Promise<ProviderCredentialStatusResponse>
   >();
 const listUnitMemberships = vi.fn<() => Promise<UnitMembershipResponse[]>>();
-const listAgents = vi.fn<() => Promise<AgentResponse[]>>();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -56,7 +54,6 @@ vi.mock("@/lib/api/client", () => ({
       authMethod?: "api-key" | "oauth",
     ) => getProviderCredentialStatus(provider, authMethod),
     listUnitMemberships: () => listUnitMemberships(),
-    listAgents: () => listAgents(),
   },
 }));
 
@@ -91,24 +88,6 @@ function Wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
-function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
-  return {
-    id: "00000000-0000-0000-0000-000000000001",
-    name: "agent-a",
-    displayName: "Ada",
-    description: "",
-    role: null,
-    registeredAt: "2026-05-12T00:00:00Z",
-    model: null,
-    specialty: null,
-    enabled: true,
-    executionMode: "Auto",
-    parentUnit: "eng-team",
-    hostingMode: null,
-    ...overrides,
-  };
-}
-
 function makeMembership(
   overrides: Partial<UnitMembershipResponse> = {},
 ): UnitMembershipResponse {
@@ -124,6 +103,10 @@ function makeMembership(
     createdAt: "2026-05-12T00:00:00Z",
     updatedAt: "2026-05-12T00:00:00Z",
     isPrimary: true,
+    // PR-#2223 follow-up: hosting is projected onto the membership row
+    // server-side; the unit Execution tab consumes this directly without
+    // a separate /agents fan-out.
+    agentHostingMode: null,
     ...overrides,
   };
 }
@@ -137,7 +120,6 @@ describe("ExecutionTab", () => {
     listModelProviders.mockReset();
     getProviderCredentialStatus.mockReset();
     listUnitMemberships.mockReset();
-    listAgents.mockReset();
     toastMock.mockReset();
     // Default: no models fetched + no credential probe so the banner
     // doesn't pop up unless the test sets it.
@@ -150,7 +132,6 @@ describe("ExecutionTab", () => {
       suggestion: null,
     });
     listUnitMemberships.mockResolvedValue([]);
-    listAgents.mockResolvedValue([]);
   });
 
   it("renders Image, Agent Runtime and Model fields by default; Model Provider hidden until agent=spring-voyage", async () => {
@@ -185,24 +166,13 @@ describe("ExecutionTab", () => {
       makeMembership({
         agentAddress: "agent-a",
         agentDisplayName: "Ada",
+        agentHostingMode: "persistent",
       }),
       makeMembership({
         agentAddress: "agent-b",
         agentDisplayName: "Grace",
         member: "agent-b",
-      }),
-    ]);
-    listAgents.mockResolvedValue([
-      makeAgent({
-        name: "agent-a",
-        displayName: "Ada",
-        hostingMode: "persistent",
-      }),
-      makeAgent({
-        id: "00000000-0000-0000-0000-000000000002",
-        name: "agent-b",
-        displayName: "Grace",
-        hostingMode: "ephemeral",
+        agentHostingMode: "ephemeral",
       }),
     ]);
 
@@ -240,13 +210,7 @@ describe("ExecutionTab", () => {
       makeMembership({
         agentAddress: "agent-a",
         agentDisplayName: "Ada",
-      }),
-    ]);
-    listAgents.mockResolvedValue([
-      makeAgent({
-        name: "agent-a",
-        displayName: "Ada",
-        hostingMode: null,
+        agentHostingMode: null,
       }),
     ]);
 
