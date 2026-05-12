@@ -641,6 +641,12 @@ cat <<EOF
   Logs (dispatcher):   ${INSTALL_ROOT}/host/spring-dispatcher.log
   Web URL:             ${WEB_URL}
 
+  Day-2 commands:
+    spring-voyage status               # install version, container/dispatcher health, web URL
+    spring-voyage logs [service]       # tail container logs (or 'dispatcher' for the host process)
+    spring-voyage restart              # restart the stack
+    spring-voyage version              # print the installed version + image tag
+
   To tear down later:
     spring-voyage uninstall            # preserves spring.env + workspaces
     spring-voyage uninstall --purge    # factory reset

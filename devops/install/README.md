@@ -33,14 +33,36 @@ both.
 6. Reads `bundle/manifest.json` for the platform image ref and `podman
    pull`s it.
 7. Symlinks `~/.spring-voyage/current -> releases/<v>/bundle`,
-   `~/.local/bin/spring -> releases/<v>/cli/spring`, and writes a
-   `spring-voyage` wrapper that dispatches `install|uninstall|status`.
+   `~/.local/bin/spring -> releases/<v>/cli/spring`, and copies the
+   `spring-voyage` operator wrapper (`status | logs | restart |
+   version | install | uninstall`) into `~/.local/bin/`.
 8. Generates `~/.spring-voyage/spring.env` (mode 0600) with auto-
    generated secrets and auto-derived paths — see the env-var table
    in [ADR-0042](../../docs/decisions/0042-local-operator-installer.md).
 9. Runs `SPRING_ENV_FILE=... bundle/deploy.sh up`.
 10. Optionally invokes `spring github-app register --env-path …
     --write-env` if the operator opts in.
+
+## Operator wrapper (`spring-voyage`)
+
+`devops/install/spring-voyage` is a stand-alone bash script. The
+release pipeline ships it inside the bundle as `bundle/spring-voyage`,
+and `install.sh` copies it to `~/.local/bin/spring-voyage` so it is on
+the operator's `PATH`. The wrapper reads `SPRING_VOYAGE_HOME` and
+`SPRING_ENV_FILE` from the environment with sensible defaults
+(`~/.spring-voyage` and `~/.spring-voyage/spring.env`), so the same
+checked-in script works for every install without per-install
+substitution.
+
+| Subcommand | Purpose |
+|---|---|
+| `spring-voyage status` | Install version (from `manifest.json`), container state (delegated to `deploy.sh status`), dispatcher PID + liveness, web URL, log paths. |
+| `spring-voyage logs [service]` | `logs` tails all containers via `deploy.sh logs`. `logs <service>` tails one. `logs dispatcher` is special-cased to tail `~/.spring-voyage/host/spring-dispatcher.log` (the host-process dispatcher is not a container). |
+| `spring-voyage restart` | One-line delegate to `deploy.sh restart`. |
+| `spring-voyage install` | (Re-)install Spring Voyage by re-running the canonical `install.sh` from the latest release. |
+| `spring-voyage uninstall` | Delegates to the bundle's `uninstall.sh`; `--purge` for factory reset. |
+| `spring-voyage version` | Prints the installed version and platform image tag from `manifest.json`. |
+| `spring-voyage help` | Show usage. |
 
 ## Uninstall
 
