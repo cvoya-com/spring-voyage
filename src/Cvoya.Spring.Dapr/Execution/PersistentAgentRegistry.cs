@@ -47,16 +47,21 @@ public class PersistentAgentRegistry(
     private int _healthCheckRunning;
 
     /// <summary>
-    /// Interval between health-check sweeps. Tightened to 1s (issue #2092)
-    /// so a crashed persistent agent is observed in the registry before the
-    /// next dispatch arrives, instead of waiting up to ~30s for the next
-    /// poll cycle. The probe itself is a single short-bounded HTTP GET per
-    /// tracked agent — when the endpoint is reachable it returns in
-    /// sub-100ms; when the agent has crashed the underlying TCP connect
-    /// fails immediately. A re-entrancy guard prevents overlapping ticks
-    /// when the probe set takes longer than the interval.
+    /// Interval between health-check sweeps. The dispatch path already runs a
+    /// pre-flight liveness probe (<see cref="DispatchPreflightProbeTimeout"/>),
+    /// so a real inbound turn never waits for this sweep — the only thing the
+    /// sweep buys is "how fast does a status chip on a dashboard reflect
+    /// reality when no traffic is in flight" plus "the catch-up restart for
+    /// an agent that crashed under zero load." 5s meets both goals: a single
+    /// probe failure still flips <see cref="PersistentAgentEntry.HealthStatus"/>
+    /// to <see cref="AgentHealthStatus.Unhealthy"/> on the very next tick
+    /// (#2092), and steady-state probe cost drops 5× from the previous 1s
+    /// setting. Originally 30s (pre-#2092); tightened to 1s by #2092;
+    /// relaxed to 5s by #2203 once the dispatch-time pre-flight made the
+    /// sub-second cadence unnecessary. A re-entrancy guard prevents
+    /// overlapping ticks when the probe set takes longer than the interval.
     /// </summary>
-    internal static readonly TimeSpan HealthCheckInterval = TimeSpan.FromSeconds(1);
+    internal static readonly TimeSpan HealthCheckInterval = TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// Number of consecutive health-check failures before the registry
