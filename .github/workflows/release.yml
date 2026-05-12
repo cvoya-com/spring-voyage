@@ -4,7 +4,7 @@ name: Spring Voyage — Release
 #
 # This is the single unified release workflow for Spring Voyage (#2229,
 # Path B). It supersedes the previous three-tag release chain and the two
-# now-deleted workflows (`release-agent-base.yml`, `release-oss-agent-images.yml`).
+# auxiliary release workflows that were deleted in the same PR.
 #
 # Job graph:
 #   resolve  → ci-gate → ┬─→ test-sidecar ─┬─→ publish-agent-base-image
@@ -258,11 +258,11 @@ jobs:
 
   # ── 3. Sidecar unit tests ──────────────────────────────────────────────────
   #
-  # Sourced verbatim from the previous release-agent-base.yml `test` job
-  # (#2229 — Path B). The sidecar lives in src/Cvoya.Spring.AgentSidecar/
-  # and feeds into three downstream artefacts: the agent-base OCI image,
-  # the npm package, and the three SEA binaries. Running its lint + unit
-  # tests here gates all three.
+  # Sourced verbatim from the previous standalone agent-base release
+  # workflow (#2229 — Path B). The sidecar lives in
+  # src/Cvoya.Spring.AgentSidecar/ and feeds into three downstream
+  # artefacts: the agent-base OCI image, the npm package, and the three
+  # SEA binaries. Running its lint + unit tests here gates all three.
   test-sidecar:
     name: Sidecar unit tests
     runs-on: ubuntu-latest
@@ -287,10 +287,11 @@ jobs:
   #
   # Builds and pushes ghcr.io/cvoya-com/spring-voyage-agent-base as a
   # multi-arch manifest list (linux/amd64 + linux/arm64) via Buildx.
-  # Replaces both the previous `release-agent-base.yml:publish-image` job
-  # and the buggy single-arch `Push spring-voyage-agent-base` step that used
-  # to follow `build-agent-images.sh` in this workflow — see #2229 §3c for
-  # the overwrite bug it fixes.
+  # Replaces both the standalone agent-base release workflow's
+  # publish-image job and the buggy single-arch `Push
+  # spring-voyage-agent-base` step that used to follow
+  # `build-agent-images.sh` in this workflow — see #2229 §3c for the
+  # overwrite bug it fixes.
   publish-agent-base-image:
     name: Build and push spring-voyage-agent-base OCI image
     runs-on: ubuntu-latest
@@ -366,9 +367,10 @@ jobs:
 
   # ── 5. Publish @cvoya/spring-voyage-agent-sidecar npm package ─────────────
   #
-  # Sourced verbatim from the previous release-agent-base.yml `publish-npm`
-  # job. Honors NPM_TOKEN secret — emits a warning and exits 0 if it is not
-  # configured so a fork can run the workflow without the secret.
+  # Sourced verbatim from the standalone agent-base release workflow's
+  # publish-npm job (#2229 — Path B). Honors NPM_TOKEN secret — emits a
+  # warning and exits 0 if it is not configured so a fork can run the
+  # workflow without the secret.
   publish-sidecar-npm:
     name: Publish @cvoya/spring-voyage-agent-sidecar
     runs-on: ubuntu-latest
@@ -410,11 +412,12 @@ jobs:
 
   # ── 6. Build sidecar SEA binaries ──────────────────────────────────────────
   #
-  # Sourced verbatim from the previous release-agent-base.yml
-  # `publish-binaries` job. Builds Node single-executable-applications for
-  # linux-amd64, linux-arm64, and darwin-arm64. Outputs are uploaded as
-  # workflow artifacts (`sidecar-binary-<target>`) consumed by the
-  # publish-bundle job's same-workflow download — no cross-workflow lookup.
+  # Sourced verbatim from the standalone agent-base release workflow's
+  # publish-binaries job (#2229 — Path B). Builds Node
+  # single-executable-applications for linux-amd64, linux-arm64, and
+  # darwin-arm64. Outputs are uploaded as workflow artifacts
+  # (`sidecar-binary-<target>`) consumed by the publish-bundle job's
+  # same-workflow download — no cross-workflow lookup.
   build-sidecar-binaries:
     name: Build sidecar SEA binary (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -649,7 +652,8 @@ jobs:
   # Multi-arch (linux/amd64 + linux/arm64) build matrix for the four OSS
   # role agent images. Each FROMs spring-voyage-agent-base:<version> (just
   # published multi-arch by publish-agent-base-image). Sourced from the
-  # previous release-oss-agent-images.yml `build-and-publish` job.
+  # standalone OSS-agent-images release workflow's build-and-publish job
+  # (#2229 — Path B).
   publish-oss-agent-images:
     name: Build and push ${{ matrix.name }}
     runs-on: ubuntu-latest
