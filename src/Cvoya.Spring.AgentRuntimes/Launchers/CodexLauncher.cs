@@ -195,11 +195,13 @@ public class CodexLauncher(
         if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
             || string.IsNullOrEmpty(resolution.Value))
         {
+            // #2189: tag (CredentialMissing, credential).
             throw new SpringException(
                 $"Codex agent runtime requires secret '{resolution.SecretName}' but no value resolved at " +
                 $"agent, unit, parent-unit chain, or tenant scope. " +
                 $"Generate an API key at https://platform.openai.com/api-keys and store it under '{resolution.SecretName}', " +
-                $"or configure via the Tenant defaults panel.");
+                $"or configure via the Tenant defaults panel.")
+                .WithIssue(code: "CredentialMissing", source: "credential");
         }
 
         // OpenAI Platform API keys start with "sk-". The format check is
@@ -208,9 +210,11 @@ public class CodexLauncher(
         // equivalent lives on IModelProviderAdapter.
         if (!resolution.Value!.StartsWith("sk-", StringComparison.Ordinal))
         {
+            // #2189: tag (CredentialFormatRejected, credential).
             throw new SpringException(
                 $"Codex agent runtime did not accept the configured '{resolution.SecretName}' value at scope " +
-                $"'{resolution.Source}'. The OpenAI Platform CLI path requires an OpenAI API key (sk-…).");
+                $"'{resolution.Source}'. The OpenAI Platform CLI path requires an OpenAI API key (sk-…).")
+                .WithIssue(code: "CredentialFormatRejected", source: "credential");
         }
 
         envVars[CredentialEnvVar] = resolution.Value!;

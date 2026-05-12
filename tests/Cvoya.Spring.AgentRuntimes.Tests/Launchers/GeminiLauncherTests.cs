@@ -199,6 +199,9 @@ public class GeminiLauncherTests
 
         ex.Message.ShouldContain("google-api-key");
         ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
+        // #2189: producer tags the (code, source) on ex.Data.
+        ex.Data[SpringException.IssueCodeDataKey].ShouldBe("CredentialMissing");
+        ex.Data[SpringException.IssueSourceDataKey].ShouldBe("credential");
     }
 
     [Fact]

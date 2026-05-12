@@ -242,10 +242,14 @@ public class SpringVoyageAgentLauncher(
             "anthropic" => "ANTHROPIC_API_KEY",
             "openai" => "OPENAI_API_KEY",
             "google" => "GOOGLE_API_KEY",
+            // #2189: tag (ConfigurationIncomplete, configuration) — this
+            // path indicates a deployment / catalogue gap, not a per-call
+            // credential issue.
             _ => throw new SpringException(
                 $"Spring Voyage launcher cannot map provider '{provider}' to a Conversation REST env var. " +
                 $"Supported providers: anthropic, openai, google. Add the mapping (and a matching " +
                 $"llm-<provider>.yaml + ContainerLifecycleManager propagation entry) to extend.")
+                .WithIssue(code: "ConfigurationIncomplete", source: "configuration"),
         };
 
         // The Spring Voyage runtime dispatches via Dapr Conversation REST.
@@ -273,10 +277,12 @@ public class SpringVoyageAgentLauncher(
         if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
             || string.IsNullOrEmpty(resolution.Value))
         {
+            // #2189: tag (CredentialMissing, credential).
             throw new SpringException(
                 $"Provider '{provider}' requires secret '{resolution.SecretName}' but no value resolved at " +
                 $"agent, unit, parent-unit chain, or tenant scope. " +
-                $"Configure via the Tenant defaults panel or `spring secret set --scope tenant {resolution.SecretName} <value>`.");
+                $"Configure via the Tenant defaults panel or `spring secret set --scope tenant {resolution.SecretName} <value>`.")
+                .WithIssue(code: "CredentialMissing", source: "credential");
         }
 
         // Strict per-path acceptance (#1714): the Spring Voyage runtime
@@ -290,12 +296,14 @@ public class SpringVoyageAgentLauncher(
         if (string.Equals(provider, "anthropic", StringComparison.OrdinalIgnoreCase)
             && resolution.Value!.StartsWith("sk-ant-oat", StringComparison.Ordinal))
         {
+            // #2189: tag (CredentialFormatRejected, credential).
             throw new SpringException(
                 $"Spring Voyage routes 'anthropic' via the Dapr Conversation REST path, which does not accept " +
                 $"the resolved credential's shape (secret '{resolution.SecretName}' from {resolution.Source}). " +
                 $"Either replace the secret with a REST-compatible credential (e.g. an Anthropic Platform API key " +
                 $"sk-ant-api…), or switch this agent to a runtime that accepts that shape (e.g. `agent: claude` " +
-                $"for an Anthropic OAuth token).");
+                $"for an Anthropic OAuth token).")
+                .WithIssue(code: "CredentialFormatRejected", source: "credential");
         }
 
         envVars[providerEnvVar] = resolution.Value!;

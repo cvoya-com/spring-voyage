@@ -203,6 +203,15 @@ public class AgentActor(
     /// Best-effort — never let issue-publish failures derail the
     /// agent's own response path.
     /// </summary>
+    /// <summary>
+    /// #2160 / #2189: bridge agent message handling to the Issues
+    /// surface. On a clean pass clears every prior open issue against
+    /// this agent across the producer-side source buckets — so a
+    /// recovered runtime / credential / configuration condition stops
+    /// painting the Overview red. On failure publishes one tagged
+    /// issue keyed on the source bucket the producer stamped (or
+    /// <c>"runtime"</c> when no tag is present).
+    /// </summary>
     private async Task TryPublishRuntimeIssueAsync(
         Exception? caught, CancellationToken cancellationToken)
     {
@@ -219,17 +228,26 @@ public class AgentActor(
 
             if (caught is null)
             {
-                await _issueWriter!.ClearAsync(subject, source: "runtime", code: null, cancellationToken);
+                // Clear every producer-source bucket that PR #2189
+                // attributes to the agent dispatch path. Iterating the
+                // closed set keeps the on-clear path symmetric with the
+                // on-fail path (which writes one tagged issue per
+                // bucket). New buckets must extend this set so a
+                // recovery actually paints them green.
+                foreach (var source in AgentRuntimeIssueSources)
+                {
+                    await _issueWriter!.ClearAsync(subject, source: source, code: null, cancellationToken);
+                }
                 return;
             }
 
-            var (code, title) = ClassifyAgentRuntimeException(caught);
+            var classification = ClassifyAgentRuntimeException(caught);
             await _issueWriter!.UpsertAsync(
                 subject,
                 Cvoya.Spring.Core.Issues.IssueSeverity.Error,
-                source: "runtime",
-                code: code,
-                title: title,
+                source: classification.Source,
+                code: classification.Code,
+                title: classification.Title,
                 detail: null,
                 traceId: null,
                 cancellationToken);
@@ -244,30 +262,94 @@ public class AgentActor(
     }
 
     /// <summary>
-    /// Extract the structured code prefix from a <see cref="SpringException"/>
-    /// raised under our convention (e.g. <c>"CredentialFormatRejected: …"</c>),
-    /// falling back to a generic code when the message doesn't match.
+    /// Closed set of source buckets producers attribute issues to via
+    /// <see cref="SpringException.WithIssue"/>. Mirrored on-clear so a
+    /// recovered condition drops every prior open row regardless of
+    /// which bucket the producer originally tagged it under.
     /// </summary>
-    private static (string Code, string Title) ClassifyAgentRuntimeException(Exception ex)
+    private static readonly string[] AgentRuntimeIssueSources =
+        ["runtime", "credential", "configuration"];
+
+    /// <summary>
+    /// Resolve the operationally-significant <c>(source, code, title)</c>
+    /// triple for a thrown exception.
+    /// <list type="number">
+    ///   <item>
+    ///     #2189: prefer the producer-stamped tags on
+    ///     <see cref="Exception.Data"/> (<see cref="SpringException.IssueCodeDataKey"/>
+    ///     / <see cref="SpringException.IssueSourceDataKey"/>) — these
+    ///     are precise and don't depend on message shape.
+    ///   </item>
+    ///   <item>
+    ///     Fall back to the legacy <c>"&lt;Code&gt;: &lt;message&gt;"</c>
+    ///     prefix heuristic so producers that haven't been migrated yet
+    ///     still surface a stable code (always under
+    ///     <c>source="runtime"</c>).
+    ///   </item>
+    ///   <item>
+    ///     Final fallback: <c>("runtime", "AgentRuntimeError",
+    ///     ex.Message ?? "Agent runtime failed.")</c>.
+    ///   </item>
+    /// </list>
+    /// </summary>
+    internal static AgentRuntimeIssueClassification ClassifyAgentRuntimeException(Exception ex)
     {
         var message = ex.Message ?? string.Empty;
+
+        // Producer-stamped tags win. Read both keys from ex.Data and
+        // require both to be present + well-shaped — a half-tagged
+        // exception would otherwise mix a precise source with a
+        // heuristic code (or vice versa) and confuse the surface.
+        var taggedCode = ex.Data[SpringException.IssueCodeDataKey] as string;
+        var taggedSource = ex.Data[SpringException.IssueSourceDataKey] as string;
+        if (!string.IsNullOrWhiteSpace(taggedCode) && !string.IsNullOrWhiteSpace(taggedSource))
+        {
+            // Title: prefer the post-prefix slice when the message also
+            // carries the convention (so the Overview reads cleanly);
+            // otherwise the full message.
+            var title = ExtractMessageTitle(message, taggedCode);
+            return new AgentRuntimeIssueClassification(
+                Source: taggedSource!,
+                Code: taggedCode!,
+                Title: title);
+        }
+
+        // Legacy prefix heuristic — kept so producers that haven't been
+        // migrated still get a stable code under source="runtime".
         var colon = message.IndexOf(':');
         if (colon > 0 && colon < 64)
         {
             var prefix = message[..colon].Trim();
-            // Adopt the prefix as a code only when it looks like a stable
-            // identifier (PascalCase, no spaces). Free-text exception
-            // messages would otherwise leak into the code field.
             if (prefix.Length > 0
                 && char.IsUpper(prefix[0])
                 && prefix.All(c => char.IsLetterOrDigit(c)))
             {
-                return (prefix, message[(colon + 1)..].Trim() is { Length: > 0 } detail
-                    ? detail
-                    : prefix);
+                return new AgentRuntimeIssueClassification(
+                    Source: "runtime",
+                    Code: prefix,
+                    Title: message[(colon + 1)..].Trim() is { Length: > 0 } detail
+                        ? detail
+                        : prefix);
             }
         }
-        return ("AgentRuntimeError", message.Length > 0 ? message : "Agent runtime failed.");
+
+        return new AgentRuntimeIssueClassification(
+            Source: "runtime",
+            Code: "AgentRuntimeError",
+            Title: message.Length > 0 ? message : "Agent runtime failed.");
+    }
+
+    private static string ExtractMessageTitle(string message, string taggedCode)
+    {
+        if (message.Length == 0) return taggedCode;
+        var colon = message.IndexOf(':');
+        if (colon > 0 && colon < 64
+            && string.Equals(message[..colon].Trim(), taggedCode, StringComparison.Ordinal))
+        {
+            var rest = message[(colon + 1)..].Trim();
+            return rest.Length > 0 ? rest : taggedCode;
+        }
+        return message;
     }
 
     private async Task<Guid?> ResolveOwnAgentIdAsync(CancellationToken cancellationToken)
@@ -1367,3 +1449,12 @@ public class AgentActor(
         }
     }
 }
+
+/// <summary>
+/// #2189: triple resolved by
+/// <see cref="AgentActor.ClassifyAgentRuntimeException"/> and consumed
+/// by the actor's runtime-issue producer. Internal so the unit tests
+/// (in the same assembly via <c>[InternalsVisibleTo]</c>) can pin the
+/// classification logic without depending on the actor's call sites.
+/// </summary>
+internal sealed record AgentRuntimeIssueClassification(string Source, string Code, string Title);

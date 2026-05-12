@@ -127,6 +127,11 @@ public class AnthropicProviderTests
         var ex = await Should.ThrowAsync<SpringException>(act);
         ex.Message.ShouldContain("CredentialFormatRejected");
         ex.Message.ShouldContain("Claude Code OAuth token");
+        // #2189: producer tags the (code, source) on ex.Data so the
+        // AgentActor catch attributes precisely as a credential
+        // rejection rather than a generic runtime error.
+        ex.Data[SpringException.IssueCodeDataKey].ShouldBe("CredentialFormatRejected");
+        ex.Data[SpringException.IssueSourceDataKey].ShouldBe("credential");
         handler.CallCount.ShouldBe(0);
     }
 

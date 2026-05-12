@@ -323,6 +323,10 @@ public class SpringVoyageAgentLauncherTests
 
         ex.Message.ShouldContain("acme");
         ex.Message.ShouldContain("anthropic, openai, google");
+        // #2189: unknown-provider mapping is a deployment / catalogue
+        // gap, not a per-call credential issue. Tag it as configuration.
+        ex.Data[SpringException.IssueCodeDataKey].ShouldBe("ConfigurationIncomplete");
+        ex.Data[SpringException.IssueSourceDataKey].ShouldBe("configuration");
     }
 
     [Fact]
@@ -384,6 +388,9 @@ public class SpringVoyageAgentLauncherTests
 
         ex.Message.ShouldContain("anthropic-api-key");
         ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
+        // #2189: producer tags the (code, source) on ex.Data.
+        ex.Data[SpringException.IssueCodeDataKey].ShouldBe("CredentialMissing");
+        ex.Data[SpringException.IssueSourceDataKey].ShouldBe("credential");
     }
 
     [Fact]
@@ -401,6 +408,9 @@ public class SpringVoyageAgentLauncherTests
 
         ex.Message.ShouldContain("REST");
         ex.Message.ShouldContain("anthropic-api-key");
+        // #2189: producer tags this as a credential format rejection.
+        ex.Data[SpringException.IssueCodeDataKey].ShouldBe("CredentialFormatRejected");
+        ex.Data[SpringException.IssueSourceDataKey].ShouldBe("credential");
     }
 
     [Fact]
