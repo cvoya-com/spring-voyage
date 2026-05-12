@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # spring-voyage — operator-facing wrapper installed by devops/install/install.sh
-# as ~/.local/bin/spring-voyage. Dispatches install / uninstall / status to
-# the bundle scripts and `deploy.sh` so operators never need to remember
-# where the install root or spring.env live.
+# as ~/.local/bin/spring-voyage. Dispatches install / uninstall / status /
+# logs / restart / version to the bundle scripts and `deploy.sh` so operators
+# never need to remember where the install root or spring.env live.
 #
 # Configuration is read from the environment so the script is identical
 # across installs:
@@ -10,48 +10,267 @@
 #   SPRING_VOYAGE_HOME   Install root. Default: ~/.spring-voyage
 #   SPRING_ENV_FILE      spring.env path. Default: ${SPRING_VOYAGE_HOME}/spring.env
 #
+# Subcommands:
+#   status          Show install version, container + dispatcher health,
+#                   web URL, and log paths. Pretty-printed.
+#   logs [service]  Tail container logs (no arg = all containers).
+#                   `logs dispatcher` tails the host-process dispatcher log.
+#   restart         Restart the stack (delegates to deploy.sh restart).
+#   install         (Re)install Spring Voyage from a release.
+#   uninstall       Uninstall (preserves operator data; --purge for factory reset).
+#   version         Print the installed version + platform image tag.
+#   help            Show usage.
+#
 # Tests:  devops/install/tests/test-install.sh
 # Design: docs/decisions/0042-local-operator-installer.md
 
 set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
 INSTALL_ROOT="${SPRING_VOYAGE_HOME:-${HOME}/.spring-voyage}"
 BUNDLE="${INSTALL_ROOT}/current"
 SPRING_ENV="${SPRING_ENV_FILE:-${INSTALL_ROOT}/spring.env}"
+MANIFEST="${BUNDLE}/manifest.json"
+DISPATCHER_PID_FILE="${INSTALL_ROOT}/host/spring-dispatcher.pid"
+DISPATCHER_LOG_FILE="${INSTALL_ROOT}/host/spring-dispatcher.log"
 
-# Canonical release entry-point for the `install` subcommand.
+# Canonical release entry-point — used by the `install` subcommand for
+# re-installs. Kept in sync with devops/install/install.sh's REPO_OWNER /
+# REPO_NAME constants.
 RELEASE_INSTALL_URL="https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh"
 
-case "${1:-help}" in
-  install)
-    shift
-    exec curl -fSL "${RELEASE_INSTALL_URL}" | bash "$@" ;;
-  uninstall)
-    shift
-    if [[ -x "${BUNDLE}/uninstall.sh" ]]; then
-      SPRING_VOYAGE_HOME="${INSTALL_ROOT}" exec "${BUNDLE}/uninstall.sh" "$@"
-    else
-      echo "uninstall.sh not found in ${BUNDLE}. Re-download via install.sh." >&2
-      exit 1
-    fi ;;
-  status)
-    shift
-    if [[ -x "${BUNDLE}/deploy.sh" ]]; then
-      SPRING_ENV_FILE="${SPRING_ENV}" exec "${BUNDLE}/deploy.sh" status "$@"
-    else
-      echo "deploy.sh not found in ${BUNDLE}." >&2
-      exit 1
-    fi ;;
-  -h|--help|help|*)
-    cat <<'USAGE'
-spring-voyage <command>
+# ---------------------------------------------------------------------------
+# Output helpers — match devops/install/install.sh / devops/deploy/setup.sh.
+# ---------------------------------------------------------------------------
+if [[ -t 1 ]]; then
+  BOLD=$'\033[1m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
+  RED=$'\033[0;31m'; CYAN=$'\033[0;36m'; NC=$'\033[0m'
+else
+  BOLD=''; GREEN=''; YELLOW=''; RED=''; CYAN=''; NC=''
+fi
+
+header() { printf "\n${BOLD}${CYAN}==> %s${NC}\n" "$1"; }
+ok()     { printf "  ${GREEN}OK${NC}    %s\n" "$*"; }
+info()   { printf "        %s\n" "$*"; }
+warn()   { printf "  ${YELLOW}WARN${NC}  %s\n" "$*"; }
+bad()    { printf "  ${RED}FAIL${NC}  %s\n" "$*"; }
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+usage() {
+  cat <<'USAGE'
+Usage: spring-voyage <command> [args...]
 
 Commands:
-  install     Re-run the installer (download latest release).
-  uninstall   Tear down the stack. --purge removes operator data too.
-  status      Show container + host-service status (delegates to deploy.sh status).
+  status          Show install version, container/dispatcher health, log paths.
+  logs [service]  Tail container or dispatcher logs.
+                  `spring-voyage logs dispatcher` tails the host-process log.
+  restart         Restart the stack.
+  install         (Re)install Spring Voyage from a release.
+  uninstall       Uninstall (preserves operator data; use --purge for factory reset).
+  version         Print the installed version.
+  help            Show this help.
+
+Environment overrides:
+  SPRING_VOYAGE_HOME   Install root (default: ~/.spring-voyage).
+  SPRING_ENV_FILE      Path to spring.env (default: $SPRING_VOYAGE_HOME/spring.env).
 
 For day-to-day platform CLI use, run `spring` instead.
 USAGE
-    ;;
+}
+
+# ---------------------------------------------------------------------------
+# Bundle helpers
+# ---------------------------------------------------------------------------
+require_bundle() {
+  if [[ ! -e "${BUNDLE}" && ! -L "${BUNDLE}" ]]; then
+    bad "No installed bundle at ${BUNDLE}."
+    info "Run \`spring-voyage install\` to (re)install."
+    exit 1
+  fi
+}
+
+# Reads a top-level scalar string from manifest.json without depending on jq.
+# Usage: manifest_field <key> -> echoes the value, or empty string if missing.
+manifest_field() {
+  local key="$1"
+  [[ -r "${MANIFEST}" ]] || return 0
+  # Match `"key": "value"` allowing surrounding whitespace.
+  awk -v k="\"${key}\"" '
+    {
+      # Find "key": "value"
+      idx = index($0, k)
+      if (idx == 0) next
+      rest = substr($0, idx + length(k))
+      sub(/^[[:space:]]*:[[:space:]]*"/, "", rest)
+      sub(/".*$/, "", rest)
+      print rest
+      exit
+    }
+  ' "${MANIFEST}"
+}
+
+# Reads a `KEY=value` line from spring.env. Strips surrounding quotes.
+spring_env_field() {
+  local key="$1"
+  [[ -r "${SPRING_ENV}" ]] || return 0
+  awk -v k="${key}" -F'=' '
+    $0 ~ "^"k"=" {
+      sub("^"k"=", "", $0)
+      gsub(/^"|"$|^'\''|'\''$/, "", $0)
+      print
+      exit
+    }
+  ' "${SPRING_ENV}"
+}
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+cmd_version() {
+  require_bundle
+  local v image
+  v="$(manifest_field version)"
+  image="$(manifest_field platform_image)"
+  printf 'spring-voyage version %s\n' "${v:-unknown}"
+  if [[ -n "${image}" ]]; then
+    printf 'platform image:        %s\n' "${image}"
+  fi
+}
+
+cmd_status() {
+  require_bundle
+
+  local v image deploy_hostname web_url
+  v="$(manifest_field version)"
+  image="$(manifest_field platform_image)"
+
+  header "Install"
+  if [[ -n "${v}" ]]; then
+    ok "version ${v}"
+  else
+    warn "version unknown (manifest.json missing or unreadable)"
+  fi
+  if [[ -n "${image}" ]]; then
+    info "platform image: ${image}"
+  fi
+  info "install root:   ${INSTALL_ROOT}"
+  info "bundle:         ${BUNDLE}"
+  info "spring.env:     ${SPRING_ENV}"
+
+  header "Containers"
+  if [[ -x "${BUNDLE}/deploy.sh" ]]; then
+    if SPRING_ENV_FILE="${SPRING_ENV}" "${BUNDLE}/deploy.sh" status; then
+      :
+    else
+      warn "deploy.sh status returned non-zero"
+    fi
+  else
+    bad "deploy.sh not found in ${BUNDLE}"
+  fi
+
+  header "Dispatcher"
+  if [[ -f "${DISPATCHER_PID_FILE}" ]]; then
+    local pid
+    pid="$(tr -d '[:space:]' < "${DISPATCHER_PID_FILE}" 2>/dev/null || true)"
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+      ok "running (PID ${pid})"
+    else
+      warn "stopped (stale PID file at ${DISPATCHER_PID_FILE}, PID ${pid:-unknown} not alive)"
+    fi
+  else
+    info "not running (no PID file at ${DISPATCHER_PID_FILE})"
+  fi
+  info "log: ${DISPATCHER_LOG_FILE}"
+
+  header "Web URL"
+  deploy_hostname="$(spring_env_field DEPLOY_HOSTNAME)"
+  if [[ -z "${deploy_hostname}" ]]; then
+    deploy_hostname="localhost"
+  fi
+  if [[ "${deploy_hostname}" == "localhost" ]]; then
+    web_url="http://localhost"
+  else
+    web_url="https://${deploy_hostname}"
+  fi
+  info "${web_url}"
+
+  header "Logs"
+  info "containers:  podman logs spring-api  (also: spring-web, spring-worker, …)"
+  info "dispatcher:  spring-voyage logs dispatcher   (file: ${DISPATCHER_LOG_FILE})"
+  printf '\n'
+}
+
+cmd_logs() {
+  local service="${1:-}"
+  if [[ "${service}" == "dispatcher" ]]; then
+    if [[ ! -f "${DISPATCHER_LOG_FILE}" ]]; then
+      bad "Dispatcher log file not found at ${DISPATCHER_LOG_FILE}"
+      info "If the dispatcher has never started, check \`spring-voyage status\`."
+      exit 1
+    fi
+    exec tail -F "${DISPATCHER_LOG_FILE}"
+  fi
+  require_bundle
+  if [[ ! -x "${BUNDLE}/deploy.sh" ]]; then
+    bad "deploy.sh not found in ${BUNDLE}."
+    exit 1
+  fi
+  if [[ -n "${service}" ]]; then
+    SPRING_ENV_FILE="${SPRING_ENV}" exec "${BUNDLE}/deploy.sh" logs "${service}"
+  fi
+  SPRING_ENV_FILE="${SPRING_ENV}" exec "${BUNDLE}/deploy.sh" logs
+}
+
+cmd_restart() {
+  require_bundle
+  if [[ ! -x "${BUNDLE}/deploy.sh" ]]; then
+    bad "deploy.sh not found in ${BUNDLE}."
+    exit 1
+  fi
+  SPRING_ENV_FILE="${SPRING_ENV}" exec "${BUNDLE}/deploy.sh" restart "$@"
+}
+
+cmd_install() {
+  exec curl -fSL "${RELEASE_INSTALL_URL}" | bash "$@"
+}
+
+cmd_uninstall() {
+  if [[ -x "${BUNDLE}/uninstall.sh" ]]; then
+    SPRING_VOYAGE_HOME="${INSTALL_ROOT}" exec "${BUNDLE}/uninstall.sh" "$@"
+  fi
+  bad "uninstall.sh not found in ${BUNDLE}. Re-download via install.sh."
+  exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+case "${1:-help}" in
+  status)
+    shift
+    cmd_status "$@" ;;
+  logs)
+    shift
+    cmd_logs "$@" ;;
+  restart)
+    shift
+    cmd_restart "$@" ;;
+  install)
+    shift
+    cmd_install "$@" ;;
+  uninstall)
+    shift
+    cmd_uninstall "$@" ;;
+  version|--version|-V)
+    shift || true
+    cmd_version ;;
+  -h|--help|help)
+    usage ;;
+  *)
+    usage
+    exit 0 ;;
 esac
