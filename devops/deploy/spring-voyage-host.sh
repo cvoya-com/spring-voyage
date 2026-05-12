@@ -18,10 +18,10 @@
 #
 # This script owns the dispatcher's binary build, bind address, port,
 # workspace root, PID file, and log file. `deploy.sh up` calls
-# `spring-voyage-host.sh start` after the platform's data services come
-# up; `deploy.sh down` calls `spring-voyage-host.sh stop`. Operators can
-# invoke the verbs directly when they want to bounce the dispatcher
-# without restarting the rest of the stack.
+# `spring-voyage-host.sh restart --rebuild` after the platform's data services
+# come up; `deploy.sh down` calls `spring-voyage-host.sh stop`. Operators can
+# invoke the verbs directly when they want to bounce the dispatcher without
+# restarting the rest of the stack.
 #
 # Usage:
 #   ./spring-voyage-host.sh start [--rebuild]   # publish if needed, then run

@@ -239,8 +239,9 @@ fi
 header "Setup complete"
 printf '\n'
 printf '  spring.env is ready.  Next steps:\n\n'
-printf '    1. Start the host process:    ./spring-voyage-host.sh start\n'
-printf '    2. Build and start the stack: ./build.sh && ./deploy.sh up\n'
+printf '    1. Build platform images:     ../build/build.sh\n'
+printf '    2. Start the stack:           ./deploy.sh up\n'
+printf '       (republishes and restarts spring-dispatcher before the worker starts)\n'
 printf '    3. Register your GitHub App:  spring github-app register\n'
 printf '       (writes GitHub credentials into spring.env and restarts the\n'
 printf '        connector — see docs/guide/github-app-setup.md)\n'

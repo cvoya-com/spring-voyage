@@ -222,9 +222,9 @@ Volumes persist across `down`/`up` cycles; `docker volume rm` clears them. To us
 cd devops/deploy/
 cp spring.env.example spring.env && $EDITOR spring.env
 
-./build.sh                     # build platform + agent images
-./build.sh clean               # remove local Spring Voyage image refs
-./deploy.sh up                 # create network, start stack
+../build/build.sh              # build platform + agent images
+../build/build.sh clean        # remove local Spring Voyage image refs
+./deploy.sh up                 # create network, republish dispatcher, start stack
 ./deploy.sh status             # list running containers
 ./deploy.sh logs spring-api    # tail one service
 ./deploy.sh down               # stop (volumes preserved)

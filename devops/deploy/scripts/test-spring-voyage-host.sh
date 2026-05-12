@@ -23,8 +23,8 @@
 #      dispatcher.env (mode 0600), and /health returns 200.
 #   3. Second `start` is a no-op (already running), PID unchanged.
 #   4. `status` exits 0 and prints PID + URL + version.
-#   5. `restart` produces a new PID, /health still 200, and the
-#      persisted token in dispatcher.env is preserved.
+#   5. `restart --rebuild` republishes, produces a new PID, /health
+#      still 200, and the persisted token in dispatcher.env is preserved.
 #   6. `stop` removes the PID file and the port stops accepting.
 #   7. Second `stop` is a no-op (not running), exits 0.
 #   8. Stale-PID-file recovery: kill the dispatcher externally,
@@ -187,9 +187,11 @@ echo "${STATUS_OUT}" | grep -q "version:" \
     || fail "status missing 'version:' line: ${STATUS_OUT}"
 ok "status output includes pid, url, version"
 
-step "case 5 — restart yields a new PID, /health still 200, persisted token preserved"
+step "case 5 — restart --rebuild republishes, yields a new PID, /health still 200, persisted token preserved"
 TOKEN_BEFORE_RESTART="${TOKEN_VALUE}"
-"${HOST_SCRIPT}" restart >/dev/null
+RESTART_OUT="$("${HOST_SCRIPT}" restart --rebuild 2>&1)"
+echo "${RESTART_OUT}" | grep -q "publishing dispatcher to ${PUBLISH_DIR}" \
+    || fail "restart --rebuild did not publish dispatcher: ${RESTART_OUT}"
 PID_AFTER_RESTART="$(read_pid)"
 [[ -n "${PID_AFTER_RESTART}" ]] || fail "restart left no PID file"
 [[ "${PID_AFTER_RESTART}" != "${PID_AFTER_FIRST_START}" ]] \
@@ -199,7 +201,7 @@ TOKEN_AFTER_RESTART="${TOKEN_AFTER_RESTART#SPRING_DISPATCHER_WORKER_TOKEN=}"
 [[ "${TOKEN_AFTER_RESTART}" == "${TOKEN_BEFORE_RESTART}" ]] \
     || fail "restart rotated the token (was ${TOKEN_BEFORE_RESTART}, now ${TOKEN_AFTER_RESTART})"
 assert_health_200
-ok "restart: new pid=${PID_AFTER_RESTART}, /health 200, token preserved"
+ok "restart --rebuild: republished, new pid=${PID_AFTER_RESTART}, /health 200, token preserved"
 
 step "case 6 — stop removes the PID file and the port stops accepting"
 "${HOST_SCRIPT}" stop >/dev/null

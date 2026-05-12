@@ -100,9 +100,11 @@ own `execution.image` inherit the unit's default.
   modern rootless networking, and the `host.containers.internal` DNS name
   the worker uses to reach the host-process dispatcher). Install via your
   distro's package manager.
-- The .NET 10 SDK on the host that runs `spring-voyage-host.sh start`. The
-  script publishes `Cvoya.Spring.Dispatcher` once on first start and reuses
-  the published binary on subsequent starts (`--rebuild` forces a republish).
+- The .NET 10 SDK on the host that runs `spring-voyage-host.sh start` or the
+  source-clone `deploy.sh up` path. Direct `start` publishes
+  `Cvoya.Spring.Dispatcher` once and reuses the published binary on subsequent
+  starts; `deploy.sh up` calls `restart --rebuild` so a fresh source pull is
+  reflected in the host dispatcher before the worker starts.
 No Docker Compose / Podman Compose dependency — the script uses `podman` directly
 so behavior is deterministic across Podman versions.
 
@@ -187,9 +189,9 @@ cd devops/deploy/
 $EDITOR spring.env             # deploy-time config: hostname, DB password, image tags,
                                # GitHub__*, Anthropic / OpenAI / Google credentials, …
 
-../build/build.sh              # build platform + agent images, publish dispatcher binary
+../build/build.sh              # build platform + agent images
 ../build/build.sh clean        # remove local Spring Voyage image refs and dispatcher publish output
-./deploy.sh up                 # create network, start the stack + bounce spring-dispatcher (host)
+./deploy.sh up                 # create network, republish dispatcher, start stack
 ./deploy.sh status             # list running containers + host services
 ./deploy.sh logs spring-api    # tail a single container service
 ./deploy.sh down               # stop containers + host services (volumes preserved)
@@ -224,6 +226,7 @@ the dispatcher in isolation:
 ./spring-voyage-host.sh logs               # cat dispatcher log
 ./spring-voyage-host.sh logs -f            # follow
 ./spring-voyage-host.sh restart            # SIGTERM, wait, then start again
+./spring-voyage-host.sh restart --rebuild  # re-publish, then restart
 ./spring-voyage-host.sh stop               # SIGTERM, then SIGKILL after 10s
 ./spring-voyage-host.sh build              # publish only (no run)
 ```
