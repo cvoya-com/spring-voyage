@@ -1070,10 +1070,9 @@ export const api = {
    * #1663: starts the GitHub OAuth flow used by the wizard / connector
    * tab to mint a session id. Returns the GitHub authorize URL the
    * caller redirects the user to and the server-issued state value the
-   * callback later validates. The portal opens the URL in a new
-   * tab/popup and consumes the resulting session id via the API's
-   * `/oauth/callback` endpoint — see the GitHub connector's web/
-   * components for the full flow.
+   * callback later validates. The portal opens the URL in a popup; the
+   * API callback page posts the resulting session id back to the opener
+   * so the connector UI can cache it without a paste-back field.
    */
   beginGitHubOAuthAuthorize: async (
     body?: { scopes?: string[] | null; clientState?: string | null },

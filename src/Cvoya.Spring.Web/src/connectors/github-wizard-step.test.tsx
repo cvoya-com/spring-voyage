@@ -25,6 +25,7 @@ vi.mock("@/lib/api/client", async () => {
       listGitHubRepositories: vi.fn(),
       listGitHubCollaborators: vi.fn(),
       getGitHubInstallUrl: vi.fn(),
+      beginGitHubOAuthAuthorize: vi.fn(),
     },
   };
 });
@@ -46,7 +47,8 @@ const repoFixture = {
 
 describe("GitHubConnectorWizardStep", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    window.sessionStorage.clear();
   });
 
   it("bubbles null until a repository is selected (#1133)", async () => {
@@ -310,6 +312,102 @@ describe("GitHubConnectorWizardStep", () => {
     // No install-url fetch attempted — the endpoint would 404 with the
     // same disabled payload and there is nothing to render.
     expect(mocked.getGitHubInstallUrl).not.toHaveBeenCalled();
+  });
+
+  it("links the GitHub OAuth session automatically from the callback popup", async () => {
+    mocked.listGitHubRepositories.mockRejectedValueOnce(
+      new ApiError(401, "Unauthorized", {
+        missingOAuth: true,
+        reason: "No GitHub OAuth session was supplied.",
+        authorizeUrl: "https://github.com/login/oauth/authorize?state=old",
+        state: "old",
+      }),
+    );
+    mocked.beginGitHubOAuthAuthorize.mockResolvedValue({
+      authorizeUrl: "https://github.com/login/oauth/authorize?state=fresh",
+      state: "fresh",
+    });
+    mocked.listGitHubRepositories.mockResolvedValue([repoFixture]);
+    mocked.listGitHubCollaborators.mockResolvedValue([]);
+    const focus = vi.fn();
+    const close = vi.fn();
+    const popup = {
+      focus,
+      close,
+      closed: false,
+      location: { href: "" },
+    } as unknown as Window;
+    const open = vi
+      .spyOn(window, "open")
+      .mockReturnValue(popup);
+    const onChange = vi.fn();
+
+    try {
+      await act(async () => {
+        render(<GitHubConnectorWizardStep onChange={onChange} />);
+      });
+
+      await screen.findByTestId("github-missing-oauth");
+      expect(screen.queryByTestId("github-oauth-session-input")).toBeNull();
+      expect(screen.queryByTestId("github-oauth-session-apply")).toBeNull();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("github-link-account"));
+      });
+
+      expect(mocked.beginGitHubOAuthAuthorize).toHaveBeenCalledWith({
+        clientState: expect.stringContaining("targetOrigin"),
+      });
+      expect(open).toHaveBeenCalledWith(
+        "",
+        "spring-voyage-github-oauth",
+        "popup,width=720,height=760",
+      );
+      expect(focus).toHaveBeenCalled();
+      expect(popup.location.href).toBe(
+        "https://github.com/login/oauth/authorize?state=fresh",
+      );
+
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: window.location.origin,
+            data: {
+              type: "spring-voyage:github-oauth-session",
+              sessionId: "sess-auto",
+              login: "octocat",
+            },
+          }),
+        );
+      });
+
+      await waitFor(() =>
+        expect(mocked.listGitHubRepositories).toHaveBeenLastCalledWith(
+          "sess-auto",
+        ),
+      );
+      expect(
+        window.sessionStorage.getItem(
+          "springvoyage:github-oauth-session-id",
+        ),
+      ).toBe("sess-auto");
+      await waitFor(() =>
+        expect(screen.queryByTestId("github-missing-oauth")).toBeNull(),
+      );
+      await waitFor(() => {
+        const repoSelect = screen.getByLabelText(
+          "Repository",
+        ) as HTMLSelectElement;
+        expect(
+          Array.from(repoSelect.options).some(
+            (o) => o.value === "acme/platform",
+          ),
+        ).toBe(true);
+      });
+    } finally {
+      open.mockRestore();
+      window.sessionStorage.removeItem("springvoyage:github-oauth-session-id");
+    }
   });
 
   // #1132 (ported to #1133's repos flow): clicking the Recheck button

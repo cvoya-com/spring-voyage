@@ -1929,7 +1929,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Consume the OAuth callback: validate state, exchange code, issue a session */
+        /** Consume the OAuth callback, issue a session, and notify the portal opener */
         get: operations["HandleGitHubOAuthCallback"];
         put?: never;
         post?: never;
@@ -3205,10 +3205,6 @@ export interface components {
         OAuthAuthorizeResponse: {
             authorizeUrl: string;
             state: string;
-        };
-        OAuthCallbackResponse: {
-            sessionId: string;
-            login: string;
         };
         OAuthSessionResponse: {
             sessionId: string;
@@ -8724,7 +8720,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OAuthCallbackResponse"];
+                    "text/html": string;
                 };
             };
             /** @description Bad Request */
@@ -8733,7 +8729,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "text/html": string;
                 };
             };
             /** @description Bad Gateway */
@@ -8742,7 +8738,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "text/html": string;
                 };
             };
         };

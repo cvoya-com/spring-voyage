@@ -37,6 +37,16 @@ import type {
   GitHubRepositoryResponse,
   UnitGitHubConfigRequest,
 } from "@/lib/api/types";
+import {
+  buildOAuthClientState,
+  getAllowedOAuthCallbackOrigins,
+  GH_OAUTH_CALLBACK_MESSAGE_TYPE,
+  GH_OAUTH_CALLBACK_STORAGE_KEY,
+  parseOAuthCallbackPayload,
+  parseStoredOAuthCallback,
+  readStoredOAuthSessionId,
+  writeStoredOAuthSessionId,
+} from "./github-oauth-browser";
 
 // Documentation anchor we surface in the disabled-with-reason panel so
 // operators can self-serve the credential set-up. Kept in one place — if
@@ -48,36 +58,6 @@ const GITHUB_APP_DOCS_URL =
 // The empty string is what the underlying <select> emits for an empty
 // option, and it can never collide with a real GitHub login.
 const NO_REVIEWER = "";
-
-// #1663: sessionStorage key the wizard caches the linked GitHub OAuth
-// session id under. Mirrored verbatim by `connector-tab.tsx` so the
-// post-bind tab and the create-unit wizard share the same linked
-// session — operators only have to click "Link GitHub account" once
-// per browser tab.
-const GH_OAUTH_SESSION_STORAGE_KEY = "springvoyage:github-oauth-session-id";
-
-function readStoredOAuthSessionId(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.sessionStorage.getItem(GH_OAUTH_SESSION_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredOAuthSessionId(value: string | null): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (value === null) {
-      window.sessionStorage.removeItem(GH_OAUTH_SESSION_STORAGE_KEY);
-    } else {
-      window.sessionStorage.setItem(GH_OAUTH_SESSION_STORAGE_KEY, value);
-    }
-  } catch {
-    // sessionStorage may be unavailable in some embedded contexts —
-    // swallow rather than crash the wizard.
-  }
-}
 
 // Shape of the Problem+JSON the GitHub connector returns when the App
 // credentials are not configured at the deployment level (#609 / #1186).
@@ -258,17 +238,14 @@ export function GitHubConnectorWizardStep({
   const [missingOAuth, setMissingOAuth] =
     useState<GitHubMissingOAuthResponse | null>(null);
   // Active session id — initialized from the prop, otherwise from the
-  // browser-cached value. When the operator pastes a new id from the
-  // OAuth callback we update both this state and sessionStorage so the
+  // browser-cached value. When the OAuth callback page posts back the
+  // new session we update both this state and sessionStorage so the
   // post-bind tab picks up the same session without forcing a re-link.
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     gitHubSessionId ?? readStoredOAuthSessionId(),
   );
-  // Local controlled state for the "paste your session id" textbox the
-  // OAuth panel exposes. Distinct from `activeSessionId` so a half-typed
-  // value doesn't trigger a refetch on every keystroke.
-  const [pendingSessionId, setPendingSessionId] = useState("");
   const [linkingOAuth, setLinkingOAuth] = useState(false);
+  const [awaitingOAuthCallback, setAwaitingOAuthCallback] = useState(false);
   const [oAuthLinkError, setOAuthLinkError] = useState<string | null>(null);
   // #1132: tracks an in-flight repositories refetch driven by the
   // Recheck button (or the Refresh affordance on the repository
@@ -364,57 +341,23 @@ export function GitHubConnectorWizardStep({
     }
   }, [fetchRepositories]);
 
-  // #1663: kicks off the GitHub OAuth flow when the operator has no
-  // linked session. Mints an authorize URL via the API, opens it in a
-  // new tab so the user can grant consent on github.com, and surfaces a
-  // textbox where they paste the resulting session id back. The OAuth
-  // callback returns JSON with `{ sessionId, login }` — until a portal-
-  // side callback page lands the operator pastes by hand. Functional
-  // for the v0.1 single-tenant deployment; a polished popup-based flow
-  // is a separate UX deliverable.
-  const linkGitHubAccount = useCallback(async () => {
-    setLinkingOAuth(true);
-    setOAuthLinkError(null);
-    try {
-      const target = missingOAuth?.authorizeUrl ?? null;
-      if (target !== null && target.length > 0) {
-        // Server already minted a state-bound authorize URL inside the
-        // 401 response — reuse it so we don't burn a fresh state value.
-        window.open(target, "_blank", "noopener,noreferrer");
-        return;
-      }
-      const result = await api.beginGitHubOAuthAuthorize();
-      window.open(result.authorizeUrl, "_blank", "noopener,noreferrer");
-    } catch (err) {
-      setOAuthLinkError(formatTranslatedError(err));
-    } finally {
-      setLinkingOAuth(false);
-    }
-  }, [missingOAuth]);
-
-  const applyPastedSessionId = useCallback(async () => {
-    const trimmed = pendingSessionId.trim();
-    if (trimmed === "") {
-      return;
-    }
-    writeStoredOAuthSessionId(trimmed);
-    setActiveSessionId(trimmed);
-    setPendingSessionId("");
+  const acceptOAuthSession = useCallback(async (sessionId: string) => {
+    writeStoredOAuthSessionId(sessionId);
+    setActiveSessionId(sessionId);
     setMissingOAuth(null);
+    setOAuthLinkError(null);
+    setAwaitingOAuthCallback(false);
     // The fetchRepositories closure still refers to the previous
     // activeSessionId for one render — explicitly call the API with
-    // the just-pasted value so the panel updates immediately rather
-    // than after the next effect tick.
+    // the just-linked value so the panel updates immediately.
     setRechecking(true);
     try {
-      const list = await api.listGitHubRepositories(trimmed);
+      const list = await api.listGitHubRepositories(sessionId);
       setRepositories(list);
       setReposError(null);
     } catch (err) {
       const missing = extractMissingOAuth(err);
       if (missing !== null) {
-        // The pasted id was rejected — clear it so the panel re-renders
-        // the link prompt, and surface the reason.
         writeStoredOAuthSessionId(null);
         setActiveSessionId(null);
         setMissingOAuth(missing);
@@ -425,7 +368,78 @@ export function GitHubConnectorWizardStep({
     } finally {
       setRechecking(false);
     }
-  }, [pendingSessionId]);
+  }, []);
+
+  // Kicks off the GitHub OAuth flow when the operator has no linked
+  // session. The API callback returns a tiny browser page that posts the
+  // new session back to this component; no copy/paste step is needed.
+  const linkGitHubAccount = useCallback(async () => {
+    setLinkingOAuth(true);
+    setOAuthLinkError(null);
+    const popup = window.open(
+      "",
+      "spring-voyage-github-oauth",
+      "popup,width=720,height=760",
+    );
+    if (popup === null) {
+      setOAuthLinkError(
+        "Your browser blocked the GitHub authorization window.",
+      );
+      setLinkingOAuth(false);
+      return;
+    }
+    setAwaitingOAuthCallback(true);
+    popup.focus();
+    try {
+      const result = await api.beginGitHubOAuthAuthorize({
+        clientState: buildOAuthClientState(),
+      });
+      popup.location.href = result.authorizeUrl;
+    } catch (err) {
+      popup.close();
+      setAwaitingOAuthCallback(false);
+      setOAuthLinkError(formatTranslatedError(err));
+    } finally {
+      setLinkingOAuth(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const allowedOrigins = getAllowedOAuthCallbackOrigins();
+    const handlePayload = (value: unknown) => {
+      const payload = parseOAuthCallbackPayload(value);
+      if (payload === null) return;
+      if (payload.error) {
+        setAwaitingOAuthCallback(false);
+        setOAuthLinkError(payload.reason ?? payload.error);
+        return;
+      }
+      if (payload.sessionId) {
+        void acceptOAuthSession(payload.sessionId);
+      }
+    };
+    const handleMessage = (event: MessageEvent) => {
+      if (!allowedOrigins.has(event.origin)) return;
+      handlePayload(event.data);
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== GH_OAUTH_CALLBACK_STORAGE_KEY) return;
+      const payload = parseStoredOAuthCallback(event.newValue);
+      if (payload !== null) {
+        handlePayload({
+          ...payload,
+          type: GH_OAUTH_CALLBACK_MESSAGE_TYPE,
+        });
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [acceptOAuthSession]);
 
   // -- Repositories (mount fetch) -------------------------------------------
   useEffect(() => {
@@ -597,12 +611,9 @@ export function GitHubConnectorWizardStep({
       {/* #1663: missing-OAuth-session panel. The list-repositories endpoint
           is fail-closed against session-less callers — without a linked
           GitHub OAuth session the dropdown can't render any rows safely.
-          The panel sends the operator off to github.com via the server-
-          minted authorize URL, then accepts the resulting session id
-          via paste-back (the API's /oauth/callback returns JSON; a
-          portal callback page is a future polish item). The session id
-          lives in sessionStorage so the post-bind tab and the wizard
-          share it within a single browser tab. */}
+          The panel sends the operator off to github.com via a popup; the
+          API callback page posts the resulting session id back here and
+          this component stores it in sessionStorage for the post-bind tab. */}
       {disabledReason === null && missingOAuth !== null && (
         <div
           role="alert"
@@ -641,45 +652,17 @@ export function GitHubConnectorWizardStep({
               </span>
             )}
           </div>
-          {oAuthLinkError && (
-            <p className="text-xs text-destructive">
-              Could not open OAuth flow: {oAuthLinkError}
+          {awaitingOAuthCallback && (
+            <p className="text-xs text-foreground">
+              Finish authorization in the GitHub window. This step will
+              continue automatically when GitHub redirects back.
             </p>
           )}
-          <div className="space-y-1 border-t border-info/30 pt-2">
-            <label className="block space-y-1 text-xs">
-              <span className="text-foreground">
-                After authorizing, paste the session id GitHub returned:
-              </span>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-xs font-mono"
-                  placeholder="sess_…"
-                  value={pendingSessionId}
-                  onChange={(e) => setPendingSessionId(e.target.value)}
-                  data-testid="github-oauth-session-input"
-                  spellCheck={false}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void applyPastedSessionId()}
-                  disabled={pendingSessionId.trim() === "" || rechecking}
-                  data-testid="github-oauth-session-apply"
-                >
-                  Use this session
-                </Button>
-              </div>
-            </label>
-            <span className="block text-[11px] text-muted-foreground">
-              The OAuth callback returns JSON of the form
-              <code className="mx-1 rounded bg-muted px-1 py-0.5">
-                {"{ \"sessionId\": \"…\", \"login\": \"…\" }"}
-              </code>
-              . A polished portal callback page is a future polish item.
-            </span>
-          </div>
+          {oAuthLinkError && (
+            <p className="text-xs text-destructive">
+              GitHub OAuth flow did not complete: {oAuthLinkError}
+            </p>
+          )}
         </div>
       )}
 

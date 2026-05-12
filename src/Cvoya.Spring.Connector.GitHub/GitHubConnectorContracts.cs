@@ -153,10 +153,10 @@ public record GitHubCollaboratorResponse(
 /// deployment" so an operator can act on the right gap.
 /// </param>
 /// <param name="AuthorizeUrl">
-/// The GitHub OAuth authorize URL the portal should open in a popup /
-/// new tab. Populated when <c>GitHub:OAuth</c> is configured;
-/// <c>null</c> when it isn't (which the portal renders as "the
-/// operator must configure the OAuth App first").
+/// A GitHub OAuth authorize URL minted when <c>GitHub:OAuth</c> is
+/// configured; <c>null</c> when it isn't. The portal uses this as a
+/// configuration signal, then starts a fresh authorization request with
+/// browser callback state when the operator clicks the link button.
 /// </param>
 /// <param name="State">
 /// The state value bound to the authorize URL. Echoed back here so
