@@ -61,63 +61,63 @@ The installer:
   workspaces/                 # Per-thread agent workspaces
 ~/.local/bin/
   spring         -> releases/<v>/cli/spring
-  spring-voyage     # operator wrapper: status | logs | restart | version | install | uninstall
+  voyage            # operator wrapper: status | logs | restart | version | install | uninstall
 ```
 
 ### Uninstall
 
-`spring-voyage uninstall` is first-class. Two modes:
+`voyage uninstall` is first-class. Two modes:
 
 ```bash
 # Default: stops containers, removes images/volumes, removes install-root
 # release assets and the ~/.local/bin/ symlinks. PRESERVES spring.env,
 # ~/.spring-voyage/host/, and ~/.spring-voyage/workspaces/.
-spring-voyage uninstall
+voyage uninstall
 
 # Factory reset: above + spring.env + host/ + workspaces/.
-spring-voyage uninstall --purge
+voyage uninstall --purge
 
 # Skip the confirmation prompt (works for both default and --purge):
-spring-voyage uninstall --yes
-spring-voyage uninstall --purge --yes
+voyage uninstall --yes
+voyage uninstall --purge --yes
 ```
 
 Both modes are idempotent — re-running on a clean system exits 0.
 
 ### Day-2 operations
 
-The `spring-voyage` wrapper is the operator entry point for routine
+The `voyage` wrapper is the operator entry point for routine
 work against an installed stack. It is on `PATH` after install
-(`~/.local/bin/spring-voyage`) and reads `SPRING_VOYAGE_HOME` /
+(`~/.local/bin/voyage`) and reads `SPRING_VOYAGE_HOME` /
 `SPRING_ENV_FILE` from the environment when you need to point it at
 a non-default install root.
 
 ```bash
 # Pretty-printed status: install version, container state, dispatcher
 # PID + liveness, web URL, log paths. One screenful, no flags.
-spring-voyage status
+voyage status
 
 # Print the installed version + platform image tag from manifest.json.
-spring-voyage version
+voyage version
 
 # Tail all container logs (delegates to `deploy.sh logs`).
-spring-voyage logs
+voyage logs
 
 # Tail a single container.
-spring-voyage logs spring-api
+voyage logs spring-api
 
 # Tail the host-process dispatcher's log (not a container — special-cased
 # to ~/.spring-voyage/host/spring-dispatcher.log).
-spring-voyage logs dispatcher
+voyage logs dispatcher
 
 # Restart the stack.
-spring-voyage restart
+voyage restart
 
 # Re-install Spring Voyage from the latest release (drives install.sh).
-spring-voyage install
+voyage install
 ```
 
-`spring-voyage help` lists the full set, including the `install` and
+`voyage help` lists the full set, including the `install` and
 `uninstall` subcommands. For the day-to-day platform CLI (creating
 units, agents, secrets, and so on), use `spring` instead.
 

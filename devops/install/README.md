@@ -34,7 +34,7 @@ both.
    pull`s it.
 7. Symlinks `~/.spring-voyage/current -> releases/<v>/bundle`,
    `~/.local/bin/spring -> releases/<v>/cli/spring`, and copies the
-   `spring-voyage` operator wrapper (`status | logs | restart |
+   `voyage` operator wrapper (`status | logs | restart |
    version | install | uninstall`) into `~/.local/bin/`.
 8. Generates `~/.spring-voyage/spring.env` (mode 0600) with auto-
    generated secrets and auto-derived paths — see the env-var table
@@ -43,11 +43,11 @@ both.
 10. Optionally invokes `spring github-app register --env-path …
     --write-env` if the operator opts in.
 
-## Operator wrapper (`spring-voyage`)
+## Operator wrapper (`voyage`)
 
-`devops/install/spring-voyage` is a stand-alone bash script. The
-release pipeline ships it inside the bundle as `bundle/spring-voyage`,
-and `install.sh` copies it to `~/.local/bin/spring-voyage` so it is on
+`devops/install/voyage` is a stand-alone bash script. The
+release pipeline ships it inside the bundle as `bundle/voyage`,
+and `install.sh` copies it to `~/.local/bin/voyage` so it is on
 the operator's `PATH`. The wrapper reads `SPRING_VOYAGE_HOME` and
 `SPRING_ENV_FILE` from the environment with sensible defaults
 (`~/.spring-voyage` and `~/.spring-voyage/spring.env`), so the same
@@ -56,25 +56,25 @@ substitution.
 
 | Subcommand | Purpose |
 |---|---|
-| `spring-voyage status` | Install version (from `manifest.json`), container state (delegated to `deploy.sh status`), dispatcher PID + liveness, web URL, log paths. |
-| `spring-voyage logs [service]` | `logs` tails all containers via `deploy.sh logs`. `logs <service>` tails one. `logs dispatcher` is special-cased to tail `~/.spring-voyage/host/spring-dispatcher.log` (the host-process dispatcher is not a container). |
-| `spring-voyage restart` | One-line delegate to `deploy.sh restart`. |
-| `spring-voyage install` | (Re-)install Spring Voyage by re-running the canonical `install.sh` from the latest release. |
-| `spring-voyage uninstall` | Delegates to the bundle's `uninstall.sh`; `--purge` for factory reset. |
-| `spring-voyage version` | Prints the installed version and platform image tag from `manifest.json`. |
-| `spring-voyage help` | Show usage. |
+| `voyage status` | Install version (from `manifest.json`), container state (delegated to `deploy.sh status`), dispatcher PID + liveness, web URL, log paths. |
+| `voyage logs [service]` | `logs` tails all containers via `deploy.sh logs`. `logs <service>` tails one. `logs dispatcher` is special-cased to tail `~/.spring-voyage/host/spring-dispatcher.log` (the host-process dispatcher is not a container). |
+| `voyage restart` | One-line delegate to `deploy.sh restart`. |
+| `voyage install` | (Re-)install Spring Voyage by re-running the canonical `install.sh` from the latest release. |
+| `voyage uninstall` | Delegates to the bundle's `uninstall.sh`; `--purge` for factory reset. |
+| `voyage version` | Prints the installed version and platform image tag from `manifest.json`. |
+| `voyage help` | Show usage. |
 
 ## Uninstall
 
 `uninstall.sh` ships at the same release URL as `install.sh` and is
 also bundled into the tarball as `bundle/uninstall.sh`. The
-`spring-voyage` wrapper invokes the bundle-side copy so the script
+`voyage` wrapper invokes the bundle-side copy so the script
 survives install-root cleanup mid-teardown.
 
 | Command | Removes | Preserves |
 |---|---|---|
-| `spring-voyage uninstall` (default) | Containers, volumes, networks, images, `~/.spring-voyage/releases/`, `~/.spring-voyage/current`, `~/.local/bin/spring`, `~/.local/bin/spring-voyage`. | `spring.env`, `~/.spring-voyage/host/`, `~/.spring-voyage/workspaces/`. |
-| `spring-voyage uninstall --purge` | All of the above + `spring.env`, `host/`, `workspaces/`. | Nothing. Factory reset. |
+| `voyage uninstall` (default) | Containers, volumes, networks, images, `~/.spring-voyage/releases/`, `~/.spring-voyage/current`, `~/.local/bin/spring`, `~/.local/bin/voyage`. | `spring.env`, `~/.spring-voyage/host/`, `~/.spring-voyage/workspaces/`. |
+| `voyage uninstall --purge` | All of the above + `spring.env`, `host/`, `workspaces/`. | Nothing. Factory reset. |
 
 Flags:
 
