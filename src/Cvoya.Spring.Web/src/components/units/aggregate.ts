@@ -18,6 +18,12 @@ interface BaseNode {
   status: NodeStatus;
   /** Optional one-line description rendered above the Overview stat tiles. */
   desc?: string;
+  /**
+   * #2183: stable definition Guid. Carried for unit / agent nodes so the
+   * tree-explorer badge query can address the row without re-resolving
+   * the navigation slug. Null for the synthesized Tenant root.
+   */
+  definitionId?: string | null;
 }
 
 export interface TenantNode extends BaseNode {

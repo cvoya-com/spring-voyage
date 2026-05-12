@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 
+import { useIssueCounts } from "@/lib/api/queries";
 import { cn } from "@/lib/utils";
 
 import {
@@ -107,6 +108,33 @@ export function UnitTree({
     walk(tree);
     return out;
   }, [tree, expanded]);
+
+  // #2183: derive every unit/agent subject in the tree (regardless of
+  // expansion state — collapsed branches still need badges so a buried
+  // failure paints the parent row). Use the canonical
+  // `(scheme, definitionId)` pair so the batch endpoint can index-bash
+  // on Guid columns rather than slug lookups.
+  const issueSubjects = useMemo(() => {
+    const out: string[] = [];
+    for (const { node } of flattenTree(tree)) {
+      if (node.kind === "Tenant") continue;
+      if (!node.definitionId) continue;
+      const scheme = node.kind === "Unit" ? "unit" : "agent";
+      out.push(`${scheme}:${node.definitionId}`);
+    }
+    return out;
+  }, [tree]);
+  const issueCountsQuery = useIssueCounts(issueSubjects);
+  const issueCountsByDefinitionId = useMemo(() => {
+    const map = new Map<string, { errorCount: number; warningCount: number }>();
+    for (const entry of issueCountsQuery.data?.counts ?? []) {
+      map.set(entry.subjectId, {
+        errorCount: entry.errorCount,
+        warningCount: entry.warningCount,
+      });
+    }
+    return map;
+  }, [issueCountsQuery.data]);
 
   // `parentOf[childId] = parentId` — lets ← find the parent row in O(1).
   const parentOf = useMemo(() => {
@@ -262,6 +290,7 @@ export function UnitTree({
         }}
         selectedId={selectedId}
         focusedId={focusedId}
+        issueCountsByDefinitionId={issueCountsByDefinitionId}
       />
     </div>
   );
@@ -275,6 +304,15 @@ interface TreeRowProps {
   onSelect: (id: string) => void;
   selectedId: string;
   focusedId: string;
+  /**
+   * #2183: per-(unit/agent) open-issue counts keyed on definitionId. The
+   * map covers every subject in the tree; rows whose subject isn't in
+   * the map render no badge (same as zero counts).
+   */
+  issueCountsByDefinitionId: Map<
+    string,
+    { errorCount: number; warningCount: number }
+  >;
 }
 
 function TreeRow({
@@ -285,6 +323,7 @@ function TreeRow({
   onSelect,
   selectedId,
   focusedId,
+  issueCountsByDefinitionId,
 }: TreeRowProps) {
   const children = childrenOf(node);
   const hasChildren = children.length > 0;
@@ -364,6 +403,10 @@ function TreeRow({
           )}
         />
         <span className="flex-1 truncate">{node.name}</span>
+        <IssueBadges
+          node={node}
+          issueCountsByDefinitionId={issueCountsByDefinitionId}
+        />
         {hasChildren ? (
           <span className="font-mono text-[10px] text-muted-foreground">
             {subtree.agents}
@@ -381,10 +424,70 @@ function TreeRow({
               onSelect={onSelect}
               selectedId={selectedId}
               focusedId={focusedId}
+              issueCountsByDefinitionId={issueCountsByDefinitionId}
             />
           ))
         : null}
     </>
+  );
+}
+
+/**
+ * #2183: tiny per-row chip(s) showing the row's open-issue counts.
+ * Renders nothing for the Tenant root and for rows whose subject has
+ * no entries in the counts map. Errors get a red chip with the count;
+ * warnings get a yellow chip. Single-issue chips drop the count for
+ * a tighter render.
+ */
+function IssueBadges({
+  node,
+  issueCountsByDefinitionId,
+}: {
+  node: TreeNode;
+  issueCountsByDefinitionId: Map<
+    string,
+    { errorCount: number; warningCount: number }
+  >;
+}) {
+  if (node.kind === "Tenant" || !node.definitionId) return null;
+  const counts = issueCountsByDefinitionId.get(node.definitionId);
+  if (!counts || (counts.errorCount === 0 && counts.warningCount === 0)) {
+    return null;
+  }
+  const ariaParts: string[] = [];
+  if (counts.errorCount > 0) {
+    ariaParts.push(
+      `${counts.errorCount} ${counts.errorCount === 1 ? "error" : "errors"}`,
+    );
+  }
+  if (counts.warningCount > 0) {
+    ariaParts.push(
+      `${counts.warningCount} ${counts.warningCount === 1 ? "warning" : "warnings"}`,
+    );
+  }
+  return (
+    <span
+      className="flex shrink-0 items-center gap-1"
+      data-testid={`tree-issue-badges-${node.id}`}
+      aria-label={`${ariaParts.join(", ")} on ${node.name}`}
+    >
+      {counts.errorCount > 0 && (
+        <span
+          data-testid={`tree-issue-badge-error-${node.id}`}
+          className="rounded bg-destructive/15 px-1 py-0.5 text-[10px] font-medium text-destructive"
+        >
+          {counts.errorCount > 1 ? counts.errorCount : "!"}
+        </span>
+      )}
+      {counts.warningCount > 0 && (
+        <span
+          data-testid={`tree-issue-badge-warning-${node.id}`}
+          className="rounded bg-warning/15 px-1 py-0.5 text-[10px] font-medium text-foreground"
+        >
+          {counts.warningCount > 1 ? counts.warningCount : "!"}
+        </span>
+      )}
+    </span>
   );
 }
 

@@ -88,6 +88,13 @@ vi.mock("@/lib/api/queries", () => ({
   // with "no data" so Explorer page tests don't need to model issues.
   useUnitIssues: () => ({ data: null, isPending: false, isError: false }),
   useAgentIssues: () => ({ data: null, isPending: false, isError: false }),
+  // #2183: tree-explorer badge counts query. Empty so the tree
+  // renders no badges in these scaffold tests.
+  useIssueCounts: () => ({
+    data: { counts: [] },
+    isPending: false,
+    isError: false,
+  }),
   // Agents tab — MembershipDialog reads the model-providers catalogue (ADR-0038).
   useModelProviders: () => ({ data: [], isLoading: false }),
 }));

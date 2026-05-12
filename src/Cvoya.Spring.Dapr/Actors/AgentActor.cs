@@ -59,7 +59,8 @@ public class AgentActor(
     IActorProxyFactory? actorProxyFactory = null,
     IDirectoryService? directoryService = null,
     IRuntimeInvocationPath? runtimeInvocationPath = null,
-    IServiceScopeFactory? scopeFactory = null) : Actor(host), IAgentActor, IRemindable
+    IServiceScopeFactory? scopeFactory = null,
+    Cvoya.Spring.Core.Issues.IIssueWriter? issueWriter = null) : Actor(host), IAgentActor, IRemindable
 {
     /// <summary>
     /// Name of the Dapr reminder that drives periodic initiative checks.
@@ -130,9 +131,17 @@ public class AgentActor(
         await base.OnActivateAsync();
     }
 
+    /// <summary>
+    /// #2160: producer-side seam for the operational-issues surface.
+    /// Optional so test harnesses that construct the actor with a
+    /// partial dependency set still wire up.
+    /// </summary>
+    private readonly Cvoya.Spring.Core.Issues.IIssueWriter? _issueWriter = issueWriter;
+
     /// <inheritdoc />
     public async Task<Message?> ReceiveAsync(Message message, CancellationToken cancellationToken = default)
     {
+        Exception? caughtException = null;
         try
         {
             await EmitActivityEventAsync(ActivityEventType.MessageReceived,
@@ -156,6 +165,7 @@ public class AgentActor(
         }
         catch (Exception ex) when (ex is not SpringException)
         {
+            caughtException = ex;
             _logger.LogError(ex, "Unhandled exception processing message {MessageId} of type {MessageType} in actor {ActorId}",
                 message.Id, message.Type, Id.GetId());
 
@@ -165,6 +175,110 @@ public class AgentActor(
 
             return CreateErrorResponse(message, ex.Message);
         }
+        catch (SpringException ex)
+        {
+            // SpringExceptions carry a structured "<Code>: <message>" form by
+            // convention (CredentialFormatRejected, ImagePullFailed, …). We
+            // re-throw — callers depend on the exception bubbling — but
+            // record an Issue so the Overview surfaces the condition without
+            // waiting for the next validation run.
+            caughtException = ex;
+            throw;
+        }
+        finally
+        {
+            // #2160: bridge runtime errors to the Issues surface. A
+            // successful pass clears prior runtime-source issues; an
+            // exception opens one keyed on the structured code if we can
+            // extract one, else a generic AgentRuntimeError.
+            if (_issueWriter is not null)
+            {
+                await TryPublishRuntimeIssueAsync(caughtException, cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>
+    /// #2160: bridge agent message handling to the Issues surface.
+    /// Best-effort — never let issue-publish failures derail the
+    /// agent's own response path.
+    /// </summary>
+    private async Task TryPublishRuntimeIssueAsync(
+        Exception? caught, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var subjectId = await ResolveOwnAgentIdAsync(cancellationToken);
+            if (subjectId is null)
+            {
+                return;
+            }
+            var subject = new Cvoya.Spring.Core.Issues.IssueSubject(
+                Cvoya.Spring.Core.Issues.IssueSubjectKind.Agent,
+                subjectId.Value);
+
+            if (caught is null)
+            {
+                await _issueWriter!.ClearAsync(subject, source: "runtime", code: null, cancellationToken);
+                return;
+            }
+
+            var (code, title) = ClassifyAgentRuntimeException(caught);
+            await _issueWriter!.UpsertAsync(
+                subject,
+                Cvoya.Spring.Core.Issues.IssueSeverity.Error,
+                source: "runtime",
+                code: code,
+                title: title,
+                detail: null,
+                traceId: null,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to publish runtime issue for agent {AgentId}.",
+                Id.GetId());
+        }
+    }
+
+    /// <summary>
+    /// Extract the structured code prefix from a <see cref="SpringException"/>
+    /// raised under our convention (e.g. <c>"CredentialFormatRejected: …"</c>),
+    /// falling back to a generic code when the message doesn't match.
+    /// </summary>
+    private static (string Code, string Title) ClassifyAgentRuntimeException(Exception ex)
+    {
+        var message = ex.Message ?? string.Empty;
+        var colon = message.IndexOf(':');
+        if (colon > 0 && colon < 64)
+        {
+            var prefix = message[..colon].Trim();
+            // Adopt the prefix as a code only when it looks like a stable
+            // identifier (PascalCase, no spaces). Free-text exception
+            // messages would otherwise leak into the code field.
+            if (prefix.Length > 0
+                && char.IsUpper(prefix[0])
+                && prefix.All(c => char.IsLetterOrDigit(c)))
+            {
+                return (prefix, message[(colon + 1)..].Trim() is { Length: > 0 } detail
+                    ? detail
+                    : prefix);
+            }
+        }
+        return ("AgentRuntimeError", message.Length > 0 ? message : "Agent runtime failed.");
+    }
+
+    private async Task<Guid?> ResolveOwnAgentIdAsync(CancellationToken cancellationToken)
+    {
+        if (directoryService is null)
+        {
+            return null;
+        }
+        var address = Address.For("agent", Id.GetId());
+        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+        return entry?.ActorId;
     }
 
     /// <summary>

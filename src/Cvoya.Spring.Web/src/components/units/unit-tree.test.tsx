@@ -1,8 +1,33 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  fireEvent,
+  render as _baseRender,
+  screen,
+  type RenderResult,
+} from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { TreeNode } from "./aggregate";
 import { UnitTree } from "./unit-tree";
+
+// #2183: <UnitTree> calls useIssueCounts, which requires a QueryClient
+// in scope. Wrap every render with a permissive client so the existing
+// tree-only assertions don't have to model issue-counts data.
+// `rerender` is overridden so it re-applies the wrapper (the default
+// rerender bypasses the original wrapper and would dump the provider).
+function render(ui: ReactElement): RenderResult {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  const wrap = (node: ReactElement) => (
+    <QueryClientProvider client={client}>{node}</QueryClientProvider>
+  );
+  const result = _baseRender(wrap(ui));
+  const baseRerender = result.rerender;
+  result.rerender = (next: ReactElement) => baseRerender(wrap(next));
+  return result;
+}
 
 const tree: TreeNode = {
   id: "tenant-acme",

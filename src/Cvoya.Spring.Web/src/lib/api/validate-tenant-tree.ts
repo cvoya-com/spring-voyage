@@ -82,6 +82,13 @@ export interface ValidatedTenantTreeNode {
   role?: string;
   skills?: number;
   primaryParentId?: string;
+  /**
+   * #2183: stable definition Guid for unit / agent nodes. Carried so
+   * the tree-explorer issue-counts batch query can address rows without
+   * re-resolving the navigation slug. Absent for the synthesized Tenant
+   * root.
+   */
+  definitionId?: string;
   children?: ValidatedTenantTreeNode[];
 }
 
@@ -134,6 +141,7 @@ function coerceNode(
     role: wire.role ?? undefined,
     skills: toNumber(wire.skills),
     primaryParentId: wire.primaryParentId ?? undefined,
+    definitionId: wire.definitionId ?? undefined,
     children,
   };
 }

@@ -1597,6 +1597,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/issues/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Batch open-issue counts for many subjects in one round-trip. */
+        get: operations["GetIssueCounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/skills": {
         parameters: {
             query?: never;
@@ -3038,6 +3055,18 @@ export interface components {
             /** Format: int32 */
             warningCount: number;
         };
+        IssueCountEntryResponse: {
+            subjectKind: string;
+            /** Format: uuid */
+            subjectId: string;
+            /** Format: int32 */
+            errorCount: number;
+            /** Format: int32 */
+            warningCount: number;
+        };
+        IssueCountsResponse: {
+            counts: components["schemas"]["IssueCountEntryResponse"][];
+        };
         IssueDescendantRollupResponse: {
             /** Format: int32 */
             errorCount: number;
@@ -3448,6 +3477,8 @@ export interface components {
             skills?: null | number;
             primaryParentId?: null | string;
             children?: null | components["schemas"]["TenantTreeNode"][];
+            /** Format: uuid */
+            definitionId?: null | string;
         };
         TenantTreeResponse: {
             tree: components["schemas"]["TenantTreeNode"];
@@ -7922,6 +7953,28 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetIssueCounts: {
+        parameters: {
+            query?: {
+                subjects?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssueCountsResponse"];
                 };
             };
         };

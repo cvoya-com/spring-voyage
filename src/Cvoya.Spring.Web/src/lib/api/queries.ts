@@ -1653,3 +1653,25 @@ export function useAgentIssues(
     staleTime: 5_000,
   });
 }
+
+/**
+ * #2183: batch open-issue counts for the tree explorer's per-row
+ * badges. Subjects are passed as `unit:<guid>` / `agent:<guid>`
+ * tokens. The query key sorts the subjects so caller-side ordering
+ * doesn't fragment the cache.
+ */
+export function useIssueCounts(
+  subjects: readonly string[],
+  opts?: {
+    enabled?: boolean;
+    refetchInterval?: number | false;
+  },
+) {
+  return useQuery({
+    queryKey: queryKeys.issues.counts(subjects),
+    queryFn: () => api.getIssueCounts(subjects),
+    enabled: (opts?.enabled ?? true) && subjects.length > 0,
+    refetchInterval: opts?.refetchInterval ?? 30_000,
+    staleTime: 5_000,
+  });
+}
