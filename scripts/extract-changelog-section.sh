@@ -8,7 +8,7 @@
 #   scripts/extract-changelog-section.sh [SECTION]
 #
 # SECTION defaults to "Unreleased". To extract a specific version:
-#   scripts/extract-changelog-section.sh "0.1.0"
+#   scripts/extract-changelog-section.sh "1.0.0"
 #
 # The script matches the first `## [SECTION]` header (case-insensitive for
 # "Unreleased"; exact otherwise) and emits every line until the next `## [`

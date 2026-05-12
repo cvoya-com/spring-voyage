@@ -8,7 +8,7 @@
 #   ./scripts/release.sh [OPTIONS] <semver>
 #
 # Arguments:
-#   <semver>   Base semantic version, e.g. v0.1.0 or 0.1.0 (leading v optional).
+#   <semver>   Base semantic version, e.g. v1.0.0 or 1.0.0 (leading v optional).
 #              Must match vMAJOR.MINOR.PATCH (no pre-release suffix here).
 #
 # Options:
@@ -19,10 +19,10 @@
 #   -h, --help              Show this help and exit.
 #
 # Examples:
-#   ./scripts/release.sh v0.1.0 --pre alpha     →  v0.1.0-alpha.20260504
-#   ./scripts/release.sh 0.1.0  --pre rc        →  v0.1.0-rc.20260504
-#   ./scripts/release.sh v0.1.0                 →  v0.1.0  (stable)
-#   ./scripts/release.sh v0.1.0 --pre alpha --plan
+#   ./scripts/release.sh v1.0.0 --pre alpha     →  v1.0.0-alpha.20260504
+#   ./scripts/release.sh 1.0.0  --pre rc        →  v1.0.0-rc.20260504
+#   ./scripts/release.sh v1.0.0                 →  v1.0.0  (stable)
+#   ./scripts/release.sh v1.0.0 --pre alpha --plan
 #
 # Tag chain pushed (in order, each waited on before the next):
 #   agent-base-v<version>   →  release-agent-base.yml
@@ -105,7 +105,7 @@ fi
 # Normalize: strip leading v, validate MAJOR.MINOR.PATCH
 BASE_SEMVER="${BASE_SEMVER#v}"
 if ! [[ "$BASE_SEMVER" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-  echo "::error::Invalid semver '$BASE_SEMVER'. Expected MAJOR.MINOR.PATCH (e.g. 0.1.0)."
+  echo "::error::Invalid semver '$BASE_SEMVER'. Expected MAJOR.MINOR.PATCH (e.g. 1.0.0)."
   exit 1
 fi
 
@@ -214,7 +214,7 @@ push_and_wait "${TAG_PLATFORM}"     "release.yml"
 echo ""
 echo "▶  Verifying anonymous pull for all package-referenced images …"
 
-# Strip leading v for the image tag (registry convention: 0.1.0 not v0.1.0).
+# Strip leading v for the image tag (registry convention: 1.0.0 not v1.0.0).
 IMAGE_TAG="${FULL_SEMVER}"
 
 # Collect unique base image refs from packages (strip :tag suffix).

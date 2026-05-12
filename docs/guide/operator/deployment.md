@@ -42,7 +42,7 @@ The installer:
 
 | Flag | Purpose |
 |------|---------|
-| `--version <tag>` | Install a specific release (e.g. `v0.1.0-rc.2`). Defaults to latest stable. |
+| `--version <tag>` | Install a specific release (e.g. `v1.0.0-rc.20260601`). Defaults to latest stable. |
 | `--root <dir>` | Install root (defaults to `~/.spring-voyage`). |
 | `--yes` | Non-interactive. Uses `DEPLOY_HOSTNAME=localhost`, skips the GitHub App prompt. |
 | `--force` | Bypass the "already installed" refusal. Only use this if `uninstall` is broken. |
@@ -142,7 +142,7 @@ If you want to track `main`, develop against an unreleased commit, or use Docker
 # 1. Clone the repository and check out a stable tag.
 git clone https://github.com/cvoya-com/spring-voyage.git
 cd spring-voyage
-git checkout v0.1.0   # or `main` while tracking head
+git checkout v1.0.0   # or `main` while tracking head
 
 # 2. Seed the environment file from the documented template.
 cd devops/deploy

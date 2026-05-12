@@ -32,12 +32,12 @@ name: Release
 on:
   push:
     tags:
-      # Matches v0.1.0, v1.2.3-rc.1, v0.2.0-alpha.3, etc.
+      # Matches v1.0.0, v1.2.3-rc.1, v1.0.0-alpha.20260504, etc.
       - "v[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release (e.g. v0.1.0). Required for manual runs."
+        description: "Tag to release (e.g. v1.0.0). Required for manual runs."
         required: true
         type: string
 
@@ -103,9 +103,9 @@ jobs:
           patch="${BASH_REMATCH[3]}"
           prerelease_suffix="${BASH_REMATCH[4]:-}"
 
-          # e.g. "0.1.0" (no leading v, with prerelease suffix if present)
+          # e.g. "1.0.0" (no leading v, with prerelease suffix if present)
           release_version="${major}.${minor}.${patch}${prerelease_suffix}"
-          # e.g. "0.1"
+          # e.g. "1.0"
           major_minor="${major}.${minor}"
           # Prerelease if the tag has a suffix like -rc.1 or -alpha.2
           is_prerelease="false"

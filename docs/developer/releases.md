@@ -27,9 +27,9 @@ Non-breaking additions — new interfaces, new optional parameters with defaults
 
 Breaking changes to `Cvoya.Spring.Core` interfaces require explicit discussion per [`CONTRIBUTING.md`](../../CONTRIBUTING.md#code-review) and must be flagged with the `breaking-change` label.
 
-### Pre-1.0 stability
+### Pre-release stability
 
-While the project is pre-1.0 (`0.x.y`), minor version bumps (`0.x.0`) may contain breaking changes, as permitted by SemVer. We will still flag them as breaking in the changelog. Once the project reaches `1.0.0`, the full SemVer contract applies.
+While the project is in pre-release on the `1.0.0` line (e.g. `1.0.0-alpha.<date>`, `1.0.0-beta.<date>`, `1.0.0-rc.<date>`), breaking changes are permitted between pre-release tags. We will still flag them as breaking in the changelog. Once the project reaches stable `1.0.0`, the full SemVer contract applies.
 
 ## Pre-release Scheme
 
@@ -46,10 +46,10 @@ Pre-release versions use a SemVer-compatible suffix:
 The date field uses the `YYYYMMDD` form of the release date (UTC). Same-day re-releases append a numeric counter: `.1`, `.2`, …
 
 ```
-v0.1.0-alpha.20260504       # first alpha on 2026-05-04
-v0.1.0-alpha.20260504.1     # second alpha on the same day
-v0.1.0-rc.20260601          # release candidate on 2026-06-01
-v0.1.0                      # stable release
+v1.0.0-alpha.20260504       # first alpha on 2026-05-04
+v1.0.0-alpha.20260504.1     # second alpha on the same day
+v1.0.0-rc.20260601          # release candidate on 2026-06-01
+v1.0.0                      # stable release
 ```
 
 The git tag is the sole source of truth for the release version. There is no `VERSION` file.
@@ -62,13 +62,13 @@ Use `scripts/release.sh` to cut a release. The script pushes four component tags
 
 ```bash
 # Dry-run: print the computed tags without pushing anything.
-./scripts/release.sh v0.1.0 --pre alpha --plan
+./scripts/release.sh v1.0.0 --pre alpha --plan
 
 # Cut an alpha release.
-./scripts/release.sh v0.1.0 --pre alpha
+./scripts/release.sh v1.0.0 --pre alpha
 
 # Cut a stable release.
-./scripts/release.sh v0.1.0
+./scripts/release.sh v1.0.0
 ```
 
 **Tag chain** (pushed in order, each waited on before the next):
@@ -96,7 +96,7 @@ After all three workflows succeed, the script verifies that every image referenc
 
 ### Patch releases on prior versions
 
-If a critical fix needs to ship on an older minor line (e.g., current is `0.3.x` and we need to patch `0.2.x`), a `release/0.2` branch is created from the `v0.2.y` tag, the fix is cherry-picked, and a new tag is cut from that branch. This is an exception path — the default is "fix on `main`, ship in the next release".
+If a critical fix needs to ship on an older minor line (e.g., current is `1.1.x` and we need to patch `1.0.x`), a `release/1.0` branch is created from the `v1.0.y` tag, the fix is cherry-picked, and a new tag is cut from that branch. This is an exception path — the default is "fix on `main`, ship in the next release".
 
 ## CI/CD Pipeline for Release Artefacts
 
@@ -160,9 +160,9 @@ Container images are published to the GitHub Container Registry (`ghcr.io/cvoya-
 | `:X.Y` | Floating tag pointing at the latest patch of the `X.Y` minor line. |
 | `:latest` | Floating tag pointing at the most recent stable release. Never points at a pre-release. |
 
-Pre-release tags (e.g., `v0.1.0-alpha.20260504`) push only the immutable version tag; `:latest` and `:X.Y` are not updated.
+Pre-release tags (e.g., `v1.0.0-alpha.20260504`) push only the immutable version tag; `:latest` and `:X.Y` are not updated.
 
-The tag pushed to the container registry has the leading `v` stripped (e.g., git tag `v0.1.0` → image tag `0.1.0`).
+The tag pushed to the container registry has the leading `v` stripped (e.g., git tag `v1.0.0` → image tag `1.0.0`).
 
 ### Local deployment
 

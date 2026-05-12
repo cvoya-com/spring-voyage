@@ -304,11 +304,11 @@ discovery handles native executables transparently:
 
 ```bash
 curl -L -o dispatcher.tar.gz \
-  https://github.com/cvoya-com/spring-voyage/releases/download/v0.1.0/spring-dispatcher-0.1.0-linux-x64.tar.gz
+  https://github.com/cvoya-com/spring-voyage/releases/download/v1.0.0/spring-dispatcher-1.0.0-linux-x64.tar.gz
 tar xf dispatcher.tar.gz
 SPRING_DISPATCHER_BIN="$PWD/Cvoya.Spring.Dispatcher" \
   ./spring-voyage-host.sh start
-./spring-voyage-host.sh status   # version: 0.1.0
+./spring-voyage-host.sh status   # version: 1.0.0
 ```
 
 The dispatcher binary used to be released under a separate
