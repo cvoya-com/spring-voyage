@@ -169,17 +169,24 @@ fi
 # so the operator can decide: delete the local tag (`git tag -d <tag>`) and
 # reuse this version, or start fresh with a new version.
 
+STALE_LOCAL_TAGS=()
 for tag in "$TAG_AGENT_BASE" "$TAG_OSS_AGENTS" "$TAG_PLATFORM"; do
-  if git tag -l "${tag}" | grep -q .; then
-    if ! gh api "repos/${REPO}/git/refs/tags/${tag}" --silent 2>/dev/null; then
-      echo "::error::Local tag '${tag}' exists but is not on ${REPO}."
-      echo "         Remote tags were likely deleted without cleaning up locally."
-      echo "         To reuse this version:  git tag -d ${tag}"
-      echo "         To use the next version: git tag -d ${TAG_AGENT_BASE} ${TAG_OSS_AGENTS} ${TAG_PLATFORM}"
-      exit 1
-    fi
+  if git tag -l "${tag}" | grep -q . &&
+     ! gh api "repos/${REPO}/git/refs/tags/${tag}" --silent 2>/dev/null; then
+    STALE_LOCAL_TAGS+=("${tag}")
   fi
 done
+if [[ ${#STALE_LOCAL_TAGS[@]} -gt 0 ]]; then
+  echo "::error::The following local tags exist but are not on ${REPO}:"
+  for tag in "${STALE_LOCAL_TAGS[@]}"; do
+    echo "           ${tag}"
+  done
+  echo ""
+  echo "         Remote tags were likely deleted without cleaning up locally."
+  echo "         Delete them and rerun:"
+  echo "           git tag -d ${STALE_LOCAL_TAGS[*]}"
+  exit 1
+fi
 
 # ── Idempotency guard (stable releases only — pre-release handled above) ──────
 
