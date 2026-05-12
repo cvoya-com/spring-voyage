@@ -10,7 +10,7 @@ name: Release OSS agent images
 # Tag shape: `oss-agents-vX.Y.Z`. Scoped prefix keeps this workflow separate
 # from `release-agent-base.yml` (prefix: `agent-base-v*`).
 #
-# Each OSS image FROMs spring-voyage-agent-base:latest (published by
+# Each OSS image FROMs agent-base:latest (published by
 # release-agent-base.yml) and installs the Claude Code CLI plus the
 # role-specific toolchain on top.
 #
@@ -140,11 +140,12 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:latest
+            AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Make GHCR package public
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PKG_NAME: ${{ matrix.name }}

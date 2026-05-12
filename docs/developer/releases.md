@@ -58,17 +58,17 @@ Pre-release versions are published alongside (not in place of) the most recent s
 
 ## How Releases Are Cut
 
-Use `scripts/release.sh` to cut a release. The script pushes four component tags in dependency order and waits for each workflow to succeed before proceeding.
+Use `devops/release/release.sh` to cut a release. The script pushes four component tags in dependency order and waits for each workflow to succeed before proceeding.
 
 ```bash
 # Dry-run: print the computed tags without pushing anything.
-./scripts/release.sh v1.0.0 --pre alpha --plan
+./devops/release/release.sh v1.0.0 --pre alpha --plan
 
 # Cut an alpha release.
-./scripts/release.sh v1.0.0 --pre alpha
+./devops/release/release.sh v1.0.0 --pre alpha
 
 # Cut a stable release.
-./scripts/release.sh v1.0.0
+./devops/release/release.sh v1.0.0
 ```
 
 **Tag chain** (pushed in order, each waited on before the next):
@@ -92,7 +92,7 @@ After all three workflows succeed, the script verifies that every image referenc
 **Changelog finalisation** (stable releases only):
 
 1. Before tagging, move the `## [Unreleased]` section in `CHANGELOG.md` to `## [X.Y.Z] - YYYY-MM-DD`, create a fresh empty `[Unreleased]` section, and merge a PR titled `Release vX.Y.Z`.
-2. Run `./scripts/release.sh vX.Y.Z` from clean `main`.
+2. Run `./devops/release/release.sh vX.Y.Z` from clean `main`.
 
 ### Patch releases on prior versions
 
@@ -127,7 +127,7 @@ Releases are triggered by tag pushes only — never by merges to `main`. The tab
 | [`release-oss-agent-images.yml`](../../.github/workflows/release-oss-agent-images.yml) | `oss-agents-v*` | Four OSS role images (software-engineering, design, product-management, program-management) |
 | [`release.yml`](../../.github/workflows/release.yml) | `v*` | `ghcr.io/cvoya-com/claude-code-base`, `ghcr.io/cvoya-com/agent-base`, `ghcr.io/cvoya-com/spring-voyage-agent`, `ghcr.io/cvoya-com/spring-voyage` (platform image), self-contained `spring` CLI binaries (5 RIDs), self-contained dispatcher binaries (5 RIDs), deployment bundle (`spring-voyage-<v>-bundle.tar.gz`), `SHA256SUMS`, GitHub Release |
 
-`scripts/release.sh` orchestrates the agent-image and platform release tags in dependency order. The previous `release-spring-dispatcher.yml` (tag prefix `dispatcher-v*`) was absorbed into `release.yml`'s `publish-dispatcher` job in [#2172](https://github.com/cvoya-com/spring-voyage/issues/2172), so the platform image, deployment bundle, dispatcher binaries, and `spring` CLI binaries now share a single `v*.*.*` tag flow.
+`devops/release/release.sh` orchestrates the agent-image and platform release tags in dependency order. The previous `release-spring-dispatcher.yml` (tag prefix `dispatcher-v*`) was absorbed into `release.yml`'s `publish-dispatcher` job in [#2172](https://github.com/cvoya-com/spring-voyage/issues/2172), so the platform image, deployment bundle, dispatcher binaries, and `spring` CLI binaries now share a single `v*.*.*` tag flow.
 
 Each release workflow calls `gh api -X PATCH /orgs/cvoya-com/packages/container/<name> -F visibility=public` after pushing, so packages are publicly pullable from the first publish onward.
 
@@ -176,8 +176,8 @@ The canonical changelog is [`CHANGELOG.md`](../../CHANGELOG.md) at the repositor
 
 | Script | Purpose |
 | --- | --- |
-| [`scripts/release.sh`](../../scripts/release.sh) | Orchestrates the full release: computes tags, pushes them in dependency order, waits on each workflow, verifies anonymous pull. Flags: `--pre alpha\|beta\|rc`, `--plan` (dry-run), `--force-retag`. |
-| [`scripts/extract-changelog-section.sh`](../../scripts/extract-changelog-section.sh) | Extracts a named section (default: `Unreleased`) from `CHANGELOG.md` and prints it to stdout. Used by `release.yml` to populate the GitHub Release body. |
+| [`devops/release/release.sh`](../../devops/release/release.sh) | Orchestrates the full release: computes tags, pushes them in dependency order, waits on each workflow, verifies anonymous pull. Flags: `--pre alpha\|beta\|rc`, `--plan` (dry-run), `--force-retag`. |
+| [`devops/release/extract-changelog-section.sh`](../../devops/release/extract-changelog-section.sh) | Extracts a named section (default: `Unreleased`) from `CHANGELOG.md` and prints it to stdout. Used by `release.yml` to populate the GitHub Release body. |
 
 ## Summary Table
 
@@ -188,6 +188,6 @@ The canonical changelog is [`CHANGELOG.md`](../../CHANGELOG.md) at the repositor
 | GitHub Releases | Automated via `release.yml` on `v*` tag push |
 | NuGet packages | Not published; decision tracked in [#1395](https://github.com/cvoya-com/spring-voyage/issues/1395) |
 | Container images | Published to `ghcr.io/cvoya-com/*`; all images public |
-| Component release script | In place ([`scripts/release.sh`](../../scripts/release.sh)) |
+| Component release script | In place ([`devops/release/release.sh`](../../devops/release/release.sh)) |
 | CI (build, test, format, lint) | In place ([`ci.yml`](../../.github/workflows/ci.yml), [`codeql.yml`](../../.github/workflows/codeql.yml)) |
 | Release-publishing workflows | In place (five tag-scoped workflows) |

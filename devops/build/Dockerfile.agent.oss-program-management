@@ -23,7 +23,7 @@
 #     -t ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:dev \
 #     .
 
-ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:latest
+ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:latest
 ARG CLAUDE_CODE_VERSION=2.1.98
 ARG GH_CLI_VERSION=2.92.0
 ARG MARKDOWNLINT_CLI2_VERSION=0.22.1
