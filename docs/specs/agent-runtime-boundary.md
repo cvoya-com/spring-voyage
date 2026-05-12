@@ -301,7 +301,7 @@ The composite logical view, for an SDK that materialises `IAgentContext` as a ty
       "model": { "provider": "anthropic", "id": "claude-opus-4-7" }
     },
     "execution": {
-      "image": "ghcr.io/cvoya-com/agent-claude-code:1.4.2",
+      "image": "ghcr.io/cvoya-com/spring-voyage-claude-code-base:1.4.2",
       "hosting": "persistent",
       "concurrent_threads": true
     }
