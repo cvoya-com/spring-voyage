@@ -161,6 +161,21 @@ if [[ "$DRY_RUN" == "true" ]]; then
   exit 0
 fi
 
+# ── HEAD must be on origin/main ──────────────────────────────────────────────
+#
+# Tags point to HEAD. If HEAD is not reachable from origin/main the release
+# would reference commits that aren't in the canonical history, and the gh api
+# tag-creation call would fail because the remote doesn't know the SHA.
+
+git fetch origin main --quiet 2>/dev/null || true
+LOCAL_SHA="$(git rev-parse HEAD)"
+ORIGIN_SHA="$(git rev-parse origin/main 2>/dev/null || true)"
+if [[ -z "$ORIGIN_SHA" ]] || ! git merge-base --is-ancestor "${LOCAL_SHA}" origin/main 2>/dev/null; then
+  echo "::error::HEAD (${LOCAL_SHA:0:12}) is not on origin/main."
+  echo "         Push your commits to origin/main (via PR or direct push) before releasing."
+  exit 1
+fi
+
 # ── Local/remote tag divergence check ────────────────────────────────────────
 #
 # A local tag that has no matching remote tag is unexpected state — it means
@@ -208,8 +223,13 @@ push_and_wait() {
 
   echo ""
   echo "▶  Pushing tag ${tag} …"
+  local sha
+  sha="$(git rev-parse HEAD)"
   git tag "${tag}"
-  git push origin "${tag}"
+  gh api "repos/${REPO}/git/refs" \
+    -X POST \
+    -f "ref=refs/tags/${tag}" \
+    -f "sha=${sha}"
 
   echo "   Waiting for workflow '${workflow_name}' to register …"
   local run_id=""
