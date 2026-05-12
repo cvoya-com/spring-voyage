@@ -109,16 +109,4 @@ public class DaprSidecarOptions
     /// <c>devops/deploy/deploy.sh</c> use <c>/config/config.yaml</c>.
     /// </summary>
     public string? DaprConfigFilePath { get; set; }
-
-    /// <summary>
-    /// Container image used as a throwaway probe container by
-    /// <see cref="DaprSidecarManager.WaitForHealthyAsync"/>. The upstream
-    /// <c>daprio/daprd</c> image is effectively distroless (no <c>wget</c>,
-    /// no <c>curl</c>) so probes must run from a sibling container on the
-    /// same bridge network — this is exactly what
-    /// <c>devops/deploy/deploy.sh</c>'s <c>wait_sidecar_ready</c> already
-    /// does. Defaults to <c>docker.io/curlimages/curl:latest</c>; air-gapped
-    /// deployments should override to a mirrored tag.
-    /// </summary>
-    public string CurlProbeImage { get; set; } = "docker.io/curlimages/curl:latest";
 }

@@ -152,7 +152,6 @@ public partial class Program
         app.MapImageEndpoints();
         app.MapLlmEndpoints();
         app.MapOrchestrationCallbackEndpoints();
-        app.MapProbeEndpoints();
 
         await app.RunAsync();
     }

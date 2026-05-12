@@ -24,13 +24,25 @@ public interface IDaprSidecarManager
     Task StopSidecarAsync(string sidecarId, CancellationToken ct = default);
 
     /// <summary>
-    /// Waits for the Dapr sidecar to become healthy.
+    /// Waits for the Dapr sidecar to become healthy by probing
+    /// <c>/v1.0/healthz/outbound</c> via <c>podman exec</c> into the
+    /// <paramref name="pairedAppContainerId"/>. Daprd is distroless (no
+    /// shell, no curl) so the manager exec's into a peer that does carry
+    /// curl — the paired app container, which sits on the same per-app
+    /// bridge and can resolve the daprd by container DNS name. See ADR 0028
+    /// Decision A and #2198 for why the dispatcher reaches into tenant
+    /// containers via exec rather than joining their networks.
     /// </summary>
-    /// <param name="sidecar">Sidecar identity returned from <see cref="StartSidecarAsync"/>; the manager probes <see cref="DaprSidecarInfo.NetworkName"/> via a transient curl container, since the upstream daprd image is distroless and cannot host a <c>podman exec wget</c> probe.</param>
+    /// <param name="sidecar">Sidecar identity returned from <see cref="StartSidecarAsync"/>.</param>
+    /// <param name="pairedAppContainerId">Identifier of the application container paired with this sidecar on <see cref="DaprSidecarInfo.NetworkName"/>. The container must already be created (started detached); its image must carry <c>curl</c>.</param>
     /// <param name="timeout">The maximum time to wait for the sidecar to become healthy.</param>
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>True if the sidecar became healthy within the timeout; false otherwise.</returns>
-    Task<bool> WaitForHealthyAsync(DaprSidecarInfo sidecar, TimeSpan timeout, CancellationToken ct = default);
+    Task<bool> WaitForHealthyAsync(
+        DaprSidecarInfo sidecar,
+        string pairedAppContainerId,
+        TimeSpan timeout,
+        CancellationToken ct = default);
 }
 
 /// <summary>

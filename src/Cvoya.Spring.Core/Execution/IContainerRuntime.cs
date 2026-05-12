@@ -106,151 +106,92 @@ public interface IContainerRuntime
 
     /// <summary>
     /// Probes an HTTP endpoint reachable from inside the named container by
-    /// running a one-shot <c>wget --spider</c> in the container's network
-    /// namespace. Returns <c>true</c> when the endpoint answers 2xx within
-    /// the runtime's per-call timeout (the implementation is short-bounded;
-    /// callers that want to wait for slow boots should poll).
+    /// running a one-shot <c>curl</c> in the container's network namespace.
+    /// Returns <c>true</c> when the endpoint answers 2xx within the runtime's
+    /// per-call timeout (the implementation is short-bounded; callers that
+    /// want to wait for slow boots should poll).
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This is the dispatcher-routed replacement for the worker's old
-    /// <c>podman exec &lt;id&gt; wget -q --spider &lt;url&gt;</c> sidecar-health
-    /// pattern (Stage 2 of #522 / #1063). The probe runs inside the
-    /// container so it works for sidecars on a private per-app network the
-    /// worker does not share. The container image must carry <c>wget</c> on
-    /// its PATH — the Spring agent images do; the upstream
-    /// <c>daprio/daprd</c> image does <b>not</b> (it is effectively
-    /// distroless), so probes against daprd sidecars must go through
-    /// <see cref="ProbeHttpFromTransientContainerAsync"/> instead.
+    /// This is the dispatcher-routed exec probe established by Stage 2 of
+    /// #522 / #1063 and broadened in #2198 to cover daprd-readiness too.
+    /// The probe runs inside the container so it works for sidecars on
+    /// a private per-app network the dispatcher does not join (ADR 0028
+    /// Decision A keeps the dispatcher off tenant networks; <c>podman
+    /// exec</c> is the ADR-mandated mechanism to reach into a tenant
+    /// container without joining its network).
+    /// </para>
+    /// <para>
+    /// The container image must carry <c>curl</c> on its PATH. The Spring
+    /// platform image (<c>localhost/spring-voyage:latest</c> — spring-api,
+    /// spring-web, spring-worker) and the agent base images
+    /// (<c>spring-voyage-agent</c>, agent-base, agent.dapr) all install
+    /// curl explicitly. The upstream <c>daprio/daprd</c> image is
+    /// distroless and ships no shell or HTTP client; daprd is therefore
+    /// probed via <c>podman exec</c> into its <i>paired app container</i>
+    /// (which lives on the same per-app bridge and can resolve daprd by
+    /// container DNS name) — see <c>DaprSidecarManager.WaitForHealthyAsync</c>.
     /// </para>
     /// <para>
     /// The contract is deliberately narrower than a generic <c>exec</c>: a
     /// URL string and a boolean answer, no shell expansion, no stdout
     /// capture. That keeps the dispatcher's surface area and security
-    /// posture (RCE) bounded while solving the only worker-side use case
-    /// that needed exec — sidecar health polling.
+    /// posture (RCE) bounded while solving the only worker-side use cases
+    /// that need exec — sidecar / agent health polling.
     /// </para>
     /// <para>
-    /// Prefer <see cref="ProbeHttpFromHostAsync"/> for A2A readiness probes
-    /// on agent containers. The host-side probe does not require any binary
-    /// (<c>wget</c>) inside the workload image and avoids the per-probe
-    /// <c>podman exec</c> round-trip cost. This method is retained for
-    /// cases where the target endpoint is only reachable from inside the
-    /// container's own network namespace (e.g. a sidecar on a private
-    /// per-app bridge that has no host-routable IP).
+    /// This is the only HTTP-probe primitive the runtime exposes today —
+    /// the previous <c>ProbeHttpFromHostAsync</c> and
+    /// <c>ProbeHttpFromTransientContainerAsync</c> were collapsed into this
+    /// method in #2198 because they had drifted into doing the same thing
+    /// (running curl inside the target container's network namespace) via
+    /// indirect paths. <c>podman exec</c> is the cheapest, ADR-0028-aligned
+    /// way to enter that namespace from the dispatcher.
     /// </para>
     /// </remarks>
     /// <param name="containerId">Identifier of the container to probe inside.</param>
-    /// <param name="url">URL to probe; typically a loopback URL such as <c>http://localhost:3500/v1.0/healthz</c>.</param>
+    /// <param name="url">URL to probe; typically a container-DNS-name URL such as <c>http://my-sidecar:3500/v1.0/healthz/outbound</c>, or a loopback URL such as <c>http://localhost:3500/v1.0/healthz</c>.</param>
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>
     /// <c>true</c> when the endpoint answered 2xx; <c>false</c> on any
-    /// non-2xx, network error, missing <c>wget</c>, or unknown container.
+    /// non-2xx, network error, missing <c>curl</c>, or unknown container.
     /// Callers that need to distinguish those cases should fall back to
     /// inspect / logs.
     /// </returns>
-    [Obsolete("Use ProbeHttpFromHostAsync instead — it probes from the dispatcher host process without requiring wget inside the workload image. See #1175 and #1351.")]
     Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default);
 
     /// <summary>
-    /// Probes an HTTP endpoint from the host process by resolving the named
-    /// container's host-visible IP address and issuing a plain HTTP GET.
-    /// Returns <c>true</c> when the endpoint answers 2xx.
+    /// Blocks until the named (already-started) container exits, then returns
+    /// a <see cref="ContainerResult"/> capturing the exit code and the
+    /// container's stdout / stderr accumulated since launch. This is the
+    /// "wait" half of the Start + Wait decomposition that <see cref="RunAsync"/>
+    /// composes internally — call sites that need to interleave work between
+    /// "container started" and "container exited" (e.g. probing a paired
+    /// daprd sidecar via <see cref="ProbeContainerHttpAsync"/> while the
+    /// app container runs) start with <see cref="StartAsync"/> and finish
+    /// with this method.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This is the replacement probe path for A2A readiness checks (issue
-    /// #1175). Unlike <see cref="ProbeContainerHttpAsync"/>, this method
-    /// does not shell out to <c>podman exec</c> and does not require any
-    /// binary (<c>wget</c>, <c>curl</c>) to be present inside the workload
-    /// image. Any base image — Alpine, distroless, or a custom BYOI image
-    /// — can be probed without modification.
+    /// Implementations SHOULD shell out to <c>podman wait &lt;id&gt;</c> (or
+    /// the equivalent) so the wait is event-driven rather than poll-based.
+    /// After the container exits, the implementation reads the exit code
+    /// from <c>podman wait</c>'s stdout and the container's accumulated
+    /// stdout / stderr from <c>podman logs &lt;id&gt;</c>.
     /// </para>
     /// <para>
-    /// The implementation inspects the container's network settings to find
-    /// its host-routable IP address, rewrites the URL's host accordingly, and
-    /// issues the probe from the dispatcher process's own HTTP client. The
-    /// dispatcher process is co-located with the container runtime on the
-    /// host, so it can reach containers on any bridge network managed by
-    /// that runtime.
-    /// </para>
-    /// <para>
-    /// The <paramref name="url"/> is interpreted as an in-container URL
-    /// (typically <c>http://localhost:{port}/…</c>); the host part is
-    /// replaced by the resolved container IP before the GET is issued.
-    /// This keeps the caller's URL construction logic identical to what
-    /// it was for <see cref="ProbeContainerHttpAsync"/>.
-    /// </para>
-    /// <para>
-    /// Two reachability scenarios are supported:
-    /// <list type="bullet">
-    ///   <item>
-    ///     <b>Dispatcher / dual-homed worker</b> — the host-side HTTP GET
-    ///     is issued directly from the <see cref="ProcessContainerRuntime"/>
-    ///     implementation. The container's network bridge is reachable from
-    ///     the host without additional hops.
-    ///   </item>
-    ///   <item>
-    ///     <b>Worker on <c>spring-net</c> only</b> — <see cref="DispatcherClientContainerRuntime"/>
-    ///     forwards the probe request to the dispatcher over
-    ///     <c>POST /v1/containers/{id}/probe-from-host</c>. The dispatcher,
-    ///     running on the host, performs the same host-side HTTP GET.
-    ///   </item>
-    /// </list>
+    /// This method is the dispatcher-routed primitive added in #2198 so
+    /// <c>ContainerLifecycleManager.LaunchWithSidecarAsync</c> can probe
+    /// daprd by exec'ing into the app container (which only exists once
+    /// the app has been Start'd). See ADR 0028 Decision A for why the
+    /// dispatcher cannot dial daprd directly from its own process.
     /// </para>
     /// </remarks>
-    /// <param name="containerId">Identifier of the target container.</param>
-    /// <param name="url">
-    /// In-container URL to probe (e.g. <c>http://localhost:8999/.well-known/agent.json</c>).
-    /// The host portion is replaced by the container's inspected host-routable
-    /// IP before the GET is issued.
-    /// </param>
-    /// <param name="ct">A token to cancel the operation.</param>
-    /// <returns>
-    /// <c>true</c> when the endpoint answered 2xx; <c>false</c> on any
-    /// non-2xx, network error, container-inspect failure, or unknown
-    /// container. Callers that need to distinguish those cases should fall
-    /// back to inspect / logs.
-    /// </returns>
-    Task<bool> ProbeHttpFromHostAsync(string containerId, string url, CancellationToken ct = default);
-
-    /// <summary>
-    /// Probes an HTTP endpoint by spawning a throwaway probe container on the
-    /// named bridge network and resolving the URL via that network's DNS.
-    /// Used when the target container is distroless and therefore cannot host
-    /// the <c>podman exec wget</c> pattern <see cref="ProbeContainerHttpAsync"/>
-    /// relies on — the canonical case is the upstream <c>daprio/daprd</c>
-    /// sidecar image (no shell, no wget).
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Mirrors the <c>wait_sidecar_ready</c> helper in
-    /// <c>devops/deploy/deploy.sh</c>: the dispatcher runs
-    /// <c>&lt;runtime&gt; run --rm --network &lt;network&gt; &lt;probeImage&gt; …</c>
-    /// with a short per-attempt deadline so a real outage still surfaces via
-    /// the caller's polling loop. The probe container is removed on exit.
-    /// </para>
-    /// <para>
-    /// The dispatcher does not pre-pull <paramref name="probeImage"/>; the
-    /// underlying runtime auto-pulls on first use, after which subsequent
-    /// probes are sub-second. Operators in air-gapped environments should
-    /// pre-load the image (or override it via configuration) so the first
-    /// probe does not pay an unbounded registry round-trip.
-    /// </para>
-    /// </remarks>
-    /// <param name="probeImage">Container image carrying a curl-or-equivalent binary (defaults to <c>docker.io/curlimages/curl:latest</c> at the call site).</param>
-    /// <param name="network">Bridge network the probe container attaches to. Must already exist; the probe target's hostname must resolve on this network.</param>
-    /// <param name="url">URL to probe (e.g. <c>http://my-sidecar:3500/v1.0/healthz/outbound</c>).</param>
-    /// <param name="ct">A token to cancel the operation.</param>
-    /// <returns>
-    /// <c>true</c> when the endpoint answered 2xx; <c>false</c> on any
-    /// non-2xx, DNS / connection error, or probe-container failure.
-    /// </returns>
-    Task<bool> ProbeHttpFromTransientContainerAsync(
-        string probeImage,
-        string network,
-        string url,
-        CancellationToken ct = default);
+    /// <param name="containerId">Identifier of the container to wait on.</param>
+    /// <param name="ct">A token to cancel the operation. Cancellation does NOT stop the underlying container — callers that want to abort should call <see cref="StopAsync"/> as well.</param>
+    /// <returns>The result of the container execution.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the container id is unknown to the runtime, so the API layer can surface an HTTP 404.</exception>
+    Task<ContainerResult> WaitForExitAsync(string containerId, CancellationToken ct = default);
 
     /// <summary>
     /// Ensures a named volume exists, creating it if it does not already.
@@ -354,10 +295,10 @@ public interface IContainerRuntime
     /// <remarks>
     /// <para>
     /// This is the dispatcher-proxied A2A message-send primitive that closes
-    /// the second half of issue #1160 — the readiness probe was already
-    /// dispatched through <see cref="ProbeContainerHttpAsync"/>; this method
-    /// covers the actual JSON-RPC <c>message/send</c> roundtrip the A2A SDK
-    /// makes after readiness. Workers wire an
+    /// the second half of issue #1160 — the readiness probe is dispatched
+    /// through <see cref="ProbeContainerHttpAsync"/>; this method covers the
+    /// actual JSON-RPC <c>message/send</c> roundtrip the A2A SDK makes after
+    /// readiness. Workers wire an
     /// <c>HttpMessageHandler</c> that translates outbound A2A SDK HTTP
     /// requests into calls on this primitive, so the SDK code path is
     /// preserved end-to-end (only the transport is swapped).

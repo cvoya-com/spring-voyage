@@ -1006,14 +1006,21 @@ wait_healthy() {
 }
 
 wait_sidecar_ready() {
-    # Polls the daprd HTTP healthz endpoint from a throwaway curl container
+    # Polls the daprd HTTP healthz endpoint from a throwaway probe container
     # on spring-net. We can't `podman exec` the sidecar itself: daprio/dapr
     # is effectively distroless (no shell, no wget, no curl — just daprd),
     # so any in-container probe fails with "executable file not found" and
     # the readiness wait silently burns through its full timeout.
+    #
+    # The probe image is the platform image (`localhost/spring-voyage:latest`),
+    # which is already in the local store at this point (built locally before
+    # `deploy.sh up`). #2198 dropped the external `docker.io/curlimages/curl`
+    # dependency so a fresh install pulls no extra image just to issue a
+    # health probe. SPRING_CURL_IMAGE remains as an operator override for
+    # mirrored / air-gapped environments.
     local name="$1" timeout="${2:-30}"
     local waited=0
-    local curl_image="${SPRING_CURL_IMAGE:-docker.io/curlimages/curl:latest}"
+    local curl_image="${SPRING_CURL_IMAGE:-localhost/spring-voyage:latest}"
     log "waiting for Dapr sidecar '${name}' to become ready"
     while (( waited < timeout )); do
         # /v1.0/healthz/outbound reports sidecar-only readiness (components
@@ -1022,8 +1029,11 @@ wait_sidecar_ready() {
         # started immediately after.
         # --max-time 2 bounds each attempt so a real outage still fires the
         # overall deadline; -sf makes curl fail on non-2xx so the branch is
-        # honest about real failures.
-        if podman run --rm --network "${NETWORK_NAME}" "${curl_image}" \
+        # honest about real failures. --entrypoint= forces argv-only execution
+        # so the platform image's default ENTRYPOINT (the .NET host) is not
+        # invoked — the image only contributes its baked-in `curl` binary.
+        if podman run --rm --network "${NETWORK_NAME}" \
+                --entrypoint=curl "${curl_image}" \
                 -sf -o /dev/null --max-time 2 \
                 "http://${name}:3500/v1.0/healthz/outbound" >/dev/null 2>&1; then
             log "sidecar '${name}' is ready"

@@ -1011,18 +1011,14 @@ public class A2AExecutionDispatcher(
     /// </summary>
     /// <remarks>
     /// The probe goes through
-    /// <see cref="IContainerRuntime.ProbeHttpFromHostAsync"/> rather than a
-    /// direct <see cref="HttpClient"/> call or <c>podman exec</c> so it works
-    /// regardless of the worker's network topology and does not depend on any
-    /// binary (<c>wget</c>, <c>curl</c>) being present in the workload image.
-    /// The host-side probe resolves the container's bridge IP via
-    /// <c>podman inspect</c> and issues a plain HTTP GET from the dispatcher
-    /// process, avoiding the per-probe <c>podman exec</c> round-trip and the
-    /// BYOI fragility documented in issue #1175. When the worker is not
-    /// dual-homed on the agent's network, the probe is forwarded through
-    /// <see cref="DispatcherClientContainerRuntime"/> →
-    /// <c>POST /v1/containers/{id}/probe-from-host</c>; the dispatcher
-    /// executes the host-side GET and returns the boolean result.
+    /// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>, which the
+    /// dispatcher implements as <c>podman exec &lt;containerId&gt; curl …</c>
+    /// inside the agent container's own network namespace. Per ADR 0028
+    /// Decision A and #2198, exec is the only mechanism the dispatcher uses
+    /// to reach into a tenant container — joining the tenant network from
+    /// the dispatcher process would collapse the isolation guarantee. The
+    /// agent base image installs <c>curl</c> explicitly so this primitive
+    /// works on every platform-built image.
     /// </remarks>
     internal async Task<bool> WaitForA2AReadyAsync(
         string containerId,
@@ -1042,7 +1038,7 @@ public class A2AExecutionDispatcher(
             attempts++;
             try
             {
-                var healthy = await containerRuntime.ProbeHttpFromHostAsync(
+                var healthy = await containerRuntime.ProbeContainerHttpAsync(
                     containerId, agentCardUri, cts.Token);
                 if (healthy)
                 {

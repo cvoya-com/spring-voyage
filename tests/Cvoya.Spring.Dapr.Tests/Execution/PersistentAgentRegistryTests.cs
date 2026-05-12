@@ -166,9 +166,9 @@ public class PersistentAgentRegistryTests : IDisposable
     [Fact]
     public async Task RunHealthChecksAsync_HealthyAgent_StaysHealthy()
     {
-        // #1175: health probe routes through ProbeHttpFromHostAsync — no
+        // #1175: health probe routes through ProbeContainerHttpAsync — no
         // in-container wget, works regardless of worker/agent network topology.
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(true));
 
@@ -190,7 +190,7 @@ public class PersistentAgentRegistryTests : IDisposable
         // crash before issuing the doomed A2A call. Restart of the
         // container is still gated on UnhealthyThreshold consecutive
         // failures (covered by RunHealthChecksAsync_ConsecutiveFailures_…).
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
 
@@ -207,7 +207,7 @@ public class PersistentAgentRegistryTests : IDisposable
     [Fact]
     public async Task RunHealthChecksAsync_ConsecutiveFailures_MarksUnhealthy()
     {
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
 
@@ -243,7 +243,7 @@ public class PersistentAgentRegistryTests : IDisposable
     public async Task RunHealthChecksAsync_RecoveryAfterFailure_ResetsCount()
     {
         var healthy = false;
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(_ => Task.FromResult(healthy));
 
@@ -283,7 +283,7 @@ public class PersistentAgentRegistryTests : IDisposable
         _registry.TryGet("agent-1", out var entry);
         entry!.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
         entry.ConsecutiveFailures.ShouldBe(0);
-        await _containerRuntime.DidNotReceive().ProbeHttpFromHostAsync(
+        await _containerRuntime.DidNotReceive().ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
@@ -378,7 +378,7 @@ public class PersistentAgentRegistryTests : IDisposable
         // — without waiting for UnhealthyThreshold consecutive failures
         // (the threshold only gates the more-expensive background restart).
         var probeResults = new Queue<bool>([true, false]);
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(_ => Task.FromResult(probeResults.Dequeue()));
 
@@ -407,7 +407,7 @@ public class PersistentAgentRegistryTests : IDisposable
         // before issuing the A2A call, the probe must fail-fast (within
         // its short caller-supplied timeout) so the cold path doesn't pay
         // a multi-second wall-clock wait against a dead container.
-        _containerRuntime.ProbeHttpFromHostAsync(
+        _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(false);
 

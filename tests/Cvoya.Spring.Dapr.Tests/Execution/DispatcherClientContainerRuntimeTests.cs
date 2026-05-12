@@ -466,76 +466,57 @@ public class DispatcherClientContainerRuntimeTests
                 TestContext.Current.CancellationToken));
     }
 
-    // ── ProbeHttpFromHostAsync tests (issue #1175) ──────────────────────────
+    // ── WaitForExitAsync tests (#2198) ───────────────────────────────────────
 
     [Fact]
-    public async Task ProbeHttpFromHostAsync_PostsUrlAndParsesHealthyTrue()
+    public async Task WaitForExitAsync_LongPollsAndReturnsCapturedResult()
     {
-        // The worker forwards host-probe requests to POST /v1/containers/{id}/probe-from-host
-        // so the dispatcher process (which is co-located with the container runtime on
-        // the host) can resolve the container's IP and issue a plain GET without exec.
+        // The worker forwards wait-for-exit to POST /v1/containers/{id}/wait-for-exit;
+        // the dispatcher long-holds until `podman wait` returns, then echoes the
+        // exit code + captured stdout/stderr. Added in #2198 to decompose Run
+        // into Start + (probe daprd via exec) + Wait.
         HttpRequestMessage? captured = null;
         var handler = new FakeHandler(async (req, _) =>
         {
             captured = req;
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = JsonContent.Create(new { healthy = true }),
+                Content = JsonContent.Create(new
+                {
+                    id = "app-container-1",
+                    exitCode = 7,
+                    stdout = "hello",
+                    stderr = "warning",
+                }),
             };
         });
 
         var runtime = CreateRuntime(handler);
-        var healthy = await runtime.ProbeHttpFromHostAsync(
-            "agent-container-1",
-            "http://localhost:8999/.well-known/agent.json",
-            TestContext.Current.CancellationToken);
+        var result = await runtime.WaitForExitAsync(
+            "app-container-1", TestContext.Current.CancellationToken);
 
-        healthy.ShouldBeTrue();
+        result.ContainerId.ShouldBe("app-container-1");
+        result.ExitCode.ShouldBe(7);
+        result.StandardOutput.ShouldBe("hello");
+        result.StandardError.ShouldBe("warning");
+
         captured.ShouldNotBeNull();
         captured!.Method.ShouldBe(HttpMethod.Post);
-        captured.RequestUri!.AbsolutePath.ShouldBe("/v1/containers/agent-container-1/probe-from-host");
-        var body = await captured.Content!.ReadAsStringAsync(TestContext.Current.CancellationToken);
-        using var parsed = JsonDocument.Parse(body);
-        parsed.RootElement.GetProperty("url").GetString()
-            .ShouldBe("http://localhost:8999/.well-known/agent.json");
+        captured.RequestUri!.AbsolutePath.ShouldBe("/v1/containers/app-container-1/wait-for-exit");
     }
 
     [Fact]
-    public async Task ProbeHttpFromHostAsync_HealthyFalse_ReturnsFalse()
+    public async Task WaitForExitAsync_404Throws()
     {
-        // Timeout path: the dispatcher returns healthy=false when the container
-        // IP is unreachable (agent not yet listening). The polling loop retries.
-        var handler = new FakeHandler(async (_, _) =>
-            new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = JsonContent.Create(new { healthy = false }),
-            });
-
-        var runtime = CreateRuntime(handler);
-        var healthy = await runtime.ProbeHttpFromHostAsync(
-            "agent-container-1",
-            "http://localhost:8999/.well-known/agent.json",
-            TestContext.Current.CancellationToken);
-
-        healthy.ShouldBeFalse();
-    }
-
-    [Fact]
-    public async Task ProbeHttpFromHostAsync_404IsTreatedAsUnhealthy()
-    {
-        // Container vanished between start and probe — treat as not-healthy
-        // rather than a hard exception so the outer polling loop degrades
-        // gracefully without crashing the readiness wait.
+        // Container unknown → InvalidOperationException so the caller sees a
+        // clean failure instead of waiting forever for a wait that can never
+        // succeed.
         var handler = new FakeHandler(async (_, _) =>
             new HttpResponseMessage(HttpStatusCode.NotFound));
 
         var runtime = CreateRuntime(handler);
-        var healthy = await runtime.ProbeHttpFromHostAsync(
-            "missing-container",
-            "http://localhost:8999/.well-known/agent.json",
-            TestContext.Current.CancellationToken);
-
-        healthy.ShouldBeFalse();
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            runtime.WaitForExitAsync("missing", TestContext.Current.CancellationToken));
     }
 
     // ── GetHealthAsync retry-policy tests (#1379) ────────────────────────────

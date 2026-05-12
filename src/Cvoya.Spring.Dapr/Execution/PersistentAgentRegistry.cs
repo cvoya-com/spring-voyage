@@ -484,13 +484,14 @@ public class PersistentAgentRegistry(
     /// Probes the A2A Agent Card endpoint to verify the agent is healthy.
     /// </summary>
     /// <remarks>
-    /// When the entry carries a container id, the probe is dispatched from
-    /// the host process via
-    /// <see cref="IContainerRuntime.ProbeHttpFromHostAsync"/> so it works
-    /// regardless of network topology and does not require any binary
-    /// (<c>wget</c>, <c>curl</c>) inside the workload image (issue #1175).
-    /// Entries without a container id (legacy externally-registered persistent
-    /// agents) fall back to the direct HTTP probe.
+    /// When the entry carries a container id, the probe is dispatched via
+    /// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>, which the
+    /// dispatcher implements as <c>podman exec &lt;id&gt; curl …</c> inside
+    /// the agent's network namespace — the only mechanism ADR 0028 Decision A
+    /// allows for crossing into a tenant container without joining its
+    /// network. Agent images install <c>curl</c> explicitly. Entries without
+    /// a container id (legacy externally-registered persistent agents) fall
+    /// back to a direct host-side HTTP probe via <c>HttpClient</c>.
     /// </remarks>
     internal Task<bool> ProbeHealthAsync(PersistentAgentEntry entry)
         => ProbeLivenessAsync(entry, HealthProbeTimeout, CancellationToken.None);
@@ -522,7 +523,7 @@ public class PersistentAgentRegistry(
             probeCts.CancelAfter(timeout);
             try
             {
-                return await containerRuntime.ProbeHttpFromHostAsync(
+                return await containerRuntime.ProbeContainerHttpAsync(
                     entry.ContainerId, agentCardUri, probeCts.Token);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -611,11 +612,11 @@ public class PersistentAgentRegistry(
     /// Waits until the A2A Agent Card endpoint returns 200 or the timeout expires.
     /// </summary>
     /// <remarks>
-    /// The probe is dispatched from the host process via
-    /// <see cref="IContainerRuntime.ProbeHttpFromHostAsync"/> so it works
-    /// even when the worker process and the agent container live on different
-    /// networks, and does not require any binary (<c>wget</c>) inside the
-    /// workload image (issue #1175).
+    /// The probe is dispatched via
+    /// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>, which the
+    /// dispatcher implements as <c>podman exec &lt;id&gt; curl …</c> inside
+    /// the agent container's own network namespace (ADR 0028 Decision A,
+    /// #2198). Agent images install <c>curl</c> explicitly.
     /// </remarks>
     internal async Task<bool> WaitForA2AReadyAsync(
         string containerId,
@@ -632,7 +633,7 @@ public class PersistentAgentRegistry(
         {
             try
             {
-                if (await containerRuntime.ProbeHttpFromHostAsync(containerId, agentCardUri, cts.Token))
+                if (await containerRuntime.ProbeContainerHttpAsync(containerId, agentCardUri, cts.Token))
                 {
                     return true;
                 }

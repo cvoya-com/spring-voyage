@@ -5,8 +5,8 @@ namespace Cvoya.Spring.Dapr.Execution;
 
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
-using System.Net.Http;
 
 using Cvoya.Spring.Core.Execution;
 
@@ -23,24 +23,6 @@ public class ProcessContainerRuntime(
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<ProcessContainerRuntime>();
     private readonly ContainerRuntimeOptions _options = options.Value;
-
-    // Shared HttpClient for ProbeHttpFromHostAsync. Static so all instances
-    // (PodmanRuntime, DockerRuntime) share one socket pool. The client does
-    // not use cookies or a base address — each call supplies a full URL.
-    private static readonly HttpClient ProbeHttpClient = new(new SocketsHttpHandler
-    {
-        // Short per-connection timeout so a probe attempt terminates quickly
-        // when the container has not yet bound its port. The polling loop
-        // (WaitForA2AReadyAsync) retries on false, so a connection timeout
-        // just means one probe attempt ends quickly rather than hanging.
-        ConnectTimeout = TimeSpan.FromSeconds(3),
-    })
-    {
-        // Per-request deadline to match the caller's polling cadence. The
-        // outer loop adds a sleep between attempts, so this only caps the
-        // time spent on a single attempt, not the total readiness wait.
-        Timeout = TimeSpan.FromSeconds(5),
-    };
 
     /// <summary>
     /// Pulls a container image, short-circuiting to a no-op when the image
@@ -367,21 +349,31 @@ public class ProcessContainerRuntime(
     }
 
     /// <inheritdoc />
-#pragma warning disable CS0618 // Implementing the deprecated interface member; retained for backward-compat (#1351).
     public async Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
 
-        // wget exit codes worth knowing:
-        //   0 — request succeeded (2xx)
-        //   1..8 — request failed (DNS / connection / non-2xx)
-        // We map every non-zero into "false" because callers (sidecar health
-        // polling) treat the result as a single bit. The shell-out here is
-        // intentionally small: no flags beyond -q --spider so we don't
-        // accidentally widen the attack surface beyond what the original
-        // worker-side `podman exec ... wget` did.
-        string[] args = ["exec", containerId, "wget", "-q", "--spider", url];
+        // curl exit codes worth knowing:
+        //   0 — request succeeded (2xx, with --fail)
+        //   non-zero — DNS failure, connection refused, 4xx/5xx, missing
+        //   binary, container gone. Every non-zero collapses to "false"
+        //   because callers (sidecar / agent health polling) treat the
+        //   result as a single bit. The shell-out is intentionally small —
+        //   --silent + --output /dev/null + --max-time bounds the per-call
+        //   cost without widening the dispatcher's RCE surface area.
+        string[] args =
+        [
+            "exec",
+            containerId,
+            "curl",
+            "--silent",
+            "--show-error",
+            "--fail",
+            "--max-time", "10",
+            "--output", "/dev/null",
+            url,
+        ];
 
         try
         {
@@ -396,7 +388,7 @@ public class ProcessContainerRuntime(
         }
         catch (Exception ex)
         {
-            // wget missing / container exited / runtime crashed — collapse
+            // curl missing / container exited / runtime crashed — collapse
             // to false so the caller's polling loop is the only place that
             // owns timeout + retry semantics.
             _logger.LogDebug(
@@ -406,164 +398,58 @@ public class ProcessContainerRuntime(
             return false;
         }
     }
-#pragma warning restore CS0618
 
     /// <inheritdoc />
-    public async Task<bool> ProbeHttpFromHostAsync(
-        string containerId,
-        string url,
-        CancellationToken ct = default)
+    public async Task<ContainerResult> WaitForExitAsync(string containerId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(url);
 
+        // `podman wait <id>` blocks until the container exits and prints the
+        // exit code on stdout. This is the event-driven replacement for the
+        // poll-on-`inspect` pattern — one process per wait, no spin loop.
+        var (waitExitCode, waitStdout, waitStderr) = await RunProcessAsync(
+            binaryName, ["wait", containerId], ct);
+
+        if (waitExitCode != 0)
+        {
+            // Most common failure: container id unknown (returns non-zero
+            // with "no container with name or ID …" on stderr). Surface as
+            // InvalidOperationException so the API layer maps to 404 — same
+            // contract as RemoveAsync / GetLogsAsync.
+            throw new InvalidOperationException(
+                $"podman wait {containerId} failed with exit code {waitExitCode}. Stderr: {waitStderr.Trim()}");
+        }
+
+        var exitCode = int.TryParse(
+            waitStdout.Trim(),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var parsed) ? parsed : -1;
+
+        // Now collect the captured stdout/stderr. `podman logs` returns
+        // stdout on its own stdout and stderr on its own stderr — same
+        // separation we'd have with `Process.Start` of a real foreground run.
+        string stdout = string.Empty;
+        string stderr = string.Empty;
         try
         {
-            // #1458: Probe by spinning a one-shot curl container into the
-            // target's network namespace via `--network container:<id>`.
-            //
-            // The previous implementation looked up the container's bridge
-            // IP and issued the HTTP GET from the dispatcher host. That
-            // path doesn't work on macOS+podman: podman runs inside a
-            // libkrun VM (gvproxy), so container bridge IPs (10.89.x.x)
-            // aren't routable from the host network. Every probe attempt
-            // ate a 3 s TCP-connect timeout, which alone exhausts the 60 s
-            // readiness window before the agent could ever be marked
-            // ready.
-            //
-            // Running curl inside the agent's network namespace works on
-            // every host platform (Linux, macOS, Windows) because the
-            // probe traffic never leaves that namespace. The curl image
-            // (`docker.io/curlimages/curl:latest` by default) is small
-            // and is already pulled by the deploy/start path that uses
-            // it for sidecar readiness.
-            //
-            // Per-attempt cost: ~200-500 ms on a warm cache (image pulled,
-            // no network IO). The polling loop's 200 ms interval is the
-            // dominant factor on the wire.
-            const string ProbeImage = "docker.io/curlimages/curl:latest";
-            var (exit, _, stderr) = await RunProcessAsync(
-                binaryName,
-                [
-                    "run",
-                    "--rm",
-                    "--network",
-                    "container:" + containerId,
-                    ProbeImage,
-                    "curl",
-                    "--silent",
-                    "--show-error",
-                    "--fail",
-                    "--max-time",
-                    "10",
-                    "--output",
-                    "/dev/null",
-                    url,
-                ],
-                ct);
-
-            if (exit == 0)
-            {
-                return true;
-            }
-
-            // curl exits non-zero on connection refused, 4xx/5xx (--fail),
-            // or DNS failure. All map to "not ready yet"; the polling
-            // loop retries.
-            _logger.LogDebug(
-                "Probe-via-curl for container {ContainerId} ({Url}) returned exit={Exit} stderr={Stderr}",
-                containerId, url, exit, stderr.Trim());
-            return false;
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            // Per-attempt timeout — fall through to the polling loop's retry.
-            return false;
+            (_, stdout, stderr) = await RunProcessAsync(
+                binaryName, ["logs", containerId], CancellationToken.None);
         }
         catch (Exception ex)
         {
+            // Container may have been auto-removed by `--rm` between wait and
+            // logs; the exit code is what callers really want, so log + ignore.
             _logger.LogDebug(
                 ex,
-                "Probe-via-curl of {Url} for container {ContainerId} failed: {Message}",
-                url, containerId, ex.Message);
-            return false;
+                "podman logs {ContainerId} failed after wait; returning exit code only",
+                containerId);
         }
-    }
 
-    /// <summary>
-    /// Rewrites the <paramref name="url"/>'s host component to
-    /// <paramref name="newHost"/>, preserving the scheme, port, path, query
-    /// and fragment. Used by <see cref="ProbeHttpFromHostAsync"/> to convert
-    /// an in-container loopback URL (e.g. <c>http://localhost:8999/…</c>)
-    /// into a host-routable URL using the container's bridge IP.
-    /// </summary>
-    internal static string RewriteUrlHost(string url, string newHost)
-    {
-        var uri = new Uri(url);
-        var builder = new UriBuilder(uri)
-        {
-            Host = newHost,
-        };
-        // UriBuilder always serialises the port explicitly. Suppress it when
-        // the original URL had no port and the port is the scheme default so
-        // we don't produce "http://10.0.0.1:80/path" from "http://localhost/path".
-        if (uri.IsDefaultPort)
-            builder.Port = -1;
-        return builder.ToString();
-    }
+        _logger.LogInformation(
+            "Container {ContainerId} exited with code {ExitCode}", containerId, exitCode);
 
-    /// <inheritdoc />
-    public async Task<bool> ProbeHttpFromTransientContainerAsync(
-        string probeImage,
-        string network,
-        string url,
-        CancellationToken ct = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(probeImage);
-        ArgumentException.ThrowIfNullOrWhiteSpace(network);
-        ArgumentException.ThrowIfNullOrWhiteSpace(url);
-
-        // Mirrors deploy.sh's wait_sidecar_ready helper. --rm cleans the
-        // probe container up after the curl exits; -sf collapses to a
-        // non-zero exit on any non-2xx so the boolean answer is honest;
-        // --max-time bounds each attempt so an unreachable target still
-        // surfaces inside the caller's polling loop.
-        string[] args =
-        [
-            "run",
-            "--rm",
-            "--network",
-            network,
-            probeImage,
-            "-sf",
-            "-o",
-            "/dev/null",
-            "--max-time",
-            "5",
-            url,
-        ];
-
-        try
-        {
-            var (exitCode, _, _) = await RunProcessAsync(binaryName, args, ct);
-            return exitCode == 0;
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            // Local timeout on the underlying RunProcessAsync — propagate
-            // false so the polling loop owns the retry policy.
-            return false;
-        }
-        catch (Exception ex)
-        {
-            // Probe image missing / network unknown / runtime crashed —
-            // collapse to false for the same reason as ProbeContainerHttpAsync.
-            _logger.LogDebug(
-                ex,
-                "Transient probe of {Url} on network {Network} via {Image} failed: {Message}",
-                url, network, probeImage, ex.Message);
-            return false;
-        }
+        return new ContainerResult(containerId, exitCode, stdout, stderr);
     }
 
     /// <inheritdoc />

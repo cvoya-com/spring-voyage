@@ -203,21 +203,23 @@ public record PullImageRequest
 /// <summary>
 /// Request body for <c>POST /v1/containers/{id}/probe</c>. Mirrors the
 /// narrow primitive on <c>IContainerRuntime.ProbeContainerHttpAsync</c> —
-/// the dispatcher executes <c>wget -q --spider</c> inside the named
-/// container and returns whether the URL responded 2xx. See the interface
-/// docs for the rationale on keeping the surface narrower than a generic
-/// <c>exec</c>.
+/// the dispatcher executes <c>curl --silent --show-error --fail …</c>
+/// inside the named container and returns whether the URL responded 2xx.
+/// See the interface docs for the rationale on keeping the surface narrower
+/// than a generic <c>exec</c>, and ADR 0028 Decision A for why the
+/// dispatcher reaches into tenant containers via <c>podman exec</c> rather
+/// than joining their networks.
 /// </summary>
 public record ProbeContainerHttpRequest
 {
-    /// <summary>The URL to probe; typically a loopback URL inside the container.</summary>
+    /// <summary>The URL to probe; either an in-container loopback URL or a same-bridge container DNS name (e.g. probing a paired daprd sidecar from inside the app container).</summary>
     [JsonPropertyName("url")]
     public required string Url { get; init; }
 }
 
 /// <summary>
 /// Response body for <c>POST /v1/containers/{id}/probe</c>. The dispatcher
-/// collapses every failure mode (DNS failure, non-2xx, missing wget, exited
+/// collapses every failure mode (DNS failure, non-2xx, missing curl, exited
 /// container) into a single boolean so the caller's polling loop owns the
 /// retry / timeout decision uniformly.
 /// </summary>
@@ -229,72 +231,29 @@ public record ProbeContainerHttpResponse
 }
 
 /// <summary>
-/// Request body for <c>POST /v1/probes/transient</c>. Mirrors the
-/// <see cref="Cvoya.Spring.Core.Execution.IContainerRuntime.ProbeHttpFromTransientContainerAsync"/>
-/// primitive: the dispatcher spawns a throwaway <c>--rm</c> probe container on
-/// the named bridge network and asks <paramref name="ProbeContainerHttpRequest.Url"/>.
-/// Used for sidecar images that are distroless (no <c>wget</c> / <c>curl</c>
-/// in PATH) and therefore cannot be probed via the
-/// <c>POST /v1/containers/{id}/probe</c> exec route — the canonical case is
-/// the upstream <c>daprio/daprd</c> image.
+/// Response body for <c>POST /v1/containers/{id}/wait-for-exit</c> — the
+/// long-poll primitive added in #2198 so the worker-side
+/// <c>ContainerLifecycleManager</c> can decompose Run into Start + (probe
+/// daprd via exec into app) + Wait. Mirrors
+/// <see cref="Cvoya.Spring.Core.Execution.ContainerResult"/>.
 /// </summary>
-public record TransientProbeHttpRequest
+public record WaitForExitResponse
 {
-    /// <summary>Probe container image (e.g. <c>docker.io/curlimages/curl:latest</c>).</summary>
-    [JsonPropertyName("probeImage")]
-    public required string ProbeImage { get; init; }
+    /// <summary>Container identifier (echoed for caller convenience).</summary>
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
 
-    /// <summary>Bridge network the probe container attaches to.</summary>
-    [JsonPropertyName("network")]
-    public required string Network { get; init; }
+    /// <summary>The container's exit code.</summary>
+    [JsonPropertyName("exitCode")]
+    public required int ExitCode { get; init; }
 
-    /// <summary>The URL to probe. The host portion is resolved via the network's DNS.</summary>
-    [JsonPropertyName("url")]
-    public required string Url { get; init; }
-}
+    /// <summary>Captured stdout from launch through exit.</summary>
+    [JsonPropertyName("stdout")]
+    public string? StandardOutput { get; init; }
 
-/// <summary>
-/// Response body for <c>POST /v1/probes/transient</c>. Reuses the same
-/// boolean-collapse contract as <see cref="ProbeContainerHttpResponse"/>.
-/// </summary>
-public record TransientProbeHttpResponse
-{
-    /// <summary>Whether the probed URL answered 2xx.</summary>
-    [JsonPropertyName("healthy")]
-    public required bool Healthy { get; init; }
-}
-
-/// <summary>
-/// Request body for <c>POST /v1/containers/{id}/probe-from-host</c>. The
-/// dispatcher resolves the container's host-visible IP address, rewrites
-/// the URL, and issues a plain HTTP GET from its own process — no
-/// <c>podman exec</c>, no in-container tooling required. Used by
-/// <see cref="Cvoya.Spring.Core.Execution.IContainerRuntime.ProbeHttpFromHostAsync"/>
-/// to probe A2A readiness without depending on what is installed in the
-/// workload image (issue #1175).
-/// </summary>
-public record ProbeFromHostRequest
-{
-    /// <summary>
-    /// The in-container URL to probe (e.g. <c>http://localhost:8999/.well-known/agent.json</c>).
-    /// The dispatcher rewrites the host portion to the container's host-routable
-    /// IP address before issuing the GET.
-    /// </summary>
-    [JsonPropertyName("url")]
-    public required string Url { get; init; }
-}
-
-/// <summary>
-/// Response body for <c>POST /v1/containers/{id}/probe-from-host</c>.
-/// Uses the same boolean-collapse contract as
-/// <see cref="ProbeContainerHttpResponse"/> so the caller's polling loop
-/// owns retry and timeout semantics uniformly.
-/// </summary>
-public record ProbeFromHostResponse
-{
-    /// <summary>Whether the probed URL answered 2xx.</summary>
-    [JsonPropertyName("healthy")]
-    public required bool Healthy { get; init; }
+    /// <summary>Captured stderr from launch through exit.</summary>
+    [JsonPropertyName("stderr")]
+    public string? StandardError { get; init; }
 }
 
 /// <summary>
