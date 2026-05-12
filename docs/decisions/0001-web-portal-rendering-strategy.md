@@ -2,7 +2,7 @@
 
 - **Status:** Superseded by [ADR 0005](0005-portal-standalone-mode.md) (2026-04-17).
 - **Date:** 2026-04-13
-- **Closes:** [#135](https://github.com/savasp/spring-voyage/issues/135)
+- **Closes:** [#135](https://github.com/cvoya-com/spring-voyage/issues/135)
 - **Related code:** `src/Cvoya.Spring.Web/next.config.ts`, `src/Cvoya.Spring.Web/src/app/units/[id]/page.tsx`, `src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx`
 
 ## Why this was superseded

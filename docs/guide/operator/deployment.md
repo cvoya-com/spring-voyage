@@ -103,7 +103,7 @@ If you want to track `main`, develop against an unreleased commit, or use Docker
 
 ```bash
 # 1. Clone the repository and check out a stable tag.
-git clone https://github.com/savasp/spring-voyage.git
+git clone https://github.com/cvoya-com/spring-voyage.git
 cd spring-voyage
 git checkout v0.1.0   # or `main` while tracking head
 

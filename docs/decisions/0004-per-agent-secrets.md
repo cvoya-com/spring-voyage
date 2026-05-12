@@ -2,7 +2,7 @@
 
 - **Status:** Deferred — unit remains the trust boundary; no per-agent storage scope or agent-level ACL added in wave 2. Revisit criteria recorded below.
 - **Date:** 2026-04-13
-- **Closes:** [#209](https://github.com/savasp/spring-voyage/issues/209)
+- **Closes:** [#209](https://github.com/cvoya-com/spring-voyage/issues/209)
 - **Related code:** `src/Cvoya.Spring.Core/Secrets/SecretScope.cs`, `src/Cvoya.Spring.Core/Secrets/ISecretResolver.cs`, `src/Cvoya.Spring.Dapr/Secrets/ComposedSecretResolver.cs`, [`0003-secret-inheritance-unit-to-tenant.md`](0003-secret-inheritance-unit-to-tenant.md)
 
 ## Context
