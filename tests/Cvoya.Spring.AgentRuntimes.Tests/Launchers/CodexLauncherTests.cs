@@ -185,6 +185,10 @@ public class CodexLauncherTests
 
         ex.Message.ShouldContain("openai-api-key");
         ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
+        // #2189: producer tags the (code, source) on ex.Data so the
+        // AgentActor catch attributes precisely.
+        ex.Data[SpringException.IssueCodeDataKey].ShouldBe("CredentialMissing");
+        ex.Data[SpringException.IssueSourceDataKey].ShouldBe("credential");
     }
 
     [Fact]

@@ -240,6 +240,9 @@ public class ClaudeCodeLauncherTests
         ex.Message.ShouldContain("OAuth token");
         ex.Message.ShouldContain("claude setup-token");
         ex.Message.ShouldContain("spring-voyage");
+        // #2189: producer tags the format-rejection precisely.
+        ex.Data[SpringException.IssueCodeDataKey].ShouldBe("CredentialFormatRejected");
+        ex.Data[SpringException.IssueSourceDataKey].ShouldBe("credential");
     }
 
     [Fact]
@@ -259,6 +262,10 @@ public class ClaudeCodeLauncherTests
 
         ex.Message.ShouldContain("anthropic-oauth");
         ex.Message.ShouldContain("agent, unit, parent-unit chain, or tenant scope");
+        // #2189: producer tags the (code, source) on ex.Data so the
+        // AgentActor catch attributes precisely.
+        ex.Data[SpringException.IssueCodeDataKey].ShouldBe("CredentialMissing");
+        ex.Data[SpringException.IssueSourceDataKey].ShouldBe("credential");
     }
 
     [Fact]

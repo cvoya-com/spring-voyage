@@ -363,11 +363,13 @@ public class GeminiLauncher(
         if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
             || string.IsNullOrEmpty(resolution.Value))
         {
+            // #2189: tag (CredentialMissing, credential).
             throw new SpringException(
                 $"Gemini agent runtime requires secret '{resolution.SecretName}' but no value resolved at " +
                 $"agent, unit, parent-unit chain, or tenant scope. " +
                 $"Generate an API key at https://aistudio.google.com/apikey and store it under '{resolution.SecretName}', " +
-                $"or configure via the Tenant defaults panel.");
+                $"or configure via the Tenant defaults panel.")
+                .WithIssue(code: "CredentialMissing", source: "credential");
         }
 
         // Google AI Studio API keys are typically AIza-prefixed but the
