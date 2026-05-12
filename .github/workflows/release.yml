@@ -366,7 +366,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          for package in claude-code-base agent-base spring-voyage-agent; do
+          for package in spring-voyage-claude-code-base spring-voyage-agent-base spring-voyage-agent; do
             gh api -X PATCH "/orgs/cvoya-com/packages/container/${package}" \
               -F visibility=public
           done
