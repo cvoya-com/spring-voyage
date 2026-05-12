@@ -1118,7 +1118,7 @@ public class AgentActor(
     /// <inheritdoc />
     public async Task SetLifecycleStatusAsync(
         AgentLifecycleStatus status,
-        string? error = null,
+        string? error,
         CancellationToken cancellationToken = default)
     {
         await StateManager.SetStateAsync(StateKeys.AgentLifecycleStatus, status, cancellationToken);

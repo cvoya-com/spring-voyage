@@ -129,6 +129,63 @@ public class ActorInterfaceSerializationTests
             "(primitives, arrays, or [DataContract] records). See #319.");
     }
 
+    /// <summary>
+    /// #2199: every parameter on every actor-interface method must be
+    /// non-optional, EXCEPT a trailing <see cref="CancellationToken"/>
+    /// (which Dapr's actor proxy generator special-cases). Any other
+    /// optional parameter — even with <c>null</c> as the default —
+    /// makes Dapr throw <c>ArgumentException</c> at startup with
+    /// "<i>The actor interface methods must not have out, ref or
+    /// optional parameters.</i>", which kills the worker process before
+    /// it can serve a single request. The runtime check happens inside
+    /// <c>ActorRuntime</c> construction so the failure surfaces as a
+    /// fatal startup crash with no request-time signal — pinning it
+    /// here costs one reflection scan and prevents the recurrence.
+    /// </summary>
+    [Fact]
+    public void AllActorInterfaceMethods_Reject_OptionalParameters_Except_TrailingCancellationToken()
+    {
+        var failures = new List<string>();
+
+        foreach (var iface in ActorInterfaces)
+        {
+            foreach (var method in iface.GetMethods())
+            {
+                var parameters = method.GetParameters();
+                for (var i = 0; i < parameters.Length; i++)
+                {
+                    var p = parameters[i];
+                    if (!p.IsOptional)
+                    {
+                        continue;
+                    }
+                    var isTrailingCancellationToken =
+                        i == parameters.Length - 1
+                        && p.ParameterType == typeof(CancellationToken);
+                    if (isTrailingCancellationToken)
+                    {
+                        continue;
+                    }
+                    failures.Add(
+                        $"{iface.Name}.{method.Name} param '{p.Name}' is optional " +
+                        $"(only a trailing CancellationToken may be optional on a Dapr actor interface).");
+                }
+
+                if (method.GetParameters().Any(p => p.IsOut || p.ParameterType.IsByRef))
+                {
+                    failures.Add(
+                        $"{iface.Name}.{method.Name} has an out / ref parameter " +
+                        $"(Dapr actor proxies cannot marshal these).");
+                }
+            }
+        }
+
+        failures.ShouldBeEmpty(
+            "Dapr actor proxy generation rejects out/ref/optional parameters " +
+            "at ActorRuntime construction time, killing the host process. " +
+            "Make the parameter required (callers can pass null/default explicitly).");
+    }
+
     private static Type UnwrapTask(Type t)
     {
         if (t == typeof(Task))
