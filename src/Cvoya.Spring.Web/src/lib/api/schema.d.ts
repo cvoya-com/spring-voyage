@@ -1563,6 +1563,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/units/{id}/issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Open operational issues against a unit, plus the transitively-aggregated descendant rollup. */
+        get: operations["GetUnitIssues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/agents/{id}/issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Open operational issues against an agent. Agents have no descendants — the rollup is always empty. */
+        get: operations["GetAgentIssues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/skills": {
         parameters: {
             query?: never;
@@ -2993,6 +3027,44 @@ export interface components {
             /** Format: date-time */
             completedAt: null | string;
             error: null | string;
+        };
+        IssueChildSummaryResponse: {
+            subjectKind: string;
+            /** Format: uuid */
+            subjectId: string;
+            name: string;
+            /** Format: int32 */
+            errorCount: number;
+            /** Format: int32 */
+            warningCount: number;
+        };
+        IssueDescendantRollupResponse: {
+            /** Format: int32 */
+            errorCount: number;
+            /** Format: int32 */
+            warningCount: number;
+            byChild: components["schemas"]["IssueChildSummaryResponse"][];
+        };
+        IssueResponse: {
+            /** Format: uuid */
+            id: string;
+            subjectKind: string;
+            /** Format: uuid */
+            subjectId: string;
+            severity: string;
+            source: string;
+            code: string;
+            title: string;
+            detail: null | string;
+            traceId: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        IssuesViewResponse: {
+            own: components["schemas"]["IssueResponse"][];
+            descendants: components["schemas"]["IssueDescendantRollupResponse"];
         };
         Item: {
             /** Format: uuid */
@@ -7777,6 +7849,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemoriesResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetUnitIssues: {
+        parameters: {
+            query?: {
+                includeDescendants?: boolean;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuesViewResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetAgentIssues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuesViewResponse"];
                 };
             };
             /** @description Not Found */

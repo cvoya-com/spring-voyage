@@ -19,16 +19,18 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useAgentCost } from "@/lib/api/queries";
+import { useAgentCost, useAgentIssues } from "@/lib/api/queries";
 import { formatCost } from "@/lib/utils";
 
 import type { AgentNode } from "../aggregate";
+import { IssuesPanel } from "../issues-panel";
 
 import { registerTab, type TabContentProps } from "./index";
 
 function AgentOverviewTab({ node }: TabContentProps) {
-  // Hook runs unconditionally — registry guarantees `kind === "Agent"`.
+  // Hooks run unconditionally — registry guarantees `kind === "Agent"`.
   const costQuery = useAgentCost(node.id);
+  const issuesQuery = useAgentIssues(node.id);
   if (node.kind !== "Agent") return null;
   const agent = node as AgentNode;
   const cost = costQuery.data ?? null;
@@ -38,6 +40,9 @@ function AgentOverviewTab({ node }: TabContentProps) {
       {agent.desc ? (
         <p className="text-sm text-muted-foreground">{agent.desc}</p>
       ) : null}
+
+      {/* #2160: open operational issues against this agent. */}
+      <IssuesPanel view={issuesQuery.data ?? null} subjectKind="agent" />
 
       <LifecyclePanel agentId={agent.id} />
 

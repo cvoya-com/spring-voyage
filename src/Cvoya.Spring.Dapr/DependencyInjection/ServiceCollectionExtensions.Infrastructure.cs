@@ -13,6 +13,7 @@ using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
+using Cvoya.Spring.Dapr.Issues;
 using Cvoya.Spring.Dapr.Threads;
 using Cvoya.Spring.Dapr.Units;
 
@@ -156,6 +157,18 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // Repositories
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.TryAddScoped<IUnitMembershipRepository, UnitMembershipRepository>();
+
+        // #2160: operational issues. Single instance backs both the
+        // writer (producers) and the reader (Overview / CLI / aggregator)
+        // surfaces; the repository scopes per call internally so it can
+        // be safely consumed from non-request-scoped callers (workflow
+        // activities, actors).
+        services.TryAddSingleton<IssueRepository>();
+        services.TryAddSingleton<Cvoya.Spring.Core.Issues.IIssueWriter>(
+            sp => sp.GetRequiredService<IssueRepository>());
+        services.TryAddSingleton<Cvoya.Spring.Core.Issues.IIssueReader>(
+            sp => sp.GetRequiredService<IssueRepository>());
+        services.TryAddSingleton<Cvoya.Spring.Core.Issues.IIssueAggregator, IssueAggregator>();
         services.TryAddScoped<IUnitSubunitMembershipRepository, UnitSubunitMembershipRepository>();
         services.TryAddScoped<IUnitPolicyRepository, UnitPolicyRepository>();
 

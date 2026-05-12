@@ -5533,6 +5533,95 @@
         }
       }
     },
+    "/api/v1/tenant/units/{id}/issues": {
+      "get": {
+        "tags": [
+          "Units"
+        ],
+        "summary": "Open operational issues against a unit, plus the transitively-aggregated descendant rollup.",
+        "operationId": "GetUnitIssues",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDescendants",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuesViewResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/agents/{id}/issues": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Open operational issues against an agent. Agents have no descendants — the rollup is always empty.",
+        "operationId": "GetAgentIssues",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuesViewResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/skills": {
       "get": {
         "tags": [
@@ -10898,6 +10987,139 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "IssueChildSummaryResponse": {
+        "required": [
+          "subjectKind",
+          "subjectId",
+          "name",
+          "errorCount",
+          "warningCount"
+        ],
+        "type": "object",
+        "properties": {
+          "subjectKind": {
+            "type": "string"
+          },
+          "subjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "errorCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "warningCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "IssueDescendantRollupResponse": {
+        "required": [
+          "errorCount",
+          "warningCount",
+          "byChild"
+        ],
+        "type": "object",
+        "properties": {
+          "errorCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "warningCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "byChild": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueChildSummaryResponse"
+            }
+          }
+        }
+      },
+      "IssueResponse": {
+        "required": [
+          "id",
+          "subjectKind",
+          "subjectId",
+          "severity",
+          "source",
+          "code",
+          "title",
+          "detail",
+          "traceId",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subjectKind": {
+            "type": "string"
+          },
+          "subjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "traceId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "IssuesViewResponse": {
+        "required": [
+          "own",
+          "descendants"
+        ],
+        "type": "object",
+        "properties": {
+          "own": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            }
+          },
+          "descendants": {
+            "$ref": "#/components/schemas/IssueDescendantRollupResponse"
           }
         }
       },

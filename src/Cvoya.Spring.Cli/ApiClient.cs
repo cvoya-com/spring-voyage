@@ -443,6 +443,44 @@ public class SpringApiClient
         return result ?? throw new InvalidOperationException($"Server returned an empty readiness response for unit '{id}'.");
     }
 
+    /// <summary>
+    /// #2160: open operational issues against a unit, plus the
+    /// transitively-aggregated descendant rollup. Maps to
+    /// <c>GET /api/v1/tenant/units/{id}/issues</c>.
+    /// </summary>
+    public async Task<IssuesViewResponse> GetUnitIssuesAsync(
+        string id,
+        bool includeDescendants = true,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Units[id].Issues.GetAsync(
+            requestConfiguration: c =>
+            {
+                if (!includeDescendants)
+                {
+                    c.QueryParameters.IncludeDescendants = false;
+                }
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty issues response for unit '{id}'.");
+    }
+
+    /// <summary>
+    /// #2160: open operational issues against an agent. Agents have
+    /// no descendants — the response's <c>descendants</c> rollup is
+    /// always empty.
+    /// </summary>
+    public async Task<IssuesViewResponse> GetAgentIssuesAsync(
+        string id,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Agents[id].Issues.GetAsync(
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty issues response for agent '{id}'.");
+    }
+
     /// <summary>Gets a unit's details.</summary>
     public async Task<UnitDetailResponse> GetUnitAsync(string id, CancellationToken ct = default)
     {

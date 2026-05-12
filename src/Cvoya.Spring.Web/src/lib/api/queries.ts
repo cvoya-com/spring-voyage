@@ -1603,3 +1603,53 @@ export function useTenantPolicyRollup(
     enabled: opts?.enabled,
   });
 }
+
+// ─── Issues (#2160) ─────────────────────────────────────────────────────
+
+/**
+ * #2160: open operational issues against a unit, plus the
+ * transitively-aggregated descendant rollup. Polls infrequently —
+ * issues change on real producer events (validation transitions,
+ * dispatch failures, …) which the actor publishes synchronously, so
+ * background refetching is mostly to catch out-of-band changes.
+ */
+export function useUnitIssues(
+  id: string,
+  opts?: {
+    includeDescendants?: boolean;
+    enabled?: boolean;
+    refetchInterval?: number | false;
+  },
+) {
+  return useQuery({
+    queryKey: queryKeys.issues.unit(id),
+    queryFn: () =>
+      api.getUnitIssues(id, {
+        includeDescendants: opts?.includeDescendants,
+      }),
+    enabled: (opts?.enabled ?? true) && Boolean(id),
+    refetchInterval: opts?.refetchInterval ?? 30_000,
+    staleTime: 5_000,
+  });
+}
+
+/**
+ * #2160: open operational issues against an agent. Agents have no
+ * descendants — the response's `descendants` rollup is always
+ * `{ errorCount: 0, warningCount: 0, byChild: [] }`.
+ */
+export function useAgentIssues(
+  id: string,
+  opts?: {
+    enabled?: boolean;
+    refetchInterval?: number | false;
+  },
+) {
+  return useQuery({
+    queryKey: queryKeys.issues.agent(id),
+    queryFn: () => api.getAgentIssues(id),
+    enabled: (opts?.enabled ?? true) && Boolean(id),
+    refetchInterval: opts?.refetchInterval ?? 30_000,
+    staleTime: 5_000,
+  });
+}

@@ -30,6 +30,10 @@ vi.mock("@/lib/api/queries", () => ({
     useUnitCostTimeseriesMock(id, window, bucket),
   useUnit: (id: string, opts?: unknown) => useUnitMock(id, opts),
   useUnitExecution: (id: string) => useUnitExecutionMock(id),
+  // #2160: IssuesPanel hook. Tests in this file don't exercise it;
+  // default to empty.
+  useUnitIssues: () => ({ data: null, isPending: false, isError: false }),
+  useModelProviders: () => ({ data: [], isPending: false, isError: false }),
 }));
 
 // #1787: the Status tile invalidates the tenant-tree once validation

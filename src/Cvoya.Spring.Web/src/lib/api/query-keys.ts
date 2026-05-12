@@ -170,6 +170,12 @@ export const queryKeys = {
     agent: (id: string) => ["memories", "agent", id] as const,
   },
 
+  issues: {
+    all: ["issues"] as const,
+    unit: (id: string) => ["issues", "unit", id] as const,
+    agent: (id: string) => ["issues", "agent", id] as const,
+  },
+
   connectors: {
     all: ["connectors"] as const,
     list: () => ["connectors", "list"] as const,

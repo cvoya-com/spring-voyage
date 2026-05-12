@@ -103,6 +103,14 @@ public class SpringDbContext : DbContext
     /// <summary>Gets the set of credential-health rows (runtimes + connectors).</summary>
     public DbSet<CredentialHealthEntity> CredentialHealth => Set<CredentialHealthEntity>();
 
+    /// <summary>
+    /// Operational issues observed against units or agents (#2160). The
+    /// open set (<c>ClearedAt is null</c>) is what the Overview tab
+    /// surfaces; cleared rows are kept short-term for audit pending the
+    /// retention story (#2174).
+    /// </summary>
+    public DbSet<IssueEntity> Issues => Set<IssueEntity>();
+
     /// <summary>Gets the set of per-tenant skill-bundle binding rows.</summary>
     public DbSet<TenantSkillBundleBindingEntity> TenantSkillBundleBindings => Set<TenantSkillBundleBindingEntity>();
 
@@ -277,6 +285,14 @@ public class SpringDbContext : DbContext
             .HasQueryFilter(e => e.TenantId == CurrentTenantId && e.DeletedAt == null);
         modelBuilder.Entity<CredentialHealthEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<IssueEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<IssueEntity>()
+            .HasIndex(e => new { e.TenantId, e.SubjectKind, e.SubjectId, e.Source, e.Code })
+            .IsUnique()
+            .HasFilter("\"ClearedAt\" IS NULL");
+        modelBuilder.Entity<IssueEntity>()
+            .HasIndex(e => new { e.TenantId, e.SubjectKind, e.SubjectId, e.ClearedAt });
         modelBuilder.Entity<TenantSkillBundleBindingEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
 

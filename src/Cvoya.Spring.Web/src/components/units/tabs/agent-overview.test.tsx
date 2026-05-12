@@ -25,6 +25,9 @@ vi.mock("@/components/agents/tab-impls/lifecycle-panel", () => ({
 const useAgentCostMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
   useAgentCost: (id: string) => useAgentCostMock(id),
+  // #2160: IssuesPanel hook. Tests in this file don't exercise it;
+  // default to empty.
+  useAgentIssues: () => ({ data: null, isPending: false, isError: false }),
 }));
 
 import AgentOverviewTab from "./agent-overview";

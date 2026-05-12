@@ -134,6 +134,8 @@ public static class UnitCommand
         // unit's execution defaults (image / runtime / tool / provider /
         // model) inherited by member agents.
         unitCommand.Subcommands.Add(UnitExecutionCommand.Create(outputOption));
+        // #2160: open operational issues against this unit + descendant rollup.
+        unitCommand.Subcommands.Add(IssuesCommand.CreateUnitSubcommand(outputOption));
 
         return unitCommand;
     }

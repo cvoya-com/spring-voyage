@@ -84,6 +84,10 @@ vi.mock("@/lib/api/queries", () => ({
   // with "no data" so Explorer page tests don't need to model
   // execution defaults.
   useUnitExecution: () => ({ data: null, isLoading: false }),
+  // #2160: IssuesPanel hook on Unit Overview + Agent Overview. Stub
+  // with "no data" so Explorer page tests don't need to model issues.
+  useUnitIssues: () => ({ data: null, isPending: false, isError: false }),
+  useAgentIssues: () => ({ data: null, isPending: false, isError: false }),
   // Agents tab — MembershipDialog reads the model-providers catalogue (ADR-0038).
   useModelProviders: () => ({ data: [], isLoading: false }),
 }));
