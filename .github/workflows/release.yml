@@ -502,7 +502,159 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 5. Publish dispatcher binaries (#2172) ─────────────────────────────────
+  # ── 5. Publish `spring` CLI binaries (#2172) ───────────────────────────────
+  #
+  # Publishes the operator-facing `spring` CLI as self-contained single-file
+  # binaries across the same 5-RID matrix used by publish-dispatcher (linux-x64,
+  # linux-arm64, osx-x64, osx-arm64, win-x64). Asset names follow the
+  # `spring-<v>-<rid>.{tar.gz|zip}` convention so the source-free installer
+  # (#2180) can resolve them deterministically off the GitHub Release.
+  #
+  # The compiled binary's default name is `Cvoya.Spring.Cli` (matching the
+  # csproj). The installer symlinks `~/.local/bin/spring`, so we rename the
+  # binary to `spring` inside the staged archive — this lets operators run
+  # `spring` directly off the tarball without an installer indirection.
+  publish-spring-cli:
+    name: Publish spring CLI ${{ matrix.rid }}
+    needs: [resolve, ci-gate]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            os: ubuntu-latest
+            archive: tar.gz
+            executable: spring
+            source_executable: Cvoya.Spring.Cli
+          - rid: linux-arm64
+            os: ubuntu-latest
+            archive: tar.gz
+            executable: spring
+            source_executable: Cvoya.Spring.Cli
+          - rid: osx-x64
+            os: macos-latest
+            archive: tar.gz
+            executable: spring
+            source_executable: Cvoya.Spring.Cli
+          - rid: osx-arm64
+            os: macos-latest
+            archive: tar.gz
+            executable: spring
+            source_executable: Cvoya.Spring.Cli
+          - rid: win-x64
+            os: windows-latest
+            archive: zip
+            executable: spring.exe
+            source_executable: Cvoya.Spring.Cli.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      VERSION_LABEL: ${{ needs.resolve.outputs.version }}
+      RID: ${{ matrix.rid }}
+      ARCHIVE: ${{ matrix.archive }}
+      EXECUTABLE: ${{ matrix.executable }}
+      SOURCE_EXECUTABLE: ${{ matrix.source_executable }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            global.json
+            NuGet.config
+
+      - name: Restore dependencies
+        shell: bash
+        run: dotnet restore src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj -r "${RID}"
+
+      - name: Publish self-contained
+        shell: bash
+        run: |
+          dotnet publish src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj \
+            -c Release \
+            -r "${RID}" \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:DebugType=embedded \
+            -p:Version="${VERSION_LABEL}" \
+            -p:InformationalVersion="${VERSION_LABEL}" \
+            --no-restore \
+            -o "publish/${RID}"
+
+      - name: Verify the executable boots
+        # Cross-RID emulation is not enabled, so only smoke the binary on
+        # matching hosts. linux-arm64 / win-x64 archives are validated only
+        # at unpack-time by the installer end-to-end test.
+        if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-x64' || matrix.rid == 'osx-arm64'
+        shell: bash
+        run: |
+          out="$("./publish/${RID}/${SOURCE_EXECUTABLE}" --help 2>&1 | head -1)"
+          echo "spring --help (first line): ${out}"
+          if [[ -z "${out}" ]]; then
+            echo "::error::spring --help produced no output"
+            exit 1
+          fi
+
+      - name: Package artifact
+        id: package
+        shell: bash
+        run: |
+          stage_dir="stage/${RID}"
+          rm -rf "${stage_dir}"
+          mkdir -p "${stage_dir}"
+          cp -R "publish/${RID}/." "${stage_dir}/"
+          # Rename to the operator-facing binary name. The installer (#2180)
+          # symlinks ~/.local/bin/spring -> this binary, but renaming here
+          # means even operators who unpack the tarball manually can run
+          # `./spring --help` directly.
+          mv "${stage_dir}/${SOURCE_EXECUTABLE}" "${stage_dir}/${EXECUTABLE}"
+          cat >"${stage_dir}/README.txt" <<EOF
+          spring ${VERSION_LABEL} (${RID})
+
+          Run the Spring Voyage CLI against an existing platform deployment:
+
+              ./${EXECUTABLE} --help
+              SPRING_API_URL=https://your.host ./${EXECUTABLE} agent list
+
+          See https://github.com/cvoya-com/spring-voyage/blob/main/docs/guide/user/cli.md.
+          EOF
+
+          archive_name="spring-${VERSION_LABEL}-${RID}.${ARCHIVE}"
+          if [[ "${ARCHIVE}" == "tar.gz" ]]; then
+            tar -C "${stage_dir}" -czf "${archive_name}" .
+          else
+            ( cd "${stage_dir}" && 7z a "../../${archive_name}" . >/dev/null )
+          fi
+          echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
+          ls -lh "${archive_name}"
+
+      - name: Upload archive to workflow artifacts
+        uses: actions/upload-artifact@v7
+        env:
+          ARCHIVE_NAME: ${{ steps.package.outputs.archive_name }}
+        with:
+          # publish-bundle's SHA256SUMS step downloads via this prefix.
+          name: ${{ env.ARCHIVE_NAME }}
+          path: ${{ env.ARCHIVE_NAME }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Attach archive to the GitHub release
+        uses: softprops/action-gh-release@v3
+        env:
+          ARCHIVE_NAME: ${{ steps.package.outputs.archive_name }}
+        with:
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          files: ${{ env.ARCHIVE_NAME }}
+          fail_on_unmatched_files: true
+          prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
+
+  # ── 6. Publish dispatcher binaries (#2172) ─────────────────────────────────
   #
   # Absorbed from .github/workflows/release-spring-dispatcher.yml (which was
   # deleted in this PR). The trigger changes from a dedicated `dispatcher-v*`
@@ -652,7 +804,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [resolve, ci-gate, publish-images, publish-platform-image, publish-dispatcher]
+    needs: [resolve, ci-gate, publish-images, publish-platform-image, publish-spring-cli, publish-dispatcher]
     timeout-minutes: 10
     env:
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
