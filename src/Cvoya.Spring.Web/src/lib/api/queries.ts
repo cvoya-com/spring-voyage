@@ -56,6 +56,7 @@ import type {
   InitiativePolicy,
   MemoriesResponse,
   PackageDetail,
+  PackageRequiredCredentialsResponse,
   PackageSummary,
   PersistentAgentDeploymentResponse,
   PersistentAgentLogsResponse,
@@ -923,6 +924,25 @@ export function usePackage(
     queryKey: queryKeys.packages.detail(name),
     queryFn: () => api.getPackage(name),
     enabled: opts?.enabled ?? Boolean(name),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * #2181: per-(provider, authMethod) credential edges a package's units
+ * consume. Returns null when the package isn't found. Used by the
+ * install wizard to render credential inputs alongside the connector
+ * requirements panel — pre-empting the `CredentialsMissing` error path.
+ */
+export function usePackageRequiredCredentials(
+  name: string,
+  opts?: SliceOptions<PackageRequiredCredentialsResponse | null>,
+): UseQueryResult<PackageRequiredCredentialsResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.packages.requiredCredentials(name),
+    queryFn: () => api.getPackageRequiredCredentials(name),
+    enabled: (opts?.enabled ?? true) && Boolean(name),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,
   });

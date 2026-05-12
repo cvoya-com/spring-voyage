@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
+using System.Linq;
+
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Host.Api.Services;
 
@@ -67,6 +69,16 @@ public static class PackageEndpoints
             .Produces<PackageDetail>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        // #2181: pre-emptive required-credentials surface for the install
+        // wizard. Returns the same per-(provider, authMethod) edges the
+        // install pre-flight derives so the portal can prompt for any
+        // missing tenant secrets *before* the install button is clicked.
+        group.MapGet("/{name}/required-credentials", GetPackageRequiredCredentialsAsync)
+            .WithName("GetPackageRequiredCredentials")
+            .WithSummary("Per-(provider, authMethod) credentials the package's units consume; pre-empts CredentialsMissing on install.")
+            .Produces<PackageRequiredCredentialsResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         // ADR-0037 D5: explicit version selection. Today the catalog
         // ships a single version per package name, so this endpoint
         // returns the same detail as /{name} when {version} matches the
@@ -123,6 +135,59 @@ public static class PackageEndpoints
         }
         return Results.Ok(detail);
     }
+
+    private static async Task<IResult> GetPackageRequiredCredentialsAsync(
+        string name,
+        [FromServices] IPackageCatalogService catalog,
+        [FromServices] Cvoya.Spring.Manifest.IPackageCatalogProvider catalogProvider,
+        [FromServices] Cvoya.Spring.Core.Catalog.IRuntimeCatalog runtimeCatalog,
+        CancellationToken cancellationToken)
+    {
+        // Reuse the install-pre-flight derivation logic so the wizard
+        // and the install pipeline never disagree on what the package
+        // consumes.
+        var manifestYaml = await catalog.LoadPackageManifestYamlAsync(name, cancellationToken);
+        if (manifestYaml is null)
+        {
+            return Results.NotFound();
+        }
+
+        Cvoya.Spring.Manifest.ResolvedPackage resolved;
+        try
+        {
+            resolved = await Cvoya.Spring.Manifest.PackageManifestParser.ParseAndResolveAsync(
+                manifestYaml,
+                packageRoot: null,
+                inputValues: null,
+                catalogProvider: catalogProvider,
+                cancellationToken: cancellationToken);
+        }
+        catch (Cvoya.Spring.Manifest.PackageParseException ex)
+        {
+            return Results.Problem(
+                detail: $"Package '{name}' could not be parsed: {ex.Message}",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
+        var required = Services.CredentialBindingResolver.CollectRequired(resolved, runtimeCatalog);
+        var entries = required
+            .Select(r => new PackageRequiredCredentialEntryResponse(
+                Provider: r.Provider,
+                AuthMethod: FormatAuthMethod(r.AuthMethod),
+                SecretName: r.SecretName,
+                CredentialEnvVar: r.CredentialEnvVar,
+                ConsumingUnits: r.ConsumingUnits))
+            .ToList();
+        return Results.Ok(new PackageRequiredCredentialsResponse(entries));
+    }
+
+    private static string FormatAuthMethod(Cvoya.Spring.Core.Catalog.AuthMethod method) =>
+        method switch
+        {
+            Cvoya.Spring.Core.Catalog.AuthMethod.Oauth => "oauth",
+            Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey => "api-key",
+            _ => method.ToString().ToLowerInvariant(),
+        };
 
     private static async Task<IResult> ListUnitTemplatesAsync(
         [FromServices] IPackageCatalogService catalog,

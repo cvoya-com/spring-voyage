@@ -201,6 +201,8 @@ export const queryKeys = {
     all: ["packages"] as const,
     list: () => ["packages", "list"] as const,
     detail: (name: string) => ["packages", "detail", name] as const,
+    requiredCredentials: (name: string) =>
+      ["packages", "requiredCredentials", name] as const,
   },
 
   // Install status (ADR-0035 decision 11). Per-install slice keyed by id

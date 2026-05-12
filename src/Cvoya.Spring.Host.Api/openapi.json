@@ -2691,6 +2691,40 @@
         }
       }
     },
+    "/api/v1/tenant/packages/{name}/required-credentials": {
+      "get": {
+        "tags": [
+          "Packages"
+        ],
+        "summary": "Per-(provider, authMethod) credentials the package's units consume; pre-empts CredentialsMissing on install.",
+        "operationId": "GetPackageRequiredCredentials",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackageRequiredCredentialsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/v1/tenant/packages/{name}/{version}": {
       "get": {
         "tags": [
@@ -11915,6 +11949,50 @@
             ],
             "items": {
               "$ref": "#/components/schemas/CredentialBindingPayload"
+            }
+          }
+        }
+      },
+      "PackageRequiredCredentialEntryResponse": {
+        "required": [
+          "provider",
+          "authMethod",
+          "secretName",
+          "credentialEnvVar",
+          "consumingUnits"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "authMethod": {
+            "type": "string"
+          },
+          "secretName": {
+            "type": "string"
+          },
+          "credentialEnvVar": {
+            "type": "string"
+          },
+          "consumingUnits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PackageRequiredCredentialsResponse": {
+        "required": [
+          "required"
+        ],
+        "type": "object",
+        "properties": {
+          "required": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PackageRequiredCredentialEntryResponse"
             }
           }
         }

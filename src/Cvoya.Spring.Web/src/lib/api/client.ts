@@ -1709,6 +1709,22 @@ export const api = {
       }),
     ),
 
+  // #2181: pre-emptive required-credentials surface for the install
+  // wizard. Returns the same per-(provider, authMethod) edges the
+  // install pre-flight derives so the portal can prompt for any
+  // missing tenant secrets BEFORE the install button is clicked.
+  // Returns null when the package is not found.
+  getPackageRequiredCredentials: async (name: string) => {
+    const result = await fetchClient.GET(
+      "/api/v1/tenant/packages/{name}/required-credentials",
+      { params: { path: { name } } },
+    );
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result);
+  },
+
   // #2183: batch open-issue counts for the tree explorer's per-row
   // badges. Pass `subjects: ["unit:<guid>", "agent:<guid>", …]`; the
   // server omits subjects with zero open issues from the response.
