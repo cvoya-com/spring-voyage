@@ -6,8 +6,15 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.Dapr.Tenancy;
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using Shouldly;
 
@@ -26,6 +33,127 @@ using Xunit;
 /// </remarks>
 public class DbAgentDefinitionProviderTests
 {
+    [Fact]
+    public async Task GetByIdAsync_UnitDefinitionWithExecution_ProjectsUnitRuntime()
+    {
+        var unitId = Guid.NewGuid();
+        using var services = BuildProvider(db =>
+        {
+            db.UnitDefinitions.Add(new UnitDefinitionEntity
+            {
+                Id = unitId,
+                TenantId = OssTenantIds.Default,
+                DisplayName = "Runtime Unit",
+                Definition = JsonSerializer.SerializeToElement(new
+                {
+                    instructions = "Coordinate the work.",
+                    execution = new
+                    {
+                        agent = "spring-voyage",
+                        image = "ghcr.io/cvoya/unit-runtime:latest",
+                        hosting = "persistent",
+                        provider = "ollama",
+                        model = "llama3.2:3b",
+                    },
+                }),
+            });
+        });
+
+        var sut = CreateProvider(services);
+
+        var definition = await sut.GetByIdAsync(
+            unitId.ToString("N"),
+            TestContext.Current.CancellationToken);
+
+        definition.ShouldNotBeNull();
+        definition!.AgentId.ShouldBe(unitId.ToString("N"));
+        definition.Name.ShouldBe("Runtime Unit");
+        definition.Instructions.ShouldBe("Coordinate the work.");
+        definition.Execution.ShouldNotBeNull();
+        definition.Execution!.AgentRuntimeId.ShouldBe("spring-voyage");
+        definition.Execution.Image.ShouldBe("ghcr.io/cvoya/unit-runtime:latest");
+        definition.Execution.Hosting.ShouldBe(AgentHostingMode.Persistent);
+        definition.Execution.Provider.ShouldBe("ollama");
+        definition.Execution.Model.ShouldBe("llama3.2:3b");
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_UnitDefinitionWithoutExecution_ReturnsDefinitionForVisibleError()
+    {
+        var unitId = Guid.NewGuid();
+        using var services = BuildProvider(db =>
+        {
+            db.UnitDefinitions.Add(new UnitDefinitionEntity
+            {
+                Id = unitId,
+                TenantId = OssTenantIds.Default,
+                DisplayName = "Misconfigured Unit",
+                Definition = JsonSerializer.SerializeToElement(new
+                {
+                    instructions = "Coordinate the work.",
+                }),
+            });
+        });
+
+        var sut = CreateProvider(services);
+
+        var definition = await sut.GetByIdAsync(
+            unitId.ToString("N"),
+            TestContext.Current.CancellationToken);
+
+        definition.ShouldNotBeNull();
+        definition!.AgentId.ShouldBe(unitId.ToString("N"));
+        definition.Name.ShouldBe("Misconfigured Unit");
+        definition.Instructions.ShouldBe("Coordinate the work.");
+        definition.Execution.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_AgentAnchorWithoutExecution_FallsBackToUnitDefinition()
+    {
+        var unitId = Guid.NewGuid();
+        using var services = BuildProvider(db =>
+        {
+            db.AgentDefinitions.Add(new AgentDefinitionEntity
+            {
+                Id = unitId,
+                TenantId = OssTenantIds.Default,
+                DisplayName = "Stale anchor",
+                Definition = JsonSerializer.SerializeToElement(new
+                {
+                    instructions = "stale",
+                }),
+            });
+            db.UnitDefinitions.Add(new UnitDefinitionEntity
+            {
+                Id = unitId,
+                TenantId = OssTenantIds.Default,
+                DisplayName = "Runtime Unit",
+                Definition = JsonSerializer.SerializeToElement(new
+                {
+                    instructions = "unit instructions",
+                    execution = new
+                    {
+                        agent = "claude-code",
+                        image = "ghcr.io/cvoya/unit-runtime:latest",
+                    },
+                }),
+            });
+        });
+
+        var sut = CreateProvider(services);
+
+        var definition = await sut.GetByIdAsync(
+            unitId.ToString("N"),
+            TestContext.Current.CancellationToken);
+
+        definition.ShouldNotBeNull();
+        definition!.Name.ShouldBe("Runtime Unit");
+        definition.Instructions.ShouldBe("unit instructions");
+        definition.Execution.ShouldNotBeNull();
+        definition.Execution!.AgentRuntimeId.ShouldBe("claude-code");
+    }
+
     [Fact]
     public void Project_ExtractsTopLevelExecutionBlock()
     {
@@ -262,4 +390,25 @@ public class DbAgentDefinitionProviderTests
         // execution is null because no agent runtime id was present.
         def.Execution.ShouldBeNull();
     }
+
+    private static ServiceProvider BuildProvider(Action<SpringDbContext> seed)
+    {
+        var dbName = $"agent-definition-provider-{Guid.NewGuid():N}";
+        var services = new ServiceCollection();
+        services.AddSingleton<ITenantContext>(new StaticTenantContext(OssTenantIds.Default));
+        services.AddDbContext<SpringDbContext>(options =>
+            options.UseInMemoryDatabase(dbName));
+
+        var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        seed(db);
+        db.SaveChanges();
+        return provider;
+    }
+
+    private static DbAgentDefinitionProvider CreateProvider(ServiceProvider provider)
+        => new(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            NullLoggerFactory.Instance);
 }

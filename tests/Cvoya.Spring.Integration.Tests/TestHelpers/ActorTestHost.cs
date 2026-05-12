@@ -212,17 +212,43 @@ public static class ActorTestHost
         IActorProxyFactory? actorProxyFactory = null,
         InMemoryUnitMemberGraphStore? memberGraphStore = null)
     {
+        var harness = CreateUnitActorWithHarness(
+            runtimeInvocationPath,
+            actorId,
+            directoryService,
+            actorProxyFactory,
+            memberGraphStore);
+
+        return (harness.Actor, harness.StateManager, harness.RuntimeInvocationPath, harness.MemberGraphStore);
+    }
+
+    /// <summary>
+    /// Creates a <see cref="UnitActor"/> together with the mocked
+    /// collaborators integration tests need to observe activity events or
+    /// arrange member-graph state.
+    /// </summary>
+    public static UnitActorTestHarness CreateUnitActorWithHarness(
+        IRuntimeInvocationPath? runtimeInvocationPath = null,
+        string? actorId = null,
+        IDirectoryService? directoryService = null,
+        IActorProxyFactory? actorProxyFactory = null,
+        InMemoryUnitMemberGraphStore? memberGraphStore = null)
+    {
         var stateManager = Substitute.For<IActorStateManager>();
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        runtimeInvocationPath ??= Substitute.For<IRuntimeInvocationPath>();
-        runtimeInvocationPath
-            .InvokeAsync(
-                Arg.Any<CoreMessaging.Address>(),
-                Arg.Any<Message>(),
-                Arg.Any<CancellationToken>(),
-                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
-            .Returns(Task.CompletedTask);
+        var createdRuntimeInvocationPath = runtimeInvocationPath is null;
+        if (createdRuntimeInvocationPath)
+        {
+            runtimeInvocationPath = Substitute.For<IRuntimeInvocationPath>();
+            runtimeInvocationPath
+                .InvokeAsync(
+                    Arg.Any<CoreMessaging.Address>(),
+                    Arg.Any<Message>(),
+                    Arg.Any<CancellationToken>(),
+                    Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
+                .Returns(Task.CompletedTask);
+        }
         directoryService ??= Substitute.For<IDirectoryService>();
         actorProxyFactory ??= Substitute.For<IActorProxyFactory>();
 
@@ -260,7 +286,7 @@ public static class ActorTestHost
         var actor = new UnitActor(
             host,
             loggerFactory,
-            runtimeInvocationPath,
+            runtimeInvocationPath!,
             activityEventBus,
             directoryService,
             actorProxyFactory,
@@ -268,9 +294,28 @@ public static class ActorTestHost
             memberGraphStore);
         SetStateManager(actor, stateManager);
 
-        runtimeInvocationPath.ClearReceivedCalls();
-        return (actor, stateManager, runtimeInvocationPath, memberGraphStore);
+        if (createdRuntimeInvocationPath)
+        {
+            runtimeInvocationPath!.ClearReceivedCalls();
+        }
+        return new UnitActorTestHarness(
+            actor,
+            stateManager,
+            runtimeInvocationPath!,
+            memberGraphStore,
+            activityEventBus);
     }
+
+    /// <summary>
+    /// Bundles a <see cref="UnitActor"/> with the mocks integration tests
+    /// commonly inspect.
+    /// </summary>
+    public sealed record UnitActorTestHarness(
+        UnitActor Actor,
+        IActorStateManager StateManager,
+        IRuntimeInvocationPath RuntimeInvocationPath,
+        InMemoryUnitMemberGraphStore MemberGraphStore,
+        IActivityEventBus ActivityEventBus);
 
     /// <summary>
     /// Normalises a caller-supplied actor id so the resulting <c>ActorId</c>

@@ -6,18 +6,20 @@ namespace Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Catalog;
 
 /// <summary>
-/// Resolves an agent identifier to the concrete configuration needed to launch
-/// its external runtime (image, tool, instructions). The OSS default reads from
-/// the platform's agent-definition store; the private cloud repo may override to
-/// add tenant scoping, caching, or alternative storage.
+/// Resolves an agent or unit identifier to the concrete configuration needed to
+/// launch its external runtime (image, tool, instructions). The OSS default
+/// reads from the platform's agent-definition store and, for unit-shaped
+/// subjects, falls back to the unit-definition store; the private cloud repo may
+/// override to add tenant scoping, caching, or alternative storage.
 /// </summary>
 public interface IAgentDefinitionProvider
 {
     /// <summary>
-    /// Gets the definition for the given agent id, or <c>null</c> when no agent
-    /// matches. Implementations must not throw for missing agents.
+    /// Gets the definition for the given agent or unit id, or <c>null</c> when
+    /// no addressable runtime subject matches. Implementations must not throw
+    /// for missing subjects.
     /// </summary>
-    /// <param name="agentId">The agent identifier (the actor id / YAML <c>agent.id</c>).</param>
+    /// <param name="agentId">The subject identifier (the actor id in canonical Guid wire form).</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task<AgentDefinition?> GetByIdAsync(string agentId, CancellationToken cancellationToken = default);
 }
