@@ -812,9 +812,13 @@ jobs:
   #   manifest.json                                                   — generated here
   #   README.md                                                       — generated here
   #   LICENSE                                                         — from repo root LICENSE.md
+  # Also included (added in #2180):
+  #   uninstall.sh                                                    — from devops/install/
+  #                                                                     (ships in-bundle so
+  #                                                                     `spring-voyage uninstall`
+  #                                                                     survives install-root cleanup)
   # Explicitly NOT included:
   #   - devops/build/ — source-build artifacts; operators with the bundle don't build images locally
-  #   - uninstall.sh   — ships with the installer in #2180, not in PR1 (#2172)
   #
   # SHA256SUMS covers: bundle tarball + 5 dispatcher archives + 5 CLI
   # archives. Platform image is intentionally excluded (it's a registry
@@ -858,6 +862,12 @@ jobs:
           cp devops/deploy/spring.env.example     "${stage}/"
           cp devops/deploy/scripts/dispatcher-smoke.sh        "${stage}/scripts/"
           cp devops/deploy/scripts/test-spring-voyage-host.sh "${stage}/scripts/"
+
+          # devops/install/uninstall.sh — ships in the bundle so
+          # `spring-voyage uninstall` keeps working after the install
+          # root's `current` symlink is torn down (#2180, ADR-0042).
+          cp devops/install/uninstall.sh          "${stage}/"
+          chmod +x "${stage}/uninstall.sh"
 
           # dapr/components/delegated-spring-voyage-agent/ — REQUIRED. setup.sh
           # writes Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath
@@ -915,6 +925,7 @@ jobs:
           scripts/                          Smoke tests for the dispatcher and host wrapper
           dapr/components/                  Dapr component manifests consumed by the platform sidecar
           manifest.json                     Version pinning (image, dispatcher, CLI)
+          uninstall.sh                      Bundle-side uninstall (invoked by \`spring-voyage uninstall\`)
           \`\`\`
 
           ## Operator entry point
