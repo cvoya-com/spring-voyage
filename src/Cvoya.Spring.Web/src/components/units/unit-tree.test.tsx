@@ -5,7 +5,7 @@ import {
   type RenderResult,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type ReactElement } from "react";
+import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { TreeNode } from "./aggregate";
@@ -20,12 +20,19 @@ function render(ui: ReactElement): RenderResult {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  const wrap = (node: ReactElement) => (
+  const wrap = (node: ReactNode) => (
     <QueryClientProvider client={client}>{node}</QueryClientProvider>
   );
   const result = _baseRender(wrap(ui));
   const baseRerender = result.rerender;
-  result.rerender = (next: ReactElement) => baseRerender(wrap(next));
+  // Override the base rerender so re-renders re-apply the wrapper.
+  // The base rerender's parameter type is `ReactNode`; we keep that
+  // shape but only forward when the input is actually an element so
+  // the QueryClient stays in scope (a stray text/null re-render would
+  // collapse the provider and break the tests below).
+  result.rerender = (next: ReactNode) => {
+    baseRerender(wrap(isValidElement(next) ? next : null));
+  };
   return result;
 }
 
