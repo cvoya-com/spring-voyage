@@ -1137,10 +1137,10 @@ public class UnitActor : Actor, IUnitActor
         // Forward the unit actor's own activity-emission delegate so that
         // dispatch errors (e.g. credential-resolution failures) surface in
         // the unit's Activity feed rather than being silently dropped by
-        // the lean overload's no-op default (#2211). `onDispatchExit` stays
-        // a no-op for now — units do not yet track per-thread mailbox
-        // channels, so there is no per-thread state to drain when the
-        // dispatcher returns.
+        // the lean overload's no-op default (#2211). The lean path owns
+        // dispatch-exit handling for units: there is no per-thread
+        // mailbox state to drain yet, but a dispatcher "no response"
+        // completion is still emitted as a neutral activity row (#2207).
         await _runtimeInvocationPath.InvokeAsync(
             Address,
             message,

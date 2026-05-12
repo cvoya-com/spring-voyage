@@ -93,7 +93,7 @@ bus.ActivityStream
 | `AgentActor.RunDispatchAsync` | `ErrorOccurred` | dispatcher failures |
 | `AgentActor.EmitCostIncurredAsync` | `CostIncurred` | every LLM completion, carries `Cost`, `model`, `inputTokens`, `outputTokens`, `costSource` |
 | `AgentActor.RunInitiativeCheckAsync` | `InitiativeTriggered`, `ReflectionCompleted`, `ReflectionActionDispatched`, `ReflectionActionSkipped` | Tier-2 reflection loop |
-| `UnitActor.ReceiveAsync / HandleDomainMessageAsync` | `MessageReceived`, `DecisionMade`, `ErrorOccurred` | orchestration delegation |
+| `UnitActor.ReceiveAsync / HandleDomainMessageAsync` | `MessageReceived`, `DecisionMade`, `ErrorOccurred`, `WorkflowStepCompleted` | runtime dispatch, orchestration delegation, dispatcher no-response completions |
 | `UnitActor.AddMemberAsync / RemoveMemberAsync / TransitionAsync / SetMetadataAsync` | `StateChanged` | membership, lifecycle, metadata edits |
 | `UnitEndpoints` force-delete | `StateChanged` | force-delete audit |
 | `HumanActor.ReceiveAsync` | `MessageReceived` | human inbox (#456) |

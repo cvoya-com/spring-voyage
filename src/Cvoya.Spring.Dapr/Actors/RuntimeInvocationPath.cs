@@ -3,11 +3,14 @@
 
 namespace Cvoya.Spring.Dapr.Actors;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.Extensions.Logging;
 
@@ -87,17 +90,23 @@ public class RuntimeInvocationPath(
         // polling before it can route the response back to the human thread.
         //
         // When the caller supplies an activity-emission delegate (e.g. the
-        // unit actor's own EmitActivityEventAsync), forward it so dispatch
-        // errors — credential-resolution failures in particular — surface
-        // in the caller's Activity feed. When null, fall back to a no-op
-        // so callers without an activity channel still see the original
-        // lean-overload behaviour (#2211).
+        // unit actor's own EmitActivityEventAsync), adapt coordinator
+        // events back to the real subject address so unit dispatch errors
+        // are visible in unit-scoped Activity streams. The lean dispatch
+        // exit handler also turns "no response" completions into a neutral
+        // activity row so operators can distinguish a completed silent
+        // dispatch from one still in flight (#2207). When null, fall back
+        // to no-ops so callers without an activity channel still see the
+        // original lean-overload behaviour (#2211).
+        var leanEmitActivity = CreateLeanActivityEmitter(subject, emitActivity);
+        var leanDispatchExit = CreateLeanDispatchExitHandler(subject, inbound, emitActivity);
+
         await dispatchCoordinator.RunDispatchAsync(
             agentId: subject.Path,
             message: inbound,
             context: context,
-            emitActivity: emitActivity ?? ((_, _) => Task.CompletedTask),
-            onDispatchExit: _ => Task.CompletedTask,
+            emitActivity: leanEmitActivity,
+            onDispatchExit: leanDispatchExit,
             cancellationToken: CancellationToken.None);
     }
 
@@ -215,5 +224,56 @@ public class RuntimeInvocationPath(
             AgentInstructions: definition?.Instructions,
             EffectiveMetadata: null,
             PendingAmendments: null);
+    }
+
+    private static Func<ActivityEvent, CancellationToken, Task> CreateLeanActivityEmitter(
+        Address subject,
+        Func<ActivityEvent, CancellationToken, Task>? emitActivity)
+    {
+        if (emitActivity is null)
+        {
+            return (_, _) => Task.CompletedTask;
+        }
+
+        return (activityEvent, cancellationToken) =>
+            emitActivity(activityEvent with { Source = subject }, cancellationToken);
+    }
+
+    private static Func<string, Task> CreateLeanDispatchExitHandler(
+        Address subject,
+        Message inbound,
+        Func<ActivityEvent, CancellationToken, Task>? emitActivity)
+    {
+        if (emitActivity is null)
+        {
+            return _ => Task.CompletedTask;
+        }
+
+        return reason =>
+        {
+            if (!string.Equals(reason, AgentDispatchCoordinator.DispatchNoResponseReason, StringComparison.Ordinal))
+            {
+                return Task.CompletedTask;
+            }
+
+            var details = JsonSerializer.SerializeToElement(new
+            {
+                reason,
+                subject = subject.ToString(),
+                threadId = inbound.ThreadId,
+            });
+
+            return emitActivity(
+                new ActivityEvent(
+                    Guid.NewGuid(),
+                    DateTimeOffset.UtcNow,
+                    subject,
+                    ActivityEventType.WorkflowStepCompleted,
+                    ActivitySeverity.Info,
+                    "Dispatch returned no response.",
+                    details,
+                    inbound.ThreadId),
+                CancellationToken.None);
+        };
     }
 }
