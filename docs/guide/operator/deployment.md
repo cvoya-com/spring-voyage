@@ -1,24 +1,105 @@
 # Deployment
 
-This guide walks an operator from zero to a working single-host Spring Voyage deployment using Docker Compose or Podman. Kubernetes and multi-region deployments are covered in the Spring Voyage Cloud repository; this guide targets the open-source single-host scenario (workstation, home server, or single server).
+This guide walks an operator from zero to a working single-host Spring Voyage deployment. Kubernetes and multi-region deployments are covered in the Spring Voyage Cloud repository; this guide targets the open-source single-host scenario (workstation, home server, or single server).
 
 For the architectural picture read [Architecture — Deployment](../../architecture/deployment.md) and [Architecture — Infrastructure](../../architecture/infrastructure.md) first. Operator tasks above provisioning (backups, DataProtection keys, migrations) live in [Developer — Operations](../../developer/operations.md).
 
+Two paths are supported:
+
+1. **Source-free installer (canonical).** Curlable `install.sh` — see [§ Quick install](#quick-install-source-free) below. Recorded in [ADR-0042](../../decisions/0042-local-operator-installer.md).
+2. **Build from source.** Clone the repo and run `devops/build/build.sh && devops/deploy/deploy.sh up`. Covered in [§ Build from source](#build-from-source) further down.
+
 ## Prerequisites
 
-- **Host:** Linux (any distro with kernel 5.10+), macOS, or Windows via WSL2. 4 GB RAM minimum, 8 GB recommended, 20 GB disk.
-- **Container runtime:** either
-  - Docker Engine 24+ with the Compose plugin, or
-  - Podman 4.4+ (rootless-capable).
+- **Host:** Linux (any distro with kernel 5.10+) or macOS. Windows operators follow the manual install docs in v0.1.
+- **Container runtime:** Podman 4.4+ (rootless-capable). Docker Engine 24+ is a manual secondary path; the installer is Podman-only.
 - **Ports:** 80 and 443 free on the host (Caddy binds them for TLS). Nothing else needs to be exposed.
 - **A DNS name** pointing at the host — required only if you want Let's Encrypt TLS. Internal / `*.localhost` use is fine without DNS.
-- **Git** — to check out the repository and pin the desired tag.
 
 No Dapr CLI is required on the host. The stack bundles its own Dapr control plane (placement + scheduler).
 
-## Zero-to-running walkthrough
+## Quick install (source-free)
 
-This gets you from a clean host to a working stack in under ten minutes on a reasonable connection. Substitute `docker compose` for `podman compose` if you prefer Podman, or use `./deploy.sh` (Podman-native, see [below](#podman-rootless)).
+The canonical entry-point. Runs from a release tarball; no git clone needed.
+
+```bash
+curl -fSL https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh | bash
+```
+
+The installer:
+
+1. Validates pre-flight (not root, `bash >= 4`, `curl`, `tar`, `openssl`, `podman >= 4`, ports 80/443 free, `~/.local/bin` on PATH, `podman machine` running on macOS).
+2. Resolves the release (`--version <tag>`, `$SPRING_VOYAGE_VERSION`, or the latest stable release from the GitHub API).
+3. Downloads the deployment bundle, the dispatcher binary, and the `spring` CLI for your RID; verifies all three against `SHA256SUMS`.
+4. Pulls the platform image (`ghcr.io/cvoya-com/spring-voyage:<v>`).
+5. Prompts for **`DEPLOY_HOSTNAME`** (default `localhost`). This is the only required prompt.
+6. Generates `~/.spring-voyage/spring.env` (mode 0600). `POSTGRES_PASSWORD`, `SPRING_SECRETS_AES_KEY`, the OAuth redirect URI, the Dapr components path, the dispatcher binary path, and the platform image refs are all generated or derived — no prompts.
+7. Starts the stack via the bundled `deploy.sh up`.
+8. Prompts: **"Configure GitHub App for this deployment? (Y/n)"**. If you opt in, the installer invokes `spring github-app register --env-path ~/.spring-voyage/spring.env --write-env`, which drives the manifest flow end-to-end (a single browser click on GitHub). If you skip it, the install completes; rerun `spring github-app register` later when you want GitHub features.
+9. Prints a summary: install path, `spring.env` path, web URL, log location, and the uninstall command.
+
+### Flags
+
+| Flag | Purpose |
+|------|---------|
+| `--version <tag>` | Install a specific release (e.g. `v0.1.0-rc.2`). Defaults to latest stable. |
+| `--root <dir>` | Install root (defaults to `~/.spring-voyage`). |
+| `--yes` | Non-interactive. Uses `DEPLOY_HOSTNAME=localhost`, skips the GitHub App prompt. |
+| `--force` | Bypass the "already installed" refusal. Only use this if `uninstall` is broken. |
+| `--no-start` | Generate `spring.env` and assets but skip `deploy.sh up`. Useful for CI bring-up that wants to inspect the env file first. |
+
+### What ends up on disk
+
+```text
+~/.spring-voyage/
+  releases/<v>/bundle/        # Deployment bundle (deploy.sh, dapr/, manifest.json, …)
+  releases/<v>/dispatcher/    # Dispatcher binary (Cvoya.Spring.Dispatcher)
+  releases/<v>/cli/           # `spring` CLI binary
+  current  ->  releases/<v>/bundle
+  spring.env                  # Mode 0600
+  host/                       # spring-dispatcher state (dispatcher.env, PID)
+  workspaces/                 # Per-thread agent workspaces
+~/.local/bin/
+  spring         -> releases/<v>/cli/spring
+  spring-voyage  -> wrapper that delegates install|uninstall|status
+```
+
+### Uninstall
+
+`spring-voyage uninstall` is first-class. Two modes:
+
+```bash
+# Default: stops containers, removes images/volumes, removes install-root
+# release assets and the ~/.local/bin/ symlinks. PRESERVES spring.env,
+# ~/.spring-voyage/host/, and ~/.spring-voyage/workspaces/.
+spring-voyage uninstall
+
+# Factory reset: above + spring.env + host/ + workspaces/.
+spring-voyage uninstall --purge
+
+# Skip the confirmation prompt (works for both default and --purge):
+spring-voyage uninstall --yes
+spring-voyage uninstall --purge --yes
+```
+
+Both modes are idempotent — re-running on a clean system exits 0.
+
+### After install
+
+LLM provider credentials are tier-2 tenant defaults (not deployment config). The platform does not read them from `spring.env`. Set them once via the CLI or portal:
+
+```bash
+spring secret create --scope tenant anthropic-api-key --value 'sk-ant-...'
+spring secret create --scope tenant openai-api-key    --value 'sk-...'
+```
+
+See [§ Tier-2 tenant-default credentials](#tier-2-tenant-default-credentials--llm-runtime-credentials-post-deploy) for the full model. The same three-tier resolution chain is documented in [Managing Secrets](secrets.md).
+
+The web URL is `http://localhost` for the default install, or `https://${DEPLOY_HOSTNAME}` once you point public DNS at the host and Caddy issues a Let's Encrypt certificate.
+
+## Build from source
+
+If you want to track `main`, develop against an unreleased commit, or use Docker instead of Podman, clone the repo. Substitute `docker compose` for `podman compose` if you prefer Podman, or use `./deploy.sh` (Podman-native, see [below](#podman-rootless)).
 
 ```bash
 # 1. Clone the repository and check out a stable tag.
@@ -396,5 +477,7 @@ If agents still cannot reach the host, confirm the per-user bridge network exist
 - [Developer — Setup](../../developer/setup.md) — local dev loop without containers (`dapr run` + `dotnet run`).
 - [Developer — Operations](../../developer/operations.md) — migrations, DataProtection keys, backups.
 - [Developer — Secret store](../../developer/secret-store.md) — per-agent / per-unit secret scoping and rotation.
+- [`devops/install/README.md`](../../../devops/install/README.md) — installer/uninstaller details and troubleshooting.
 - [`devops/deploy/README.md`](../../../devops/deploy/README.md) — the build/deploy script reference, per-user agent networks, webhook relay.
 - [`dapr/README.md`](../../../dapr/README.md) — Dapr component and configuration reference.
+- [ADR-0042 — Local-host operator installer](../../decisions/0042-local-operator-installer.md) — design decisions behind `install.sh`/`uninstall.sh`.

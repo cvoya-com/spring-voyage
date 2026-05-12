@@ -146,7 +146,26 @@ For Dapr component layout (local vs. production profiles, secret stores, configs
 
 ## Self-Hosting
 
-To run the full stack (Postgres, Redis, Dapr control plane, API, Worker, web dashboard, Caddy with automatic TLS) on a single host, use the container-based deployment under [`devops/deploy/`](devops/deploy/README.md) instead of `dapr run`. Both Docker Compose and a Podman-native script are supported:
+To run the full stack (Postgres, Redis, Dapr control plane, API, Worker, web dashboard, Caddy with automatic TLS) on a single host, use the source-free installer below. Source-clone is still supported for contributors and operators who want to build from `main`.
+
+### Quick install (canonical)
+
+```bash
+curl -fSL https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh | bash
+```
+
+The installer downloads the deployment bundle, dispatcher binary, and `spring` CLI for your platform; verifies them against `SHA256SUMS`; pulls the platform image; and brings the stack up. Two prompts only — `DEPLOY_HOSTNAME` (default `localhost`) and an opt-in GitHub-App registration flow. `--yes` skips both. See the [operator deployment guide](docs/guide/operator/deployment.md) for the full walkthrough, flags, and [ADR-0042](docs/decisions/0042-local-operator-installer.md) for the design.
+
+Teardown is symmetric:
+
+```bash
+spring-voyage uninstall            # preserves spring.env + host state + workspaces
+spring-voyage uninstall --purge    # factory reset
+```
+
+### Build from source
+
+If you want to track `main` or use Docker instead of Podman, clone the repo:
 
 ```bash
 cd devops/deploy/
