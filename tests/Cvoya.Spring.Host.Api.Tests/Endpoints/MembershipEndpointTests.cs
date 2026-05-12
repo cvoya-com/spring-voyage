@@ -10,6 +10,7 @@ using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Host.Api.Models;
@@ -429,6 +430,108 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
             System.Text.Json.JsonValueKind.String);
     }
 
+    // PR-#2223 follow-up: project each member's hosting mode onto the
+    // membership row so the portal's unit Execution tab can render
+    // per-member hosting without a full-tenant /agents fan-out (M lookups
+    // vs N). The wire-shape pin lives here so any regression on the
+    // projection trips the API suite before reaching the portal.
+    [Fact]
+    public async Task ListUnitMemberships_ProjectsAgentHostingMode_FromExecutionStore()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        ArrangeDirectoryHit("unit", "engineering", UnitEngineeringUuid);
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+        ArrangeDirectoryHit("agent", "hopper", AgentHopperUuid);
+
+        // Ada is declared persistent; Hopper has no execution block (unset
+        // → null on the wire, dispatcher defaults to persistent).
+        ArrangeAgentHosting(AgentAdaUuid, "persistent");
+        ArrangeAgentHosting(AgentHopperUuid, null);
+
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
+        await UpsertAsync(UnitEngineeringUuid, AgentHopperUuid);
+
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitEngineeringUuid:N}/memberships", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
+        list.ShouldNotBeNull();
+        list!.Single(m => m.AgentAddress == AgentAdaUuid.ToString("N")).AgentHostingMode.ShouldBe("persistent");
+        list.Single(m => m.AgentAddress == AgentHopperUuid.ToString("N")).AgentHostingMode.ShouldBeNull();
+    }
+
+    // Companion to the projection test: the same field must round-trip on
+    // the per-agent surface so callers that prefer that view (e.g. the
+    // agent detail page) don't re-derive hosting client-side.
+    [Fact]
+    public async Task ListAgentMemberships_ProjectsAgentHostingMode_FromExecutionStore()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+        ArrangeAgentHosting(AgentAdaUuid, "ephemeral");
+
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
+
+        var response = await _client.GetAsync($"/api/v1/tenant/agents/{AgentAdaUuid:N}/memberships", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
+        list.ShouldNotBeNull();
+        list!.ShouldHaveSingleItem().AgentHostingMode.ShouldBe("ephemeral");
+    }
+
+    // Upsert response must carry the same projection so a portal client
+    // that PUTs a membership and re-renders from the response body sees
+    // the hosting hint without a follow-up GET.
+    [Fact]
+    public async Task UpsertMembership_Response_IncludesAgentHostingMode()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        ArrangeDirectoryHit("unit", "engineering", UnitEngineeringUuid);
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+        ArrangeAgentHosting(AgentAdaUuid, "persistent");
+
+        var response = await _client.PutAsJsonAsync(
+            $"/api/v1/tenant/units/{UnitEngineeringUuid:N}/memberships/{AgentAdaUuid:N}",
+            new UpsertMembershipRequest(),
+            JsonOptions,
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitMembershipResponse>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+        body!.AgentHostingMode.ShouldBe("persistent");
+    }
+
+    // Fail-open guard: a transient execution-store error must NOT fail
+    // the membership list — the row still ships with AgentHostingMode =
+    // null, mirroring the AgentResponse.HostingMode contract on
+    // AgentEndpoints.ListAgents.
+    [Fact]
+    public async Task ListUnitMemberships_ExecutionStoreThrows_FailsOpenWithNullHosting()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        ArrangeDirectoryHit("unit", "engineering", UnitEngineeringUuid);
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+
+        _factory.AgentExecutionStore
+            .GetAsync(AgentAdaUuid.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns<Task<AgentExecutionShape?>>(_ => throw new InvalidOperationException("store transient error"));
+
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
+
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitEngineeringUuid:N}/memberships", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
+        list.ShouldNotBeNull();
+        list!.ShouldHaveSingleItem().AgentHostingMode.ShouldBeNull();
+    }
+
     [Fact]
     public async Task ListAgentMemberships_SurfacesIsPrimaryFlag()
     {
@@ -455,6 +558,12 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         _arrangedEntries.Clear();
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();
+        _factory.AgentExecutionStore.ClearReceivedCalls();
+        // Reset to the default "no execution block" so tests that don't
+        // arrange a hosting mode see a null on the wire.
+        _factory.AgentExecutionStore
+            .GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<AgentExecutionShape?>(null));
         _factory.DirectoryService
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
@@ -466,6 +575,23 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ctx = scope.ServiceProvider.GetRequiredService<Cvoya.Spring.Dapr.Data.SpringDbContext>();
         ctx.UnitMemberships.RemoveRange(ctx.UnitMemberships.ToList());
         ctx.SaveChanges();
+    }
+
+    /// <summary>
+    /// Arranges the <see cref="IAgentExecutionStore"/> stub to return a
+    /// shape with the supplied <paramref name="hosting"/> for the agent
+    /// keyed on the no-dash hex id form (matches the endpoint's lookup
+    /// key — see <c>ResolveAgentHostingAsync</c> in
+    /// <c>MembershipEndpoints</c>).
+    /// </summary>
+    private void ArrangeAgentHosting(Guid agentId, string? hosting)
+    {
+        _factory.AgentExecutionStore
+            .GetAsync(agentId.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<AgentExecutionShape?>(
+                hosting is null
+                    ? null
+                    : new AgentExecutionShape(Hosting: hosting)));
     }
 
     /// <summary>

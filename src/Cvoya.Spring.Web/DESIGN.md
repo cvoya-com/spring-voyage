@@ -358,7 +358,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Messages      | Inline master/detail: conversation list on the left; selecting a row mounts the thread + composer inline on the right. Selection is URL-owned via `?conversation=<id>`. A prominent **+ New conversation** button sits above the list and opens a modal composer; on submit the portal POSTs `/api/v1/messages` and routes to the new thread (see § 9.3). |
 | Memory        | Unit-scoped read-only memory inspector (see § 10).                                                                               |
 | Policies      | Unit policies including the Initiative section.                                                                                  |
-| **Config** (overflow) | Six sub-tabs: Boundary, Execution, Connector, Skills, Secrets, Expertise. Sub-tab selection is URL-owned via `?subtab=<name>`. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
+| **Config** (overflow) | Six sub-tabs: Boundary, Execution, Connector, Skills, Secrets, Expertise. Sub-tab selection is URL-owned via `?subtab=<name>`. Execution edits unit defaults and shows member-agent hosting with deep links to each agent's Config tab. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
 
 **Agent** — 10 visible, 0 overflow.
 

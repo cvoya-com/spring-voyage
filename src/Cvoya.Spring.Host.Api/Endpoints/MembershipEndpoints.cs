@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Host.Api.Models;
@@ -77,6 +78,7 @@ public static class MembershipEndpoints
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitMembershipRepository repository,
+        [FromServices] IAgentExecutionStore executionStore,
         CancellationToken cancellationToken)
     {
         var address = Address.For("agent", id);
@@ -94,13 +96,15 @@ public static class MembershipEndpoints
         var memberships = await repository.ListByAgentAsync(agentUuid, cancellationToken);
         var unitActorIdMap = await ResolveUnitActorIdsAsync(memberships, directoryService, cancellationToken);
         var agentActorIdMap = await ResolveAgentActorIdsAsync(memberships, directoryService, cancellationToken);
-        return Results.Ok(memberships.Select(m => ToResponse(m, unitActorIdMap, agentActorIdMap, entry)).ToArray());
+        var hostingMap = await ResolveAgentHostingAsync(memberships, executionStore, cancellationToken);
+        return Results.Ok(memberships.Select(m => ToResponse(m, unitActorIdMap, agentActorIdMap, entry, hostingMap)).ToArray());
     }
 
     private static async Task<IResult> ListUnitMembershipsAsync(
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitMembershipRepository repository,
+        [FromServices] IAgentExecutionStore executionStore,
         CancellationToken cancellationToken)
     {
         var address = Address.For("unit", id);
@@ -118,7 +122,8 @@ public static class MembershipEndpoints
         var memberships = await repository.ListByUnitAsync(unitUuid, cancellationToken);
         var unitActorIdMap = new Dictionary<Guid, DirectoryEntry> { [unitUuid] = entry };
         var agentActorIdMap = await ResolveAgentActorIdsAsync(memberships, directoryService, cancellationToken);
-        return Results.Ok(memberships.Select(m => ToResponse(m, unitActorIdMap, agentActorIdMap, null)).ToArray());
+        var hostingMap = await ResolveAgentHostingAsync(memberships, executionStore, cancellationToken);
+        return Results.Ok(memberships.Select(m => ToResponse(m, unitActorIdMap, agentActorIdMap, null, hostingMap)).ToArray());
     }
 
     private static async Task<IResult> UpsertMembershipAsync(
@@ -127,6 +132,7 @@ public static class MembershipEndpoints
         UpsertMembershipRequest request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitMembershipRepository repository,
+        [FromServices] IAgentExecutionStore executionStore,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -171,8 +177,9 @@ public static class MembershipEndpoints
         var row = persisted ?? membership;
         var unitActorIdMap = new Dictionary<Guid, DirectoryEntry> { [unitUuid] = unitEntry };
         var agentActorIdMap = new Dictionary<Guid, DirectoryEntry> { [agentUuid] = agentEntry };
+        var hostingMap = await ResolveAgentHostingAsync([row], executionStore, cancellationToken);
 
-        return Results.Ok(ToResponse(row, unitActorIdMap, agentActorIdMap, agentEntry));
+        return Results.Ok(ToResponse(row, unitActorIdMap, agentActorIdMap, agentEntry, hostingMap));
     }
 
     private static async Task<IResult> DeleteMembershipAsync(
@@ -311,6 +318,68 @@ public static class MembershipEndpoints
     }
 
     /// <summary>
+    /// Batch-resolves each distinct member agent's persisted hosting mode in
+    /// parallel via <see cref="IAgentExecutionStore.GetAsync"/>. The result
+    /// keys on agent UUID; missing entries (no execution block, or transient
+    /// store error) are absent from the map and <see cref="ToResponse"/>
+    /// falls open to <c>null</c> on the wire — same fail-open contract as
+    /// <c>AgentResponse.HostingMode</c> on <c>AgentEndpoints.ListAgents</c>.
+    /// </summary>
+    /// <remarks>
+    /// Projecting hosting onto the membership row lets the portal's unit
+    /// Execution tab render per-member hosting without a full-tenant
+    /// <c>GET /api/v1/tenant/agents</c> fan-out: M lookups (just the unit's
+    /// members) instead of N (every agent in the tenant). The N-vs-M win
+    /// matters for tenants with hundreds of agents. Lookups are issued in
+    /// parallel via <see cref="Task.WhenAll{TResult}(IEnumerable{Task{TResult}})"/>
+    /// so the wall-clock cost is the slowest single lookup, not the sum.
+    /// </remarks>
+    private static async Task<Dictionary<Guid, string?>> ResolveAgentHostingAsync(
+        IReadOnlyList<UnitMembership> memberships,
+        IAgentExecutionStore executionStore,
+        CancellationToken cancellationToken)
+    {
+        var distinctAgentIds = memberships
+            .Select(m => m.AgentId)
+            .Distinct()
+            .ToList();
+
+        if (distinctAgentIds.Count == 0)
+        {
+            return [];
+        }
+
+        var lookupTasks = distinctAgentIds.Select(async agentId =>
+        {
+            string? hosting = null;
+            try
+            {
+                var shape = await executionStore.GetAsync(
+                    agentId.ToString("N"),
+                    cancellationToken);
+                hosting = shape?.Hosting;
+            }
+            catch
+            {
+                // Fail-open: hosting stays null on transient store error.
+                // Matches the canonical pattern in AgentEndpoints.ListAgents
+                // (AgentEndpoints.cs:920-948).
+            }
+
+            return (agentId, hosting);
+        }).ToArray();
+
+        var results = await Task.WhenAll(lookupTasks);
+        var map = new Dictionary<Guid, string?>(results.Length);
+        foreach (var (agentId, hosting) in results)
+        {
+            map[agentId] = hosting;
+        }
+
+        return map;
+    }
+
+    /// <summary>
     /// Projects a <see cref="UnitMembership"/> row into its wire representation.
     ///
     /// Wire shape (#2114, post-#1492):
@@ -344,7 +413,8 @@ public static class MembershipEndpoints
         UnitMembership m,
         IReadOnlyDictionary<Guid, DirectoryEntry>? unitActorIdMap = null,
         IReadOnlyDictionary<Guid, DirectoryEntry>? agentActorIdMap = null,
-        DirectoryEntry? agentEntryHint = null)
+        DirectoryEntry? agentEntryHint = null,
+        IReadOnlyDictionary<Guid, string?>? agentHostingMap = null)
     {
         // Unit identity: emit unit:id:<uuid> form.
         var unitAddress = Address.ForIdentity(Address.UnitScheme, m.UnitId).ToString();
@@ -374,6 +444,16 @@ public static class MembershipEndpoints
         // Member field: identity-form agent:id:<uuid>.
         var member = Address.ForIdentity(Address.AgentScheme, m.AgentId).ToString();
 
+        // Per-member hosting mode (lowercase string, null when unset). The
+        // map is keyed on agent UUID; missing entries (no execution block,
+        // or transient store error) fall open to null on the wire.
+        string? agentHostingMode = null;
+        if (agentHostingMap is not null
+            && agentHostingMap.TryGetValue(m.AgentId, out var hosting))
+        {
+            agentHostingMode = hosting;
+        }
+
         return new UnitMembershipResponse(
             unitAddress,
             agentAddress,
@@ -385,6 +465,7 @@ public static class MembershipEndpoints
             m.ExecutionMode,
             m.CreatedAt,
             m.UpdatedAt,
-            m.IsPrimary);
+            m.IsPrimary,
+            agentHostingMode);
     }
 }

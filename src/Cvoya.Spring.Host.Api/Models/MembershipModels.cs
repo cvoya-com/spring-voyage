@@ -50,6 +50,20 @@ using Cvoya.Spring.Core.Agents;
 /// auto-assigns on first insert and auto-promotes when the primary
 /// membership is deleted. Clients cannot write this flag.
 /// </param>
+/// <param name="AgentHostingMode">
+/// The member agent's declared hosting mode (lowercase <c>"ephemeral"</c> or
+/// <c>"persistent"</c>), projected from the agent's persisted
+/// <c>execution.hosting</c> field — same semantics as
+/// <see cref="AgentResponse.HostingMode"/>. <c>null</c> when the agent has
+/// no execution block, no hosting declaration, or the execution-store read
+/// failed (fail-open). The dispatcher's platform default is
+/// <c>"persistent"</c> when this value is <c>null</c>.
+/// <para>
+/// Projected onto the membership row so the unit Execution tab can render
+/// per-member hosting without a full-tenant <c>GET /agents</c> fan-out — M
+/// lookups (members only) instead of N (entire tenant).
+/// </para>
+/// </param>
 public record UnitMembershipResponse(
     string UnitId,
     string AgentAddress,
@@ -61,7 +75,8 @@ public record UnitMembershipResponse(
     AgentExecutionMode? ExecutionMode,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    bool IsPrimary);
+    bool IsPrimary,
+    string? AgentHostingMode = null);
 
 /// <summary>
 /// Request body for <c>PUT /api/v1/units/{unitId}/memberships/{agentAddress}</c>.

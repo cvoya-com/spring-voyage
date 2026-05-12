@@ -13544,6 +13544,12 @@
           },
           "isPrimary": {
             "type": "boolean"
+          },
+          "agentHostingMode": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

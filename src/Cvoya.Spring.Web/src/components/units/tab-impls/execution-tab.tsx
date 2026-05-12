@@ -2,8 +2,15 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Container, Trash2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  Container,
+  Settings2,
+  Trash2,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,12 +32,18 @@ import {
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatTranslatedError } from "@/lib/api/translate-error";
-import type { UnitExecutionResponse } from "@/lib/api/types";
+import type {
+  UnitExecutionResponse,
+  UnitMembershipResponse,
+} from "@/lib/api/types";
 import {
+  DEFAULT_HOSTING_MODE,
+  HOSTING_MODES,
   RUNTIME_LIST,
   getAllowedProviders,
   getFixedProvider,
   isRuntimeProviderFixed,
+  type HostingMode,
 } from "@/lib/ai-models";
 import { loadImageHistory } from "@/lib/image-history";
 import {
@@ -75,8 +88,54 @@ type UnitExecutionDraft = Omit<UnitExecutionResponse, "model"> & {
   model: ModelDraft | null;
 };
 
+type MemberHostingRow = {
+  agentAddress: string;
+  displayName: string;
+  hosting: HostingMode;
+  declared: boolean;
+  href: string;
+};
+
+const HOSTING_LABELS = new Map<HostingMode, string>(
+  HOSTING_MODES.map((mode) => [mode.id, mode.label]),
+);
+
 function isEmpty(block: UnitExecutionResponse): boolean {
   return !block.image && !block.runtime && !block.model;
+}
+
+function isHostingMode(value: string | null | undefined): value is HostingMode {
+  return value === "ephemeral" || value === "persistent";
+}
+
+function normalizeHostingMode(value: string | null | undefined): HostingMode {
+  return isHostingMode(value) ? value : DEFAULT_HOSTING_MODE;
+}
+
+function hostingLabel(mode: HostingMode): string {
+  return HOSTING_LABELS.get(mode) ?? mode;
+}
+
+function memberHostingRow(
+  membership: UnitMembershipResponse,
+): MemberHostingRow {
+  // PR-#2223 follow-up: hosting is now projected onto the membership row
+  // server-side (M lookups instead of N) so the unit Execution tab no
+  // longer needs the full-tenant /agents fan-out to render this card.
+  const declaredHosting = membership.agentHostingMode ?? null;
+  return {
+    agentAddress: membership.agentAddress,
+    displayName:
+      membership.agentDisplayName || membership.agentAddress,
+    hosting: normalizeHostingMode(declaredHosting),
+    declared: isHostingMode(declaredHosting),
+    href: `/units?node=${encodeURIComponent(membership.agentAddress)}&tab=Config`,
+  };
+}
+
+async function loadMemberHosting(unitId: string): Promise<MemberHostingRow[]> {
+  const memberships = await api.listUnitMemberships(unitId);
+  return memberships.map(memberHostingRow);
 }
 
 function persistedToForm(
@@ -117,6 +176,11 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     () => installedProvidersQuery.data ?? [],
     [installedProvidersQuery.data],
   );
+  const memberHostingQuery = useQuery({
+    queryKey: queryKeys.units.memberHosting(unitId),
+    queryFn: () => loadMemberHosting(unitId),
+    enabled: Boolean(unitId),
+  });
 
   const persisted = executionQuery.data ?? null;
 
@@ -498,7 +562,116 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
           </div>
         </CardContent>
       </Card>
+
+      <MemberHostingCard
+        rows={memberHostingQuery.data ?? []}
+        isPending={memberHostingQuery.isPending}
+        isError={memberHostingQuery.isError}
+      />
     </div>
+  );
+}
+
+interface MemberHostingCardProps {
+  rows: readonly MemberHostingRow[];
+  isPending: boolean;
+  isError: boolean;
+}
+
+function MemberHostingCard({
+  rows,
+  isPending,
+  isError,
+}: MemberHostingCardProps) {
+  const persistentCount = rows.filter(
+    (row) => row.hosting === "persistent",
+  ).length;
+  const ephemeralCount = rows.filter(
+    (row) => row.hosting === "ephemeral",
+  ).length;
+
+  return (
+    <Card data-testid="unit-member-hosting-card">
+      <CardHeader className="space-y-0 pb-2">
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+          <Bot className="h-4 w-4" />
+          <span>Member agent hosting</span>
+          {!isPending && !isError && rows.length > 0 ? (
+            <span
+              className="flex flex-wrap items-center gap-1"
+              data-testid="unit-member-hosting-summary"
+            >
+              <Badge variant="success" className="text-xs font-normal">
+                {persistentCount} persistent
+              </Badge>
+              <Badge variant="outline" className="text-xs font-normal">
+                {ephemeralCount} ephemeral
+              </Badge>
+            </span>
+          ) : null}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-xs text-muted-foreground">
+          Hosting is owned by each member agent. This unit view shows the
+          current value and links to the agent Config tab for edits.
+        </p>
+
+        {isPending ? (
+          <p className="text-sm text-muted-foreground">
+            Loading member hosting…
+          </p>
+        ) : isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            Could not load member agent hosting.
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No member agents are assigned to this unit.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border rounded-md border border-border">
+            {rows.map((row) => (
+              <li
+                key={row.agentAddress}
+                data-testid={`unit-member-hosting-${row.agentAddress}`}
+                className="flex flex-wrap items-center gap-3 px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{row.displayName}</p>
+                  <p className="truncate font-mono text-[11px] text-muted-foreground">
+                    {row.agentAddress}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge
+                    variant={
+                      row.hosting === "persistent" ? "success" : "outline"
+                    }
+                    className="capitalize"
+                  >
+                    {hostingLabel(row.hosting)}
+                  </Badge>
+                  {!row.declared ? (
+                    <Badge variant="outline" className="font-normal">
+                      Default
+                    </Badge>
+                  ) : null}
+                </div>
+                <Link
+                  href={row.href}
+                  aria-label={`Edit hosting for ${row.displayName}`}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-input px-2 text-xs font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Settings2 className="h-3.5 w-3.5" aria-hidden />
+                  Edit
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

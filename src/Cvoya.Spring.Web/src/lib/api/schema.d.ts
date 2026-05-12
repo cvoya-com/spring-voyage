@@ -3680,6 +3680,7 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             isPrimary: boolean;
+            agentHostingMode?: null | string;
         };
         UnitPermissionEntry: {
             humanId: string;
