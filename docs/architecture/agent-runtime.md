@@ -22,8 +22,10 @@ The layers, in order of appearance on the dispatch path, are:
 
 1. **`A2AExecutionDispatcher`** — the single entry point invoked by the
    `AgentActor` when a turn is due.
-2. **`IAgentDefinitionProvider`** — resolves the agent id to an
-   `AgentDefinition` (instructions + `AgentExecutionConfig`).
+2. **`IAgentDefinitionProvider`** — resolves the addressed actor id to an
+   `AgentDefinition` (instructions + `AgentExecutionConfig`). For a
+   `unit:<id>` dispatch, the OSS provider reads `unit_definitions` directly;
+   no parallel `agent_definitions` anchor row is required for the same Guid.
 3. **`IAgentRuntimeLauncher`** — one strategy per agent runtime; prepares the
    per-invocation working directory, env vars, and volume mounts. Strategies
    are looked up by the `launcher` id on the runtime's
@@ -95,7 +97,7 @@ checks.
 ```text
 AgentActor.ExecuteTurn()
   → A2AExecutionDispatcher.DispatchAsync(message, context)
-     → IAgentDefinitionProvider.GetByIdAsync(agentId)
+     → IAgentDefinitionProvider.GetByIdAsync(addressId)
      → IPromptAssembler.AssembleAsync(message, context)
      → IMcpServer.IssueSession(agentId, threadId)
      → launcher.PrepareAsync(launchContext)          ── argv + env + mounts + workdir + stdin
@@ -125,6 +127,15 @@ reads them from `AgentExecutionConfig` and forwards them unchanged; launchers
 that route through Dapr Conversation use `provider` and `modelId` to pin the
 Conversation component and the model. CLI-sidecar launchers ignore them
 because their CLIs hardcode the provider.
+
+**Unit-address resolution.** `unit:<id>` dispatch uses the same flat Dapr actor
+id as `agent:<id>`, but the runtime definition comes from the unit row. The OSS
+`DbAgentDefinitionProvider` first reads `agent_definitions` for leaf agents;
+when no executable agent definition is present for the id, it falls back to
+`unit_definitions` and projects the unit's own `instructions` and `execution`
+block as the launch definition. If a unit row exists but lacks
+`execution.agent`, dispatch fails through the normal `ErrorOccurred` activity
+path with a configuration error rather than silently accepting the message.
 
 ---
 

@@ -115,7 +115,9 @@ public class DbAgentDefinitionProvider(
                         if (unitDefaults is not null)
                         {
                             var merged = Merge(projected.Execution, unitDefaults);
-                            return projected with { Execution = merged };
+                            // Assign (not return) so a Merge result with no runtime id can still
+                            // fall through to the unit-definitions fallback below (#2208).
+                            projected = projected with { Execution = merged };
                         }
                     }
                 }
@@ -129,6 +131,15 @@ public class DbAgentDefinitionProvider(
                     "Failed to resolve unit-level execution defaults for agent {AgentId}; " +
                     "continuing with agent-only configuration.",
                     agentId);
+            }
+        }
+
+        if (projected.Execution is null)
+        {
+            var unitDefinition = await TryProjectUnitAsync(db, agentUuid, cancellationToken);
+            if (unitDefinition is not null)
+            {
+                return unitDefinition;
             }
         }
 
@@ -162,10 +173,12 @@ public class DbAgentDefinitionProvider(
     /// Projects a <c>UnitDefinitionEntity</c> as an <see cref="AgentDefinition"/>
     /// so the dispatcher can launch the unit's own runtime container (per
     /// ADR-0039 — units are agents). Returns <c>null</c> when no unit row
-    /// exists for <paramref name="unitId"/>, when the row was soft-deleted,
-    /// or when the unit's definition JSON does not carry an executable
-    /// runtime slot (<c>execution.agent</c>) — the dispatcher requires
-    /// an agent-runtime id to know which launcher to invoke.
+    /// exists for <paramref name="unitId"/>, or when the row was soft-deleted.
+    /// When the unit row exists but its definition JSON does not carry an
+    /// executable runtime slot (<c>execution.agent</c>), the returned
+    /// definition has <c>null</c> execution so the dispatcher can surface a
+    /// precise configuration error instead of pretending the unit id was
+    /// unknown.
     /// </summary>
     /// <remarks>
     /// Hosting is read from <c>unit_live_config</c> via the
@@ -204,14 +217,6 @@ public class DbAgentDefinitionProvider(
             execution = ExtractExecution(definition);
         }
 
-        if (execution is null)
-        {
-            _logger.LogWarning(
-                "Unit {UnitId} matched by id but has no execution.agent slot; cannot dispatch as runtime.",
-                unitId);
-            return null;
-        }
-
         // Overlay live-config slots (unit_live_config) on top of the JSON-
         // derived execution. The unit-create flow writes Hosting / Color /
         // Model / Provider to unit_live_config via UnitActor.SetMetadataAsync
@@ -221,7 +226,7 @@ public class DbAgentDefinitionProvider(
         // metadata reader returns. Most critically for #2081/#2082
         // follow-up: a unit created with `hosting: persistent` was being
         // dispatched as Ephemeral because the JSON didn't carry the flag.
-        if (unitStateCoordinator is not null)
+        if (execution is not null && unitStateCoordinator is not null)
         {
             try
             {
@@ -246,6 +251,11 @@ public class DbAgentDefinitionProvider(
             }
         }
 
+        // Deliberate null-Execution path (#2208): when the unit row exists but
+        // its JSON has no `execution.agent` runtime slot, return a definition
+        // with Execution: null so the dispatcher can surface a precise
+        // "no execution configuration" error instead of a misleading
+        // "subject not found" 404.
         return new AgentDefinition(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id),
             unit.DisplayName,
