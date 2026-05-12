@@ -161,11 +161,14 @@ public interface IAgentActor : IAgent
     /// <param name="error">
     /// Optional human-readable diagnostic. Persisted alongside <paramref name="status"/>
     /// so the GET endpoint can surface "why" without forcing the operator
-    /// to comb the worker logs.
+    /// to comb the worker logs. Pass <c>null</c> when no diagnostic
+    /// applies (the parameter has no default — Dapr's actor proxy
+    /// generator rejects any non-cancellation-token optional parameter
+    /// on a remoted interface, see #2199).
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task SetLifecycleStatusAsync(
         AgentLifecycleStatus status,
-        string? error = null,
+        string? error,
         CancellationToken cancellationToken = default);
 }
