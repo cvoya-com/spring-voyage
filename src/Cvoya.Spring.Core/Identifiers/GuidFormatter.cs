@@ -26,6 +26,21 @@ public static class GuidFormatter
     public static string Format(Guid value) => value.ToString("N");
 
     /// <summary>
+    /// Returns the standard 8-4-4-4-12 dashed UUID form for handing
+    /// identifiers to external systems whose parsers reject the no-dash
+    /// <see cref="Format"/> output. Spring Voyage's internal surfaces
+    /// (URLs, addresses, storage, logs) keep using <see cref="Format"/>;
+    /// this helper is only for the platform-to-external boundary.
+    /// </summary>
+    /// <remarks>
+    /// Motivating case: Claude Code's <c>--session-id &lt;uuid&gt;</c> flag
+    /// (and other CLI agents the bridge wires per ADR-0041) requires the
+    /// standard dashed UUID form and rejects the no-dash variant with
+    /// <c>Error: Invalid session ID. Must be a valid UUID.</c>.
+    /// </remarks>
+    public static string FormatExternal(Guid value) => value.ToString("D");
+
+    /// <summary>
     /// Attempts to parse a Guid from a string, accepting any of the
     /// conventional forms (<c>N</c>, <c>D</c>, <c>B</c>, <c>P</c>, <c>X</c>).
     /// Returns <c>false</c> for null, whitespace, or unparseable input.
