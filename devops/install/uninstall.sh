@@ -11,7 +11,7 @@
 #
 # Usage:
 #   uninstall.sh [--purge] [--yes] [--force]
-#   spring-voyage uninstall [--purge] [--yes] [--force]
+#   voyage uninstall [--purge] [--yes] [--force]
 #
 # Options:
 #   --purge   Also remove spring.env, ~/.spring-voyage/host/, and
@@ -60,7 +60,7 @@ Usage:
 Default mode (preserves operator data):
   - Stops containers (deploy.sh down + clean).
   - Removes ~/.spring-voyage/releases/, ~/.spring-voyage/current.
-  - Removes ~/.local/bin/spring and ~/.local/bin/spring-voyage.
+  - Removes ~/.local/bin/spring and ~/.local/bin/voyage.
   - PRESERVES: spring.env, ~/.spring-voyage/host/, ~/.spring-voyage/workspaces/.
 
 --purge:
@@ -107,7 +107,7 @@ if [[ "$PURGE" -eq 1 ]]; then
   info "  - Containers, volumes, networks, images (via deploy.sh clean)"
   info "  - ${INSTALL_ROOT}/releases/"
   info "  - ${INSTALL_ROOT}/current"
-  info "  - ${BIN_DIR}/spring, ${BIN_DIR}/spring-voyage"
+  info "  - ${BIN_DIR}/spring, ${BIN_DIR}/voyage"
   info "  - ${SPRING_ENV_FILE}"
   info "  - ${INSTALL_ROOT}/host/"
   info "  - ${INSTALL_ROOT}/workspaces/"
@@ -117,7 +117,7 @@ else
   info "  - Containers, volumes, networks, images (via deploy.sh clean)"
   info "  - ${INSTALL_ROOT}/releases/"
   info "  - ${INSTALL_ROOT}/current"
-  info "  - ${BIN_DIR}/spring, ${BIN_DIR}/spring-voyage"
+  info "  - ${BIN_DIR}/spring, ${BIN_DIR}/voyage"
   info "Will PRESERVE:"
   info "  - ${SPRING_ENV_FILE}"
   info "  - ${INSTALL_ROOT}/host/"
@@ -218,7 +218,7 @@ rm_path() {
 rm_path "${INSTALL_ROOT}/releases" "releases"
 rm_path "${INSTALL_ROOT}/current"  "current"
 rm_path "${BIN_DIR}/spring"        "spring binary"
-rm_path "${BIN_DIR}/spring-voyage" "spring-voyage wrapper"
+rm_path "${BIN_DIR}/voyage" "voyage wrapper"
 
 # ---------------------------------------------------------------------------
 # Purge: also remove operator data

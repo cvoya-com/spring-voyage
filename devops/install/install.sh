@@ -209,7 +209,7 @@ ok "RID detected: ${RID}"
 # ---------------------------------------------------------------------------
 if [[ -e "${INSTALL_ROOT}/current" || -L "${INSTALL_ROOT}/current" ]]; then
   if [[ "$FORCE" -eq 0 ]]; then
-    fail "Spring Voyage is already installed at ${INSTALL_ROOT}/current. Run \`spring-voyage uninstall\` first, or rerun with --force to bypass (only do this if uninstall isn't working)."
+    fail "Spring Voyage is already installed at ${INSTALL_ROOT}/current. Run \`voyage uninstall\` first, or rerun with --force to bypass (only do this if uninstall isn't working)."
   fi
   warn "${INSTALL_ROOT}/current exists; --force was passed, continuing."
 fi
@@ -481,17 +481,17 @@ ln -snf "${CLI_BIN}"    "${BIN_DIR}/spring"
 ok "Symlinked ${INSTALL_ROOT}/current -> ${BUNDLE_DIR}"
 ok "Symlinked ${BIN_DIR}/spring -> ${CLI_BIN}"
 
-# spring-voyage wrapper: status / logs / restart / install / uninstall / version.
-# The wrapper script ships in the bundle as bundle/spring-voyage (see
+# voyage wrapper: status / logs / restart / install / uninstall / version.
+# The wrapper script ships in the bundle as bundle/voyage (see
 # .github/workflows/release.yml). We copy it (not symlink) so a later
 # uninstall that removes the install root leaves the wrapper in place
 # long enough to be removed by uninstall.sh itself. install.sh runs
 # from a curl pipe with no checked-out tree, so the bundle is the only
 # checked-in source available at install time.
-WRAPPER_PATH="${BIN_DIR}/spring-voyage"
-WRAPPER_SRC="${BUNDLE_DIR}/spring-voyage"
+WRAPPER_PATH="${BIN_DIR}/voyage"
+WRAPPER_SRC="${BUNDLE_DIR}/voyage"
 if [[ ! -f "${WRAPPER_SRC}" ]]; then
-  fail "Bundle is missing spring-voyage wrapper at ${WRAPPER_SRC}."
+  fail "Bundle is missing voyage wrapper at ${WRAPPER_SRC}."
 fi
 cp "${WRAPPER_SRC}" "${WRAPPER_PATH}"
 chmod +x "${WRAPPER_PATH}"
@@ -636,20 +636,20 @@ cat <<EOF
   spring.env:          ${SPRING_ENV_FILE}
   Current symlink:     ${INSTALL_ROOT}/current -> ${BUNDLE_DIR}
   CLI:                 ${BIN_DIR}/spring
-  Wrapper:             ${BIN_DIR}/spring-voyage
+  Wrapper:             ${BIN_DIR}/voyage
   Logs (containers):   podman logs spring-api (and friends)
   Logs (dispatcher):   ${INSTALL_ROOT}/host/spring-dispatcher.log
   Web URL:             ${WEB_URL}
 
   Day-2 commands:
-    spring-voyage status               # install version, container/dispatcher health, web URL
-    spring-voyage logs [service]       # tail container logs (or 'dispatcher' for the host process)
-    spring-voyage restart              # restart the stack
-    spring-voyage version              # print the installed version + image tag
+    voyage status               # install version, container/dispatcher health, web URL
+    voyage logs [service]       # tail container logs (or 'dispatcher' for the host process)
+    voyage restart              # restart the stack
+    voyage version              # print the installed version + image tag
 
   To tear down later:
-    spring-voyage uninstall            # preserves spring.env + workspaces
-    spring-voyage uninstall --purge    # factory reset
+    voyage uninstall            # preserves spring.env + workspaces
+    voyage uninstall --purge    # factory reset
 
 EOF
 
