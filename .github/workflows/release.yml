@@ -1,18 +1,26 @@
-name: Release
+name: Spring Voyage — Release
 
-# Fires when a v*.*.*[-prerelease] tag is pushed to the repository.
-# Jobs:
-#   1. resolve                 — validate the tag shape and emit version components.
-#   2. ci-gate                 — verify the tagged commit's CI run on main was green
-#                                (Checks API lookup against the resolved SHA).
-#   3. publish-images          — build and push all agent container images to GHCR.
-#   4. publish-platform-image  — build and push the platform image to GHCR (#2172).
-#   5. publish-spring-cli      — publish self-contained `spring` CLI binaries (#2172).
-#   6. publish-dispatcher      — publish self-contained dispatcher binaries (#2172;
-#                                absorbed from the deprecated release-spring-dispatcher.yml).
-#   7. publish-bundle          — assemble the operator deployment bundle and
-#                                SHA256SUMS over all release assets (#2172).
-#   8. github-release          — create the GitHub Release from CHANGELOG.md.
+# Fires when a `spring-voyage-vMAJOR.MINOR.PATCH[-prerelease]` tag is pushed.
+#
+# This is the single unified release workflow for Spring Voyage (#2229,
+# Path B). It supersedes the previous three-tag release chain and the two
+# now-deleted workflows (`release-agent-base.yml`, `release-oss-agent-images.yml`).
+#
+# Job graph:
+#   resolve  → ci-gate → ┬─→ test-sidecar ─┬─→ publish-agent-base-image
+#                        │                 ├─→ publish-sidecar-npm
+#                        │                 └─→ build-sidecar-binaries
+#                        ├─→ publish-agent-images        (needs publish-agent-base-image)
+#                        ├─→ publish-oss-agent-images   (needs publish-agent-base-image)
+#                        ├─→ publish-platform-image
+#                        ├─→ publish-spring-cli         (5-RID matrix)
+#                        └─→ publish-dispatcher         (5-RID matrix)
+#                                                  │
+#                                                  ▼
+#                                         publish-bundle
+#                                                  │
+#                                                  ▼
+#                                         github-release
 #
 # Why ci-gate instead of re-running build/test (#2027): tags must point at a
 # commit that is already on main, and main is gated by ci.yml's "Required
@@ -32,12 +40,13 @@ name: Release
 on:
   push:
     tags:
-      # Matches v1.0.0, v1.2.3-rc.1, v1.0.0-alpha.20260504, etc.
-      - "v[0-9]+.[0-9]+.[0-9]+*"
+      # Matches spring-voyage-v1.0.0, spring-voyage-v1.2.3-rc.1,
+      # spring-voyage-v1.0.0-alpha.20260504, etc.
+      - "spring-voyage-v[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release (e.g. v1.0.0). Required for manual runs."
+        description: "Tag to release (e.g. spring-voyage-v1.0.0). Required for manual runs."
         required: true
         type: string
 
@@ -93,9 +102,10 @@ jobs:
             exit 1
           fi
 
-          # Validate: must be v<semver> with optional prerelease suffix.
-          if ! [[ "$release_tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)([-+][A-Za-z0-9._-]+)?$ ]]; then
-            echo "::error::tag '$release_tag' does not match vMAJOR.MINOR.PATCH[-prerelease]"
+          # Validate: must be spring-voyage-v<semver> with optional prerelease
+          # suffix. This is the single, canonical tag shape after #2229 (Path B).
+          if ! [[ "$release_tag" =~ ^spring-voyage-v([0-9]+)\.([0-9]+)\.([0-9]+)([-+][A-Za-z0-9._-]+)?$ ]]; then
+            echo "::error::tag '$release_tag' does not match spring-voyage-vMAJOR.MINOR.PATCH[-prerelease]"
             exit 1
           fi
 
@@ -246,21 +256,286 @@ jobs:
 
           echo "CI gate passed: ${REQUIRED_CHECK_NAME} == success on ${COMMIT_SHA}"
 
-  # ── 3. Publish container images ────────────────────────────────────────────
+  # ── 3. Sidecar unit tests ──────────────────────────────────────────────────
   #
-  # Builds the three agent images via devops/build/build-agent-images.sh and
-  # pushes them to ghcr.io/cvoya/* under the versioned and floating tags
-  # defined in docs/developer/releases.md.
-  #
-  # Image tagging scheme (stable releases only — pre-releases get the immutable
-  # version tag and do NOT move :latest or :X.Y):
-  #   :X.Y.Z      — immutable, never reused
-  #   :X.Y        — floating, updated on each new patch of the X.Y minor line
-  #   :latest     — floating, updated on each stable release
-  publish-images:
-    name: Build and push agent images
+  # Sourced verbatim from the previous release-agent-base.yml `test` job
+  # (#2229 — Path B). The sidecar lives in src/Cvoya.Spring.AgentSidecar/
+  # and feeds into three downstream artefacts: the agent-base OCI image,
+  # the npm package, and the three SEA binaries. Running its lint + unit
+  # tests here gates all three.
+  test-sidecar:
+    name: Sidecar unit tests
     runs-on: ubuntu-latest
     needs: [resolve, ci-gate]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/Cvoya.Spring.AgentSidecar/package-lock.json
+      - name: Install + test
+        working-directory: src/Cvoya.Spring.AgentSidecar
+        run: |
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm test
+          npm run build
+
+  # ── 4. Publish spring-voyage-agent-base (multi-arch) ───────────────────────
+  #
+  # Builds and pushes ghcr.io/cvoya-com/spring-voyage-agent-base as a
+  # multi-arch manifest list (linux/amd64 + linux/arm64) via Buildx.
+  # Replaces both the previous `release-agent-base.yml:publish-image` job
+  # and the buggy single-arch `Push spring-voyage-agent-base` step that used
+  # to follow `build-agent-images.sh` in this workflow — see #2229 §3c for
+  # the overwrite bug it fixes.
+  publish-agent-base-image:
+    name: Build and push spring-voyage-agent-base OCI image
+    runs-on: ubuntu-latest
+    needs: [resolve, ci-gate, test-sidecar]
+    timeout-minutes: 30
+    env:
+      IMAGE_NAME: cvoya-com/spring-voyage-agent-base
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+      IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # :<version> is always pushed (stable and pre-release alike).
+          # :<major_minor> and :latest move only on stable releases. The
+          # metadata-action `enable=` clause emits exactly the right subset
+          # based on the resolved is_prerelease output.
+          tags: |
+            type=raw,value=${{ env.RELEASE_VERSION }}
+            type=raw,value=${{ env.MAJOR_MINOR }},enable=${{ env.IS_PRERELEASE == 'false' }}
+            type=raw,value=latest,enable=${{ env.IS_PRERELEASE == 'false' }}
+          labels: |
+            org.opencontainers.image.title=spring-voyage-agent-base
+            org.opencontainers.image.description=Recommended base image for Spring Voyage agents (BYOI conformance path 1; bundles the A2A sidecar bridge from #1087).
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.RELEASE_VERSION }}
+
+      - name: Build and push (multi-arch)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: devops/build/Dockerfile.agent-base
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # #2229 §3d: visibility-patch failures must fail the workflow loudly,
+      # not silently leave the package private. Token-scope drift or a
+      # package-name mismatch (cf. the bug fixed in 65fe267f) used to be
+      # swallowed by `continue-on-error: true`. Drop it here and across
+      # every visibility-patch step in this workflow.
+      - name: Make GHCR package public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api -X PATCH /orgs/cvoya-com/packages/container/spring-voyage-agent-base \
+            -F visibility=public
+
+  # ── 5. Publish @cvoya/spring-voyage-agent-sidecar npm package ─────────────
+  #
+  # Sourced verbatim from the previous release-agent-base.yml `publish-npm`
+  # job. Honors NPM_TOKEN secret — emits a warning and exits 0 if it is not
+  # configured so a fork can run the workflow without the secret.
+  publish-sidecar-npm:
+    name: Publish @cvoya/spring-voyage-agent-sidecar
+    runs-on: ubuntu-latest
+    needs: [resolve, ci-gate, test-sidecar]
+    timeout-minutes: 10
+    env:
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: src/Cvoya.Spring.AgentSidecar/package-lock.json
+
+      - name: Sync package.json version with tag
+        working-directory: src/Cvoya.Spring.AgentSidecar
+        run: |
+          set -euo pipefail
+          npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Install + build
+        working-directory: src/Cvoya.Spring.AgentSidecar
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Publish (with provenance)
+        working-directory: src/Cvoya.Spring.AgentSidecar
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "::warning::NPM_TOKEN secret not configured; skipping npm publish."
+            exit 0
+          fi
+          npm publish --access public --provenance
+
+  # ── 6. Build sidecar SEA binaries ──────────────────────────────────────────
+  #
+  # Sourced verbatim from the previous release-agent-base.yml
+  # `publish-binaries` job. Builds Node single-executable-applications for
+  # linux-amd64, linux-arm64, and darwin-arm64. Outputs are uploaded as
+  # workflow artifacts (`sidecar-binary-<target>`) consumed by the
+  # publish-bundle job's same-workflow download — no cross-workflow lookup.
+  build-sidecar-binaries:
+    name: Build sidecar SEA binary (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    needs: [resolve, ci-gate, test-sidecar]
+    timeout-minutes: 20
+    env:
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      TARGET: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-amd64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: macos-14
+            target: darwin-arm64
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/Cvoya.Spring.AgentSidecar/package-lock.json
+
+      - name: Install + build
+        working-directory: src/Cvoya.Spring.AgentSidecar
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Bundle entrypoint into a single file
+        working-directory: src/Cvoya.Spring.AgentSidecar
+        run: |
+          set -euo pipefail
+          npx --yes esbuild@0.24.0 dist/cli.js \
+            --bundle \
+            --platform=node \
+            --target=node22 \
+            --format=cjs \
+            --outfile=dist/sidecar-bundle.cjs
+
+      - name: Build Node SEA binary
+        working-directory: src/Cvoya.Spring.AgentSidecar
+        env:
+          OUT_NAME: spring-voyage-agent-sidecar-${{ matrix.target }}
+          RUNNER_OS: ${{ runner.os }}
+        run: |
+          set -euo pipefail
+          cat > sea-config.json <<'JSON'
+          {
+            "main": "dist/sidecar-bundle.cjs",
+            "output": "dist/sea-prep.blob",
+            "disableExperimentalSEAWarning": true
+          }
+          JSON
+          node --experimental-sea-config sea-config.json
+          cp "$(command -v node)" "dist/${OUT_NAME}"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            codesign --remove-signature "dist/${OUT_NAME}" || true
+          fi
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            npx --yes postject@1.0.0-alpha.6 \
+              "dist/${OUT_NAME}" NODE_SEA_BLOB dist/sea-prep.blob \
+              --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 \
+              --macho-segment-name NODE_SEA
+            codesign --sign - "dist/${OUT_NAME}"
+          else
+            npx --yes postject@1.0.0-alpha.6 \
+              "dist/${OUT_NAME}" NODE_SEA_BLOB dist/sea-prep.blob \
+              --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
+          fi
+
+      - name: Smoke test the binary
+        working-directory: src/Cvoya.Spring.AgentSidecar
+        env:
+          OUT_NAME: spring-voyage-agent-sidecar-${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          PORT=18999
+          AGENT_PORT="$PORT" \
+          SPRING_AGENT_ARGV='["true"]' \
+            "./dist/${OUT_NAME}" &
+          PID=$!
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fs "http://127.0.0.1:${PORT}/healthz" >/dev/null; then
+              break
+            fi
+            sleep 0.5
+          done
+          curl -fs "http://127.0.0.1:${PORT}/healthz"
+          kill "$PID"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          # publish-bundle consumes this artifact name pattern.
+          name: sidecar-binary-${{ matrix.target }}
+          path: src/Cvoya.Spring.AgentSidecar/dist/spring-voyage-agent-sidecar-${{ matrix.target }}
+          if-no-files-found: error
+
+  # ── 7. Publish remaining agent images ──────────────────────────────────────
+  #
+  # Builds and pushes the claude-code-base, gemini-base, and
+  # spring-voyage-agent images via build-agent-images.sh. agent-base is
+  # built and pushed multi-arch by the `publish-agent-base-image` job above;
+  # this job skips it (--skip-agent-base) and pins the FROM to the
+  # just-published multi-arch ref via --agent-base-image.
+  #
+  # OSS role images are built by the `publish-oss-agent-images` job (multi-
+  # arch); this job skips them too (--skip-oss).
+  #
+  # NOTE: build-agent-images.sh uses plain `docker build` and is single-arch
+  # only. Multi-arch builds for these images are a follow-up; only agent-base
+  # and OSS images are multi-arch in this PR (#2229). The platform image is
+  # likewise single-arch — see publish-platform-image below.
+  publish-agent-images:
+    name: Build and push agent images (claude-code, gemini, native)
+    runs-on: ubuntu-latest
+    needs: [resolve, ci-gate, publish-agent-base-image]
     timeout-minutes: 30
     env:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
@@ -281,16 +556,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build all agent images
+      - name: Build remaining agent images
         shell: bash
         run: |
           set -euo pipefail
-          bash devops/build/build-agent-images.sh --tag "${RELEASE_VERSION}" --ghcr-only
+          # --skip-agent-base: built multi-arch by publish-agent-base-image.
+          # --skip-oss: built multi-arch by publish-oss-agent-images.
+          # --agent-base-image: pin the FROM line to the multi-arch image
+          # that publish-agent-base-image just pushed.
+          bash devops/build/build-agent-images.sh \
+            --tag "${RELEASE_VERSION}" \
+            --ghcr-only \
+            --skip-agent-base \
+            --skip-oss \
+            --agent-base-image "ghcr.io/cvoya-com/spring-voyage-agent-base:${RELEASE_VERSION}"
 
-      # The build script tags:
-      #   ghcr.io/cvoya-com/spring-voyage-agent-base:<tag> (re-tagged below)
-      #   ghcr.io/cvoya-com/spring-voyage-claude-code-base:<tag>          (ready to push)
-      #   ghcr.io/cvoya-com/spring-voyage-agent:<tag>       (ready to push)
       - name: Tag and push claude-code-base
         shell: bash
         env:
@@ -313,29 +593,6 @@ jobs:
             echo "Pushed ${TARGET_BASE}:latest"
           else
             echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for claude-code-base"
-          fi
-
-      - name: Push spring-voyage-agent-base
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
-          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
-          IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
-        run: |
-          set -euo pipefail
-          BASE="ghcr.io/cvoya-com/spring-voyage-agent-base"
-
-          docker push "${BASE}:${RELEASE_VERSION}"
-          echo "Pushed ${BASE}:${RELEASE_VERSION}"
-
-          if [[ "$IS_PRERELEASE" == "false" ]]; then
-            docker tag "${BASE}:${RELEASE_VERSION}" "${BASE}:${MAJOR_MINOR}"
-            docker push "${BASE}:${MAJOR_MINOR}"
-            echo "Pushed ${BASE}:${MAJOR_MINOR}"
-
-            docker tag "${BASE}:${RELEASE_VERSION}" "${BASE}:latest"
-            docker push "${BASE}:latest"
-            echo "Pushed ${BASE}:latest"
           fi
 
       - name: Tag and push spring-voyage-agent (native A2A runtime)
@@ -361,22 +618,17 @@ jobs:
           fi
 
       - name: Make GHCR packages public
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          for package in spring-voyage-claude-code-base spring-voyage-agent-base spring-voyage-agent; do
+          for package in spring-voyage-claude-code-base spring-voyage-agent; do
             gh api -X PATCH "/orgs/cvoya-com/packages/container/${package}" \
               -F visibility=public
           done
 
       - name: Image publish summary
         shell: bash
-        env:
-          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
-          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
-          IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
         run: |
           {
             echo "### Agent images published"
@@ -385,25 +637,114 @@ jobs:
             echo "| --- | --- |"
             if [[ "$IS_PRERELEASE" == "false" ]]; then
               echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`   | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
               echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
             else
               echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\` | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`   | \`${RELEASE_VERSION}\` (pre-release) |"
               echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | \`${RELEASE_VERSION}\` (pre-release) |"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 4. Publish platform image (#2172) ──────────────────────────────────────
+  # ── 8. Publish OSS role agent images ───────────────────────────────────────
+  #
+  # Multi-arch (linux/amd64 + linux/arm64) build matrix for the four OSS
+  # role agent images. Each FROMs spring-voyage-agent-base:<version> (just
+  # published multi-arch by publish-agent-base-image). Sourced from the
+  # previous release-oss-agent-images.yml `build-and-publish` job.
+  publish-oss-agent-images:
+    name: Build and push ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    needs: [resolve, ci-gate, publish-agent-base-image]
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: spring-voyage-agent-oss-software-engineering
+            dockerfile: devops/build/Dockerfile.agent.oss-software-engineering
+          - name: spring-voyage-agent-oss-design
+            dockerfile: devops/build/Dockerfile.agent.oss-design
+          - name: spring-voyage-agent-oss-product-management
+            dockerfile: devops/build/Dockerfile.agent.oss-product-management
+          - name: spring-voyage-agent-oss-program-management
+            dockerfile: devops/build/Dockerfile.agent.oss-program-management
+    env:
+      IMAGE_NAME: cvoya-com/${{ matrix.name }}
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+      IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ env.RELEASE_VERSION }}
+            type=raw,value=${{ env.MAJOR_MINOR }},enable=${{ env.IS_PRERELEASE == 'false' }}
+            type=raw,value=latest,enable=${{ env.IS_PRERELEASE == 'false' }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.name }}
+            org.opencontainers.image.description=Spring Voyage OSS role agent image — ${{ matrix.name }} (#1536).
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.RELEASE_VERSION }}
+
+      - name: Build and push (multi-arch)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:${{ needs.resolve.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Make GHCR package public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PKG_NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          gh api -X PATCH "/orgs/cvoya-com/packages/container/${PKG_NAME}" \
+            -F visibility=public
+
+      - name: Summary
+        shell: bash
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}
+        run: |
+          echo "::notice::published ${IMAGE_REF}"
+
+  # ── 9. Publish platform image (#2172) ──────────────────────────────────────
   #
   # Builds the platform image from devops/build/Dockerfile (the multi-stage
   # API + Worker + Web + Dapr CLI image whose local-clone build today produces
   # `localhost/spring-voyage:latest`) and pushes it to GHCR under the same
   # versioned/floating tagging scheme as the agent images.
   #
-  # Same single-arch (linux/amd64) pattern as `publish-images`. Multi-arch
-  # is a follow-up if/when operator demand surfaces; ship the same shape as
-  # the existing release path for v0.1.
+  # NOTE: Single-arch (linux/amd64) — multi-arch for the platform image is a
+  # follow-up once operator demand surfaces (see #2229 "Out of scope").
   #
   # The image is consumed by the installer (#2180) — it points spring.env's
   # SPRING_PLATFORM_IMAGE at this ref so deploy.sh up uses it instead of the
@@ -469,7 +810,6 @@ jobs:
           fi
 
       - name: Make GHCR package public
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -492,7 +832,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 5. Publish `spring` CLI binaries (#2172) ───────────────────────────────
+  # ── 10. Publish `spring` CLI binaries (#2172) ──────────────────────────────
   #
   # Publishes the operator-facing `spring` CLI as self-contained single-file
   # binaries across the same 5-RID matrix used by publish-dispatcher (linux-x64,
@@ -644,13 +984,13 @@ jobs:
           fail_on_unmatched_files: true
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
 
-  # ── 6. Publish dispatcher binaries (#2172) ─────────────────────────────────
+  # ── 11. Publish dispatcher binaries (#2172) ────────────────────────────────
   #
   # Absorbed from .github/workflows/release-spring-dispatcher.yml (which was
-  # deleted in this PR). The trigger changes from a dedicated `dispatcher-v*`
-  # tag to the unified `v*.*.*` platform release tag — one release surface for
-  # the image, bundle, CLI, and dispatcher (see #2172 and the plan in
-  # docs/plan/v0.1/).
+  # deleted in #2172). The trigger changes from a dedicated `dispatcher-v*`
+  # tag to the unified spring-voyage-v* platform release tag — one release
+  # surface for the image, bundle, CLI, and dispatcher (see #2172 and the
+  # plan in docs/plan/v0.1/).
   #
   # Same 5-RID self-contained matrix as before. Asset names unchanged
   # (`spring-dispatcher-<v>-<rid>.{tar.gz|zip}`); the version label is now
@@ -782,37 +1122,17 @@ jobs:
           fail_on_unmatched_files: true
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
 
-  # ── 7. Publish deployment bundle + SHA256SUMS (#2172) ──────────────────────
+  # ── 12. Publish deployment bundle + SHA256SUMS (#2172) ─────────────────────
   #
   # Assembles the operator-facing deployment bundle and a SHA256SUMS file
   # covering every release asset. Runs last among the publish-* jobs so it
-  # can download the dispatcher and CLI archives from the workflow's own
-  # artifact store and checksum them in one pass.
-  #
-  # Bundle contents (extracted by the installer under
-  # ~/.spring-voyage/releases/<v>/bundle/):
-  #   deploy.sh, setup.sh, spring-voyage-host.sh, relay.sh           — from devops/deploy/
-  #   Caddyfile, Caddyfile.multi-host, docker-compose.yml             — from devops/deploy/
-  #   spring.env.example                                              — from devops/deploy/
-  #   scripts/dispatcher-smoke.sh, scripts/test-spring-voyage-host.sh — from devops/deploy/scripts/
-  #   dapr/components/delegated-spring-voyage-agent/...               — from repo root (required:
-  #                                                                     setup.sh writes
-  #                                                                     Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath
-  #                                                                     pointing at this tree)
-  #   manifest.json                                                   — generated here
-  #   README.md                                                       — generated here
-  #   LICENSE                                                         — from repo root LICENSE.md
-  # Also included (added in #2180):
-  #   uninstall.sh                                                    — from devops/install/
-  #                                                                     (ships in-bundle so
-  #                                                                     `voyage uninstall`
-  #                                                                     survives install-root cleanup)
-  # Explicitly NOT included:
-  #   - devops/build/ — source-build artifacts; operators with the bundle don't build images locally
+  # can download the dispatcher, CLI, and sidecar archives from the
+  # workflow's own artifact store and checksum them in one pass.
   #
   # SHA256SUMS covers: bundle tarball + 5 dispatcher archives + 5 CLI
-  # archives. Platform image is intentionally excluded (it's a registry
-  # artifact with its own GHCR digest, not a release-attached download).
+  # archives + 3 sidecar binaries. Platform image is intentionally excluded
+  # (it's a registry artifact with its own GHCR digest, not a release-attached
+  # download).
   publish-bundle:
     name: Publish deployment bundle and SHA256SUMS
     runs-on: ubuntu-latest
@@ -822,6 +1142,7 @@ jobs:
       - publish-platform-image
       - publish-spring-cli
       - publish-dispatcher
+      - build-sidecar-binaries
     timeout-minutes: 20
     env:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
@@ -973,7 +1294,7 @@ jobs:
           fail_on_unmatched_files: true
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
 
-      - name: Download dispatcher and CLI archives from workflow artifacts
+      - name: Download dispatcher, CLI, and sidecar archives from workflow artifacts
         uses: actions/download-artifact@v8
         with:
           # actions/download-artifact@v8 with no `name` downloads every
@@ -983,38 +1304,25 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Download sidecar binaries from agent-base workflow run
+      - name: Stage sidecar binaries from workflow artifacts
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
-          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # The agent-base tag is pushed and its workflow completes before the
-          # platform v* tag is pushed, so its artifacts are available by now.
-          AGENT_BASE_TAG="agent-base-v${RELEASE_VERSION}"
-          echo "Looking up release-agent-base.yml run for ${AGENT_BASE_TAG} …"
-          AGENT_BASE_RUN=$(gh run list \
-            --repo "${REPO}" \
-            --workflow "release-agent-base.yml" \
-            --branch "${AGENT_BASE_TAG}" \
-            --limit 1 \
-            --json databaseId \
-            --jq '.[0].databaseId')
-          if [[ -z "${AGENT_BASE_RUN}" || "${AGENT_BASE_RUN}" == "null" ]]; then
-            echo "::error::No completed release-agent-base.yml run found for tag ${AGENT_BASE_TAG}"
-            exit 1
-          fi
-          echo "Downloading sidecar artifacts from run ${AGENT_BASE_RUN} …"
-          mkdir -p sidecar-tmp sidecar-release
+          # build-sidecar-binaries uploaded one artifact per target named
+          # `sidecar-binary-<target>` (the file inside is named
+          # spring-voyage-agent-sidecar-<target>, without a version suffix).
+          # The previous-step download with `merge-multiple: true` already
+          # flattened them under artifacts/, so the file paths are
+          # artifacts/spring-voyage-agent-sidecar-<target>. Rename into the
+          # versioned, release-attached form.
+          mkdir -p sidecar-release
           for target in linux-amd64 linux-arm64 darwin-arm64; do
-            gh run download "${AGENT_BASE_RUN}" \
-              --repo "${REPO}" \
-              --name "sidecar-binary-${target}" \
-              --dir "sidecar-tmp/${target}/"
-            src="sidecar-tmp/${target}/spring-voyage-agent-sidecar-${target}"
+            src="artifacts/spring-voyage-agent-sidecar-${target}"
             dst="sidecar-release/spring-voyage-agent-sidecar-${RELEASE_VERSION}-${target}"
+            if [[ ! -f "${src}" ]]; then
+              echo "::error::expected sidecar artifact ${src} not found"
+              exit 1
+            fi
             cp "${src}" "${dst}"
             chmod +x "${dst}"
             echo "Staged: ${dst}"
@@ -1103,7 +1411,7 @@ jobs:
             echo "| \`SHA256SUMS\` | Covers bundle + 5 dispatcher archives + 5 CLI archives + 3 sidecar binaries |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 8. GitHub Release ──────────────────────────────────────────────────────
+  # ── 13. GitHub Release ─────────────────────────────────────────────────────
   #
   # Creates the GitHub Release using the ## [Unreleased] section of
   # CHANGELOG.md as the release notes. The maintainer's pre-release PR
@@ -1115,7 +1423,17 @@ jobs:
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [resolve, ci-gate, publish-images, publish-platform-image, publish-spring-cli, publish-dispatcher, publish-bundle]
+    needs:
+      - resolve
+      - ci-gate
+      - publish-agent-base-image
+      - publish-sidecar-npm
+      - publish-agent-images
+      - publish-oss-agent-images
+      - publish-platform-image
+      - publish-spring-cli
+      - publish-dispatcher
+      - publish-bundle
     timeout-minutes: 10
     env:
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
@@ -1145,7 +1463,7 @@ jobs:
         run: |
           set -euo pipefail
           # The release notes are sourced from CHANGELOG.md [Unreleased]. As
-          # of #2172, every v*.*.* tag publishes a uniform set of asset
+          # of #2172, every release tag publishes a uniform set of asset
           # classes (platform image, spring CLI, dispatcher, deployment
           # bundle, SHA256SUMS) — append a reference table so operators
           # browsing the GitHub Release page don't have to cross-reference
