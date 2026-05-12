@@ -148,12 +148,22 @@ public class UnitCreationServiceTests
             Substitute.For<Cvoya.Spring.Core.Execution.ILlmCredentialResolver>();
         public Cvoya.Spring.Core.Execution.IUnitExecutionStore ExecutionStore { get; } =
             Substitute.For<Cvoya.Spring.Core.Execution.IUnitExecutionStore>();
+        public Cvoya.Spring.Core.Catalog.IRuntimeCatalog? RuntimeCatalog { get; }
         public UnitCreationService Service { get; }
 
         /// <param name="fallbackGuid">UUID returned when the resolver is called with the fallback username ("api").</param>
         /// <param name="aliceGuid">UUID returned when the resolver is called with any other username.</param>
-        public Fixture(Guid fallbackGuid, Guid aliceGuid)
+        /// <param name="runtimeCatalog">
+        /// Optional runtime catalogue. When supplied, the auto-start gate
+        /// (#2204) wires up; without it the gate short-circuits to Draft
+        /// for the same reason production wiring without a catalogue does.
+        /// </param>
+        public Fixture(
+            Guid fallbackGuid,
+            Guid aliceGuid,
+            Cvoya.Spring.Core.Catalog.IRuntimeCatalog? runtimeCatalog = null)
         {
+            RuntimeCatalog = runtimeCatalog;
             Directory
                 .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
                 .Returns(Task.CompletedTask);
@@ -200,7 +210,8 @@ public class UnitCreationServiceTests
                 scopeFactory,
                 NullLoggerFactory.Instance,
                 executionStore: ExecutionStore,
-                credentialResolver: CredentialResolver);
+                credentialResolver: CredentialResolver,
+                runtimeCatalog: RuntimeCatalog);
         }
 
         public Task<UnitCreationResult> CreateAsync(string name)
@@ -490,6 +501,173 @@ public class UnitCreationServiceTests
         result.Unit.Status.ShouldBe(UnitStatus.Draft);
         await fixture.Proxy.DidNotReceive().TransitionAsync(
             UnitStatus.Validating, Arg.Any<CancellationToken>());
+    }
+
+    // --- #2204: regression — package-installed units must auto-start ---
+
+    [Fact]
+    public async Task CreateFromManifestAsync_FullConfig_AutoStartsValidation()
+    {
+        // Regression for #2204: PR #2162 added SetPendingAutoStartAsync but
+        // the gate guarding it never passed for manifest-installed units —
+        // `provider` was never threaded through from the manifest, so
+        // IsFullyConfiguredForValidationAsync returned false and the unit
+        // stayed in Draft. The refactor reads execution defaults from the
+        // store and resolves provider via the runtime catalogue (same chain
+        // the validation scheduler uses), so a manifest declaring
+        // ai.runtime + ai.model + execution.image now reaches Validating
+        // and arms the post-validation auto-start flag.
+        var runtimeCatalog = Substitute.For<Cvoya.Spring.Core.Catalog.IRuntimeCatalog>();
+        runtimeCatalog.GetAgentRuntime("claude-code").Returns(
+            new Cvoya.Spring.Core.Catalog.AgentRuntime(
+                Id: "claude-code",
+                DisplayName: "Claude Code",
+                DefaultImage: "ghcr.io/cvoya-com/claude-code-base:latest",
+                Launcher: "claude-code-cli",
+                ThreadBinding: new Cvoya.Spring.Core.Catalog.ThreadBinding(
+                    Cvoya.Spring.Core.Catalog.ThreadBindingKind.CliArg, "--resume", null),
+                SystemPromptInjection: new Cvoya.Spring.Core.Catalog.SystemPromptInjection(
+                    Cvoya.Spring.Core.Catalog.SystemPromptInjectionKind.File, "AGENTS.md", null),
+                ModelProviders: new[]
+                {
+                    new Cvoya.Spring.Core.Catalog.AgentRuntimeProviderEdge(
+                        Id: "anthropic",
+                        AuthMethod: Cvoya.Spring.Core.Catalog.AuthMethod.Oauth,
+                        CredentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN"),
+                }));
+
+        var fixture = new Fixture(FallbackGuid, AliceGuid, runtimeCatalog);
+        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+
+        // Simulate the execution row that PersistUnitExecutionAsync wrote
+        // (manifest path), so the gate reads back a fully configured unit.
+        fixture.ExecutionStore
+            .GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new Cvoya.Spring.Core.Execution.UnitExecutionDefaults(
+                Image: "ghcr.io/cvoya-com/claude-code-base:latest",
+                Provider: "anthropic",
+                Model: "claude-opus-4-7",
+                Agent: "claude-code"));
+
+        fixture.CredentialResolver
+            .ResolveAsync(
+                "anthropic",
+                Cvoya.Spring.Core.Catalog.AuthMethod.Oauth,
+                Arg.Any<Guid?>(),
+                Arg.Any<Guid?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new Cvoya.Spring.Core.Execution.LlmCredentialResolution(
+                Value: "oauth-token",
+                Source: Cvoya.Spring.Core.Execution.LlmCredentialSource.Tenant,
+                SecretName: "anthropic-claude-code-oauth-token"));
+
+        // Actor accepts the Validating transition — that's the precondition
+        // for arming the PendingAutoStart flag the actor consumes after
+        // CompleteValidationAsync to drive Stopped → Starting → Running.
+        fixture.Proxy
+            .TransitionAsync(UnitStatus.Validating, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, UnitStatus.Validating, null));
+
+        var manifest = new UnitManifest
+        {
+            Name = "auto-start-unit",
+            Description = "manifest with full ai+execution config",
+            Ai = new AiManifest
+            {
+                Runtime = "claude-code",
+                Model = new AiModelManifest { Provider = "anthropic", Id = "claude-opus-4-7" },
+            },
+            Execution = new ExecutionManifest
+            {
+                Image = "ghcr.io/cvoya-com/claude-code-base:latest",
+                Model = "claude-opus-4-7",
+            },
+        };
+
+        var result = await fixture.Service.CreateFromManifestAsync(
+            manifest,
+            new UnitCreationOverrides(IsTopLevel: true),
+            CancellationToken.None);
+
+        result.Unit.Status.ShouldBe(UnitStatus.Validating);
+        await fixture.Proxy.Received(1).TransitionAsync(
+            UnitStatus.Validating, Arg.Any<CancellationToken>());
+        await fixture.Proxy.Received(1).SetPendingAutoStartAsync(
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateFromManifestAsync_MissingCredential_StaysInDraft()
+    {
+        // Mirror of the positive test: same manifest and runtime catalogue,
+        // but the credential resolver reports NotFound. The gate must close
+        // and the unit must stay in Draft — no transition, no pending flag.
+        var runtimeCatalog = Substitute.For<Cvoya.Spring.Core.Catalog.IRuntimeCatalog>();
+        runtimeCatalog.GetAgentRuntime("claude-code").Returns(
+            new Cvoya.Spring.Core.Catalog.AgentRuntime(
+                Id: "claude-code",
+                DisplayName: "Claude Code",
+                DefaultImage: "ghcr.io/cvoya-com/claude-code-base:latest",
+                Launcher: "claude-code-cli",
+                ThreadBinding: new Cvoya.Spring.Core.Catalog.ThreadBinding(
+                    Cvoya.Spring.Core.Catalog.ThreadBindingKind.CliArg, "--resume", null),
+                SystemPromptInjection: new Cvoya.Spring.Core.Catalog.SystemPromptInjection(
+                    Cvoya.Spring.Core.Catalog.SystemPromptInjectionKind.File, "AGENTS.md", null),
+                ModelProviders: new[]
+                {
+                    new Cvoya.Spring.Core.Catalog.AgentRuntimeProviderEdge(
+                        Id: "anthropic",
+                        AuthMethod: Cvoya.Spring.Core.Catalog.AuthMethod.Oauth,
+                        CredentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN"),
+                }));
+
+        var fixture = new Fixture(FallbackGuid, AliceGuid, runtimeCatalog);
+        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        fixture.ExecutionStore
+            .GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new Cvoya.Spring.Core.Execution.UnitExecutionDefaults(
+                Image: "ghcr.io/cvoya-com/claude-code-base:latest",
+                Provider: "anthropic",
+                Model: "claude-opus-4-7",
+                Agent: "claude-code"));
+        fixture.CredentialResolver
+            .ResolveAsync(
+                Arg.Any<string>(),
+                Arg.Any<Cvoya.Spring.Core.Catalog.AuthMethod>(),
+                Arg.Any<Guid?>(),
+                Arg.Any<Guid?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new Cvoya.Spring.Core.Execution.LlmCredentialResolution(
+                Value: null,
+                Source: Cvoya.Spring.Core.Execution.LlmCredentialSource.NotFound,
+                SecretName: "anthropic-claude-code-oauth-token"));
+
+        var manifest = new UnitManifest
+        {
+            Name = "no-cred-unit",
+            Description = "full config but no credential resolved",
+            Ai = new AiManifest
+            {
+                Runtime = "claude-code",
+                Model = new AiModelManifest { Provider = "anthropic", Id = "claude-opus-4-7" },
+            },
+            Execution = new ExecutionManifest
+            {
+                Image = "ghcr.io/cvoya-com/claude-code-base:latest",
+                Model = "claude-opus-4-7",
+            },
+        };
+
+        var result = await fixture.Service.CreateFromManifestAsync(
+            manifest,
+            new UnitCreationOverrides(IsTopLevel: true),
+            CancellationToken.None);
+
+        result.Unit.Status.ShouldBe(UnitStatus.Draft);
+        await fixture.Proxy.DidNotReceive().TransitionAsync(
+            UnitStatus.Validating, Arg.Any<CancellationToken>());
+        await fixture.Proxy.DidNotReceive().SetPendingAutoStartAsync(
+            Arg.Any<CancellationToken>());
     }
 
     // --- #1065: provider must NOT leak into execution defaults as a runtime id ---
