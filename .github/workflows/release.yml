@@ -47,6 +47,7 @@ concurrency:
 
 permissions:
   contents: write   # Create GitHub Releases and upload assets.
+  actions: read      # Download artifacts from other workflow runs (sidecar binaries).
   packages: write   # Push to ghcr.io.
   id-token: write   # OIDC token for attestation (future-proofing).
 
@@ -982,6 +983,43 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Download sidecar binaries from agent-base workflow run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The agent-base tag is pushed and its workflow completes before the
+          # platform v* tag is pushed, so its artifacts are available by now.
+          AGENT_BASE_TAG="agent-base-v${RELEASE_VERSION}"
+          echo "Looking up release-agent-base.yml run for ${AGENT_BASE_TAG} …"
+          AGENT_BASE_RUN=$(gh run list \
+            --repo "${REPO}" \
+            --workflow "release-agent-base.yml" \
+            --branch "${AGENT_BASE_TAG}" \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId')
+          if [[ -z "${AGENT_BASE_RUN}" || "${AGENT_BASE_RUN}" == "null" ]]; then
+            echo "::error::No completed release-agent-base.yml run found for tag ${AGENT_BASE_TAG}"
+            exit 1
+          fi
+          echo "Downloading sidecar artifacts from run ${AGENT_BASE_RUN} …"
+          mkdir -p sidecar-tmp sidecar-release
+          for target in linux-amd64 linux-arm64 darwin-arm64; do
+            gh run download "${AGENT_BASE_RUN}" \
+              --repo "${REPO}" \
+              --name "sidecar-binary-${target}" \
+              --dir "sidecar-tmp/${target}/"
+            src="sidecar-tmp/${target}/spring-voyage-agent-sidecar-${target}"
+            dst="sidecar-release/spring-voyage-agent-sidecar-${RELEASE_VERSION}-${target}"
+            cp "${src}" "${dst}"
+            chmod +x "${dst}"
+            echo "Staged: ${dst}"
+          done
+
       - name: Generate SHA256SUMS
         id: sums
         shell: bash
@@ -1024,6 +1062,14 @@ jobs:
           [[ -f "${src}" ]] || { echo "::error::missing CLI artifact ${src}"; exit 1; }
           cp "${src}" "${sums_stage}/"
 
+          # Sidecar: spring-voyage-agent-sidecar-<v>-<target>
+          for target in linux-amd64 linux-arm64 darwin-arm64; do
+            name="spring-voyage-agent-sidecar-${RELEASE_VERSION}-${target}"
+            src="sidecar-release/${name}"
+            [[ -f "${src}" ]] || { echo "::error::missing sidecar artifact ${src}"; exit 1; }
+            cp "${src}" "${sums_stage}/"
+          done
+
           # `sha256sum *` against the staging dir produces lines like
           # `<hex>  spring-voyage-<v>-bundle.tar.gz` — exactly what
           # `sha256sum -c SHA256SUMS` expects when the operator unpacks
@@ -1033,11 +1079,15 @@ jobs:
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
 
-      - name: Attach SHA256SUMS to the GitHub release
+      - name: Attach SHA256SUMS and sidecar binaries to the GitHub release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.resolve.outputs.tag }}
-          files: SHA256SUMS
+          files: |
+            SHA256SUMS
+            sidecar-release/spring-voyage-agent-sidecar-${{ needs.resolve.outputs.version }}-linux-amd64
+            sidecar-release/spring-voyage-agent-sidecar-${{ needs.resolve.outputs.version }}-linux-arm64
+            sidecar-release/spring-voyage-agent-sidecar-${{ needs.resolve.outputs.version }}-darwin-arm64
           fail_on_unmatched_files: true
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
 
@@ -1050,7 +1100,7 @@ jobs:
             echo "| Asset | Notes |"
             echo "| --- | --- |"
             echo "| \`${{ steps.bundle.outputs.archive_name }}\` | Operator deployment bundle (devops/deploy/ slice + dapr/components/delegated-spring-voyage-agent/ + manifest.json) |"
-            echo "| \`SHA256SUMS\` | Covers bundle + 5 dispatcher archives + 5 CLI archives |"
+            echo "| \`SHA256SUMS\` | Covers bundle + 5 dispatcher archives + 5 CLI archives + 3 sidecar binaries |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ── 8. GitHub Release ──────────────────────────────────────────────────────
@@ -1129,6 +1179,7 @@ jobs:
             echo "| \`spring-voyage-${RELEASE_VERSION}-bundle.tar.gz\` | Deployment bundle (operator scripts, Caddy config, Dapr components, \`manifest.json\`). |"
             echo "| \`spring-${RELEASE_VERSION}-{linux-x64,linux-arm64,osx-x64,osx-arm64,win-x64}.{tar.gz,zip}\` | Self-contained \`spring\` CLI binaries (5 RIDs). |"
             echo "| \`spring-dispatcher-${RELEASE_VERSION}-{linux-x64,linux-arm64,osx-x64,osx-arm64,win-x64}.{tar.gz,zip}\` | Self-contained dispatcher host binaries (5 RIDs). |"
+            echo "| \`spring-voyage-agent-sidecar-${RELEASE_VERSION}-{linux-amd64,linux-arm64,darwin-arm64}\` | Agent sidecar node binaries (3 targets). |"
             echo "| \`SHA256SUMS\` | sha256sum-compatible checksums for every release-attached file above. |"
           } >> /tmp/release-notes.md
 
