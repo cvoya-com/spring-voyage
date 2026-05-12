@@ -635,7 +635,7 @@ public static class GitHubAppCommand
 
     private static string ResolveEnvPath(string? envFilePathOverride)
         => string.IsNullOrWhiteSpace(envFilePathOverride)
-            ? Path.Combine(Directory.GetCurrentDirectory(), "deployment", "spring.env")
+            ? Path.Combine(Directory.GetCurrentDirectory(), "devops", "deploy", "spring.env")
             : envFilePathOverride;
 
     // ------------------------------------------------------------------
@@ -877,7 +877,7 @@ public static class GitHubAppCommand
         // --env-path explicitly. We don't try to walk-up; guessing the
         // repo root opens us to subtle bugs when the CLI is installed
         // as a global tool.
-        return Path.Combine(Directory.GetCurrentDirectory(), "deployment", "spring.env");
+        return Path.Combine(Directory.GetCurrentDirectory(), "devops", "deploy", "spring.env");
     }
 
     private static void PrintPreamble(

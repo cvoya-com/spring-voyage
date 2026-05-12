@@ -18,7 +18,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 ENV_FILE="${SPRING_ENV_FILE:-${SCRIPT_DIR}/spring.env}"
 HOST_SCRIPT="${SCRIPT_DIR}/spring-voyage-host.sh"
 
@@ -139,7 +139,7 @@ cmd_build() {
     # local image store before attempting a registry pull. Localhost aliases
     # are only a dev convenience and can be suppressed for release-style
     # builds.
-    log "building agent images via deployment/build-agent-images.sh"
+    log "building agent images via devops/build/build-agent-images.sh"
     local agent_build_args=(--tag "${SPRING_AGENT_TAG:-latest}")
     if [[ "${ghcr_only}" -eq 1 ]]; then
         agent_build_args+=(--ghcr-only)

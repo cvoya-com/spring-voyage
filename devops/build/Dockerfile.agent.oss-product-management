@@ -21,7 +21,7 @@
 #
 # Build (from repo root):
 #   docker build \
-#     -f deployment/Dockerfile.agent.oss-product-management \
+#     -f devops/build/Dockerfile.agent.oss-product-management \
 #     -t ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:dev \
 #     .
 

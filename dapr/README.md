@@ -10,7 +10,7 @@ dapr/
 │   │   ├── statestore.yaml
 │   │   ├── pubsub.yaml
 │   │   └── secretstore.yaml
-│   └── production/      # Podman-hosted Postgres + Redis (deployment/)
+│   └── production/      # Podman-hosted Postgres + Redis (devops/deploy/)
 │       ├── statestore.yaml
 │       ├── pubsub.yaml
 │       └── secretstore.yaml
@@ -49,7 +49,7 @@ Web dashboard).
 
 ## Production (Podman deployment)
 
-The image built by `deployment/Dockerfile` bundles the entire `dapr/` tree
+The image built by `devops/build/Dockerfile` bundles the entire `dapr/` tree
 under `/dapr/`. Point sidecars at the production profile:
 
 ```bash
@@ -72,15 +72,15 @@ will typically be the repo-mounted `dapr/components/production` directory.
 `dapr/components/production/secretstore.yaml` is `secretstores.local.env`.
 Credentials never appear in git or in container images — they come from the
 process environment of each sidecar. The Podman stack loads them from
-`deployment/spring.env`:
+`devops/deploy/spring.env`:
 
 | Secret key                            | Purpose                                    |
 | ------------------------------------- | ------------------------------------------ |
 | `SPRING_POSTGRES_CONNECTION_STRING`   | Full Npgsql connection string to Postgres. |
 | `REDIS_PASSWORD`                      | Redis AUTH password (leave empty to skip). |
 
-Add new secrets to `deployment/spring.env.example`, document them in
-`deployment/README.md`, and reference them from the relevant component
+Add new secrets to `devops/deploy/spring.env.example`, document them in
+`devops/deploy/README.md`, and reference them from the relevant component
 YAML via `secretKeyRef`. For cloud-grade secret management (Azure Key
 Vault, HashiCorp Vault, Kubernetes Secrets) swap `secretstore.yaml` for
 the corresponding Dapr secret store — the rest of the profile is

@@ -5,13 +5,13 @@
 # escape hatch for hacking on the bridge from a developer laptop.
 #
 # Usage:
-#   deployment/build-sidecar.sh             # builds :dev
-#   deployment/build-sidecar.sh v1.0.0      # builds :v1.0.0 + :1.0.0
+#   devops/build/build-sidecar.sh             # builds :dev
+#   devops/build/build-sidecar.sh v1.0.0      # builds :v1.0.0 + :1.0.0
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 TAG="${1:-dev}"
 IMAGE="ghcr.io/cvoya-com/agent-base"
@@ -25,7 +25,7 @@ fi
 # Run the unit tests before we bake anything. The sidecar is small
 # enough that the test suite finishes in seconds, and a busted bridge
 # inside the published image is a rotten user experience.
-pushd "${SCRIPT_DIR}/agent-sidecar" >/dev/null
+pushd "${REPO_ROOT}/src/Cvoya.Spring.AgentSidecar" >/dev/null
 if command -v npm >/dev/null 2>&1; then
     npm install --no-audit --no-fund
     npm test

@@ -166,7 +166,7 @@ The tag pushed to the container registry has the leading `v` stripped (e.g., git
 
 ### Local deployment
 
-`deployment/build.sh` builds images locally with Podman. The local build writes the same canonical GHCR refs that release builds publish, so the dispatcher can resolve runtime defaults from the local image store before any registry pull.
+`devops/build/build.sh` builds images locally with Podman. The local build writes the same canonical GHCR refs that release builds publish, so the dispatcher can resolve runtime defaults from the local image store before any registry pull.
 
 ## Changelog
 

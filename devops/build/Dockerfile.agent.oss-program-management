@@ -19,7 +19,7 @@
 #
 # Build (from repo root):
 #   docker build \
-#     -f deployment/Dockerfile.agent.oss-program-management \
+#     -f devops/build/Dockerfile.agent.oss-program-management \
 #     -t ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:dev \
 #     .
 

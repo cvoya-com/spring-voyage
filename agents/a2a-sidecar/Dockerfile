@@ -1,6 +1,6 @@
 # Pinned to an exact patch and aligned to Python 3.13 to match the rest of
-# the platform's Python images (deployment/Dockerfile.agent-base,
-# agents/spring-voyage-agent/Dockerfile, deployment/Dockerfile.agent.dapr).
+# the platform's Python images (devops/build/Dockerfile.agent-base,
+# agents/spring-voyage-agent/Dockerfile, devops/build/Dockerfile.agent.dapr).
 # Only depends on aiohttp, which supports 3.13 natively.
 FROM docker.io/library/python:3.13.13-slim
 

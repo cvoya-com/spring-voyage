@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Idempotence + lifecycle tests for deployment/spring-voyage-host.sh.
+# Idempotence + lifecycle tests for devops/deploy/spring-voyage-host.sh.
 #
 # Drives the host script through every verb that an operator might
 # invoke twice in a row, asserting the script never crashes, never
@@ -15,7 +15,7 @@
 # well as on the CI runner. A bash test driver keeps that constraint
 # honest. The .github/workflows/ci.yml job `host-script-idempotence`
 # runs this script on Ubuntu; macOS verification is documented in
-# deployment/README.md.
+# devops/deploy/README.md.
 #
 # Cases covered:
 #   1. `build` produces the dll under ${PUBLISH_DIR}.
@@ -61,7 +61,7 @@ export SPRING_DISPATCHER_PORT="${TEST_PORT}"
 unset SPRING_DISPATCHER_WORKER_TOKEN
 unset SPRING_DISPATCHER_BIN
 # Empty SPRING_ENV_FILE so the host script doesn't accidentally pick
-# up a developer's local deployment/spring.env.
+# up a developer's local devops/deploy/spring.env.
 export SPRING_ENV_FILE="${STATE_DIR}/empty.env"
 : >"${SPRING_ENV_FILE}"
 

@@ -3,7 +3,7 @@
 # Minimal extension of a Spring Voyage agent base image.
 #
 # This is the smallest possible custom agent image: take one of the
-# tool-bearing agent images shipped by `deployment/build-agent-images.sh`
+# tool-bearing agent images shipped by `devops/build/build-agent-images.sh`
 # (PR 3b of #1087, #1096) and tag it under your own registry / namespace.
 # Useful when you want a stable, pinned tag to reference from a unit or
 # agent manifest even though no extra tooling is needed.

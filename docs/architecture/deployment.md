@@ -116,7 +116,7 @@ Selection of the dispatcher's own backend is driven by `ContainerRuntime:Runtime
 ### Host requirements
 
 - **Podman on the dispatcher host only.** The worker, API, and web hosts do NOT need `podman` on PATH — they speak to the dispatcher over HTTP. Spring container images do not ship the `podman` CLI.
-- **The dispatcher runs as a host process** (issue [#1063](https://github.com/cvoya-com/spring-voyage/issues/1063)). It invokes the local `podman` binary directly rather than reaching a bind-mounted socket from inside a container. Running on the host removes the rootless-socket passthrough that fails on macOS arm64 / libkrun and gives Linux/macOS/Windows a single topology. The dispatcher is owned by [`deployment/spring-voyage-host.sh`](../../deployment/spring-voyage-host.sh).
+- **The dispatcher runs as a host process** (issue [#1063](https://github.com/cvoya-com/spring-voyage/issues/1063)). It invokes the local `podman` binary directly rather than reaching a bind-mounted socket from inside a container. Running on the host removes the rootless-socket passthrough that fails on macOS arm64 / libkrun and gives Linux/macOS/Windows a single topology. The dispatcher is owned by [`devops/deploy/spring-voyage-host.sh`](../../devops/deploy/spring-voyage-host.sh).
 - **.NET 10 SDK on the dispatcher host.** The host script publishes `Cvoya.Spring.Dispatcher` once on first start and reuses the published binary on subsequent starts (`--rebuild` forces a republish).
 - **Network reachability** for `host.containers.internal` (Podman) / `host.docker.internal` (Docker) — Linux hosts need Podman 4.1+ or an explicit `--add-host=host.docker.internal:host-gateway` for the worker/API containers to reach the dispatcher process on the host. This is the same DNS name in-container agent tools use to reach the host's MCP server.
 - **TCP port 8999 free on `localhost`** — persistent agent containers publish their A2A endpoint on this port. (Future work will introduce per-agent port allocation; see `A2AExecutionDispatcher.SidecarPort`.)
@@ -139,7 +139,7 @@ spring-worker (container)
                 └── podman → local socket on the host
 ```
 
-The dispatcher is a host process rather than a container because the rootless Podman socket cannot be reliably bind-mounted into a container on macOS arm64 / libkrun, and a single topology across Linux/macOS/Windows is the only way the local dev experience stays predictable. See [issue #1063](https://github.com/cvoya-com/spring-voyage/issues/1063) for the architectural decision and [`deployment/spring-voyage-host.sh`](../../deployment/spring-voyage-host.sh) for the lifecycle script that owns the process. Whether the dispatcher could move *back* into a container reliably across hosts is tracked as a `needs-thinking` task.
+The dispatcher is a host process rather than a container because the rootless Podman socket cannot be reliably bind-mounted into a container on macOS arm64 / libkrun, and a single topology across Linux/macOS/Windows is the only way the local dev experience stays predictable. See [issue #1063](https://github.com/cvoya-com/spring-voyage/issues/1063) for the architectural decision and [`devops/deploy/spring-voyage-host.sh`](../../devops/deploy/spring-voyage-host.sh) for the lifecycle script that owns the process. Whether the dispatcher could move *back* into a container reliably across hosts is tracked as a `needs-thinking` task.
 
 ### HTTP contract
 
@@ -288,7 +288,7 @@ The reference agent runtime images are published to GHCR by `release.yml`:
 ### Tag → GHCR flow
 
 1. A maintainer pushes a semver-style tag to `main` (e.g. `git tag v0.1.0 && git push origin v0.1.0`). The tag pattern `v*` gates the workflow.
-2. `.github/workflows/release.yml` builds the images under their canonical `ghcr.io/cvoya-com/...:<version>` tags with `deployment/build-agent-images.sh --ghcr-only`.
+2. `.github/workflows/release.yml` builds the images under their canonical `ghcr.io/cvoya-com/...:<version>` tags with `devops/build/build-agent-images.sh --ghcr-only`.
 3. The workflow pushes the immutable release tag. Stable releases also update the floating `:X.Y` and `:latest` tags.
 4. The workflow marks the GHCR packages public after push.
 
@@ -306,7 +306,7 @@ docker pull ghcr.io/cvoya-com/claude-code-base:latest
 docker pull ghcr.io/cvoya-com/spring-voyage-agent:latest
 ```
 
-Consumers that want the Dockerfile's `--build-arg CLAUDE_CODE_VERSION=<x.y.z>` escape hatch can continue to build locally; `deployment/build-agent-images.sh` still tags the result with the same canonical GHCR ref in the local image store so the dispatcher finds it before pulling.
+Consumers that want the Dockerfile's `--build-arg CLAUDE_CODE_VERSION=<x.y.z>` escape hatch can continue to build locally; `devops/build/build-agent-images.sh` still tags the result with the same canonical GHCR ref in the local image store so the dispatcher finds it before pulling.
 
 ---
 

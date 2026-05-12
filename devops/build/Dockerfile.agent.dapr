@@ -16,10 +16,10 @@
 # `agents/spring-voyage-agent/` (lint + tests gated in `.github/workflows/ci.yml`).
 #
 # Why we duplicate `agents/spring-voyage-agent/Dockerfile`:
-#   * `deployment/build-agent-images.sh` is the new single entry point for
+#   * `devops/build/build-agent-images.sh` is the new single entry point for
 #     building every agent image the dispatcher launches today (PR 3b
 #     acceptance criterion).
-#   * Co-locating the three Dockerfiles under `deployment/` keeps the
+#   * Co-locating the three Dockerfiles under `devops/build/` keeps the
 #     "what does the platform launch?" surface in one folder so the
 #     followup that updates the launcher (PR 4 of #1087) has a single
 #     directory to grep.
@@ -29,16 +29,16 @@
 #     `podman build agents/spring-voyage-agent/` still works.
 #
 # Build:
-#   deployment/build-agent-images.sh
+#   devops/build/build-agent-images.sh
 #       (preferred — builds agent-base, agent-claude-code, and spring-voyage-agent together)
 #
 #   docker build \
-#     -f deployment/Dockerfile.agent.dapr \
+#     -f devops/build/Dockerfile.agent.dapr \
 #     -t localhost/spring-voyage-agent:latest \
 #     .
 
 # Pinned to an exact patch and aligned to Python 3.13 to match
-# deployment/Dockerfile.agent-base and agents/spring-voyage-agent/Dockerfile —
+# devops/build/Dockerfile.agent-base and agents/spring-voyage-agent/Dockerfile —
 # every Python-bearing platform image now tracks the same interpreter line.
 # Bump in lockstep when rolling Python forward.
 FROM docker.io/library/python:3.13.13-slim

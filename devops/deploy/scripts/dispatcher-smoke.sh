@@ -2,7 +2,7 @@
 # Tier-1 dispatcher smoke test.
 #
 # Drives a single round-trip through the host-process dispatcher:
-#   1. Start the dispatcher via deployment/spring-voyage-host.sh.
+#   1. Start the dispatcher via devops/deploy/spring-voyage-host.sh.
 #   2. Pull the bearer token from ${SPRING_HOST_STATE_DIR}/dispatcher.env.
 #   3. POST /v1/containers with a tiny docker.io/library/alpine:latest
 #      image running `echo ok`, timeout 120s.
@@ -14,7 +14,7 @@
 # This script is what the .github/workflows/ci.yml `dispatcher-smoke`
 # job runs on every PR. It is also the script operators run locally
 # to verify the host-process pivot still works on macOS arm64 — see
-# deployment/README.md for the manual procedure.
+# devops/deploy/README.md for the manual procedure.
 #
 # Requires podman or docker on PATH (the runner image must provide
 # one). The dispatcher process resolves the binary via

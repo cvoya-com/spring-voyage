@@ -643,12 +643,12 @@ The Tier B native launcher (`SpringVoyageAgentLauncher`) is the canonical exampl
 - The bridge npm package and the OCI tag use semver.
 - N-2 backward compatibility on the bridge package — a worker dialing this bridge accepts versions within the last 2 majors.
 - A2A pinned to `0.3.x`. A bump to `0.4.x` or `1.x` is a deliberate breaking change with a deprecation window on the dispatcher side.
-- The bridge source lives in the same repository as the dispatcher, under [`deployment/agent-sidecar/`](../../deployment/agent-sidecar). Releases are cut on tags shaped `agent-base-vX.Y.Z`.
+- The bridge source lives in the same repository as the dispatcher, under [`src/Cvoya.Spring.AgentSidecar/`](../../src/Cvoya.Spring.AgentSidecar). Releases are cut on tags shaped `agent-base-vX.Y.Z`.
 
 ### Local verification
 
 ```bash
-deployment/build-sidecar.sh                          # builds ghcr.io/cvoya-com/agent-base:dev
+devops/build/build-sidecar.sh                          # builds ghcr.io/cvoya-com/agent-base:dev
 docker run --rm -p 8999:8999 \
   -e SPRING_AGENT_ARGV='["true"]' \
   ghcr.io/cvoya-com/agent-base:dev &

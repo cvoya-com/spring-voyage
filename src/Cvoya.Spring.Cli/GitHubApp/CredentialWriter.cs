@@ -123,7 +123,7 @@ public static class CredentialWriter
             appended.AppendLine(FormatEnvLine(key, value));
         }
 
-        // Ensure the directory exists; on a fresh clone the deployment
+        // Ensure the directory exists; on a fresh clone the devops/deploy
         // directory is checked in but spring.env itself is gitignored and
         // may not exist yet.
         var dir = Path.GetDirectoryName(envFilePath);

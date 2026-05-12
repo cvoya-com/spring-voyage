@@ -3,7 +3,7 @@
 Extends one of the Spring Voyage tool-bearing agent images with extra
 CLI tooling the agent process can shell out to. Use this template when
 your agent workflow needs a tool that isn't shipped with the
-per-tool images produced by `deployment/build-agent-images.sh` (added
+per-tool images produced by `devops/build/build-agent-images.sh` (added
 in PR 3b of #1087, #1096) — for example
 `ghcr.io/cvoya-com/claude-code-base:latest` (Claude Code path 1)
 or `ghcr.io/cvoya-com/spring-voyage-agent:latest` (Dapr Agent path 3).

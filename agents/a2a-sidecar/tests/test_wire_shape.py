@@ -3,7 +3,7 @@ Wire-shape tests for the A2A v0.3 sidecar (#1368).
 
 Pins the JSON structure emitted by sidecar.py against the contract the .NET
 A2A.V0_3 SDK expects. The authoritative reference is:
-  deployment/agent-sidecar/src/a2a.ts  (TypeScript bridge that shipped in #1369)
+  src/Cvoya.Spring.AgentSidecar/src/a2a.ts  (TypeScript bridge that shipped in #1369)
   tests/Cvoya.Spring.Dapr.Tests/Execution/Fixtures/bridge-message-send-*.json
 
 These tests DO NOT start an aiohttp server or an agent process.  They test the

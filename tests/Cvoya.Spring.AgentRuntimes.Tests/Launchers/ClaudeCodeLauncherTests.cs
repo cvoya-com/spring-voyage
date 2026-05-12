@@ -159,7 +159,7 @@ public class ClaudeCodeLauncherTests
         var raw = prep.EnvironmentVariables["SPRING_AGENT_ARGV"];
 
         // The bridge does JSON.parse on this value (see
-        // deployment/agent-sidecar/src/config.ts). Round-tripping it
+        // src/Cvoya.Spring.AgentSidecar/src/config.ts). Round-tripping it
         // through JsonSerializer is the contract.
         var argv = JsonSerializer.Deserialize<string[]>(raw);
         argv.ShouldNotBeNull();

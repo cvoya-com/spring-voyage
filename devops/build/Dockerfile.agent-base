@@ -31,8 +31,8 @@ ARG NODE_VERSION=22
 FROM docker.io/library/node:22.22.2-trixie-slim AS sidecar-build
 
 WORKDIR /build
-COPY deployment/agent-sidecar/package.json deployment/agent-sidecar/tsconfig.json ./
-COPY deployment/agent-sidecar/src ./src
+COPY src/Cvoya.Spring.AgentSidecar/package.json src/Cvoya.Spring.AgentSidecar/tsconfig.json ./
+COPY src/Cvoya.Spring.AgentSidecar/src ./src
 RUN npm install --omit=optional --no-audit --no-fund \
  && npx tsc -p tsconfig.json \
  && npm prune --omit=dev

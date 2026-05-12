@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Spring Voyage — self-host setup wizard.
 #
-# Creates deployment/spring.env from spring.env.example and collects the
+# Creates devops/deploy/spring.env from spring.env.example and collects the
 # secrets every self-hosted deployment must supply.  Values that can be
 # derived automatically (AES key, OAuth redirect URI, Dapr components path)
 # are written without prompting.
 #
 # Usage:
-#   cd deployment/
+#   cd devops/deploy/
 #   ./setup.sh
 #
 # Re-running is safe: you are asked whether to overwrite an existing spring.env.
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 ENV_EXAMPLE="${SCRIPT_DIR}/spring.env.example"
 ENV_FILE="${SCRIPT_DIR}/spring.env"
 
@@ -217,20 +217,20 @@ if [[ "${BUILD_IMAGES,,}" == "y" ]]; then
     # summary message names the right binary.
     if ! _BUILD_CLI=$(resolve_container_cli); then
         warn "Neither docker nor podman found — skipping image build."
-        warn "Run 'deployment/build-agent-images.sh --tag latest' manually before validating units."
+        warn "Run 'devops/build/build-agent-images.sh --tag latest' manually before validating units."
         _BUILD_CLI=""
     fi
 
     if [[ -n "${_BUILD_CLI}" ]]; then
-        info "Running: DOCKER=${_BUILD_CLI} deployment/build-agent-images.sh --tag latest"
+        info "Running: DOCKER=${_BUILD_CLI} devops/build/build-agent-images.sh --tag latest"
         if DOCKER="${_BUILD_CLI}" "${SCRIPT_DIR}/build-agent-images.sh" --tag latest; then
             ok "Agent images built at :latest"
         else
-            warn "Image build failed. Run 'deployment/build-agent-images.sh --tag latest' manually."
+            warn "Image build failed. Run 'devops/build/build-agent-images.sh --tag latest' manually."
         fi
     fi
 else
-    warn "Skipped.  Run 'deployment/build-agent-images.sh --tag latest' before validating units."
+    warn "Skipped.  Run 'devops/build/build-agent-images.sh --tag latest' before validating units."
 fi
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 // Block pnpm/yarn from installing in this repo. The workspace is managed
 // by npm (root package-lock.json + npm "workspaces" field). Running pnpm
 // here once already corrupted node_modules with absolute-path shims that
-// broke the Docker build (deployment/Dockerfile -> npm run build).
+// broke the Docker build (devops/build/Dockerfile -> npm run build).
 
 const ua = process.env.npm_config_user_agent || "";
 const tool = ua.split("/")[0] || "unknown";

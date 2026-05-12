@@ -20,7 +20,7 @@ using SvMessage = Cvoya.Spring.Core.Messaging.Message;
 
 /// <summary>
 /// Pins the wire contract between the agent-sidecar bridge
-/// (<c>deployment/agent-sidecar/src/a2a.ts</c>) and the .NET A2A SDK
+/// (<c>src/Cvoya.Spring.AgentSidecar/src/a2a.ts</c>) and the .NET A2A SDK
 /// the dispatcher consumes (<c>A2A.V0_3.A2AClient</c>).
 ///
 /// <para>

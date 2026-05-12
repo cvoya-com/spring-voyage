@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deployment/build-agent-images.sh — single entry point for building every
+# devops/build/build-agent-images.sh — single entry point for building every
 # agent image the Spring Voyage dispatcher launches today (PR 3b of #1087,
 # #1096; OSS role images added in #1536; gemini-base added in #2108).
 #
@@ -23,9 +23,9 @@
 # pull.
 #
 # Usage:
-#   deployment/build-agent-images.sh                # builds :dev tags
-#   deployment/build-agent-images.sh --tag 1.2.3    # builds :1.2.3 tags
-#   deployment/build-agent-images.sh --help
+#   devops/build/build-agent-images.sh                # builds :dev tags
+#   devops/build/build-agent-images.sh --tag 1.2.3    # builds :1.2.3 tags
+#   devops/build/build-agent-images.sh --help
 #
 # Environment overrides (see --help for the full list):
 #   DOCKER              — `docker` (default) or `podman`. Auto-detects if unset.
@@ -34,13 +34,13 @@
 #                         locally-built one. Lets CI verify the published
 #                         image without rebuilding.
 #
-# Mirrors the structure and style of `deployment/build-sidecar.sh` so an
+# Mirrors the structure and style of `devops/build/build-sidecar.sh` so an
 # operator who knows one knows the other.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 TAG="dev"
 SKIP_AGENT_BASE=0
@@ -51,7 +51,7 @@ AGENT_BASE_OVERRIDE="${AGENT_BASE_IMAGE:-}"
 
 usage() {
     cat <<EOF
-Usage: deployment/build-agent-images.sh [options]
+Usage: devops/build/build-agent-images.sh [options]
 
 Builds, in order:
   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>
@@ -91,17 +91,17 @@ Environment:
 
 Examples:
   # Local dev, all eight images at :dev:
-  deployment/build-agent-images.sh
+  devops/build/build-agent-images.sh
 
   # Verify the published agent-base image works:
-  deployment/build-agent-images.sh --skip-agent-base \\
+  devops/build/build-agent-images.sh --skip-agent-base \\
                                    --agent-base-image ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0
 
   # Build and push all eight images to GHCR:
-  deployment/build-agent-images.sh --tag 1.2.3 --push
+  devops/build/build-agent-images.sh --tag 1.2.3 --push
 
   # Skip the OSS role images and only build the base four:
-  deployment/build-agent-images.sh --skip-oss
+  devops/build/build-agent-images.sh --skip-oss
 EOF
 }
 

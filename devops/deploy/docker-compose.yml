@@ -9,7 +9,7 @@
 #
 # Quick start:
 #
-#   cd deployment/
+#   cd devops/deploy/
 #   cp spring.env.example spring.env
 #   $EDITOR spring.env                 # fill in passwords + hostname
 #   ./spring-voyage-host.sh start      # host-process spring-dispatcher (#1063);
@@ -169,8 +169,8 @@ services:
       - --log-level=info
       - --enable-metrics=false
     volumes:
-      - ../dapr/components/production:/components:ro
-      - ../dapr/config/production.yaml:/config/config.yaml:ro
+      - ../../dapr/components/production:/components:ro
+      - ../../dapr/config/production.yaml:/config/config.yaml:ro
     networks: [spring-net]
     depends_on:
       spring-placement:
@@ -202,8 +202,8 @@ services:
       - --log-level=info
       - --enable-metrics=false
     volumes:
-      - ../dapr/components/production:/components:ro
-      - ../dapr/config/production.yaml:/config/config.yaml:ro
+      - ../../dapr/components/production:/components:ro
+      - ../../dapr/config/production.yaml:/config/config.yaml:ro
     networks: [spring-net]
     depends_on:
       spring-placement:
@@ -263,7 +263,7 @@ services:
         condition: service_started
     build:
       context: ..
-      dockerfile: deployment/Dockerfile
+      dockerfile: devops/build/Dockerfile
     # The worker owns EF Core migrations and runs them in DatabaseMigrator's
     # IHostedService.StartAsync (registered before Kestrel's GenericWebHostService),
     # so /health does not respond until migrations have completed. The API host

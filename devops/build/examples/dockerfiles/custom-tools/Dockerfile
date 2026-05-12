@@ -3,7 +3,7 @@
 # Custom agent image with extra CLI tooling.
 #
 # Extends a Spring Voyage tool-bearing agent image (the tags produced by
-# `deployment/build-agent-images.sh`, added in PR 3b of #1087 / #1096)
+# `devops/build/build-agent-images.sh`, added in PR 3b of #1087 / #1096)
 # with a couple of common CLI tools the agent process can shell out to.
 # Use this as a template when an agent workflow needs a tool that isn't
 # in the base image (e.g. a specific MCP server binary, a protobuf
@@ -21,7 +21,7 @@
 FROM localhost/spring-voyage-agent-claude-code:latest
 
 # `jq` and `ripgrep` are already in the agent-base image (see
-# `deployment/Dockerfile.agent-base`). Add your own layer of tooling here.
+# `devops/build/Dockerfile.agent-base`). Add your own layer of tooling here.
 # Examples below; un-comment or replace with what your agent needs.
 
 USER root

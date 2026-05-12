@@ -1,28 +1,30 @@
-# Deployment
+# devops/deploy/
 
-Podman-based deployment scripts for running Spring Voyage on a single machine.
-For Kubernetes / cloud-scale deployment see
-the private Spring Voyage Cloud repository — this directory targets the
-open-source single-host scenario.
+Podman-based deployment scripts and runtime config for running Spring Voyage on
+a single machine. Consumed by both source-clone operators (via
+[`devops/build/`](../build/README.md) and `./deploy.sh`) and the installer
+(see [`devops/install/`](../install/README.md)) — both paths run the same
+scripts. For Kubernetes / cloud-scale deployment see the private Spring Voyage
+Cloud repository — this directory targets the open-source single-host scenario.
+
+The Dockerfiles, `build.sh`, and the agent-image build scripts live next door
+under [`devops/build/`](../build/README.md). The TypeScript agent sidecar source
+lives at [`src/Cvoya.Spring.AgentSidecar/`](../../src/Cvoya.Spring.AgentSidecar/README.md).
 
 ## Contents
 
 | File                     | Purpose                                                           |
 | ------------------------ | ----------------------------------------------------------------- |
-| `build.sh`               | Local Podman image build (platform image, bundled agent images, dispatcher publish). |
 | `deploy.sh`              | Local Podman deployment lifecycle (network, containers). Delegates the dispatcher lifecycle to `spring-voyage-host.sh`. |
 | `spring-voyage-host.sh`  | Manages host-process services (`spring-dispatcher`). Used directly when bouncing the dispatcher in isolation; called by `deploy.sh up/down`. |
-| `Dockerfile`             | Multi-stage platform image (.NET 10 API/Worker + Web + Dapr CLI). |
-| `Dockerfile.agent-base`  | A2A bridge sidecar base image (BYOI conformance path 1 — see [`docs/architecture/agent-runtime.md` § 7](../docs/architecture/agent-runtime.md#7-byoi-conformance-contract)). Published as `ghcr.io/cvoya-com/agent-base:<semver>` by `release-agent-base.yml`. |
-| `Dockerfile.agent.claude-code` | Claude Code CLI on top of `agent-base` (path 1 reference). Built locally as `ghcr.io/cvoya-com/claude-code-base:latest`. |
-| `Dockerfile.agent.dapr`  | Dapr Agent native A2A image (path 3). Built locally as `ghcr.io/cvoya-com/spring-voyage-agent:latest`. |
-| `build-agent-images.sh`  | Builds the three agent images above. Invoked by `build.sh`. |
-| `build-sidecar.sh`       | Builds `ghcr.io/cvoya-com/agent-base:dev` from local sources. Used when iterating on the bridge sidecar without GHCR pull access. |
+| `setup.sh`               | First-run setup: copies `spring.env.example` -> `spring.env`, generates `SPRING_SECRETS_AES_KEY`. |
 | `Caddyfile`              | Single-host path-routed Caddy config (default).                   |
 | `Caddyfile.multi-host`   | Per-service hostnames variant (web / API / webhook each FQDN).    |
+| `docker-compose.yml`     | Reference compose file for Docker operators (no installer support; Podman-first stack uses `deploy.sh`). |
 | `relay.sh`               | Local-dev SSH reverse tunnel for webhook delivery to a laptop.    |
 | `spring.env.example`     | Documented env template. Copy to `spring.env` and fill in.        |
-| `examples/dockerfiles/`  | Starter Dockerfiles showing how to extend the per-tool agent images (see **Custom agent images** below). |
+| `scripts/dispatcher-smoke.sh` | Alpine echo round-trip; gate for #1063 regressions.          |
+| `scripts/test-spring-voyage-host.sh` | 8 idempotence cases for `spring-voyage-host.sh`.      |
 
 > `spring-dispatcher` is intentionally **not** packaged as a container image
 > in OSS. It runs as a long-lived host process owned by
@@ -37,8 +39,9 @@ open-source single-host scenario.
 
 Unit and agent execution blocks (`execution.image`) accept any container
 reference the host can pull. The platform ships seven reference images
-(see the file table above) — pick the one that matches your tool and
-either reference it directly or layer extra tooling on top:
+(built from [`devops/build/`](../build/README.md)) — pick the one that
+matches your tool and either reference it directly or layer extra tooling
+on top:
 
 | Base image                                              | Conformance path | Use it for |
 | ------------------------------------------------------- | ---------------- | ---------- |
@@ -50,18 +53,18 @@ either reference it directly or layer extra tooling on top:
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:<semver>` | path 1 (bridge) | OSS dogfooding PM team — gh CLI, Mermaid CLI, markdownlint. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:<semver>` | path 1 (bridge) | OSS dogfooding PgM team — gh CLI, markdownlint. |
 
-The four `spring-voyage-agent-oss-*` images are the role-flavored agents that back the **Spring Voyage OSS** dogfooding template. See [`docs/guide/operator/dogfooding-oss-unit.md`](../docs/guide/operator/dogfooding-oss-unit.md) for the bring-up flow and [`docs/concepts/spring-voyage-oss.md`](../docs/concepts/spring-voyage-oss.md) for the conceptual overview.
+The four `spring-voyage-agent-oss-*` images are the role-flavored agents that back the **Spring Voyage OSS** dogfooding template. See [`docs/guide/operator/dogfooding-oss-unit.md`](../../docs/guide/operator/dogfooding-oss-unit.md) for the bring-up flow and [`docs/concepts/spring-voyage-oss.md`](../../docs/concepts/spring-voyage-oss.md) for the conceptual overview.
 
 Build them locally with:
 
 ```bash
-./deployment/build-agent-images.sh                # all seven at :dev
-./deployment/build-agent-images.sh --tag latest   # all seven at :latest
-./deployment/build.sh --ghcr-only                 # release-style canonical tags only
+./devops/build/build-agent-images.sh                # all seven at :dev
+./devops/build/build-agent-images.sh --tag latest   # all seven at :latest
+./devops/build/build.sh --ghcr-only                 # release-style canonical tags only
 ```
 
 To layer extra tooling on top of one of the bases, start from a
-template under `examples/dockerfiles/`:
+template under [`devops/build/examples/dockerfiles/`](../build/examples/dockerfiles/):
 
 | Template            | When to use it                                                         |
 | ------------------- | ---------------------------------------------------------------------- |
@@ -82,7 +85,7 @@ unit:
 
 …or through the portal's **Execution** tab (new with the B-wide
 #601 / #603 / #409 PR). The agent → unit → fail-clean resolution chain
-documented in `../docs/architecture/units.md` means agents without their
+documented in `../../docs/architecture/units.md` means agents without their
 own `execution.image` inherit the unit's default.
 
 ## Prerequisites
@@ -171,15 +174,15 @@ user network with:
 ## Local deployment
 
 ```bash
-cd deployment/
+cd devops/deploy/
 ./deploy.sh init               # first-run only: copies spring.env.example -> spring.env
                                #                 and provisions SPRING_SECRETS_AES_KEY (mode 0600).
                                #                 Refuses to overwrite an existing key.
 $EDITOR spring.env             # deploy-time config: hostname, DB password, image tags,
                                # GitHub__*, Anthropic / OpenAI / Google credentials, …
 
-./build.sh                     # build platform + agent images, publish dispatcher binary
-./build.sh clean               # remove local Spring Voyage image refs and dispatcher publish output
+../build/build.sh              # build platform + agent images, publish dispatcher binary
+../build/build.sh clean        # remove local Spring Voyage image refs and dispatcher publish output
 ./deploy.sh up                 # create network, start the stack + bounce spring-dispatcher (host)
 ./deploy.sh status             # list running containers + host services
 ./deploy.sh logs spring-api    # tail a single container service
@@ -250,7 +253,7 @@ manually with `docker compose` should source the file the same way:
 ```bash
 ./spring-voyage-host.sh start
 set -a; . ~/.spring-voyage/host/dispatcher.env; set +a
-docker compose -f deployment/docker-compose.yml up
+docker compose -f devops/deploy/docker-compose.yml up
 ```
 
 #### Worker → dispatcher transport timeout
@@ -287,7 +290,7 @@ Leave it unset to use the default `InfiniteTimeSpan`.
 #### Self-contained release artifacts
 
 Each `dispatcher-vMAJOR.MINOR.PATCH` tag triggers
-[`.github/workflows/release-spring-dispatcher.yml`](../.github/workflows/release-spring-dispatcher.yml)
+[`.github/workflows/release-spring-dispatcher.yml`](../../.github/workflows/release-spring-dispatcher.yml)
 which publishes a self-contained, single-file binary per RID
 (`linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`) and
 uploads each one as a release asset. The host script's binary
@@ -317,8 +320,8 @@ exercise the libkrun code path. After any change to
 drivers, run both scripts on a macOS arm64 dev host:
 
 ```bash
-bash deployment/scripts/test-spring-voyage-host.sh    # 8 idempotence cases
-bash deployment/scripts/dispatcher-smoke.sh           # alpine echo round-trip
+bash devops/deploy/scripts/test-spring-voyage-host.sh    # 8 idempotence cases
+bash devops/deploy/scripts/dispatcher-smoke.sh           # alpine echo round-trip
 ```
 
 A pass on both — together with `host-script-idempotence` and
@@ -339,7 +342,7 @@ see something like:
 System.InvalidOperationException: No connection string found for SpringDbContext.
 Set the ConnectionStrings:SpringDb configuration value (environment
 variable ConnectionStrings__SpringDb=...) to a valid PostgreSQL
-connection string. See deployment/README.md.
+connection string. See devops/deploy/README.md.
 ```
 
 PEM-parse failures for `GitHub__PrivateKeyPem` fail-fast the same way
@@ -354,7 +357,7 @@ multi-process topology (spring-api / spring-worker share the same
 encrypted secret store, so an in-memory fallback silently corrupted
 every cross-process secret read). Configure a real key on every
 deployment, including local dev: `openssl rand -base64 32` ->
-`SPRING_SECRETS_AES_KEY` in `deployment/spring.env`.
+`SPRING_SECRETS_AES_KEY` in `devops/deploy/spring.env`.
 
 **Optional** requirements (GitHub App credentials when you haven't run
 `spring github-app register` yet, Ollama when it's still warming up with
@@ -421,7 +424,7 @@ If you are upgrading a deployment that had `ANTHROPIC_API_KEY` /
 `OPENAI_API_KEY` in `spring.env`, move the keys to tenant defaults with
 the CLI or portal above and remove them from `spring.env`. The platform
 no longer reads those environment variables — credentials must be set at
-tenant or unit scope. See [`docs/guide/secrets.md`](../docs/guide/secrets.md)
+tenant or unit scope. See [`docs/guide/secrets.md`](../../docs/guide/secrets.md)
 for the full resolution chain.
 
 ## Reverse proxy and TLS
@@ -521,7 +524,7 @@ Never commit `spring.env`; it is in `.gitignore` implicitly because only
 `spring.env.example` is tracked. On shared hosts, restrict its permissions:
 
 ```bash
-chmod 600 deployment/spring.env
+chmod 600 devops/deploy/spring.env
 ```
 
 The production profile under `dapr/components/production/` uses
@@ -530,8 +533,8 @@ resolves against the variables in `spring.env` (loaded as `--env-file`).
 For cloud-grade secret management replace `secretstore.yaml` with Azure
 Key Vault, HashiCorp Vault, or Kubernetes secrets; the other production
 components reference the store by name (`secretstore`) so they require no
-changes. See [Infrastructure](../docs/architecture/infrastructure.md#data-persistence--configuration)
-and [`dapr/README.md`](../dapr/README.md) for profile details.
+changes. See [Infrastructure](../../docs/architecture/infrastructure.md#data-persistence--configuration)
+and [`dapr/README.md`](../../dapr/README.md) for profile details.
 
 ### GitHub App setup
 
@@ -564,7 +567,7 @@ The verb drives GitHub's [App-from-manifest flow](https://docs.github.com/en/app
    one-time code.
 4. CLI exchanges the code via `POST /app-manifests/{code}/conversions`
    and receives the App ID, PEM, webhook secret, and OAuth client id/secret.
-5. Credentials land in `deployment/spring.env` (default — `--write-env`)
+5. Credentials land in `devops/deploy/spring.env` (default — `--write-env`)
    or in the platform-secrets store (`--write-secrets`; uses
    `spring secret --scope platform create` from #612).
 6. The install URL is printed — visit it to install the App on the repos
@@ -574,7 +577,7 @@ The listener times out after 5 minutes; if you close the browser without
 confirming, re-run the verb. GitHub's own errors (e.g. "name has already
 been taken") are surfaced verbatim so you can rename with a suffix.
 
-See [`docs/architecture/cli-and-web.md § GitHub App bootstrap verb (#631)`](../docs/architecture/cli-and-web.md#github-app-bootstrap-verb-631)
+See [`docs/architecture/cli-and-web.md § GitHub App bootstrap verb (#631)`](../../docs/architecture/cli-and-web.md#github-app-bootstrap-verb-631)
 for the full flag list.
 
 #### Option B — register manually via the GitHub UI
@@ -744,7 +747,7 @@ LanguageModel__Ollama__BaseUrl=http://host.containers.internal:11434
 with the deploy-owned containers, volumes, networks, and Spring Voyage image
 refs.
 
-See [`docs/developer/local-ai-ollama.md`](../docs/developer/local-ai-ollama.md)
+See [`docs/developer/local-ai-ollama.md`](../../docs/developer/local-ai-ollama.md)
 for full details (troubleshooting, cloud-deployment patterns, and the GPU
 feasibility matrix across Mac/Windows/Linux).
 
@@ -794,7 +797,7 @@ The migration note matters: hosts that previously bound
 
 ## Related documentation
 
-- [Architecture — Deployment](../docs/architecture/deployment.md) — execution modes and solution structure.
-- [Architecture — Infrastructure](../docs/architecture/infrastructure.md) — Dapr building blocks, data stores.
-- [Developer — Setup](../docs/developer/setup.md) — local dev flow (runs hosts via `dapr run`, not containers).
-- [Developer — Operations](../docs/developer/operations.md) — health checks, backups, troubleshooting.
+- [Architecture — Deployment](../../docs/architecture/deployment.md) — execution modes and solution structure.
+- [Architecture — Infrastructure](../../docs/architecture/infrastructure.md) — Dapr building blocks, data stores.
+- [Developer — Setup](../../docs/developer/setup.md) — local dev flow (runs hosts via `dapr run`, not containers).
+- [Developer — Operations](../../docs/developer/operations.md) — health checks, backups, troubleshooting.

@@ -43,7 +43,7 @@ RUN dotnet publish src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj \
 # sibling connector packages under src/Cvoya.Spring.Connector.*/web.
 # Copy workspace manifests first for cacheable `npm ci`, then sources.
 # Pinned to an exact patch so rebuilds are reproducible. Bump in lockstep
-# with deployment/Dockerfile.agent-base when rolling Node forward.
+# with devops/build/Dockerfile.agent-base when rolling Node forward.
 FROM docker.io/library/node:22.22.2-bookworm-slim AS web-build
 WORKDIR /build
 

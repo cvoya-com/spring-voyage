@@ -33,7 +33,7 @@
 #     /agent.py). When #1110 lands, this script can drop the gate and
 #     exercise path 3 directly.
 #
-# Honors the same DOCKER env var as deployment/build-agent-images.sh.
+# Honors the same DOCKER env var as devops/build/build-agent-images.sh.
 # Set SMOKE_IMAGE_TAG=<tag> to point at a non-:dev path-1 build (path
 # 2 always builds a fresh fixture image from in-tree sources).
 #
@@ -94,7 +94,7 @@ case "${PATH_MODE}" in
 esac
 
 # ---- runtime selection ---------------------------------------------------
-# Mirrors deployment/build-agent-images.sh — docker if reachable, else
+# Mirrors devops/build/build-agent-images.sh — docker if reachable, else
 # podman. Set DOCKER to force one runtime explicitly.
 if [[ -z "${DOCKER:-}" ]]; then
     if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -148,7 +148,7 @@ forget_container() {
 }
 # Image tags + tarball paths produced by path-2 that the trap needs to
 # clean up on exit (success or failure). Path 1 reuses an image built
-# upstream by deployment/build-agent-images.sh, so it doesn't appear
+# upstream by devops/build/build-agent-images.sh, so it doesn't appear
 # here.
 PATH2_IMAGES=()
 PATH2_TARBALLS=()
@@ -325,7 +325,7 @@ run_path1() {
 # ---- 2. Path 2 — npm-installed bridge, A2A message/send round-trip ------
 # Builds a throw-away image from tests/fixtures/byoi-path2/Dockerfile
 # that `npm i -g`s the bridge from a `npm pack` tarball of the in-tree
-# deployment/agent-sidecar/ sources. The end state inside the
+# src/Cvoya.Spring.AgentSidecar/ sources. The end state inside the
 # container is identical to docs/guide/byoi-agent-images.md "Path 2a —
 # npm install"; the only difference is that the tarball comes from the
 # working tree instead of the npm registry, so a per-PR run doesn't
@@ -334,7 +334,7 @@ run_path1() {
 # Asserts the same A2A round-trip path 1 does — same `cat` argv, same
 # message/send echo. Closes the gap called out in #1120.
 run_path2() {
-    local sidecar_dir="${REPO_ROOT}/deployment/agent-sidecar"
+    local sidecar_dir="${REPO_ROOT}/src/Cvoya.Spring.AgentSidecar"
     local fixture_dir="${REPO_ROOT}/tests/fixtures/byoi-path2"
     local image="localhost/spring-voyage-agent-byoi-path2-smoke:${NAME_SUFFIX}"
     local pkg_version tarball_name tarball_src tarball_dst port name

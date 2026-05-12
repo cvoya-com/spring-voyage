@@ -19,7 +19,7 @@
 #     The bridge spawns argv[0] with argv[1..] on every `message/send`, with
 #     no shell, and pipes the request's text part(s) to the child's stdin.
 #     The deliberately-no-shell shape is documented in
-#     `deployment/agent-sidecar/README.md` § Configuration (#1063 burned us
+#     `src/Cvoya.Spring.AgentSidecar/README.md` § Configuration (#1063 burned us
 #     on shell-style splitting).
 #   * Anthropic credentials are NOT baked into this image. The launcher
 #     injects them as env vars at dispatch time (`ANTHROPIC_API_KEY`,
@@ -27,18 +27,18 @@
 #     unchanged.
 #
 # Build:
-#   deployment/build-agent-images.sh
+#   devops/build/build-agent-images.sh
 #       (preferred — builds agent-base, agent-claude-code, and spring-voyage-agent together)
 #
 #   docker build \
-#     -f deployment/Dockerfile.agent.claude-code \
+#     -f devops/build/Dockerfile.agent.claude-code \
 #     -t localhost/spring-voyage-agent-claude-code:latest \
 #     --build-arg AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:dev \
 #     .
 #
 # `AGENT_BASE_IMAGE` defaults to the public ghcr.io tag pinned by this PR.
 # Override it to point at a locally-built `agent-base` (see
-# `deployment/build-sidecar.sh`) when the published image isn't yet in your
+# `devops/build/build-sidecar.sh`) when the published image isn't yet in your
 # pull cache.
 
 ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:1.0.0

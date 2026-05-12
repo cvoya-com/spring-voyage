@@ -159,7 +159,7 @@ flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-a
 it opens a pre-filled "create GitHub App" page, receives the one-time
 conversion code on a loopback listener, exchanges it via
 `POST /app-manifests/{code}/conversions`, and writes the resolved
-credentials to either `deployment/spring.env` (default) or platform-scoped
+credentials to either `devops/deploy/spring.env` (default) or platform-scoped
 secrets (via `spring secret --scope platform create`, #612). The
 permission set embedded in the manifest (read issues/PRs/contents/metadata,
 write issue_comment/statuses/checks; webhook events

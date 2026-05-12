@@ -27,7 +27,7 @@ cd spring-voyage
 git checkout v0.1.0   # or `main` while tracking head
 
 # 2. Seed the environment file from the documented template.
-cd deployment
+cd devops/deploy
 cp spring.env.example spring.env
 
 # 3. Edit secrets. At minimum change POSTGRES_PASSWORD and — if you expose
@@ -49,7 +49,7 @@ curl -fsS http://localhost/health
 
 ## Container stack
 
-`deployment/Dockerfile` produces one `localhost/spring-voyage:<tag>` image; the container `command` selects which process to run. Platform services share the `spring-net` bridge. Caddy and selected control-plane services are also dual-attached to `spring-tenant-default` so agent and workflow containers on the tenant bridge can reach them.
+`devops/build/Dockerfile` produces one `localhost/spring-voyage:<tag>` image; the container `command` selects which process to run. Platform services share the `spring-net` bridge. Caddy and selected control-plane services are also dual-attached to `spring-tenant-default` so agent and workflow containers on the tenant bridge can reach them.
 
 | Container | Image | Role |
 |-----------|-------|------|
@@ -81,10 +81,10 @@ Port 8443 is not published to the host. It is accessible only from containers on
 
 ## Docker Compose
 
-Reference file: `deployment/docker-compose.yml`. Run from the `deployment/` directory so `../dapr/` bind mounts resolve.
+Reference file: `devops/deploy/docker-compose.yml`. Run from the `devops/deploy/` directory so `../../dapr/` bind mounts resolve.
 
 ```bash
-cd deployment/
+cd devops/deploy/
 cp spring.env.example spring.env && $EDITOR spring.env
 
 docker compose --env-file spring.env build    # build platform image
@@ -98,10 +98,10 @@ Volumes persist across `down`/`up` cycles; `docker volume rm` clears them. To us
 
 ## Podman (rootless)
 
-`deployment/deploy.sh` is the Podman-native driver (no compose shim).
+`devops/deploy/deploy.sh` is the Podman-native driver (no compose shim).
 
 ```bash
-cd deployment/
+cd devops/deploy/
 cp spring.env.example spring.env && $EDITOR spring.env
 
 ./build.sh                     # build platform + agent images
@@ -128,7 +128,7 @@ Rootless notes:
 - Ports 80 and 443 need `CAP_NET_BIND_SERVICE` or `net.ipv4.ip_unprivileged_port_start` lowered.
 - `host.containers.internal` requires Podman 4.1+ on Linux; older versions get `--add-host` added automatically.
 
-See `deployment/README.md` for per-user agent networks and webhook relay.
+See `devops/deploy/README.md` for per-user agent networks and webhook relay.
 
 ## Dapr components
 
@@ -182,7 +182,7 @@ Redis carries the pub/sub building block (Redis Streams, at-least-once). The def
 
 Caddy fronts three upstreams: `spring-api:8080` (API + `/health`), `/api/v1/webhooks/*` (webhook ingress), and `spring-web:3000` (portal).
 
-Two Caddyfile variants ship in `deployment/`:
+Two Caddyfile variants ship in `devops/deploy/`:
 - **`Caddyfile`** — single hostname, path-routed (default).
 - **`Caddyfile.multi-host`** — one FQDN per service. Select with `SPRING_CADDYFILE=Caddyfile.multi-host`.
 
@@ -194,10 +194,10 @@ Two Caddyfile variants ship in `deployment/`:
 
 ## Secrets bootstrap
 
-All secrets live in `deployment/spring.env`. The file is **not** committed (only `spring.env.example` is). Restrict its permissions:
+All secrets live in `devops/deploy/spring.env`. The file is **not** committed (only `spring.env.example` is). Restrict its permissions:
 
 ```bash
-chmod 600 /opt/spring-voyage/deployment/spring.env
+chmod 600 /opt/spring-voyage/devops/deploy/spring.env
 ```
 
 ### Mandatory variables
@@ -278,7 +278,7 @@ Webhook providers (including GitHub) post to `/api/v1/webhooks/<provider>` on yo
 - Port 443 is reachable from the internet.
 - The GitHub App's webhook URL is `https://<host>/api/v1/webhooks/github` and `GitHub__WebhookSecret` matches both ends.
 
-For local development against a laptop, use `deployment/relay.sh` to open an SSH reverse tunnel from a small relay VPS — see `deployment/README.md#local-dev-webhook-tunnel-relaysh`.
+For local development against a laptop, use `devops/deploy/relay.sh` to open an SSH reverse tunnel from a small relay VPS — see `devops/deploy/README.md#local-dev-webhook-tunnel-relaysh`.
 
 ### Cloud-grade secret stores
 
@@ -314,7 +314,7 @@ Treat every update as potentially breaking: read the release notes, test in stag
 
 **Registry flow:**
 ```bash
-cd deployment/
+cd devops/deploy/
 sed -i 's/^SPRING_IMAGE_TAG=.*/SPRING_IMAGE_TAG=0.2.0/' spring.env
 docker compose --env-file spring.env pull
 docker compose --env-file spring.env up -d
@@ -323,7 +323,7 @@ docker compose --env-file spring.env up -d
 **Source flow:**
 ```bash
 git fetch --tags && git checkout v0.2.0
-cd deployment/
+cd devops/deploy/
 docker compose --env-file spring.env build
 docker compose --env-file spring.env up -d
 ```
@@ -346,7 +346,7 @@ Two instances are trying to run EF migrations against the same database. The OSS
 
 ### Dapr sidecar crashes with `components path not found`
 
-The compose file bind-mounts `../dapr/components/production` relative to `deployment/`. Make sure you invoke `docker compose` from inside `deployment/` so that relative path resolves. If you move the compose file, update the bind-mount source.
+The compose file bind-mounts `../../dapr/components/production` relative to `devops/deploy/`. Make sure you invoke `docker compose` from inside `devops/deploy/` so that relative path resolves. If you move the compose file, update the bind-mount source.
 
 ### `dapr_placement` and `dapr_scheduler` from `dapr init` are interfering
 
@@ -396,5 +396,5 @@ If agents still cannot reach the host, confirm the per-user bridge network exist
 - [Developer — Setup](../../developer/setup.md) — local dev loop without containers (`dapr run` + `dotnet run`).
 - [Developer — Operations](../../developer/operations.md) — migrations, DataProtection keys, backups.
 - [Developer — Secret store](../../developer/secret-store.md) — per-agent / per-unit secret scoping and rotation.
-- [`deployment/README.md`](../../../deployment/README.md) — the build/deploy script reference, per-user agent networks, webhook relay.
+- [`devops/deploy/README.md`](../../../devops/deploy/README.md) — the build/deploy script reference, per-user agent networks, webhook relay.
 - [`dapr/README.md`](../../../dapr/README.md) — Dapr component and configuration reference.

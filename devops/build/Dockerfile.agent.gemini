@@ -9,7 +9,7 @@
 # `RUN`-install the tool we want the bridge to spawn.
 #
 # Wire contract recap (full text in agent-runtime.md § 7; see also
-# `deployment/Dockerfile.agent.claude-code` for an annotated copy):
+# `devops/build/Dockerfile.agent.claude-code` for an annotated copy):
 #
 #   * The base image's ENTRYPOINT runs the TypeScript A2A bridge on
 #     `${AGENT_PORT:-8999}`. We do NOT override it.
@@ -32,12 +32,12 @@
 #     volume and survive container restart (ADR-0041 / #2103).
 #
 # Build:
-#   deployment/build-agent-images.sh
+#   devops/build/build-agent-images.sh
 #       (preferred — builds agent-base, claude-code-base, gemini-base,
 #        and spring-voyage-agent together)
 #
 #   docker build \
-#     -f deployment/Dockerfile.agent.gemini \
+#     -f devops/build/Dockerfile.agent.gemini \
 #     -t localhost/spring-voyage-agent-gemini:latest \
 #     --build-arg AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:dev \
 #     .

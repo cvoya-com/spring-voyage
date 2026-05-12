@@ -20,7 +20,7 @@ This document covers why, how, and the trade-offs across deployment shapes.
 
 ```bash
 # 1. Enable Ollama in spring.env
-cat >> deployment/spring.env <<EOF
+cat >> devops/deploy/spring.env <<EOF
 LanguageModel__Ollama__Enabled=true
 LanguageModel__Ollama__DefaultModel=llama3.2:3b
 EOF
@@ -67,7 +67,7 @@ at `http://host.containers.internal:11434`. The one-shot deploy path is:
 
 ```bash
 ollama serve &
-./deployment/deploy.sh up --local-ollama
+./devops/deploy/deploy.sh up --local-ollama
 ```
 
 That flag verifies `http://127.0.0.1:11434/api/tags`, skips the
@@ -191,7 +191,7 @@ server; they use different endpoints (`/api/generate` vs `/v1/chat/completions`)
 
 ## Related
 
-- `deployment/README.md` — container topology, ports, volumes.
-- `deployment/spring.env.example` — full configuration reference.
+- `devops/deploy/README.md` — container topology, ports, volumes.
+- `devops/deploy/spring.env.example` — full configuration reference.
 - `docs/architecture/infrastructure.md` — Dapr components, state stores.
 - `src/Cvoya.Spring.Dapr/Execution/OllamaProvider.cs` — reference implementation.

@@ -1,7 +1,7 @@
 # Minimal agent image extension
 
 The smallest possible custom agent image: re-tag one of the
-tool-bearing agent images shipped by `deployment/build-agent-images.sh`
+tool-bearing agent images shipped by `devops/build/build-agent-images.sh`
 (the entry point added in PR 3b of #1087, #1096) under your own name so
 unit / agent manifests reference a stable, pinned identifier.
 

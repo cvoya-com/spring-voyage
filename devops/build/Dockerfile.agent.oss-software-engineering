@@ -22,7 +22,7 @@
 #
 # Build (from repo root):
 #   docker build \
-#     -f deployment/Dockerfile.agent.oss-software-engineering \
+#     -f devops/build/Dockerfile.agent.oss-software-engineering \
 #     -t ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:dev \
 #     .
 
