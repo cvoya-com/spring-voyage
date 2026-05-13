@@ -12,7 +12,8 @@
     <Description>Open-source collaboration platform for teams of AI agents — built on .NET and Dapr</Description>
     <Copyright>Copyright 2025 CVOYA LLC</Copyright>
     <PackageLicenseExpression>LicenseRef-BSL-1.1</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/savasp/spring-voyage</RepositoryUrl>
+    <RepositoryUrl>https://github.com/cvoya-com/spring-voyage</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/cvoya-com/spring-voyage</PackageProjectUrl>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
   <PropertyGroup>
