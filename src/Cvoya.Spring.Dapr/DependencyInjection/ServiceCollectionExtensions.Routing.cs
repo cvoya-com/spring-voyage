@@ -56,6 +56,16 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, DirectorySearchSkillRegistry>(
             sp => sp.GetRequiredService<DirectorySearchSkillRegistry>()));
 
+        // Spring Voyage directory tools (#2231). Exposes sv.get_self,
+        // sv.get_member, sv.list_members, sv.get_siblings, sv.get_parents
+        // so the agent runtime can navigate the unit / agent composition
+        // graph at runtime without baking the directory into the system
+        // prompt. Registered via TryAddEnumerable so cloud hosts can add
+        // a tenant-aware decorator without displacing the OSS default.
+        services.TryAddSingleton<SvDirectorySkillRegistry>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvDirectorySkillRegistry>(
+            sp => sp.GetRequiredService<SvDirectorySkillRegistry>()));
+
         // Routing
         services.AddSingleton<DirectoryCache>();
         services.TryAddSingleton<IDirectoryService, DirectoryService>();

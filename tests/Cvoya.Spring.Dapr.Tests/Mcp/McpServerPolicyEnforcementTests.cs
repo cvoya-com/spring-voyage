@@ -166,6 +166,10 @@ public class McpServerPolicyEnforcementTests : IAsyncLifetime
         public Task<PolicyDecision> EvaluateInitiativeActionAsync(
             string agentId, string actionType, CancellationToken cancellationToken = default) =>
             Task.FromResult(PolicyDecision.Allowed);
+
+        public Task<PolicyDecision> EvaluateUnitDirectoryReadAsync(
+            string callerId, Guid targetUnitId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(PolicyDecision.Allowed);
     }
 
     private sealed class FakeRegistry : ISkillRegistry

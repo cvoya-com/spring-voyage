@@ -102,10 +102,10 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     public string? Endpoint { get; private set; }
 
     /// <inheritdoc />
-    public McpSession IssueSession(string agentId, string threadId)
+    public McpSession IssueSession(string agentId, string threadId, string callerKind = "agent")
     {
         var token = GenerateToken();
-        var session = new McpSession(token, agentId, threadId);
+        var session = new McpSession(token, agentId, threadId, callerKind);
         _sessions[token] = session;
         return session;
     }
@@ -452,7 +452,15 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
 
         try
         {
-            var result = await registry.InvokeAsync(toolName, arguments, ct);
+            // Thread caller identity into the registry via the rich
+            // overload (#2231). Skills that don't override the new method
+            // fall back to the original no-context behaviour through the
+            // default interface-method delegation.
+            var callContext = new ToolCallContext(
+                CallerId: session.AgentId,
+                CallerKind: session.CallerKind,
+                ThreadId: session.ThreadId);
+            var result = await registry.InvokeAsync(toolName, arguments, callContext, ct);
             await WriteResultAsync(response, request.Id, new
             {
                 content = new[]

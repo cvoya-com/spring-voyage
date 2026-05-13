@@ -6,47 +6,37 @@ namespace Cvoya.Spring.Dapr.Prompts;
 using System.Text;
 using System.Text.Json;
 
-using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 
 /// <summary>
-/// Builds the unit context layer (Layer 2) from unit state including
-/// peer directory, policies, and skill descriptions.
+/// Builds the unit context layer (Layer 2) from unit state — policies,
+/// skill descriptions, and package-level skill bundles. The peer-directory
+/// rendering that used to live here was removed in #2231 once the
+/// runtime gained the <c>sv.*</c> directory tools — composition is now
+/// queried on demand via <c>sv.list_members</c> rather than baked into
+/// every system prompt.
 /// </summary>
 public class UnitContextBuilder
 {
     /// <summary>
     /// Builds the unit context string from the provided unit state.
     /// </summary>
-    /// <param name="members">The addresses of peer agents in the unit.</param>
     /// <param name="policies">Optional unit policies as a JSON element.</param>
     /// <param name="skills">Optional skills available to the agent.</param>
     /// <param name="skillBundles">
     /// Optional package-level skill bundles resolved from the unit manifest
     /// (see #167). Rendered after the connector-skills section so the final
-    /// layer-2 ordering is peer directory → policies → available skills →
-    /// skill bundles. Concatenation order within the section follows the
-    /// declaration order in the manifest.
+    /// layer-2 ordering is policies → available skills → skill bundles.
+    /// Concatenation order within the section follows the declaration order
+    /// in the manifest.
     /// </param>
     /// <returns>The formatted unit context string, or an empty string if all inputs are empty.</returns>
     public string Build(
-        IReadOnlyList<Address> members,
         JsonElement? policies,
         IReadOnlyList<Skill>? skills,
         IReadOnlyList<SkillBundle>? skillBundles = null)
     {
         var builder = new StringBuilder();
-
-        if (members.Count > 0)
-        {
-            builder.AppendLine("### Peer Directory");
-            foreach (var member in members)
-            {
-                builder.AppendLine($"- {member.Scheme}://{member.Path}");
-            }
-
-            builder.AppendLine();
-        }
 
         if (policies is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined })
         {

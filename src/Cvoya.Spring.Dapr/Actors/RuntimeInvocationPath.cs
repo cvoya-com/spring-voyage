@@ -216,7 +216,6 @@ public class RuntimeInvocationPath(
         // the context is the next phase's deliverable.
 
         return new PromptAssemblyContext(
-            Members: Array.Empty<Address>(),
             Policies: null,
             Skills: skills,
             PriorMessages: Array.Empty<Message>(),

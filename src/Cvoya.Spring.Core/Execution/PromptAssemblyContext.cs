@@ -12,7 +12,6 @@ using Cvoya.Spring.Core.Skills;
 /// <summary>
 /// Holds all input data needed for prompt assembly across the four layers.
 /// </summary>
-/// <param name="Members">The addresses of peer agents in the unit.</param>
 /// <param name="Policies">Optional unit policies as a JSON element.</param>
 /// <param name="Skills">Optional skills available to the agent.</param>
 /// <param name="PriorMessages">Prior messages in the conversation.</param>
@@ -54,8 +53,15 @@ using Cvoya.Spring.Core.Skills;
 /// <c>ThreadContextBuilder</c> falls back to the address's scheme literal
 /// (e.g. <c>human</c> / <c>agent</c>) — never the raw GUID.
 /// </param>
+/// <remarks>
+/// The peer-directory member list that used to live on this record was
+/// removed in #2231 once the runtime gained the <c>sv.*</c> directory
+/// tools — composition is now an on-demand tool query, not a prompt
+/// layer. Anything that needs the peer set should call
+/// <c>sv.list_members</c> at runtime instead of relying on a
+/// prompt-time render.
+/// </remarks>
 public record PromptAssemblyContext(
-    IReadOnlyList<Address> Members,
     JsonElement? Policies,
     IReadOnlyList<Skill>? Skills,
     IReadOnlyList<Message> PriorMessages,

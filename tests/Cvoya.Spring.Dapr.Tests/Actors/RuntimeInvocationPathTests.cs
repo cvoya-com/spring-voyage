@@ -208,7 +208,6 @@ public class RuntimeInvocationPathTests
         var path = MakePath();
 
         var context = new PromptAssemblyContext(
-            Members: Array.Empty<Address>(),
             Policies: null,
             Skills: null,
             PriorMessages: [inbound],
@@ -419,7 +418,6 @@ public class RuntimeInvocationPathTests
         var path = MakePath();
 
         var context = new PromptAssemblyContext(
-            Members: Array.Empty<Address>(),
             Policies: null,
             Skills: null,
             PriorMessages: Array.Empty<Message>(),
