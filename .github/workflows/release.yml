@@ -662,8 +662,8 @@ jobs:
   #
   # NOTE: build-agent-images.sh uses plain `docker build` and is single-arch
   # only. Multi-arch builds for these images are a follow-up; only agent-base
-  # and OSS images are multi-arch in this PR (#2229). The platform image is
-  # likewise single-arch — see publish-platform-image below.
+  # and OSS images were multi-arch in #2229. The platform image is also
+  # multi-arch as of #2233 — see publish-platform-image below.
   publish-agent-images:
     name: Build and push agent images (claude-code, gemini, native)
     runs-on: ubuntu-latest
@@ -869,25 +869,22 @@ jobs:
         run: |
           echo "::notice::published ${IMAGE_REF}"
 
-  # ── 9. Publish platform image (#2172) ──────────────────────────────────────
+  # ── 9. Publish platform image (#2172, multi-arch via #2233) ────────────────
   #
-  # Builds the platform image from devops/build/Dockerfile (the multi-stage
-  # API + Worker + Web + Dapr CLI image whose local-clone build today produces
-  # `localhost/spring-voyage:latest`) and pushes it to GHCR under the same
-  # versioned/floating tagging scheme as the agent images.
-  #
-  # NOTE: Single-arch (linux/amd64) — multi-arch for the platform image is a
-  # follow-up once operator demand surfaces (see #2229 "Out of scope").
-  #
-  # The image is consumed by the installer (#2180) — it points spring.env's
-  # SPRING_PLATFORM_IMAGE at this ref so deploy.sh up uses it instead of the
-  # locally built `localhost/...` reference.
+  # Builds and pushes the platform image (devops/build/Dockerfile — the
+  # multi-stage API + Worker + Web + Dapr CLI image) to GHCR as a multi-arch
+  # manifest list (linux/amd64 + linux/arm64) via Buildx, matching the shape
+  # used by `publish-agent-base-image` and `publish-oss-agent-images`. The
+  # image is consumed by the installer (#2180) via SPRING_PLATFORM_IMAGE so
+  # operators on arm64 hosts now get a native arm64 image instead of running
+  # an amd64 image under emulation (see #2233).
   publish-platform-image:
     name: Build and push platform image
     runs-on: ubuntu-latest
     needs: [resolve, ci-gate]
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
+      IMAGE_NAME: cvoya-com/spring-voyage
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
       MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
@@ -896,9 +893,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Verify docker is on PATH
-        shell: bash
-        run: docker version
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -907,40 +908,37 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build platform image
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Dockerfile expects the repo root as the build context — it COPYs
-          # SpringVoyage.slnx, src/, platform/, packages/, dapr/, etc. Build
-          # via `docker build -f` against the repo root, matching how
-          # devops/build/build.sh does it locally with podman.
-          docker build \
-            -f devops/build/Dockerfile \
-            -t "${TARGET_BASE}:${RELEASE_VERSION}" \
-            .
+      - name: Compute image tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # :<version> is always pushed (stable and pre-release alike).
+          # :<major_minor> and :latest move only on stable releases. The
+          # metadata-action `enable=` clause emits exactly the right subset
+          # based on the resolved is_prerelease output.
+          tags: |
+            type=raw,value=${{ env.RELEASE_VERSION }}
+            type=raw,value=${{ env.MAJOR_MINOR }},enable=${{ env.IS_PRERELEASE == 'false' }}
+            type=raw,value=latest,enable=${{ env.IS_PRERELEASE == 'false' }}
+          labels: |
+            org.opencontainers.image.title=spring-voyage
+            org.opencontainers.image.description=Spring Voyage platform image — .NET 10 API + Worker hosts, Next.js web dashboard, Dapr CLI. One image serves spring-api, spring-worker, spring-web containers; the command selects which process runs.
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.RELEASE_VERSION }}
 
-      - name: Tag and push platform image
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Immutable version tag — always pushed, stable and pre-release alike.
-          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
-          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
-
-          if [[ "$IS_PRERELEASE" == "false" ]]; then
-            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:${MAJOR_MINOR}"
-            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
-            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
-
-            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:latest"
-            docker push "${TARGET_BASE}:latest"
-            echo "Pushed ${TARGET_BASE}:latest"
-          else
-            echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for spring-voyage platform image"
-          fi
+      - name: Build and push (multi-arch)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: devops/build/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Make GHCR package public
         env:
@@ -954,7 +952,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "### Platform image published"
+            echo "### Platform image published (multi-arch: linux/amd64, linux/arm64)"
             echo
             echo "| Image | Tags |"
             echo "| --- | --- |"
