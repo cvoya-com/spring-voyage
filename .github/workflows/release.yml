@@ -486,11 +486,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # #2229 §3d: visibility-patch failures must fail the workflow loudly,
-      # not silently leave the package private. Token-scope drift or a
-      # package-name mismatch (cf. the bug fixed in 65fe267f) used to be
-      # swallowed by `continue-on-error: true`. Drop it here and across
-      # every visibility-patch step in this workflow.
       - name: Make GHCR package public
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
