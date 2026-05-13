@@ -7,13 +7,13 @@ An open-source collaboration platform for teams of AI agents — and the humans 
 
 ## Key Concepts
 
-| Concept       | Description                                                                      |
-| ------------- | -------------------------------------------------------------------------------- |
-| **Agent**     | A single AI entity (Dapr virtual actor) with a mailbox and execution environment |
+| Concept       | Description                                                                                                        |
+| ------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Agent**     | A single AI entity (Dapr virtual actor) with a mailbox and execution environment                                   |
 | **Unit**      | An agent that has children (other agents or units); orchestration is runtime behaviour, not platform configuration |
-| **Connector** | Bridges an external system (GitHub, Slack, etc.) into a unit                     |
-| **Message**   | Typed communication between addressable entities                                 |
-| **Skill**     | A prompt fragment + optional tool definitions that an agent can use              |
+| **Connector** | Bridges an external system (GitHub, Slack, etc.) into a unit                                                       |
+| **Message**   | Typed communication between addressable entities                                                                   |
+| **Skill**     | A prompt fragment + optional tool definitions that an agent can use                                                |
 
 For the full mental model, see the [Concepts overview](docs/concepts/overview.md).
 
@@ -35,8 +35,15 @@ After the installer finishes, set your LLM provider credentials and create your 
 
 ```bash
 # LLM credentials live at tenant scope — units inherit them automatically.
-spring secret create --scope tenant anthropic-api-key --value "sk-ant-..."
-spring secret create --scope tenant openai-api-key    --value "sk-..."
+
+# If you are planning to use the Spring Voyage Agent Runtime with Anthropic's API
+spring secret create --scope tenant anthropic-api-key --value "sk-ant-api03..."
+
+# If you are planning to use the "Claude Code" CLI
+spring secret create --scope tenant anthropic-token --value "sk-ant-oat..."
+
+# If you are planning to use OpenAPI's API or codex
+spring secret create --scope tenant openai-api-key --value "sk-..."
 
 # First unit, using the Claude Code agent.
 spring unit create first-team --tool claude-code
@@ -75,14 +82,14 @@ For TLS, multi-host topology, secrets rotation, updates, and troubleshooting, se
 
 Every release publishes the platform and agent images to GitHub Container Registry. All images are public and multi-arch (`linux/amd64`, `linux/arm64`).
 
-| Image | Purpose |
-| --- | --- |
-| `ghcr.io/cvoya-com/spring-voyage` | Platform image — API + Worker + Web + Dapr CLI. One image serves all three containers; the command selects the process. |
-| `ghcr.io/cvoya-com/spring-voyage-agent-base` | BYOI base image — bundles the A2A sidecar bridge on `:8999`. Extend with a custom CLI. |
-| `ghcr.io/cvoya-com/spring-voyage-claude-code-base` | Reference image for the `claude-code` tool. |
-| `ghcr.io/cvoya-com/spring-voyage-gemini-base` | Reference image for the `gemini` tool. |
-| `ghcr.io/cvoya-com/spring-voyage-agent` | Path-3 native A2A agent (Python). |
-| `ghcr.io/cvoya-com/spring-voyage-agent-oss-*` | OSS role agents (software-engineering, design, product-management, program-management). |
+| Image                                              | Purpose                                                                                                                 |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `ghcr.io/cvoya-com/spring-voyage`                  | Platform image — API + Worker + Web + Dapr CLI. One image serves all three containers; the command selects the process. |
+| `ghcr.io/cvoya-com/spring-voyage-agent-base`       | BYOI base image — bundles the A2A sidecar bridge on `:8999`. Extend with a custom CLI.                                  |
+| `ghcr.io/cvoya-com/spring-voyage-claude-code-base` | Reference image for the `claude-code` tool.                                                                             |
+| `ghcr.io/cvoya-com/spring-voyage-gemini-base`      | Reference image for the `gemini` tool.                                                                                  |
+| `ghcr.io/cvoya-com/spring-voyage-agent`            | Path-3 native A2A agent (Python).                                                                                       |
+| `ghcr.io/cvoya-com/spring-voyage-agent-oss-*`      | OSS role agents (software-engineering, design, product-management, program-management).                                 |
 
 Operators do not build images locally — the installer pulls them. Image tags follow [SemVer](docs/developer/releases.md#container-image-tagging-and-publishing): `:X.Y.Z` is immutable, `:X.Y` floats to the latest patch of that minor line, `:latest` floats to the latest stable.
 
