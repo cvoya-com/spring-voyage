@@ -1056,7 +1056,7 @@ jobs:
           consumed by the source-free installer (#2180); a contributor with
           a clone of the repo does not need this directory.
 
-          As of #2243, this tree no longer ships as a standalone
+          This tree no longer ships as a standalone
           \`spring-voyage-<v>-bundle.tar.gz\` release asset — it is bundled
           into the per-RID host archive (\`spring-voyage-<v>-<rid>.{tar.gz|zip}\`)
           alongside the matching \`cli/\` and \`dispatcher/\` binaries. Operators
