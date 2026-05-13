@@ -46,6 +46,18 @@ The [Getting Started guide](docs/guide/intro/getting-started.md) walks through c
 
 The web portal is at the configured hostname (`http://localhost` by default).
 
+### Alternative: install the CLI standalone
+
+If you already have the .NET 10 runtime and just want the `spring` CLI to talk to a deployed Spring Voyage (your own, or someone else's), install it from NuGet:
+
+```bash
+dotnet tool install -g Cvoya.Spring.Cli
+export SPRING_API_URL=https://your-spring-voyage-host
+spring --help
+```
+
+The platform installer above already includes a self-contained `spring` binary for your platform; this alternative is for users who manage their CLI alongside other .NET tools or who don't run the platform locally.
+
 ## Day-2 Operations
 
 ```bash

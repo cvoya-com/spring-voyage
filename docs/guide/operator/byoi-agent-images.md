@@ -21,7 +21,7 @@ Pick **one** of three paths to satisfy that contract:
 | Path | Recipe                                                                                                                                                     |
 |------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 1    | `FROM ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` and `RUN`-install your CLI tool. The bridge is the image's ENTRYPOINT and runs on `:8999` automatically.       |
-| 2    | Pull the bridge into a custom base. Either `npm i -g @cvoya/spring-voyage-agent-sidecar` (Node-bearing image), or copy the static binary from each GitHub Release into a Node-less image. Set the bridge as the ENTRYPOINT. |
+| 2    | Pull the bridge into a custom base. Copy the per-target SEA binary from each GitHub Release into your image and set it as the `ENTRYPOINT`. No Node runtime required.                                                          |
 | 3    | Implement A2A 0.3.x natively in your image. No bridge involved.                                                                                            |
 
 Path 1 is the default. Pick path 2 when you can't use the recommended base. Pick path 3 when your runtime already speaks A2A natively (e.g. `dapr-agents`).
@@ -95,33 +95,9 @@ A custom launcher pointed at your image would mirror that shape: leave `Argv` em
 
 Pick this path when path 1 doesn't fit: you need a non-Debian distro, your image runs as a non-default UID and you can't reuse the base's user, you can't allow Node in the runtime layer, or you're targeting an arch the base image doesn't publish.
 
-The bridge is distributed two ways:
+The bridge is distributed as a per-target single-executable binary (SEA) attached to every GitHub Release: `spring-voyage-agent-sidecar-<v>-linux-amd64`, `spring-voyage-agent-sidecar-<v>-linux-arm64`, `spring-voyage-agent-sidecar-<v>-darwin-arm64`. No Node runtime required — the binary self-contains its V8 + libuv. Copy it into your image and set it as the ENTRYPOINT.
 
-- **npm package**: `@cvoya/spring-voyage-agent-sidecar` (works on any Node-bearing image).
-- **Single-executable binaries**: attached to each GitHub Release (`spring-voyage-agent-sidecar-linux-amd64`, `spring-voyage-agent-sidecar-linux-arm64`, `spring-voyage-agent-sidecar-darwin-arm64`). No Node runtime required.
-
-### Path 2a — npm install (Node-bearing image)
-
-```dockerfile
-# syntax=docker/dockerfile:1.7
-FROM node:22-alpine
-
-# Install the bridge globally.
-RUN npm install -g @cvoya/spring-voyage-agent-sidecar@1.0.0
-
-# Install your CLI tool (whatever is appropriate for your distro).
-RUN apk add --no-cache python3 py3-pip \
- && pip install --break-system-packages your-cli==1.2.3
-
-EXPOSE 8999
-ENTRYPOINT ["spring-voyage-agent-sidecar"]
-```
-
-The in-tree smoke fixture at [`tests/fixtures/byoi-path2/Dockerfile`](../../../tests/fixtures/byoi-path2/Dockerfile) is the same recipe sourced from `npm pack` of the working tree instead of `npmjs.org` — useful if you want to see the exact CI shape end-to-end, or if you're iterating on the bridge itself and want to smoke a local change before publishing. See `tests/scripts/smoke-1087.sh --path 2` for the driver.
-
-### Path 2b — SEA binary (Node-less image)
-
-`BRIDGE_VERSION` in the example below is the bridge SemVer — the same as the platform release version, since the unified `release.yml` publishes the bridge OCI image, the npm package, and the SEA binaries in lockstep with the rest of Spring Voyage on every `spring-voyage-v<version>` tag. Pick the version off the [Releases page](https://github.com/cvoya-com/spring-voyage/releases) and use the prefix-stripped SemVer (`1.0.0`, not `spring-voyage-v1.0.0`) — the asset URL embeds the bare SemVer in its filename.
+`BRIDGE_VERSION` in the example below is the bridge SemVer — the same as the platform release version, since the unified `release.yml` publishes the bridge OCI image and the SEA binaries in lockstep on every `spring-voyage-v<version>` tag. Pick the version off the [Releases page](https://github.com/cvoya-com/spring-voyage/releases) and use the prefix-stripped SemVer (`1.0.0`, not `spring-voyage-v1.0.0`) — the asset URL embeds the bare SemVer in its filename.
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
@@ -151,7 +127,9 @@ EXPOSE 8999
 ENTRYPOINT ["/usr/local/bin/spring-voyage-agent-sidecar"]
 ```
 
-The SEA binaries are built from the same source as the npm package and the path-1 base image; all three are versioned in lockstep by the `spring-voyage-vX.Y.Z` release workflow.
+The SEA binaries are built from the same source as the path-1 base image; both ship in lockstep on every `spring-voyage-vX.Y.Z` tag.
+
+> **Historical note.** Earlier releases also published the bridge as an npm package `@cvoya/spring-voyage-agent-sidecar`, which let path-2 images install it with `npm install -g` on any Node-bearing distro. The npm package is no longer published as of 2026-05-13; previously published versions remain on npmjs.org but no new versions ship. The SEA binary is the supported path-2 install method going forward. The in-tree smoke fixture at [`tests/fixtures/byoi-path2/Dockerfile`](../../../tests/fixtures/byoi-path2/Dockerfile) still exercises the `npm install` path against a local `npm pack` of the in-tree sidecar source (not against npmjs.org), to keep CI coverage of that historical install shape while it remains technically supported.
 
 ---
 
@@ -251,7 +229,7 @@ A native A2A server (path 3) typically populates `skills[]` with the tools the a
 | Surface | Versioning | Compatibility window |
 |---------|------------|----------------------|
 | **A2A protocol** | Pinned to `0.3.x`. Bumping to `0.4.x` or `1.x` is a deliberate breaking change with a deprecation window on the dispatcher side. | The dispatcher refuses agents advertising a different major. |
-| **Bridge (npm + OCI + SEA)** | Semver. Same version published across all three artifacts in lockstep by `release.yml`. | The dispatcher accepts bridges within the last **2 majors** (N-2). Older bridges still answer requests, but the dispatcher logs version skew. |
+| **Bridge (OCI + SEA)** | Semver. Both artefacts published in lockstep by `release.yml`. (Earlier releases also published an npm package; see the historical note in path 2.) | The dispatcher accepts bridges within the last **2 majors** (N-2). Older bridges still answer requests, but the dispatcher logs version skew. |
 | **`SPRING_*` env contract** | Additive. New env keys land as optional; the bridge ignores keys it doesn't understand. | Operator images that don't set new optional keys keep working. |
 
 When the bridge stamps a different version than the dispatcher expects, the dispatcher logs a single warning per agent at startup and continues. To check the running bridge version manually:
@@ -355,7 +333,7 @@ A healthy bridge returns `result.task.status.state: "TASK_STATE_COMPLETED"` and 
 |---------|--------------|
 | Dispatcher logs `Failed to reach /.well-known/agent.json` after 60 s. | ENTRYPOINT isn't the bridge. PID 1 has to be the bridge (paths 1/2) or your A2A server (path 3). |
 | `message/send` returns `TASK_STATE_FAILED` immediately on every turn (paths 1/2). | `SPRING_AGENT_ARGV` is missing, mis-encoded (string instead of JSON array), or points at a binary that's not on PATH. |
-| Dispatcher logs `bridge version skew: expected 1.x, observed 0.x`. | The agent image is pinning an older bridge than the dispatcher's compatibility window allows. Re-base on a current `agent-base` tag, or bump the npm / SEA binary version. |
+| Dispatcher logs `bridge version skew: expected 1.x, observed 0.x`. | The agent image is pinning an older bridge than the dispatcher's compatibility window allows. Re-base on a current `agent-base` tag, or bump the SEA binary version (or the legacy npm package version if you're still on the historical path-2 recipe). |
 | Agent picks up no MCP tools. | `SPRING_MCP_ENDPOINT` is unreachable from inside the container. On Linux + Podman you typically need `--add-host host.docker.internal:host-gateway`; the dispatcher already adds this to ephemeral configs, but a custom path-3 image must honour the env even if the network setup differs. |
 | Persistent agent restarts every few seconds. | The `PersistentAgentRegistry` health monitor is flagging `/.well-known/agent.json` as unhealthy. Read the dispatcher's logs for the failed probe response. A misconfigured proxy (returning HTML instead of JSON) is a common cause. |
 

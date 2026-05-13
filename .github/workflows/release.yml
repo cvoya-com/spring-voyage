@@ -8,8 +8,8 @@ name: Spring Voyage — Release
 #
 # Job graph:
 #   resolve  → ci-gate → ┬─→ test-sidecar ─┬─→ publish-agent-base-image
-#                        │                 ├─→ publish-sidecar-npm
 #                        │                 └─→ build-sidecar-binaries
+#                        ├─→ publish-spring-cli-nuget   (NuGet .NET tool)
 #                        ├─→ publish-agent-images        (needs publish-agent-base-image)
 #                        ├─→ publish-oss-agent-images   (needs publish-agent-base-image)
 #                        ├─→ publish-platform-image
@@ -28,9 +28,6 @@ name: Spring Voyage — Release
 # tagged commit duplicates ~10 minutes of work that branch protection has
 # already validated. Instead we look up the umbrella check's conclusion on
 # the tag SHA and refuse to release if it isn't `success`.
-#
-# NuGet packaging is explicitly out of scope until the publishing target is
-# decided; see issue #1395.
 #
 # Untrusted inputs (github.ref_name, inputs.tag) are routed through env vars
 # in their consuming steps and validated by regex in the resolve job before any
@@ -491,50 +488,58 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash devops/release/make-package-public.sh spring-voyage-agent-base
 
-  # ── 5. Publish @cvoya/spring-voyage-agent-sidecar npm package ─────────────
+  # ── 5. Publish Cvoya.Spring.Cli .NET tool to NuGet ────────────────────────
   #
-  # Sourced verbatim from the standalone agent-base release workflow's
-  # publish-npm job (#2229 — Path B). Honors NPM_TOKEN secret — emits a
-  # warning and exits 0 if it is not configured so a fork can run the
+  # Publishes the `spring` CLI as a `dotnet tool install -g Cvoya.Spring.Cli`
+  # consumable package. Complements the self-contained per-RID binaries
+  # produced by `publish-spring-cli` — this is the channel for end-users
+  # who already have .NET installed. Honors NUGET_API_KEY secret — emits
+  # a warning and exits 0 if it is not configured so a fork can run the
   # workflow without the secret.
-  publish-sidecar-npm:
-    name: Publish @cvoya/spring-voyage-agent-sidecar
+  publish-spring-cli-nuget:
+    name: Publish Cvoya.Spring.Cli .NET tool to NuGet
     runs-on: ubuntu-latest
-    needs: [resolve, ci-gate, test-sidecar]
-    timeout-minutes: 10
+    needs: [resolve, ci-gate]
+    timeout-minutes: 15
     env:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-dotnet@v5
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-          cache: npm
-          cache-dependency-path: src/Cvoya.Spring.AgentSidecar/package-lock.json
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            global.json
+            NuGet.config
 
-      - name: Sync package.json version with tag
-        working-directory: src/Cvoya.Spring.AgentSidecar
+      - name: Restore
+        run: dotnet restore src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
+
+      - name: Pack .NET tool
+        run: |
+          dotnet pack src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj \
+            -c Release \
+            --no-restore \
+            -p:Version="${RELEASE_VERSION}" \
+            -p:PackageVersion="${RELEASE_VERSION}" \
+            -o nupkgs
+
+      - name: Push to nuget.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
           set -euo pipefail
-          npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
-
-      - name: Install + build
-        working-directory: src/Cvoya.Spring.AgentSidecar
-        run: |
-          npm ci --no-audit --no-fund
-          npm run build
-
-      - name: Publish (with provenance)
-        working-directory: src/Cvoya.Spring.AgentSidecar
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
-            echo "::warning::NPM_TOKEN secret not configured; skipping npm publish."
+          if [[ -z "${NUGET_API_KEY:-}" ]]; then
+            echo "::warning::NUGET_API_KEY secret not configured; skipping NuGet push."
             exit 0
           fi
-          npm publish --access public --provenance
+          dotnet nuget push "nupkgs/Cvoya.Spring.Cli.${RELEASE_VERSION}.nupkg" \
+            --api-key "${NUGET_API_KEY}" \
+            --source "https://api.nuget.org/v3/index.json" \
+            --skip-duplicate
 
   # ── 6. Build sidecar SEA binaries ──────────────────────────────────────────
   #
@@ -1416,13 +1421,21 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Attach bundle to the GitHub release
+      - name: Attach bundle and install.sh to the GitHub release
         uses: softprops/action-gh-release@v3
         env:
           ARCHIVE_NAME: ${{ steps.bundle.outputs.archive_name }}
         with:
           tag_name: ${{ needs.resolve.outputs.tag }}
-          files: ${{ env.ARCHIVE_NAME }}
+          # install.sh is the bootstrap entry point — it must be a
+          # top-level release asset so the README's
+          # `curl ... releases/latest/download/install.sh | bash`
+          # one-liner resolves. It is intentionally NOT included in the
+          # bundle tarball itself: the bundle ships post-install
+          # operator tooling, install.sh is the pre-install bootstrap.
+          files: |
+            ${{ env.ARCHIVE_NAME }}
+            devops/install/install.sh
           fail_on_unmatched_files: true
           # The draft is created up front by `create-draft-release`. Pin
           # this attach to the draft so a partial run never auto-promotes
@@ -1573,7 +1586,7 @@ jobs:
       - ci-gate
       - create-draft-release
       - publish-agent-base-image
-      - publish-sidecar-npm
+      - publish-spring-cli-nuget
       - build-sidecar-binaries
       - publish-agent-images
       - publish-oss-agent-images

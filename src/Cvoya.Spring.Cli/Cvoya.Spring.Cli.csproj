@@ -5,6 +5,38 @@
     <RootNamespace>Cvoya.Spring.Cli</RootNamespace>
   </PropertyGroup>
 
+  <!-- NuGet packaging: ship the `spring` CLI as a .NET tool
+       (`dotnet tool install -g Cvoya.Spring.Cli`). Self-contained per-RID
+       binaries are still produced by the release workflow's
+       publish-spring-cli job; this is a complementary channel for users
+       who already have .NET installed. -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>spring</ToolCommandName>
+    <PackageId>Cvoya.Spring.Cli</PackageId>
+    <Authors>cvoya-com</Authors>
+    <Description>Spring Voyage CLI — operator and end-user command-line client for the Spring Voyage AI agent collaboration platform. Talks to a deployed Spring Voyage API (set SPRING_API_URL); supports unit/agent/secret/connector/system commands. See https://github.com/cvoya-com/spring-voyage for the full platform.</Description>
+    <!-- Directory.Build.props sets PackageLicenseExpression for SPDX-style
+         metadata; NuGet refuses both that and PackageLicenseFile on the
+         same package, so clear the inherited expression and ship the
+         BSL-1.1 text via PackageLicenseFile (LICENSE.md is not an SPDX
+         identifier — it's the source-of-truth license file). -->
+    <PackageLicenseExpression></PackageLicenseExpression>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>spring-voyage;agents;dapr;cli;ai;collaboration</PackageTags>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- LICENSE.md is at the repo root; README.md sits beside this csproj
+         and is package-specific (NOT the repo-root README, which is
+         platform-focused). -->
+    <None Include="..\..\LICENSE.md" Pack="true" PackagePath="\" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Manifest\Cvoya.Spring.Manifest.csproj" />

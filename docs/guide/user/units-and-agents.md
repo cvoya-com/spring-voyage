@@ -218,7 +218,7 @@ Three conformance paths:
 | Path | When to use |
 |------|-------------|
 | 1 (default) | `FROM ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` + install your CLI tool. Works on Debian 12 + Node 22. |
-| 2 | Non-Debian / Node-less image — pull `@cvoya/spring-voyage-agent-sidecar` via npm or a SEA binary. |
+| 2 | Non-Debian / Node-less image — copy the bridge SEA binary from each GitHub Release into your custom base. |
 | 3 | Image already speaks A2A natively (e.g. `dapr-agents`). No bridge involved. |
 
 OSS launchers (Claude Code, Codex, Gemini) use path 1; Dapr Agent uses path 3. See [Bring Your Own Image (BYOI)](../operator/byoi-agent-images.md) for recipes and debugging tips.
