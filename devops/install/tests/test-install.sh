@@ -136,14 +136,13 @@ EOFENV
   # Dapr components placeholder.
   echo '# fixture' > "${stage}/dapr/components/delegated-spring-voyage-agent/README.md"
 
-  # manifest.json.
+  # manifest.json — schema v2 (see #2229: dispatcher_version and
+  # cli_version were always equal to `version` and have been removed).
   cat > "${stage}/manifest.json" <<EOFMANIFEST
 {
-  "bundle_schema_version": 1,
+  "bundle_schema_version": 2,
   "version": "${FIXTURE_VERSION}",
-  "platform_image": "${PLATFORM_IMAGE}",
-  "dispatcher_version": "${FIXTURE_VERSION}",
-  "cli_version": "${FIXTURE_VERSION}"
+  "platform_image": "${PLATFORM_IMAGE}"
 }
 EOFMANIFEST
 
@@ -178,7 +177,7 @@ CLI
   # extraction.
   local rids=(linux-x64 linux-arm64 osx-x64 osx-arm64)
   for rid in "${rids[@]}"; do
-    tar -C "${disp_stage}" -czf "${rel}/spring-dispatcher-${FIXTURE_VERSION}-${rid}.tar.gz" .
+    tar -C "${disp_stage}" -czf "${rel}/spring-voyage-dispatcher-${FIXTURE_VERSION}-${rid}.tar.gz" .
     tar -C "${cli_stage}"  -czf "${rel}/spring-${FIXTURE_VERSION}-${rid}.tar.gz" .
   done
 

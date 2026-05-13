@@ -3,7 +3,7 @@
 - **Status:** Accepted — 2026-04-22 — `A2AExecutionDispatcher` speaks A2A 0.3.x to every agent container on `${AgentLaunchSpec.A2APort}` (default `8999`). An image conforms by satisfying one of three paths: (1) `FROM ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` and inherit the bundled bridge; (2) install the bridge via npm or copy the SEA binary into a custom base; (3) implement A2A 0.3.x natively. The bridge versioning is semver with N-2 backward compatibility on the dispatcher side; A2A is pinned to 0.3.x. Bind-mounted and co-launched sidecars are rejected.
 - **Date:** 2026-04-22
 - **Closes:** [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087)
-- **Related code:** `src/Cvoya.Spring.AgentSidecar/` (bridge source), `devops/build/Dockerfile.agent-base`, `devops/build/Dockerfile.agent.claude-code`, `devops/build/Dockerfile.agent.dapr`, `.github/workflows/release-agent-base.yml`, `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Core/Execution/IAgentToolLauncher.cs` (`AgentLaunchSpec.A2APort`).
+- **Related code:** `src/Cvoya.Spring.AgentSidecar/` (bridge source), `devops/build/Dockerfile.agent-base`, `devops/build/Dockerfile.agent.claude-code`, `devops/build/Dockerfile.agent.dapr`, `.github/workflows/release-agent-base.yml` (amended 2026-05-12 (#2229): absorbed into `.github/workflows/release.yml` under the unified `spring-voyage-v*` tag), `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Core/Execution/IAgentToolLauncher.cs` (`AgentLaunchSpec.A2APort`).
 - **Related docs:** [`docs/architecture/agent-runtime.md` § 7 BYOI conformance contract](../architecture/agent-runtime.md#7-byoi-conformance-contract), [`docs/guide/byoi-agent-images.md`](../guide/operator/byoi-agent-images.md), [`src/Cvoya.Spring.AgentSidecar/README.md`](../../src/Cvoya.Spring.AgentSidecar/README.md), [ADR 0025 — Unified agent launch contract](0025-unified-agent-launch-contract.md), [ADR 0026 — Per-agent container scope](0026-per-agent-container-scope.md).
 
 ## Context
@@ -49,7 +49,7 @@ That's the entire contract. There is no required base distro, no required user, 
 | **2** | Pull the bridge into a custom base. Either `npm install -g @cvoya/spring-voyage-agent-sidecar` (Node-bearing image), or copy the static binary from each GitHub Release (`spring-voyage-agent-sidecar-{linux-amd64,linux-arm64,darwin-arm64}`) into a Node-less image. Set the binary as the `ENTRYPOINT`. | Non-Debian distro, rootless image with non-default UIDs, or you can't have Node in the runtime layer. |
 | **3** | Implement A2A 0.3.x natively in your image. No bridge involved. | The image already speaks A2A natively (e.g. the Python Dapr Agent at `SpringVoyageAgentLauncher`). |
 
-The Tier-A CLI launchers (Claude Code, Codex, Gemini) all use path 1 by default; the Dapr Agent launcher is the canonical example of path 3. Path 2 is exercised by the released SEA binaries' smoke step in `release-agent-base.yml`.
+The Tier-A CLI launchers (Claude Code, Codex, Gemini) all use path 1 by default; the Dapr Agent launcher is the canonical example of path 3. Path 2 is exercised by the released SEA binaries' smoke step (in `release-agent-base.yml` at the time of writing; absorbed 2026-05-12 (#2229) into `.github/workflows/release.yml`).
 
 ### Versioning commitment
 

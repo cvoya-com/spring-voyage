@@ -256,6 +256,140 @@ jobs:
 
           echo "CI gate passed: ${REQUIRED_CHECK_NAME} == success on ${COMMIT_SHA}"
 
+  # ── 2b. Create draft GitHub Release ────────────────────────────────────────
+  #
+  # Creates the GitHub Release up front as a *draft*, populated with the
+  # CHANGELOG [Unreleased] section plus the release-asset reference table.
+  # Every publish-* job below attaches its assets to this draft (via
+  # softprops/action-gh-release@v3 with `draft: true`). The final
+  # `finalize-release` job promotes the draft to a published release once
+  # every publish job has succeeded.
+  #
+  # Why a draft up front: previously the first publish-* job to attach an
+  # asset would auto-create a *published* release. If a later publish-*
+  # job failed, the release sat in a half-published, publicly visible
+  # state. Drafting first means a partial run is invisible to consumers
+  # and the only operator-visible outcome is "release is complete and
+  # promoted" or "draft sits there until the run is re-tried".
+  #
+  # CHANGELOG.md is read at the tagged commit SHA (the maintainer's
+  # pre-release PR has already moved [Unreleased] entries into the new
+  # version heading before tagging — this step reads whatever is in
+  # [Unreleased] at that commit).
+  #
+  # Idempotent: if the release already exists (e.g. workflow re-run),
+  # `gh release edit` refreshes the title and notes-file in place and
+  # forces `--draft=true` so it stays drafted until `finalize-release`
+  # flips it.
+  create-draft-release:
+    name: Create draft GitHub Release
+    runs-on: ubuntu-latest
+    needs: [resolve, ci-gate]
+    timeout-minutes: 5
+    env:
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+      MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+
+    steps:
+      - name: Checkout at tagged commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+
+      - name: Extract changelog section
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="$(bash devops/release/extract-changelog-section.sh "Unreleased")"
+          if [[ -z "$notes" ]]; then
+            echo "::warning::## [Unreleased] section in CHANGELOG.md is empty — release notes will be empty."
+          fi
+          # Write to a temp file so multiline content survives shell quoting
+          # and the GITHUB_OUTPUT 256 KB limit.
+          echo "$notes" > /tmp/release-notes.md
+
+      - name: Append release-asset reference table
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The release notes are sourced from CHANGELOG.md [Unreleased]. As
+          # of #2172, every release tag publishes a uniform set of asset
+          # classes (platform image, spring CLI, dispatcher, deployment
+          # bundle, SHA256SUMS) — append a reference table so operators
+          # browsing the GitHub Release page don't have to cross-reference
+          # docs/developer/releases.md.
+          {
+            echo
+            echo "---"
+            echo
+            echo "## Release assets"
+            echo
+            echo "### Container images (GHCR)"
+            echo
+            echo "| Image | Tags |"
+            echo "| --- | --- |"
+            if [[ "$IS_PRERELEASE" == "false" ]]; then
+              echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`              | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`     | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+            else
+              echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`              | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`     | \`${RELEASE_VERSION}\` (pre-release) |"
+            fi
+            echo
+            echo "### Release-attached files"
+            echo
+            echo "| Asset | Description |"
+            echo "| --- | --- |"
+            echo "| \`spring-voyage-${RELEASE_VERSION}-bundle.tar.gz\` | Deployment bundle (operator scripts, Caddy config, Dapr components, \`manifest.json\`). |"
+            echo "| \`spring-${RELEASE_VERSION}-{linux-x64,linux-arm64,osx-x64,osx-arm64,win-x64}.{tar.gz,zip}\` | Self-contained \`spring\` CLI binaries (5 RIDs). |"
+            echo "| \`spring-voyage-dispatcher-${RELEASE_VERSION}-{linux-x64,linux-arm64,osx-x64,osx-arm64,win-x64}.{tar.gz,zip}\` | Self-contained dispatcher host binaries (5 RIDs). |"
+            echo "| \`spring-voyage-agent-sidecar-${RELEASE_VERSION}-{linux-amd64,linux-arm64,darwin-arm64}\` | Agent sidecar node binaries (3 targets). |"
+            echo "| \`SHA256SUMS\` | sha256sum-compatible checksums for every release-attached file above. |"
+          } >> /tmp/release-notes.md
+
+      - name: Create or refresh draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=""
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            prerelease_flag="--prerelease"
+          fi
+
+          # On a workflow re-run the release may already exist (either as a
+          # draft from a prior attempt or as a previously-promoted release
+          # someone is re-running asset jobs against). In either case force
+          # the release back to draft state and refresh title + notes.
+          if gh release view "${RELEASE_TAG}" --repo "${REPO}" >/dev/null 2>&1; then
+            # shellcheck disable=SC2086
+            gh release edit "${RELEASE_TAG}" \
+              --title "Spring Voyage v${RELEASE_VERSION}" \
+              --notes-file /tmp/release-notes.md \
+              --draft=true \
+              --repo "${REPO}" \
+              ${prerelease_flag}
+            echo "Draft release refreshed: https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
+          else
+            # shellcheck disable=SC2086
+            gh release create "${RELEASE_TAG}" \
+              --title "Spring Voyage v${RELEASE_VERSION}" \
+              --notes-file /tmp/release-notes.md \
+              --draft \
+              --repo "${REPO}" \
+              ${prerelease_flag}
+            echo "Draft release created: https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
+          fi
+
   # ── 3. Sidecar unit tests ──────────────────────────────────────────────────
   #
   # Sourced verbatim from the previous standalone agent-base release
@@ -352,11 +486,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # #2229 §3d: visibility-patch failures must fail the workflow loudly,
-      # not silently leave the package private. Token-scope drift or a
-      # package-name mismatch (cf. the bug fixed in 65fe267f) used to be
-      # swallowed by `continue-on-error: true`. Drop it here and across
-      # every visibility-patch step in this workflow.
       - name: Make GHCR package public
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -986,6 +1115,10 @@ jobs:
           tag_name: ${{ needs.resolve.outputs.tag }}
           files: ${{ env.ARCHIVE_NAME }}
           fail_on_unmatched_files: true
+          # The draft is created up front by `create-draft-release`. Pin
+          # this attach to the draft so a partial run never auto-promotes
+          # the release to "published" before `finalize-release` runs.
+          draft: true
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
 
   # ── 11. Publish dispatcher binaries (#2172) ────────────────────────────────
@@ -996,10 +1129,11 @@ jobs:
   # surface for the image, bundle, CLI, and dispatcher (see #2172 and the
   # plan in docs/plan/v0.1/).
   #
-  # Same 5-RID self-contained matrix as before. Asset names unchanged
-  # (`spring-dispatcher-<v>-<rid>.{tar.gz|zip}`); the version label is now
-  # the platform release version instead of the dispatcher-specific tag's
-  # suffix.
+  # Same 5-RID self-contained matrix as before. Asset names are
+  # `spring-voyage-dispatcher-<v>-<rid>.{tar.gz|zip}` (renamed in #2229 for
+  # parity with the bundle and sidecar asset prefixes); the version label
+  # is the platform release version instead of the dispatcher-specific
+  # tag's suffix.
   publish-dispatcher:
     name: Publish dispatcher ${{ matrix.rid }}
     needs: [resolve, ci-gate]
@@ -1096,7 +1230,7 @@ jobs:
           See https://github.com/cvoya-com/spring-voyage/blob/main/devops/deploy/README.md.
           EOF
 
-          archive_name="spring-dispatcher-${VERSION_LABEL}-${RID}.${ARCHIVE}"
+          archive_name="spring-voyage-dispatcher-${VERSION_LABEL}-${RID}.${ARCHIVE}"
           if [[ "${ARCHIVE}" == "tar.gz" ]]; then
             tar -C "${stage_dir}" -czf "${archive_name}" .
           else
@@ -1124,6 +1258,10 @@ jobs:
           tag_name: ${{ needs.resolve.outputs.tag }}
           files: ${{ env.ARCHIVE_NAME }}
           fail_on_unmatched_files: true
+          # The draft is created up front by `create-draft-release`. Pin
+          # this attach to the draft so a partial run never auto-promotes
+          # the release to "published" before `finalize-release` runs.
+          draft: true
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
 
   # ── 12. Publish deployment bundle + SHA256SUMS (#2172) ─────────────────────
@@ -1202,16 +1340,18 @@ jobs:
           # LICENSE — repo-root LICENSE.md, renamed to the conventional bundle name.
           cp LICENSE.md "${stage}/LICENSE"
 
-          # manifest.json — pinned version + image refs the installer reads to
-          # resolve which platform image to pull and which dispatcher/CLI
-          # asset filenames to download.
+          # manifest.json — pinned version + image ref the installer reads
+          # to resolve which platform image to pull. Dispatcher and CLI
+          # asset filenames are derived from `version` (every release ships
+          # a uniform asset set under one tag — see #2229), so the previous
+          # `dispatcher_version` / `cli_version` fields were always equal
+          # to `version` and have been removed. `bundle_schema_version` is
+          # bumped to 2 to signal the shape change.
           cat >"${stage}/manifest.json" <<EOF
           {
-            "bundle_schema_version": 1,
+            "bundle_schema_version": 2,
             "version": "${RELEASE_VERSION}",
-            "platform_image": "${PLATFORM_IMAGE_REPO}:${RELEASE_VERSION}",
-            "dispatcher_version": "${RELEASE_VERSION}",
-            "cli_version": "${RELEASE_VERSION}"
+            "platform_image": "${PLATFORM_IMAGE_REPO}:${RELEASE_VERSION}"
           }
           EOF
 
@@ -1246,7 +1386,7 @@ jobs:
           spring.env.example                Template for the per-deployment spring.env
           scripts/                          Smoke tests for the dispatcher and host wrapper
           dapr/components/                  Dapr component manifests consumed by the platform sidecar
-          manifest.json                     Version pinning (image, dispatcher, CLI)
+          manifest.json                     Release version + platform-image pin (bundle schema v2)
           uninstall.sh                      Bundle-side uninstall (invoked by \`voyage uninstall\`)
           voyage                            Operator wrapper (status / logs / restart / version / install / uninstall)
           \`\`\`
@@ -1296,6 +1436,10 @@ jobs:
           tag_name: ${{ needs.resolve.outputs.tag }}
           files: ${{ env.ARCHIVE_NAME }}
           fail_on_unmatched_files: true
+          # The draft is created up front by `create-draft-release`. Pin
+          # this attach to the draft so a partial run never auto-promotes
+          # the release to "published" before `finalize-release` runs.
+          draft: true
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
 
       - name: Download dispatcher, CLI, and sidecar archives from workflow artifacts
@@ -1348,8 +1492,8 @@ jobs:
           bundle_name="${{ steps.bundle.outputs.archive_name }}"
           cp "${bundle_name}" "${sums_stage}/"
 
-          # Dispatcher: spring-dispatcher-<v>-<rid>.{tar.gz|zip}
-          dispatcher_prefix="spring-dispatcher-${RELEASE_VERSION}-"
+          # Dispatcher: spring-voyage-dispatcher-<v>-<rid>.{tar.gz|zip}
+          dispatcher_prefix="spring-voyage-dispatcher-${RELEASE_VERSION}-"
           for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
             name="${dispatcher_prefix}${rid}.tar.gz"
             src="artifacts/${name}"
@@ -1401,6 +1545,10 @@ jobs:
             sidecar-release/spring-voyage-agent-sidecar-${{ needs.resolve.outputs.version }}-linux-arm64
             sidecar-release/spring-voyage-agent-sidecar-${{ needs.resolve.outputs.version }}-darwin-arm64
           fail_on_unmatched_files: true
+          # The draft is created up front by `create-draft-release`. Pin
+          # this attach to the draft so a partial run never auto-promotes
+          # the release to "published" before `finalize-release` runs.
+          draft: true
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
 
       - name: Bundle publish summary
@@ -1415,97 +1563,43 @@ jobs:
             echo "| \`SHA256SUMS\` | Covers bundle + 5 dispatcher archives + 5 CLI archives + 3 sidecar binaries |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 13. GitHub Release ─────────────────────────────────────────────────────
+  # ── 13. Finalize GitHub Release ────────────────────────────────────────────
   #
-  # Creates the GitHub Release using the ## [Unreleased] section of
-  # CHANGELOG.md as the release notes. The maintainer's pre-release PR
-  # moves the [Unreleased] entries to the new version heading before tagging;
-  # this job reads whatever is in [Unreleased] at the tagged commit.
+  # The release was created (and populated with release notes + the asset
+  # reference table) as a draft in `create-draft-release` up front. Every
+  # publish-* job above attaches its assets to that draft. This job is the
+  # promotion step: once every publish job has succeeded, flip the draft
+  # to a published release.
+  #
+  # No CHANGELOG re-extraction here — that already happened at draft-create
+  # time. A partial run leaves the release in draft state (invisible to
+  # consumers) until the workflow is re-run successfully.
   #
   # Uses `gh` directly (GITHUB_TOKEN) rather than softprops/action-gh-release
   # so there is no external action dependency beyond the already-used actions/*.
-  github-release:
-    name: Create GitHub Release
+  finalize-release:
+    name: Finalize GitHub Release (promote draft to published)
     runs-on: ubuntu-latest
     needs:
       - resolve
       - ci-gate
+      - create-draft-release
       - publish-agent-base-image
       - publish-sidecar-npm
+      - build-sidecar-binaries
       - publish-agent-images
       - publish-oss-agent-images
       - publish-platform-image
       - publish-spring-cli
       - publish-dispatcher
       - publish-bundle
-    timeout-minutes: 10
+    timeout-minutes: 5
     env:
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
-      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
 
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Extract changelog section
-        id: changelog
-        shell: bash
-        run: |
-          set -euo pipefail
-          notes="$(bash devops/release/extract-changelog-section.sh "Unreleased")"
-          if [[ -z "$notes" ]]; then
-            echo "::warning::## [Unreleased] section in CHANGELOG.md is empty — release notes will be empty."
-          fi
-          # Write to a temp file so multiline content survives the GITHUB_OUTPUT
-          # 256 KB limit and avoids any quoting pitfalls.
-          echo "$notes" > /tmp/release-notes.md
-
-      - name: Append release-asset reference table
-        shell: bash
-        env:
-          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
-        run: |
-          set -euo pipefail
-          # The release notes are sourced from CHANGELOG.md [Unreleased]. As
-          # of #2172, every release tag publishes a uniform set of asset
-          # classes (platform image, spring CLI, dispatcher, deployment
-          # bundle, SHA256SUMS) — append a reference table so operators
-          # browsing the GitHub Release page don't have to cross-reference
-          # docs/developer/releases.md.
-          {
-            echo
-            echo "---"
-            echo
-            echo "## Release assets"
-            echo
-            echo "### Container images (GHCR)"
-            echo
-            echo "| Image | Tags |"
-            echo "| --- | --- |"
-            if [[ "$IS_PRERELEASE" == "false" ]]; then
-              echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`              | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`     | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-            else
-              echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\` (pre-release) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`              | \`${RELEASE_VERSION}\` (pre-release) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`     | \`${RELEASE_VERSION}\` (pre-release) |"
-            fi
-            echo
-            echo "### Release-attached files"
-            echo
-            echo "| Asset | Description |"
-            echo "| --- | --- |"
-            echo "| \`spring-voyage-${RELEASE_VERSION}-bundle.tar.gz\` | Deployment bundle (operator scripts, Caddy config, Dapr components, \`manifest.json\`). |"
-            echo "| \`spring-${RELEASE_VERSION}-{linux-x64,linux-arm64,osx-x64,osx-arm64,win-x64}.{tar.gz,zip}\` | Self-contained \`spring\` CLI binaries (5 RIDs). |"
-            echo "| \`spring-dispatcher-${RELEASE_VERSION}-{linux-x64,linux-arm64,osx-x64,osx-arm64,win-x64}.{tar.gz,zip}\` | Self-contained dispatcher host binaries (5 RIDs). |"
-            echo "| \`spring-voyage-agent-sidecar-${RELEASE_VERSION}-{linux-amd64,linux-arm64,darwin-arm64}\` | Agent sidecar node binaries (3 targets). |"
-            echo "| \`SHA256SUMS\` | sha256sum-compatible checksums for every release-attached file above. |"
-          } >> /tmp/release-notes.md
-
-      - name: Create or update GitHub Release
+      - name: Promote draft release to published
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1518,25 +1612,13 @@ jobs:
             prerelease_flag="--prerelease"
           fi
 
-          # The asset-publishing jobs (#2172: publish-dispatcher, publish-spring-cli,
-          # publish-bundle) use softprops/action-gh-release, which auto-creates the
-          # release on first attach. If the release already exists by the time this
-          # job runs, `gh release create` would fail — switch to `gh release edit` to
-          # refresh the title and notes-file. Idempotent either way.
-          if gh release view "${RELEASE_TAG}" --repo "${REPO}" >/dev/null 2>&1; then
-            # shellcheck disable=SC2086
-            gh release edit "${RELEASE_TAG}" \
-              --title "v${RELEASE_VERSION}" \
-              --notes-file /tmp/release-notes.md \
-              --repo "${REPO}" \
-              ${prerelease_flag}
-            echo "GitHub Release updated: https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
-          else
-            # shellcheck disable=SC2086
-            gh release create "${RELEASE_TAG}" \
-              --title "v${RELEASE_VERSION}" \
-              --notes-file /tmp/release-notes.md \
-              --repo "${REPO}" \
-              ${prerelease_flag}
-            echo "GitHub Release created: https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
-          fi
+          # `gh release edit --draft=false` promotes the draft. If this job
+          # re-runs against an already-published release the call is a no-op
+          # on the draft bit and only re-asserts --prerelease; safe either
+          # way.
+          # shellcheck disable=SC2086
+          gh release edit "${RELEASE_TAG}" \
+            --draft=false \
+            --repo "${REPO}" \
+            ${prerelease_flag}
+          echo "GitHub Release published: https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"

@@ -1,9 +1,9 @@
 # Agent Image Taxonomy
 
-Spring Voyage ships two classes of container image for running agents:
+Spring Voyage ships two classes of container image for running agents. The left column below is the colloquial shorthand used in prose, ADRs, and source comments; the right column is the canonical GHCR identifier the dispatcher and `runtime-catalog.yaml` resolve against. Always reference an image by its full `ghcr.io/cvoya-com/...` ref in configuration and Dockerfiles — the nicknames are not addressable.
 
-| Image | GHCR reference | Purpose |
-|-------|----------------|---------|
+| Nickname | Canonical GHCR ref | Purpose |
+|----------|--------------------|---------|
 | `agent-base` | `ghcr.io/cvoya-com/spring-voyage-agent-base:latest` | BYOI minimal — the A2A sidecar bridge only. Operators layer their own CLI on top. |
 | `claude-code-base` | `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest` | Claude Code CLI on top of the agent-base bridge. |
 | `gemini-base` | `ghcr.io/cvoya-com/spring-voyage-gemini-base:latest` | Google Gemini CLI on top of the agent-base bridge. |
@@ -43,10 +43,10 @@ USER agent
 
 ## Per-runtime images
 
-Built by `devops/build/build-agent-images.sh` for local dev and CI verification.
+Built by `devops/build/build-agent-images.sh` for local dev and CI verification. The left column shows the canonical GHCR ref at the `:dev` tag the local build produces; release builds publish the same refs at the `spring-voyage-v<version>` tag.
 
-| Image | Source file | Tool kind |
-|-------|-------------|-----------|
+| Canonical GHCR ref | Source file | Tool kind |
+|--------------------|-------------|-----------|
 | `ghcr.io/cvoya-com/spring-voyage-claude-code-base:dev` | `devops/build/Dockerfile.agent.claude-code` | `claude-code-cli` |
 | `ghcr.io/cvoya-com/spring-voyage-gemini-base:dev` | `devops/build/Dockerfile.agent.gemini` | `gemini-cli` |
 | `ghcr.io/cvoya-com/spring-voyage-agent:dev` | `devops/build/Dockerfile.agent.dapr` | `spring-voyage-agent` (native A2A, Python) |

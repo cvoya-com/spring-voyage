@@ -46,11 +46,13 @@ Pre-release versions use a SemVer-compatible suffix:
 The date field uses the `YYYYMMDD` form of the release date (UTC). Same-day re-releases append a numeric counter: `.1`, `.2`, …
 
 ```
-v1.0.0-alpha.20260504       # first alpha on 2026-05-04
-v1.0.0-alpha.20260504.1     # second alpha on the same day
-v1.0.0-rc.20260601          # release candidate on 2026-06-01
-v1.0.0                      # stable release
+spring-voyage-v1.0.0-alpha.20260504       # first alpha on 2026-05-04
+spring-voyage-v1.0.0-alpha.20260504.1     # second alpha on the same day
+spring-voyage-v1.0.0-rc.20260601          # release candidate on 2026-06-01
+spring-voyage-v1.0.0                      # stable release
 ```
+
+The git tag carries the `spring-voyage-v` prefix; the embedded SemVer string (`1.0.0-alpha.20260504`, used in image tags, the `manifest.json` `version` field, `CHANGELOG.md` headings, and the GitHub Release title's trailing `v<version>`) is the prefix-stripped form. Tags shaped `v1.0.0` or `dispatcher-v1.0.0` are historical; only `spring-voyage-v*` triggers the release pipeline today.
 
 The git tag is the sole source of truth for the release version. There is no `VERSION` file.
 
@@ -58,7 +60,9 @@ Pre-release versions are published alongside (not in place of) the most recent s
 
 ## How Releases Are Cut
 
-Use `devops/release/release.sh` to cut a release. The script pushes a single `spring-voyage-v<version>` tag and watches the unified `release.yml` workflow to completion (the three-tag chain that preceded this was collapsed in [#2229](https://github.com/cvoya-com/spring-voyage/issues/2229)).
+Spring Voyage uses **one tag, one workflow, one GitHub Release**. A single `spring-voyage-v<version>` tag triggers `release.yml`, which builds and publishes every artefact — agent images (multi-arch), platform image, sidecar binaries + npm package, dispatcher binaries, `spring` CLI binaries, deployment bundle, `SHA256SUMS`, and the GitHub Release — in one run. The previous three-workflow / three-tag chain (`agent-base-v*`, `oss-agents-v*`, `dispatcher-v*` / `v*.*.*`) was collapsed in [#2172](https://github.com/cvoya-com/spring-voyage/issues/2172) and [#2229](https://github.com/cvoya-com/spring-voyage/issues/2229).
+
+Use `devops/release/release.sh` to cut a release. The script pushes the tag, watches `release.yml` to completion, and verifies that every image referenced in `packages/**/*.yaml` is anonymously pullable from `ghcr.io`.
 
 ```bash
 # Dry-run: print the computed tag without pushing anything.
@@ -71,16 +75,12 @@ Use `devops/release/release.sh` to cut a release. The script pushes a single `sp
 ./devops/release/release.sh v1.0.0
 ```
 
-**Tag pushed:** a single `spring-voyage-v<version>` tag triggers `release.yml`, which builds and publishes every artefact (agent images, platform image, sidecar binaries + npm, dispatcher + CLI binaries, deployment bundle, SHA256SUMS, GitHub Release) in one run.
-
-After the workflow succeeds, the script verifies that every image referenced in `packages/**/*.yaml` is anonymously pullable from `ghcr.io`.
-
 **Flags:**
 
 | Flag | Effect |
 | --- | --- |
 | `--pre alpha\|beta\|rc` | Append `-<suffix>.YYYYMMDD` to the semver argument. |
-| `--plan` | Print the computed tags and exit 0; no tags pushed. |
+| `--plan` | Print the computed tag and exit 0; no tag pushed. |
 | `--force-retag` | Skip the idempotency guard (allows re-tagging an existing version). |
 
 **Changelog finalisation** (stable releases only):
@@ -88,9 +88,15 @@ After the workflow succeeds, the script verifies that every image referenced in 
 1. Before tagging, move the `## [Unreleased]` section in `CHANGELOG.md` to `## [X.Y.Z] - YYYY-MM-DD`, create a fresh empty `[Unreleased]` section, and merge a PR titled `Release vX.Y.Z`.
 2. Run `./devops/release/release.sh vX.Y.Z` from clean `main`.
 
+### Draft-then-finalize behaviour
+
+`release.yml` creates the GitHub Release as a **draft** immediately after the CI gate succeeds (job: `create-draft-release`). Every publish job — agent images, platform image, sidecar npm, sidecar binaries, dispatcher, `spring` CLI, deployment bundle — attaches its assets to that draft. A final `finalize-release` job promotes the draft to a published release only after every publish job has succeeded.
+
+The consequence for operators watching the Releases page during a release: the entry shows up as a draft within a minute or two of the tag push and stays drafted for roughly 10–20 minutes (the long pole is the multi-arch image builds). If any publish job fails, the draft sits there until the workflow is re-run successfully; consumers never see a partially-published release. The GitHub Release title is `Spring Voyage v<version>` and the body is populated from the `[Unreleased]` section of `CHANGELOG.md` at the tagged commit, followed by an auto-generated asset reference table.
+
 ### Patch releases on prior versions
 
-If a critical fix needs to ship on an older minor line (e.g., current is `1.1.x` and we need to patch `1.0.x`), a `release/1.0` branch is created from the `v1.0.y` tag, the fix is cherry-picked, and a new tag is cut from that branch. This is an exception path — the default is "fix on `main`, ship in the next release".
+If a critical fix needs to ship on an older minor line (e.g., current is `1.1.x` and we need to patch `1.0.x`), a `release/1.0` branch is created from the `spring-voyage-v1.0.y` tag, the fix is cherry-picked, and a new tag is cut from that branch. This is an exception path — the default is "fix on `main`, ship in the next release".
 
 ## CI/CD Pipeline for Release Artefacts
 
@@ -111,17 +117,15 @@ The repository has two continuous-integration workflows under [`.github/workflow
   - `required-checks` — aggregation gate for branch protection.
 - **[`codeql.yml`](../../.github/workflows/codeql.yml)** — CodeQL C# analysis on pushes, pull requests, merge queue, and weekly.
 
-### Release workflows
+### Release workflow
 
-Releases are triggered by tag pushes only — never by merges to `main`. The table below shows each workflow and the tag prefix that activates it.
+Releases are triggered by tag pushes only — never by merges to `main`. One workflow, one tag prefix.
 
 | Workflow | Tag prefix | Publishes |
 | --- | --- | --- |
 | [`release.yml`](../../.github/workflows/release.yml) | `spring-voyage-v*` | `ghcr.io/cvoya-com/spring-voyage-agent-base` (multi-arch), `ghcr.io/cvoya-com/spring-voyage-claude-code-base`, `ghcr.io/cvoya-com/spring-voyage-agent`, `ghcr.io/cvoya-com/spring-voyage` (platform image), the four OSS role images (`spring-voyage-agent-oss-*`, multi-arch), `@cvoya/spring-voyage-agent-sidecar` npm package, sidecar SEA binaries (3 targets), self-contained `spring` CLI binaries (5 RIDs), self-contained dispatcher binaries (5 RIDs), deployment bundle (`spring-voyage-<v>-bundle.tar.gz`), `SHA256SUMS`, GitHub Release |
 
-`devops/release/release.sh` orchestrates the agent-image and platform release tags in dependency order. The previous `release-spring-dispatcher.yml` (tag prefix `dispatcher-v*`) was absorbed into `release.yml`'s `publish-dispatcher` job in [#2172](https://github.com/cvoya-com/spring-voyage/issues/2172), so the platform image, deployment bundle, dispatcher binaries, and `spring` CLI binaries now share a single `v*.*.*` tag flow.
-
-Each release workflow calls `gh api -X PATCH /orgs/cvoya-com/packages/container/<name> -F visibility=public` after pushing, so packages are publicly pullable from the first publish onward.
+`release.yml` patches each GHCR package's visibility to `public` after publishing (`gh api -X PATCH /orgs/cvoya-com/packages/container/<name> -F visibility=public`), so packages are anonymously pullable from the first publish onward.
 
 ## NuGet Package Publishing
 
@@ -152,9 +156,9 @@ Container images are published to the GitHub Container Registry (`ghcr.io/cvoya-
 | `:X.Y` | Floating tag pointing at the latest patch of the `X.Y` minor line. |
 | `:latest` | Floating tag pointing at the most recent stable release. Never points at a pre-release. |
 
-Pre-release tags (e.g., `v1.0.0-alpha.20260504`) push only the immutable version tag; `:latest` and `:X.Y` are not updated.
+Pre-release tags (e.g., `spring-voyage-v1.0.0-alpha.20260504`) push only the immutable version tag; `:latest` and `:X.Y` are not updated.
 
-The tag pushed to the container registry has the leading `v` stripped (e.g., git tag `v1.0.0` → image tag `1.0.0`).
+The container-registry tag is the prefix-stripped SemVer string (e.g., git tag `spring-voyage-v1.0.0` → image tag `1.0.0`).
 
 ### Local deployment
 
@@ -177,9 +181,9 @@ The canonical changelog is [`CHANGELOG.md`](../../CHANGELOG.md) at the repositor
 | --- | --- |
 | SemVer | Adopted |
 | Git tags | Tag-based from `main`; sole source of truth for version |
-| GitHub Releases | Automated via `release.yml` on `v*` tag push |
+| GitHub Releases | Automated via `release.yml` on `spring-voyage-v*` tag push; draft-then-finalize |
 | NuGet packages | Not published; decision tracked in [#1395](https://github.com/cvoya-com/spring-voyage/issues/1395) |
 | Container images | Published to `ghcr.io/cvoya-com/*`; all images public |
 | Component release script | In place ([`devops/release/release.sh`](../../devops/release/release.sh)) |
 | CI (build, test, format, lint) | In place ([`ci.yml`](../../.github/workflows/ci.yml), [`codeql.yml`](../../.github/workflows/codeql.yml)) |
-| Release-publishing workflows | In place (five tag-scoped workflows) |
+| Release-publishing workflow | In place (single workflow on `spring-voyage-v*`) |

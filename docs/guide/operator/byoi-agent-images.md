@@ -121,6 +121,8 @@ The in-tree smoke fixture at [`tests/fixtures/byoi-path2/Dockerfile`](../../../t
 
 ### Path 2b — SEA binary (Node-less image)
 
+`BRIDGE_VERSION` in the example below is the bridge SemVer — the same as the platform release version, since the unified `release.yml` publishes the bridge OCI image, the npm package, and the SEA binaries in lockstep with the rest of Spring Voyage on every `spring-voyage-v<version>` tag. Pick the version off the [Releases page](https://github.com/cvoya-com/spring-voyage/releases) and use the prefix-stripped SemVer (`1.0.0`, not `spring-voyage-v1.0.0`) — the asset URL embeds the bare SemVer in its filename.
+
 ```dockerfile
 # syntax=docker/dockerfile:1.7
 FROM cgr.dev/chainguard/wolfi-base
