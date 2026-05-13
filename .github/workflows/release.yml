@@ -1421,13 +1421,21 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Attach bundle to the GitHub release
+      - name: Attach bundle and install.sh to the GitHub release
         uses: softprops/action-gh-release@v3
         env:
           ARCHIVE_NAME: ${{ steps.bundle.outputs.archive_name }}
         with:
           tag_name: ${{ needs.resolve.outputs.tag }}
-          files: ${{ env.ARCHIVE_NAME }}
+          # install.sh is the bootstrap entry point — it must be a
+          # top-level release asset so the README's
+          # `curl ... releases/latest/download/install.sh | bash`
+          # one-liner resolves. It is intentionally NOT included in the
+          # bundle tarball itself: the bundle ships post-install
+          # operator tooling, install.sh is the pre-install bootstrap.
+          files: |
+            ${{ env.ARCHIVE_NAME }}
+            devops/install/install.sh
           fail_on_unmatched_files: true
           # The draft is created up front by `create-draft-release`. Pin
           # this attach to the draft so a partial run never auto-promotes
