@@ -26,7 +26,7 @@ both.
    else latest stable from the GitHub API).
 3. Downloads three release-attached archives plus `SHA256SUMS`:
    - `spring-voyage-<v>-bundle.tar.gz`
-   - `spring-dispatcher-<v>-<rid>.tar.gz`
+   - `spring-voyage-dispatcher-<v>-<rid>.tar.gz`
    - `spring-<v>-<rid>.tar.gz`
 4. Verifies each archive's checksum against `SHA256SUMS`.
 5. Extracts to `~/.spring-voyage/releases/<v>/{bundle,dispatcher,cli}/`.

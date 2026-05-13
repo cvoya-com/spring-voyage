@@ -344,7 +344,7 @@ download_asset() {
 }
 
 BUNDLE_ASSET="spring-voyage-${RELEASE_VERSION}-bundle.tar.gz"
-DISPATCHER_ASSET="spring-dispatcher-${RELEASE_VERSION}-${RID}.tar.gz"
+DISPATCHER_ASSET="spring-voyage-dispatcher-${RELEASE_VERSION}-${RID}.tar.gz"
 CLI_ASSET="spring-${RELEASE_VERSION}-${RID}.tar.gz"
 
 download_asset "SHA256SUMS"

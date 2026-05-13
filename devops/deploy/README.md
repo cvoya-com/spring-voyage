@@ -307,7 +307,7 @@ discovery handles native executables transparently:
 
 ```bash
 curl -L -o dispatcher.tar.gz \
-  https://github.com/cvoya-com/spring-voyage/releases/download/v1.0.0/spring-dispatcher-1.0.0-linux-x64.tar.gz
+  https://github.com/cvoya-com/spring-voyage/releases/download/spring-voyage-v1.0.0/spring-voyage-dispatcher-1.0.0-linux-x64.tar.gz
 tar xf dispatcher.tar.gz
 SPRING_DISPATCHER_BIN="$PWD/Cvoya.Spring.Dispatcher" \
   ./spring-voyage-host.sh start

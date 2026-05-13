@@ -996,10 +996,11 @@ jobs:
   # surface for the image, bundle, CLI, and dispatcher (see #2172 and the
   # plan in docs/plan/v0.1/).
   #
-  # Same 5-RID self-contained matrix as before. Asset names unchanged
-  # (`spring-dispatcher-<v>-<rid>.{tar.gz|zip}`); the version label is now
-  # the platform release version instead of the dispatcher-specific tag's
-  # suffix.
+  # Same 5-RID self-contained matrix as before. Asset names are
+  # `spring-voyage-dispatcher-<v>-<rid>.{tar.gz|zip}` (renamed in #2229 for
+  # parity with the bundle and sidecar asset prefixes); the version label
+  # is the platform release version instead of the dispatcher-specific
+  # tag's suffix.
   publish-dispatcher:
     name: Publish dispatcher ${{ matrix.rid }}
     needs: [resolve, ci-gate]
@@ -1096,7 +1097,7 @@ jobs:
           See https://github.com/cvoya-com/spring-voyage/blob/main/devops/deploy/README.md.
           EOF
 
-          archive_name="spring-dispatcher-${VERSION_LABEL}-${RID}.${ARCHIVE}"
+          archive_name="spring-voyage-dispatcher-${VERSION_LABEL}-${RID}.${ARCHIVE}"
           if [[ "${ARCHIVE}" == "tar.gz" ]]; then
             tar -C "${stage_dir}" -czf "${archive_name}" .
           else
@@ -1348,8 +1349,8 @@ jobs:
           bundle_name="${{ steps.bundle.outputs.archive_name }}"
           cp "${bundle_name}" "${sums_stage}/"
 
-          # Dispatcher: spring-dispatcher-<v>-<rid>.{tar.gz|zip}
-          dispatcher_prefix="spring-dispatcher-${RELEASE_VERSION}-"
+          # Dispatcher: spring-voyage-dispatcher-<v>-<rid>.{tar.gz|zip}
+          dispatcher_prefix="spring-voyage-dispatcher-${RELEASE_VERSION}-"
           for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
             name="${dispatcher_prefix}${rid}.tar.gz"
             src="artifacts/${name}"
@@ -1500,7 +1501,7 @@ jobs:
             echo "| --- | --- |"
             echo "| \`spring-voyage-${RELEASE_VERSION}-bundle.tar.gz\` | Deployment bundle (operator scripts, Caddy config, Dapr components, \`manifest.json\`). |"
             echo "| \`spring-${RELEASE_VERSION}-{linux-x64,linux-arm64,osx-x64,osx-arm64,win-x64}.{tar.gz,zip}\` | Self-contained \`spring\` CLI binaries (5 RIDs). |"
-            echo "| \`spring-dispatcher-${RELEASE_VERSION}-{linux-x64,linux-arm64,osx-x64,osx-arm64,win-x64}.{tar.gz,zip}\` | Self-contained dispatcher host binaries (5 RIDs). |"
+            echo "| \`spring-voyage-dispatcher-${RELEASE_VERSION}-{linux-x64,linux-arm64,osx-x64,osx-arm64,win-x64}.{tar.gz,zip}\` | Self-contained dispatcher host binaries (5 RIDs). |"
             echo "| \`spring-voyage-agent-sidecar-${RELEASE_VERSION}-{linux-amd64,linux-arm64,darwin-arm64}\` | Agent sidecar node binaries (3 targets). |"
             echo "| \`SHA256SUMS\` | sha256sum-compatible checksums for every release-attached file above. |"
           } >> /tmp/release-notes.md

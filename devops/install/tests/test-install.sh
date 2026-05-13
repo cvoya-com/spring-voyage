@@ -178,7 +178,7 @@ CLI
   # extraction.
   local rids=(linux-x64 linux-arm64 osx-x64 osx-arm64)
   for rid in "${rids[@]}"; do
-    tar -C "${disp_stage}" -czf "${rel}/spring-dispatcher-${FIXTURE_VERSION}-${rid}.tar.gz" .
+    tar -C "${disp_stage}" -czf "${rel}/spring-voyage-dispatcher-${FIXTURE_VERSION}-${rid}.tar.gz" .
     tar -C "${cli_stage}"  -czf "${rel}/spring-${FIXTURE_VERSION}-${rid}.tar.gz" .
   done
 
