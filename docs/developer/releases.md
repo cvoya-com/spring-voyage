@@ -90,7 +90,7 @@ Use `devops/release/release.sh` to cut a release. The script pushes the tag, wat
 
 ### Draft-then-finalize behaviour
 
-`release.yml` creates the GitHub Release as a **draft** immediately after the CI gate succeeds (job: `create-draft-release`). Every publish job — agent images, platform image, sidecar SEA binaries, dispatcher, `spring` CLI binaries, `Cvoya.Spring.Cli` NuGet tool, deployment bundle (+ top-level `install.sh`) — attaches its assets to that draft. A final `finalize-release` job promotes the draft to a published release only after every publish job has succeeded.
+`release.yml` creates the GitHub Release as a **draft** immediately after the CI gate succeeds (job: `create-draft-release`). Every publish job — agent images, platform image, sidecar SEA binaries, per-RID host archives, `Cvoya.Spring.Cli` NuGet tool, top-level `install.sh` and `install-<v>.sh` — attaches its assets to that draft. A final `finalize-release` job promotes the draft to a published release only after every publish job has succeeded.
 
 The consequence for operators watching the Releases page during a release: the entry shows up as a draft within a minute or two of the tag push and stays drafted for roughly 10–20 minutes (the long pole is the multi-arch image builds). If any publish job fails, the draft sits there until the workflow is re-run successfully; consumers never see a partially-published release. The GitHub Release title is `Spring Voyage v<version>` and the body is populated from the `[Unreleased]` section of `CHANGELOG.md` at the tagged commit, followed by an auto-generated asset reference table.
 
@@ -123,22 +123,23 @@ Releases are triggered by tag pushes only — never by merges to `main`. One wor
 
 | Workflow | Tag prefix | Publishes |
 | --- | --- | --- |
-| [`release.yml`](../../.github/workflows/release.yml) | `spring-voyage-v*` | `ghcr.io/cvoya-com/spring-voyage-agent-base` (multi-arch), `ghcr.io/cvoya-com/spring-voyage-claude-code-base`, `ghcr.io/cvoya-com/spring-voyage-agent`, `ghcr.io/cvoya-com/spring-voyage` (platform image), the four OSS role images (`spring-voyage-agent-oss-*`, multi-arch), sidecar SEA binaries (3 targets), self-contained `spring` CLI binaries (5 RIDs), self-contained dispatcher binaries (5 RIDs), `Cvoya.Spring.Cli` .NET tool to nuget.org, deployment bundle (`spring-voyage-<v>-bundle.tar.gz`), top-level `install.sh`, `SHA256SUMS`, GitHub Release |
+| [`release.yml`](../../.github/workflows/release.yml) | `spring-voyage-v*` | `ghcr.io/cvoya-com/spring-voyage-agent-base` (multi-arch), `ghcr.io/cvoya-com/spring-voyage-claude-code-base`, `ghcr.io/cvoya-com/spring-voyage-agent`, `ghcr.io/cvoya-com/spring-voyage` (platform image), the four OSS role images (`spring-voyage-agent-oss-*`, multi-arch), sidecar SEA binaries (3 targets), per-RID host archives bundling the deployment scripts + `spring` CLI + dispatcher in one tarball (5 RIDs), `Cvoya.Spring.Cli` .NET tool to nuget.org, top-level `install.sh` and version-baked `install-<v>.sh`, `SHA256SUMS`, GitHub Release |
 
 `release.yml` patches each GHCR package's visibility to `public` after publishing (`gh api -X PATCH /orgs/cvoya-com/packages/container/<name> -F visibility=public`), so packages are anonymously pullable from the first publish onward.
 
 ### Release-attached files
 
-Every release attaches the following files to its GitHub Release. The bundle tarball ships post-install operator tooling; `install.sh` is the pre-install bootstrap and is intentionally NOT included inside the tarball.
+Every release attaches the following files to its GitHub Release. Operators download the unversioned `install.sh` (or its version-baked `install-<v>.sh` companion) and the matching per-RID host archive; the installer handles the rest.
 
 | Asset | Description |
 | --- | --- |
-| `install.sh` | Source-free installer entry point — the `curl` command in the README fetches this file directly off the release. |
-| `spring-voyage-<v>-bundle.tar.gz` | Deployment bundle: platform compose template, `voyage` operator wrapper, post-install `uninstall.sh`, Dapr component templates. |
-| `SHA256SUMS` | `sha256sum -c`-consumable manifest covering every other release-attached file. |
-| `spring-<v>-<rid>.{tar.gz,zip}` | Self-contained `spring` CLI binaries (5 RIDs: `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`). |
-| `spring-voyage-dispatcher-<v>-<rid>.{tar.gz,zip}` | Self-contained dispatcher binaries (same 5-RID matrix). |
-| `spring-voyage-agent-sidecar-<v>-<target>` | A2A sidecar bridge SEA binaries (3 targets: `linux-amd64`, `linux-arm64`, `darwin-arm64`). Used by BYOI conformance path 2. |
+| `install.sh` | Source-free installer entry point — the `curl` command in the README fetches this file directly off the release. Resolves the version from `--version`, `$SPRING_VOYAGE_VERSION`, or the GitHub API. |
+| `install-<v>.sh` | Version-baked installer companion — a copy of `install.sh` with the release version compiled into the script. Refuses to install any other version. Use this when documentation pins to a specific release. |
+| `spring-voyage-<v>-<rid>.{tar.gz,zip}` | Per-RID operator host archive (5 RIDs: `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`). Each archive contains three top-level subdirectories — `bundle/` (deployment scripts, `voyage` wrapper, `uninstall.sh`, Dapr component templates, `manifest.json`), `cli/` (the self-contained `spring` CLI binary), and `dispatcher/` (the self-contained `Cvoya.Spring.Dispatcher` binary). One download per host. |
+| `spring-voyage-agent-sidecar-<v>-<target>` | A2A sidecar bridge SEA binaries (3 targets: `linux-amd64`, `linux-arm64`, `darwin-arm64`). Used by BYOI conformance path 2 — extenders `curl` the binary into a custom agent image; not consumed by `install.sh`. |
+| `SHA256SUMS` | `sha256sum -c`-consumable manifest covering every other release-attached file — the per-RID host archives, both installer scripts, and the sidecar SEA binaries. |
+
+The deployment bundle (`bundle/`) is not a standalone downloadable asset — it ships only as a subdirectory inside every per-RID host archive. The same bundle tree is staged once per release and copied into all five archives so the operator-facing scripts are identical across platforms.
 
 ## NuGet Package Publishing
 
