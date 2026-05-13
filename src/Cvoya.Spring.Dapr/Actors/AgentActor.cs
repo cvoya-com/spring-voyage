@@ -642,7 +642,6 @@ public class AgentActor(
             cancellationToken);
 
         return new PromptAssemblyContext(
-            Members: [],
             Policies: null,
             Skills: skills,
             PriorMessages: priorMessages,

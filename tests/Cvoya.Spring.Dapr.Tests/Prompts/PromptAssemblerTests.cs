@@ -61,7 +61,6 @@ public class PromptAssemblerTests
     {
         var message = CreateMessage();
         var context = new PromptAssemblyContext(
-            Members: [Address.For("agent", TestSlugIds.HexFor("team/alice"))],
             Policies: JsonSerializer.SerializeToElement(new { maxRetries = 3 }),
             Skills: [new Skill("review", "Code review", [])],
             PriorMessages: [CreateMessage("prior msg")],
@@ -94,7 +93,6 @@ public class PromptAssemblerTests
     {
         var message = CreateMessage();
         var context = new PromptAssemblyContext(
-            Members: [],
             Policies: null,
             Skills: null,
             PriorMessages: [],
@@ -133,7 +131,6 @@ public class PromptAssemblerTests
     {
         var message = CreateMessage();
         var context = new PromptAssemblyContext(
-            Members: [],
             Policies: null,
             Skills: [new Skill("deploy", "Deploys services", [
                 new ToolDefinition("run-deploy", "Runs deployment", JsonSerializer.SerializeToElement(new { }))

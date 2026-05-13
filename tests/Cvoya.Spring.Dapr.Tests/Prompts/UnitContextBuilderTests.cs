@@ -5,7 +5,6 @@ namespace Cvoya.Spring.Dapr.Tests.Prompts;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Prompts;
 
@@ -14,32 +13,14 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for <see cref="UnitContextBuilder"/>.
+/// Unit tests for <see cref="UnitContextBuilder"/>. The peer-directory
+/// rendering tested here pre-#2231 was removed alongside
+/// <c>PromptAssemblyContext.Members</c> — composition is now an on-demand
+/// runtime query via the <c>sv.*</c> directory tools, not a prompt layer.
 /// </summary>
 public class UnitContextBuilderTests
 {
     private readonly UnitContextBuilder _builder = new();
-
-    /// <summary>
-    /// Verifies that member addresses are included in the output.
-    /// </summary>
-    [Fact]
-    public void Build_IncludesMemberAddresses()
-    {
-        var aliceId = new Guid("aaaaaaaa-1111-1111-1111-000000000001");
-        var bobId = new Guid("aaaaaaaa-1111-1111-1111-000000000002");
-        var members = new List<Address>
-        {
-            new("agent", aliceId),
-            new("agent", bobId),
-        };
-
-        var result = _builder.Build(members, null, null);
-
-        result.ShouldContain(aliceId.ToString("N"));
-        result.ShouldContain(bobId.ToString("N"));
-        result.ShouldContain("Peer Directory");
-    }
 
     /// <summary>
     /// Verifies that policies are included in the output.
@@ -49,7 +30,7 @@ public class UnitContextBuilderTests
     {
         var policies = JsonSerializer.SerializeToElement(new { maxRetries = 3, timeout = "30s" });
 
-        var result = _builder.Build([], policies, null);
+        var result = _builder.Build(policies, null);
 
         result.ShouldContain("Policies");
         result.ShouldContain("maxRetries");
@@ -68,7 +49,7 @@ public class UnitContextBuilderTests
             ])
         };
 
-        var result = _builder.Build([], null, skills);
+        var result = _builder.Build(null, skills);
 
         result.ShouldContain("Available Skills");
         result.ShouldContain("code-review");
@@ -82,7 +63,7 @@ public class UnitContextBuilderTests
     [Fact]
     public void Build_HandlesEmptyInputs()
     {
-        var result = _builder.Build([], null, null);
+        var result = _builder.Build(null, null);
 
         result.ShouldBeEmpty();
     }
@@ -106,7 +87,7 @@ public class UnitContextBuilderTests
                 Array.Empty<SkillToolRequirement>()),
         };
 
-        var result = _builder.Build([], null, null, bundles);
+        var result = _builder.Build(null, null, bundles);
 
         result.ShouldContain("### Skill Bundles");
         result.ShouldContain("spring-voyage/software-engineering/triage-and-assign");
@@ -130,7 +111,7 @@ public class UnitContextBuilderTests
             new("acme/prompt-only", "intro", "## Intro prompt", Array.Empty<SkillToolRequirement>()),
         };
 
-        var result = _builder.Build([], null, null, bundles);
+        var result = _builder.Build(null, null, bundles);
 
         result.ShouldContain("## Intro prompt");
         result.ShouldNotContain("Required tools:");
@@ -155,7 +136,7 @@ public class UnitContextBuilderTests
                 "## Triage prompt", Array.Empty<SkillToolRequirement>()),
         };
 
-        var result = _builder.Build([], null, skills, bundles);
+        var result = _builder.Build(null, skills, bundles);
 
         var skillsIdx = result.IndexOf("Available Skills", StringComparison.Ordinal);
         var bundlesIdx = result.IndexOf("Skill Bundles", StringComparison.Ordinal);

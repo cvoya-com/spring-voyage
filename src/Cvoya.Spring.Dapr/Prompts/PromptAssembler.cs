@@ -45,7 +45,6 @@ public class PromptAssembler(
         {
             // Layer 2: Unit context
             var unitContext = unitContextBuilder.Build(
-                context.Members,
                 context.Policies,
                 context.Skills,
                 context.SkillBundles);
