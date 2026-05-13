@@ -1275,10 +1275,15 @@ jobs:
       #
       # `--path all` (added in #1120) covers BYOI conformance path 1
       # (the agent-base bridge baked into the claude-code image) AND
-      # path 2 (the @cvoya/spring-voyage-agent-sidecar bridge installed
-      # via `npm i -g` from a `npm pack` tarball of the in-tree sidecar).
-      # See the script header and tests/fixtures/byoi-path2/Dockerfile
-      # for the full matrix.
+      # path 2. The path-2 fixture exercises the historical npm-install
+      # shape (`npm i -g` from a `npm pack` tarball of the in-tree
+      # sidecar source). The @cvoya/spring-voyage-agent-sidecar npm
+      # package is no longer published with releases as of 2026-05-13,
+      # but the in-tree fixture builds its tarball locally so the
+      # install path stays exercised in CI. The supported path-2 install
+      # method going forward is the SEA binary attached to each GitHub
+      # Release; see tests/fixtures/byoi-path2/Dockerfile and the BYOI
+      # guide for the canonical recipe.
       - name: End-to-end smoke (PR 6 of #1087 acceptance, paths 1 + 2)
         shell: bash
         env:
