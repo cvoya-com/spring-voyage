@@ -38,7 +38,11 @@ WRAPPER_SH="${INSTALL_DIR}/voyage"
 [[ -x "${WRAPPER_SH}" ]] || { echo "voyage wrapper not executable: ${WRAPPER_SH}" >&2; exit 1; }
 
 FIXTURE_VERSION="0.0.0-test"
-FIXTURE_TAG="v${FIXTURE_VERSION}"
+# Post-#2229 canonical tag form: spring-voyage-v<semver>. The installer's
+# resolve_latest_release() reads this tag_name from the curl stub's
+# `api.github.com/repos/.../releases/latest` response, so it must match
+# the real GitHub Release tag shape.
+FIXTURE_TAG="spring-voyage-v${FIXTURE_VERSION}"
 PLATFORM_IMAGE="ghcr.io/cvoya-com/spring-voyage:${FIXTURE_VERSION}"
 
 TMP_BASE="$(mktemp -d -t spring-voyage-install-tests.XXXXXX)"
@@ -146,23 +150,21 @@ EOFENV
 }
 EOFMANIFEST
 
-  # Build bundle.tar.gz with the leading `bundle/` directory (matching
-  # the real release-pipeline shape).
-  ( cd "${TMP_BASE}/stage" && tar -czf "${rel}/spring-voyage-${FIXTURE_VERSION}-bundle.tar.gz" bundle )
-
-  # Dispatcher stage.
-  local disp_stage="${TMP_BASE}/stage-dispatcher"
-  rm -rf "${disp_stage}"; mkdir -p "${disp_stage}"
-  cat > "${disp_stage}/Cvoya.Spring.Dispatcher" <<'DISPATCHER'
+  # Dispatcher staging — populated as a sibling subdirectory under the
+  # unified per-RID stage tree below.
+  local disp_payload="${TMP_BASE}/payload-dispatcher"
+  rm -rf "${disp_payload}"; mkdir -p "${disp_payload}"
+  cat > "${disp_payload}/Cvoya.Spring.Dispatcher" <<'DISPATCHER'
 #!/usr/bin/env bash
 echo "fixture dispatcher: $*"
 DISPATCHER
-  chmod +x "${disp_stage}/Cvoya.Spring.Dispatcher"
+  chmod +x "${disp_payload}/Cvoya.Spring.Dispatcher"
 
-  # CLI stage.
-  local cli_stage="${TMP_BASE}/stage-cli"
-  rm -rf "${cli_stage}"; mkdir -p "${cli_stage}"
-  cat > "${cli_stage}/spring" <<'CLI'
+  # CLI staging — populated as a sibling subdirectory under the unified
+  # per-RID stage tree below.
+  local cli_payload="${TMP_BASE}/payload-cli"
+  rm -rf "${cli_payload}"; mkdir -p "${cli_payload}"
+  cat > "${cli_payload}/spring" <<'CLI'
 #!/usr/bin/env bash
 # Fixture spring CLI — supports `spring github-app register --name ... --env-path ... --write-env`
 # Records the invocation and exits 0 unless ${SPRING_FIXTURE_GH_REGISTER_FAIL} is set.
@@ -170,15 +172,23 @@ printf '%s\n' "spring $*" >> "${SPRING_FIXTURE_CLI_LOG:-/dev/null}"
 if [[ -n "${SPRING_FIXTURE_GH_REGISTER_FAIL:-}" ]]; then exit 1; fi
 exit 0
 CLI
-  chmod +x "${cli_stage}/spring"
+  chmod +x "${cli_payload}/spring"
 
-  # Per-RID archives. The same fixture binary is reused; the installer
-  # never executes them in dry-run, it only checks they exist after
-  # extraction.
+  # Per-RID unified host archive (#2243). Each archive contains the
+  # bundle/, cli/, and dispatcher/ subtrees that install.sh expects to
+  # find at RELEASE_DIR/{bundle,cli,dispatcher} after extraction. The
+  # same fixture binaries are reused across RIDs; the installer never
+  # executes them in dry-run, it only checks they exist after extraction.
   local rids=(linux-x64 linux-arm64 osx-x64 osx-arm64)
   for rid in "${rids[@]}"; do
-    tar -C "${disp_stage}" -czf "${rel}/spring-voyage-dispatcher-${FIXTURE_VERSION}-${rid}.tar.gz" .
-    tar -C "${cli_stage}"  -czf "${rel}/spring-${FIXTURE_VERSION}-${rid}.tar.gz" .
+    local rid_stage="${TMP_BASE}/stage-${rid}"
+    rm -rf "${rid_stage}"
+    mkdir -p "${rid_stage}/cli" "${rid_stage}/dispatcher"
+    cp -R "${stage}" "${rid_stage}/bundle"
+    cp "${cli_payload}/spring"                 "${rid_stage}/cli/spring"
+    cp "${disp_payload}/Cvoya.Spring.Dispatcher" "${rid_stage}/dispatcher/Cvoya.Spring.Dispatcher"
+    chmod +x "${rid_stage}/cli/spring" "${rid_stage}/dispatcher/Cvoya.Spring.Dispatcher"
+    tar -C "${rid_stage}" -czf "${rel}/spring-voyage-${FIXTURE_VERSION}-${rid}.tar.gz" .
   done
 
   # SHA256SUMS — real checksums computed over the staged archives so the
