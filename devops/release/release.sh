@@ -121,10 +121,10 @@ fi
 TODAY="$(date -u +%Y%m%d)"
 
 # Returns 0 (true) if `spring-voyage-v<arg>` exists either as a remote tag
-# on REPO or as a local tag in the current worktree.
+# on origin or as a local tag in the current worktree.
 tag_exists() {
   local v="$1"
-  gh api "repos/${REPO}/git/refs/tags/spring-voyage-v${v}" --silent 2>/dev/null && return 0
+  git ls-remote --exit-code --tags origin "spring-voyage-v${v}" >/dev/null 2>&1 && return 0
   git tag -l "spring-voyage-v${v}" | grep -q .
 }
 
@@ -165,9 +165,10 @@ fi
 
 # ── HEAD must be on origin/main ──────────────────────────────────────────────
 #
-# Tags point to HEAD. If HEAD is not reachable from origin/main the release
-# would reference commits that aren't in the canonical history, and the gh api
-# tag-creation call would fail because the remote doesn't know the SHA.
+# Tags point to HEAD. If HEAD is not reachable from origin/main, releasing
+# would tag commits that aren't in the canonical history — and `git push
+# origin <tag>` would ship those unreviewed commits to the remote alongside
+# the tag, bypassing branch protection on main. Fail fast here.
 
 git fetch origin main --quiet 2>/dev/null || true
 LOCAL_SHA="$(git rev-parse HEAD)"
@@ -187,8 +188,8 @@ fi
 # this version, or start fresh with a new version.
 
 if git tag -l "${RELEASE_TAG}" | grep -q . &&
-   ! gh api "repos/${REPO}/git/refs/tags/${RELEASE_TAG}" --silent 2>/dev/null; then
-  echo "::error::Local tag '${RELEASE_TAG}' exists but is not on ${REPO}."
+   ! git ls-remote --exit-code --tags origin "${RELEASE_TAG}" >/dev/null 2>&1; then
+  echo "::error::Local tag '${RELEASE_TAG}' exists but is not on origin."
   echo ""
   echo "         The remote tag was likely deleted without cleaning up locally."
   echo "         Delete it and rerun:"
@@ -199,8 +200,8 @@ fi
 # ── Idempotency guard (stable releases only — pre-release handled above) ──────
 
 if [[ -z "$PRE_RELEASE" && "$FORCE_RETAG" != "true" ]]; then
-  if gh api "repos/${REPO}/git/refs/tags/${RELEASE_TAG}" --silent 2>/dev/null; then
-    echo "::error::Tag '${RELEASE_TAG}' already exists in ${REPO}."
+  if git ls-remote --exit-code --tags origin "${RELEASE_TAG}" >/dev/null 2>&1; then
+    echo "::error::Tag '${RELEASE_TAG}' already exists on origin."
     echo "         Use --force-retag to override (this will re-trigger the workflow)."
     exit 1
   fi
@@ -214,13 +215,8 @@ push_and_wait() {
 
   echo ""
   echo "▶  Pushing tag ${tag} …"
-  local sha
-  sha="$(git rev-parse HEAD)"
   git tag "${tag}"
-  gh api "repos/${REPO}/git/refs" \
-    -X POST \
-    -f "ref=refs/tags/${tag}" \
-    -f "sha=${sha}"
+  git push origin "${tag}"
 
   echo "   Waiting for workflow '${workflow_name}' to register …"
   local run_id=""
