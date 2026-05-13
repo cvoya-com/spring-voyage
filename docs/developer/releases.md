@@ -125,7 +125,7 @@ Releases are triggered by tag pushes only — never by merges to `main`. One wor
 | --- | --- | --- |
 | [`release.yml`](../../.github/workflows/release.yml) | `spring-voyage-v*` | `ghcr.io/cvoya-com/spring-voyage-agent-base` (multi-arch), `ghcr.io/cvoya-com/spring-voyage-claude-code-base`, `ghcr.io/cvoya-com/spring-voyage-agent`, `ghcr.io/cvoya-com/spring-voyage` (platform image), the four OSS role images (`spring-voyage-agent-oss-*`, multi-arch), sidecar SEA binaries (3 targets), per-RID host archives bundling the deployment scripts + `spring` CLI + dispatcher in one tarball (5 RIDs), `Cvoya.Spring.Cli` .NET tool to nuget.org, top-level `install.sh` and version-baked `install-<v>.sh`, `SHA256SUMS`, GitHub Release |
 
-`release.yml` patches each GHCR package's visibility to `public` after publishing (`gh api -X PATCH /orgs/cvoya-com/packages/container/<name> -F visibility=public`), so packages are anonymously pullable from the first publish onward.
+GHCR packages are publicly pullable from the first publish onward via the `cvoya-com` org's **Inherit access from source repository** setting (Org Settings → Packages → Default package settings) combined with the `org.opencontainers.image.source=https://github.com/cvoya-com/spring-voyage` OCI label every release-built image carries via `docker/metadata-action@v6`. The GitHub REST API has no public endpoint to flip org-package visibility from a workflow, so `release.yml` does not attempt one.
 
 ### Release-attached files
 
@@ -149,7 +149,9 @@ The deployment bundle (`bundle/`) is not a standalone downloadable asset — it 
 dotnet tool install -g Cvoya.Spring.Cli
 ```
 
-The `publish-spring-cli-nuget` job in `release.yml` packs `src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj` (`<PackAsTool>true</PackAsTool>`, `<ToolCommandName>spring</ToolCommandName>`) and pushes the `.nupkg` to nuget.org using the `NUGET_API_KEY` repository secret. The job emits a workflow warning and exits 0 if `NUGET_API_KEY` is not configured — same pattern as the (now-retired) `NPM_TOKEN` skip — so a fork can run `release.yml` without the secret.
+The `publish-spring-cli-nuget` job in `release.yml` packs `src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj` (`<PackAsTool>true</PackAsTool>`, `<ToolCommandName>spring</ToolCommandName>`) and pushes the `.nupkg` to nuget.org using [NuGet trusted publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing). The `NuGet/login@v1` action exchanges the workflow's GitHub OIDC token for a short-lived NuGet API key valid for the run; no long-lived secret is stored in the repo. The job reads the nuget.org account username from a `NUGET_USER` repository variable (Settings → Secrets and variables → Actions → Variables) and skips the whole job — logged as a workflow warning — when that variable is unset, so a fork without a NuGet account can still run `release.yml`.
+
+Trusted-publisher setup on nuget.org (one-time, owner-side): create a trusted publisher entry on the `Cvoya.Spring.Cli` package scoped to repo `cvoya-com/spring-voyage`, ref pattern `refs/tags/spring-voyage-v*`, job name `publish-spring-cli-nuget`. The cvoya-com account already has this configured.
 
 `src/Cvoya.Spring.Cli/README.md` is the package-facing README shipped inside the `.nupkg` (via `<PackageReadmeFile>`); it is intentionally narrower than the repo-root `README.md` — focused on the CLI tool, not the platform.
 
