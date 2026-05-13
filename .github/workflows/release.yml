@@ -485,10 +485,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Make GHCR package public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash devops/release/make-package-public.sh spring-voyage-agent-base
+      # Visibility: GHCR packages inherit visibility from the source
+      # repository when the org's "Inherit access from source repository"
+      # setting is on (the canonical cvoya-com configuration). Combined
+      # with the `org.opencontainers.image.source` OCI label set above,
+      # newly-published packages are public on first push without any
+      # explicit PATCH. The REST API has no public endpoint to change
+      # org-package visibility from a workflow, so historic
+      # `gh api -X PATCH /orgs/.../packages/container/<name>` steps were
+      # always 404'ing — see the postmortem following the
+      # v0.0.0-rc.20260513.1 release run.
 
   # ── 5. Publish Cvoya.Spring.Cli .NET tool to NuGet ────────────────────────
   #
@@ -756,14 +762,8 @@ jobs:
             echo "Pushed ${TARGET_BASE}:latest"
           fi
 
-      - name: Make GHCR packages public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          for package in spring-voyage-claude-code-base spring-voyage-gemini-base spring-voyage-agent; do
-            bash devops/release/make-package-public.sh "${package}"
-          done
+      # Visibility: see the note on publish-agent-base-image — these
+      # packages inherit visibility from the source repository.
 
       - name: Image publish summary
         shell: bash
@@ -859,11 +859,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Make GHCR package public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PKG_NAME: ${{ matrix.name }}
-        run: bash devops/release/make-package-public.sh "${PKG_NAME}"
+      # Visibility: see the note on publish-agent-base-image — these
+      # packages inherit visibility from the source repository.
 
       - name: Summary
         shell: bash
@@ -943,10 +940,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Make GHCR package public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash devops/release/make-package-public.sh spring-voyage
+      # Visibility: see the note on publish-agent-base-image — this
+      # package inherits visibility from the source repository.
 
       - name: Platform image publish summary
         shell: bash
