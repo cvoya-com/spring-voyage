@@ -16,6 +16,7 @@ using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Dapr.Prompts;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -826,13 +827,15 @@ public class A2AExecutionDispatcher(
         using var httpClient = transport.CreateHttpClient(endpoint);
         var a2aClient = new A2AClient(endpoint, httpClient);
 
-        var userMessage = prompt;
-        if (originalMessage.Payload.ValueKind == JsonValueKind.Object &&
-            originalMessage.Payload.TryGetProperty("Task", out var taskProp) &&
-            taskProp.ValueKind == JsonValueKind.String)
-        {
-            userMessage = taskProp.GetString() ?? prompt;
-        }
+        // Map the inbound payload to the user-facing text via the shared
+        // helper so all three payload shapes (bare string, { text: "…" },
+        // { Task: "…" }) are handled identically across ThreadContextBuilder
+        // and the A2A dispatcher. Falling back to the assembled system
+        // prompt — as the previous Task-only extraction did on a miss —
+        // leaked the system instructions into the user role and made the
+        // agent reply to itself on follow-up turns (#2230).
+        var extracted = MessagePayloadText.Extract(originalMessage.Payload);
+        var userMessage = string.IsNullOrEmpty(extracted) ? prompt : extracted;
 
         // A2A v0.3 wire shape: MessageSendParams { message, configuration } —
         // the JSON-RPC method name is `message/send` (set by the SDK), which

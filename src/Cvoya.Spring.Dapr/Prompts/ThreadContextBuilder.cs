@@ -4,7 +4,6 @@
 namespace Cvoya.Spring.Dapr.Prompts;
 
 using System.Text;
-using System.Text.Json;
 
 using Cvoya.Spring.Core.Messaging;
 
@@ -64,7 +63,7 @@ public class ThreadContextBuilder
             foreach (var message in priorMessages)
             {
                 var sender = ResolveSender(message.From, senderDisplayNames);
-                var text = ExtractText(message.Payload);
+                var text = MessagePayloadText.Extract(message.Payload);
                 builder.AppendLine($"[{message.Timestamp:u}] {sender}: {text}");
             }
 
@@ -101,39 +100,4 @@ public class ThreadContextBuilder
         return from.Scheme;
     }
 
-    private static string ExtractText(JsonElement payload)
-    {
-        // Payloads from the CLI `message send` path are serialised as a bare
-        // JSON string (UntypedString on the wire); the agent-turn path wraps
-        // them in { text: "..." } or { Task: "..." }. TryGetProperty throws
-        // InvalidOperationException on anything that isn't an Object, so
-        // guard explicitly and fall through to ToString() for primitives.
-        switch (payload.ValueKind)
-        {
-            case JsonValueKind.Object:
-                if (payload.TryGetProperty("text", out var textElement) &&
-                    textElement.ValueKind == JsonValueKind.String)
-                {
-                    return textElement.GetString() ?? string.Empty;
-                }
-
-                if (payload.TryGetProperty("Task", out var taskElement) &&
-                    taskElement.ValueKind == JsonValueKind.String)
-                {
-                    return taskElement.GetString() ?? string.Empty;
-                }
-
-                return payload.ToString();
-
-            case JsonValueKind.String:
-                return payload.GetString() ?? string.Empty;
-
-            case JsonValueKind.Null:
-            case JsonValueKind.Undefined:
-                return string.Empty;
-
-            default:
-                return payload.ToString();
-        }
-    }
 }

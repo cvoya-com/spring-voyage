@@ -212,7 +212,8 @@ public class A2AExecutionDispatcherTests
 
     private static SvMessage CreateMessage(
         Guid? toGuid = null,
-        string? threadId = null)
+        string? threadId = null,
+        JsonElement? payload = null)
     {
         return new SvMessage(
             Guid.NewGuid(),
@@ -220,7 +221,7 @@ public class A2AExecutionDispatcherTests
             new Address("agent", toGuid ?? AgentGuid),
             MessageType.Domain,
             threadId ?? Guid.NewGuid().ToString(),
-            JsonSerializer.SerializeToElement(new { Task = "do-work" }),
+            payload ?? JsonSerializer.SerializeToElement(new { Task = "do-work" }),
             DateTimeOffset.UtcNow);
     }
 
@@ -267,6 +268,31 @@ public class A2AExecutionDispatcherTests
         }
 
         return metadataToken.GetString();
+    }
+
+    private static string? ReadFirstUserTextPartFromA2ARequest(byte[] body)
+    {
+        using var document = JsonDocument.Parse(body);
+        if (!document.RootElement.TryGetProperty("params", out var parameters) ||
+            parameters.ValueKind != JsonValueKind.Object ||
+            !parameters.TryGetProperty("message", out var message) ||
+            message.ValueKind != JsonValueKind.Object ||
+            !message.TryGetProperty("parts", out var parts) ||
+            parts.ValueKind != JsonValueKind.Array ||
+            parts.GetArrayLength() == 0)
+        {
+            return null;
+        }
+
+        var first = parts[0];
+        if (first.ValueKind != JsonValueKind.Object ||
+            !first.TryGetProperty("text", out var text) ||
+            text.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return text.GetString();
     }
 
     private static string? ReadContextIdFromA2ARequest(byte[] body)
@@ -1141,6 +1167,71 @@ public class A2AExecutionDispatcherTests
         // lease regardless of polling outcome.
         await _containerRuntime.Received(1).StopAsync(ContainerId, Arg.Any<CancellationToken>());
         _ephemeralRegistry.GetAllEntries().ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// Regression cover for #2230. Bare-string payloads (the CLI / API
+    /// send shape) used to fall through the dispatcher's narrower
+    /// Task-only extraction and leave the user-role text part defaulted
+    /// to the assembled system prompt. The dispatcher must now route
+    /// every payload shape through the shared payload-text helper so
+    /// the user role carries the actual user message.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_BareStringPayload_UserTextPartCarriesPayloadNotPrompt()
+    {
+        var message = CreateMessage(
+            payload: JsonSerializer.SerializeToElement("can you list the agents that you have in your unit?"));
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("## Platform Instructions\nyou are an agent...");
+        var recorder = InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        recorder.Calls.Count.ShouldBe(1);
+        var userText = ReadFirstUserTextPartFromA2ARequest(recorder.Calls[0].Body);
+        userText.ShouldBe("can you list the agents that you have in your unit?");
+        userText!.ShouldNotContain("Platform Instructions");
+    }
+
+    /// <summary>
+    /// Regression cover for #2230, agent-turn wrapper variant. A
+    /// <c>{ text: "…" }</c> payload (the agent-turn wrap shape) must
+    /// also reach the user role unchanged.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_TextWrappedPayload_UserTextPartCarriesPayloadNotPrompt()
+    {
+        var message = CreateMessage(
+            payload: JsonSerializer.SerializeToElement(new { text = "wrapped via text" }));
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("system prompt body");
+        var recorder = InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        recorder.Calls.Count.ShouldBe(1);
+        ReadFirstUserTextPartFromA2ARequest(recorder.Calls[0].Body).ShouldBe("wrapped via text");
+    }
+
+    /// <summary>
+    /// The pre-fix Task-shape payload still maps to the user role —
+    /// the rewritten extraction is a strict superset of the previous
+    /// behaviour for object-shaped payloads.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_TaskWrappedPayload_UserTextPartCarriesPayload()
+    {
+        var message = CreateMessage(
+            payload: JsonSerializer.SerializeToElement(new { Task = "wrapped via Task" }));
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("system prompt body");
+        var recorder = InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        recorder.Calls.Count.ShouldBe(1);
+        ReadFirstUserTextPartFromA2ARequest(recorder.Calls[0].Body).ShouldBe("wrapped via Task");
     }
 }
 
