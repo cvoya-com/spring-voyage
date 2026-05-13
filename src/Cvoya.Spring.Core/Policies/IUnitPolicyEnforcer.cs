@@ -144,4 +144,41 @@ public interface IUnitPolicyEnforcer
         string agentId,
         string actionType,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Evaluates whether <paramref name="callerId"/> may read the directory
+    /// (member set, parents, siblings, metadata) of the unit identified by
+    /// <paramref name="targetUnitId"/>. Used by the Spring Voyage directory
+    /// tools (#2231) before composing a response.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Tenant isolation is enforced structurally one layer down — every read
+    /// the directory tools issue goes through
+    /// <c>IUnitMemberGraphStore</c> (and friends), which scope EF queries by
+    /// <c>ITenantContext.CurrentTenantId</c>. A caller in tenant A cannot
+    /// observe a unit in tenant B regardless of the verdict returned here.
+    /// </para>
+    /// <para>
+    /// The default OSS implementation therefore returns
+    /// <see cref="PolicyDecision.Allowed"/> unconditionally — within a single
+    /// OSS tenant the directory is considered visible to every member. Private
+    /// cloud / multi-tenant deployments swap in a stricter enforcer that
+    /// gates reads on group membership, ABAC attributes, or unit-policy
+    /// directory rules (a <c>DirectoryPolicy</c> dimension that may be added
+    /// alongside <see cref="SkillPolicy"/> in a follow-up).
+    /// </para>
+    /// </remarks>
+    /// <param name="callerId">
+    /// The caller's stable Guid identifier as a no-dash 32-char hex string
+    /// (an agent or unit actor id).
+    /// </param>
+    /// <param name="targetUnitId">
+    /// The unit whose directory the caller wants to read.
+    /// </param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task<PolicyDecision> EvaluateUnitDirectoryReadAsync(
+        string callerId,
+        Guid targetUnitId,
+        CancellationToken cancellationToken = default);
 }

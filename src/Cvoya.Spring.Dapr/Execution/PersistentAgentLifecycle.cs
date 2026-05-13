@@ -143,7 +143,10 @@ public class PersistentAgentLifecycle(
 
         var sessionId = $"persistent-{agentId}";
         var prompt = definition.Instructions ?? string.Empty;
-        var session = mcpServer.IssueSession(agentId, sessionId);
+        // The explicit-deploy path always targets an agent address (see the
+        // Address.AgentScheme reference a few lines below), so the session's
+        // caller-kind is hard-coded to the agent scheme.
+        var session = mcpServer.IssueSession(agentId, sessionId, Address.AgentScheme);
 
         // ADR-0039 D3: resolve orchestration tools for this address. The
         // explicit-deploy path always targets an agent address; pass

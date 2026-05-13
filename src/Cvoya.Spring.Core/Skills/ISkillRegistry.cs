@@ -29,4 +29,20 @@ public interface ISkillRegistry
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The tool result as a JSON element.</returns>
     Task<JsonElement> InvokeAsync(string toolName, JsonElement arguments, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Caller-aware variant invoked by the MCP server with the active session's
+    /// caller identity (see <see cref="ToolCallContext"/>). Tools that need to
+    /// answer questions about <em>who</em> is calling them (e.g. "list members
+    /// of my unit") override this. The default implementation drops the context
+    /// and delegates to the no-context <see cref="InvokeAsync(string, JsonElement, CancellationToken)"/>
+    /// overload so existing skills authored before the context seam landed
+    /// keep working unchanged.
+    /// </summary>
+    /// <param name="toolName">The tool name, as advertised by <see cref="GetToolDefinitions"/>.</param>
+    /// <param name="arguments">The tool arguments as a JSON object.</param>
+    /// <param name="context">Caller identity resolved from the active MCP session.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task<JsonElement> InvokeAsync(string toolName, JsonElement arguments, ToolCallContext context, CancellationToken cancellationToken = default)
+        => InvokeAsync(toolName, arguments, cancellationToken);
 }

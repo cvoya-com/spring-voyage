@@ -197,7 +197,10 @@ public class A2AExecutionDispatcher(
             ?? throw new SpringException("A2A dispatch requires a thread id on the message.");
 
         var prompt = await promptAssembler.AssembleAsync(message, context, cancellationToken);
-        var session = mcpServer.IssueSession(agentId, threadId);
+        // Carry the receiver's scheme into the MCP session so platform
+        // tools (#2231) can answer get_self()-style queries without a DB
+        // lookup. message.To.Scheme is the authoritative caller-kind here.
+        var session = mcpServer.IssueSession(agentId, threadId, message.To.Scheme);
 
         // #1321: serialise AgentDefinition → YAML for the /spring/context/
         // agent-definition.yaml file (D1 spec § 2.2.2). Tenant config is
@@ -675,7 +678,9 @@ public class A2AExecutionDispatcher(
         // Use a stable thread ID for persistent agent MCP sessions.
         var sessionId = $"persistent-{agentId}";
         var prompt = definition.Instructions ?? string.Empty;
-        var session = mcpServer.IssueSession(agentId, sessionId);
+        // Receiver's scheme threaded into the session so platform tools
+        // (#2231) can resolve the caller's kind without an extra lookup.
+        var session = mcpServer.IssueSession(agentId, sessionId, message.To.Scheme);
 
         // #1321: populate agent definition YAML + tenant config JSON for the
         // /spring/context/ mount (D1 spec § 2.2.2).

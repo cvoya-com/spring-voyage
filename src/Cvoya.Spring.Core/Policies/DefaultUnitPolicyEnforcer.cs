@@ -306,6 +306,23 @@ public class DefaultUnitPolicyEnforcer(
         }, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public virtual Task<PolicyDecision> EvaluateUnitDirectoryReadAsync(
+        string callerId,
+        Guid targetUnitId,
+        CancellationToken cancellationToken = default)
+    {
+        // OSS default: directory reads are allowed within a single tenant.
+        // The structural tenant filter on IUnitMemberGraphStore prevents
+        // cross-tenant leakage regardless of the verdict here. Private
+        // cloud / multi-tenant deployments swap in a stricter enforcer
+        // (see the interface's EvaluateUnitDirectoryReadAsync remarks).
+        _ = callerId;
+        _ = targetUnitId;
+        _ = cancellationToken;
+        return Task.FromResult(PolicyDecision.Allowed);
+    }
+
     private async Task<PolicyDecision> EvaluateAcrossUnitsAsync(
         string agentId,
         Func<UnitPolicy, string, PolicyDecision> evaluator,

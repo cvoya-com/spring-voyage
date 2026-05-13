@@ -409,6 +409,9 @@ public class DefaultAgentInitiativeEvaluatorTests
 
         public Task<ExecutionModeResolution> ResolveExecutionModeAsync(string agentId, Cvoya.Spring.Core.Agents.AgentExecutionMode mode, CancellationToken cancellationToken = default) =>
             Task.FromResult(ExecutionModeResolution.AllowAsIs(mode));
+
+        public Task<PolicyDecision> EvaluateUnitDirectoryReadAsync(string callerId, Guid targetUnitId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(PolicyDecision.Allowed);
     }
 
     /// <summary>
@@ -439,5 +442,8 @@ public class DefaultAgentInitiativeEvaluatorTests
 
         public Task<PolicyDecision> EvaluateInitiativeActionAsync(string agentId, string actionType, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("initiative gate should never be consulted");
+
+        public Task<PolicyDecision> EvaluateUnitDirectoryReadAsync(string callerId, Guid targetUnitId, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("directory-read gate should never be consulted");
     }
 }
