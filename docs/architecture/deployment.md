@@ -287,10 +287,10 @@ The reference agent runtime images are published to GHCR by `release.yml`:
 
 ### Tag → GHCR flow
 
-1. A maintainer pushes a semver-style tag to `main` (e.g. `git tag v1.0.0 && git push origin v1.0.0`). The tag pattern `v*` gates the workflow.
-2. `.github/workflows/release.yml` builds the images under their canonical `ghcr.io/cvoya-com/...:<version>` tags with `devops/build/build-agent-images.sh --ghcr-only`.
+1. A maintainer runs `devops/release/release.sh v1.0.0` (or `--pre alpha|beta|rc` for a pre-release). The script pushes a single `spring-voyage-v<version>` tag.
+2. `.github/workflows/release.yml` (triggered by the tag) builds the agent-base, OSS, and platform images as multi-arch manifests via `docker/build-push-action`. Other images use `devops/build/build-agent-images.sh --ghcr-only` (single-arch for v0.1).
 3. The workflow pushes the immutable release tag. Stable releases also update the floating `:X.Y` and `:latest` tags.
-4. The workflow marks the GHCR packages public after push.
+4. GHCR packages are publicly pullable on first publish via the `cvoya-com` org's "Inherit access from source repository" setting plus the `org.opencontainers.image.source` OCI label every image carries.
 
 A manual `workflow_dispatch` input is also available for republishing an existing tag without cutting a new git ref — useful if a transient registry failure interrupts the original run.
 
