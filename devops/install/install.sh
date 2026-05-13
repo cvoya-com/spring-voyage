@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Spring Voyage — source-free local-host installer.
 #
-# Canonical operator entry-point (ADR-0042). Downloads the platform image,
-# deployment bundle, dispatcher binary, and `spring` CLI from a GitHub
-# Release, verifies them against the release's SHA256SUMS, generates a
-# spring.env with reasonable defaults, and brings the stack up via
+# Canonical operator entry-point (ADR-0042). Downloads the platform image
+# and the per-RID host archive (containing the deployment bundle, the
+# dispatcher binary, and the `spring` CLI in one tarball — #2243) from a
+# GitHub Release, verifies it against the release's SHA256SUMS, generates
+# a spring.env with reasonable defaults, and brings the stack up via
 # `deploy.sh up`. Local-host only — no SSH, no remote container contexts.
 #
 # Usage:
@@ -29,6 +30,15 @@ REPO_OWNER="cvoya-com"
 REPO_NAME="spring-voyage"
 RELEASE_API_LATEST="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
 RELEASE_DOWNLOAD_PREFIX="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download"
+
+# When this installer is baked for a specific release (the `install-<v>.sh`
+# variant attached to a GitHub Release), the `BAKED_VERSION` assignment
+# below is filled in at release-publish time by the `publish-installer`
+# workflow job. The unversioned `install.sh` keeps the empty assignment
+# and resolves the version dynamically from --version, SPRING_VOYAGE_VERSION,
+# or the GitHub API. The versioned `install-<v>.sh` refuses to install any
+# other version.
+BAKED_VERSION=""
 
 DEFAULT_INSTALL_ROOT="${HOME}/.spring-voyage"
 DEFAULT_BIN_DIR="${HOME}/.local/bin"
@@ -66,7 +76,8 @@ Usage:
   install.sh [--version <tag>] [--root <dir>] [--yes] [--force] [--no-start]
 
 Options:
-  --version <tag>   Release tag to install (e.g. v1.0.0). Defaults to
+  --version <tag>   Release version to install. Accepted forms: '1.0.0',
+                    'v1.0.0', or 'spring-voyage-v1.0.0'. Defaults to
                     $SPRING_VOYAGE_VERSION or the latest stable release.
   --root <dir>      Install root (default: ~/.spring-voyage).
   --yes             Non-interactive. Uses DEPLOY_HOSTNAME=localhost and
@@ -200,7 +211,7 @@ if ! RID="$(detect_rid)"; then
   fail "Unsupported OS/arch: $(uname -s)/$(uname -m). See https://github.com/${REPO_OWNER}/${REPO_NAME}/blob/main/docs/guide/operator/deployment.md for manual install."
 fi
 if [[ "$RID" == "WIN_NOT_SUPPORTED" ]]; then
-  fail "Windows is not supported by install.sh in v0.1. Download spring-<v>-win-x64.zip from the GitHub release and follow docs/guide/operator/deployment.md for manual install."
+  fail "Windows is not supported by install.sh in v0.1. Download spring-voyage-<v>-win-x64.zip from the GitHub release and follow docs/guide/operator/deployment.md for manual install."
 fi
 ok "RID detected: ${RID}"
 
@@ -288,6 +299,22 @@ esac
 # ---------------------------------------------------------------------------
 # Resolve release version
 # ---------------------------------------------------------------------------
+# Accepted input forms (precedence: --version > $SPRING_VOYAGE_VERSION >
+# BAKED_VERSION > latest stable from GitHub API):
+#
+#   '1.0.0'                  → SEMVER=1.0.0
+#   'v1.0.0'                 → SEMVER=1.0.0
+#   'spring-voyage-v1.0.0'   → SEMVER=1.0.0
+#
+# Resolved values:
+#   TAG    = spring-voyage-v${SEMVER}   (the actual release tag, post-#2229)
+#   SEMVER = 1.0.0                       (used in asset filenames)
+#
+# Bug fix (#2243): before this rewrite, the script normalised by prepending
+# a single `v` to a non-`v` tag, but the GitHub API now returns
+# `spring-voyage-v1.0.0` (#2229 renamed the tag scheme). The old code
+# produced `vspring-voyage-v1.0.0` and the download URL 404'd. install.sh
+# has been broken against any real release since #2229 merged.
 header "Resolving release version"
 
 resolve_latest_release() {
@@ -297,12 +324,30 @@ resolve_latest_release() {
   if ! body="$(curl -fsSL "${RELEASE_API_LATEST}" 2>/dev/null)"; then
     return 1
   fi
-  # We don't depend on jq — extract `"tag_name": "vX.Y.Z"` with sed.
+  # We don't depend on jq — extract `"tag_name": "spring-voyage-vX.Y.Z"`
+  # with sed.
   local tag
   tag="$(printf '%s' "$body" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
   [[ -n "$tag" ]] || return 1
   printf '%s' "$tag"
 }
+
+# If this is the version-baked install-<v>.sh variant, the operator-passed
+# VERSION (if any) must match the baked one — refuse otherwise so the
+# stable URL semantics ("install-<v>.sh installs exactly version <v>") are
+# preserved.
+if [[ -n "$BAKED_VERSION" ]]; then
+  if [[ -n "$VERSION" ]]; then
+    _user_semver="${VERSION#spring-voyage-}"
+    _user_semver="${_user_semver#v}"
+    _baked_semver="${BAKED_VERSION#spring-voyage-}"
+    _baked_semver="${_baked_semver#v}"
+    if [[ "$_user_semver" != "$_baked_semver" ]]; then
+      fail "This installer is baked for version ${BAKED_VERSION}. To install a different version, fetch the unversioned install.sh from releases/latest/download/install.sh, or use install-<other-version>.sh."
+    fi
+  fi
+  VERSION="$BAKED_VERSION"
+fi
 
 if [[ -z "$VERSION" ]]; then
   info "Resolving latest stable release from ${RELEASE_API_LATEST}..."
@@ -311,10 +356,11 @@ if [[ -z "$VERSION" ]]; then
   fi
 fi
 
-# Normalise: strip leading 'v' for filename usage; keep the leading 'v' for URLs.
-TAG="$VERSION"
-[[ "$TAG" =~ ^v ]] || TAG="v${TAG}"
-RELEASE_VERSION="${TAG#v}"
+# Normalise: accept '1.0.0', 'v1.0.0', or 'spring-voyage-v1.0.0' as input.
+SEMVER="${VERSION#spring-voyage-}"
+SEMVER="${SEMVER#v}"
+TAG="spring-voyage-v${SEMVER}"
+RELEASE_VERSION="${SEMVER}"
 ok "Installing release: ${TAG} (version ${RELEASE_VERSION})"
 
 # ---------------------------------------------------------------------------
@@ -329,9 +375,15 @@ DOWNLOAD_DIR="${RELEASE_DIR}/.downloads"
 mkdir -p "${RELEASE_DIR}" "${DOWNLOAD_DIR}"
 
 # ---------------------------------------------------------------------------
-# Download assets + SHA256SUMS
+# Download release archive + SHA256SUMS
 # ---------------------------------------------------------------------------
-header "Downloading release assets"
+# As of #2243 there is one per-RID operator archive containing bundle/,
+# cli/, and dispatcher/ (was three separate archives: bundle + cli +
+# dispatcher). The archive is staged in the release as
+# `spring-voyage-<v>-<rid>.tar.gz`.
+header "Downloading release archive"
+
+ARCHIVE_ASSET="spring-voyage-${RELEASE_VERSION}-${RID}.tar.gz"
 
 download_asset() {
   local name="$1"
@@ -343,20 +395,14 @@ download_asset() {
   fi
 }
 
-BUNDLE_ASSET="spring-voyage-${RELEASE_VERSION}-bundle.tar.gz"
-DISPATCHER_ASSET="spring-voyage-dispatcher-${RELEASE_VERSION}-${RID}.tar.gz"
-CLI_ASSET="spring-${RELEASE_VERSION}-${RID}.tar.gz"
-
 download_asset "SHA256SUMS"
-download_asset "${BUNDLE_ASSET}"
-download_asset "${DISPATCHER_ASSET}"
-download_asset "${CLI_ASSET}"
+download_asset "${ARCHIVE_ASSET}"
 ok "All assets downloaded"
 
 # ---------------------------------------------------------------------------
-# Verify checksums
+# Verify checksum
 # ---------------------------------------------------------------------------
-header "Verifying SHA256 checksums"
+header "Verifying SHA256 checksum"
 
 verify_one() {
   local file="$1"
@@ -373,29 +419,21 @@ verify_one() {
   ok "${file} checksum OK"
 }
 
-verify_one "${BUNDLE_ASSET}"
-verify_one "${DISPATCHER_ASSET}"
-verify_one "${CLI_ASSET}"
+verify_one "${ARCHIVE_ASSET}"
 
 # ---------------------------------------------------------------------------
 # Extract
 # ---------------------------------------------------------------------------
-header "Extracting assets"
-
-# The bundle tarball is structured as `bundle/...`. Extract into RELEASE_DIR
-# so we get RELEASE_DIR/bundle/...
+header "Extracting archive"
+# Archive contains bundle/, cli/, and dispatcher/ subdirectories — extract
+# into RELEASE_DIR so the existing symlink/locate logic finds them at
+# their expected paths (RELEASE_DIR/{bundle,cli,dispatcher}).
 rm -rf "${BUNDLE_DIR}" "${DISPATCHER_DIR}" "${CLI_DIR}"
-tar -xzf "${DOWNLOAD_DIR}/${BUNDLE_ASSET}" -C "${RELEASE_DIR}"
-[[ -d "${BUNDLE_DIR}" ]] || fail "Bundle tarball did not produce expected layout at ${BUNDLE_DIR}."
-ok "Bundle extracted -> ${BUNDLE_DIR}"
-
-mkdir -p "${DISPATCHER_DIR}"
-tar -xzf "${DOWNLOAD_DIR}/${DISPATCHER_ASSET}" -C "${DISPATCHER_DIR}"
-ok "Dispatcher extracted -> ${DISPATCHER_DIR}"
-
-mkdir -p "${CLI_DIR}"
-tar -xzf "${DOWNLOAD_DIR}/${CLI_ASSET}" -C "${CLI_DIR}"
-ok "CLI extracted -> ${CLI_DIR}"
+tar -xzf "${DOWNLOAD_DIR}/${ARCHIVE_ASSET}" -C "${RELEASE_DIR}"
+[[ -d "${BUNDLE_DIR}" ]] || fail "Archive did not produce expected layout at ${BUNDLE_DIR}."
+[[ -d "${DISPATCHER_DIR}" ]] || fail "Archive did not produce expected layout at ${DISPATCHER_DIR}."
+[[ -d "${CLI_DIR}" ]] || fail "Archive did not produce expected layout at ${CLI_DIR}."
+ok "Archive extracted -> ${RELEASE_DIR}"
 
 # ---------------------------------------------------------------------------
 # Read manifest

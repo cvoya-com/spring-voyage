@@ -29,8 +29,8 @@ curl -fSL https://github.com/cvoya-com/spring-voyage/releases/latest/download/in
 The installer:
 
 1. Validates pre-flight (not root, `bash >= 4`, `curl`, `tar`, `openssl`, `podman >= 4`, ports 80/443 free, `~/.local/bin` on PATH, `podman machine` running on macOS).
-2. Resolves the release (`--version <tag>`, `$SPRING_VOYAGE_VERSION`, or the latest stable release from the GitHub API).
-3. Downloads the deployment bundle, the dispatcher binary, and the `spring` CLI for your RID; verifies all three against `SHA256SUMS`.
+2. Resolves the release (`--version <tag>`, `$SPRING_VOYAGE_VERSION`, or the latest stable release from the GitHub API). Accepts `1.0.0`, `v1.0.0`, or `spring-voyage-v1.0.0`.
+3. Downloads `spring-voyage-<v>-<rid>.tar.gz` (the per-RID host archive — one file containing the deployment bundle, the `spring` CLI, and the dispatcher binary) and `SHA256SUMS`; verifies the archive against the checksum.
 4. Pulls the platform image (`ghcr.io/cvoya-com/spring-voyage:<v>`).
 5. Prompts for **`DEPLOY_HOSTNAME`** (default `localhost`). This is the only required prompt.
 6. Generates `~/.spring-voyage/spring.env` (mode 0600). `POSTGRES_PASSWORD`, `SPRING_SECRETS_AES_KEY`, the OAuth redirect URI, the Dapr components path, the dispatcher binary path, and the platform image refs are all generated or derived — no prompts.
@@ -42,11 +42,43 @@ The installer:
 
 | Flag | Purpose |
 |------|---------|
-| `--version <tag>` | Install a specific release (e.g. `v1.0.0-rc.20260601`). Defaults to latest stable. |
+| `--version <tag>` | Install a specific release. Accepted forms: `1.0.0`, `v1.0.0`, or `spring-voyage-v1.0.0`. Defaults to latest stable. |
 | `--root <dir>` | Install root (defaults to `~/.spring-voyage`). |
 | `--yes` | Non-interactive. Uses `DEPLOY_HOSTNAME=localhost`, skips the GitHub App prompt. |
 | `--force` | Bypass the "already installed" refusal. Only use this if `uninstall` is broken. |
 | `--no-start` | Generate `spring.env` and assets but skip `deploy.sh up`. Useful for CI bring-up that wants to inspect the env file first. |
+
+### Pin to a specific version
+
+Every release attaches a version-baked installer companion at `install-<v>.sh` alongside the unversioned `install.sh`. Use it when you want a doc, runbook, or CI job to install exactly one version without depending on `--version`:
+
+```bash
+curl -fSL https://github.com/cvoya-com/spring-voyage/releases/download/spring-voyage-v1.0.0/install-1.0.0.sh | bash
+```
+
+`install-<v>.sh` is byte-identical to `install.sh` except that its `BAKED_VERSION` is filled in at release time; it refuses to install any other version if `--version` or `$SPRING_VOYAGE_VERSION` points elsewhere. The unversioned `install.sh` remains the canonical entry point for "install the latest stable".
+
+### Manual install (no installer script)
+
+If you prefer to download and extract the archive yourself — for an air-gapped host, for inspection, or to script a non-standard layout — the only operator-facing artefact is the per-RID host archive:
+
+```bash
+VERSION=1.0.0
+RID=linux-x64   # or linux-arm64, osx-x64, osx-arm64, win-x64
+TAG="spring-voyage-v${VERSION}"
+
+curl -fSL "https://github.com/cvoya-com/spring-voyage/releases/download/${TAG}/spring-voyage-${VERSION}-${RID}.tar.gz" \
+  -o /tmp/spring-voyage.tar.gz
+curl -fSL "https://github.com/cvoya-com/spring-voyage/releases/download/${TAG}/SHA256SUMS" \
+  -o /tmp/SHA256SUMS
+
+( cd /tmp && sha256sum -c --ignore-missing SHA256SUMS )
+
+mkdir -p "${HOME}/.spring-voyage/releases/${VERSION}"
+tar -xzf /tmp/spring-voyage.tar.gz -C "${HOME}/.spring-voyage/releases/${VERSION}"
+```
+
+The archive expands into `bundle/`, `cli/`, and `dispatcher/` under `~/.spring-voyage/releases/<v>/`. From there you can run `releases/<v>/bundle/deploy.sh up` directly after generating a `spring.env` (see [§ Build from source](#build-from-source) for the env template). For most operators `curl … install.sh | bash` is shorter and does the same work.
 
 ### What ends up on disk
 

@@ -2,7 +2,7 @@
 
 Source-free operator install path for Spring Voyage. Curlable
 `install.sh` + `uninstall.sh` that consume the release assets published
-by `.github/workflows/release.yml` on every `v*.*.*` tag.
+by `.github/workflows/release.yml` on every `spring-voyage-v*` tag.
 
 Design recorded in [ADR-0042 — Local-host operator installer](../../docs/decisions/0042-local-operator-installer.md). The operator
 narrative — prerequisites, prompts, on-disk layout, troubleshooting — lives in [`docs/guide/operator/deployment.md`](../../docs/guide/operator/deployment.md).
@@ -17,19 +17,34 @@ That's the one-liner. Two prompts: `DEPLOY_HOSTNAME` (default
 `localhost`) and an opt-in GitHub-App manifest flow. `--yes` skips
 both.
 
+To pin to a specific release, use the version-baked companion
+attached to every release (`install-<v>.sh`):
+
+```bash
+curl -fSL https://github.com/cvoya-com/spring-voyage/releases/download/spring-voyage-v1.0.0/install-1.0.0.sh | bash
+```
+
+`install-<v>.sh` is byte-identical to `install.sh` except its
+`BAKED_VERSION` is filled in at release time; it refuses to install
+any other version.
+
 ## What the installer does
 
 1. Validates pre-flight: not root, `bash >= 4`, `curl`, `tar`,
    `openssl`, `podman >= 4`, ports 80/443 free, `~/.local/bin` on
    PATH, `podman machine` running on macOS.
 2. Resolves the release tag (`--version`, `$SPRING_VOYAGE_VERSION`,
-   else latest stable from the GitHub API).
-3. Downloads three release-attached archives plus `SHA256SUMS`:
-   - `spring-voyage-<v>-bundle.tar.gz`
-   - `spring-voyage-dispatcher-<v>-<rid>.tar.gz`
-   - `spring-<v>-<rid>.tar.gz`
-4. Verifies each archive's checksum against `SHA256SUMS`.
-5. Extracts to `~/.spring-voyage/releases/<v>/{bundle,dispatcher,cli}/`.
+   else latest stable from the GitHub API). Accepted version inputs:
+   `1.0.0`, `v1.0.0`, or `spring-voyage-v1.0.0`.
+3. Downloads two release-attached files:
+   - `spring-voyage-<v>-<rid>.{tar.gz|zip}` — the per-RID host
+     archive (contains `bundle/`, `cli/`, and `dispatcher/`
+     subdirectories in one tarball).
+   - `SHA256SUMS`.
+4. Verifies the archive's checksum against `SHA256SUMS`.
+5. Extracts to `~/.spring-voyage/releases/<v>/` so the existing
+   `{bundle,dispatcher,cli}/` paths land where the rest of the
+   installer expects them.
 6. Reads `bundle/manifest.json` for the platform image ref and `podman
    pull`s it.
 7. Symlinks `~/.spring-voyage/current -> releases/<v>/bundle`,
