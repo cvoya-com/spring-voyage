@@ -489,10 +489,7 @@ jobs:
       - name: Make GHCR package public
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh api -X PATCH /orgs/cvoya-com/packages/container/spring-voyage-agent-base \
-            -F visibility=public
+        run: bash devops/release/make-package-public.sh spring-voyage-agent-base
 
   # ── 5. Publish @cvoya/spring-voyage-agent-sidecar npm package ─────────────
   #
@@ -754,9 +751,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          for package in spring-voyage-claude-code-base spring-voyage-agent; do
-            gh api -X PATCH "/orgs/cvoya-com/packages/container/${package}" \
-              -F visibility=public
+          for package in spring-voyage-claude-code-base spring-voyage-gemini-base spring-voyage-agent; do
+            bash devops/release/make-package-public.sh "${package}"
           done
 
       - name: Image publish summary
@@ -857,10 +853,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PKG_NAME: ${{ matrix.name }}
-        run: |
-          set -euo pipefail
-          gh api -X PATCH "/orgs/cvoya-com/packages/container/${PKG_NAME}" \
-            -F visibility=public
+        run: bash devops/release/make-package-public.sh "${PKG_NAME}"
 
       - name: Summary
         shell: bash
@@ -943,10 +936,7 @@ jobs:
       - name: Make GHCR package public
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh api -X PATCH "/orgs/cvoya-com/packages/container/spring-voyage" \
-            -F visibility=public
+        run: bash devops/release/make-package-public.sh spring-voyage
 
       - name: Platform image publish summary
         shell: bash
