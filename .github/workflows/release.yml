@@ -1345,16 +1345,18 @@ jobs:
           # LICENSE — repo-root LICENSE.md, renamed to the conventional bundle name.
           cp LICENSE.md "${stage}/LICENSE"
 
-          # manifest.json — pinned version + image refs the installer reads to
-          # resolve which platform image to pull and which dispatcher/CLI
-          # asset filenames to download.
+          # manifest.json — pinned version + image ref the installer reads
+          # to resolve which platform image to pull. Dispatcher and CLI
+          # asset filenames are derived from `version` (every release ships
+          # a uniform asset set under one tag — see #2229), so the previous
+          # `dispatcher_version` / `cli_version` fields were always equal
+          # to `version` and have been removed. `bundle_schema_version` is
+          # bumped to 2 to signal the shape change.
           cat >"${stage}/manifest.json" <<EOF
           {
-            "bundle_schema_version": 1,
+            "bundle_schema_version": 2,
             "version": "${RELEASE_VERSION}",
-            "platform_image": "${PLATFORM_IMAGE_REPO}:${RELEASE_VERSION}",
-            "dispatcher_version": "${RELEASE_VERSION}",
-            "cli_version": "${RELEASE_VERSION}"
+            "platform_image": "${PLATFORM_IMAGE_REPO}:${RELEASE_VERSION}"
           }
           EOF
 
@@ -1389,7 +1391,7 @@ jobs:
           spring.env.example                Template for the per-deployment spring.env
           scripts/                          Smoke tests for the dispatcher and host wrapper
           dapr/components/                  Dapr component manifests consumed by the platform sidecar
-          manifest.json                     Version pinning (image, dispatcher, CLI)
+          manifest.json                     Release version + platform-image pin (bundle schema v2)
           uninstall.sh                      Bundle-side uninstall (invoked by \`voyage uninstall\`)
           voyage                            Operator wrapper (status / logs / restart / version / install / uninstall)
           \`\`\`
