@@ -123,6 +123,17 @@ No versions have been tagged yet. The entries below capture the repository's his
   - Residual `continue-on-error` comment in `release.yml` dropped.
   - Documentation pass: full rewrite of `docs/developer/releases.md` for the unified pipeline (one tag / one workflow / one Release, draft-then-finalize behaviour, prefix-stripped-SemVer rule for embedded version strings); colloquial-vs-canonical clarifier in `docs/architecture/agent-images.md`; `BRIDGE_VERSION` lockstep explainer in `docs/guide/operator/byoi-agent-images.md`; ADR-0042 amended for `bundle_schema_version: 2` and the unified-tag prefix; ADR-0027 and ADR-0034 amended where they listed the deleted auxiliary workflows.
 
+- **Platform image now published multi-arch (`linux/amd64`, `linux/arm64`).** Closes
+  the arm64 installation gap: `install.sh` already detects and supports `linux-arm64`
+  RID and the unified release publishes all agent images as multi-arch, but
+  `ghcr.io/cvoya-com/spring-voyage` was the last remaining single-arch artefact.
+  Operators on arm64 hosts (Apple Silicon Podman, bare arm64 Linux servers) now
+  get a native arm64 image instead of an amd64 image running under emulation.
+  Implementation: the `publish-platform-image` job in `release.yml` is converted
+  from raw `docker build` to `docker/build-push-action@v7` with `platforms:
+  linux/amd64,linux/arm64`, matching the pattern used by `publish-agent-base-image`
+  and `publish-oss-agent-images` ([#2233](https://github.com/cvoya-com/spring-voyage/issues/2233)).
+
 - **Announce version family aligned to `1.0.0-alpha.<date>`.** The first public pre-release is cut as `v1.0.0-alpha.<yyyymmdd>` (dot-separated SemVer prerelease). Version markers in `src/Cvoya.Spring.Web/package.json`, the MCP server `serverInfo` payload, release-doc examples, installer/release scripts, and operator/architecture deployment docs are aligned to the new family. Issue-tracker milestones (`v0.1`, `v0.2`) and `docs/plan/v0.1/` are planning buckets and retain their names.
 
 #### Operations & deployment
