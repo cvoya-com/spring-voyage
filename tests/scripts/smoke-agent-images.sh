@@ -171,7 +171,7 @@ SV_AGENT_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent:${TAG}"
 # we don't need to invoke `claude` (no API key here) — we just need an
 # argv vector that exits cleanly, so the bridge can boot, expose the
 # agent card, and answer GET /.well-known/agent.json. `["true"]` is the
-# canonical no-op (the same trick `release-agent-base.yml`'s SEA-binary
+# canonical no-op (the same trick `release.yml`'s sidecar SEA-binary
 # smoke uses).
 log "smoke 1/2: ${CLAUDE_IMAGE}"
 smoke_one "${CLAUDE_IMAGE}" "claude-code" \

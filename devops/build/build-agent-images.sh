@@ -15,8 +15,8 @@
 #
 # Conformance paths are documented in
 # `docs/architecture/agent-runtime.md` § 7. The ghcr-namespaced images are
-# the same artifacts the `release.yml`, `release-agent-base.yml`, and
-# `release-oss-agent-images.yml` workflows publish on tag push. The GHCR tags
+# the same artifacts the unified `release.yml` workflow publishes on
+# `spring-voyage-v*` tag push (see #2229 — Path B). The GHCR tags
 # intentionally exist in the local image store before GHCR publishing is
 # enabled: the runtime catalogue uses those canonical refs, and the dispatcher
 # checks the exact configured ref with `image inspect` before trying a network

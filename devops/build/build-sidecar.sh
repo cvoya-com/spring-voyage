@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Build the agent-base image locally for development. The published
 # image (ghcr.io/cvoya-com/spring-voyage-agent-base) is built by the
-# release-agent-base.yml CI workflow on tag push; this script is the
-# escape hatch for hacking on the bridge from a developer laptop.
+# unified release.yml workflow on `spring-voyage-v*` tag push (see #2229);
+# this script is the escape hatch for hacking on the bridge from a
+# developer laptop.
 #
 # Usage:
 #   devops/build/build-sidecar.sh             # builds :dev

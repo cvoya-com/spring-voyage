@@ -24,7 +24,7 @@ Before installing the package, confirm all of the following:
   ./devops/build/build-agent-images.sh           # builds all four OSS images at :dev
   ```
 
-  Or pull pre-published images from GHCR (after an `oss-agents-v*` release tag has run):
+  Or pull pre-published images from GHCR (after a `spring-voyage-v*` release tag has run):
 
   ```bash
   podman pull ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest

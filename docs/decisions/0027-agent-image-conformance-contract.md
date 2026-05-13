@@ -55,7 +55,7 @@ The Tier-A CLI launchers (Claude Code, Codex, Gemini) all use path 1 by default;
 
 - **Bridge.** Semver on the npm package (`@cvoya/spring-voyage-agent-sidecar`) and the OCI tag (`ghcr.io/cvoya-com/spring-voyage-agent-base`). N-2 backward compatibility: a Spring Voyage worker dialing this bridge accepts versions within the last 2 majors. The bridge stamps its version on the `x-spring-voyage-bridge-version` header and the Agent Card so the dispatcher logs version skew.
 - **A2A.** Pinned to `0.3.x`. A bump to `0.4.x` or `1.x` is a deliberate breaking change with a deprecation window on the dispatcher side; the protocol version on the Agent Card lets the dispatcher refuse mismatches early.
-- **Release shape.** Bridge releases are cut on tags shaped `agent-base-vX.Y.Z`. The release workflow publishes the OCI image, the npm package, and the SEA binaries in lockstep so all three paths advance together.
+- **Release shape.** Bridge releases are cut on tags shaped `agent-base-vX.Y.Z` (amended 2026-05-12 to `spring-voyage-vX.Y.Z` — see [#2229](https://github.com/cvoya-com/spring-voyage/issues/2229)). The release workflow publishes the OCI image, the npm package, and the SEA binaries in lockstep so all three paths advance together.
 
 ## Alternatives considered
 

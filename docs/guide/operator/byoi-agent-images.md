@@ -58,7 +58,7 @@ Two consequences for image authors:
 
 This is the recommended path. The `agent-base` image bundles `tini`, Node 22, and a pre-installed copy of the A2A bridge under `/opt/spring-voyage/sidecar/`. The image's ENTRYPOINT runs the bridge on `:8999`. You add your CLI tool on top.
 
-> **Version:** Replace `1.0.0` in the examples below with the current release tag. Check the [latest `agent-base-v*` release](https://github.com/cvoya-com/spring-voyage/releases?q=agent-base-v) for the most recently published version.
+> **Version:** Replace `1.0.0` in the examples below with the current release tag. Operators read the most recently published version off the [Spring Voyage GitHub Releases page](https://github.com/cvoya-com/spring-voyage/releases) — each release is cut from a single `spring-voyage-v*` tag, and the agent-base image is published in lockstep with the rest of the platform on that tag.
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
@@ -138,7 +138,7 @@ RUN apk add --no-cache curl ca-certificates \
       *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
  && curl -fsSL -o /usr/local/bin/spring-voyage-agent-sidecar \
-      "https://github.com/cvoya-com/spring-voyage/releases/download/agent-base-v${BRIDGE_VERSION}/spring-voyage-agent-sidecar-${target}" \
+      "https://github.com/cvoya-com/spring-voyage/releases/download/spring-voyage-v${BRIDGE_VERSION}/spring-voyage-agent-sidecar-${BRIDGE_VERSION}-${target}" \
  && chmod +x /usr/local/bin/spring-voyage-agent-sidecar
 
 # Install your CLI on top — this image is Node-less, so the bridge runs
@@ -149,7 +149,7 @@ EXPOSE 8999
 ENTRYPOINT ["/usr/local/bin/spring-voyage-agent-sidecar"]
 ```
 
-The SEA binaries are built from the same source as the npm package and the path-1 base image; all three are versioned in lockstep by the `agent-base-vX.Y.Z` release workflow.
+The SEA binaries are built from the same source as the npm package and the path-1 base image; all three are versioned in lockstep by the `spring-voyage-vX.Y.Z` release workflow.
 
 ---
 
@@ -249,7 +249,7 @@ A native A2A server (path 3) typically populates `skills[]` with the tools the a
 | Surface | Versioning | Compatibility window |
 |---------|------------|----------------------|
 | **A2A protocol** | Pinned to `0.3.x`. Bumping to `0.4.x` or `1.x` is a deliberate breaking change with a deprecation window on the dispatcher side. | The dispatcher refuses agents advertising a different major. |
-| **Bridge (npm + OCI + SEA)** | Semver. Same version published across all three artifacts in lockstep by `release-agent-base.yml`. | The dispatcher accepts bridges within the last **2 majors** (N-2). Older bridges still answer requests, but the dispatcher logs version skew. |
+| **Bridge (npm + OCI + SEA)** | Semver. Same version published across all three artifacts in lockstep by `release.yml`. | The dispatcher accepts bridges within the last **2 majors** (N-2). Older bridges still answer requests, but the dispatcher logs version skew. |
 | **`SPRING_*` env contract** | Additive. New env keys land as optional; the bridge ignores keys it doesn't understand. | Operator images that don't set new optional keys keep working. |
 
 When the bridge stamps a different version than the dispatcher expects, the dispatcher logs a single warning per agent at startup and continues. To check the running bridge version manually:

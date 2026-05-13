@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # devops/release/release.sh — Spring Voyage release orchestration
 #
-# Publishes a coherent Spring Voyage release by pushing component tags in
-# dependency order and waiting for each workflow to succeed before proceeding.
+# Publishes a coherent Spring Voyage release by pushing a single
+# `spring-voyage-v<version>` tag and watching the unified `release.yml`
+# workflow to completion. The previous three-tag release chain was
+# collapsed into one tag and one workflow in #2229 (Path B); this script
+# is the operator entry point for that flow.
 #
 # Usage:
 #   ./devops/release/release.sh [OPTIONS] <semver>
@@ -14,23 +17,21 @@
 # Options:
 #   --pre <alpha|beta|rc>   Append a date-anchored pre-release suffix:
 #                           -<suffix>.YYYYMMDD  (same-day re-runs add .1, .2, …)
-#   --plan                  Dry-run: print computed tags and exit 0 without pushing.
+#   --plan                  Dry-run: print the computed tag and exit 0 without pushing.
 #   --force-retag           Skip the idempotency guard (re-tag an existing version).
 #   -h, --help              Show this help and exit.
 #
 # Examples:
-#   ./devops/release/release.sh v1.0.0 --pre alpha     →  v1.0.0-alpha.20260504
-#   ./devops/release/release.sh 1.0.0  --pre rc        →  v1.0.0-rc.20260504
-#   ./devops/release/release.sh v1.0.0                 →  v1.0.0  (stable)
+#   ./devops/release/release.sh v1.0.0 --pre alpha     →  spring-voyage-v1.0.0-alpha.20260504
+#   ./devops/release/release.sh 1.0.0  --pre rc        →  spring-voyage-v1.0.0-rc.20260504
+#   ./devops/release/release.sh v1.0.0                 →  spring-voyage-v1.0.0  (stable)
 #   ./devops/release/release.sh v1.0.0 --pre alpha --plan
 #
-# Tag chain pushed (in order, each waited on before the next):
-#   agent-base-v<version>   →  release-agent-base.yml
-#   oss-agents-v<version>   →  release-oss-agent-images.yml
-#   v<version>              →  release.yml  (platform + GitHub Release)
+# Tag pushed:
+#   spring-voyage-v<version>   →  release.yml  (single unified workflow)
 #
 # Verification:
-#   After all workflows succeed, greps packages/**/*.yaml for
+#   After the workflow succeeds, greps packages/**/*.yaml for
 #   `image: ghcr.io/cvoya-com/*` references and checks each is
 #   anonymously pullable via `podman manifest inspect --no-creds`.
 #
@@ -46,6 +47,7 @@ set -euo pipefail
 
 REPO="cvoya-com/spring-voyage"
 PACKAGES_GLOB="packages/**/*.yaml"
+WORKFLOW_NAME="release.yml"
 
 # ── Parse arguments ──────────────────────────────────────────────────────────
 
@@ -109,20 +111,28 @@ if ! [[ "$BASE_SEMVER" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
 fi
 
 # ── Compute full version ──────────────────────────────────────────────────────
+#
+# Pre-release counter: increments the candidate `.N` suffix while the
+# `spring-voyage-v<candidate>` tag exists either on the remote or locally.
+# Under the unified tag scheme there is exactly one tag form to consult
+# (vs. the three-form check the prior chain needed in #2229's earlier
+# iteration).
 
 TODAY="$(date -u +%Y%m%d)"
 
+# Returns 0 (true) if `spring-voyage-v<arg>` exists either as a remote tag
+# on REPO or as a local tag in the current worktree.
+tag_exists() {
+  local v="$1"
+  gh api "repos/${REPO}/git/refs/tags/spring-voyage-v${v}" --silent 2>/dev/null && return 0
+  git tag -l "spring-voyage-v${v}" | grep -q .
+}
+
 if [[ -n "$PRE_RELEASE" ]]; then
-  # Build the candidate tag; auto-increment if it already exists (and no --force-retag).
   FULL_SEMVER="${BASE_SEMVER}-${PRE_RELEASE}.${TODAY}"
   if [[ "$FORCE_RETAG" != "true" ]]; then
     CANDIDATE="${FULL_SEMVER}"
     COUNTER=1
-    tag_exists() {
-      gh api "repos/${REPO}/git/refs/tags/agent-base-v${1}" --silent 2>/dev/null ||
-      gh api "repos/${REPO}/git/refs/tags/oss-agents-v${1}" --silent 2>/dev/null ||
-      gh api "repos/${REPO}/git/refs/tags/v${1}" --silent 2>/dev/null
-    }
     while tag_exists "${CANDIDATE}"; do
       CANDIDATE="${FULL_SEMVER}.${COUNTER}"
       COUNTER=$((COUNTER + 1))
@@ -134,11 +144,7 @@ else
 fi
 
 RELEASE_VERSION="v${FULL_SEMVER}"
-
-# Compute the three component tags.
-TAG_AGENT_BASE="agent-base-${RELEASE_VERSION}"
-TAG_OSS_AGENTS="oss-agents-${RELEASE_VERSION}"
-TAG_PLATFORM="${RELEASE_VERSION}"
+RELEASE_TAG="spring-voyage-${RELEASE_VERSION}"
 
 # ── Dry-run / --plan mode ─────────────────────────────────────────────────────
 
@@ -146,17 +152,13 @@ if [[ "$DRY_RUN" == "true" ]]; then
   echo "=== Release plan (dry-run — no tags will be pushed) ==="
   echo ""
   echo "  Full version : ${RELEASE_VERSION}"
+  echo "  Tag to push  : ${RELEASE_TAG}"
+  echo "  Workflow     : ${WORKFLOW_NAME}"
   echo ""
-  echo "  Step 1  push tag  ${TAG_AGENT_BASE}"
-  echo "          wait for  release-agent-base.yml"
+  echo "  Step 1  push tag  ${RELEASE_TAG}"
+  echo "          wait for  ${WORKFLOW_NAME}"
   echo ""
-  echo "  Step 2  push tag  ${TAG_OSS_AGENTS}"
-  echo "          wait for  release-oss-agent-images.yml"
-  echo ""
-  echo "  Step 3  push tag  ${TAG_PLATFORM}"
-  echo "          wait for  release.yml"
-  echo ""
-  echo "  Step 4  verify anonymous pull for all ghcr.io/cvoya-com/* images"
+  echo "  Step 2  verify anonymous pull for all ghcr.io/cvoya-com/* images"
   echo "          referenced in packages/**/*.yaml"
   exit 0
 fi
@@ -178,44 +180,33 @@ fi
 
 # ── Local/remote tag divergence check ────────────────────────────────────────
 #
-# A local tag that has no matching remote tag is unexpected state — it means
-# a previous run was interrupted after `git tag` but before `git push`, or
-# the remote tag was deleted without cleaning up locally.  We fail hard here
-# so the operator can decide: delete the local tag (`git tag -d <tag>`) and
-# reuse this version, or start fresh with a new version.
+# A local tag with no matching remote tag is unexpected state — it means a
+# previous run was interrupted after `git tag` but before `git push`, or the
+# remote tag was deleted without cleaning up locally. Fail hard here so the
+# operator can decide: delete the local tag (`git tag -d <tag>`) and reuse
+# this version, or start fresh with a new version.
 
-STALE_LOCAL_TAGS=()
-for tag in "$TAG_AGENT_BASE" "$TAG_OSS_AGENTS" "$TAG_PLATFORM"; do
-  if git tag -l "${tag}" | grep -q . &&
-     ! gh api "repos/${REPO}/git/refs/tags/${tag}" --silent 2>/dev/null; then
-    STALE_LOCAL_TAGS+=("${tag}")
-  fi
-done
-if [[ ${#STALE_LOCAL_TAGS[@]} -gt 0 ]]; then
-  echo "::error::The following local tags exist but are not on ${REPO}:"
-  for tag in "${STALE_LOCAL_TAGS[@]}"; do
-    echo "           ${tag}"
-  done
+if git tag -l "${RELEASE_TAG}" | grep -q . &&
+   ! gh api "repos/${REPO}/git/refs/tags/${RELEASE_TAG}" --silent 2>/dev/null; then
+  echo "::error::Local tag '${RELEASE_TAG}' exists but is not on ${REPO}."
   echo ""
-  echo "         Remote tags were likely deleted without cleaning up locally."
-  echo "         Delete them and rerun:"
-  echo "           git tag -d ${STALE_LOCAL_TAGS[*]}"
+  echo "         The remote tag was likely deleted without cleaning up locally."
+  echo "         Delete it and rerun:"
+  echo "           git tag -d ${RELEASE_TAG}"
   exit 1
 fi
 
 # ── Idempotency guard (stable releases only — pre-release handled above) ──────
 
 if [[ -z "$PRE_RELEASE" && "$FORCE_RETAG" != "true" ]]; then
-  for tag in "$TAG_AGENT_BASE" "$TAG_OSS_AGENTS" "$TAG_PLATFORM"; do
-    if gh api "repos/${REPO}/git/refs/tags/${tag}" --silent 2>/dev/null; then
-      echo "::error::Tag '${tag}' already exists in ${REPO}."
-      echo "         Use --force-retag to override (this will re-trigger the workflow)."
-      exit 1
-    fi
-  done
+  if gh api "repos/${REPO}/git/refs/tags/${RELEASE_TAG}" --silent 2>/dev/null; then
+    echo "::error::Tag '${RELEASE_TAG}' already exists in ${REPO}."
+    echo "         Use --force-retag to override (this will re-trigger the workflow)."
+    exit 1
+  fi
 fi
 
-# ── Helper: push a tag and wait for the triggered workflow ────────────────────
+# ── Helper: push the tag and wait for the triggered workflow ──────────────────
 
 push_and_wait() {
   local tag="$1"
@@ -266,9 +257,7 @@ echo "╔═══════════════════════�
 echo "║  Spring Voyage release: ${RELEASE_VERSION}"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 
-push_and_wait "${TAG_AGENT_BASE}"   "release-agent-base.yml"
-push_and_wait "${TAG_OSS_AGENTS}"   "release-oss-agent-images.yml"
-push_and_wait "${TAG_PLATFORM}"     "release.yml"
+push_and_wait "${RELEASE_TAG}" "${WORKFLOW_NAME}"
 
 # ── Anonymous-pull verification ───────────────────────────────────────────────
 
