@@ -1526,7 +1526,7 @@ jobs:
           if gh release view "${RELEASE_TAG}" --repo "${REPO}" >/dev/null 2>&1; then
             # shellcheck disable=SC2086
             gh release edit "${RELEASE_TAG}" \
-              --title "v${RELEASE_VERSION}" \
+              --title "Spring Voyage v${RELEASE_VERSION}" \
               --notes-file /tmp/release-notes.md \
               --repo "${REPO}" \
               ${prerelease_flag}
@@ -1534,7 +1534,7 @@ jobs:
           else
             # shellcheck disable=SC2086
             gh release create "${RELEASE_TAG}" \
-              --title "v${RELEASE_VERSION}" \
+              --title "Spring Voyage v${RELEASE_VERSION}" \
               --notes-file /tmp/release-notes.md \
               --repo "${REPO}" \
               ${prerelease_flag}
