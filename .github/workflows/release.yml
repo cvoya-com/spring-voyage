@@ -502,9 +502,19 @@ jobs:
   # consumable package. Complements the self-contained per-RID binaries
   # produced by `publish-host-archive` (which bundles the same CLI alongside
   # the dispatcher + deployment bundle) — this is the channel for end-users
-  # who already have .NET installed. Honors NUGET_API_KEY secret — emits
-  # a warning and exits 0 if it is not configured so a fork can run the
-  # workflow without the secret.
+  # who already have .NET installed.
+  #
+  # Authentication: nuget.org Trusted Publishing (OIDC). The cvoya-com
+  # NuGet account has a trusted publisher entry configured for this repo
+  # (cvoya-com/spring-voyage) on tag `spring-voyage-v*`; the NuGet/login@v1
+  # action exchanges the workflow's GitHub OIDC token for a short-lived
+  # NuGet API key. No long-lived secret is stored.
+  #
+  # The `NUGET_USER` repo variable is the nuget.org account username — set
+  # via `gh variable set NUGET_USER --body <username>` or the repo's
+  # Settings → Secrets and variables → Actions → Variables page. The job
+  # gracefully no-ops if the variable is unset so a fork can run the
+  # workflow without owning a NuGet account.
   publish-spring-cli-nuget:
     name: Publish Cvoya.Spring.Cli .NET tool to NuGet
     runs-on: ubuntu-latest
@@ -512,9 +522,24 @@ jobs:
     timeout-minutes: 15
     env:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      NUGET_USER: ${{ vars.NUGET_USER }}
     steps:
+      - name: Skip if NUGET_USER not configured
+        id: gate
+        shell: bash
+        run: |
+          if [[ -z "${NUGET_USER:-}" ]]; then
+            echo "::warning::NUGET_USER repo variable not set; skipping NuGet publish. Set it under Settings → Variables → Actions to enable trusted publishing."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v6
+        if: steps.gate.outputs.skip != 'true'
+
       - uses: actions/setup-dotnet@v5
+        if: steps.gate.outputs.skip != 'true'
         with:
           dotnet-version: "10.0.x"
           cache: true
@@ -525,9 +550,11 @@ jobs:
             NuGet.config
 
       - name: Restore
+        if: steps.gate.outputs.skip != 'true'
         run: dotnet restore src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
 
       - name: Pack .NET tool
+        if: steps.gate.outputs.skip != 'true'
         run: |
           dotnet pack src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj \
             -c Release \
@@ -536,18 +563,22 @@ jobs:
             -p:PackageVersion="${RELEASE_VERSION}" \
             -o nupkgs
 
+      - name: NuGet login (OIDC trusted publishing)
+        if: steps.gate.outputs.skip != 'true'
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ env.NUGET_USER }}
+
       - name: Push to nuget.org
+        if: steps.gate.outputs.skip != 'true'
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: |
           set -euo pipefail
-          if [[ -z "${NUGET_API_KEY:-}" ]]; then
-            echo "::warning::NUGET_API_KEY secret not configured; skipping NuGet push."
-            exit 0
-          fi
           dotnet nuget push "nupkgs/Cvoya.Spring.Cli.${RELEASE_VERSION}.nupkg" \
             --api-key "${NUGET_API_KEY}" \
-            --source "https://api.nuget.org/v3/index.json" \
+            --source "https://www.nuget.org/api/v2/package" \
             --skip-duplicate
 
   # ── 6. Build sidecar SEA binaries ──────────────────────────────────────────
