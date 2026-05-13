@@ -54,7 +54,7 @@ Both modes prompt for confirmation (skipped with `--yes`). Both are idempotent. 
 
 ### 7. Single release-version surface.
 
-Platform image, deployment bundle, dispatcher binaries, and `spring` CLI binaries all share one release tag. The release pipeline ([#2187](https://github.com/cvoya-com/spring-voyage/issues/2187)) publishes everything from `v*.*.*` tags. `manifest.json` inside the bundle pins the version, the platform image ref, and the dispatcher / CLI versions; `install.sh` reads it as the single source of truth for what to pull and where to symlink.
+Platform image, deployment bundle, dispatcher binaries, and `spring` CLI binaries all share one release tag. The release pipeline ([#2187](https://github.com/cvoya-com/spring-voyage/issues/2187)) publishes everything from `v*.*.*` tags (amended 2026-05-12 (#2229) to `spring-voyage-v*` — a single unified `release.yml` now publishes every artefact from one prefix). `manifest.json` inside the bundle pins the version, the platform image ref, and the dispatcher / CLI versions (amended 2026-05-12 (#2229) to `bundle_schema_version: 2` — `manifest.json` now pins only `version` and `platform_image`; dispatcher and CLI versions are derived from `version` since every release ships them in lockstep); `install.sh` reads it as the single source of truth for what to pull and where to symlink.
 
 ## Consequences
 
@@ -69,7 +69,7 @@ Platform image, deployment bundle, dispatcher binaries, and `spring` CLI binarie
 ### Costs
 
 - **Two parallel install paths to support.** Source-clone (`build.sh` + `deploy.sh up`) and source-free (`install.sh`) must both keep working through v0.1. We mitigate this by having `install.sh` invoke `deploy.sh up` directly out of the bundle — the runtime path is shared.
-- **`SHA256SUMS` is a coordination point.** Adding a new release-attached asset means updating both the publish workflow and the installer's verification list. Schema is intentionally minimal in v0.1 (`bundle_schema_version: 1` in `manifest.json`).
+- **`SHA256SUMS` is a coordination point.** Adding a new release-attached asset means updating both the publish workflow and the installer's verification list. Schema is intentionally minimal in v0.1 (`bundle_schema_version: 1` in `manifest.json` — amended 2026-05-12 (#2229) to `bundle_schema_version: 2`; the previous `dispatcher_version` / `cli_version` fields were always equal to top-level `version` and have been removed).
 - **No upgrade path in v0.1.** Operators who want to move between versions go through `uninstall` then `install` and re-bootstrap secrets. Documented at install time and in the release notes. Tracked under [#2179](https://github.com/cvoya-com/spring-voyage/issues/2179).
 - **GitHub-imposed manual steps remain.** Clicking "Create" on the GitHub manifest page and installing the App on a repo/org are not automatable — the installer prints exactly what to click and when.
 
@@ -84,4 +84,4 @@ Platform image, deployment bundle, dispatcher binaries, and `spring` CLI binarie
 
 - If macOS / Linux operators start asking for Homebrew, file the formula wrapping the same assets — no change to this ADR.
 - If we cut a v0.2 with breaking schema changes, the upgrade story tracked under [#2179](https://github.com/cvoya-com/spring-voyage/issues/2179) lands and this ADR gets a follow-up amendment.
-- If the bundle schema grows (more pinned components, alternative platform-image refs per RID), bump `bundle_schema_version` and document the new contract here.
+- If the bundle schema grows (more pinned components, alternative platform-image refs per RID), bump `bundle_schema_version` and document the new contract here. (First bump landed 2026-05-12, #2229: v1 → v2, dropping the redundant `dispatcher_version` / `cli_version` fields.)
