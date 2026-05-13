@@ -25,7 +25,7 @@ Spring Voyage runs on Linux or macOS with [Podman](https://podman.io/) 4+. One c
 curl -fSL https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh | bash
 ```
 
-The installer downloads the deployment bundle, dispatcher, and `spring` CLI for your platform; verifies them against `SHA256SUMS`; pulls the multi-arch platform image from GHCR; and brings the stack up. Two prompts only — `DEPLOY_HOSTNAME` (default `localhost`) and an optional GitHub-App registration flow. Pass `--yes` to skip both.
+The installer downloads the per-RID host archive (a single tarball bundling the deployment scripts, dispatcher, and `spring` CLI) for your platform; verifies it against `SHA256SUMS`; pulls the multi-arch platform image from GHCR; and brings the stack up. Two prompts only — `DEPLOY_HOSTNAME` (default `localhost`) and an optional GitHub-App registration flow. Pass `--yes` to skip both.
 
 See the [operator deployment guide](docs/guide/operator/deployment.md) for the walkthrough, flags, and design notes ([ADR-0042](docs/decisions/0042-local-operator-installer.md)).
 
