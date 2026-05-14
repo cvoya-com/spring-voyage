@@ -161,6 +161,10 @@ public class PersistentAgentLifecycle(
             McpEndpoint: mcpServer.Endpoint,
             McpToken: session.Token,
             TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+            // #2251: forward the agent's owning unit id so launchers can pass
+            // it to ILlmCredentialResolver — without this the resolver skips
+            // Tier 1 (unit) and the parent-chain walk.
+            UnitId: definition.UnitId,
             Provider: definition.Execution.Provider,
             Model: definition.Execution.Model,
             ConcurrentThreads: definition.Execution.ConcurrentThreads,

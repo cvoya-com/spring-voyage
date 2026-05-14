@@ -31,11 +31,23 @@ public interface IAgentDefinitionProvider
 /// <param name="Name">Human-readable display name.</param>
 /// <param name="Instructions">The agent-specific instructions (prompt Layer 4). May be null when absent.</param>
 /// <param name="Execution">Execution/runtime configuration. Required for delegated execution.</param>
+/// <param name="UnitId">
+/// Canonical Guid wire form (32-char lowercase no-dash hex per
+/// <see cref="Cvoya.Spring.Core.Identifiers.GuidFormatter.Format"/>) of the
+/// agent's owning unit. For a non-unit agent this is the first parent unit
+/// reported by <c>IUnitMembershipRepository.ListByAgentAsync</c> (the same
+/// "primary unit" rule used by <c>AgentMetadata.ParentUnit</c>). For a
+/// unit-as-agent (ADR-0039) this is the unit's own id — the unit is its own
+/// owning scope. <c>null</c> when the agent has no membership yet, which the
+/// dispatcher / credential resolver treats as "no unit-scoped credential
+/// available" and falls back to tenant-scope.
+/// </param>
 public record AgentDefinition(
     string AgentId,
     string Name,
     string? Instructions,
-    AgentExecutionConfig? Execution);
+    AgentExecutionConfig? Execution,
+    string? UnitId = null);
 
 /// <summary>
 /// Determines how an agent process is hosted across dispatch invocations.

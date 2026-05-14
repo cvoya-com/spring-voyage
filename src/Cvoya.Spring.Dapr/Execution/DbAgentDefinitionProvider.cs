@@ -94,43 +94,69 @@ public class DbAgentDefinitionProvider(
 
         var projected = Project(entity);
 
-        // B-wide (#601): if a unit execution store is registered, look up
-        // the agent's parent unit (first membership by CreatedAt — same
-        // rule as AgentMetadata.ParentUnit) and merge its defaults.
-        if (unitExecutionStore is not null)
+        // Resolve the agent's primary parent unit (first membership by
+        // CreatedAt — same rule as AgentMetadata.ParentUnit) so we can
+        //   (a) stamp UnitId on the projected definition for the credential
+        //       resolver to consume at unit / parent-chain scope (#2251), and
+        //   (b) merge the unit's execution defaults onto the agent's block
+        //       when a unit-execution store is registered (#601 / #603 / #409).
+        // The lookup is best-effort: a missing repo, an empty membership
+        // list, or a failure all leave UnitId null and the merge unchanged.
+        Guid? parentUnitId = null;
+        try
         {
-            try
+            var membershipRepo = scope.ServiceProvider
+                .GetService<IUnitMembershipRepository>();
+            if (membershipRepo is not null)
             {
-                var membershipRepo = scope.ServiceProvider
-                    .GetService<IUnitMembershipRepository>();
-                if (membershipRepo is not null)
+                var memberships = await membershipRepo
+                    .ListByAgentAsync(agentUuid, cancellationToken);
+                if (memberships.Count > 0)
                 {
-                    var memberships = await membershipRepo
-                        .ListByAgentAsync(agentUuid, cancellationToken);
-                    if (memberships.Count > 0)
-                    {
-                        var unitId = memberships[0].UnitId;
-                        var unitDefaults = await unitExecutionStore
-                            .GetAsync(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitId), cancellationToken);
-                        if (unitDefaults is not null)
-                        {
-                            var merged = Merge(projected.Execution, unitDefaults);
-                            // Assign (not return) so a Merge result with no runtime id can still
-                            // fall through to the unit-definitions fallback below (#2208).
-                            projected = projected with { Execution = merged };
-                        }
-                    }
+                    parentUnitId = memberships[0].UnitId;
                 }
             }
-            catch (Exception ex)
+        }
+        catch (Exception ex)
+        {
+            // Non-fatal: a failed membership lookup must not break dispatch;
+            // it only narrows the credential resolver's search scope.
+            _logger.LogWarning(ex,
+                "Failed to resolve parent unit for agent {AgentId}; " +
+                "credential resolution will skip unit / parent-chain scopes.",
+                agentId);
+        }
+
+        if (parentUnitId is { } unitGuid)
+        {
+            projected = projected with
             {
-                // Non-fatal: unit lookup is best-effort. The dispatcher's
-                // fail-clean check still fires if a required field is
-                // missing after the merge.
-                _logger.LogWarning(ex,
-                    "Failed to resolve unit-level execution defaults for agent {AgentId}; " +
-                    "continuing with agent-only configuration.",
-                    agentId);
+                UnitId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitGuid),
+            };
+
+            // B-wide (#601): merge the parent unit's execution defaults onto
+            // the agent's block when a unit-execution store is registered.
+            if (unitExecutionStore is not null)
+            {
+                try
+                {
+                    var unitDefaults = await unitExecutionStore
+                        .GetAsync(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitGuid), cancellationToken);
+                    if (unitDefaults is not null)
+                    {
+                        var merged = Merge(projected.Execution, unitDefaults);
+                        // Assign (not return) so a Merge result with no runtime id can still
+                        // fall through to the unit-definitions fallback below (#2208).
+                        projected = projected with { Execution = merged };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to resolve unit-level execution defaults for agent {AgentId}; " +
+                        "continuing with agent-only configuration.",
+                        agentId);
+                }
             }
         }
 
@@ -256,11 +282,15 @@ public class DbAgentDefinitionProvider(
         // with Execution: null so the dispatcher can surface a precise
         // "no execution configuration" error instead of a misleading
         // "subject not found" 404.
+        //
+        // UnitId mirrors the unit's own id — a unit-as-agent (ADR-0039) is
+        // its own owning scope for credential resolution (#2251).
         return new AgentDefinition(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id),
             unit.DisplayName,
             instructions,
-            execution);
+            execution,
+            UnitId: Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id));
     }
 
     /// <summary>

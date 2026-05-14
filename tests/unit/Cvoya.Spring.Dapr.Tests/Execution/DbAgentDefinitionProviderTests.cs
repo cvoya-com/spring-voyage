@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Execution;
@@ -152,6 +153,114 @@ public class DbAgentDefinitionProviderTests
         definition.Instructions.ShouldBe("unit instructions");
         definition.Execution.ShouldNotBeNull();
         definition.Execution!.AgentRuntimeId.ShouldBe("claude-code");
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_AgentMemberOfUnit_StampsUnitIdFromPrimaryMembership()
+    {
+        // #2251: a non-unit agent that is a member of a unit must surface
+        // its owning unit id on AgentDefinition.UnitId so the dispatcher can
+        // forward it to the launcher and the launcher can pass it to
+        // ILlmCredentialResolver (otherwise Tier 1 + parent-chain are
+        // skipped and unit-scoped tokens are silently ignored).
+        var agentId = Guid.NewGuid();
+        var unitId = Guid.NewGuid();
+        using var services = BuildProviderWithMemberships(db =>
+        {
+            db.AgentDefinitions.Add(new AgentDefinitionEntity
+            {
+                Id = agentId,
+                TenantId = OssTenantIds.Default,
+                DisplayName = "Ada",
+                Definition = JsonSerializer.SerializeToElement(new
+                {
+                    instructions = "Be careful.",
+                    execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
+                }),
+            });
+            db.UnitMemberships.Add(new UnitMembershipEntity
+            {
+                TenantId = OssTenantIds.Default,
+                UnitId = unitId,
+                AgentId = agentId,
+                Enabled = true,
+                IsPrimary = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+        });
+
+        var sut = CreateProvider(services);
+
+        var definition = await sut.GetByIdAsync(
+            agentId.ToString("N"),
+            TestContext.Current.CancellationToken);
+
+        definition.ShouldNotBeNull();
+        definition!.UnitId.ShouldBe(unitId.ToString("N"));
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_AgentWithoutMembership_LeavesUnitIdNull()
+    {
+        // The membership lookup is best-effort: an agent with no parent
+        // unit yields UnitId == null and the credential resolver falls back
+        // to tenant-scope only.
+        var agentId = Guid.NewGuid();
+        using var services = BuildProviderWithMemberships(db =>
+        {
+            db.AgentDefinitions.Add(new AgentDefinitionEntity
+            {
+                Id = agentId,
+                TenantId = OssTenantIds.Default,
+                DisplayName = "Lone Agent",
+                Definition = JsonSerializer.SerializeToElement(new
+                {
+                    execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
+                }),
+            });
+        });
+
+        var sut = CreateProvider(services);
+
+        var definition = await sut.GetByIdAsync(
+            agentId.ToString("N"),
+            TestContext.Current.CancellationToken);
+
+        definition.ShouldNotBeNull();
+        definition!.UnitId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_UnitAsAgent_StampsOwnIdOnUnitId()
+    {
+        // ADR-0039: a unit projected through the unit-as-agent fallback is
+        // its own owning scope, so UnitId mirrors the unit's id. #2251: the
+        // resolver needs this so a token set on the unit's own scope
+        // resolves when the unit dispatches itself as an agent.
+        var unitId = Guid.NewGuid();
+        using var services = BuildProvider(db =>
+        {
+            db.UnitDefinitions.Add(new UnitDefinitionEntity
+            {
+                Id = unitId,
+                TenantId = OssTenantIds.Default,
+                DisplayName = "Runtime Unit",
+                Definition = JsonSerializer.SerializeToElement(new
+                {
+                    execution = new { agent = "claude", image = "ghcr.io/cvoya/unit-runtime:latest" },
+                }),
+            });
+        });
+
+        var sut = CreateProvider(services);
+
+        var definition = await sut.GetByIdAsync(
+            unitId.ToString("N"),
+            TestContext.Current.CancellationToken);
+
+        definition.ShouldNotBeNull();
+        definition!.UnitId.ShouldBe(unitId.ToString("N"));
     }
 
     [Fact]
@@ -398,6 +507,30 @@ public class DbAgentDefinitionProviderTests
         services.AddSingleton<ITenantContext>(new StaticTenantContext(OssTenantIds.Default));
         services.AddDbContext<SpringDbContext>(options =>
             options.UseInMemoryDatabase(dbName));
+
+        var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        seed(db);
+        db.SaveChanges();
+        return provider;
+    }
+
+    /// <summary>
+    /// Variant of <see cref="BuildProvider"/> that also registers
+    /// <see cref="IUnitMembershipRepository"/> so the provider can resolve
+    /// the agent's primary parent unit (#2251). The default
+    /// <see cref="BuildProvider"/> rig omits the repo to keep the
+    /// pre-#2251 tests focused on the JSON-projection path.
+    /// </summary>
+    private static ServiceProvider BuildProviderWithMemberships(Action<SpringDbContext> seed)
+    {
+        var dbName = $"agent-definition-provider-{Guid.NewGuid():N}";
+        var services = new ServiceCollection();
+        services.AddSingleton<ITenantContext>(new StaticTenantContext(OssTenantIds.Default));
+        services.AddDbContext<SpringDbContext>(options =>
+            options.UseInMemoryDatabase(dbName));
+        services.AddScoped<IUnitMembershipRepository, UnitMembershipRepository>();
 
         var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
