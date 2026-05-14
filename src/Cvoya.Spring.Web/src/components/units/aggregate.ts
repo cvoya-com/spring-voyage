@@ -286,6 +286,7 @@ export const UNIT_TABS = {
     "Memory",
     "Agents",
     "Skills",
+    "Traces",
     "Policies",
   ] as const,
   overflow: ["Config"] as const,

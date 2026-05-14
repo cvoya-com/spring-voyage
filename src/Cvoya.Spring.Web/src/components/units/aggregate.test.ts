@@ -201,12 +201,12 @@ describe("tabsFor", () => {
     ]);
   });
 
-  it("locks the unit tab order and count (#2271 — Skills added, canonical order)", () => {
+  it("locks the unit tab order and count (#2271/#2272 — Skills+Traces added, canonical order)", () => {
     // Canonical order per docs/design/canonical-tabs.md § 7.1: Skills
-    // sits between Agents and Policies. Activity moved up to slot 2
-    // (matching Agent + Tenant) and Agents moved down after Memory so
-    // the reading slots (Overview/Activity/Messages/Memory) are
-    // contiguous across all subjects.
+    // and Traces sit between Agents and Policies. Activity moved up to
+    // slot 2 (matching Agent + Tenant) and Agents moved down after
+    // Memory so the reading slots (Overview/Activity/Messages/Memory)
+    // are contiguous across all subjects.
     expect([...UNIT_TABS.visible, ...UNIT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
@@ -214,10 +214,11 @@ describe("tabsFor", () => {
       "Memory",
       "Agents",
       "Skills",
+      "Traces",
       "Policies",
       "Config",
     ]);
-    expect(UNIT_TABS.visible).toHaveLength(7);
+    expect(UNIT_TABS.visible).toHaveLength(8);
     expect(UNIT_TABS.overflow).toEqual(["Config"]);
   });
 
@@ -253,7 +254,7 @@ describe("tabsFor", () => {
 });
 
 describe("visibleTabsFor / overflowTabsFor", () => {
-  it("splits the Unit catalog into 7 visible + 1 overflow (#2271)", () => {
+  it("splits the Unit catalog into 8 visible + 1 overflow (#2271/#2272)", () => {
     expect(visibleTabsFor("Unit")).toEqual([
       "Overview",
       "Activity",
@@ -261,6 +262,7 @@ describe("visibleTabsFor / overflowTabsFor", () => {
       "Memory",
       "Agents",
       "Skills",
+      "Traces",
       "Policies",
     ]);
     expect(overflowTabsFor("Unit")).toEqual(["Config"]);
