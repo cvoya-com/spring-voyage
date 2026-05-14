@@ -9,9 +9,18 @@ deployment.
 
 ```bash
 dotnet tool install -g Cvoya.Spring.Cli
+spring --help
 ```
 
 Requires the .NET 10 runtime (matches the version `spring` is built against).
+Make sure `~/.dotnet/tools` is on your `PATH` (the `dotnet` SDK installer
+typically does this for you).
+
+> **Working on the CLI source?** `dotnet build src/Cvoya.Spring.Cli`
+> automatically packs and globally `dotnet tool update`s `spring` from the
+> local feed in **Debug** builds, so `spring …` just works after every
+> rebuild. Opt out with `/p:InstallSpringCliOnBuild=false`; Release builds
+> and CI skip the auto-install.
 
 ## Use
 
