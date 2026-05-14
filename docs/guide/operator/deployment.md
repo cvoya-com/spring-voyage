@@ -7,7 +7,7 @@ For the architectural picture read [Architecture — Deployment](../../architect
 Two paths are supported:
 
 1. **Source-free installer (canonical).** Curlable `install.sh` — see [§ Quick install](#quick-install-source-free) below. Recorded in [ADR-0042](../../decisions/0042-local-operator-installer.md).
-2. **Build from source.** Clone the repo and run `devops/build/build.sh && devops/deploy/deploy.sh up`. Covered in [§ Build from source](#build-from-source) further down.
+2. **Build from source.** Clone the repo and run `eng/build/build.sh && eng/deploy/deploy.sh up`. Covered in [§ Build from source](#build-from-source) further down.
 
 ## Prerequisites
 
@@ -177,7 +177,7 @@ cd spring-voyage
 git checkout v1.0.0   # or `main` while tracking head
 
 # 2. Seed the environment file from the documented template.
-cd devops/deploy
+cd eng/deploy
 cp spring.env.example spring.env
 
 # 3. Edit secrets. At minimum change POSTGRES_PASSWORD and — if you expose
@@ -199,7 +199,7 @@ curl -fsS http://localhost/health
 
 ## Container stack
 
-`devops/build/Dockerfile` produces one `localhost/spring-voyage:<tag>` image; the container `command` selects which process to run. Platform services share the `spring-net` bridge. Caddy and selected control-plane services are also dual-attached to `spring-tenant-default` so agent and workflow containers on the tenant bridge can reach them.
+`eng/build/Dockerfile` produces one `localhost/spring-voyage:<tag>` image; the container `command` selects which process to run. Platform services share the `spring-net` bridge. Caddy and selected control-plane services are also dual-attached to `spring-tenant-default` so agent and workflow containers on the tenant bridge can reach them.
 
 | Container | Image | Role |
 |-----------|-------|------|
@@ -231,10 +231,10 @@ Port 8443 is not published to the host. It is accessible only from containers on
 
 ## Docker Compose
 
-Reference file: `devops/deploy/docker-compose.yml`. Run from the `devops/deploy/` directory so `../../dapr/` bind mounts resolve.
+Reference file: `eng/deploy/docker-compose.yml`. Run from the `eng/deploy/` directory so `../dapr/` bind mounts resolve.
 
 ```bash
-cd devops/deploy/
+cd eng/deploy/
 cp spring.env.example spring.env && $EDITOR spring.env
 
 docker compose --env-file spring.env build    # build platform image
@@ -248,10 +248,10 @@ Volumes persist across `down`/`up` cycles; `docker volume rm` clears them. To us
 
 ## Podman (rootless)
 
-`devops/deploy/deploy.sh` is the Podman-native driver (no compose shim).
+`eng/deploy/deploy.sh` is the Podman-native driver (no compose shim).
 
 ```bash
-cd devops/deploy/
+cd eng/deploy/
 cp spring.env.example spring.env && $EDITOR spring.env
 
 ../build/build.sh              # build platform + agent images
@@ -278,27 +278,27 @@ Rootless notes:
 - Ports 80 and 443 need `CAP_NET_BIND_SERVICE` or `net.ipv4.ip_unprivileged_port_start` lowered.
 - `host.containers.internal` requires Podman 4.1+ on Linux; older versions get `--add-host` added automatically.
 
-See `devops/deploy/README.md` for per-user agent networks and webhook relay.
+See `eng/deploy/README.md` for per-user agent networks and webhook relay.
 
 ## Dapr components
 
-Components live under `dapr/` at the repo root. Two profiles ship in-tree: `dapr/components/local/` (dev loop) and `dapr/components/production/` (Docker Compose / Podman). Both stacks bind-mount the production directory at `/components` inside each sidecar. **Edit a component YAML and restart the sidecar to apply — no image rebuild needed.**
+Components live under `eng/dapr/` in the repo. Two profiles ship in-tree: `eng/dapr/components/local/` (dev loop) and `eng/dapr/components/production/` (Docker Compose / Podman). Both stacks bind-mount the production directory at `/components` inside each sidecar. **Edit a component YAML and restart the sidecar to apply — no image rebuild needed.**
 
 ### State store (`statestore`)
 
-`dapr/components/production/statestore.yaml` uses `state.postgresql` backed by `spring-postgres`. The connection string is pulled from the `secretstore` component (never inlined in the YAML). Swap to `state.redis` in this file to trade ACID semantics for speed — keep the component name `statestore`.
+`eng/dapr/components/production/statestore.yaml` uses `state.postgresql` backed by `spring-postgres`. The connection string is pulled from the `secretstore` component (never inlined in the YAML). Swap to `state.redis` in this file to trade ACID semantics for speed — keep the component name `statestore`.
 
 ### Secrets-backing state store (`secretsstore`)
 
-`dapr/components/production/secretsstore.yaml` is a second `state.postgresql` component dedicated to the OSS application-layer secret store (`DaprStateBackedSecretStore`). It pins `keyPrefix: none` so every host (`spring-api`, `spring-worker`, dispatcher) reads and writes through the same key namespace; the default `statestore` component uses Dapr's standard `keyPrefix: appid`, which silently scoped each secret by sidecar app-id and broke cross-host credential resolution (#2212). The actor / general state store cannot share `keyPrefix: none` because the Dapr actor runtime relies on the per-app prefix to partition actor state — hence the dedicated component.
+`eng/dapr/components/production/secretsstore.yaml` is a second `state.postgresql` component dedicated to the OSS application-layer secret store (`DaprStateBackedSecretStore`). It pins `keyPrefix: none` so every host (`spring-api`, `spring-worker`, dispatcher) reads and writes through the same key namespace; the default `statestore` component uses Dapr's standard `keyPrefix: appid`, which silently scoped each secret by sidecar app-id and broke cross-host credential resolution (#2212). The actor / general state store cannot share `keyPrefix: none` because the Dapr actor runtime relies on the per-app prefix to partition actor state — hence the dedicated component.
 
 ### Pub/sub (`pubsub`)
 
-`dapr/components/production/pubsub.yaml` uses `pubsub.redis` (Redis Streams). For multi-broker deployments (NATS, RabbitMQ, Kafka) swap this file. The platform keys off the component **name** (`pubsub`), not the implementation.
+`eng/dapr/components/production/pubsub.yaml` uses `pubsub.redis` (Redis Streams). For multi-broker deployments (NATS, RabbitMQ, Kafka) swap this file. The platform keys off the component **name** (`pubsub`), not the implementation.
 
 ### Secret store (`secretstore`)
 
-`dapr/components/production/secretstore.yaml` uses `secretstores.local.env`, which reads secrets from the sidecar process environment (`spring.env` is passed via `--env-file`). For cloud-grade management replace this file with the Dapr Azure Key Vault, HashiCorp Vault, or Kubernetes Secrets component — keep the name `secretstore`.
+`eng/dapr/components/production/secretstore.yaml` uses `secretstores.local.env`, which reads secrets from the sidecar process environment (`spring.env` is passed via `--env-file`). For cloud-grade management replace this file with the Dapr Azure Key Vault, HashiCorp Vault, or Kubernetes Secrets component — keep the name `secretstore`.
 
 ## PostgreSQL setup
 
@@ -328,7 +328,7 @@ See [Developer — Operations § Database Migrations](../../developer/operations
 
 Redis 7 runs as `spring-redis` with AOF persistence (`appendonly yes`). Set `REDIS_PASSWORD` for any public-facing deployment; leave it empty only on a laptop.
 
-Redis carries the pub/sub building block (Redis Streams, at-least-once). The default state store is PostgreSQL; swap `dapr/components/production/statestore.yaml` to `state.redis` if you need faster but non-ACID state.
+Redis carries the pub/sub building block (Redis Streams, at-least-once). The default state store is PostgreSQL; swap `eng/dapr/components/production/statestore.yaml` to `state.redis` if you need faster but non-ACID state.
 
 **External Redis:** update `redisHost` in `pubsub.yaml`, set `REDIS_PASSWORD` in `spring.env`, and remove `spring-redis` from your compose file. Add `enableTLS: "true"` to the Dapr component metadata for a TLS-protected instance.
 
@@ -336,7 +336,7 @@ Redis carries the pub/sub building block (Redis Streams, at-least-once). The def
 
 Caddy fronts three upstreams: `spring-api:8080` (API + `/health`), `/api/v1/webhooks/*` (webhook ingress), and `spring-web:3000` (portal).
 
-Two Caddyfile variants ship in `devops/deploy/`:
+Two Caddyfile variants ship in `eng/deploy/`:
 - **`Caddyfile`** — single hostname, path-routed (default).
 - **`Caddyfile.multi-host`** — one FQDN per service. Select with `SPRING_CADDYFILE=Caddyfile.multi-host`.
 
@@ -348,10 +348,10 @@ Two Caddyfile variants ship in `devops/deploy/`:
 
 ## Secrets bootstrap
 
-All secrets live in `devops/deploy/spring.env`. The file is **not** committed (only `spring.env.example` is). Restrict its permissions:
+All secrets live in `eng/deploy/spring.env`. The file is **not** committed (only `spring.env.example` is). Restrict its permissions:
 
 ```bash
-chmod 600 /opt/spring-voyage/devops/deploy/spring.env
+chmod 600 /opt/spring-voyage/eng/deploy/spring.env
 ```
 
 ### Mandatory variables
@@ -432,11 +432,11 @@ Webhook providers (including GitHub) post to `/api/v1/webhooks/<provider>` on yo
 - Port 443 is reachable from the internet.
 - The GitHub App's webhook URL is `https://<host>/api/v1/webhooks/github` and `GitHub__WebhookSecret` matches both ends.
 
-For local development against a laptop, use `devops/deploy/relay.sh` to open an SSH reverse tunnel from a small relay VPS — see `devops/deploy/README.md#local-dev-webhook-tunnel-relaysh`.
+For local development against a laptop, use `eng/deploy/relay.sh` to open an SSH reverse tunnel from a small relay VPS — see `eng/deploy/README.md#local-dev-webhook-tunnel-relaysh`.
 
 ### Cloud-grade secret stores
 
-For Azure Key Vault, HashiCorp Vault, AWS Secrets Manager, or Kubernetes Secrets, replace `dapr/components/production/secretstore.yaml` with the corresponding Dapr component. Leave the component name `secretstore` — the other components reference the store by name so they continue to work unchanged. See [Developer — Secret store](../../developer/secret-store.md) for per-agent / per-unit secret scoping details.
+For Azure Key Vault, HashiCorp Vault, AWS Secrets Manager, or Kubernetes Secrets, replace `eng/dapr/components/production/secretstore.yaml` with the corresponding Dapr component. Leave the component name `secretstore` — the other components reference the store by name so they continue to work unchanged. See [Developer — Secret store](../../developer/secret-store.md) for per-agent / per-unit secret scoping details.
 
 ## Health checks
 
@@ -468,7 +468,7 @@ Treat every update as potentially breaking: read the release notes, test in stag
 
 **Registry flow:**
 ```bash
-cd devops/deploy/
+cd eng/deploy/
 sed -i 's/^SPRING_IMAGE_TAG=.*/SPRING_IMAGE_TAG=0.2.0/' spring.env
 docker compose --env-file spring.env pull
 docker compose --env-file spring.env up -d
@@ -477,7 +477,7 @@ docker compose --env-file spring.env up -d
 **Source flow:**
 ```bash
 git fetch --tags && git checkout v0.2.0
-cd devops/deploy/
+cd eng/deploy/
 docker compose --env-file spring.env build
 docker compose --env-file spring.env up -d
 ```
@@ -500,7 +500,7 @@ Two instances are trying to run EF migrations against the same database. The OSS
 
 ### Dapr sidecar crashes with `components path not found`
 
-The compose file bind-mounts `../../dapr/components/production` relative to `devops/deploy/`. Make sure you invoke `docker compose` from inside `devops/deploy/` so that relative path resolves. If you move the compose file, update the bind-mount source.
+The compose file bind-mounts `../dapr/components/production` relative to `eng/deploy/` (so it resolves to `eng/dapr/components/production`). Make sure you invoke `docker compose` from inside `eng/deploy/` so that relative path resolves. If you move the compose file, update the bind-mount source.
 
 ### `dapr_placement` and `dapr_scheduler` from `dapr init` are interfering
 
@@ -550,7 +550,7 @@ If agents still cannot reach the host, confirm the per-user bridge network exist
 - [Developer — Setup](../../developer/setup.md) — local dev loop without containers (`dapr run` + `dotnet run`).
 - [Developer — Operations](../../developer/operations.md) — migrations, DataProtection keys, backups.
 - [Developer — Secret store](../../developer/secret-store.md) — per-agent / per-unit secret scoping and rotation.
-- [`devops/install/README.md`](../../../devops/install/README.md) — installer/uninstaller details and troubleshooting.
-- [`devops/deploy/README.md`](../../../devops/deploy/README.md) — the build/deploy script reference, per-user agent networks, webhook relay.
-- [`dapr/README.md`](../../../dapr/README.md) — Dapr component and configuration reference.
+- [`eng/install/README.md`](../../../eng/install/README.md) — installer/uninstaller details and troubleshooting.
+- [`eng/deploy/README.md`](../../../eng/deploy/README.md) — the build/deploy script reference, per-user agent networks, webhook relay.
+- [`eng/dapr/README.md`](../../../eng/dapr/README.md) — Dapr component and configuration reference.
 - [ADR-0042 — Local-host operator installer](../../decisions/0042-local-operator-installer.md) — design decisions behind `install.sh`/`uninstall.sh`.

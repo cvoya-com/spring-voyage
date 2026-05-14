@@ -474,7 +474,7 @@ public class A2AExecutionDispatcher(
     /// <remarks>
     /// <para>
     /// Resolution rule: <c>&lt;base&gt;/profiles/&lt;provider&gt;</c>. The
-    /// repo ships <c>dapr/components/delegated-spring-voyage-agent/profiles/&lt;provider&gt;/</c>
+    /// repo ships <c>eng/dapr/components/delegated-spring-voyage-agent/profiles/&lt;provider&gt;/</c>
     /// with the matching LLM YAML plus the shared <c>secretstore.yaml</c> /
     /// <c>statestore.yaml</c>; daprd loads only those, leaving the other
     /// providers' components on disk but never touched. The provider
@@ -1126,7 +1126,7 @@ public class A2AExecutionDispatcher(
     {
         var runtime = _runtimeCatalog.GetAgentRuntime(agentRuntimeId)
             ?? throw new SpringException(
-                $"No agent runtime is registered in platform/runtime-catalog.yaml with id " +
+                $"No agent runtime is registered in eng/runtime-catalog/runtime-catalog.yaml with id " +
                 $"'{agentRuntimeId}' (agent '{agentId}'). Add the entry to the catalogue or " +
                 "set ai.runtime to a registered runtime id.");
 

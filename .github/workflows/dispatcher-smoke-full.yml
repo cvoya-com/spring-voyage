@@ -1,7 +1,7 @@
 name: Dispatcher smoke (Tier 2 — full deploy.sh round-trip)
 
 # Tier-2 smoke is too expensive for every PR (it spins up the whole
-# data-plane via devops/deploy/deploy.sh — Postgres, Redis, NATS, the
+# data-plane via eng/deploy/deploy.sh — Postgres, Redis, NATS, the
 # worker container — so each run takes 5-10 minutes on a hosted
 # runner and pulls a few hundred MB of images). It exists so the
 # pre-release gate exercises the same path the operator runs locally
@@ -63,7 +63,7 @@ jobs:
       - name: Bring the stack up via deploy.sh
         shell: bash
         run: |
-          cd devops/deploy
+          cd eng/deploy
           ./deploy.sh up
 
       - name: Verify deploy.sh published dispatcher from HEAD
@@ -71,7 +71,7 @@ jobs:
         run: |
           set -euo pipefail
           expected_sha="$(git rev-parse HEAD)"
-          dispatcher_status="$(devops/deploy/spring-voyage-host.sh status 2>&1)"
+          dispatcher_status="$(eng/deploy/spring-voyage-host.sh status 2>&1)"
           dispatcher_version="$(sed -n 's/.*version:[[:space:]]*//p' <<<"${dispatcher_status}" | tail -n1)"
           if [[ "${dispatcher_version}" != *"${expected_sha}"* ]]; then
             echo "::error::dispatcher version '${dispatcher_version}' does not include HEAD ${expected_sha}"
@@ -82,13 +82,13 @@ jobs:
 
       - name: Run dispatcher smoke against the running stack
         shell: bash
-        run: bash devops/deploy/scripts/dispatcher-smoke.sh
+        run: bash eng/deploy/scripts/dispatcher-smoke.sh
 
       - name: Capture stack logs on failure
         if: failure()
         shell: bash
         run: |
-          cd devops/deploy
+          cd eng/deploy
           ./deploy.sh logs > deploy-logs.txt 2>&1 || true
 
       - name: Upload stack logs on failure
@@ -99,7 +99,7 @@ jobs:
         with:
           name: deploy-logs-${{ env.RUN_ID }}
           path: |
-            devops/deploy/deploy-logs.txt
+            eng/deploy/deploy-logs.txt
           retention-days: 7
           if-no-files-found: ignore
 
@@ -107,5 +107,5 @@ jobs:
         if: always()
         shell: bash
         run: |
-          cd devops/deploy
+          cd eng/deploy
           ./deploy.sh down || true

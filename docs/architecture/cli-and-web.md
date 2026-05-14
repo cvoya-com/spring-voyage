@@ -147,7 +147,7 @@ This mirrors the portal wizard (#641 / PR #645), which hides the Provider dropdo
 | `--api-key-from-file <path>` | Read the API key from a file; trailing newlines are stripped. Preferred in CI because the key never reaches shell history. Mutually exclusive with `--api-key`. |
 | `--save-as-tenant-default` | Boolean flag. When set, the credential is written as a **tenant-scoped** secret (via `POST /api/v1/tenant/secrets`, or `PUT` when the slot already holds a value — the wizard's "override tenant default" path). When unset, the credential is written as a **unit-scoped** secret (`POST /api/v1/units/{id}/secrets`) after the unit exists. |
 
-The CLI derives the required credential from the `(runtime, model-provider)` edge in `platform/runtime-catalog.yaml`, using the same mapping as the wizard. Rejection matrix:
+The CLI derives the required credential from the `(runtime, model-provider)` edge in `eng/runtime-catalog/runtime-catalog.yaml`, using the same mapping as the wizard. Rejection matrix:
 
 - `--runtime=claude-code` + `--api-key` / `--api-key-from-file` → rejected; use `--oauth-token` / `--oauth-token-from-file`.
 - `--runtime=codex|gemini` + `--oauth-token` / `--oauth-token-from-file` → rejected; use API-key flags.
@@ -214,7 +214,7 @@ browser → receive a one-time code on the callback → exchange the code for
 the PEM + webhook secret → persist.
 
 ```bash
-# Default — writes to devops/deploy/spring.env
+# Default — writes to eng/deploy/spring.env
 spring github-app register --name "Spring Voyage (prod)"
 
 # Org-owned App
@@ -237,9 +237,9 @@ spring github-app register --name "Spring Voyage (prod)" --dry-run
 | `--name <string>` (required) | App name on github.com. Must be globally unique; GitHub's "name already taken" error is surfaced verbatim with a suggestion to add a suffix. |
 | `--org <slug>` | Register under a GitHub org (`/organizations/{org}/settings/apps/new`) instead of the user account. |
 | `--webhook-url <url>` | Override the derived webhook URL. Default is `<deployment-origin>/api/v1/webhooks/github`, taken from `SPRING_API_URL` / `~/.spring/config.json`. |
-| `--write-env` (default) | Append credentials to `devops/deploy/spring.env`. Existing `GitHub__*` lines are commented out with a timestamp for audit. Multi-line PEM is newline-escaped so Podman/Compose's `--env-file` reader accepts it verbatim. |
+| `--write-env` (default) | Append credentials to `eng/deploy/spring.env`. Existing `GitHub__*` lines are commented out with a timestamp for audit. Multi-line PEM is newline-escaped so Podman/Compose's `--env-file` reader accepts it verbatim. |
 | `--write-secrets` | Persist credentials via `spring secret --scope platform create` (#612) instead of `spring.env`. |
-| `--env-path <path>` | Override the `devops/deploy/spring.env` default written to by `--write-env`. |
+| `--env-path <path>` | Override the `eng/deploy/spring.env` default written to by `--write-env`. |
 | `--dry-run` | Build the manifest, print the creation URL, exit. No browser, no listener, no network I/O. |
 | `--callback-timeout-seconds <int>` | How long to wait for the GitHub redirect before erroring out as resumable. Default 300 (5 min, matches GitHub's one-time-code TTL). |
 

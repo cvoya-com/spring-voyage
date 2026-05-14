@@ -22,7 +22,7 @@ public class TenantModelProviderInstallEntity : ITenantScopedEntity
 
     /// <summary>
     /// Stable provider identifier (e.g. <c>anthropic</c>, <c>openai</c>) —
-    /// matches an entry in <c>platform/runtime-catalog.yaml</c>'s
+    /// matches an entry in <c>eng/runtime-catalog/runtime-catalog.yaml</c>'s
     /// <c>modelProviders</c> list.
     /// </summary>
     public string ProviderId { get; set; } = string.Empty;

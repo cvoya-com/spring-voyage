@@ -90,7 +90,7 @@ Production deployments that need transparent key rotation should externalize key
 
 By default the OSS store uses a single Dapr component (`Secrets:StoreComponent`, defaulting to `secretsstore`) for every tenant. Structural tenant isolation comes from the registry; the shared component is a dev convenience.
 
-The `secretsstore` component (shipped under `dapr/components/production/`) is a second `state.postgresql` instance pinned to `keyPrefix: none`, so every host (`spring-api`, `spring-worker`, dispatcher) reads and writes through the same key namespace. The default `statestore` component uses Dapr's `keyPrefix: appid` and was therefore unsuitable for cross-host secret resolution (#2212).
+The `secretsstore` component (shipped under `eng/dapr/components/production/`) is a second `state.postgresql` instance pinned to `keyPrefix: none`, so every host (`spring-api`, `spring-worker`, dispatcher) reads and writes through the same key namespace. The default `statestore` component uses Dapr's `keyPrefix: appid` and was therefore unsuitable for cross-host secret resolution (#2212).
 
 Set `Secrets:ComponentNameFormat` to a template containing `{tenantId}` to switch to per-tenant components:
 
@@ -127,18 +127,18 @@ The runtime catalogue declares the edge auth method, the CLI and portal write th
 
 **Where the routing lives:**
 
-- **Catalog edge:** `platform/runtime-catalog.yaml` names each runtime/provider `authMethod` and `credentialEnvVar`.
+- **Catalog edge:** `eng/runtime-catalog/runtime-catalog.yaml` names each runtime/provider `authMethod` and `credentialEnvVar`.
 - **Secret naming:** `Cvoya.Spring.Core.Catalog.CredentialNaming` maps the edge to a persisted name such as `anthropic-oauth`.
 - **Resolver:** `LlmCredentialResolver` resolves by `(provider, authMethod)` across agent, unit, parent-unit, and tenant scopes.
 - **Status endpoint:** `GET /api/v1/platform/credentials/{provider}/status?authMethod=...` reports whether the requested edge credential is configured without returning plaintext.
 
-> **Spring Voyage runtime: per-provider Conversation wiring.** The Spring Voyage runtime talks to the LLM through Dapr Conversation components. Per ADR-0038, the OSS deployment ships one component file per provider under `dapr/components/delegated-spring-voyage-agent/llm-{provider}.yaml` (`llm-anthropic`, `llm-openai`, `llm-google`, `llm-ollama`). The `SpringVoyageAgentLauncher` resolves credentials via `ILlmCredentialResolver`, propagates the per-provider env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`) into the daprd sidecar, and pins `SPRING_LLM_COMPONENT=llm-{provider}` so the Python agent dials the right component.
+> **Spring Voyage runtime: per-provider Conversation wiring.** The Spring Voyage runtime talks to the LLM through Dapr Conversation components. Per ADR-0038, the OSS deployment ships one component file per provider under `eng/dapr/components/delegated-spring-voyage-agent/llm-{provider}.yaml` (`llm-anthropic`, `llm-openai`, `llm-google`, `llm-ollama`). The `SpringVoyageAgentLauncher` resolves credentials via `ILlmCredentialResolver`, propagates the per-provider env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`) into the daprd sidecar, and pins `SPRING_LLM_COMPONENT=llm-{provider}` so the Python agent dials the right component.
 
 ## Recommended Defaults
 
 | Environment   | `SPRING_SECRETS_AES_KEY` | `ComponentNameFormat` |
 |---------------|--------------------------|-----------------------|
-| Local dev     | generated once per workstation, kept in `devops/deploy/spring.env` | unset (shared) |
+| Local dev     | generated once per workstation, kept in `eng/deploy/spring.env` | unset (shared) |
 | CI            | generated per run, set in the pipeline env | unset |
 | Staging/Prod  | sourced from vault / mounted secret file | `"statestore-{tenantId}"` when running multi-tenant |
 

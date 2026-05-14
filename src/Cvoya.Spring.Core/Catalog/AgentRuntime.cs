@@ -4,7 +4,7 @@
 namespace Cvoya.Spring.Core.Catalog;
 
 /// <summary>
-/// One agent runtime entry from <c>platform/runtime-catalog.yaml</c>. Per
+/// One agent runtime entry from <c>eng/runtime-catalog/runtime-catalog.yaml</c>. Per
 /// ADR-0038 decision 2, runtimes are platform configuration; per-runtime
 /// behaviour lives in code as
 /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher"/>

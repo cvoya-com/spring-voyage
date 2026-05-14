@@ -9,9 +9,9 @@ Spring Voyage ships two classes of container image for running agents. The left 
 | `gemini-base` | `ghcr.io/cvoya-com/spring-voyage-gemini-base:latest` | Google Gemini CLI on top of the agent-base bridge. |
 | `spring-voyage-agent` | `ghcr.io/cvoya-com/spring-voyage-agent:latest` | Path-3 native A2A image used by the `spring-voyage` runtime. |
 
-Per ADR-0038, every entry under `agentRuntimes` in `platform/runtime-catalog.yaml` declares a `defaultImage`. The unit-creation wizard pre-fills the image field with the selected runtime's `defaultImage`. This repository builds the `claude-code-base`, `gemini-base`, and `spring-voyage-agent` references; `codex-base` is an external runtime image.
+Per ADR-0038, every entry under `agentRuntimes` in `eng/runtime-catalog/runtime-catalog.yaml` declares a `defaultImage`. The unit-creation wizard pre-fills the image field with the selected runtime's `defaultImage`. This repository builds the `claude-code-base`, `gemini-base`, and `spring-voyage-agent` references; `codex-base` is an external runtime image.
 
-For local development before GHCR publishing, `devops/build/build-agent-images.sh`
+For local development before GHCR publishing, `eng/build/build-agent-images.sh`
 tags built images with their canonical `ghcr.io/cvoya-com/...:<tag>`
 references in the local container store. The dispatcher checks the exact
 configured image with `image inspect` before it attempts a network pull, so a
@@ -20,7 +20,7 @@ offline.
 
 ## agent-base (BYOI minimal)
 
-**Source:** `devops/build/Dockerfile.agent-base`
+**Source:** `eng/build/Dockerfile.agent-base`
 **Published by:** `release.yml` on `spring-voyage-v*` tags (unified release pipeline; see [#2229](https://github.com/cvoya-com/spring-voyage/issues/2229)).
 
 The minimal layer an operator needs to plug any CLI into the Spring Voyage dispatcher:
@@ -43,13 +43,13 @@ USER agent
 
 ## Per-runtime images
 
-Built by `devops/build/build-agent-images.sh` for local dev and CI verification. The left column shows the canonical GHCR ref at the `:dev` tag the local build produces; release builds publish the same refs at the `spring-voyage-v<version>` tag.
+Built by `eng/build/build-agent-images.sh` for local dev and CI verification. The left column shows the canonical GHCR ref at the `:dev` tag the local build produces; release builds publish the same refs at the `spring-voyage-v<version>` tag.
 
 | Canonical GHCR ref | Source file | Tool kind |
 |--------------------|-------------|-----------|
-| `ghcr.io/cvoya-com/spring-voyage-claude-code-base:dev` | `devops/build/Dockerfile.agent.claude-code` | `claude-code-cli` |
-| `ghcr.io/cvoya-com/spring-voyage-gemini-base:dev` | `devops/build/Dockerfile.agent.gemini` | `gemini-cli` |
-| `ghcr.io/cvoya-com/spring-voyage-agent:dev` | `devops/build/Dockerfile.agent.dapr` | `spring-voyage-agent` (native A2A, Python) |
+| `ghcr.io/cvoya-com/spring-voyage-claude-code-base:dev` | `eng/build/Dockerfile.agent.claude-code` | `claude-code-cli` |
+| `ghcr.io/cvoya-com/spring-voyage-gemini-base:dev` | `eng/build/Dockerfile.agent.gemini` | `gemini-cli` |
+| `ghcr.io/cvoya-com/spring-voyage-agent:dev` | `eng/build/Dockerfile.agent.dapr` | `spring-voyage-agent` (native A2A, Python) |
 
 **When to use per-runtime images:**
 - Smaller attack surface / image size for deployments where only one CLI is needed.
@@ -60,7 +60,7 @@ Built by `devops/build/build-agent-images.sh` for local dev and CI verification.
 
 ### Extending for a specific runtime
 
-Layer your toolchain on top of the runtime's `defaultImage` from `platform/runtime-catalog.yaml`. For example, the OSS dogfooding role images extend `spring-voyage-agent-base` and install the Claude Code CLI alongside role-specific tools:
+Layer your toolchain on top of the runtime's `defaultImage` from `eng/runtime-catalog/runtime-catalog.yaml`. For example, the OSS dogfooding role images extend `spring-voyage-agent-base` and install the Claude Code CLI alongside role-specific tools:
 
 ```dockerfile
 FROM ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
@@ -92,7 +92,7 @@ Before GHCR publishing is enabled, verify the dispatcher-visible local cache
 instead of pulling from the registry:
 
 ```bash
-DOCKER=podman devops/build/build-agent-images.sh --tag latest --skip-oss
+DOCKER=podman eng/build/build-agent-images.sh --tag latest --skip-oss
 podman image inspect ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 podman image inspect ghcr.io/cvoya-com/spring-voyage-agent:latest
 ```

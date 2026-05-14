@@ -38,7 +38,7 @@ export type ProviderId = "anthropic" | "openai" | "google" | "ollama";
 export type AuthMethod = "oauth" | "api-key";
 
 /**
- * One `(runtime, provider)` edge from `platform/runtime-catalog.yaml`.
+ * One `(runtime, provider)` edge from `eng/runtime-catalog/runtime-catalog.yaml`.
  * `authMethod: null` means the edge does not require a credential
  * (the v0.1 example is `spring-voyage` -> `ollama`).
  */
@@ -74,7 +74,7 @@ export interface RuntimeDescriptor {
   credentialEdges: readonly RuntimeProviderCredentialEdge[];
   /**
    * Default container image for this runtime, mirrored from
-   * `platform/runtime-catalog.yaml` (ADR-0038). The wizard pre-fills
+   * `eng/runtime-catalog/runtime-catalog.yaml` (ADR-0038). The wizard pre-fills
    * the image field with this value when the operator selects this
    * runtime and has not yet edited the field. Empty string means
    * "no default" (e.g. the deferred `custom` runtime).

@@ -37,7 +37,7 @@ unit:
 
   # --- Unit AI (the unit IS an agent — same ai block pattern) ---
   ai:
-    runtime: spring-voyage           # AgentRuntime id from platform/runtime-catalog.yaml
+    runtime: spring-voyage           # AgentRuntime id from eng/runtime-catalog/runtime-catalog.yaml
     model:
       provider: ollama
       id: llama3.2:3b

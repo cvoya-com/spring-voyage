@@ -163,7 +163,7 @@ public class AiManifest
     /// <summary>
     /// Agent runtime id (ADR-0038): <c>claude-code</c>, <c>codex</c>,
     /// <c>gemini</c>, <c>spring-voyage</c>, or a future custom runtime
-    /// declared in <c>platform/runtime-catalog.yaml</c>.
+    /// declared in <c>eng/runtime-catalog/runtime-catalog.yaml</c>.
     /// </summary>
     [YamlMember(Alias = "runtime")]
     public string? Runtime { get; set; }
@@ -219,7 +219,7 @@ public class AiModelManifest
 {
     /// <summary>
     /// Provider id (matches <c>ModelProvider.Id</c> in
-    /// <c>platform/runtime-catalog.yaml</c>): <c>anthropic</c>,
+    /// <c>eng/runtime-catalog/runtime-catalog.yaml</c>): <c>anthropic</c>,
     /// <c>openai</c>, <c>google</c>, <c>ollama</c>, …
     /// </summary>
     [YamlMember(Alias = "provider")]

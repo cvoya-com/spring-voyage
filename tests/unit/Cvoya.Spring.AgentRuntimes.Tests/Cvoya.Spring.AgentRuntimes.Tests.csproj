@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatform>true</UseMicrosoftTestingPlatform>
+    <RootNamespace>Cvoya.Spring.AgentRuntimes.Tests</RootNamespace>
+    <TestingPlatformShowTestsFailure>true</TestingPlatformShowTestsFailure>
+    <TestingPlatformShowProgress>true</TestingPlatformShowProgress>
+    <TestingPlatformCaptureOutput>true</TestingPlatformCaptureOutput>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.AgentRuntimes\Cvoya.Spring.AgentRuntimes.csproj" />
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.Dispatcher\Cvoya.Spring.Dispatcher.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.mtp-v2" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="NSubstitute" />
+  </ItemGroup>
+
+</Project>

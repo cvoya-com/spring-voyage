@@ -16,7 +16,7 @@ using Cvoya.Spring.Cli.Generated.Models;
 /// <summary>
 /// Writes the resolved App credentials to one of two persistence
 /// targets: <see cref="WriteEnvAsync"/> appends keys to
-/// <c>devops/deploy/spring.env</c> (default — zero runtime dependencies,
+/// <c>eng/deploy/spring.env</c> (default — zero runtime dependencies,
 /// survives <c>deploy.sh</c> restarts), or
 /// <see cref="WriteSecretsAsync"/> pipes each value through
 /// <c>spring secret --scope platform create</c> (#612) so they land in
@@ -123,7 +123,7 @@ public static class CredentialWriter
             appended.AppendLine(FormatEnvLine(key, value));
         }
 
-        // Ensure the directory exists; on a fresh clone the devops/deploy
+        // Ensure the directory exists; on a fresh clone the eng/deploy
         // directory is checked in but spring.env itself is gitignored and
         // may not exist yet.
         var dir = Path.GetDirectoryName(envFilePath);

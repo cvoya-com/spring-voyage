@@ -3,15 +3,15 @@
 - **Status:** Accepted — 2026-05-11.
 - **Date:** 2026-05-11.
 - **Tracks:** [#2158](https://github.com/cvoya-com/spring-voyage/issues/2158) (epic), [#2180](https://github.com/cvoya-com/spring-voyage/issues/2180) (installer PR).
-- **Related code:** `devops/install/install.sh`, `devops/install/uninstall.sh`, `devops/deploy/deploy.sh`, `devops/deploy/setup.sh`, `src/Cvoya.Spring.Cli/Commands/GitHubAppCommand.cs`, `.github/workflows/release.yml`.
-- **Related docs:** [`docs/guide/operator/deployment.md`](../guide/operator/deployment.md), [`devops/install/README.md`](../../devops/install/README.md), [`devops/deploy/README.md`](../../devops/deploy/README.md).
+- **Related code:** `eng/install/install.sh`, `eng/install/uninstall.sh`, `eng/deploy/deploy.sh`, `eng/deploy/setup.sh`, `src/Cvoya.Spring.Cli/Commands/GitHubAppCommand.cs`, `.github/workflows/release.yml`.
+- **Related docs:** [`docs/guide/operator/deployment.md`](../guide/operator/deployment.md), [`eng/install/README.md`](../../eng/install/README.md), [`eng/deploy/README.md`](../../eng/deploy/README.md).
 - **Related ADRs:** [ADR-0012 — spring-dispatcher service extraction](0012-spring-dispatcher-service-extraction.md), [ADR-0028 — Tenant-scoped runtime topology](0028-tenant-scoped-runtime-topology.md). Also [#1063](https://github.com/cvoya-com/spring-voyage/issues/1063) (dispatcher-on-host).
 
 ## Context
 
-Before this ADR an operator stood up Spring Voyage by cloning the repository and running `devops/build/build.sh` followed by `devops/deploy/deploy.sh up`. That path stays — it is the contributor loop — but it is the only path. Most operators do not want a source checkout to run a release; they want to download something, run it, and have a stack.
+Before this ADR an operator stood up Spring Voyage by cloning the repository and running `eng/build/build.sh` followed by `eng/deploy/deploy.sh up`. That path stays — it is the contributor loop — but it is the only path. Most operators do not want a source checkout to run a release; they want to download something, run it, and have a stack.
 
-[#2158](https://github.com/cvoya-com/spring-voyage/issues/2158) was triaged into v0.1 with `needs-thinking`. The open question was the delivery mechanism (curlable `install.sh` vs. native `spring` CLI subcommand vs. Homebrew). PR0 ([#2185](https://github.com/cvoya-com/spring-voyage/issues/2185)) reorganised `deployment/` into `devops/{build,deploy,install}/` to give each audience its own home. PR1 ([#2187](https://github.com/cvoya-com/spring-voyage/issues/2187)) extended the release pipeline to publish the platform image, deployment bundle, dispatcher binaries, `spring` CLI binaries, and `SHA256SUMS` on every `v*.*.*` tag. This ADR records the eight design decisions that govern the resulting installer.
+[#2158](https://github.com/cvoya-com/spring-voyage/issues/2158) was triaged into v0.1 with `needs-thinking`. The open question was the delivery mechanism (curlable `install.sh` vs. native `spring` CLI subcommand vs. Homebrew). PR0 ([#2185](https://github.com/cvoya-com/spring-voyage/issues/2185)) reorganised `deployment/` into `eng/{build,deploy,install}/` to give each audience its own home. PR1 ([#2187](https://github.com/cvoya-com/spring-voyage/issues/2187)) extended the release pipeline to publish the platform image, deployment bundle, dispatcher binaries, `spring` CLI binaries, and `SHA256SUMS` on every `v*.*.*` tag. This ADR records the eight design decisions that govern the resulting installer.
 
 ## Decision
 
@@ -43,7 +43,7 @@ Re-running `install.sh` on an existing install fails fast and tells the operator
 
 ### 5. Uninstall is first-class, two modes.
 
-`devops/install/uninstall.sh` ships at the same release URL as `install.sh` and is also bundled into the deployment tarball so it survives install-root cleanup. Two modes:
+`eng/install/uninstall.sh` ships at the same release URL as `install.sh` and is also bundled into the deployment tarball so it survives install-root cleanup. Two modes:
 
 - **Default** — stops containers, removes platform images/volumes/networks, deletes `~/.spring-voyage/releases/`, `~/.spring-voyage/current`, `~/.local/bin/spring`, `~/.local/bin/voyage`. **Preserves** `spring.env`, `~/.spring-voyage/host/`, `~/.spring-voyage/workspaces/`. Prints the preserved paths and how to delete them.
 - **`--purge`** — everything above plus `spring.env`, `~/.spring-voyage/host/`, `~/.spring-voyage/workspaces/`. Factory-reset.
@@ -52,7 +52,7 @@ Both modes prompt for confirmation (skipped with `--yes`). Both are idempotent. 
 
 ### 6. Local-clone path unchanged.
 
-`devops/build/build.sh` keeps tagging `localhost/spring-voyage:latest`; `devops/deploy/deploy.sh` keeps reading `SPRING_PLATFORM_IMAGE` from `spring.env`. The installer is purely additive — it does not touch the source-clone path. A contributor with a clone of the repository never touches `install.sh`.
+`eng/build/build.sh` keeps tagging `localhost/spring-voyage:latest`; `eng/deploy/deploy.sh` keeps reading `SPRING_PLATFORM_IMAGE` from `spring.env`. The installer is purely additive — it does not touch the source-clone path. A contributor with a clone of the repository never touches `install.sh`.
 
 ### 7. Single release-version surface.
 

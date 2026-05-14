@@ -4,7 +4,7 @@
 - **Date:** 2026-04-17
 - **Closes:** [#436](https://github.com/cvoya-com/spring-voyage/issues/436)
 - **Supersedes:** [ADR 0001](0001-web-portal-rendering-strategy.md) — Web portal rendering strategy (static export vs SSR)
-- **Related code:** `src/Cvoya.Spring.Web/next.config.ts`, `src/Cvoya.Spring.Web/src/app/units/[id]/page.tsx`, `src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx`, `devops/build/Dockerfile`
+- **Related code:** `src/Cvoya.Spring.Web/next.config.ts`, `src/Cvoya.Spring.Web/src/app/units/[id]/page.tsx`, `src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx`, `eng/build/Dockerfile`
 
 ## Context
 
@@ -14,7 +14,7 @@ Between then and now the picture changed on every one of those axes:
 
 - The portal redesign (#434) introduces streaming activity and conversation views — long-running responses where the server progressively flushes chunks rather than waiting for a complete payload. Static-exported pages cannot produce a streaming response.
 - The redesign also introduces per-request personalisation in the shell (tenant-aware nav, user-aware extension slots). That is exactly the "authenticated landing surface that must render differently per tenant before the SPA hydrates" case ADR 0001 called out as a revisit trigger.
-- The deployment topology already ships a Node runtime. `devops/build/Dockerfile` builds Next.js in `standalone` mode and runs `node server.js`; the static-export hosting story ADR 0001 argued for was never actually wired up end-to-end.
+- The deployment topology already ships a Node runtime. `eng/build/Dockerfile` builds Next.js in `standalone` mode and runs `node server.js`; the static-export hosting story ADR 0001 argued for was never actually wired up end-to-end.
 - `next.config.ts` was switched to `output: "standalone"` in practice before this record caught up. The `generateStaticParams` + `__placeholder__` scaffolding in `/units/[id]` and `/agents/[id]` had been dead code — the build no longer required it, and the guard in the client only protected against a route that the standalone server would never produce.
 
 With `standalone` output, Next.js:

@@ -282,7 +282,7 @@ public static class ManifestParser
                     "LegacyAiAgentField: 'ai.agent:' is removed in ADR-0038. " +
                     "Use 'ai.runtime:' with a runtime id ('claude-code', 'codex', " +
                     "'gemini', 'spring-voyage', or a future custom runtime declared " +
-                    "in platform/runtime-catalog.yaml).");
+                    "in eng/runtime-catalog/runtime-catalog.yaml).");
             }
 
             if (aiNode!.Children.TryGetValue(new YamlScalarNode("model"), out var modelNode)

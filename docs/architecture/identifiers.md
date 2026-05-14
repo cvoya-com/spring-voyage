@@ -178,7 +178,7 @@ ai:
 ```
 
 Runtime ids and provider ids are short kebab-case strings, matched
-case-sensitively against entries in `platform/runtime-catalog.yaml`. Model
+case-sensitively against entries in `eng/runtime-catalog/runtime-catalog.yaml`. Model
 ids are provider-native — Ollama model ids may contain `/`, `:`, and `-`;
 the structured `{provider, id}` shape avoids the parser ambiguity a flat
 `provider/id` string would carry. The pair is the single source of truth for

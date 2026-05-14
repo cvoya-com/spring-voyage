@@ -71,7 +71,7 @@ curl -s -X POST http://localhost:8999/ \
 
 ## Docker
 
-The companion `agent-base` image at `ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0` is built from `devops/build/Dockerfile.agent-base`. It bundles `tini`, Node 22, and a pre-installed copy of this bridge under `/opt/spring-voyage/sidecar/`. Use it as a base for any custom agent image:
+The companion `agent-base` image at `ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0` is built from `eng/build/Dockerfile.agent-base`. It bundles `tini`, Node 22, and a pre-installed copy of this bridge under `/opt/spring-voyage/sidecar/`. Use it as a base for any custom agent image:
 
 ```dockerfile
 FROM ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0

@@ -6,7 +6,7 @@ namespace Cvoya.Spring.Core.Catalog;
 /// <summary>
 /// A model provider — the company / endpoint hosting a set of LLMs. Per
 /// ADR-0038 decision 3, providers are platform configuration loaded from
-/// <c>platform/runtime-catalog.yaml</c>; there are no per-provider classes.
+/// <c>eng/runtime-catalog/runtime-catalog.yaml</c>; there are no per-provider classes.
 /// Wire-format differences are handled by a small set of
 /// <c>IModelProviderAdapter</c> strategies registered by <see cref="Adapter"/> id.
 /// </summary>

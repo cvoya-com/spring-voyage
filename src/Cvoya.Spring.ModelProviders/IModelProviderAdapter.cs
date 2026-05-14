@@ -11,7 +11,7 @@ using Cvoya.Spring.Core.ModelProviders;
 /// ADR-0038 decision 3). Strategies are registered in DI keyed on the
 /// <see cref="AdapterId"/> string, which matches the
 /// <see cref="ModelProvider.Adapter"/> field in
-/// <c>platform/runtime-catalog.yaml</c>.
+/// <c>eng/runtime-catalog/runtime-catalog.yaml</c>.
 /// </summary>
 /// <remarks>
 /// <para>

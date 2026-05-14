@@ -85,7 +85,7 @@ public sealed class DispatcherCwdConfigurationRequirement(IDispatcherCwdProbe pr
             + "Every shell-out to the container runtime will fail with FileNotFoundException.";
         var suggestion =
             "Restart the dispatcher from a valid directory "
-            + "(e.g. `./devops/deploy/spring-voyage-host.sh restart`). "
+            + "(e.g. `./eng/deploy/spring-voyage-host.sh restart`). "
             + "See https://github.com/cvoya-com/spring-voyage/issues/1674.";
         return Task.FromResult(ConfigurationRequirementStatus.Invalid(
             reason,

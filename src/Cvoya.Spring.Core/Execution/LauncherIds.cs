@@ -5,7 +5,7 @@ namespace Cvoya.Spring.Core.Execution;
 
 /// <summary>
 /// Closed set of launcher strategy ids referenced by
-/// <c>platform/runtime-catalog.yaml</c>'s <c>launcher</c> field
+/// <c>eng/runtime-catalog/runtime-catalog.yaml</c>'s <c>launcher</c> field
 /// (ADR-0038 decision 2). Each id resolves to one
 /// <see cref="IAgentRuntimeLauncher"/> implementation registered in DI.
 /// </summary>

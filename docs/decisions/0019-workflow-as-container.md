@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — domain workflows ship as container images with their own Dapr sidecars; only platform-internal lifecycle workflows are compiled into the host.
 - **Date:** 2026-04-21
-- **Related code:** `src/Cvoya.Spring.Dapr/Workflows/` (platform-internal), `devops/build/examples/dockerfiles/` (workflow-container patterns).
+- **Related code:** `src/Cvoya.Spring.Dapr/Workflows/` (platform-internal), `eng/build/examples/dockerfiles/` (workflow-container patterns).
 - **Related docs:** [`docs/architecture/workflows.md`](../architecture/workflows.md), [ADR 0015](0015-dapr-as-infrastructure-runtime.md).
 
 ## Context

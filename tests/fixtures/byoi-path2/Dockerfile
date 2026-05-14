@@ -15,7 +15,7 @@
 # sidecar source supports it.
 #
 # Build context: tests/fixtures/byoi-path2/. The smoke script
-# (tests/scripts/smoke-1087.sh, --path 2 mode) drops the tarball into
+# (tests/smoke/smoke-1087.sh, --path 2 mode) drops the tarball into
 # this directory ahead of `docker build`, then deletes it on exit.
 
 # node:22-alpine matches the `engines.node: ">=22"` declared in

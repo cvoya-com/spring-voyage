@@ -62,17 +62,17 @@ Pre-release versions are published alongside (not in place of) the most recent s
 
 Spring Voyage uses **one tag, one workflow, one GitHub Release**. A single `spring-voyage-v<version>` tag triggers `release.yml`, which builds and publishes every artefact — agent images (multi-arch), platform image, sidecar SEA binaries, dispatcher binaries, `spring` CLI binaries, `Cvoya.Spring.Cli` .NET tool (to nuget.org), deployment bundle, `install.sh`, `SHA256SUMS`, and the GitHub Release — in one run. The previous three-workflow / three-tag chain (`agent-base-v*`, `oss-agents-v*`, `dispatcher-v*` / `v*.*.*`) was collapsed in [#2172](https://github.com/cvoya-com/spring-voyage/issues/2172) and [#2229](https://github.com/cvoya-com/spring-voyage/issues/2229).
 
-Use `devops/release/release.sh` to cut a release. The script pushes the tag, watches `release.yml` to completion, and verifies that every image referenced in `packages/**/*.yaml` is anonymously pullable from `ghcr.io`.
+Use `eng/release/release.sh` to cut a release. The script pushes the tag, watches `release.yml` to completion, and verifies that every image referenced in `packages/**/*.yaml` is anonymously pullable from `ghcr.io`.
 
 ```bash
 # Dry-run: print the computed tag without pushing anything.
-./devops/release/release.sh v1.0.0 --pre alpha --plan
+./eng/release/release.sh v1.0.0 --pre alpha --plan
 
 # Cut an alpha release.
-./devops/release/release.sh v1.0.0 --pre alpha
+./eng/release/release.sh v1.0.0 --pre alpha
 
 # Cut a stable release.
-./devops/release/release.sh v1.0.0
+./eng/release/release.sh v1.0.0
 ```
 
 **Flags:**
@@ -86,7 +86,7 @@ Use `devops/release/release.sh` to cut a release. The script pushes the tag, wat
 **Changelog finalisation** (stable releases only):
 
 1. Before tagging, move the `## [Unreleased]` section in `CHANGELOG.md` to `## [X.Y.Z] - YYYY-MM-DD`, create a fresh empty `[Unreleased]` section, and merge a PR titled `Release vX.Y.Z`.
-2. Run `./devops/release/release.sh vX.Y.Z` from clean `main`.
+2. Run `./eng/release/release.sh vX.Y.Z` from clean `main`.
 
 ### Draft-then-finalize behaviour
 
@@ -186,7 +186,7 @@ The container-registry tag is the prefix-stripped SemVer string (e.g., git tag `
 
 ### Local deployment
 
-`devops/build/build.sh` builds images locally with Podman. The local build writes the same canonical GHCR refs that release builds publish, so the dispatcher can resolve runtime defaults from the local image store before any registry pull.
+`eng/build/build.sh` builds images locally with Podman. The local build writes the same canonical GHCR refs that release builds publish, so the dispatcher can resolve runtime defaults from the local image store before any registry pull.
 
 ## Changelog
 
@@ -196,8 +196,8 @@ The canonical changelog is [`CHANGELOG.md`](../../CHANGELOG.md) at the repositor
 
 | Script | Purpose |
 | --- | --- |
-| [`devops/release/release.sh`](../../devops/release/release.sh) | Orchestrates the full release: computes tags, pushes them in dependency order, waits on each workflow, verifies anonymous pull. Flags: `--pre alpha\|beta\|rc`, `--plan` (dry-run), `--force-retag`. |
-| [`devops/release/extract-changelog-section.sh`](../../devops/release/extract-changelog-section.sh) | Extracts a named section (default: `Unreleased`) from `CHANGELOG.md` and prints it to stdout. Used by `release.yml` to populate the GitHub Release body. |
+| [`eng/release/release.sh`](../../eng/release/release.sh) | Orchestrates the full release: computes tags, pushes them in dependency order, waits on each workflow, verifies anonymous pull. Flags: `--pre alpha\|beta\|rc`, `--plan` (dry-run), `--force-retag`. |
+| [`eng/release/extract-changelog-section.sh`](../../eng/release/extract-changelog-section.sh) | Extracts a named section (default: `Unreleased`) from `CHANGELOG.md` and prints it to stdout. Used by `release.yml` to populate the GitHub Release body. |
 
 ## Summary Table
 
@@ -208,6 +208,6 @@ The canonical changelog is [`CHANGELOG.md`](../../CHANGELOG.md) at the repositor
 | GitHub Releases | Automated via `release.yml` on `spring-voyage-v*` tag push; draft-then-finalize |
 | NuGet packages | `Cvoya.Spring.Cli` published to nuget.org as a .NET tool; remaining packages (Core, Dapr, connectors) not published — tracked in [#1395](https://github.com/cvoya-com/spring-voyage/issues/1395) |
 | Container images | Published to `ghcr.io/cvoya-com/*`; all images public |
-| Component release script | In place ([`devops/release/release.sh`](../../devops/release/release.sh)) |
+| Component release script | In place ([`eng/release/release.sh`](../../eng/release/release.sh)) |
 | CI (build, test, format, lint) | In place ([`ci.yml`](../../.github/workflows/ci.yml), [`codeql.yml`](../../.github/workflows/codeql.yml)) |
 | Release-publishing workflow | In place (single workflow on `spring-voyage-v*`) |

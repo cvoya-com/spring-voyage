@@ -54,7 +54,7 @@
   ],
 
   "dockerfile": {
-    "fileMatch": ["^devops/build/Dockerfile(\\.[a-zA-Z0-9._-]+)?$"]
+    "fileMatch": ["^eng/build/Dockerfile(\\.[a-zA-Z0-9._-]+)?$"]
   },
 
   "npm": {

@@ -9,19 +9,19 @@ This is the same model Renovate, Sentry self-hosted, Linear self-hosted, and Pro
 - A leaked key in one deployment cannot affect any other deployment.
 - The webhook URL, callback URL, and setup URL are all owned by the operator — no fragile redirect dance through a Spring-Voyage-controlled domain.
 
-This page is the operator-facing companion to [Deployment guide § Tier-1 platform credentials](deployment.md#tier-1-platform-credentials--github-app-identity-env-only). Pick **one** of the two paths below; both produce the same set of values in `devops/deploy/spring.env`.
+This page is the operator-facing companion to [Deployment guide § Tier-1 platform credentials](deployment.md#tier-1-platform-credentials--github-app-identity-env-only). Pick **one** of the two paths below; both produce the same set of values in `eng/deploy/spring.env`.
 
 ## Document map
 
 - [Path A — `spring github-app register` (recommended)](#path-a--spring-github-app-register-recommended) — one CLI verb that drives GitHub's [App-from-manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest), opens the pre-filled "create App" page, captures the conversion code on a loopback listener, and writes the env file for you.
-- [Path B — Manual registration](#path-b--manual-registration) — point-and-click in `github.com` if you want to inspect every field or you cannot run the CLI on the host that owns `devops/deploy/spring.env`.
+- [Path B — Manual registration](#path-b--manual-registration) — point-and-click in `github.com` if you want to inspect every field or you cannot run the CLI on the host that owns `eng/deploy/spring.env`.
 - [Required values](#required-values) — the shape of every field, regardless of which path you took.
 - [Local-dev recipe](#local-dev-recipe) — register a separate "dev" App pointed at `http://localhost:*` URLs.
 - [Verifying the install](#verifying-the-install) — confirm the connector picks up the credentials and the App can mint installation tokens.
 
 ## Path A — `spring github-app register` (recommended)
 
-If you already have the `spring` CLI on the same host as `devops/deploy/spring.env`, this is the shortest path:
+If you already have the `spring` CLI on the same host as `eng/deploy/spring.env`, this is the shortest path:
 
 ```bash
 cd /path/to/spring-voyage
@@ -35,7 +35,7 @@ The verb:
 3. Opens your browser on `https://github.com/settings/apps/new?manifest=…` (or `https://github.com/organizations/<org>/settings/apps/new?...` when you pass `--org <slug>`) — GitHub renders the "create App" confirmation page **pre-filled** with the right name, permissions, events, callback URL, and webhook URL. You click **Create**.
 4. GitHub redirects back to the loopback listener with a one-time conversion `code`.
 5. The CLI exchanges the code via `POST /app-manifests/{code}/conversions` and receives `app_id`, `slug`, `pem`, `webhook_secret`, `client_id`, and `client_secret` back in the response.
-6. The CLI writes `GitHub__AppId`, `GitHub__AppSlug`, `GitHub__PrivateKeyPem` (single-quoted, single-line, with literal `\n` between blocks), and `GitHub__WebhookSecret` to `devops/deploy/spring.env`. Pass `--write-secrets` to persist the same values as platform-scoped secrets via the registry instead of the env file.
+6. The CLI writes `GitHub__AppId`, `GitHub__AppSlug`, `GitHub__PrivateKeyPem` (single-quoted, single-line, with literal `\n` between blocks), and `GitHub__WebhookSecret` to `eng/deploy/spring.env`. Pass `--write-secrets` to persist the same values as platform-scoped secrets via the registry instead of the env file.
 
 Restart the platform after the file changes (`./deploy.sh restart` for Podman, `docker compose --env-file spring.env up -d` for Compose) so the connector picks up the new credentials.
 
@@ -56,7 +56,7 @@ Pick the organisation account when more than one person on your team needs to ma
 
 ### 2. Fill in the App settings
 
-GitHub's "Register new GitHub App" page asks for the following. Substitute your deployment's public hostname (the FQDN you set as `DEPLOY_HOSTNAME` in `devops/deploy/spring.env`) wherever the table says `<your-host>`:
+GitHub's "Register new GitHub App" page asks for the following. Substitute your deployment's public hostname (the FQDN you set as `DEPLOY_HOSTNAME` in `eng/deploy/spring.env`) wherever the table says `<your-host>`:
 
 | Field | Value |
 |-------|-------|
@@ -111,9 +111,9 @@ Then install the App on at least one repository / organisation:
 1. On the App's settings page, click **Install App** in the left sidebar.
 2. Pick the account / org and the repositories you want the connector to act on. You can re-scope this list later from the same screen.
 
-### 6. Populate `devops/deploy/spring.env`
+### 6. Populate `eng/deploy/spring.env`
 
-Open `devops/deploy/spring.env` and uncomment the GitHub block. Paste the four values you collected:
+Open `eng/deploy/spring.env` and uncomment the GitHub block. Paste the four values you collected:
 
 ```ini
 # Numeric — leave UNQUOTED.
@@ -144,7 +144,7 @@ The single-quoted, single-line PEM convention round-trips through `bash` + `envs
 
 ## Required values
 
-Whichever path you took, the deployment ends up with these four values populated in `devops/deploy/spring.env` (or in the platform secret store when you used `--write-secrets`):
+Whichever path you took, the deployment ends up with these four values populated in `eng/deploy/spring.env` (or in the platform secret store when you used `--write-secrets`):
 
 | Env var | Source | Notes |
 |---------|--------|-------|
@@ -159,7 +159,7 @@ GitHub Apps require **publicly-reachable** webhook URLs — `localhost` will not
 
 1. **Use Path A's loopback handler for OAuth and skip webhooks.** `spring github-app register` works against `http://localhost:5173/...` callback URLs because the conversion callback is loopback-only. The App's webhook URL still has to be publicly reachable for deliveries; configure the App with a placeholder URL and rely on the connector's polling fallback for local-dev experiments.
 2. **Tunnel a public URL to your laptop.** Use [smee.io](https://smee.io/), [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/), or [ngrok](https://ngrok.com/) to forward a public hostname to `http://localhost:8080/api/v1/connectors/github/webhooks`. Configure the App's webhook URL with the tunnel URL.
-3. **Use the bundled webhook relay.** `devops/deploy/relay.sh` opens an SSH reverse tunnel from a small VPS you already control to the local API host. See [`devops/deploy/README.md § Local-dev webhook tunnel (relay.sh)`](../../../devops/deploy/README.md#local-dev-webhook-tunnel-relaysh) for the configuration shape.
+3. **Use the bundled webhook relay.** `eng/deploy/relay.sh` opens an SSH reverse tunnel from a small VPS you already control to the local API host. See [`eng/deploy/README.md § Local-dev webhook tunnel (relay.sh)`](../../../eng/deploy/README.md#local-dev-webhook-tunnel-relaysh) for the configuration shape.
 
 Whichever option you pick, **register a separate "dev" App** pointed at `http://localhost:*` (or your tunnel URL) and use a different `GitHub__AppId` in the local `spring.env` than the one you use in production. Sharing one App across dev and prod cross-contaminates webhook deliveries and rate limits.
 
@@ -176,7 +176,7 @@ curl -fsS http://localhost/api/v1/connectors/github/actions/install-url
 
 # 3. Send a test webhook delivery from the App's settings page
 #    (Advanced → Recent Deliveries → Redeliver). Tail the API logs:
-docker compose --env-file devops/deploy/spring.env logs -f spring-api | grep -i webhook
+docker compose --env-file eng/deploy/spring.env logs -f spring-api | grep -i webhook
 ```
 
 A `204` response from the webhook ingress endpoint and a green "Last delivery was successful" badge in the GitHub UI confirms the round-trip.

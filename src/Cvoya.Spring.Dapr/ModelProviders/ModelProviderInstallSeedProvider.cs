@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Tenant seed provider that auto-installs every model provider declared
-/// in <c>platform/runtime-catalog.yaml</c> onto the bootstrapped tenant.
+/// in <c>eng/runtime-catalog/runtime-catalog.yaml</c> onto the bootstrapped tenant.
 /// The install service is idempotent, so re-running this provider on an
 /// existing tenant is a no-op against previously installed rows.
 /// </summary>

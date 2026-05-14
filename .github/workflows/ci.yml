@@ -45,6 +45,7 @@ jobs:
       efcore_model: ${{ steps.filter.outputs.efcore_model }}
       packages: ${{ steps.filter.outputs.packages }}
       runtime_catalog: ${{ steps.filter.outputs.runtime_catalog }}
+      sample: ${{ steps.filter.outputs.sample }}
     steps:
       - uses: actions/checkout@v6
 
@@ -74,7 +75,7 @@ jobs:
             connectors_web:
               - 'src/Cvoya.Spring.Connector.*/web/**'
               - 'src/Cvoya.Spring.Web/src/connectors/**'
-              - 'devops/ci/validate-connector-web.sh'
+              - 'eng/ci/validate-connector-web.sh'
               - 'package.json'
               - 'package-lock.json'
             web:
@@ -95,28 +96,28 @@ jobs:
               # workflows meaningfully.
               - '.github/workflows/**'
             dispatcher_host:
-              - 'devops/deploy/spring-voyage-host.sh'
-              - 'devops/deploy/scripts/**'
-              - 'devops/deploy/deploy.sh'
-              - 'devops/deploy/docker-compose.yml'
-              - 'devops/deploy/spring.env.example'
+              - 'eng/deploy/spring-voyage-host.sh'
+              - 'eng/deploy/scripts/**'
+              - 'eng/deploy/deploy.sh'
+              - 'eng/deploy/docker-compose.yml'
+              - 'eng/deploy/spring.env.example'
               - 'src/Cvoya.Spring.Dispatcher/**'
             agent_images:
               # build-agent-images.sh builds every Dockerfile.agent.* in
-              # `devops/build/` (agent-base + claude-code + dapr + the four
+              # `eng/build/` (agent-base + claude-code + dapr + the four
               # OSS role images). Globbing the family keeps the smoke
               # job in sync with what the script actually builds, so a
               # change to e.g. `Dockerfile.agent.oss-software-engineering`
               # is exercised end-to-end on its own PR rather than
               # slipping in unvalidated and only surfacing on a later
               # workflow-touching PR.
-              - 'devops/build/Dockerfile.agent-base'
-              - 'devops/build/Dockerfile.agent.*'
-              - 'devops/build/build-agent-images.sh'
+              - 'eng/build/Dockerfile.agent-base'
+              - 'eng/build/Dockerfile.agent.*'
+              - 'eng/build/build-agent-images.sh'
               - 'src/Cvoya.Spring.AgentSidecar/**'
               - 'agents/spring-voyage-agent/**'
-              - 'tests/scripts/smoke-agent-images.sh'
-              - 'tests/scripts/smoke-1087.sh'
+              - 'tests/smoke/smoke-agent-images.sh'
+              - 'tests/smoke/smoke-1087.sh'
               # #1120: BYOI conformance path 2 fixture (npm-installed
               # bridge). The smoke driver builds an image from this
               # Dockerfile + a `npm pack` tarball of the in-tree sidecar,
@@ -157,8 +158,19 @@ jobs:
             runtime_catalog:
               # ADR-0038: re-run the schema lint on any change to the
               # platform runtime catalogue or its schema.
-              - 'platform/runtime-catalog.yaml'
-              - 'platform/runtime-catalog.schema.json'
+              - 'eng/runtime-catalog/runtime-catalog.yaml'
+              - 'eng/runtime-catalog/runtime-catalog.schema.json'
+            sample:
+              # #2245: keep the workflow-agent sample buildable on every
+              # PR that could affect it (the sample, the SDK it depends
+              # on, the slnx, or this workflow itself). The sample is
+              # listed in SpringVoyage.slnx so the regular build/test
+              # jobs already cover it; this dedicated job guards against
+              # standalone-build regressions.
+              - 'samples/workflow-agent-image/**'
+              - 'src/Cvoya.Spring.AgentSdk/**'
+              - 'SpringVoyage.slnx'
+              - '.github/workflows/ci.yml'
 
   workflow-yaml:
     name: Workflow YAML syntax
@@ -520,13 +532,53 @@ jobs:
           # Convert YAML to JSON in-memory then validate. ajv-cli reads the
           # JSON Schema natively; the YAML→JSON one-liner avoids a separate
           # Python dependency.
-          node -e "const fs=require('fs');const YAML=require('yaml');process.stdout.write(JSON.stringify(YAML.parse(fs.readFileSync('platform/runtime-catalog.yaml','utf8'))));" > /tmp/runtime-catalog.json
+          node -e "const fs=require('fs');const YAML=require('yaml');process.stdout.write(JSON.stringify(YAML.parse(fs.readFileSync('eng/runtime-catalog/runtime-catalog.yaml','utf8'))));" > /tmp/runtime-catalog.json
           ajv validate \
             --spec=draft2020 \
             -c ajv-formats \
-            -s platform/runtime-catalog.schema.json \
+            -s eng/runtime-catalog/runtime-catalog.schema.json \
             -d /tmp/runtime-catalog.json \
             --strict=false
+
+  sample-build:
+    name: Build workflow-agent sample (#2245)
+    runs-on: ubuntu-latest
+    needs: changes
+    # The sample is also listed in SpringVoyage.slnx so the regular
+    # `build` / `test` jobs already exercise it. This dedicated job
+    # gives PRs touching the sample (or anything it depends on)
+    # explicit signal that the standalone build still works, even
+    # when the regular dotnet filter does not trip.
+    if: >
+      needs.changes.outputs.sample == 'true' ||
+      needs.changes.outputs.ci_workflow == 'true'
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            global.json
+            NuGet.config
+
+      - name: Restore sample
+        run: |
+          dotnet restore samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgent/Cvoya.Spring.Sample.WorkflowAgent.csproj
+          dotnet restore samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgent.Tests/Cvoya.Spring.Sample.WorkflowAgent.Tests.csproj
+
+      - name: Build sample
+        run: |
+          dotnet build samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgent/Cvoya.Spring.Sample.WorkflowAgent.csproj --no-restore --configuration Release
+          dotnet build samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgent.Tests/Cvoya.Spring.Sample.WorkflowAgent.Tests.csproj --no-restore --configuration Release
+
+      - name: Test sample
+        run: dotnet test samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgent.Tests/Cvoya.Spring.Sample.WorkflowAgent.Tests.csproj --no-restore --no-build --configuration Release
 
   connector-web-lint:
     name: Lint connector web submodules
@@ -545,7 +597,7 @@ jobs:
 
       - name: Validate connector web submodules
         shell: bash
-        run: bash devops/ci/validate-connector-web.sh
+        run: bash eng/ci/validate-connector-web.sh
 
   docs-evergreen-framing:
     name: Lint docs (evergreen framing)
@@ -1149,11 +1201,11 @@ jobs:
 
       - name: Run idempotence test driver
         shell: bash
-        run: bash devops/deploy/scripts/test-spring-voyage-host.sh
+        run: bash eng/deploy/scripts/test-spring-voyage-host.sh
 
       - name: Verify deploy.sh forces dispatcher rebuild
         shell: bash
-        run: bash devops/deploy/scripts/test-deploy-dispatcher-rebuild.sh
+        run: bash eng/deploy/scripts/test-deploy-dispatcher-rebuild.sh
 
   dispatcher-smoke:
     name: Dispatcher smoke (Tier 1)
@@ -1200,7 +1252,7 @@ jobs:
 
       - name: Run dispatcher smoke driver
         shell: bash
-        run: bash devops/deploy/scripts/dispatcher-smoke.sh
+        run: bash eng/deploy/scripts/dispatcher-smoke.sh
 
   audit-no-container-cli:
     name: Audit (no worker-side podman/docker)
@@ -1221,7 +1273,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Run worker-side container CLI audit
         shell: bash
-        run: bash devops/ci/audit-no-container-cli.sh
+        run: bash eng/ci/audit-no-container-cli.sh
 
   agent-images-smoke:
     name: Agent images build + smoke
@@ -1235,7 +1287,7 @@ jobs:
     #
     # Static-input check (it bakes the PR's own Dockerfiles), so it is
     # safe to skip in the merge queue — a pass on the pull_request run
-    # stays valid through the queue. Path-filtered to the devops/build +
+    # stays valid through the queue. Path-filtered to the eng/build +
     # python-agent surface so unrelated PRs don't pay the build cost.
     if: >
       github.event_name != 'merge_group' &&
@@ -1259,13 +1311,13 @@ jobs:
         # locally first so the claude-code FROM resolves without a GHCR pull.
         # That way a PR can be tested before the corresponding agent-base
         # tag is published.
-        run: bash devops/build/build-agent-images.sh --tag dev
+        run: bash eng/build/build-agent-images.sh --tag dev
 
       - name: Smoke each image (curl /.well-known/agent.json)
         shell: bash
         env:
           SMOKE_IMAGE_TAG: dev
-        run: bash tests/scripts/smoke-agent-images.sh
+        run: bash tests/smoke/smoke-agent-images.sh
 
       # PR 6 of #1087 (#1099): the unified-dispatch end-to-end smoke fires
       # an A2A `message/send` against the agent-base bridge (path 1) and
@@ -1288,7 +1340,7 @@ jobs:
         shell: bash
         env:
           SMOKE_IMAGE_TAG: dev
-        run: bash tests/scripts/smoke-1087.sh --path all
+        run: bash tests/smoke/smoke-1087.sh --path all
 
   required-checks:
     name: Required checks
@@ -1301,6 +1353,7 @@ jobs:
       - format
       - agent-definitions-lint
       - runtime-catalog-lint
+      - sample-build
       - connector-web-lint
       - web-lint
       - web-knip
@@ -1335,6 +1388,7 @@ jobs:
           FORMAT_RESULT: ${{ needs.format.result }}
           LINT_RESULT: ${{ needs.agent-definitions-lint.result }}
           RUNTIME_CATALOG_RESULT: ${{ needs.runtime-catalog-lint.result }}
+          SAMPLE_BUILD_RESULT: ${{ needs.sample-build.result }}
           CONNECTOR_WEB_RESULT: ${{ needs.connector-web-lint.result }}
           WEB_LINT_RESULT: ${{ needs.web-lint.result }}
           WEB_KNIP_RESULT: ${{ needs.web-knip.result }}
@@ -1364,6 +1418,7 @@ jobs:
           echo "format=$FORMAT_RESULT"
           echo "agent-definitions-lint=$LINT_RESULT"
           echo "runtime-catalog-lint=$RUNTIME_CATALOG_RESULT"
+          echo "sample-build=$SAMPLE_BUILD_RESULT"
           echo "connector-web-lint=$CONNECTOR_WEB_RESULT"
           echo "web-lint=$WEB_LINT_RESULT"
           echo "web-knip=$WEB_KNIP_RESULT"
@@ -1401,6 +1456,7 @@ jobs:
           ok "$FORMAT_RESULT"          || { echo "::error::format failed"; exit 1; }
           ok "$LINT_RESULT"            || { echo "::error::agent-definitions-lint failed"; exit 1; }
           ok "$RUNTIME_CATALOG_RESULT" || { echo "::error::runtime-catalog-lint failed"; exit 1; }
+          ok "$SAMPLE_BUILD_RESULT"    || { echo "::error::sample-build failed"; exit 1; }
           ok "$CONNECTOR_WEB_RESULT"   || { echo "::error::connector-web-lint failed"; exit 1; }
           ok "$WEB_LINT_RESULT"        || { echo "::error::web-lint failed"; exit 1; }
           ok "$WEB_KNIP_RESULT"        || { echo "::error::web-knip failed"; exit 1; }

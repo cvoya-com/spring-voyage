@@ -29,7 +29,7 @@ public static class ModelProviderCommand
     /// Stderr message emitted when <c>spring model-provider credentials
     /// status &lt;id&gt;</c> is run against a provider that has no
     /// credential-health row recorded yet. Exposed as <c>internal</c>
-    /// so the unit tests in <c>tests/Cvoya.Spring.Cli.Tests</c> can pin
+    /// so the unit tests in <c>tests/unit/Cvoya.Spring.Cli.Tests</c> can pin
     /// the wording — the message points operators at the matching
     /// <c>validate-credential</c> verb.
     /// </summary>
@@ -181,7 +181,7 @@ public static class ModelProviderCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Provider '{id}' is not registered with the host. Supported provider ids are listed in platform/runtime-catalog.yaml.");
+                    $"Provider '{id}' is not registered with the host. Supported provider ids are listed in eng/runtime-catalog/runtime-catalog.yaml.");
                 Environment.Exit(1);
             }
         });

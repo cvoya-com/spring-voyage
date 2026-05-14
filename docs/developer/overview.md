@@ -35,7 +35,7 @@ src/
 python/                           # Optional Python components
   spring_agent/                   # Python agent process
   spring_connectors/              # Python-side connector logic
-dapr/
+eng/dapr/
   components/                     # Dapr component configs (pub/sub, state, bindings, secrets)
   configuration/                  # Access control, resiliency policies
 packages/                         # Domain packages

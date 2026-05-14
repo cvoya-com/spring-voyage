@@ -193,7 +193,7 @@ Rejected: keep `Kind` for forward compatibility. There is no extant or planned u
 Both the supported model providers and the supported agent runtimes live in the same checked-in configuration file. There are no `AnthropicModelProvider` / `OllamaModelProvider` classes.
 
 ```yaml
-# /platform/runtime-catalog.yaml
+# /eng/runtime-catalog/runtime-catalog.yaml
 modelProviders:
   - id: anthropic
     displayName: Anthropic
@@ -264,9 +264,9 @@ New providers can be added config-only when they are OpenAI-compatible. Otherwis
 
 **`defaultModels`** is the seed list of model ids the platform ships for the provider until live-fetch (`modelsEndpoint` consumed by the adapter's `FetchLiveModelsAsync`) is wired up. Plain string ids — no display names, no context windows, no other metadata. Once live fetch is implemented, the live response replaces this list and the YAML's `defaultModels` becomes the cold-start seed used the first time the platform talks to the provider (and the fallback when live fetch is unavailable, e.g. an offline Ollama host or a provider rate-limit). Tenants can add or override models via per-install configuration (`AgentRuntimeInstallConfig`), unchanged by this ADR. Schema validation does **not** pin the model ids — the list is allowed to grow without a schema bump.
 
-The platform maps `llmApiContract` → Dapr Conversation component by convention: the in-tree Dapr component file lives at `dapr/components/llm-{provider.id}.yaml` with `metadata.name: llm-{provider.id}`. Two providers that share a contract still ship distinct component files because Dapr requires the connection metadata (base URL, credentials) on each component's YAML; the *contract* tells the platform which adapter strategy to dispatch through, the *component file* tells Dapr how to reach the actual endpoint. The Dapr `type:` field stays `conversation.<provider>` — that is Dapr's contract, not ours.
+The platform maps `llmApiContract` → Dapr Conversation component by convention: the in-tree Dapr component file lives at `eng/dapr/components/llm-{provider.id}.yaml` with `metadata.name: llm-{provider.id}`. Two providers that share a contract still ship distinct component files because Dapr requires the connection metadata (base URL, credentials) on each component's YAML; the *contract* tells the platform which adapter strategy to dispatch through, the *component file* tells Dapr how to reach the actual endpoint. The Dapr `type:` field stays `conversation.<provider>` — that is Dapr's contract, not ours.
 
-A JSON schema ships alongside the YAML at `platform/runtime-catalog.schema.json` and pins the closed enums (`adapter`, `authMethods` element values, `llmApiContract.name`, runtime-entry `launcher` ids). CI lints the YAML against the schema so a typo in a contract name or auth method fails fast at PR review rather than at startup.
+A JSON schema ships alongside the YAML at `eng/runtime-catalog/runtime-catalog.schema.json` and pins the closed enums (`adapter`, `authMethods` element values, `llmApiContract.name`, runtime-entry `launcher` ids). CI lints the YAML against the schema so a typo in a contract name or auth method fails fast at PR review rather than at startup.
 
 Rejected: per-provider classes. Forces a class per company name in code, obstructs config-only addition, and turns trivial wire-format additions into PRs.
 Rejected: keep the field name `daprConversationComponent`. Bakes Dapr terminology into a config file most operators read without knowing what a Dapr building block is. The field name should describe role and contract, not implementation.
@@ -353,7 +353,7 @@ This ADR re-shapes:
 
 - The C# domain: `IAgentRuntime` interface **removed** (replaced by an `AgentRuntime` data record loaded from YAML, with `AllowedProviders` derived from the entry's `providers:` list); new `ModelProvider` data record; new `Model` record; reshaped `AgentExecutionConfig`. `Kind` removed.
 - Project layout: the four per-provider / per-runtime projects (`Cvoya.Spring.AgentRuntimes.{Claude, Google, Ollama, OpenAI}`) **collapse** — their static metadata moves into `runtime-catalog.yaml`; their per-provider seed model catalogues become provider-attached data (inline or sibling JSON, scope decision in the implementation PR). `IAgentRuntimeLauncher` strategies (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`, `SpringVoyageAgentLauncher`) consolidate in a single `Cvoya.Spring.AgentRuntimes` project. `IModelProviderAdapter` strategies (`OpenAiCompatibleAdapter`, `AnthropicAdapter`, `GoogleAdapter`) live in a new `Cvoya.Spring.ModelProviders` project.
-- New files: `platform/runtime-catalog.yaml` and `platform/runtime-catalog.schema.json`.
+- New files: `eng/runtime-catalog/runtime-catalog.yaml` and `eng/runtime-catalog/runtime-catalog.schema.json`.
 - Dapr component files: `conversation-*` → `llm-*`.
 - Manifest: `ai.agent` → `ai.runtime`; `ai.model` becomes `{provider, id}`.
 - Wire DTOs (`UnitExecutionResponse`, `AgentExecutionResponse`, `InstalledAgentRuntimeResponse`): `agent` → `runtime`; structured `model`; no flat `provider`; no `kind`.
@@ -408,7 +408,7 @@ A custom runtime, when added in a future release, is an entry in the same `agent
 This is a multi-PR initiative. The tracker issue [#1761](https://github.com/cvoya-com/spring-voyage/issues/1761) breaks the work into per-area PRs sequenced by `blocked-by`:
 
 - **Core domain.** `IAgentRuntime` removal (replaced by `AgentRuntime` data record); `ModelProvider` data record; `Model` record; `Kind` removal; `AgentExecutionConfig` shape change; catalogue loader from YAML. Lands first; everything else depends on it.
-- **Catalogue + adapters.** `platform/runtime-catalog.yaml` + `runtime-catalog.schema.json`; `IModelProviderAdapter` (`OpenAiCompatibleAdapter`, `AnthropicAdapter`, `GoogleAdapter`); the existing `IAgentRuntimeLauncher` strategies move under the new layout.
+- **Catalogue + adapters.** `eng/runtime-catalog/runtime-catalog.yaml` + `runtime-catalog.schema.json`; `IModelProviderAdapter` (`OpenAiCompatibleAdapter`, `AnthropicAdapter`, `GoogleAdapter`); the existing `IAgentRuntimeLauncher` strategies move under the new layout.
 - **Project re-layout.** Per-provider / per-runtime projects (`AgentRuntimes.{Claude, Google, Ollama, OpenAI}`) collapse; new `Cvoya.Spring.AgentRuntimes` (launcher strategies) and `Cvoya.Spring.ModelProviders` (adapter strategies) projects.
 - **Manifest + parser.** `ai.runtime`, `ai.model{provider,id}`; legacy errors per the table above.
 - **Web API / OpenAPI / Kiota.** DTO restructure; `openapi.json` regen; `openapi-typescript` regen; Kiota regen.

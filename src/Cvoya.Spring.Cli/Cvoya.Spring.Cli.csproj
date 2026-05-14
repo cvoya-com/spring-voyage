@@ -88,4 +88,21 @@
     </ItemGroup>
   </Target>
 
+  <!-- Dev-time convenience: in Debug builds, pack + install/update spring as
+       a global .NET tool so `spring …` works anywhere on PATH without a
+       separate `dotnet tool install` step. Opt out with /p:InstallSpringCliOnBuild=false. -->
+  <PropertyGroup>
+    <InstallSpringCliOnBuild Condition="'$(InstallSpringCliOnBuild)' == '' AND '$(Configuration)' == 'Debug' AND '$(CI)' != 'true' AND '$(GITHUB_ACTIONS)' != 'true'">true</InstallSpringCliOnBuild>
+    <GeneratePackageOnBuild Condition="'$(InstallSpringCliOnBuild)' == 'true'">true</GeneratePackageOnBuild>
+    <PackageOutputPath Condition="'$(InstallSpringCliOnBuild)' == 'true' AND '$(PackageOutputPath)' == ''">$(BaseIntermediateOutputPath)install-feed</PackageOutputPath>
+  </PropertyGroup>
+
+  <Target Name="InstallSpringCliGlobally"
+          AfterTargets="Pack"
+          Condition="'$(InstallSpringCliOnBuild)' == 'true'">
+    <Message Importance="high" Text="Installing/updating 'spring' as a global .NET tool from $(PackageOutputPath)" />
+    <Exec Command="dotnet tool update -g Cvoya.Spring.Cli --add-source &quot;$(PackageOutputPath)&quot; --prerelease --ignore-failed-sources"
+          IgnoreExitCode="true" />
+  </Target>
+
 </Project>

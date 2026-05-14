@@ -40,7 +40,7 @@ public class SecretsOptions
     /// <see cref="Cvoya.Spring.Dapr.Secrets.DaprStateBackedSecretStore"/>
     /// when <see cref="ComponentNameFormat"/> is not set. Defaults to the
     /// dedicated <c>secretsstore</c> component shipped under
-    /// <c>dapr/components/production/</c>, which pins
+    /// <c>eng/dapr/components/production/</c>, which pins
     /// <c>keyPrefix: none</c> so every host (API, worker, dispatcher)
     /// shares one secret-key namespace. The default <c>statestore</c>
     /// component uses Dapr's standard <c>keyPrefix: appid</c> — secrets

@@ -78,7 +78,7 @@ public static class GitHubAppCommand
         var writeEnvOption = new Option<bool>("--write-env")
         {
             Description =
-                "Append the resolved credentials to devops/deploy/spring.env (the " +
+                "Append the resolved credentials to eng/deploy/spring.env (the " +
                 "default persistence target — zero runtime dependencies).",
             DefaultValueFactory = _ => false,
         };
@@ -93,7 +93,7 @@ public static class GitHubAppCommand
         {
             Description =
                 "Override the spring.env path written to by --write-env. Defaults " +
-                "to ./devops/deploy/spring.env relative to the current working directory.",
+                "to ./eng/deploy/spring.env relative to the current working directory.",
         };
         var dryRunOption = new Option<bool>("--dry-run")
         {
@@ -200,7 +200,7 @@ public static class GitHubAppCommand
         };
         var writeEnvOption = new Option<bool>("--write-env")
         {
-            Description = "Persist the new key to devops/deploy/spring.env (default when neither flag is set).",
+            Description = "Persist the new key to eng/deploy/spring.env (default when neither flag is set).",
             DefaultValueFactory = _ => false,
         };
         var writeSecretsOption = new Option<bool>("--write-secrets")
@@ -423,7 +423,7 @@ public static class GitHubAppCommand
         };
         var writeEnvOption = new Option<bool>("--write-env")
         {
-            Description = "Persist the new secret to devops/deploy/spring.env (default when neither flag is set).",
+            Description = "Persist the new secret to eng/deploy/spring.env (default when neither flag is set).",
             DefaultValueFactory = _ => false,
         };
         var writeSecretsOption = new Option<bool>("--write-secrets")
@@ -858,7 +858,7 @@ public static class GitHubAppCommand
         // Derive from the configured deployment endpoint. We can't know
         // whether that endpoint is reachable from the public internet —
         // that's the operator's responsibility — but the default makes
-        // local-dev + relay setups (devops/deploy/relay.sh) work out of
+        // local-dev + relay setups (eng/deploy/relay.sh) work out of
         // the box.
         var config = CliConfig.Load();
         var endpoint = Environment.GetEnvironmentVariable("SPRING_API_URL")

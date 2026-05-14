@@ -227,11 +227,11 @@ OSS launchers (Claude Code, Codex, Gemini) use path 1; Dapr Agent uses path 3. S
 
 | Image | Path | `tool:` | Ready to dispatch? |
 |-------|------|---------|-------------------|
-| `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest` | 1 | `claude-code` | Yes — after `./devops/build/build-agent-images.sh` runs |
-| `ghcr.io/cvoya-com/spring-voyage-agent:latest` | 3 | `spring-voyage-agent` | Yes — after `./devops/build/build-agent-images.sh` runs |
+| `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest` | 1 | `claude-code` | Yes — after `./eng/build/build-agent-images.sh` runs |
+| `ghcr.io/cvoya-com/spring-voyage-agent:latest` | 3 | `spring-voyage-agent` | Yes — after `./eng/build/build-agent-images.sh` runs |
 | `ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` | 1 base | (none) | No — use as a `FROM` base, not as a dispatch target |
 
-`./devops/build/build.sh` runs `build-agent-images.sh` for you.
+`./eng/build/build.sh` runs `build-agent-images.sh` for you.
 
 ## Persistent Agents
 
@@ -286,7 +286,7 @@ For local development `spring apply` auto-builds missing images.
 
 ## See it in action
 
-The CLI scenarios under [`tests/cli-scenarios/scenarios/`](../../../tests/cli-scenarios/scenarios) exercise every CRUD and lifecycle path in this guide. See [`tests/cli-scenarios/README.md`](../../../tests/cli-scenarios/README.md) for the runner and prerequisites.
+The CLI scenarios under [`tests/e2e/cli/scenarios/`](../../../tests/e2e/cli/scenarios) exercise every CRUD and lifecycle path in this guide. See [`tests/e2e/cli/README.md`](../../../tests/e2e/cli/README.md) for the runner and prerequisites.
 
 Key scenarios for this guide:
 

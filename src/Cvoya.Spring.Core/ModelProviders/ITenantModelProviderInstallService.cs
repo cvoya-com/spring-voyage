@@ -5,7 +5,7 @@ namespace Cvoya.Spring.Core.ModelProviders;
 
 /// <summary>
 /// Service that manages per-tenant installs of model providers
-/// (ADR-0038). A provider declared in <c>platform/runtime-catalog.yaml</c>
+/// (ADR-0038). A provider declared in <c>eng/runtime-catalog/runtime-catalog.yaml</c>
 /// is <em>available</em> to the host; an install row makes it
 /// <em>visible</em> to a given tenant's wizard, CLI, and unit-creation
 /// flows.

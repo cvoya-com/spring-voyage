@@ -20,7 +20,7 @@ agent:
   capabilities: [csharp, python, fastapi, postgresql, testing]
 
   ai:
-    runtime: claude-code                # AgentRuntime id from platform/runtime-catalog.yaml
+    runtime: claude-code                # AgentRuntime id from eng/runtime-catalog/runtime-catalog.yaml
     model:
       provider: anthropic
       id: claude-sonnet-4-6

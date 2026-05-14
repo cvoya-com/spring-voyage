@@ -19,7 +19,7 @@ agent:
   capabilities: [csharp, python, postgresql, testing]
 
   ai:
-    runtime: claude-code   # AgentRuntime id from platform/runtime-catalog.yaml (ADR-0038)
+    runtime: claude-code   # AgentRuntime id from eng/runtime-catalog/runtime-catalog.yaml (ADR-0038)
     model:
       provider: anthropic  # ModelProvider id; intrinsic to the model
       id: claude-sonnet-4-6
@@ -63,7 +63,7 @@ unit:
   structure: hierarchical
 
   ai:
-    runtime: spring-voyage  # AgentRuntime id from platform/runtime-catalog.yaml (ADR-0038)
+    runtime: spring-voyage  # AgentRuntime id from eng/runtime-catalog/runtime-catalog.yaml (ADR-0038)
     model:
       provider: ollama
       id: llama3.2:3b

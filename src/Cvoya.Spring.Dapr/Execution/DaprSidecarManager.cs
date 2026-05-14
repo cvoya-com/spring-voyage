@@ -238,7 +238,7 @@ public class DaprSidecarManager(
             // cross-container connection, the readiness probe times out
             // after 30s, and the dispatch tears the sidecar down before
             // ever reaching app readiness. Matches what
-            // `devops/deploy/deploy.sh` passes for `spring-api-dapr` /
+            // `eng/deploy/deploy.sh` passes for `spring-api-dapr` /
             // `spring-worker-dapr`.
             "--dapr-listen-addresses", "0.0.0.0",
         };

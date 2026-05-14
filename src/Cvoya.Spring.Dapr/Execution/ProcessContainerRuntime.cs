@@ -1019,7 +1019,7 @@ public class ProcessContainerRuntime(
         var cwdDescription = string.IsNullOrEmpty(cwd) ? "unknown" : $"'{cwd}'";
         var message =
             $"Failed to start '{fileName}' because the dispatcher's working directory ({cwdDescription}) is unreachable: {cwdError}. "
-            + "Restart the dispatcher from a valid directory (e.g. `./devops/deploy/spring-voyage-host.sh restart`). "
+            + "Restart the dispatcher from a valid directory (e.g. `./eng/deploy/spring-voyage-host.sh restart`). "
             + "See https://github.com/cvoya-com/spring-voyage/issues/1674.";
         return new InvalidOperationException(message, original);
     }

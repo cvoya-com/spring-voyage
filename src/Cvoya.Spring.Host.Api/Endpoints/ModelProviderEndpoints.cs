@@ -14,7 +14,7 @@ using Microsoft.AspNetCore.Mvc;
 /// <summary>
 /// Maps <c>/api/v1/tenant/model-providers/installs</c> — the per-tenant
 /// model-provider install management surface (ADR-0038). Providers are
-/// declared in <c>platform/runtime-catalog.yaml</c>; rows in
+/// declared in <c>eng/runtime-catalog/runtime-catalog.yaml</c>; rows in
 /// <c>tenant_agent_runtime_installs</c> (re-keyed on provider id under
 /// ADR-0038) determine which providers are visible to a given tenant's
 /// wizard, CLI, and unit-creation flows.
