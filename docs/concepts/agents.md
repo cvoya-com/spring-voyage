@@ -9,8 +9,10 @@ needs reasoning is ultimately delivered to an agent-shaped runtime invocation.
 A **unit** is an agent that has children. A **leaf agent** is an agent with no
 children. The dispatch path is the same for both; the child list only controls
 whether orchestration tools are attached. See [Units](units.md) for the
-unit-specific layer, [ADR-0039](../decisions/0039-units-are-agents.md) for the
-unit-as-agent decision, [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md)
+unit-specific layer, [Units vs agents](units-vs-agents.md) for the quick
+reference on what features apply to both vs only one,
+[ADR-0039](../decisions/0039-units-are-agents.md) for the unit-as-agent
+decision, [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md)
 for the runtime/model config split, and
 [Agent Runtime](../architecture/agent-runtime.md) for launcher details.
 
