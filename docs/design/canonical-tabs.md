@@ -25,6 +25,7 @@ Alignment is **structural, not visual**. We are not reskinning anything. We are 
 - **No backend wiring changes.** Endpoints are not renamed, merged, or moved. Hooks may need to accept a `kind` discriminator (the Activity tab unification under #2253 already does this); they do not gain new wire shapes.
 - **No subject-unique tab removal.** Skills, Traces, Clones, Deployment (Agent), and Agents-list (Unit), Budgets (Tenant) all keep their content. They get repositioned within the canonical order; they are not bolted on at the end and they are not deleted.
 - **Subject-unique sub-tab ordering inside a canonical tab is not touched** unless a sub-issue's scope explicitly calls for it.
+- **No forcing tabs onto a subject the concept doesn't apply to.** Tenant is not an agent and does not participate in threads; tabs whose purpose is bound to thread participation (Messages) or to composing thread participants (Agents) do **not** apply to Tenant. Alignment converges the canonical *order* across subjects, but a slot only renders for a subject when the concept genuinely applies to that subject. We do not add stub or deep-link content to Tenant merely to keep every column populated.
 
 ---
 
@@ -46,7 +47,7 @@ Observed misalignment:
 
 - **Memory vs. Policies order flips.** Unit puts Memory before Policies (positions 5 / 6); Tenant puts Policies before Memory (positions 3 / 5 with Budgets between). Agent puts Memory before Policies but separates them by four agent-only tabs.
 - **Config visibility flips.** Unit hides Config in overflow; Agent surfaces Config inline at position 9 of 10; Tenant has no Config tab at all today, even though it has tenant-scoped configuration (tenant-default credentials, tenant cloning policy, tenant budget) reachable only from `/settings`.
-- **The Unit `Agents` tab has no analogue** on Agent (correct — agents do not contain agents) or Tenant (incorrect by omission — the tenant root has an Overview-grid of top-level units but no roll-up "all agents in tenant" view).
+- **The Unit `Agents` tab has no analogue** on Agent (correct — agents do not contain agents) or Tenant (correct under the § 1 principle — Tenant does not compose thread participants; the tenant root's Overview-grid of top-level units is the right surface, and the Explorer tree already surfaces every agent in the tenant).
 
 ### 2.2 Per-subject tab files
 
@@ -145,9 +146,9 @@ The canonical order, left to right, is:
 
 1. **Overview** — what's the state of this subject right now?
 2. **Activity** — what has been happening / costing money?
-3. **Messages** — what conversations does this subject participate in?
+3. **Messages** — what conversations does this subject participate in? *(applies to Unit and Agent; does-not-apply on Tenant — Tenant does not participate in threads. See § 1 principle.)*
 4. **Memory** — what does this subject remember?
-5. **Agents** — what agents belong to this subject? *(applies to Unit and Tenant; does-not-apply on Agent — an agent does not contain agents.)*
+5. **Agents** — what agents belong to this subject? *(applies to Unit; does-not-apply on Agent — an agent does not contain agents — and does-not-apply on Tenant — Tenant does not compose thread participants. See § 1 principle.)*
 6. **Skills** — what capabilities is this subject equipped with? *(applies to Agent only today; see § 4 note.)*
 7. **Traces** — what individual executions has this subject run? *(applies to Agent only today; see § 4 note.)*
 8. **Clones** — what spawned copies of this subject exist? *(applies to Agent only today; see § 4 note.)*
@@ -182,19 +183,19 @@ Unit today puts Config in overflow because the primary strip already has six vis
 
 - **Unit:** Overview, Activity, Messages, Memory, Agents, Policies visible — Config overflow.
 - **Agent:** Overview, Activity, Messages, Memory, Skills, Traces, Clones, Policies visible — Config, Deployment overflow.
-- **Tenant:** Overview, Activity, Messages, Memory, Agents, Policies, Budgets visible — Config overflow.
+- **Tenant:** Overview, Activity, Memory, Policies, Budgets visible — Config overflow. Messages and Agents are skipped per the § 1 principle (tenant does not participate in threads).
 
 Rationale for the Agent visible/overflow split: Agent today has ten visible tabs, no overflow. The canonical strip pushes Config + Deployment to overflow because (a) both are deep editors / lifecycle surfaces, (b) the activity-side cluster (Overview/Activity/Messages/Memory/Skills/Traces/Clones/Policies — eight tabs) is the high-frequency surface, and (c) the existing `<AgentCard>` Deployment quick-action already deep-links to `?tab=Deployment`, so overflow placement does not regress that path.
 
 ### 3.4 New tabs introduced versus today
 
-This design **introduces three new tabs** that did not exist on their respective subjects today. Every new tab is a re-home for a setting currently reachable elsewhere — no new options, no new endpoints.
+This design **introduces one new tab** that did not exist on its subject today. It is a re-home for settings currently reachable elsewhere — no new options, no new endpoints.
 
-- **Tenant × Messages.** Tenant today has no Messages tab. The canonical structure adds one to keep the reading-slot quartet (Overview/Activity/Messages/Memory) consistent across subjects. The tab renders a tenant-wide engagement roll-up — the most recent N threads addressed to `unit://` or `agent://` participants under the tenant — via the existing `GET /api/v1/threads` endpoint with no participant filter. Implementation reuses `<UnitAgentMessagesView>` adapted to read multiple threads or, more cheaply for v0.1, ships a deep-link tab to `/inbox` filtered by tenant scope (decided at implementation time per the lower-cost path). See § 5.3 for content. **If the cheapest implementation is "deep-link card to `/inbox`", that is acceptable — no new wire shape required**, and matches the precedent set by Tenant × Activity (deep-link card) and Tenant × Policies (deep-link card) today.
-- **Tenant × Agents.** Tenant today has no Agents tab. The canonical structure adds one as a tenant-wide agent roll-up — every agent across every unit, with status, last-message, and a teleport into the per-agent Detail Pane. Implementation: list-view over `flattenTree(tenantRoot)` filtered to `node.kind === "Agent"`. Pure-frontend; no new endpoint. This makes the Unit × Agents tab and the Tenant × Agents tab read as the same conceptual surface at different scopes.
 - **Tenant × Config.** Tenant today has no Config tab. The canonical structure adds one as the **canonical home for tenant-scope wiring** that today is scattered across `/settings`: tenant-default credentials (`tenant-defaults-panel`), tenant budget (`budget-panel`), and tenant cloning-policy summary (`cloning-policy-panel`). See § 4 for the matrix and § 5.11 for the content map.
 
-**These three additions are explicit re-homes, not new features.** They reach exactly the same APIs the existing `/settings` panels already reach.
+**This addition is an explicit re-home, not a new feature.** It reaches exactly the same APIs the existing `/settings` panels already reach.
+
+Per the § 1 principle, the canonical order does **not** invent a Tenant × Messages tab or a Tenant × Agents tab to keep every column populated. Tenant does not participate in threads (Messages) and does not compose thread participants (Agents); those slots stay empty for Tenant in the matrix below and are not rendered in the Tenant strip.
 
 ---
 
@@ -206,9 +207,9 @@ This design **introduces three new tabs** that did not exist on their respective
 |---|---|---|---|
 | 1. Overview | A | A | A |
 | 2. Activity | A* (deep-link to `/analytics/throughput` + cost cards retained) | A | A* (cost cards retained — agent-only) |
-| 3. Messages | A* (tenant-wide roll-up; deep-link to `/inbox` acceptable) | A | A |
+| 3. Messages | — (Tenant does not participate in threads; see § 1 principle) | A | A |
 | 4. Memory | A* (empty state — tenant memory lands in v2.1) | A | A |
-| 5. Agents | A (tenant-wide agent roll-up; **new tab**, see § 3.4) | A (existing — children agents + nested units) | — |
+| 5. Agents | — (Tenant does not compose thread participants; see § 1 principle) | A (existing — children agents + nested units) | — |
 | 6. Skills | — | — | A |
 | 7. Traces | — | — | A* (mock fixture in v0.1; real endpoint v2.1) |
 | 8. Clones | — | — | A |
@@ -220,13 +221,13 @@ This design **introduces three new tabs** that did not exist on their respective
 ### 4.1 Variance notes
 
 - **Tenant × Activity.** Today this is a near-empty deep-link card. Post-alignment it embeds the same `<ActivityTab kind="Tenant" id={...} />` shape via a thin tenant-feed adapter, or — if no tenant-level activity feed exists — keeps the deep-link card. **Implementation chooses the cheaper path**; the tab position is what aligns.
-- **Tenant × Messages.** Cheapest implementation is a deep-link card to `/inbox`. The position aligns; the content surface can deepen later without a structural move.
 - **Tenant × Memory.** Stays as today's static "tenant memory lands in v2.1" empty state. The position aligns.
 - **Tenant × Policies.** Today this is a deep-link card to `/policies`. Post-alignment it surfaces a richer tenant view (cloning-policy card, cost/model/skill summary cards) inline, with the deep-link to `/policies` preserved for the full per-unit roll-up. **The dedicated `/policies` route is not deleted** — it remains the per-unit roll-up surface; the Tenant × Policies tab is the tenant-scope summary.
-- **Tenant × Agents.** New tab. List view; teleports into per-agent Detail Pane. Same hook the Cmd-K teleport bridge uses (`flattenTree`).
 - **Agent × Policies.** Preserves today's scope (Initiative + Cloning only). Cost / Model / Skill dimensions are declared on the owning unit by design — the agent-policies tab body's own header text states this. **No new editors are added** under the alignment work; this is the "alignment yields to information preservation" rule in action.
 - **Agent × Activity.** Preserves the agent-only cost sparkline (#1363) and per-model breakdown table (#1364) the canonical `<ActivityTab>` renders when `kind === "Agent"`.
 - **Tenant × Config (new).** Holds the three settings currently reached via `/settings`: tenant credentials (now under a "Secrets" sub-tab); tenant budget editor (now under a "Budget" sub-tab — Tenant × Budgets surfaces the *read-side* breakdown card; the editor is canonically inside Config alongside the other tenant wiring); tenant cloning-policy read-only summary (now under a "Cloning" sub-tab; the editor still rides `spring agent clone policy set --scope tenant`). The `/settings` cards still render — they embed `<TenantConfigSection sub="…" />` so a single edit form lives at the canonical home.
+
+Tenant × Messages and Tenant × Agents do **not** appear in the matrix and are not rendered in the Tenant strip. Tenant-wide thread / agent roll-ups remain reachable via `/inbox` and the Explorer tree (which already surfaces every agent in the tenant) respectively; we do not duplicate those surfaces into the Tenant Detail Pane.
 
 ### 4.2 Why Policies/Budgets are kept distinct on Tenant
 
@@ -273,16 +274,16 @@ Canonical component: `src/components/units/tab-impls/activity-tab.tsx` accepting
 
 ### 5.3 Messages
 
-Subjects: Tenant, Unit, Agent.
+Subjects: Unit, Agent. *(Tenant does not participate in threads — see § 1 principle / § 4.1.)*
 
 Canonical component: `src/components/units/tabs/unit-agent-messages-view.tsx`.
 
-| Content | Tenant | Unit | Agent | Canonical home |
-|---|---|---|---|---|
-| Inline timeline (`<UnitAgentMessagesView>` body) | — (deep-link to `/inbox` acceptable) | A | A | this tab |
-| `+ New conversation` button + modal composer | — | A | A | this tab |
-| Persistent composer at bottom | — | A | A | this tab |
-| Timeline filter dropdown (Messages / Full timeline) | — | A | A | this tab |
+| Content | Unit | Agent | Canonical home |
+|---|---|---|---|
+| Inline timeline (`<UnitAgentMessagesView>` body) | A | A | this tab |
+| `+ New conversation` button + modal composer | A | A | this tab |
+| Persistent composer at bottom | A | A | this tab |
+| Timeline filter dropdown (Messages / Full timeline) | A | A | this tab |
 
 ### 5.4 Memory
 
@@ -298,14 +299,13 @@ Canonical component: a unified `<MemoryTab>` parameterised by `{ kind, id }`. To
 
 ### 5.5 Agents
 
-Subjects: Tenant (**new**), Unit.
+Subject: Unit. *(Tenant does not compose thread participants — see § 1 principle / § 4.1; Agent does not contain agents.)*
 
-| Content | Tenant | Unit | Canonical home |
-|---|---|---|---|
-| Children grid (agents + nested units, with type-pill) | — | A (`<AgentsTab>`) | this tab |
-| Tenant-wide flattened agent list (status, owning unit, last message) | A (**new** — pure frontend over `flattenTree`) | — | this tab |
-| `+ New agent` affordance | — | A (existing) | this tab |
-| Membership edit dialog | — | A (existing) | this tab |
+| Content | Unit | Canonical home |
+|---|---|---|
+| Children grid (agents + nested units, with type-pill) | A (`<AgentsTab>`) | this tab |
+| `+ New agent` affordance | A (existing) | this tab |
+| Membership edit dialog | A (existing) | this tab |
 
 ### 5.6 Skills
 
@@ -493,12 +493,14 @@ The implementation PRs converge `UNIT_TABS` / `AGENT_TABS` / `TENANT_TABS` on th
 
 ```ts
 export const TENANT_TABS = {
+  // Messages and Agents are intentionally absent — Tenant does not
+  // participate in threads or compose thread participants. See § 1
+  // principle and § 3.4. The canonical *order* is honored: every slot
+  // that does apply renders in its canonical position.
   visible: [
     "Overview",
     "Activity",
-    "Messages",
     "Memory",
-    "Agents",
     "Policies",
     "Budgets",
   ] as const,
@@ -555,9 +557,9 @@ Each row maps a sub-issue to its new scope, the files it touches, and any re-sco
 
 #### #2256 — Messages unification
 
-- **Scope:** merge `unit-messages.tsx` + `agent-messages.tsx` into one `<MessagesTab kind id />` component. They are 27-line and 33-line thin wrappers around `<UnitAgentMessagesView>` today — the unification is mostly mechanical (the view itself is already shared). Tenant × Messages **is filed as a separate follow-up sub-issue** because (a) Tenant is currently a missing tab, not a duplicated implementation, and (b) the cheapest implementation (deep-link card to `/inbox`) is structurally different from the per-unit/per-agent timeline.
+- **Scope:** merge `unit-messages.tsx` + `agent-messages.tsx` into one `<MessagesTab kind id />` component. They are 27-line and 33-line thin wrappers around `<UnitAgentMessagesView>` today — the unification is mostly mechanical (the view itself is already shared). Tenant is not in scope: per the § 1 principle, Tenant does not participate in threads and does not gain a Messages tab.
 - **Files:** `src/components/units/tabs/unit-messages.tsx`, `agent-messages.tsx`. `unit-agent-messages-view.tsx` untouched.
-- **Re-scope:** unchanged for Unit + Agent. **New follow-up sub-issue: "Add Tenant × Messages tab"** — must be filed before the design-doc PR merges so the canonical order can land via #2261 with full subject coverage; the actual Tenant × Messages implementation can ship after.
+- **Re-scope:** unchanged for Unit + Agent. No tenant follow-up filed.
 
 #### #2255 — Policies unification
 
@@ -587,11 +589,9 @@ Each row maps a sub-issue to its new scope, the files it touches, and any re-sco
 
 ### 7.3 Follow-ups to file before the canonical-order ships
 
-Three issues need to exist before `aggregate.ts` flips, so that the design's "every subject in canonical order" claim is honest:
+The only Tenant-side addition is the new Config tab, and that is absorbed by the expanded #2254 scope. **If the implementation agent decides to split #2254**, file Tenant × Config as a new sub-issue and link it.
 
-1. **Add Tenant × Messages tab.** Cheapest landing: a deep-link card to `/inbox` per § 4.1. Filed as a new sub-issue under #2252.
-2. **Add Tenant × Agents tab.** New tab; pure-frontend list view over `flattenTree`. Filed as a new sub-issue under #2252.
-3. **Add Tenant × Config tab.** Covered by the expanded #2254 scope — no separate follow-up needed if #2254 absorbs it. **If the implementation agent decides to split #2254**, file Tenant × Config as a new sub-issue and link it.
+Per the § 1 principle, no Tenant × Messages or Tenant × Agents sub-issue is needed — those tabs are intentionally absent on Tenant.
 
 ### 7.4 What stays unchanged
 
@@ -608,7 +608,6 @@ Three issues need to exist before `aggregate.ts` flips, so that the design's "ev
 
 These are flagged so the implementation PRs do not stop on them — the design's answer is given, but reviewers may push back.
 
-- **Q: Tenant × Messages with no tenant-feed endpoint — is the deep-link card really aligned?** The position in the strip aligns; the content is sparser than Unit and Agent. The alternative — adding a `GET /api/v1/threads?tenant=<id>` filter — is out of scope for this design. The deep-link card matches the precedent set by Tenant × Activity and Tenant × Policies today.
 - **Q: Does promoting Agent × Config sections to sub-tabs hurt operators who scan the page vertically?** Possibly — today the agent Config page is one scroll. Under alignment it becomes a sub-tab strip matching Unit. We accept the trade-off because consistency across subjects is the umbrella goal and a sub-issue can refine the sub-tab strip later (e.g. an "All" view) without breaking the canonical structure.
 - **Q: The Tenant × Budgets daily-budget editor moves from `/settings` to Tenant × Config → Budget. Does this hide it from a first-time operator?** No: `/settings` keeps the Tenant-budget card and that card embeds the same `<BudgetPanel>` component. **Two access paths, one canonical home.**
 - **Q: Why not delete `/policies` / `/budgets` since the per-subject tabs now cover them?** Because they are cross-subject roll-ups that the per-subject tabs cannot deliver. Deleting them would lose information.
