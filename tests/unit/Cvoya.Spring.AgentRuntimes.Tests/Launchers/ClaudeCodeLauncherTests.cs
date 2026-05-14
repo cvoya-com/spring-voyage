@@ -220,6 +220,46 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
+    public async Task PrepareAsync_UnitIdOnContext_ForwardsParsedGuidToResolver()
+    {
+        // #2251: when the dispatcher stamps the agent's owning unit id on
+        // AgentLaunchContext, the launcher must parse it as a Guid and pass
+        // it to ILlmCredentialResolver so the resolver can walk Tier 1
+        // (unit) and the parent-unit chain before falling back to tenant
+        // scope. Before #2251 every dispatch site left context.UnitId null
+        // and unit-scoped tokens were silently ignored.
+        var unitGuid = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        var context = LauncherCallbackTestSupport.CreateContext(unitId: unitGuid.ToString("N"));
+
+        await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        await _credentialResolver.Received(1).ResolveAsync(
+            "anthropic",
+            Cvoya.Spring.Core.Catalog.AuthMethod.Oauth,
+            Arg.Any<Guid?>(),
+            Arg.Is<Guid?>(unit => unit == unitGuid),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PrepareAsync_NullUnitIdOnContext_PassesNullToResolver()
+    {
+        // Symmetric guard: a context without UnitId must surface as a null
+        // unit slot to the resolver — the resolver's tenant-only fallback
+        // path is the documented contract for agents without a parent unit.
+        var context = LauncherCallbackTestSupport.CreateContext(unitId: null);
+
+        await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        await _credentialResolver.Received(1).ResolveAsync(
+            "anthropic",
+            Cvoya.Spring.Core.Catalog.AuthMethod.Oauth,
+            Arg.Any<Guid?>(),
+            Arg.Is<Guid?>(unit => unit == null),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task PrepareAsync_ApiKey_FailsPreFlightWithGuidance()
     {
         // #1714 step 2: API keys are rejected on the Claude AgentRuntime path

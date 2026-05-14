@@ -230,6 +230,10 @@ public class A2AExecutionDispatcher(
             McpEndpoint: mcpServer.Endpoint,
             McpToken: session.Token,
             TenantId: tenantId,
+            // #2251: forward the agent's owning unit id so launchers can pass
+            // it to ILlmCredentialResolver — without this the resolver skips
+            // Tier 1 (unit) and the parent-chain walk.
+            UnitId: definition.UnitId,
             AgentDefinitionYaml: agentDefinitionYaml,
             TenantConfigJson: tenantConfigJson,
             Provider: definition.Execution.Provider,
@@ -702,6 +706,10 @@ public class A2AExecutionDispatcher(
             McpEndpoint: mcpServer.Endpoint,
             McpToken: session.Token,
             TenantId: tenantId,
+            // #2251: forward the agent's owning unit id so launchers can pass
+            // it to ILlmCredentialResolver — without this the resolver skips
+            // Tier 1 (unit) and the parent-chain walk.
+            UnitId: definition.UnitId,
             AgentDefinitionYaml: agentDefinitionYaml,
             TenantConfigJson: tenantConfigJson,
             Provider: definition.Execution.Provider,
