@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { UnitNode } from "../aggregate";
+import type { TenantNode } from "../aggregate";
 
 // The wrapper just delegates to the canonical `<ConfigTab>`. We mock
 // the canonical control to expose the props the wrapper hands down so
@@ -22,33 +22,33 @@ vi.mock("@/components/units/tab-impls/config-tab", () => ({
   ),
 }));
 
-import UnitConfigTab from "./unit-config";
+import TenantConfigTab from "./tenant-config";
 
-const unit: UnitNode = {
-  kind: "Unit",
-  id: "engineering",
-  name: "Engineering",
+const tenant: TenantNode = {
+  kind: "Tenant",
+  id: "tenant",
+  name: "Tenant",
   status: "running",
 };
 
-describe("UnitConfigTab — canonical wrapper (#2254)", () => {
-  it("wires the canonical ConfigTab with the unit's id + name", () => {
-    render(<UnitConfigTab node={unit} path={[unit]} />);
+describe("TenantConfigTab — new canonical surface (#2254)", () => {
+  it("wires the canonical ConfigTab with the tenant's id + name", () => {
+    render(<TenantConfigTab node={tenant} path={[tenant]} />);
     const canonical = screen.getByTestId("canonical-config-tab");
-    expect(canonical.dataset.kind).toBe("Unit");
-    expect(canonical.dataset.id).toBe("engineering");
-    expect(canonical.dataset.name).toBe("Engineering");
+    expect(canonical.dataset.kind).toBe("Tenant");
+    expect(canonical.dataset.id).toBe("tenant");
+    expect(canonical.dataset.name).toBe("Tenant");
   });
 
-  it("returns null when the node is not a Unit (defensive — registry guards this)", () => {
+  it("returns null when the node is not a Tenant (defensive — registry guards this)", () => {
     const node = {
-      kind: "Tenant",
-      id: "tenant",
-      name: "Tenant",
+      kind: "Unit",
+      id: "engineering",
+      name: "Engineering",
       status: "running",
     } as never;
     const { container } = render(
-      <UnitConfigTab node={node} path={[node]} />,
+      <TenantConfigTab node={node} path={[node]} />,
     );
     expect(container.firstChild).toBeNull();
   });

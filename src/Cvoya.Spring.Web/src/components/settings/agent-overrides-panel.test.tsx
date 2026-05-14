@@ -195,4 +195,84 @@ describe("AgentOverridesPanel (#1744)", () => {
     expect(optionValues).toContain("babbage");
     expect(optionValues).not.toContain("ada");
   });
+
+  // Pinned-mode tests (#2254 / canonical-tabs § 5.11). When the panel
+  // is mounted inside Agent × Config → Secrets the open agent is
+  // already known, so the picker is hidden, the agents directory is
+  // never fetched, and the secret-CRUD wire scopes directly to the
+  // passed agentId.
+  describe("pinned mode (#2254)", () => {
+    it("hides the agent picker when an agentId prop is passed", async () => {
+      listAgentSecrets.mockResolvedValue({ secrets: [] });
+
+      render(<AgentOverridesPanel agentId="ada" />);
+
+      // Wait for the secret-CRUD body to mount, then assert no picker
+      // affordances are present.
+      await screen.findByTestId("agent-override-name");
+
+      expect(screen.queryByTestId("agent-overrides-filter")).toBeNull();
+      expect(screen.queryByTestId("agent-overrides-agent-select")).toBeNull();
+    });
+
+    it("does not fetch the agent directory in pinned mode", async () => {
+      listAgentSecrets.mockResolvedValue({ secrets: [] });
+
+      render(<AgentOverridesPanel agentId="ada" />);
+      await screen.findByTestId("agent-override-name");
+
+      // listAgents would surface a Loading-state in the (non-existent)
+      // select; in pinned mode the directory call must not happen at
+      // all so an /api/v1/agents round-trip is not wasted.
+      expect(listAgents).not.toHaveBeenCalled();
+    });
+
+    it("loads the pinned agent's secrets immediately on mount", async () => {
+      listAgentSecrets.mockResolvedValue({
+        secrets: [
+          {
+            name: "anthropic-api-key",
+            scope: "Agent",
+            createdAt: new Date().toISOString(),
+          },
+        ] as SecretMetadata[],
+      });
+
+      render(<AgentOverridesPanel agentId="ada" />);
+
+      await waitFor(() => {
+        expect(listAgentSecrets).toHaveBeenCalledWith("ada");
+      });
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("agent-override-row-anthropic-api-key"),
+        ).toBeInTheDocument();
+      });
+    });
+
+    it("posts to createAgentSecret against the pinned agentId without a propagate field", async () => {
+      listAgentSecrets.mockResolvedValue({ secrets: [] });
+      createAgentSecret.mockResolvedValue({});
+
+      render(<AgentOverridesPanel agentId="ada" />);
+
+      const nameInput = await screen.findByTestId("agent-override-name");
+      fireEvent.change(nameInput, { target: { value: "openai-api-key" } });
+
+      const valueInput = screen.getByTestId("agent-override-value");
+      fireEvent.change(valueInput, { target: { value: "sk-secret" } });
+
+      fireEvent.click(screen.getByTestId("agent-override-submit"));
+
+      await waitFor(() => {
+        expect(createAgentSecret).toHaveBeenCalledTimes(1);
+      });
+      const [agentId, body] = createAgentSecret.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(agentId).toBe("ada");
+      expect(body).not.toHaveProperty("propagate");
+    });
+  });
 });

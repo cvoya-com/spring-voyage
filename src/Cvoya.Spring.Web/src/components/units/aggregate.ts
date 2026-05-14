@@ -330,7 +330,14 @@ export const TENANT_TABS = {
     "Policies",
     "Budgets",
   ] as const,
-  overflow: [] as const,
+  // Config holds the three settings reached today via `/settings`:
+  // tenant-default credentials, tenant budget editor, and tenant
+  // cloning-policy read-only summary. `/settings` continues to embed
+  // the same panel bodies — one canonical implementation, two access
+  // paths. Overflow because Config is a deep editor reached less often
+  // than Overview / Activity / Policies / Budgets, mirroring the
+  // Unit and Agent split. See canonical-tabs.md § 5.11.
+  overflow: ["Config"] as const,
 };
 
 export type UnitTabName =
