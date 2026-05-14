@@ -4,15 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 import type { UnitNode } from "../aggregate";
 
 vi.mock("@/components/units/tab-impls/activity-tab", () => ({
-  ActivityTab: ({ unitId }: { unitId: string }) => (
-    <div data-testid="legacy-activity-tab" data-unit-id={unitId} />
+  ActivityTab: ({ kind, id }: { kind: string; id: string }) => (
+    <div data-testid="unified-activity-tab" data-kind={kind} data-id={id} />
   ),
 }));
 
 import UnitActivityTab from "./unit-activity";
 
 describe("UnitActivityTab adapter", () => {
-  it("forwards node.id to the legacy ActivityTab", () => {
+  it("forwards node.id to the unified ActivityTab as a Unit subject", () => {
     const node: UnitNode = {
       kind: "Unit",
       id: "engineering",
@@ -20,8 +20,8 @@ describe("UnitActivityTab adapter", () => {
       status: "running",
     };
     render(<UnitActivityTab node={node} path={[node]} />);
-    expect(screen.getByTestId("legacy-activity-tab").dataset.unitId).toBe(
-      "engineering",
-    );
+    const el = screen.getByTestId("unified-activity-tab");
+    expect(el.dataset.kind).toBe("Unit");
+    expect(el.dataset.id).toBe("engineering");
   });
 });
