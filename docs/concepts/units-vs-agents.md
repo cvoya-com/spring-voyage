@@ -68,9 +68,16 @@ Both subjects are addressable. The schemes differ:
 |---|---|---|
 | Leaf agent | `agent://` | `agent:b168ee61…` |
 | Unit | `unit://` | `unit:35e66200…` |
+| Human | `human://` (short-circuits the directory by design) | `human:a2…` |
 | Tenant | (none — tenant is not addressable as an actor) | — |
 
 The dispatcher resolves either scheme through the same runtime layer. The scheme only changes which orchestration tools the runtime sees and which mailbox identity the callback uses.
+
+## Humans are subjects, not agents
+
+A **human** is a third kind of subject — addressable, can be a member of a unit, can participate in threads — but **not an agent**. A human implements only `IMessageReceiver`; the agent-shaped surfaces (memory, skills, traces, execution config, runtime, deployment) do not apply. See [Humans](humans.md) for the concept and [`docs/design/canonical-tabs.md`](../design/canonical-tabs.md) for the (deferred to v0.2) portal column.
+
+If you find yourself designing a feature that wants to apply to "everything in a unit's member set", remember it's a heterogeneous set: agents (which include sub-units) and humans. Different shapes, different surfaces.
 
 ## Why this matters
 
@@ -81,4 +88,5 @@ See also:
 - [ADR-0039 — Units are agents](../decisions/0039-units-are-agents.md) — the durable architecture decision.
 - [Agents](agents.md) — the agent-layer concept doc.
 - [Units](units.md) — the unit-specific layer doc.
+- [Humans](humans.md) — humans as subjects (not agents).
 - [AGENTS.md](../../AGENTS.md) — top-level project rules.
