@@ -3050,6 +3050,8 @@ export interface components {
             packageName: string;
             state: string;
             errorMessage: null | string;
+            createdUnitNames?: null | string[];
+            createdAgentIds?: null | string[];
         };
         InstallStatusResponse: {
             /** Format: uuid */

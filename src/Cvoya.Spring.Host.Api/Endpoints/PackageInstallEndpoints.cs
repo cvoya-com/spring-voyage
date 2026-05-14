@@ -659,7 +659,9 @@ public static class PackageInstallEndpoints
                     PackageInstallOutcome.Failed => "failed",
                     _ => "staging",
                 },
-                p.ErrorMessage))
+                p.ErrorMessage,
+                p.CreatedUnitNames,
+                p.CreatedAgentIds))
             .ToList();
 
         return new InstallStatusResponse(

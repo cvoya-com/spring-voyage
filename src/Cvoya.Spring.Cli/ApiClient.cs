@@ -2802,7 +2802,9 @@ public class SpringApiClient
     public sealed record PackageInstallPackageDetail(
         string PackageName,
         string State,
-        string? ErrorMessage);
+        string? ErrorMessage,
+        IReadOnlyList<string>? CreatedUnitNames = null,
+        IReadOnlyList<string>? CreatedAgentIds = null);
 
     /// <summary>The bytes returned by the export endpoint, with content-type and suggested filename.</summary>
     public sealed record PackageExportResult(byte[] Content, string ContentType, string FileName);
