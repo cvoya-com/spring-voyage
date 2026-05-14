@@ -577,6 +577,11 @@ export default function CreateUnitPage() {
   const [createdUnitName, setCreatedUnitName] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [startRequested, setStartRequested] = useState(false);
+  // #2246: "Start automatically after install" preference shown on the final
+  // wizard step. Per-session UI preference; not persisted to sessionStorage
+  // because rehydrating it across runs would silently change install
+  // behaviour after a refresh.
+  const [autoStart, setAutoStart] = useState(true);
   // Soft client-side timeout for the Validating phase. The backend has
   // its own per-step timeouts (5 min for the image pull), but those are
   // long enough that a stuck workflow looks indistinguishable from "still
@@ -1359,6 +1364,16 @@ export default function CreateUnitPage() {
     onSuccess: (resp) => {
       setInstallId(resp.installId);
       setInstallStatus(resp);
+      // #2246: the scratch path synthesises an installId of
+      // `scratch:<unit-name>`; surface the unit name so the validation
+      // polling flow (createdUnitQuery) can take over and either
+      // auto-start the unit or redirect to its Overview tab.
+      if (form.source === "scratch" && resp.installId.startsWith("scratch:")) {
+        const name = resp.installId.slice("scratch:".length);
+        if (name.length > 0) {
+          setCreatedUnitName(name);
+        }
+      }
       // #2169: install accepted — drop any credential values the
       // operator typed for the inline retry form. They're already
       // persisted as tenant secrets server-side; retaining them in
@@ -1446,16 +1461,50 @@ export default function CreateUnitPage() {
   const installFailed = latestInstallStatus?.status === "failed";
   const installPending = installId !== null && !installActive && !installFailed;
 
-  // On install success, invalidate unit/dashboard caches and redirect.
+  // On install success, invalidate caches and either redirect (catalog
+  // path) or hand off to the scratch-path validation polling flow which
+  // ultimately redirects to the new unit's Overview tab. #2246 also wires
+  // the optional "Start automatically" checkbox: when on, the wizard
+  // starts every created unit and deploys every persistent agent before
+  // redirecting. Failures are non-fatal — the operator can still start
+  // manually from the Explorer.
   useEffect(() => {
     if (!installActive) return;
+    // Scratch path: createdUnitName is set in installMutation.onSuccess
+    // and a separate effect (createdUnitName && isTerminalSuccess) drives
+    // the validation polling, auto-start, and redirect.
+    if (isSyntheticInstallId) return;
+
     queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
-    toast({ title: "Install complete" });
-    router.push("/units");
+
+    const finishCatalogInstall = async () => {
+      if (autoStart && latestInstallStatus) {
+        const unitNames = latestInstallStatus.packages.flatMap(
+          (p) => p.createdUnitNames ?? [],
+        );
+        const agentIds = latestInstallStatus.packages.flatMap(
+          (p) => p.createdAgentIds ?? [],
+        );
+        const tasks: Promise<unknown>[] = [
+          ...unitNames.map((name) => api.startUnit(name).catch(() => null)),
+          ...agentIds.map((id) =>
+            api.deployPersistentAgent(id).catch(() => null),
+          ),
+        ];
+        if (tasks.length > 0) {
+          await Promise.all(tasks);
+          queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
+          queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+        }
+      }
+      toast({ title: "Install complete" });
+      router.push("/units");
+    };
+    void finishCatalogInstall();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [installActive]);
+  }, [installActive, isSyntheticInstallId]);
 
   // Retry install: POST /api/v1/installs/{id}/retry.
   const retryInstallMutation = useMutation({
@@ -1521,10 +1570,27 @@ export default function CreateUnitPage() {
       if (runId !== "") {
         clearWizardRun(runId);
       }
-      router.push(
-        `/units?node=${encodeURIComponent(createdUnitName)}&tab=Overview`,
-      );
+      const finalize = async () => {
+        // #2246: when the operator left "Start automatically" checked,
+        // start the just-validated unit before redirecting. Validation
+        // leaves the unit in `Stopped`; without this step the operator
+        // would have to navigate to the Explorer and start it manually.
+        // Failures are non-fatal — we still redirect so the operator can
+        // see what happened and start the unit manually.
+        if (autoStart) {
+          try {
+            await api.startUnit(createdUnitName);
+          } catch {
+            // Best-effort.
+          }
+        }
+        router.push(
+          `/units?node=${encodeURIComponent(createdUnitName)}&tab=Overview`,
+        );
+      };
+      void finalize();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createdUnitName, isTerminalSuccess, router, runId]);
 
   useEffect(() => {
@@ -2704,6 +2770,20 @@ export default function CreateUnitPage() {
                   values={credentialInputs}
                   onValuesChange={setCredentialInputs}
                 />
+                <label
+                  className="flex cursor-pointer items-center gap-2 text-sm"
+                  htmlFor="auto-start-catalog"
+                >
+                  <input
+                    id="auto-start-catalog"
+                    type="checkbox"
+                    checked={autoStart}
+                    onChange={(e) => setAutoStart(e.target.checked)}
+                    disabled={submitting}
+                    data-testid="auto-start-checkbox"
+                  />
+                  Start automatically after install
+                </label>
                 <Button
                   onClick={() => {
                     const credentials = buildCredentialPayloadFromValues(
@@ -2909,13 +2989,29 @@ export default function CreateUnitPage() {
               </div>
             )}
             {!installId && (
-              <Button
-                onClick={() => installMutation.mutate()}
-                disabled={submitting}
-                data-testid="install-unit-button"
-              >
-                {submitting ? "Installing…" : "Install"}
-              </Button>
+              <>
+                <label
+                  className="flex cursor-pointer items-center gap-2 text-sm"
+                  htmlFor="auto-start-scratch"
+                >
+                  <input
+                    id="auto-start-scratch"
+                    type="checkbox"
+                    checked={autoStart}
+                    onChange={(e) => setAutoStart(e.target.checked)}
+                    disabled={submitting}
+                    data-testid="auto-start-checkbox"
+                  />
+                  Start automatically after install
+                </label>
+                <Button
+                  onClick={() => installMutation.mutate()}
+                  disabled={submitting}
+                  data-testid="install-unit-button"
+                >
+                  {submitting ? "Installing…" : "Install"}
+                </Button>
+              </>
             )}
           </CardContent>
         </Card>

@@ -323,6 +323,11 @@ export function AgentCreateForm({
   });
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [create, setCreate] = useState<CreateState>(INITIAL_CREATE);
+  // #2246: "Deploy automatically after creation" preference shown next to
+  // the submit button. Only relevant when `hosting === "persistent"` —
+  // ephemeral agents launch per-message and have no deploy step.
+  // Per-session UI preference; not persisted into the wizard snapshot.
+  const [autoDeploy, setAutoDeploy] = useState(true);
 
   const clearSubmitFeedback = () => {
     setValidationMessage(null);
@@ -672,6 +677,22 @@ export function AgentCreateForm({
             ...(connectorBindings ? { connectorBindings } : {}),
           },
         ]);
+        // #2246: auto-deploy persistent agents that the package install
+        // declared (the server reports them as createdAgentIds in the
+        // response). Failures are non-fatal — the install row exists; the
+        // operator can deploy manually from the agent detail view.
+        if (autoDeploy) {
+          const agentIds = response.packages.flatMap(
+            (p) => p.createdAgentIds ?? [],
+          );
+          if (agentIds.length > 0) {
+            await Promise.all(
+              agentIds.map((id) =>
+                api.deployPersistentAgent(id).catch(() => null),
+              ),
+            );
+          }
+        }
         const packageManifest =
           selectedPackageManifest ??
           (await api.getPackage(sourcePackageName).catch(() => null));
@@ -726,6 +747,19 @@ export function AgentCreateForm({
           ? String(response.id)
           : localAgentId;
 
+      // #2246: when the operator left "Deploy automatically" checked and
+      // picked persistent hosting, deploy the just-created agent so it
+      // starts running without a separate trip to the agent detail page.
+      // Failures are non-fatal — the agent row exists; the operator can
+      // deploy manually from the detail view.
+      if (autoDeploy && form.hosting === "persistent") {
+        try {
+          await api.deployPersistentAgent(createdAgentId);
+        } catch {
+          // Best-effort.
+        }
+      }
+
       setCreate((prev) => ({
         ...prev,
         agentId: createdAgentId,
@@ -770,6 +804,7 @@ export function AgentCreateForm({
     invalidateAgentCaches,
     onSuccess,
     toast,
+    autoDeploy,
   ]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -1544,7 +1579,27 @@ export function AgentCreateForm({
       )}
 
       {/* ── Actions ───────────────────────────────────────────────── */}
-      <div className="mt-6 flex items-center justify-end gap-2">
+      <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+        {/* #2246: deploy-after-create preference. Persistent agents only
+            — ephemeral agents launch per-message and have no deploy
+            step, and the checkbox is hidden while the create call is
+            in flight so the operator cannot flip it mid-submission. */}
+        {form.hosting === "persistent" && create.phase !== "creating" && create.phase !== "done" && (
+          <label
+            className="flex cursor-pointer items-center gap-2 text-sm"
+            htmlFor="auto-deploy-agent"
+          >
+            <input
+              id="auto-deploy-agent"
+              type="checkbox"
+              checked={autoDeploy}
+              onChange={(e) => setAutoDeploy(e.target.checked)}
+              disabled={submitting}
+              data-testid="agent-auto-deploy-checkbox"
+            />
+            Deploy automatically after creation
+          </label>
+        )}
         <Button
           type="button"
           variant="outline"

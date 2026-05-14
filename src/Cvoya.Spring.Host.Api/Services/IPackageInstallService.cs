@@ -123,10 +123,14 @@ public record InstallResult(
 /// <param name="PackageName">The package name.</param>
 /// <param name="Status">Current install status for this package.</param>
 /// <param name="ErrorMessage">Activation error detail if status is Failed.</param>
+/// <param name="CreatedUnitNames">Names of units this package created (empty when none).</param>
+/// <param name="CreatedAgentIds">Ids of agents this package created (empty when none).</param>
 public record PackageInstallResult(
     string PackageName,
     PackageInstallOutcome Status,
-    string? ErrorMessage = null);
+    string? ErrorMessage = null,
+    IReadOnlyList<string>? CreatedUnitNames = null,
+    IReadOnlyList<string>? CreatedAgentIds = null);
 
 /// <summary>
 /// Current status snapshot for an install batch, returned by

@@ -189,7 +189,19 @@ public sealed record InstallStatusResponse(
 /// <param name="ErrorMessage">
 /// Activation error detail when <paramref name="State"/> is <c>failed</c>.
 /// </param>
+/// <param name="CreatedUnitNames">
+/// Names of units this package install created. Empty when the package
+/// declared no units. Used by clients (wizard, CLI) to take post-install
+/// actions like auto-starting the units.
+/// </param>
+/// <param name="CreatedAgentIds">
+/// Ids of agents this package install created. Empty when the package
+/// declared no agents. Used by clients (wizard, CLI) to take post-install
+/// actions like auto-deploying persistent agents.
+/// </param>
 public sealed record InstallPackageDetail(
     string PackageName,
     string State,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    IReadOnlyList<string>? CreatedUnitNames = null,
+    IReadOnlyList<string>? CreatedAgentIds = null);

@@ -42,6 +42,8 @@ const getUnit = vi.fn();
 const getUnitExecution = vi.fn();
 const setUnitExecution = vi.fn();
 const getTenantTree = vi.fn();
+const startUnit = vi.fn();
+const deployPersistentAgent = vi.fn();
 
 const listConnectorTypes = vi.fn();
 
@@ -77,6 +79,8 @@ vi.mock("@/lib/api/client", () => ({
     setUnitExecution: (name: string, body: unknown) =>
       setUnitExecution(name, body),
     getTenantTree: () => getTenantTree(),
+    startUnit: (id: string) => startUnit(id),
+    deployPersistentAgent: (id: string) => deployPersistentAgent(id),
   },
 }));
 
@@ -295,6 +299,8 @@ function seedDefaultMocks() {
   deleteUnit.mockResolvedValue(undefined);
   revalidateUnit.mockResolvedValue(undefined);
   setUnitExecution.mockResolvedValue(undefined);
+  startUnit.mockResolvedValue(undefined);
+  deployPersistentAgent.mockResolvedValue(undefined);
   createTenantSecret.mockResolvedValue({});
   rotateTenantSecret.mockResolvedValue({});
   createUnitSecret.mockResolvedValue({});
@@ -846,11 +852,13 @@ describe("CreateUnitPage — scratch branch (#1563)", () => {
     sessionStorage.clear();
   });
 
-  it("drives through scratch install and redirects on active status", async () => {
+  it("drives through scratch install and redirects on terminal validation", async () => {
     // The scratch branch synthesises an InstallStatusResponse with
     // status="active" from the createUnit + setUnitExecution result;
-    // there is no real install row to poll. The redirect fires off
-    // that synthesised "active" status.
+    // post-#2246 the wizard hands off to the validation polling flow
+    // (createdUnitQuery) and redirects to /units?node=<name>&tab=Overview
+    // once the unit reaches a terminal state. autoStart is on by default,
+    // so the wizard also calls startUnit before redirecting.
     createUnit.mockResolvedValueOnce({
       id: "unit-id",
       name: "acme",
@@ -858,6 +866,23 @@ describe("CreateUnitPage — scratch branch (#1563)", () => {
       description: "",
       registeredAt: new Date().toISOString(),
       status: "Draft",
+      model: "qwen2.5:14b",
+      color: "#6366f1",
+      tool: "spring-voyage",
+      provider: "ollama",
+      hosting: null,
+      lastValidationError: null,
+      lastValidationRunId: null,
+    });
+    // Validation polling lands on Stopped (terminal success) so the
+    // redirect fires.
+    getUnit.mockResolvedValue({
+      id: "unit-id",
+      name: "acme",
+      displayName: "acme",
+      description: "",
+      registeredAt: new Date().toISOString(),
+      status: "Stopped",
       model: "qwen2.5:14b",
       color: "#6366f1",
       tool: "spring-voyage",
@@ -914,9 +939,18 @@ describe("CreateUnitPage — scratch branch (#1563)", () => {
       expect(createUnit).toHaveBeenCalledTimes(1);
     });
 
-    // Synthesised "active" status → redirect to /units.
+    // #2246: autoStart is on by default; the wizard starts the unit
+    // before redirecting. Failure is non-fatal but a success mock keeps
+    // the path clean.
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/units");
+      expect(startUnit).toHaveBeenCalledWith("acme");
+    });
+
+    // Terminal validation → redirect to the new unit's Overview tab.
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith(
+        "/units?node=acme&tab=Overview",
+      );
     });
   });
 

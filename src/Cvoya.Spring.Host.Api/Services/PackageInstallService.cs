@@ -356,7 +356,21 @@ public class PackageInstallService : IPackageInstallService
                 : null;
             var (outcome, error) = await ActivatePackageAsync(
                 pkg, installId, symbolMap[pkg.Name], pkgBindings, pkgExec, cancellationToken);
-            packageResults.Add(new PackageInstallResult(pkg.Name, outcome, error));
+
+            // #2246: surface the artefact identities the install created so
+            // clients (wizard, CLI) can take follow-up actions like
+            // auto-starting units or auto-deploying persistent agents.
+            var createdUnitNames = pkg.Units
+                .Where(a => !a.IsCrossPackage)
+                .Select(a => a.Name)
+                .ToList();
+            var createdAgentIds = pkg.Agents
+                .Where(a => !a.IsCrossPackage)
+                .Select(a => symbolMap[pkg.Name].GetOrMint(ArtefactKind.Agent, a.Name).ToString())
+                .ToList();
+
+            packageResults.Add(new PackageInstallResult(
+                pkg.Name, outcome, error, createdUnitNames, createdAgentIds));
 
             // Update the package_installs row for this package.
             await UpdatePackageInstallRowAsync(installId, pkg.Name,
@@ -387,15 +401,66 @@ public class PackageInstallService : IPackageInstallService
             return null;
         }
 
-        var packages = rows.Select(r => new PackageInstallResult(
-            r.PackageName,
-            r.Status switch
+        // #2246: include the names of every unit / agent the install
+        // created so clients polling status can still discover the
+        // artefact identities after a refresh (e.g. for auto-start).
+        // Re-parse each package's staged YAML to recover the declared
+        // names; cross-reference the directory tables for the agent ids
+        // minted at Phase 1.
+        var packages = new List<PackageInstallResult>(rows.Count);
+        foreach (var r in rows)
+        {
+            var outcome = r.Status switch
             {
                 PackageInstallStatus.Active => PackageInstallOutcome.Active,
                 PackageInstallStatus.Failed => PackageInstallOutcome.Failed,
                 _ => PackageInstallOutcome.Staging,
-            },
-            r.ErrorMessage)).ToList();
+            };
+
+            IReadOnlyList<string> unitNames = Array.Empty<string>();
+            IReadOnlyList<string> agentIds = Array.Empty<string>();
+            try
+            {
+                var inputs = JsonSerializer.Deserialize<Dictionary<string, string>>(r.InputsJson)
+                    ?? new Dictionary<string, string>();
+                var pkg = await PackageManifestParser.ParseAndResolveAsync(
+                    r.OriginalManifestYaml,
+                    packageRoot: r.PackageRoot,
+                    inputValues: inputs,
+                    catalogProvider: _catalogProvider,
+                    cancellationToken: cancellationToken);
+                unitNames = pkg.Units
+                    .Where(a => !a.IsCrossPackage)
+                    .Select(a => a.Name)
+                    .ToList();
+                var collected = new List<string>();
+                foreach (var agent in pkg.Agents.Where(a => !a.IsCrossPackage))
+                {
+                    var row = await db.AgentDefinitions
+                        .IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(
+                            a => a.DisplayName == agent.Name && a.DeletedAt == null,
+                            cancellationToken);
+                    if (row is not null)
+                    {
+                        collected.Add(row.Id.ToString());
+                    }
+                }
+                agentIds = collected;
+            }
+            catch
+            {
+                // Re-parse failures during status read are non-fatal — the
+                // caller still gets an accurate state.
+            }
+
+            packages.Add(new PackageInstallResult(
+                r.PackageName,
+                outcome,
+                r.ErrorMessage,
+                unitNames,
+                agentIds));
+        }
 
         return new InstallStatus(installId, packages);
     }
@@ -426,8 +491,39 @@ public class PackageInstallService : IPackageInstallService
         {
             if (row.Status == PackageInstallStatus.Active)
             {
+                // #2246: surface artefact identities even when the package
+                // was already active so the retry response shape stays
+                // uniform across packages in the batch.
+                IReadOnlyList<string> activeUnitNames = Array.Empty<string>();
+                IReadOnlyList<string> activeAgentIds = Array.Empty<string>();
+                try
+                {
+                    var alreadyActiveInputs = JsonSerializer.Deserialize<Dictionary<string, string>>(row.InputsJson)
+                        ?? new Dictionary<string, string>();
+                    var alreadyActivePkg = await PackageManifestParser.ParseAndResolveAsync(
+                        row.OriginalManifestYaml,
+                        packageRoot: row.PackageRoot,
+                        inputValues: alreadyActiveInputs,
+                        catalogProvider: _catalogProvider,
+                        cancellationToken: cancellationToken);
+                    activeUnitNames = alreadyActivePkg.Units
+                        .Where(a => !a.IsCrossPackage)
+                        .Select(a => a.Name)
+                        .ToList();
+                    var activeMap = await BuildSymbolMapFromStagingAsync(alreadyActivePkg, installId, cancellationToken);
+                    activeAgentIds = alreadyActivePkg.Agents
+                        .Where(a => !a.IsCrossPackage)
+                        .Select(a => activeMap.GetOrMint(ArtefactKind.Agent, a.Name).ToString())
+                        .ToList();
+                }
+                catch
+                {
+                    // Best-effort; the row's stored YAML may be malformed
+                    // on disk but the install row itself is still valid.
+                }
                 packageResults.Add(new PackageInstallResult(
-                    row.PackageName, PackageInstallOutcome.Active, null));
+                    row.PackageName, PackageInstallOutcome.Active, null,
+                    activeUnitNames, activeAgentIds));
                 continue;
             }
 
@@ -481,7 +577,20 @@ public class PackageInstallService : IPackageInstallService
 
             var (outcome, error) = await ActivatePackageAsync(
                 pkg, installId, retryMap, rehydratedResolution.Bindings, rehydratedExec.ByUnit, cancellationToken);
-            packageResults.Add(new PackageInstallResult(row.PackageName, outcome, error));
+
+            // #2246: surface created artefact identities so clients can
+            // take post-retry actions (auto-start / auto-deploy).
+            var retryUnitNames = pkg.Units
+                .Where(a => !a.IsCrossPackage)
+                .Select(a => a.Name)
+                .ToList();
+            var retryAgentIds = pkg.Agents
+                .Where(a => !a.IsCrossPackage)
+                .Select(a => retryMap.GetOrMint(ArtefactKind.Agent, a.Name).ToString())
+                .ToList();
+
+            packageResults.Add(new PackageInstallResult(
+                row.PackageName, outcome, error, retryUnitNames, retryAgentIds));
 
             await UpdatePackageInstallRowAsync(installId, row.PackageName,
                 outcome == PackageInstallOutcome.Active
