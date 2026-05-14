@@ -6,7 +6,9 @@ A **unit** is an [agent](agents.md) that owns children.
 
 This page covers only the unit-specific layer. Shared concepts such as mailbox
 intake, execution config, runtime invocation, inheritance, and orchestration
-tools live in [Agents](agents.md).
+tools live in [Agents](agents.md). For the at-a-glance reference of what
+applies to both unit and leaf agent vs only one, see
+[Units vs agents](units-vs-agents.md).
 
 ## Children
 

@@ -48,6 +48,9 @@ Observed misalignment:
 - **Memory vs. Policies order flips.** Unit puts Memory before Policies (positions 5 / 6); Tenant puts Policies before Memory (positions 3 / 5 with Budgets between). Agent puts Memory before Policies but separates them by four agent-only tabs.
 - **Config visibility flips.** Unit hides Config in overflow; Agent surfaces Config inline at position 9 of 10; Tenant has no Config tab at all today, even though it has tenant-scoped configuration (tenant-default credentials, tenant cloning policy, tenant budget) reachable only from `/settings`.
 - **The Unit `Agents` tab has no analogue** on Agent (correct — agents do not contain agents) or Tenant (correct under the § 1 principle — Tenant does not compose thread participants; the tenant root's Overview-grid of top-level units is the right surface, and the Explorer tree already surfaces every agent in the tenant).
+- **"Agent-only" tabs are mislabelled.** Skills, Traces, and Deployment exist only on Agent today, but a unit *is* an agent (see [units-vs-agents](../concepts/units-vs-agents.md)) — they apply identically to Unit. Today's `unit-skills` / `unit-traces` / `unit-deployment` absence is a portal-side gap, not a domain-model one. Clones is the only legitimately agent-only tab (units cannot be cloned today).
+- **Config sub-tabs diverge.** Unit Config has Boundary / Execution / Connector / Skills / Secrets / Expertise; Agent Config has Execution / Budget / Expertise / Debug. Each subject is missing sub-tabs the other has even though the underlying settings apply to both.
+- **Tenant has a Memory tab.** A static empty state with no v0.1 endpoint. The placeholder is removed under this design — tenant does not have memory and will not (memory is what thread participants accumulate; Tenant doesn't participate in threads, see § 1 principle).
 
 ### 2.2 Per-subject tab files
 
@@ -96,24 +99,28 @@ Source: `src/Cvoya.Spring.Web/src/components/units/tab-impls/`.
 | `secrets-tab.tsx` | `{ unitId }` | Unit only (sub-tab inside Config) |
 | `skills-tab.tsx` | `{ unitId }` | Unit only (sub-tab inside Config) |
 
-### 2.4 Agent-only tab-impls
+### 2.4 Tab-impls under `components/agents/tab-impls/`
 
 Source: `src/Cvoya.Spring.Web/src/components/agents/tab-impls/`.
 
+These are stored under `agents/` today but, per [`docs/concepts/units-vs-agents.md`](units-vs-agents.md) — a unit *is* an agent — they apply to both subjects under alignment. Post-alignment they are re-parameterised by subject `{ kind, id }` and re-homed under `components/units/tab-impls/` (or kept in place and renamed if the path move is non-trivial).
+
 | File | Notes |
 |---|---|
-| `execution-panel.tsx` | `AgentExecutionPanel({ agentId, parentUnitId })` — overlays inherited defaults from owning unit. Used by Agent Config tab. |
-| `lifecycle-panel.tsx` | `LifecyclePanel({ agentId })` — deploy / undeploy / scale / logs. Used by Agent Overview (compact embed) and Agent Deployment (full surface). |
+| `execution-panel.tsx` | `AgentExecutionPanel({ agentId, parentUnitId })` — overlays inherited defaults from owning unit. Used by Agent Config tab today; under alignment it also drives Unit Config → Execution. |
+| `lifecycle-panel.tsx` | `LifecyclePanel({ agentId })` — deploy / undeploy / scale / logs. Used by Agent Overview (compact embed) and Agent Deployment (full surface) today; under alignment it also drives Unit × Deployment and Unit Overview's lifecycle embed. |
 
-### 2.5 Other agent-scoped panels
+### 2.5 Other subject-scoped panels under `components/agents/`
 
 Source: `src/Cvoya.Spring.Web/src/components/agents/`.
 
-| File | Used by |
-|---|---|
-| `agent-budget-panel.tsx` | Agent Config tab. Mirrors `spring agent budget`. |
-| `agent-initiative-panel.tsx` | Agent Policies tab. Mirrors `spring agent initiative`. |
-| `agent-cloning-policy-panel.tsx` | Agent Policies tab. Mirrors `spring agent clone policy --scope agent`. Read-only summary. |
+Same note as § 2.4: most of these apply to units too. **Cloning is the only one that stays agent-only**, because a unit cannot be cloned (yet). The two others (Budget and Initiative) become canonical for both subjects under alignment.
+
+| File | Applies to | Used by |
+|---|---|---|
+| `agent-budget-panel.tsx` | Unit + Agent | Config → Budget sub-tab on both subjects. Mirrors `spring agent budget`. |
+| `agent-initiative-panel.tsx` | Unit + Agent | Policies tab on both subjects. Mirrors `spring agent initiative`. |
+| `agent-cloning-policy-panel.tsx` | **Agent only** | Agent Policies tab. Mirrors `spring agent clone policy --scope agent`. Read-only summary. Units cannot be cloned today. |
 
 ### 2.6 Settings hub — `src/Cvoya.Spring.Web/src/app/settings/`
 
@@ -147,55 +154,58 @@ The canonical order, left to right, is:
 1. **Overview** — what's the state of this subject right now?
 2. **Activity** — what has been happening / costing money?
 3. **Messages** — what conversations does this subject participate in? *(applies to Unit and Agent; does-not-apply on Tenant — Tenant does not participate in threads. See § 1 principle.)*
-4. **Memory** — what does this subject remember?
-5. **Agents** — what agents belong to this subject? *(applies to Unit; does-not-apply on Agent — an agent does not contain agents — and does-not-apply on Tenant — Tenant does not compose thread participants. See § 1 principle.)*
-6. **Skills** — what capabilities is this subject equipped with? *(applies to Agent only today; see § 4 note.)*
-7. **Traces** — what individual executions has this subject run? *(applies to Agent only today; see § 4 note.)*
-8. **Clones** — what spawned copies of this subject exist? *(applies to Agent only today; see § 4 note.)*
+4. **Memory** — what does this subject remember? *(applies to Unit and Agent; does-not-apply on Tenant — see § 4 note.)*
+5. **Agents** — what agents belong to this subject? *(applies to Unit; does-not-apply on Agent — an agent does not contain agents — and does-not-apply on Tenant — see § 1 principle.)*
+6. **Skills** — what capabilities is this subject equipped with? *(applies to Unit and Agent — a unit is an agent; see [units-vs-agents](units-vs-agents.md).)*
+7. **Traces** — what individual executions has this subject run? *(applies to Unit and Agent — a unit is an agent; see [units-vs-agents](units-vs-agents.md).)*
+8. **Clones** — what spawned copies of this subject exist? *(applies to Agent only — units cannot be cloned today; see [units-vs-agents](units-vs-agents.md).)*
 9. **Policies** — what guard-rails govern this subject?
 10. **Budgets** — what cost limits are set against this subject? *(applies to Tenant only today; see § 4 note.)*
 11. **Config** — what does this subject's wiring look like (image, runtime, model, secrets, connector, boundary, expertise)?
-12. **Deployment** — what does this subject's runtime container look like? *(applies to Agent only today; see § 4 note.)*
+12. **Deployment** — what does this subject's runtime container look like? *(applies to Unit and Agent — a unit is an agent; see [units-vs-agents](units-vs-agents.md).)*
 
 ### 3.1 Why this order
 
 The order is **observation → action → constraint → wiring**:
 
 - Slots **1–4** (Overview, Activity, Messages, Memory) are the **reading** slots: every subject has them, every subject puts them up front, every subject puts them in the same order. They are the high-frequency tabs and they should be the first thing an operator can tab to.
-- Slots **5–8** (Agents, Skills, Traces, Clones) are the **composition / introspection** slots: "what is this subject made of, and what came out of it?" Whether a slot applies varies by subject (an agent does not contain agents; a tenant does not have clones), but every slot that does apply sits here, never bolted on at the end. Skills/Traces/Clones today live only on Agent; they get a canonical slot anyway so that if a tenant-level Skills view ever lands (catalog roll-up?) it has a home.
+- Slots **5–8** (Agents, Skills, Traces, Clones) are the **composition / introspection** slots: "what is this subject made of, and what came out of it?" Skills, Traces, and Deployment (slot 12) apply to Unit + Agent because a unit *is* an agent (see [units-vs-agents](units-vs-agents.md)). Agents (slot 5) is Unit-only — units contain agents, agents do not. Clones is Agent-only — units cannot be cloned (yet). Tenant has none of these slots.
 - Slot **9** (Policies) is the **constraint** slot: it sits *after* observation and composition because configuring policy is a less-frequent action than reading state. Putting Policies after Memory matches Unit's current order and pulls Tenant into line (Tenant currently surfaces Policies at position 3 — that's the misalignment we're fixing).
 - Slot **10** (Budgets) is **also a constraint**, ranked after Policies because cost guard-rails are conceptually a subset of policy — you set them less frequently still. Budgets today is Tenant-only; the slot exists in the canonical order so that if per-unit / per-agent budgets ever promote to first-class tabs (today they live inside Config) they have a home.
 - Slots **11–12** (Config, Deployment) are the **wiring** slots: the lowest-frequency, highest-detail surfaces. Config first because every subject has one; Deployment last because it only applies to Agent and it concerns the persistent-runtime layer that sits below configuration. Putting Config last brings Unit (overflow today) and Agent (position 9 today) into agreement.
 
-### 3.2 Why not put Skills / Traces / Clones at the end of Agent
+### 3.2 Why not put Skills / Traces / Clones after Policies
 
 Two reasons.
 
-First, **familiarity**: a user who learns "Policies is to the right of Memory" on Unit and Tenant should see Policies to the right of Memory on Agent too. If Skills/Traces/Clones were appended after Policies, Agent's Policies would sit at position 8, Unit's at 9, Tenant's at 9 — close, but the position of Config-vs-Policies and Policies-vs-Deployment would still diverge.
+First, **familiarity**: a user who learns "Policies is to the right of Memory" on Unit and Tenant should see Policies to the right of Memory on Agent too. If Skills/Traces/Clones were appended after Policies, Policies would sit at different positions depending on the subject — the position of Config-vs-Policies and Policies-vs-Deployment would still diverge across subjects.
 
-Second, **conceptual grouping**: Skills/Traces/Clones describe what the agent *is* and what came out of it. They are introspective. Putting them between the "reading" slots (Overview/Activity/Messages/Memory) and the "constraint" slots (Policies/Budgets) preserves the left-to-right reading model.
+Second, **conceptual grouping**: Skills/Traces/Clones describe what the subject *is* and what came out of it. They are introspective. Putting them between the "reading" slots (Overview/Activity/Messages/Memory) and the "constraint" slots (Policies/Budgets) preserves the left-to-right reading model.
 
 ### 3.3 The Detail Pane visible/overflow split
 
 `UNIT_TABS` / `AGENT_TABS` / `TENANT_TABS` each declare a `visible` array and an `overflow` array. The canonical *order* lives in the union of those two arrays; the `visible` / `overflow` split is a **Detail-Pane rendering hint** — visible tabs render in the primary strip, overflow tabs render in the secondary strip after a `bg-border` separator.
 
-Unit today puts Config in overflow because the primary strip already has six visible tabs and Config is a deep editor that operators reach less often than Agents/Activity/Messages. We **keep that hint** post-alignment. Concretely:
+Unit today puts Config in overflow because the primary strip already has six visible tabs and Config is a deep editor that operators reach less often than Agents/Activity/Messages. We **keep that hint** post-alignment, and apply the same split shape to Unit as to Agent (since a unit is an agent). Concretely:
 
-- **Unit:** Overview, Activity, Messages, Memory, Agents, Policies visible — Config overflow.
+- **Unit:** Overview, Activity, Messages, Memory, Agents, Skills, Traces, Policies visible — Config, Deployment overflow.
 - **Agent:** Overview, Activity, Messages, Memory, Skills, Traces, Clones, Policies visible — Config, Deployment overflow.
-- **Tenant:** Overview, Activity, Memory, Policies, Budgets visible — Config overflow. Messages and Agents are skipped per the § 1 principle (tenant does not participate in threads).
+- **Tenant:** Overview, Activity, Policies, Budgets visible — Config overflow. Messages, Agents, Memory, Skills, Traces, Clones, Deployment do not apply to Tenant (see § 1 principle and § 4).
 
-Rationale for the Agent visible/overflow split: Agent today has ten visible tabs, no overflow. The canonical strip pushes Config + Deployment to overflow because (a) both are deep editors / lifecycle surfaces, (b) the activity-side cluster (Overview/Activity/Messages/Memory/Skills/Traces/Clones/Policies — eight tabs) is the high-frequency surface, and (c) the existing `<AgentCard>` Deployment quick-action already deep-links to `?tab=Deployment`, so overflow placement does not regress that path.
+Rationale for pushing Config + Deployment to overflow on both Unit and Agent: both are deep editors / lifecycle surfaces, the activity-side cluster (Overview/Activity/Messages/Memory + the composition slots) is the high-frequency surface, and the existing `<AgentCard>` Deployment quick-action already deep-links to `?tab=Deployment`, so overflow placement does not regress that path. Unit gains Skills + Traces + Deployment slots because a unit is an agent — they apply to both subjects identically.
 
 ### 3.4 New tabs introduced versus today
 
-This design **introduces one new tab** that did not exist on its subject today. It is a re-home for settings currently reachable elsewhere — no new options, no new endpoints.
+This design introduces the following new tabs on subjects that don't have them today. Each is either (a) a re-home — surfacing settings reachable today elsewhere in the per-subject context — or (b) an extension of an existing agent surface to units, since a unit *is* an agent (see [units-vs-agents](units-vs-agents.md)). **No new options, no new endpoints, no new features.**
 
-- **Tenant × Config.** Tenant today has no Config tab. The canonical structure adds one as the **canonical home for tenant-scope wiring** that today is scattered across `/settings`: tenant-default credentials (`tenant-defaults-panel`), tenant budget (`budget-panel`), and tenant cloning-policy summary (`cloning-policy-panel`). See § 4 for the matrix and § 5.11 for the content map.
+- **Tenant × Config.** Tenant today has no Config tab. The canonical structure adds one as a per-subject home for tenant-scope wiring that today is reached via `/settings`: tenant-default credentials (`tenant-defaults-panel`), tenant budget (`budget-panel`), and tenant cloning-policy summary (`cloning-policy-panel`). See § 4 for the matrix and § 5.11 for the content map.
+- **Unit × Skills.** Unit gains the equipped-skills surface that Agent has today (`agent-skills.tsx`). A unit is an agent; it can be equipped with skills exactly as a leaf agent can.
+- **Unit × Traces.** Unit gains the trace-list surface that Agent has today (`agent-traces.tsx`). Same fixture caveat applies in v0.1.
+- **Unit × Deployment.** Unit gains the deploy/undeploy/scale/logs surface that Agent has today (`agent-deployment.tsx`). A unit is dispatched through the same runtime layer as a leaf agent; its lifecycle surface is the same.
 
-**This addition is an explicit re-home, not a new feature.** It reaches exactly the same APIs the existing `/settings` panels already reach.
+**On the word "re-home":** the `/settings` page is **not removed**. `/settings` remains the standalone route for tenant-level admin work; the panels there keep rendering. What "re-home" means is that the same panel body also surfaces inside the per-subject Detail Pane (Tenant × Config → Secrets uses the same `<TenantDefaultsPanel>` body that `/settings` already renders), so a user inspecting the tenant in the Explorer doesn't need to jump to `/settings` to see or edit those values. There is **one canonical implementation** of each panel, used in both places. See § 6 for the full other-surface mapping.
 
-Per the § 1 principle, the canonical order does **not** invent a Tenant × Messages tab or a Tenant × Agents tab to keep every column populated. Tenant does not participate in threads (Messages) and does not compose thread participants (Agents); those slots stay empty for Tenant in the matrix below and are not rendered in the Tenant strip.
+Per the § 1 principle, the canonical order does **not** invent a Tenant × Messages, Tenant × Agents, or Tenant × Memory tab to keep every column populated. Tenant does not participate in threads (Messages), does not compose thread participants (Agents), and does not have a memory surface (the existing tenant-memory.tsx empty-state is removed under this design — see § 4.1). Those slots stay empty for Tenant in the matrix below and are not rendered in the Tenant strip.
 
 ---
 
@@ -206,32 +216,38 @@ Per the § 1 principle, the canonical order does **not** invent a Tenant × Mess
 | Tab | Tenant | Unit | Agent |
 |---|---|---|---|
 | 1. Overview | A | A | A |
-| 2. Activity | A* (deep-link to `/analytics/throughput` + cost cards retained) | A | A* (cost cards retained — agent-only) |
+| 2. Activity | A* (deep-link to `/analytics/throughput`; cost cards may appear if a tenant-feed surface lands) | A (same control as Agent — cost cards + activity feed) | A (same control as Unit — cost cards + activity feed) |
 | 3. Messages | — (Tenant does not participate in threads; see § 1 principle) | A | A |
-| 4. Memory | A* (empty state — tenant memory lands in v2.1) | A | A |
-| 5. Agents | — (Tenant does not compose thread participants; see § 1 principle) | A (existing — children agents + nested units) | — |
-| 6. Skills | — | — | A |
-| 7. Traces | — | — | A* (mock fixture in v0.1; real endpoint v2.1) |
-| 8. Clones | — | — | A |
-| 9. Policies | A* (renders the Initiative + Cost + Model + ExecutionMode + Skill cards via the canonical `<PoliciesTab>` component; also surfaces tenant-cloning-policy + skill-allowlist sub-cards; deep-link to `/policies` for the full multi-scope view) | A | A* (Initiative + Cloning policy only — Cost/Model/Skill are declared on owning unit, per `agent-policies.tsx` today) |
-| 10. Budgets | A (canonical home for tenant budget editor + Top-N units + sparkline) | — | — |
-| 11. Config | A* (**new tab**: Secrets sub-tab + Cloning policy sub-tab + Budget sub-tab — re-home from `/settings` panels) | A (existing — Boundary / Execution / Connector / Skills / Secrets / Expertise) | A (existing — Execution / Budget / Expertise / Secrets / Debug) |
-| 12. Deployment | — | — | A |
+| 4. Memory | — (Tenant does not have memory; the existing tenant-memory empty-state is removed under this design) | A | A |
+| 5. Agents | — (Tenant does not compose thread participants; see § 1 principle) | A (existing — children agents + nested units) | — (agents do not contain agents) |
+| 6. Skills | — | A (**new tab** — equipped skills surface, same shape as Agent) | A (existing) |
+| 7. Traces | — | A (**new tab** — trace list, same shape as Agent; v0.1 fixture) | A (existing; v0.1 fixture) |
+| 8. Clones | — | — (units cannot be cloned today; see [units-vs-agents](units-vs-agents.md)) | A |
+| 9. Policies | A* (renders the dimension panels via the canonical `<PoliciesTab>` component reading tenant-scope endpoints; deep-link to `/policies` for the full multi-scope view) | A* (Initiative + Cost + Model + ExecutionMode + Skill dimensions — the full canonical set) | A* (Initiative + Cloning policy only — Cost/Model/Skill are declared on owning unit, per `agent-policies.tsx` today. Initiative applies because a unit is an agent — same panel as Unit × Policies → Initiative.) |
+| 10. Budgets | A (canonical home for tenant budget editor + Top-N units + sparkline) | — (per-unit budgets live inside Config → Budget) | — (per-agent budgets live inside Config → Budget) |
+| 11. Config | A* (**new tab**: Secrets sub-tab + Cloning sub-tab + Budget sub-tab — re-home from `/settings` panels) | A* (sub-tabs: Boundary, Budget, Expertise, Execution, Connector, Skills, Secrets, Debug — Budget + Debug added under alignment; existing Unit Config keeps Boundary, Execution, Connector, Skills, Secrets, Expertise) | A* (sub-tabs: Budget, Expertise, Execution, Connector, Skills, Secrets, Debug — Connector + Skills + Secrets added under alignment; existing Agent Config keeps Execution, Budget, Expertise, Debug) |
+| 12. Deployment | — | A (**new tab** — same `<LifecyclePanel>` as Agent) | A (existing) |
 
 ### 4.1 Variance notes
 
+- **Activity (Unit vs Agent).** Same control. Today the cost sparkline (#1363) and per-model breakdown table (#1364) were tagged "agent-only"; under alignment they apply to Unit too — a unit is an agent with a runtime, so its activity feed and cost rollup share the same shape. The canonical `<ActivityTab kind="Unit" | "Agent" id={…} />` renders identical content for both.
 - **Tenant × Activity.** Today this is a near-empty deep-link card. Post-alignment it embeds the same `<ActivityTab kind="Tenant" id={...} />` shape via a thin tenant-feed adapter, or — if no tenant-level activity feed exists — keeps the deep-link card. **Implementation chooses the cheaper path**; the tab position is what aligns.
-- **Tenant × Memory.** Stays as today's static "tenant memory lands in v2.1" empty state. The position aligns.
 - **Tenant × Policies.** Today this is a deep-link card to `/policies`. Post-alignment it surfaces a richer tenant view (cloning-policy card, cost/model/skill summary cards) inline, with the deep-link to `/policies` preserved for the full per-unit roll-up. **The dedicated `/policies` route is not deleted** — it remains the per-unit roll-up surface; the Tenant × Policies tab is the tenant-scope summary.
-- **Agent × Policies.** Preserves today's scope (Initiative + Cloning only). Cost / Model / Skill dimensions are declared on the owning unit by design — the agent-policies tab body's own header text states this. **No new editors are added** under the alignment work; this is the "alignment yields to information preservation" rule in action.
-- **Agent × Activity.** Preserves the agent-only cost sparkline (#1363) and per-model breakdown table (#1364) the canonical `<ActivityTab>` renders when `kind === "Agent"`.
-- **Tenant × Config (new).** Holds the three settings currently reached via `/settings`: tenant credentials (now under a "Secrets" sub-tab); tenant budget editor (now under a "Budget" sub-tab — Tenant × Budgets surfaces the *read-side* breakdown card; the editor is canonically inside Config alongside the other tenant wiring); tenant cloning-policy read-only summary (now under a "Cloning" sub-tab; the editor still rides `spring agent clone policy set --scope tenant`). The `/settings` cards still render — they embed `<TenantConfigSection sub="…" />` so a single edit form lives at the canonical home.
+- **Agent × Policies.** Preserves today's scope (Initiative + Cloning only). Cost / Model / Skill dimensions are declared on the owning unit by design — the agent-policies tab body's own header text states this. **No new editors are added** under the alignment work; this is the "alignment yields to information preservation" rule in action. Initiative on Agent uses the same panel as Unit × Policies → Initiative (because a unit is an agent).
+- **Unit × Skills / Unit × Traces / Unit × Deployment (new).** Same controls as Agent — `agent-skills.tsx`, `agent-traces.tsx`, `lifecycle-panel.tsx` — re-parameterised by subject `{ kind, id }`. The "agent-" prefix in the file paths reflects history, not scope; per [units-vs-agents](units-vs-agents.md), units are agents and these surfaces apply identically.
+- **Unit × Config (expanded).** Today's sub-tabs (Boundary, Execution, Connector, Skills, Secrets, Expertise) are preserved and the alignment adds Budget + Debug sub-tabs to bring it into parity with Agent. Budget mirrors Agent × Config → Budget (same `<AgentBudgetPanel>` reused); Debug mirrors Agent's collapsible debug section.
+- **Agent × Config (expanded).** Today's sub-tabs (Execution, Budget, Expertise, Debug) are preserved and the alignment adds Connector + Skills + Secrets sub-tabs to bring it into parity with Unit. Connector and Skills mirror Unit × Config → Connector / Skills; Secrets embeds `<AgentOverridesPanel>` scoped to the open agent (same panel `/settings` already renders).
+- **Tenant × Config (new).** Holds the three settings currently reached via `/settings`: tenant credentials (Secrets sub-tab); tenant budget editor (Budget sub-tab — Tenant × Budgets surfaces the *read-side* breakdown card; the editor is canonically inside Config); tenant cloning-policy read-only summary (Cloning sub-tab; the editor still rides `spring agent clone policy set --scope tenant`). The `/settings` page is **not removed** — its cards still render, embedding the same panel bodies the Config sub-tabs use, so there is **one canonical implementation** of each panel. See § 6 for the full mapping.
 
-Tenant × Messages and Tenant × Agents do **not** appear in the matrix and are not rendered in the Tenant strip. Tenant-wide thread / agent roll-ups remain reachable via `/inbox` and the Explorer tree (which already surfaces every agent in the tenant) respectively; we do not duplicate those surfaces into the Tenant Detail Pane.
+Tenant × Messages, Tenant × Agents, and Tenant × Memory do **not** appear in the matrix and are not rendered in the Tenant strip. Tenant-wide thread / agent roll-ups remain reachable via `/inbox` and the Explorer tree (which already surfaces every agent in the tenant); we do not duplicate those surfaces into the Tenant Detail Pane. The pre-existing `tenant-memory.tsx` empty-state is removed.
 
 ### 4.2 Why Policies/Budgets are kept distinct on Tenant
 
-Today's `/settings` page has both a "Tenant budget" card and a "Tenant cloning policy" card. They are conceptually distinct: a budget is a hard spend ceiling that triggers enforcement and notifications; a policy is a structural constraint on what the platform can do. Folding them into one tab on Tenant would either bury the Top-N-units affordance (Budgets-only content) or bury the policy summary (Policies-only content). They get separate tabs at the canonical positions 9 and 10. Unit and Agent do not have a Budgets tab today and we do not add one — per-subject daily-budget editors stay inside Config on Unit and Agent (where they live today via `AgentBudgetPanel`).
+Today's `/settings` page has both a "Tenant budget" card and a "Tenant cloning policy" card. They are conceptually distinct: a budget is a hard spend ceiling that triggers enforcement and notifications; a policy is a structural constraint on what the platform can do. Folding them into one tab on Tenant would either bury the Top-N-units affordance (Budgets-only content) or bury the policy summary (Policies-only content). They get separate tabs at the canonical positions 9 and 10. Unit and Agent do not have a Budgets tab today and we do not add one — per-subject daily-budget editors stay inside Config → Budget on Unit and Agent.
+
+---
+
+> **Sections 5 and below are pending reviewer pass.** The matrix above changed materially — Skills, Traces, and Deployment now apply to Unit (a unit is an agent), Config gains sub-tabs on Unit (Budget, Debug) and Agent (Connector, Skills, Secrets), Tenant loses Memory. Per-tab content maps (§ 5) and the per-sub-issue migration plan (§ 7) will be revised once reviewer feedback on the matrix lands.
 
 ---
 
@@ -493,14 +509,15 @@ The implementation PRs converge `UNIT_TABS` / `AGENT_TABS` / `TENANT_TABS` on th
 
 ```ts
 export const TENANT_TABS = {
-  // Messages and Agents are intentionally absent — Tenant does not
-  // participate in threads or compose thread participants. See § 1
-  // principle and § 3.4. The canonical *order* is honored: every slot
-  // that does apply renders in its canonical position.
+  // Messages, Agents, Memory, Skills, Traces, Clones, and Deployment
+  // are intentionally absent — Tenant does not participate in threads,
+  // does not compose thread participants, does not have memory, and is
+  // not addressable as an agent. See § 1 principle and § 3.4. The
+  // canonical *order* is honored: every slot that does apply renders in
+  // its canonical position.
   visible: [
     "Overview",
     "Activity",
-    "Memory",
     "Policies",
     "Budgets",
   ] as const,
@@ -508,18 +525,26 @@ export const TENANT_TABS = {
 };
 
 export const UNIT_TABS = {
+  // A unit is an agent (see docs/concepts/units-vs-agents.md), so it
+  // gains the agent's introspection slots (Skills, Traces) and the
+  // lifecycle slot (Deployment). Clones is the only agent-only slot —
+  // units cannot be cloned today.
   visible: [
     "Overview",
     "Activity",
     "Messages",
     "Memory",
     "Agents",
+    "Skills",
+    "Traces",
     "Policies",
   ] as const,
-  overflow: ["Config"] as const,
+  overflow: ["Config", "Deployment"] as const,
 };
 
 export const AGENT_TABS = {
+  // Agents-list is Unit-only (agents do not contain agents). Clones is
+  // Agent-only (units cannot be cloned today).
   visible: [
     "Overview",
     "Activity",

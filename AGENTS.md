@@ -13,7 +13,7 @@ Architecture lives under [`docs/architecture/`](docs/architecture/README.md); de
 Key concepts:
 
 - **Agents** — Dapr virtual actors with partitioned mailboxes.
-- **Units** — composite agents with pluggable orchestration strategies.
+- **Units** — composite agents with pluggable orchestration strategies. A unit **is** an agent — see [`docs/concepts/units-vs-agents.md`](docs/concepts/units-vs-agents.md) for the quick reference on what's shared vs different; most features apply to both subjects identically.
 - **Connectors** — bridges between external systems and units.
 - **Messages** — typed communications between addressable entities.
 - **Execution patterns** — _hosted_ (in-process) and _delegated_ (containerised tool execution).
