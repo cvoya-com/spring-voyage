@@ -41,7 +41,7 @@ Each sub-unit pins an OSS-flavored agent image:
 The four images `FROM` `spring-voyage-agent-base`, install the Claude Code CLI, and add per-role tooling. Build them locally with:
 
 ```bash
-./devops/build/build-agent-images.sh --tag dev
+./eng/build/build-agent-images.sh --tag dev
 ```
 
 The unified release workflow `.github/workflows/release.yml` publishes multi-arch images to GHCR on `spring-voyage-v*` tag pushes (see [#2229](https://github.com/cvoya-com/spring-voyage/issues/2229)).

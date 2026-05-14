@@ -36,7 +36,7 @@ using Xunit;
 /// <see cref="ProcessContainerRuntime.StopAsync"/> against an
 /// <c>alpine:latest</c> container running <c>sh -c "sleep 5; echo hello"</c>.
 /// We don't stand up a real A2A bridge here — that's covered by the
-/// dispatcher-smoke shell script in <c>devops/deploy/scripts/</c> and by CI's
+/// dispatcher-smoke shell script in <c>eng/deploy/scripts/</c> and by CI's
 /// agent-image smoke. This test asserts the lifecycle plumbing the new
 /// ephemeral path adds (detached start, registry tracking, registry-driven
 /// teardown) works end-to-end without `sleep infinity` hanging the dispatch.

@@ -35,7 +35,7 @@ agent:
   capabilities: [analysis, summarization, literature-review]
 
   ai:
-    runtime: claude-code   # AgentRuntime id from platform/runtime-catalog.yaml (ADR-0038)
+    runtime: claude-code   # AgentRuntime id from eng/runtime-catalog/runtime-catalog.yaml (ADR-0038)
     model:
       provider: anthropic  # ModelProvider id; intrinsic to the model
       id: claude-sonnet-4-6
@@ -130,7 +130,7 @@ The workflow communicates with agents via its Dapr sidecar. It can use Dapr Work
 ```yaml
 unit:
   ai:
-    runtime: spring-voyage    # AgentRuntime id from platform/runtime-catalog.yaml (ADR-0038)
+    runtime: spring-voyage    # AgentRuntime id from eng/runtime-catalog/runtime-catalog.yaml (ADR-0038)
     model:
       provider: ollama
       id: llama3.2:3b
@@ -176,7 +176,7 @@ Agents that don't specify their own environment inherit the unit's default.
 For straightforward integrations, create a Dapr binding YAML:
 
 ```yaml
-# dapr/components/my-binding.yaml
+# eng/dapr/components/my-binding.yaml
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:

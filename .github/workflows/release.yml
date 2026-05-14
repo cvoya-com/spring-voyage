@@ -301,7 +301,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          notes="$(bash devops/release/extract-changelog-section.sh "Unreleased")"
+          notes="$(bash eng/release/extract-changelog-section.sh "Unreleased")"
           if [[ -z "$notes" ]]; then
             echo "::warning::## [Unreleased] section in CHANGELOG.md is empty — release notes will be empty."
           fi
@@ -477,7 +477,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: devops/build/Dockerfile.agent-base
+          file: eng/build/Dockerfile.agent-base
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -740,7 +740,7 @@ jobs:
           # --skip-oss: built multi-arch by publish-oss-agent-images.
           # --agent-base-image: pin the FROM line to the multi-arch image
           # that publish-agent-base-image just pushed.
-          bash devops/build/build-agent-images.sh \
+          bash eng/build/build-agent-images.sh \
             --tag "${RELEASE_VERSION}" \
             --ghcr-only \
             --skip-agent-base \
@@ -830,13 +830,13 @@ jobs:
       matrix:
         include:
           - name: spring-voyage-agent-oss-software-engineering
-            dockerfile: devops/build/Dockerfile.agent.oss-software-engineering
+            dockerfile: eng/build/Dockerfile.agent.oss-software-engineering
           - name: spring-voyage-agent-oss-design
-            dockerfile: devops/build/Dockerfile.agent.oss-design
+            dockerfile: eng/build/Dockerfile.agent.oss-design
           - name: spring-voyage-agent-oss-product-management
-            dockerfile: devops/build/Dockerfile.agent.oss-product-management
+            dockerfile: eng/build/Dockerfile.agent.oss-product-management
           - name: spring-voyage-agent-oss-program-management
-            dockerfile: devops/build/Dockerfile.agent.oss-program-management
+            dockerfile: eng/build/Dockerfile.agent.oss-program-management
     env:
       IMAGE_NAME: cvoya-com/${{ matrix.name }}
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
@@ -902,7 +902,7 @@ jobs:
 
   # ── 9. Publish platform image (#2172, multi-arch via #2233) ────────────────
   #
-  # Builds and pushes the platform image (devops/build/Dockerfile — the
+  # Builds and pushes the platform image (eng/build/Dockerfile — the
   # multi-stage API + Worker + Web + Dapr CLI image) to GHCR as a multi-arch
   # manifest list (linux/amd64 + linux/arm64) via Buildx, matching the shape
   # used by `publish-agent-base-image` and `publish-oss-agent-images`. The
@@ -963,7 +963,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: devops/build/Dockerfile
+          file: eng/build/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -991,7 +991,7 @@ jobs:
 
   # ── 10. Assemble bundle staging tree (#2243) ───────────────────────────────
   #
-  # The operator-facing deployment bundle (devops/deploy/ + dapr/components/ +
+  # The operator-facing deployment bundle (eng/deploy/ + eng/dapr/components/ +
   # voyage wrapper + manifest.json) is staged once on a single runner and
   # uploaded as a workflow artifact. publish-host-archive's 5-RID matrix
   # downloads this artifact and combines it with the per-RID CLI + dispatcher
@@ -1018,37 +1018,38 @@ jobs:
           rm -rf "${stage}"
           mkdir -p "${stage}/scripts"
 
-          # devops/deploy/ — operator scripts and config.
-          cp devops/deploy/deploy.sh              "${stage}/"
-          cp devops/deploy/setup.sh               "${stage}/"
-          cp devops/deploy/spring-voyage-host.sh  "${stage}/"
-          cp devops/deploy/relay.sh               "${stage}/"
-          cp devops/deploy/Caddyfile              "${stage}/"
-          cp devops/deploy/Caddyfile.multi-host   "${stage}/"
-          cp devops/deploy/docker-compose.yml     "${stage}/"
-          cp devops/deploy/spring.env.example     "${stage}/"
-          cp devops/deploy/scripts/dispatcher-smoke.sh        "${stage}/scripts/"
-          cp devops/deploy/scripts/test-spring-voyage-host.sh "${stage}/scripts/"
+          # eng/deploy/ — operator scripts and config.
+          cp eng/deploy/deploy.sh              "${stage}/"
+          cp eng/deploy/setup.sh               "${stage}/"
+          cp eng/deploy/spring-voyage-host.sh  "${stage}/"
+          cp eng/deploy/relay.sh               "${stage}/"
+          cp eng/deploy/Caddyfile              "${stage}/"
+          cp eng/deploy/Caddyfile.multi-host   "${stage}/"
+          cp eng/deploy/docker-compose.yml     "${stage}/"
+          cp eng/deploy/spring.env.example     "${stage}/"
+          cp eng/deploy/scripts/dispatcher-smoke.sh        "${stage}/scripts/"
+          cp eng/deploy/scripts/test-spring-voyage-host.sh "${stage}/scripts/"
 
-          # devops/install/uninstall.sh — ships in the bundle so
+          # eng/install/uninstall.sh — ships in the bundle so
           # `voyage uninstall` keeps working after the install
           # root's `current` symlink is torn down (#2180, ADR-0042).
-          cp devops/install/uninstall.sh          "${stage}/"
+          cp eng/install/uninstall.sh          "${stage}/"
           chmod +x "${stage}/uninstall.sh"
 
-          # devops/install/voyage — operator wrapper, installed
+          # eng/install/voyage — operator wrapper, installed
           # by install.sh as ${BIN_DIR}/voyage. Ships in the
           # bundle so install.sh has a known checked-in source and a
           # re-install (`voyage install`) can refresh it (#2173).
-          cp devops/install/voyage                "${stage}/"
+          cp eng/install/voyage                "${stage}/"
           chmod +x "${stage}/voyage"
 
-          # dapr/components/delegated-spring-voyage-agent/ — REQUIRED. setup.sh
+          # eng/dapr/components/delegated-spring-voyage-agent/ — REQUIRED. setup.sh
           # writes Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath
           # pointing at this tree, so a source-free install can't function
-          # without it.
+          # without it. (Bundle's internal layout keeps `dapr/components/` — that
+          # is the operator-facing path the installed deployment uses.)
           mkdir -p "${stage}/dapr/components"
-          cp -R dapr/components/delegated-spring-voyage-agent \
+          cp -R eng/dapr/components/delegated-spring-voyage-agent \
             "${stage}/dapr/components/"
 
           # LICENSE — repo-root LICENSE.md, renamed to the conventional bundle name.
@@ -1290,7 +1291,7 @@ jobs:
               SPRING_DISPATCHER_BIN="\$PWD/${DISPATCHER_EXE}" \\
                 ../bundle/spring-voyage-host.sh start
 
-          See https://github.com/cvoya-com/spring-voyage/blob/main/devops/deploy/README.md.
+          See https://github.com/cvoya-com/spring-voyage/blob/main/eng/deploy/README.md.
           EOF
 
           # Top-level archive README — written here, not from the bundle.
@@ -1375,8 +1376,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p stage
-          cp devops/install/install.sh stage/install.sh
-          cp devops/install/install.sh "stage/install-${RELEASE_VERSION}.sh"
+          cp eng/install/install.sh stage/install.sh
+          cp eng/install/install.sh "stage/install-${RELEASE_VERSION}.sh"
 
           # Bake the version into the versioned copy. install.sh has a
           # BAKED_VERSION="" line near the top — fill it in. We drive the
@@ -1397,7 +1398,7 @@ jobs:
           chmod +x stage/install.sh "stage/install-${RELEASE_VERSION}.sh"
 
           # Sanity: confirm the unversioned copy is unmodified.
-          diff devops/install/install.sh stage/install.sh
+          diff eng/install/install.sh stage/install.sh
 
           # Sanity: confirm the versioned copy has BAKED_VERSION filled.
           grep "^BAKED_VERSION=\"${RELEASE_VERSION}\"" "stage/install-${RELEASE_VERSION}.sh"

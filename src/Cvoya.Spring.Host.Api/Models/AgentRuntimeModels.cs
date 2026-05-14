@@ -31,7 +31,7 @@ using Cvoya.Spring.Core.ModelProviders;
 /// </remarks>
 /// <param name="Id">
 /// Stable provider id (matches an entry in
-/// <c>platform/runtime-catalog.yaml</c> § <c>modelProviders</c>):
+/// <c>eng/runtime-catalog/runtime-catalog.yaml</c> § <c>modelProviders</c>):
 /// <c>anthropic</c>, <c>openai</c>, <c>google</c>, <c>ollama</c>, …
 /// </param>
 /// <param name="DisplayName">Human-facing display name from the catalogue.</param>

@@ -33,7 +33,7 @@
 #     /agent.py). When #1110 lands, this script can drop the gate and
 #     exercise path 3 directly.
 #
-# Honors the same DOCKER env var as devops/build/build-agent-images.sh.
+# Honors the same DOCKER env var as eng/build/build-agent-images.sh.
 # Set SMOKE_IMAGE_TAG=<tag> to point at a non-:dev path-1 build (path
 # 2 always builds a fresh fixture image from in-tree sources).
 #
@@ -94,7 +94,7 @@ case "${PATH_MODE}" in
 esac
 
 # ---- runtime selection ---------------------------------------------------
-# Mirrors devops/build/build-agent-images.sh — docker if reachable, else
+# Mirrors eng/build/build-agent-images.sh — docker if reachable, else
 # podman. Set DOCKER to force one runtime explicitly.
 if [[ -z "${DOCKER:-}" ]]; then
     if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -148,7 +148,7 @@ forget_container() {
 }
 # Image tags + tarball paths produced by path-2 that the trap needs to
 # clean up on exit (success or failure). Path 1 reuses an image built
-# upstream by devops/build/build-agent-images.sh, so it doesn't appear
+# upstream by eng/build/build-agent-images.sh, so it doesn't appear
 # here.
 PATH2_IMAGES=()
 PATH2_TARBALLS=()

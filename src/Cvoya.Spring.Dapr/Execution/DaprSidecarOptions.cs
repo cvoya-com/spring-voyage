@@ -34,7 +34,7 @@ public class DaprSidecarOptions
     /// <c>!!!!! Dapr Runtime Version 1.15.14 is not supported with Alpha2
     /// Dapr Chat Client</c> in the agent log when the loop's first LLM
     /// turn lands). The pinned value must stay aligned with
-    /// <c>devops/deploy/spring.env.example</c>'s <c>DAPR_IMAGE</c> (the
+    /// <c>eng/deploy/spring.env.example</c>'s <c>DAPR_IMAGE</c> (the
     /// static placement / scheduler / per-app sidecars) and with the
     /// Dapr SDK version pinned in <c>Directory.Packages.props</c> so the
     /// control plane, SDK, and per-launch sidecars all speak the same
@@ -92,11 +92,11 @@ public class DaprSidecarOptions
     /// Host path to the <c>delegated-spring-voyage-agent</c> component profile (Conversation
     /// + Redis for workflows) bind-mounted into <c>daprd</c>. Must be a path on
     /// the <b>machine that runs the dispatcher</b> (e.g.
-    /// <c>${REPO_ROOT}/dapr/components/delegated-spring-voyage-agent</c>); a literal
+    /// <c>${REPO_ROOT}/eng/dapr/components/delegated-spring-voyage-agent</c>); a literal
     /// <c>/dapr/...</c> only exists inside some container images, not on macOS/Linux
     /// hosts, and would make Podman fail with <c>statfs ... no such file</c>. The
     /// worker reads the value from <c>Dapr:Sidecar:DelegatedSpringVoyageAgentComponentsPath</c>
-    /// (typically via <c>devops/deploy/spring.env</c>) and forwards it to the dispatcher
+    /// (typically via <c>eng/deploy/spring.env</c>) and forwards it to the dispatcher
     /// as a bind-mount source. When unset, <see cref="ContainerLifecycleManager"/>
     /// falls back to <see cref="ComponentsPath"/> (may be insufficient for
     /// <c>spring-voyage-agent</c>).
@@ -106,7 +106,7 @@ public class DaprSidecarOptions
     /// <summary>
     /// Optional daprd global config file, bind-mounted in the sidecar. OSS leaves
     /// this empty so daprd uses defaults; platform sidecars in
-    /// <c>devops/deploy/deploy.sh</c> use <c>/config/config.yaml</c>.
+    /// <c>eng/deploy/deploy.sh</c> use <c>/config/config.yaml</c>.
     /// </summary>
     public string? DaprConfigFilePath { get; set; }
 }

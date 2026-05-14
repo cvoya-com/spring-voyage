@@ -344,7 +344,7 @@ A healthy bridge returns `result.task.status.state: "TASK_STATE_COMPLETED"` and 
 Spring Voyage ships a smoke driver that exercises the unified dispatch path against the in-tree path-1 (Claude Code) and path-3 (Dapr Agent) images. To run it locally:
 
 ```bash
-devops/build/build-agent-images.sh --tag dev   # build agent-base + claude + dapr at :dev
+eng/build/build-agent-images.sh --tag dev   # build agent-base + claude + dapr at :dev
 SMOKE_IMAGE_TAG=dev tests/scripts/smoke-agent-images.sh
 ```
 
@@ -369,7 +369,7 @@ bash tests/scripts/smoke-1087.sh --path 2
 bash tests/scripts/smoke-1087.sh --path all
 ```
 
-The CI job `Agent images build + smoke` runs `--path all` on every PR that touches `devops/build/Dockerfile.agent-*`, `src/Cvoya.Spring.AgentSidecar/**`, `agents/spring-voyage-agent/**`, `tests/scripts/smoke-1087.sh`, or `tests/fixtures/byoi-path2/**` — so a sidecar source change, a Dockerfile change, or a smoke-script change exercises both BYOI conformance paths before merge. Path 3 (native A2A) stays gated behind `SMOKE_DAPR=1` pending [#1110](https://github.com/cvoya-com/spring-voyage/issues/1110).
+The CI job `Agent images build + smoke` runs `--path all` on every PR that touches `eng/build/Dockerfile.agent-*`, `src/Cvoya.Spring.AgentSidecar/**`, `agents/spring-voyage-agent/**`, `tests/scripts/smoke-1087.sh`, or `tests/fixtures/byoi-path2/**` — so a sidecar source change, a Dockerfile change, or a smoke-script change exercises both BYOI conformance paths before merge. Path 3 (native A2A) stays gated behind `SMOKE_DAPR=1` pending [#1110](https://github.com/cvoya-com/spring-voyage/issues/1110).
 
 For the full ephemeral-dispatch round-trip (`StartAsync → readiness → A2A → ReleaseAsync`), the `EphemeralDispatchSmokeTests` integration test in `tests/Cvoya.Spring.Integration.Tests/` runs against a real container runtime when you set `SPRING_RUN_DOCKER_SMOKE=1`:
 

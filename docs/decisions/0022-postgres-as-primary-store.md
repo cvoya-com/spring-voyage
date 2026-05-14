@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — relational data (tenants, definitions, activity history, secrets, expertise, …) lives in PostgreSQL through EF Core; actor runtime state goes through the Dapr state store abstraction (PostgreSQL today, swappable per-environment).
 - **Date:** 2026-04-21
-- **Related code:** `src/Cvoya.Spring.Dapr/Data/SpringDbContext.cs`, `src/Cvoya.Spring.Dapr/Data/Configurations/`, `dapr/components/local/statestore.yaml`.
+- **Related code:** `src/Cvoya.Spring.Dapr/Data/SpringDbContext.cs`, `src/Cvoya.Spring.Dapr/Data/Configurations/`, `eng/dapr/components/local/statestore.yaml`.
 - **Related docs:** [`docs/architecture/infrastructure.md`](../architecture/infrastructure.md), [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtimes-and-tenant-scoping.md) (tenant-scoping model).
 
 ## Context

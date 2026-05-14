@@ -92,17 +92,17 @@ spring images list
 
 ## Dapr Component Configuration
 
-Dapr components are split into two profiles — see [`dapr/README.md`](../../dapr/README.md)
+Dapr components are split into two profiles — see [`eng/dapr/README.md`](../../eng/dapr/README.md)
 for the full layout and commands:
 
-- `dapr/components/local/` — localhost Redis + env-var secret store (used by `dapr run`).
-- `dapr/components/production/` — Podman-hosted Postgres + Redis, secrets via
-  `secretstores.local.env` backed by `devops/deploy/spring.env`.
-- `dapr/config/local.yaml`, `dapr/config/production.yaml` — Dapr Configuration
+- `eng/dapr/components/local/` — localhost Redis + env-var secret store (used by `dapr run`).
+- `eng/dapr/components/production/` — Podman-hosted Postgres + Redis, secrets via
+  `secretstores.local.env` backed by `eng/deploy/spring.env`.
+- `eng/dapr/config/local.yaml`, `eng/dapr/config/production.yaml` — Dapr Configuration
   (tracing, features) for each profile.
 
-Pass the matching directory to `dapr run` with `--resources-path dapr/components/local`
-and `--config dapr/config/local.yaml`.
+Pass the matching directory to `dapr run` with `--resources-path eng/dapr/components/local`
+and `--config eng/dapr/config/local.yaml`.
 
 ## Database Migrations
 

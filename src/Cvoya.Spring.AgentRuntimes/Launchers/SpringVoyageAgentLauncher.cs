@@ -228,7 +228,7 @@ public class SpringVoyageAgentLauncher(
         }
 
         // The env-var name on the REST path is provider-specific and must match
-        // both `dapr/components/delegated-spring-voyage-agent/llm-<provider>.yaml`'s
+        // both `eng/dapr/components/delegated-spring-voyage-agent/llm-<provider>.yaml`'s
         // secretKeyRef name AND `ContainerLifecycleManager.CredentialEnvVarsToPropagate`
         // — the daprd sidecar reads the secret from its own process env via the
         // local-env secret store. The mapping is inline here for the v0.1

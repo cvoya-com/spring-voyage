@@ -187,7 +187,7 @@ public class WorkerCompositionTests
     /// "Claude Code requires the anthropic model provider, which is not
     /// installed on this tenant" on every fresh OSS deploy. This test
     /// pins the contract by asserting the catalogue surfaces the four
-    /// providers declared in <c>platform/runtime-catalog.yaml</c>.
+    /// providers declared in <c>eng/runtime-catalog/runtime-catalog.yaml</c>.
     /// </para>
     /// </remarks>
     [Fact]
@@ -197,7 +197,7 @@ public class WorkerCompositionTests
 
         var catalog = provider.GetRequiredService<IRuntimeCatalog>();
 
-        // The four providers declared in platform/runtime-catalog.yaml.
+        // The four providers declared in eng/runtime-catalog/runtime-catalog.yaml.
         // Adding/removing a provider in the YAML rightly fails this test
         // — the failure tells the editor to update the assertion.
         catalog.ModelProviders.Select(p => p.Id).ShouldBe(
@@ -236,7 +236,7 @@ public class WorkerCompositionTests
         var catalog = provider.GetRequiredService<IRuntimeCatalog>();
         var expected = catalog.ModelProviders.Select(p => p.Id).OrderBy(s => s, StringComparer.Ordinal).ToArray();
         expected.ShouldNotBeEmpty(
-            "platform/runtime-catalog.yaml must declare at least one model provider; " +
+            "eng/runtime-catalog/runtime-catalog.yaml must declare at least one model provider; " +
             "an empty catalogue is the silent failure mode this test exists to catch.");
 
         // Resolve a fresh scope so the install service sees the rows

@@ -74,7 +74,7 @@ jobs:
             connectors_web:
               - 'src/Cvoya.Spring.Connector.*/web/**'
               - 'src/Cvoya.Spring.Web/src/connectors/**'
-              - 'devops/ci/validate-connector-web.sh'
+              - 'eng/ci/validate-connector-web.sh'
               - 'package.json'
               - 'package-lock.json'
             web:
@@ -95,24 +95,24 @@ jobs:
               # workflows meaningfully.
               - '.github/workflows/**'
             dispatcher_host:
-              - 'devops/deploy/spring-voyage-host.sh'
-              - 'devops/deploy/scripts/**'
-              - 'devops/deploy/deploy.sh'
-              - 'devops/deploy/docker-compose.yml'
-              - 'devops/deploy/spring.env.example'
+              - 'eng/deploy/spring-voyage-host.sh'
+              - 'eng/deploy/scripts/**'
+              - 'eng/deploy/deploy.sh'
+              - 'eng/deploy/docker-compose.yml'
+              - 'eng/deploy/spring.env.example'
               - 'src/Cvoya.Spring.Dispatcher/**'
             agent_images:
               # build-agent-images.sh builds every Dockerfile.agent.* in
-              # `devops/build/` (agent-base + claude-code + dapr + the four
+              # `eng/build/` (agent-base + claude-code + dapr + the four
               # OSS role images). Globbing the family keeps the smoke
               # job in sync with what the script actually builds, so a
               # change to e.g. `Dockerfile.agent.oss-software-engineering`
               # is exercised end-to-end on its own PR rather than
               # slipping in unvalidated and only surfacing on a later
               # workflow-touching PR.
-              - 'devops/build/Dockerfile.agent-base'
-              - 'devops/build/Dockerfile.agent.*'
-              - 'devops/build/build-agent-images.sh'
+              - 'eng/build/Dockerfile.agent-base'
+              - 'eng/build/Dockerfile.agent.*'
+              - 'eng/build/build-agent-images.sh'
               - 'src/Cvoya.Spring.AgentSidecar/**'
               - 'agents/spring-voyage-agent/**'
               - 'tests/scripts/smoke-agent-images.sh'
@@ -157,8 +157,8 @@ jobs:
             runtime_catalog:
               # ADR-0038: re-run the schema lint on any change to the
               # platform runtime catalogue or its schema.
-              - 'platform/runtime-catalog.yaml'
-              - 'platform/runtime-catalog.schema.json'
+              - 'eng/runtime-catalog/runtime-catalog.yaml'
+              - 'eng/runtime-catalog/runtime-catalog.schema.json'
 
   workflow-yaml:
     name: Workflow YAML syntax
@@ -520,11 +520,11 @@ jobs:
           # Convert YAML to JSON in-memory then validate. ajv-cli reads the
           # JSON Schema natively; the YAML→JSON one-liner avoids a separate
           # Python dependency.
-          node -e "const fs=require('fs');const YAML=require('yaml');process.stdout.write(JSON.stringify(YAML.parse(fs.readFileSync('platform/runtime-catalog.yaml','utf8'))));" > /tmp/runtime-catalog.json
+          node -e "const fs=require('fs');const YAML=require('yaml');process.stdout.write(JSON.stringify(YAML.parse(fs.readFileSync('eng/runtime-catalog/runtime-catalog.yaml','utf8'))));" > /tmp/runtime-catalog.json
           ajv validate \
             --spec=draft2020 \
             -c ajv-formats \
-            -s platform/runtime-catalog.schema.json \
+            -s eng/runtime-catalog/runtime-catalog.schema.json \
             -d /tmp/runtime-catalog.json \
             --strict=false
 
@@ -545,7 +545,7 @@ jobs:
 
       - name: Validate connector web submodules
         shell: bash
-        run: bash devops/ci/validate-connector-web.sh
+        run: bash eng/ci/validate-connector-web.sh
 
   docs-evergreen-framing:
     name: Lint docs (evergreen framing)
@@ -1149,11 +1149,11 @@ jobs:
 
       - name: Run idempotence test driver
         shell: bash
-        run: bash devops/deploy/scripts/test-spring-voyage-host.sh
+        run: bash eng/deploy/scripts/test-spring-voyage-host.sh
 
       - name: Verify deploy.sh forces dispatcher rebuild
         shell: bash
-        run: bash devops/deploy/scripts/test-deploy-dispatcher-rebuild.sh
+        run: bash eng/deploy/scripts/test-deploy-dispatcher-rebuild.sh
 
   dispatcher-smoke:
     name: Dispatcher smoke (Tier 1)
@@ -1200,7 +1200,7 @@ jobs:
 
       - name: Run dispatcher smoke driver
         shell: bash
-        run: bash devops/deploy/scripts/dispatcher-smoke.sh
+        run: bash eng/deploy/scripts/dispatcher-smoke.sh
 
   audit-no-container-cli:
     name: Audit (no worker-side podman/docker)
@@ -1221,7 +1221,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Run worker-side container CLI audit
         shell: bash
-        run: bash devops/ci/audit-no-container-cli.sh
+        run: bash eng/ci/audit-no-container-cli.sh
 
   agent-images-smoke:
     name: Agent images build + smoke
@@ -1235,7 +1235,7 @@ jobs:
     #
     # Static-input check (it bakes the PR's own Dockerfiles), so it is
     # safe to skip in the merge queue — a pass on the pull_request run
-    # stays valid through the queue. Path-filtered to the devops/build +
+    # stays valid through the queue. Path-filtered to the eng/build +
     # python-agent surface so unrelated PRs don't pay the build cost.
     if: >
       github.event_name != 'merge_group' &&
@@ -1259,7 +1259,7 @@ jobs:
         # locally first so the claude-code FROM resolves without a GHCR pull.
         # That way a PR can be tested before the corresponding agent-base
         # tag is published.
-        run: bash devops/build/build-agent-images.sh --tag dev
+        run: bash eng/build/build-agent-images.sh --tag dev
 
       - name: Smoke each image (curl /.well-known/agent.json)
         shell: bash

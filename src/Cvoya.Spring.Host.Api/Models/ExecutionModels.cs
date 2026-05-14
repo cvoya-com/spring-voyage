@@ -48,7 +48,7 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// <param name="Runtime">
 /// Agent-runtime catalogue id (ADR-0038): <c>claude-code</c>, <c>codex</c>,
 /// <c>gemini</c>, <c>spring-voyage</c>, or a future custom runtime declared
-/// in <c>platform/runtime-catalog.yaml</c>. The dispatcher resolves this
+/// in <c>eng/runtime-catalog/runtime-catalog.yaml</c>. The dispatcher resolves this
 /// through <see cref="Cvoya.Spring.Core.Catalog.IRuntimeCatalog"/> to pick
 /// the launcher.
 /// </param>
@@ -113,7 +113,7 @@ public record AgentExecutionResponse(
 /// <c>{ "provider": "...", "id": "..." }</c>.
 /// </summary>
 /// <param name="Provider">
-/// Provider id from <c>platform/runtime-catalog.yaml</c>:
+/// Provider id from <c>eng/runtime-catalog/runtime-catalog.yaml</c>:
 /// <c>anthropic</c>, <c>openai</c>, <c>google</c>, <c>ollama</c>, …
 /// </param>
 /// <param name="Id">Provider-scoped model id (e.g. <c>claude-opus-4-7</c>).</param>

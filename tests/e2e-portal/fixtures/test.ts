@@ -75,7 +75,7 @@ export const test = base.extend<PortalFixtures, PortalWorkerFixtures>({
       if (!apiAvailability) {
         test.skip(
           true,
-          "Spring API is not reachable. Start the local stack (devops/deploy/spring-voyage-host.sh up) and retry.",
+          "Spring API is not reachable. Start the local stack (eng/deploy/spring-voyage-host.sh up) and retry.",
         );
       }
       await use();

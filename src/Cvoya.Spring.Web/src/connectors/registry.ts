@@ -24,7 +24,7 @@
 //
 // Consistency between the .NET connector slug, the registry entry, and
 // the web submodule on disk is enforced in CI by
-// `devops/ci/validate-connector-web.sh`.
+// `eng/ci/validate-connector-web.sh`.
 
 import type { ComponentType } from "react";
 

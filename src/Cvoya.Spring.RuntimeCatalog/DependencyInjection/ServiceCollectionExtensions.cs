@@ -15,7 +15,7 @@ public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Registers an <see cref="IRuntimeCatalog"/> singleton loaded from the
-    /// embedded <c>platform/runtime-catalog.yaml</c> resource. Idempotent
+    /// embedded <c>eng/runtime-catalog/runtime-catalog.yaml</c> resource. Idempotent
     /// via <see cref="ServiceCollectionDescriptorExtensions.TryAddSingleton{TService}(IServiceCollection, Func{IServiceProvider, TService})"/>
     /// — a host that registers a custom catalogue (for instance the cloud
     /// host's tenant-scoped variant) before calling this extension keeps

@@ -13,7 +13,7 @@ using YamlDotNet.Serialization.NamingConventions;
 
 /// <summary>
 /// Deserialises the platform runtime catalogue (ADR-0038) from
-/// <c>platform/runtime-catalog.yaml</c>. Reuses the YamlDotNet pattern
+/// <c>eng/runtime-catalog/runtime-catalog.yaml</c>. Reuses the YamlDotNet pattern
 /// established in <c>Cvoya.Spring.Manifest.ManifestParser</c>: camel-case
 /// naming, ignore-unmatched, deserialize-and-throw on malformed input.
 /// </summary>

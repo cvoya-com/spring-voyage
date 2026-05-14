@@ -513,7 +513,7 @@ The `SpringVoyageAgentLauncher` forwards three YAML-driven knobs to the containe
 | ---------------------- | --------------------------------------- | ------- |
 | `SPRING_LLM_PROVIDER`  | `Model.Provider` (default `ollama`)     | Provider id label, used for telemetry / agent-card description. |
 | `SPRING_MODEL`         | `Model.Id` (default `OllamaOptions.DefaultModel`) | Model identifier the component requests. |
-| `SPRING_LLM_COMPONENT` | `llm-{provider}` (computed)             | Dapr Conversation **component name** the agent binds to. Per [ADR-0038 § 3](../decisions/0038-agent-runtime-and-model-provider-split.md#3-modelproviders-are-platform-configuration-alongside-agentruntimes-in-runtime-catalogyaml), in-tree Dapr component files live at `dapr/components/llm-{provider.id}.yaml` with `metadata.name: llm-{provider.id}`. |
+| `SPRING_LLM_COMPONENT` | `llm-{provider}` (computed)             | Dapr Conversation **component name** the agent binds to. Per [ADR-0038 § 3](../decisions/0038-agent-runtime-and-model-provider-split.md#3-modelproviders-are-platform-configuration-alongside-agentruntimes-in-runtime-catalogyaml), in-tree Dapr component files live at `eng/dapr/components/llm-{provider.id}.yaml` with `metadata.name: llm-{provider.id}`. |
 
 `agents/spring-voyage-agent/agent.py` reads `SPRING_LLM_COMPONENT` and passes
 the resolved name to `DaprChatClient(component_name=...)`. The model id is
@@ -527,7 +527,7 @@ when the model is missing, so model installation remains a first-use runtime
 concern rather than a deployment-time catalogue guess.
 
 **Dapr component naming convention.** Each provider has one in-tree YAML at
-`dapr/components/delegated-spring-voyage-agent/llm-{provider.id}.yaml`:
+`eng/dapr/components/delegated-spring-voyage-agent/llm-{provider.id}.yaml`:
 
 | Provider    | YAML file              | `metadata.name` | Dapr `type` |
 |-------------|------------------------|-----------------|-------------|
@@ -553,7 +553,7 @@ ours. The `metadata.name` is the platform's contract — that is the name
 
 The runtimes the platform supports — and each runtime's allowed providers,
 per-edge auth methods, thread-binding mechanism, and prompt-injection mode —
-live as data in `platform/runtime-catalog.yaml`. There are no per-runtime or
+live as data in `eng/runtime-catalog/runtime-catalog.yaml`. There are no per-runtime or
 per-provider C# classes; per-wire-format behaviour is encoded in a small set
 of `IModelProviderAdapter` strategies (`anthropic`, `openai-compatible`,
 `google`) and per-runtime behaviour in `IAgentRuntimeLauncher` strategies
@@ -659,7 +659,7 @@ The Tier B native launcher (`SpringVoyageAgentLauncher`) is the canonical exampl
 ### Local verification
 
 ```bash
-devops/build/build-sidecar.sh                          # builds ghcr.io/cvoya-com/spring-voyage-agent-base:dev
+eng/build/build-sidecar.sh                          # builds ghcr.io/cvoya-com/spring-voyage-agent-base:dev
 docker run --rm -p 8999:8999 \
   -e SPRING_AGENT_ARGV='["true"]' \
   ghcr.io/cvoya-com/spring-voyage-agent-base:dev &

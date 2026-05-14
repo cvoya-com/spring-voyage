@@ -124,7 +124,7 @@ public class PersistentAgentLifecycle(
 
         var runtime = _runtimeCatalog.GetAgentRuntime(definition.Execution.AgentRuntimeId)
             ?? throw new SpringException(
-                $"No agent runtime is registered in platform/runtime-catalog.yaml with id " +
+                $"No agent runtime is registered in eng/runtime-catalog/runtime-catalog.yaml with id " +
                 $"'{definition.Execution.AgentRuntimeId}' (agent '{agentId}'). Add the entry " +
                 "to the catalogue or set ai.runtime to a registered runtime id before deploying.");
         if (!_launchersByKind.TryGetValue(runtime.Launcher, out var launcher))

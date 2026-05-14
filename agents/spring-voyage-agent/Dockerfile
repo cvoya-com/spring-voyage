@@ -7,7 +7,7 @@
 # building block (Ollama, OpenAI, Anthropic, etc.).
 
 # Pinned to an exact patch and aligned to Python 3.13 to match
-# devops/build/Dockerfile.agent-base — every Python-bearing platform image
+# eng/build/Dockerfile.agent-base — every Python-bearing platform image
 # now tracks the same interpreter line. The SDK declares
 # `requires-python = ">=3.12"` (agents/spring-voyage-agent-sdk/pyproject.toml),
 # so 3.13 satisfies the floor; CI still validates on 3.12 to keep the

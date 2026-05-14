@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <!--
-    Embedded copy of platform/runtime-catalog.yaml so the loader can boot
+    Embedded copy of eng/runtime-catalog/runtime-catalog.yaml so the loader can boot
     without depending on the host's working directory layout. The YAML
     file at the repo root is the source of truth; this MSBuild item links
     it into the assembly as a resource for the DefaultRuntimeCatalog
@@ -28,7 +28,7 @@
     options.
   -->
   <ItemGroup>
-    <EmbeddedResource Include="..\..\platform\runtime-catalog.yaml" Link="runtime-catalog.yaml" LogicalName="Cvoya.Spring.RuntimeCatalog.runtime-catalog.yaml" />
+    <EmbeddedResource Include="..\..\eng\runtime-catalog\runtime-catalog.yaml" Link="runtime-catalog.yaml" LogicalName="Cvoya.Spring.RuntimeCatalog.runtime-catalog.yaml" />
   </ItemGroup>
 
 </Project>

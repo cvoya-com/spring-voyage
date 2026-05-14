@@ -2,7 +2,7 @@
 
 > Practical CLI workflows for installing, configuring, and maintaining model providers on a tenant. Audience: operators with some ops background but no prior Spring Voyage context.
 
-A **model provider** is the company whose API hosts a set of LLMs — `anthropic`, `openai`, `google`, `ollama`. The provider is the platform's credential and routing boundary: one credential row per `(tenant, provider, authMethod)`, one live-catalogue lookup per provider, shared across every runtime that targets that provider. The closed v0.1 set lives in [`platform/runtime-catalog.yaml`](../../../platform/runtime-catalog.yaml).
+A **model provider** is the company whose API hosts a set of LLMs — `anthropic`, `openai`, `google`, `ollama`. The provider is the platform's credential and routing boundary: one credential row per `(tenant, provider, authMethod)`, one live-catalogue lookup per provider, shared across every runtime that targets that provider. The closed v0.1 set lives in [`eng/runtime-catalog/runtime-catalog.yaml`](../../../eng/runtime-catalog/runtime-catalog.yaml).
 
 ## Providers vs runtimes
 
@@ -12,7 +12,7 @@ A **model provider** is the company whose API hosts a set of LLMs — `anthropic
 - **ModelProvider** — the company hosting the LLMs. The credential / routing boundary. Closed set in v0.1: `anthropic`, `openai`, `google`, `ollama`.
 - **Model** — a specific LLM, identified by the structured pair `{provider, id}`.
 
-Both runtimes and providers are declared as data in `platform/runtime-catalog.yaml`. The operator's job in this guide is to install **providers**. Runtimes are not installed per-tenant — they are picked at unit/agent create time from the catalogue's closed list. There is no `spring agent-runtime …` verb family; install/configure/refresh-models all live under `spring model-provider …`.
+Both runtimes and providers are declared as data in `eng/runtime-catalog/runtime-catalog.yaml`. The operator's job in this guide is to install **providers**. Runtimes are not installed per-tenant — they are picked at unit/agent create time from the catalogue's closed list. There is no `spring agent-runtime …` verb family; install/configure/refresh-models all live under `spring model-provider …`.
 
 See [`docs/architecture/agent-runtime.md`](../../architecture/agent-runtime.md) for the full architecture and [`docs/glossary.md`](../../glossary.md) for the term definitions.
 
@@ -67,7 +67,7 @@ $ spring model-provider install openai \
 - `--default-model <id>` — pre-selected in the wizard.
 - `--base-url <url>` — for Ollama or OpenAI-compatible gateways.
 
-**Unknown provider id** → `spring` exits 1 with: `Model provider '<id>' is not registered with the host.` Valid ids are exactly the entries under `modelProviders:` in `platform/runtime-catalog.yaml` — the closed v0.1 set is `anthropic`, `openai`, `google`, `ollama`. Adding a fifth provider is a config-only edit when the wire format is OpenAI-compatible (otherwise also a new `IModelProviderAdapter` strategy); see [ADR-0038 § 3](../../decisions/0038-agent-runtime-and-model-provider-split.md#3-modelproviders-are-platform-configuration-alongside-agentruntimes-in-runtime-catalogyaml).
+**Unknown provider id** → `spring` exits 1 with: `Model provider '<id>' is not registered with the host.` Valid ids are exactly the entries under `modelProviders:` in `eng/runtime-catalog/runtime-catalog.yaml` — the closed v0.1 set is `anthropic`, `openai`, `google`, `ollama`. Adding a fifth provider is a config-only edit when the wire format is OpenAI-compatible (otherwise also a new `IModelProviderAdapter` strategy); see [ADR-0038 § 3](../../decisions/0038-agent-runtime-and-model-provider-split.md#3-modelproviders-are-platform-configuration-alongside-agentruntimes-in-runtime-catalogyaml).
 
 ## Validating a credential
 
@@ -211,7 +211,7 @@ The in-container probe interpreters shell out to a small toolset; every image us
 | `gemini`        | `google`                             | `curl`                       | Credential + model probes call `generativelanguage.googleapis.com` via `curl`. |
 | `spring-voyage` | `anthropic` / `openai` / `google` / `ollama` | `curl`               | Credential + model probes call the active provider's endpoint via `curl`. |
 
-The runtime ↔ provider edges (and the per-edge `authMethod` and `credentialEnvVar` the launcher writes) live in `platform/runtime-catalog.yaml`; see [ADR-0038 § 4](../../decisions/0038-agent-runtime-and-model-provider-split.md#4-credential-matrix-is-derived-from-runtime-catalogyaml) for the projected matrix. The OSS images shipped by the default Worker deployment already satisfy the binary contract. Operators building custom images should keep the appropriate binary on `PATH` — `curl` is typically the smallest addition (an `apk add curl` or `apt-get install -y curl` step).
+The runtime ↔ provider edges (and the per-edge `authMethod` and `credentialEnvVar` the launcher writes) live in `eng/runtime-catalog/runtime-catalog.yaml`; see [ADR-0038 § 4](../../decisions/0038-agent-runtime-and-model-provider-split.md#4-credential-matrix-is-derived-from-runtime-catalogyaml) for the projected matrix. The OSS images shipped by the default Worker deployment already satisfy the binary contract. Operators building custom images should keep the appropriate binary on `PATH` — `curl` is typically the smallest addition (an `apk add curl` or `apt-get install -y curl` step).
 
 ## Troubleshooting
 
@@ -220,7 +220,7 @@ The runtime ↔ provider edges (and the per-edge `authMethod` and `credentialEnv
 - **Unit is in `Error` with `LastValidationError.Code == "CredentialInvalid"`.** The provider rejected the credential (401 / 403). Update the secret (`spring secret …`) and run `spring unit revalidate <name>`. Confirm the credential resolves with `spring model-provider validate-credential <id>` first.
 - **Unit is in `Error` with `LastValidationError.Code == "ModelNotFound"`.** The requested model id is not in the provider's live catalogue. Refresh the catalogue (`spring model-provider refresh-models <id>`) or switch the unit to a listed model via `spring unit patch <name> --model <id>` + `spring unit revalidate`.
 - **`credentials status` returns 404.** No observation has landed yet. Run `spring model-provider validate-credential <id> --credential <key>` to prime the row directly without rotating the catalogue, or exercise the provider via a unit dispatch.
-- **`install` silently "succeeds" but `list` doesn't show the provider.** Confirm the provider id exists under `modelProviders:` in `platform/runtime-catalog.yaml` — the closed v0.1 set is `anthropic`, `openai`, `google`, `ollama`. Install writes to the current tenant only, so cross-check the active tenant with `spring auth whoami`.
+- **`install` silently "succeeds" but `list` doesn't show the provider.** Confirm the provider id exists under `modelProviders:` in `eng/runtime-catalog/runtime-catalog.yaml` — the closed v0.1 set is `anthropic`, `openai`, `google`, `ollama`. Install writes to the current tenant only, so cross-check the active tenant with `spring auth whoami`.
 - **A model you pinned is missing from the wizard dropdown.** Re-check the configured list with `spring model-provider show <id>`. If the model is present in the list but absent in the wizard, refresh the portal session (the model list caches per session).
 
 ## See also
@@ -228,5 +228,5 @@ The runtime ↔ provider edges (and the per-edge `authMethod` and `credentialEnv
 - [Connector operator guide](connectors.md) — parallel guide for per-tenant connector installs.
 - [Architecture: Agent Runtime](../../architecture/agent-runtime.md) — the dispatcher, the launcher tiers, and how the runtime catalogue drives runtime selection.
 - [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md) — the AgentRuntime / ModelProvider split that this surface ships against.
-- [`platform/runtime-catalog.yaml`](../../../platform/runtime-catalog.yaml) — the closed v0.1 catalogue of runtimes and providers.
+- [`eng/runtime-catalog/runtime-catalog.yaml`](../../../eng/runtime-catalog/runtime-catalog.yaml) — the closed v0.1 catalogue of runtimes and providers.
 - [CLI reference](../../cli-reference.md) — the canonical command-by-command surface.

@@ -17,7 +17,7 @@
 # by name, and we use a unique name suffix per process to avoid colliding
 # with parallel runs.
 #
-# Honors the same DOCKER env var as `devops/build/build-agent-images.sh`.
+# Honors the same DOCKER env var as `eng/build/build-agent-images.sh`.
 
 set -euo pipefail
 
@@ -25,7 +25,7 @@ TAG="${SMOKE_IMAGE_TAG:-dev}"
 NAME_SUFFIX="$$"
 
 # ---- runtime selection ---------------------------------------------------
-# Mirrors devops/build/build-agent-images.sh — docker if reachable, else
+# Mirrors eng/build/build-agent-images.sh — docker if reachable, else
 # podman. Set DOCKER to force one runtime explicitly. We additionally
 # verify daemon reachability for docker because `command -v docker`
 # returns 0 even when the daemon is down (hello, macOS without Docker

@@ -28,7 +28,7 @@ public partial class Program
 {
     public static async Task Main(string[] args)
     {
-        // `--version` short-circuit: devops/deploy/spring-voyage-host.sh's `status`
+        // `--version` short-circuit: eng/deploy/spring-voyage-host.sh's `status`
         // subcommand calls this to display the running dispatcher's version next
         // to its PID and bind URL. Returning early avoids spinning up the web
         // host just to print a string. `-v` is accepted as the short alias.

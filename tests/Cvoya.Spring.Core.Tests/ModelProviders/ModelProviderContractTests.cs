@@ -146,7 +146,7 @@ public class ModelProviderContractTests
 
 /// <summary>
 /// Round-trip tests for the per-runtime seed file schema documented at
-/// <c>platform/runtime-catalog.yaml</c>. The contract itself does not
+/// <c>eng/runtime-catalog/runtime-catalog.yaml</c>. The contract itself does not
 /// load seeds — each per-runtime project owns its own loading logic —
 /// but the schema is stable, so we pin it here so drift shows up as a
 /// test failure.

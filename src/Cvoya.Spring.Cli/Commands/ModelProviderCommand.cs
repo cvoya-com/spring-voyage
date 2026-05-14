@@ -181,7 +181,7 @@ public static class ModelProviderCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Provider '{id}' is not registered with the host. Supported provider ids are listed in platform/runtime-catalog.yaml.");
+                    $"Provider '{id}' is not registered with the host. Supported provider ids are listed in eng/runtime-catalog/runtime-catalog.yaml.");
                 Environment.Exit(1);
             }
         });

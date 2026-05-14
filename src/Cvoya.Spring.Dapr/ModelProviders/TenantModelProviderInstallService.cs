@@ -37,10 +37,10 @@ public sealed class TenantModelProviderInstallService(
         ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
 
         // ADR-0038: installs are keyed on model-provider id, sourced from
-        // the runtime catalogue (platform/runtime-catalog.yaml).
+        // the runtime catalogue (eng/runtime-catalog/runtime-catalog.yaml).
         var provider = runtimeCatalog.GetModelProvider(providerId)
             ?? throw new InvalidOperationException(
-                $"Model provider '{providerId}' is not declared in platform/runtime-catalog.yaml.");
+                $"Model provider '{providerId}' is not declared in eng/runtime-catalog/runtime-catalog.yaml.");
 
         var tenantId = tenantContext.CurrentTenantId;
         var now = DateTimeOffset.UtcNow;

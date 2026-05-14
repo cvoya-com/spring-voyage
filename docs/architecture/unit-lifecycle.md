@@ -118,7 +118,7 @@ unit:
   description: Software engineering team
   structure: hierarchical
   ai:
-    runtime: spring-voyage    # AgentRuntime id from platform/runtime-catalog.yaml (ADR-0038)
+    runtime: spring-voyage    # AgentRuntime id from eng/runtime-catalog/runtime-catalog.yaml (ADR-0038)
     model:
       provider: ollama
       id: llama3.2:3b
