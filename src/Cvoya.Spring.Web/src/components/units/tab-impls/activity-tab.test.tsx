@@ -6,10 +6,16 @@ import type { ReactNode } from "react";
 import { ActivityTab } from "./activity-tab";
 
 const mockQueryActivity = vi.fn();
+const mockGetAgentCostTimeseries = vi.fn();
+const mockGetAgentCostBreakdown = vi.fn();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
     queryActivity: (...args: unknown[]) => mockQueryActivity(...args),
+    getAgentCostTimeseries: (...args: unknown[]) =>
+      mockGetAgentCostTimeseries(...args),
+    getAgentCostBreakdown: (...args: unknown[]) =>
+      mockGetAgentCostBreakdown(...args),
   },
 }));
 
@@ -46,16 +52,18 @@ function Wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
-describe("ActivityTab", () => {
+describe("ActivityTab (Unit subject)", () => {
   beforeEach(() => {
     mockQueryActivity.mockReset();
     mockQueryActivity.mockResolvedValue(mockResult);
+    mockGetAgentCostTimeseries.mockReset();
+    mockGetAgentCostBreakdown.mockReset();
   });
 
   it("calls API with unit source filter", async () => {
     render(
       <Wrapper>
-        <ActivityTab unitId="eng-team" />
+        <ActivityTab kind="Unit" id="eng-team" />
       </Wrapper>,
     );
     await waitFor(() => {
@@ -69,7 +77,7 @@ describe("ActivityTab", () => {
   it("renders activity events for the unit", async () => {
     render(
       <Wrapper>
-        <ActivityTab unitId="eng-team" />
+        <ActivityTab kind="Unit" id="eng-team" />
       </Wrapper>,
     );
     await waitFor(() => {
@@ -86,7 +94,7 @@ describe("ActivityTab", () => {
     });
     render(
       <Wrapper>
-        <ActivityTab unitId="eng-team" />
+        <ActivityTab kind="Unit" id="eng-team" />
       </Wrapper>,
     );
     await waitFor(() => {
@@ -111,7 +119,7 @@ describe("ActivityTab", () => {
           eventType: "StateChanged",
           severity: "Warning",
           summary:
-            "Unit transitioned from Validating to Error: ConfigurationIncomplete \u2014 No execution defaults are configured",
+            "Unit transitioned from Validating to Error: ConfigurationIncomplete — No execution defaults are configured",
           correlationId: null,
           cost: null,
           timestamp: new Date().toISOString(),
@@ -137,7 +145,7 @@ describe("ActivityTab", () => {
 
     render(
       <Wrapper>
-        <ActivityTab unitId="eng-team" />
+        <ActivityTab kind="Unit" id="eng-team" />
       </Wrapper>,
     );
 
@@ -177,12 +185,211 @@ describe("ActivityTab", () => {
     });
     render(
       <Wrapper>
-        <ActivityTab unitId="eng-team" />
+        <ActivityTab kind="Unit" id="eng-team" />
       </Wrapper>,
     );
     await waitFor(() => {
       expect(screen.getByText("Bare row")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("activity-row-toggle")).not.toBeInTheDocument();
+  });
+
+  it("does not render agent cost cards for the Unit subject", async () => {
+    render(
+      <Wrapper>
+        <ActivityTab kind="Unit" id="eng-team" />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Unit started")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("agent-cost-timeseries-card"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("agent-cost-breakdown-card"),
+    ).not.toBeInTheDocument();
+    // The unit Activity tab must not call the agent cost endpoints —
+    // they would 404 against a unit id.
+    expect(mockGetAgentCostTimeseries).not.toHaveBeenCalled();
+    expect(mockGetAgentCostBreakdown).not.toHaveBeenCalled();
+  });
+});
+
+describe("ActivityTab (Agent subject)", () => {
+  beforeEach(() => {
+    mockQueryActivity.mockReset();
+    mockQueryActivity.mockResolvedValue({
+      items: [],
+      totalCount: 0,
+      page: 1,
+      pageSize: 20,
+    });
+    mockGetAgentCostTimeseries.mockReset();
+    mockGetAgentCostTimeseries.mockResolvedValue(null);
+    mockGetAgentCostBreakdown.mockReset();
+    mockGetAgentCostBreakdown.mockResolvedValue(null);
+  });
+
+  it("calls API with agent source filter", async () => {
+    render(
+      <Wrapper>
+        <ActivityTab kind="Agent" id="ada" />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(mockQueryActivity).toHaveBeenCalledWith({
+        source: "agent:ada",
+        pageSize: "20",
+      });
+    });
+  });
+
+  it("shows the agent-flavoured empty message when no events", async () => {
+    render(
+      <Wrapper>
+        <ActivityTab kind="Agent" id="ada" />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByText("No activity for this agent yet."),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("renders the cost timeseries card (empty state when no data)", async () => {
+    render(
+      <Wrapper>
+        <ActivityTab kind="Agent" id="ada" />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("agent-cost-timeseries-card"),
+      ).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("agent-cost-timeseries-empty"),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("renders the sparkline when timeseries data is present", async () => {
+    mockGetAgentCostTimeseries.mockResolvedValue({
+      scope: "agent",
+      id: "ada",
+      bucket: "1d",
+      from: "2024-01-01T00:00:00Z",
+      to: "2024-01-08T00:00:00Z",
+      points: [
+        { t: "2024-01-01T00:00:00Z", costUsd: 0.5 },
+        { t: "2024-01-02T00:00:00Z", costUsd: 1.2 },
+        { t: "2024-01-03T00:00:00Z", costUsd: 0.8 },
+      ],
+    });
+    render(
+      <Wrapper>
+        <ActivityTab kind="Agent" id="ada" />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("agent-cost-sparkline")).toBeInTheDocument();
+    });
+  });
+
+  it("renders the breakdown table when entries are present", async () => {
+    mockGetAgentCostBreakdown.mockResolvedValue({
+      agentId: "ada",
+      from: "2024-01-01T00:00:00Z",
+      to: "2024-01-08T00:00:00Z",
+      entries: [
+        {
+          key: "claude-3-5-sonnet",
+          kind: "llm",
+          totalCost: 1.5,
+          recordCount: 10,
+        },
+        { key: "gpt-4o", kind: "llm", totalCost: 0.3, recordCount: 3 },
+      ],
+    });
+    render(
+      <Wrapper>
+        <ActivityTab kind="Agent" id="ada" />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("agent-cost-breakdown-card"),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByText("claude-3-5-sonnet")).toBeInTheDocument();
+    expect(screen.getByText("gpt-4o")).toBeInTheDocument();
+  });
+
+  it("hides the breakdown table when entries are empty", async () => {
+    mockGetAgentCostBreakdown.mockResolvedValue({
+      agentId: "ada",
+      from: "",
+      to: "",
+      entries: [],
+    });
+    render(
+      <Wrapper>
+        <ActivityTab kind="Agent" id="ada" />
+      </Wrapper>,
+    );
+    // Wait for the timeseries card so React-Query has settled before
+    // we assert the absence of the breakdown card.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("agent-cost-timeseries-card"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("agent-cost-breakdown-card"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the expandable-row affordance for agent events with details", async () => {
+    mockQueryActivity.mockResolvedValue({
+      items: [
+        {
+          id: "agent-evt-with-details",
+          source: "agent://ada",
+          eventType: "StateChanged",
+          severity: "Warning",
+          summary: "Agent paused: BudgetExceeded",
+          correlationId: null,
+          cost: null,
+          timestamp: new Date().toISOString(),
+          details: {
+            action: "StatusTransition",
+            from: "Running",
+            to: "Paused",
+            reasonCode: "BudgetExceeded",
+            reasonMessage: "Daily budget cap reached",
+          },
+        },
+      ],
+      totalCount: 1,
+      page: 1,
+      pageSize: 20,
+    });
+
+    render(
+      <Wrapper>
+        <ActivityTab kind="Agent" id="ada" />
+      </Wrapper>,
+    );
+
+    const toggle = await screen.findByTestId("activity-row-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(toggle);
+
+    const details = await screen.findByTestId("activity-row-details");
+    expect(details).toHaveTextContent('"reasonCode": "BudgetExceeded"');
   });
 });
