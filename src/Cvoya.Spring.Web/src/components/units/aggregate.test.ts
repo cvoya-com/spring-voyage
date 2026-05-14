@@ -201,12 +201,13 @@ describe("tabsFor", () => {
     ]);
   });
 
-  it("locks the unit tab order and count (#2271/#2272 — Skills+Traces added, canonical order)", () => {
-    // Canonical order per docs/design/canonical-tabs.md § 7.1: Skills
-    // and Traces sit between Agents and Policies. Activity moved up to
-    // slot 2 (matching Agent + Tenant) and Agents moved down after
+  it("locks the unit tab order and count (#2271/#2272/#2273 — Skills+Traces+Deployment added, canonical order)", () => {
+    // Canonical order per docs/design/canonical-tabs.md § 7.1: Skills,
+    // Traces, and Deployment join the Unit catalog. Activity moved up
+    // to slot 2 (matching Agent + Tenant) and Agents moved down after
     // Memory so the reading slots (Overview/Activity/Messages/Memory)
-    // are contiguous across all subjects.
+    // are contiguous across all subjects. Deployment sits in overflow
+    // alongside Config — both are deep editors / lifecycle surfaces.
     expect([...UNIT_TABS.visible, ...UNIT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
@@ -217,9 +218,10 @@ describe("tabsFor", () => {
       "Traces",
       "Policies",
       "Config",
+      "Deployment",
     ]);
     expect(UNIT_TABS.visible).toHaveLength(8);
-    expect(UNIT_TABS.overflow).toEqual(["Config"]);
+    expect(UNIT_TABS.overflow).toEqual(["Config", "Deployment"]);
   });
 
   it("locks the agent tab order and count (#1119 adds Deployment tab)", () => {
@@ -254,7 +256,7 @@ describe("tabsFor", () => {
 });
 
 describe("visibleTabsFor / overflowTabsFor", () => {
-  it("splits the Unit catalog into 8 visible + 1 overflow (#2271/#2272)", () => {
+  it("splits the Unit catalog into 8 visible + 2 overflow (#2271/#2272/#2273)", () => {
     expect(visibleTabsFor("Unit")).toEqual([
       "Overview",
       "Activity",
@@ -265,7 +267,7 @@ describe("visibleTabsFor / overflowTabsFor", () => {
       "Traces",
       "Policies",
     ]);
-    expect(overflowTabsFor("Unit")).toEqual(["Config"]);
+    expect(overflowTabsFor("Unit")).toEqual(["Config", "Deployment"]);
   });
 
   it("surfaces the full Agent catalog as visible with no overflow (#1119 added Deployment → 10)", () => {

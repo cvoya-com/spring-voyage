@@ -289,7 +289,12 @@ export const UNIT_TABS = {
     "Traces",
     "Policies",
   ] as const,
-  overflow: ["Config"] as const,
+  // Deployment is in overflow on both Unit and Agent — both are deep
+  // editors / lifecycle surfaces. The activity-side cluster
+  // (Overview/Activity/Messages/Memory + composition slots) is the
+  // high-frequency surface; overflow placement preserves the existing
+  // `?tab=Deployment` deep-link contract.
+  overflow: ["Config", "Deployment"] as const,
 };
 
 export const AGENT_TABS = {

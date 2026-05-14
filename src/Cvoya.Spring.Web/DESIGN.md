@@ -349,7 +349,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Policies   | Tenant-scope policy view via the canonical `<PoliciesTab kind="Tenant" id={...} />` (#2255). Renders the Cloning summary against the existing tenant cloning-policy endpoint plus "set via CLI" placeholders for the dimension panels whose tenant-scope read endpoint has not landed yet (Skill / Model / Cost / ExecutionMode / Initiative — see `docs/design/canonical-tabs.md` § 5.9). The deep-link to `/policies` is preserved for the cross-unit roll-up. |
 | Budgets    | Tenant-wide cost summary card (today / 7d / 30d + sparkline). Deep-link to `/analytics/costs`.                                  |
 
-**Unit** — 8 visible + 1 overflow (`Config`). Order follows the canonical reading→composition→constraint→wiring sweep in `docs/design/canonical-tabs.md` § 3.1.
+**Unit** — 8 visible + 2 overflow (`Config`, `Deployment`). Order follows the canonical reading→composition→constraint→wiring sweep in `docs/design/canonical-tabs.md` § 3.1.
 
 | Tab           | Content                                                                                                                          |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -362,6 +362,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Traces        | Mock-backed in v0.1 (same fixture the agent surface uses); real `/api/v1/traces?unit=…` is a v0.2 follow-up. Shares the canonical `<TracesTab>` control with the agent surface (#2272). |
 | Policies      | Unit policies (Skill / Model / Cost / ExecutionMode / Initiative dimension panels + Effective-policy footer) via the canonical `<PoliciesTab kind="Unit" id={...} />` (#2255). Shares the same control with Tenant and Agent — variance is per dimension, not per chrome. |
 | **Config** (overflow) | Six sub-tabs: Boundary, Execution, Connector, Skills, Secrets, Expertise. Sub-tab selection is URL-owned via `?subtab=<name>`. Execution edits unit defaults and shows member-agent hosting with deep links to each agent's Config tab. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
+| **Deployment** (overflow) | Same canonical `<DeploymentTab>` control the agent surface uses (#2273). In v0.1 the body is a "Deploy via CLI for now" placeholder pending unit-keyed lifecycle endpoints (#2274); the canonical tab position is honored. |
 
 **Agent** — 10 visible, 0 overflow.
 

@@ -16,6 +16,7 @@ import "./unit-skills"; // #2271
 import "./unit-traces"; // #2272
 import "./unit-policies";
 import "./unit-config";
+import "./unit-deployment"; // #2273
 
 // Agent tabs
 import "./agent-overview";
