@@ -1,31 +1,19 @@
 "use client";
 
-// Unit Messages tab (#1459 / #1460).
-//
-// Renders the full timeline of the {current human, unit} 1:1 engagement
-// — every event (messages, tool calls, lifecycle transitions) inline,
-// no master/detail split — plus a persistent inline composer at the
-// bottom. Sending a message creates the thread implicitly when none
-// exists yet.
-//
-// The shared `<UnitAgentMessagesView>` carries all of the fetch +
-// composer logic; this file only narrows the node kind and wires the
-// hosting node's address into the view.
+// Unit Messages tab (#1459 / #1460; unified under #2256).
+// Thin wrapper around the canonical `<MessagesTab>` — same timeline,
+// same composer, same address routing shared with the agent surface.
+// The unified component accepts a `{ kind, id, name }` triple so both
+// subjects render the same control (see docs/design/canonical-tabs.md
+// § 5.3).
 
-import type { TabContentProps } from "./index";
-import { registerTab } from "./index";
-import { UnitAgentMessagesView } from "./unit-agent-messages-view";
+import { MessagesTab } from "@/components/units/tab-impls/messages-tab";
+
+import { registerTab, type TabContentProps } from "./index";
 
 function UnitMessagesTab({ node }: TabContentProps) {
   if (node.kind !== "Unit") return null;
-  return (
-    <UnitAgentMessagesView
-      targetScheme="unit"
-      targetPath={node.id}
-      targetName={node.name}
-      rootTestId="tab-unit-messages"
-    />
-  );
+  return <MessagesTab kind="Unit" id={node.id} name={node.name} />;
 }
 
 registerTab("Unit", "Messages", UnitMessagesTab);
