@@ -275,12 +275,17 @@ export function filterTree(tree: TreeNode, query: string): FilterResult {
  * renders. Overflow tabs follow visible ones.
  */
 export const UNIT_TABS = {
+  // A unit is an agent (see docs/concepts/units-vs-agents.md), so it
+  // gains the agent's introspection slots (Skills, Traces) and the
+  // lifecycle slot (Deployment). Clones is the only agent-only slot —
+  // units cannot be cloned today. See canonical-tabs.md § 7.1.
   visible: [
     "Overview",
-    "Agents",
     "Activity",
     "Messages",
     "Memory",
+    "Agents",
+    "Skills",
     "Policies",
   ] as const,
   overflow: ["Config"] as const,

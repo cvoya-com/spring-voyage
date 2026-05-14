@@ -12,6 +12,7 @@ import "./unit-agents";
 import "./unit-activity";
 import "./unit-messages";
 import "./unit-memory";
+import "./unit-skills"; // #2271
 import "./unit-policies";
 import "./unit-config";
 
