@@ -224,7 +224,7 @@ describe("tabsFor", () => {
     expect(UNIT_TABS.overflow).toEqual(["Config", "Deployment"]);
   });
 
-  it("locks the agent tab order and count (#1119 adds Deployment tab)", () => {
+  it("locks the agent tab order — 8 visible + Config/Deployment overflow (canonical-tabs §3.3)", () => {
     expect([...AGENT_TABS.visible, ...AGENT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
@@ -237,7 +237,8 @@ describe("tabsFor", () => {
       "Config",
       "Deployment",
     ]);
-    expect(AGENT_TABS.overflow).toEqual([]);
+    expect(AGENT_TABS.visible).toHaveLength(8);
+    expect(AGENT_TABS.overflow).toEqual(["Config", "Deployment"]);
   });
 
   it("locks the tenant tab order — 4 visible + Config overflow (#2254)", () => {
@@ -274,11 +275,18 @@ describe("visibleTabsFor / overflowTabsFor", () => {
     expect(overflowTabsFor("Unit")).toEqual(["Config", "Deployment"]);
   });
 
-  it("surfaces the full Agent catalog as visible with no overflow (#1119 added Deployment → 10)", () => {
-    expect(visibleTabsFor("Agent")).toHaveLength(10);
-    expect(overflowTabsFor("Agent")).toEqual([]);
-    // Deployment tab must be in the catalog.
-    expect(visibleTabsFor("Agent")).toContain("Deployment");
+  it("splits the Agent catalog into 8 visible + 2 overflow (canonical-tabs §3.3 / §7.1)", () => {
+    expect(visibleTabsFor("Agent")).toEqual([
+      "Overview",
+      "Activity",
+      "Messages",
+      "Memory",
+      "Skills",
+      "Traces",
+      "Clones",
+      "Policies",
+    ]);
+    expect(overflowTabsFor("Agent")).toEqual(["Config", "Deployment"]);
   });
 
   it("surfaces the Tenant catalog as 4 visible + Config overflow (#2254)", () => {

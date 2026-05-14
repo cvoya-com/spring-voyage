@@ -298,6 +298,13 @@ export const UNIT_TABS = {
 };
 
 export const AGENT_TABS = {
+  // Config + Deployment are overflow per canonical-tabs.md § 3.3 / § 7.1:
+  // both are deep editors / lifecycle surfaces; the activity-side cluster
+  // (Overview / Activity / Messages / Memory / Skills / Traces / Clones /
+  // Policies) is the high-frequency surface. #1119's Deployment tab is the
+  // full-fidelity persistent-agent lifecycle surface; the AgentCard
+  // Deployment quick-action deep-links to `?tab=Deployment` so overflow
+  // placement does not regress that path. Mirrors UNIT_TABS shape.
   visible: [
     "Overview",
     "Activity",
@@ -307,15 +314,8 @@ export const AGENT_TABS = {
     "Traces",
     "Clones",
     "Policies",
-    "Config",
-    // #1119: dedicated Deployment tab for the persistent-agent lifecycle
-    // verbs (deploy / undeploy / scale / status / logs). The Overview tab
-    // already surfaces a compact lifecycle panel; this tab is the
-    // full-fidelity surface that matches `spring agent {deploy,undeploy,
-    // scale,logs}` 1:1 and is always reachable via deep-link.
-    "Deployment",
   ] as const,
-  overflow: [] as const,
+  overflow: ["Config", "Deployment"] as const,
 };
 
 export const TENANT_TABS = {
