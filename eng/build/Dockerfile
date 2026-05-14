@@ -72,17 +72,16 @@ RUN npm run build --workspace=spring-voyage-dashboard
 # ------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
-# Install Dapr CLI and Node.js runtime (for the web container).
+# Install Dapr CLI. Node.js runtime binary is copied from web-build (see below).
 # Dapr CLI is included so operators can invoke `dapr` against the local sidecar
 # (status, metadata, etc.) from within the container.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        curl ca-certificates gnupg \
- && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
- && apt-get install -y --no-install-recommends nodejs \
+        curl ca-certificates \
  && curl -fsSL https://raw.githubusercontent.com/dapr/cli/master/install/install.sh | /bin/bash -s 1.14.1 \
- && apt-get purge -y --auto-remove gnupg \
  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=web-build /usr/local/bin/node /usr/local/bin/node
 
 WORKDIR /app
 
