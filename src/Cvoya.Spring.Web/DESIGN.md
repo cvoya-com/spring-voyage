@@ -346,7 +346,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | Overview   | Optional description line + top-level units grid (one `<UnitCard>` per top-level unit). Renders through the shared canonical `<OverviewTab>` control (#2258); tenant-wide stat tiles and a cost-over-time card are tracked as separate canonical-tabs follow-ups. |
 | Activity   | Tenant-wide event feed. Deep-link to `/analytics/throughput` for the filterable view.                                           |
-| Policies   | Tenant-wide policy rollup.                                                                                                      |
+| Policies   | Tenant-scope policy view via the canonical `<PoliciesTab kind="Tenant" id={...} />` (#2255). Renders the Cloning summary against the existing tenant cloning-policy endpoint plus "set via CLI" placeholders for the dimension panels whose tenant-scope read endpoint has not landed yet (Skill / Model / Cost / ExecutionMode / Initiative — see `docs/design/canonical-tabs.md` § 5.9). The deep-link to `/policies` is preserved for the cross-unit roll-up. |
 | Budgets    | Tenant-wide cost summary card (today / 7d / 30d + sparkline). Deep-link to `/analytics/costs`.                                  |
 | Memory     | Cross-cutting tenant memory (empty in v2.0 — see § 10).                                                                          |
 
@@ -359,7 +359,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Activity      | Unit-scoped event feed with expandable-row affordance — rows that carry a `details` payload reveal the structured JSON inline (#1665). Shares the canonical `<ActivityTab>` control with the agent surface (#2253).                                                                                                          |
 | Messages      | Single 1:1 engagement timeline + persistent inline composer (`<UnitAgentMessagesView>` body via the canonical `<MessagesTab kind="Unit" id={...} />`; #2256). Shares the same control with the agent surface — only the address scheme changes. See § 9.3 for the timeline + composer contract. |
 | Memory        | Unit-scoped read-only memory inspector (see § 10).                                                                               |
-| Policies      | Unit policies including the Initiative section.                                                                                  |
+| Policies      | Unit policies (Skill / Model / Cost / ExecutionMode / Initiative dimension panels + Effective-policy footer) via the canonical `<PoliciesTab kind="Unit" id={...} />` (#2255). Shares the same control with Tenant and Agent — variance is per dimension, not per chrome. |
 | **Config** (overflow) | Six sub-tabs: Boundary, Execution, Connector, Skills, Secrets, Expertise. Sub-tab selection is URL-owned via `?subtab=<name>`. Execution edits unit defaults and shows member-agent hosting with deep links to each agent's Config tab. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
 
 **Agent** — 10 visible, 0 overflow.
@@ -373,7 +373,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Skills     | Read from `/api/v1/agents/{id}/skills`.                                                                                      |
 | Traces     | Mock-backed in v2.0; a real `/api/v1/traces?agent=…` endpoint is a v2.1 follow-up.                                           |
 | Clones     | Per-agent clones table.                                                                                                      |
-| Policies   | Agent Policies (symmetric with Unit Policies). Hosts the per-agent Initiative editor; other dimensions (cost, model, skill) are declared on the owning unit. |
+| Policies   | Agent Policies (Initiative + Cloning) via the canonical `<PoliciesTab kind="Agent" id={...} />` (#2255). Same chrome as Unit and Tenant; the dimension set is agent-scope — Initiative (shared panel with Unit) + Cloning (agent-only, read-only summary). Cost / Model / Skill / ExecutionMode dimensions are declared on the owning unit by design and intentionally absent here. |
 | Config     | Merged info + daily-budget editor + execution editor, plus a collapsible Debug section with the status JSON. Initiative lives on the Policies tab; expertise lives on the owning unit. |
 | Deployment | Full-fidelity persistent-agent lifecycle surface (#1119). Mirrors `spring agent deploy / undeploy / scale / logs` 1:1. Destructive verbs (Undeploy, Scale to 0) require confirmation. The Overview tab embeds a compact version; this tab is the canonical deep-link target (e.g. from the AgentCard "Deployment" quick-action). |
 

@@ -1,49 +1,21 @@
 "use client";
 
-// Tenant Policies tab (EXP-tab-tenant, umbrella #815 §4).
-//
-// Tenant-scoped policies live on the dedicated `/policies` surface;
-// this tab is a light cross-link so operators can reach the full
-// policy matrix without leaving the Explorer.
+// Tenant Policies tab (umbrella #815 §4; unified under #2255).
+// Thin wrapper around the canonical `<PoliciesTab>` — the tenant subject
+// renders read-only summaries of every dimension (Skill / Model / Cost /
+// ExecutionMode / Initiative as "set via CLI" placeholders where no
+// tenant-scope read endpoint exists yet, plus the Cloning summary
+// against the existing tenant cloning-policy endpoint) and preserves
+// the deep-link to `/policies` for the cross-unit roll-up. See
+// `docs/design/canonical-tabs.md` § 5.9.
 
-import Link from "next/link";
-import { ArrowRight, ShieldCheck } from "lucide-react";
-
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { PoliciesTab } from "@/components/units/tab-impls/policies-tab";
 
 import { registerTab, type TabContentProps } from "./index";
 
 function TenantPoliciesTab({ node }: TabContentProps) {
   if (node.kind !== "Tenant") return null;
-
-  return (
-    <Card data-testid="tab-tenant-policies">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Tenant policies
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <p className="text-muted-foreground">
-          Tenant-wide guard rails — initiative levels, cost caps, skill
-          allow-lists — live on the dedicated policies surface.
-        </p>
-        <Link
-          href="/policies"
-          className="inline-flex items-center gap-1 text-primary hover:underline"
-          data-testid="tab-tenant-policies-link"
-        >
-          Open policies
-          <ArrowRight className="h-3 w-3" aria-hidden="true" />
-        </Link>
-      </CardContent>
-    </Card>
-  );
+  return <PoliciesTab kind="Tenant" id={node.id} />;
 }
 
 registerTab("Tenant", "Policies", TenantPoliciesTab);

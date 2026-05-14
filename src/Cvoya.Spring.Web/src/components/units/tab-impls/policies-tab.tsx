@@ -3,8 +3,19 @@
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { DollarSign, Gauge, ListChecks, Shield, Zap } from "lucide-react";
+import {
+  ArrowRight,
+  Copy,
+  DollarSign,
+  Gauge,
+  ListChecks,
+  Shield,
+  Zap,
+} from "lucide-react";
 
+import { AgentCloningPolicyPanel } from "@/components/agents/agent-cloning-policy-panel";
+import { AgentInitiativePanel } from "@/components/agents/agent-initiative-panel";
+import { CloningPolicyPanel as TenantCloningPolicyPanel } from "@/components/settings/cloning-policy-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,27 +45,42 @@ import type {
 import { formatCost } from "@/lib/utils";
 
 /**
- * Policies tab for the unit configuration page (PR-R5 / #411).
+ * Canonical Policies tab for the Explorer Detail Pane (#2255, umbrella
+ * #2252). One control, three subjects:
  *
- * Renders one panel per UnitPolicy dimension — Skill, Model, Cost,
- * Execution mode, Initiative — plus an Effective-policy footer. Every
- * dimension has the same "allow list / block list / caps" shape by
- * design, so the repetition is intentional: once the user learns one
- * panel the others follow (see `docs/design/portal-exploration.md`
- * § 5.6 for the full direction).
+ *   - **Unit** — full editor for the five `UnitPolicy` dimensions (Skill,
+ *     Model, Cost, ExecutionMode, Initiative) plus the Effective-policy
+ *     footer. Mirrors the CLI's `spring unit policy <dim> set|clear`
+ *     (#453); per-dimension edits merge into the current policy via
+ *     `PUT /api/v1/units/{id}/policy` so editing (for example) the Skill
+ *     panel never wipes the Cost caps. Inheritance (`docs/architecture/
+ *     units.md` § "First deny short-circuits") is tracked under #414;
+ *     for now the Effective-policy footer shows a single hop matching
+ *     the CLI.
  *
- * Every edit routes through `PUT /api/v1/units/{id}/policy`, which is
- * the same surface the CLI's `spring unit policy <dim> set|clear`
- * (#453) rides — the portal and CLI therefore round-trip byte-for-byte
- * identical payloads. Per-dimension edits merge into the current
- * policy rather than minting a fresh one, so editing (for example) the
- * Skill panel never wipes the Cost caps.
+ *   - **Agent** — Initiative + Cloning only. Cost / Model / Skill /
+ *     ExecutionMode dimensions are declared on the owning unit by
+ *     design (the agent-policies surface today documents this; see
+ *     `docs/design/canonical-tabs.md` § 5.9). Initiative reuses
+ *     `<AgentInitiativePanel>` (canonical home; same panel surfaces on
+ *     Unit × Policies → Initiative because a unit is an agent — see
+ *     `docs/concepts/units-vs-agents.md`). Cloning is agent-only because
+ *     units cannot be cloned in v0.1.
  *
- * Inheritance (`docs/architecture/units.md` § "First deny short-
- * circuits") is tracked under #414; for now the Effective-policy
- * footer shows a single hop ("this unit"), matching the CLI's one-hop
- * chain. When parent-unit overlay arrives the rendering slots in
- * without a tab reshape.
+ *   - **Tenant** — read-side summary. The dimension panels render a
+ *     "set via CLI" placeholder where no tenant-scope endpoint exists
+ *     yet (Skill / Model / Cost / ExecutionMode / Initiative); the
+ *     Cloning summary card reuses `<TenantCloningPolicyPanel>` from the
+ *     `/settings` hub so the canonical body lives in one place. The
+ *     alignment rule (`docs/design/canonical-tabs.md` § 1 / § 5.9)
+ *     forbids hiding options when an endpoint is missing — the
+ *     dimension keeps its slot and tells the operator where the editor
+ *     lives.
+ *
+ * The deep-link to `/policies` (cross-unit roll-up) is preserved on all
+ * three subjects; the per-subject tab is the *single-subject* surface
+ * and `/policies` is the *cross-subject* surface. They are different
+ * views of the same data, not duplicates.
  */
 
 const INITIATIVE_LEVELS: InitiativeLevel[] = [
@@ -65,11 +91,47 @@ const INITIATIVE_LEVELS: InitiativeLevel[] = [
 ];
 const EXECUTION_MODES: AgentExecutionMode[] = ["Auto", "OnDemand"];
 
-interface PoliciesTabProps {
-  unitId: string;
+/** Subjects the unified Policies tab can be driven by. */
+export type PoliciesSubjectKind = "Tenant" | "Unit" | "Agent";
+
+export interface PoliciesTabProps {
+  /** Subject kind — drives the dimension set, editor vs. summary mode, and the deep-link target. */
+  kind: PoliciesSubjectKind;
+  /** Stable id of the subject (tenant id, unit id, or agent id). */
+  id: string;
 }
 
-export function PoliciesTab({ unitId }: PoliciesTabProps) {
+export function PoliciesTab({ kind, id }: PoliciesTabProps) {
+  if (kind === "Tenant") return <TenantPoliciesBody />;
+  if (kind === "Agent") return <AgentPoliciesBody agentId={id} />;
+  return <UnitPoliciesBody unitId={id} />;
+}
+
+// ---------------------------------------------------------------------------
+// Deep-link to /policies — present on every subject as the cross-unit rollup.
+// ---------------------------------------------------------------------------
+
+function PoliciesRouteLink({ testId }: { testId: string }) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      <Link
+        href="/policies"
+        className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
+        data-testid={testId}
+      >
+        Open tenant-wide policy view
+        <ArrowRight className="h-3 w-3" aria-hidden="true" />
+      </Link>
+    </p>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Unit body — full editor for the five UnitPolicy dimensions plus the
+// Effective-policy footer.
+// ---------------------------------------------------------------------------
+
+function UnitPoliciesBody({ unitId }: { unitId: string }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const policyQuery = useUnitPolicy(unitId);
@@ -143,7 +205,7 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
 
   if (policyQuery.isPending) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4" data-testid="tab-unit-policies-loading">
         <Skeleton className="h-32" />
         <Skeleton className="h-32" />
         <Skeleton className="h-32" />
@@ -152,7 +214,7 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-testid="tab-unit-policies">
       <SkillPolicyCard
         value={policy.skill}
         onEdit={() => setEditing("skill")}
@@ -184,6 +246,7 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
         busy={saveMutation.isPending || clearMutation.isPending}
       />
       <EffectivePolicyCard unitId={unitId} policy={policy} />
+      <PoliciesRouteLink testId="tab-unit-policies-link" />
 
       {editing === "skill" && (
         <SkillPolicyDialog
@@ -235,7 +298,150 @@ export function PoliciesTab({ unitId }: PoliciesTabProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Dimension panels
+// Agent body — Initiative + Cloning only. Cost / Model / Skill /
+// ExecutionMode dimensions are declared on the owning unit by design;
+// the header text below states this so the operator isn't surprised.
+// ---------------------------------------------------------------------------
+
+function AgentPoliciesBody({ agentId }: { agentId: string }) {
+  return (
+    <div className="space-y-6" data-testid="tab-agent-policies">
+      <header className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Shield className="h-4 w-4" aria-hidden="true" />
+        <span>
+          Policy overrides declared by this agent. Cost, model, and skill
+          dimensions are declared on the owning unit.
+        </span>
+      </header>
+
+      <section className="space-y-2" aria-label="Initiative">
+        <h3 className="text-sm font-medium">Initiative</h3>
+        <AgentInitiativePanel agentId={agentId} />
+      </section>
+
+      <section
+        className="space-y-2"
+        aria-label="Cloning policy"
+        data-testid="tab-agent-policies-cloning"
+      >
+        <h3 className="text-sm font-medium">Cloning policy</h3>
+        <AgentCloningPolicyPanel agentId={agentId} />
+      </section>
+
+      <PoliciesRouteLink testId="tab-agent-policies-link" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tenant body — placeholder dimension panels (no tenant-scope read
+// endpoint for Skill / Model / Cost / ExecutionMode / Initiative in
+// v0.1) + Cloning summary (reuses the canonical `<TenantCloningPolicyPanel>`)
+// + deep-link to the cross-unit rollup. Alignment rule
+// (`docs/design/canonical-tabs.md` § 5.9): the option keeps its slot
+// rather than disappearing, and the panel tells the operator where the
+// editor lives.
+// ---------------------------------------------------------------------------
+
+function TenantPoliciesBody() {
+  return (
+    <div className="space-y-4" data-testid="tab-tenant-policies">
+      <TenantCliPlaceholderCard
+        title="Skill"
+        icon={<ListChecks className="h-4 w-4" />}
+        description="Tool allow / block list applied across the tenant."
+        cliVerb="spring unit policy skill set --scope tenant"
+        testId="policies-tab-skill"
+      />
+      <TenantCliPlaceholderCard
+        title="Model"
+        icon={<Gauge className="h-4 w-4" />}
+        description="LLM model allow / block list applied across the tenant."
+        cliVerb="spring unit policy model set --scope tenant"
+        testId="policies-tab-model"
+      />
+      <TenantCliPlaceholderCard
+        title="Cost"
+        icon={<DollarSign className="h-4 w-4" />}
+        description="Per-invocation / per-hour / per-day USD caps applied across the tenant."
+        cliVerb="spring unit policy cost set --scope tenant"
+        testId="policies-tab-cost"
+      />
+      <TenantCliPlaceholderCard
+        title="Execution mode"
+        icon={<Shield className="h-4 w-4" />}
+        description="Pin the default mode (forced) or limit to a whitelist (allowed) at the tenant scope."
+        cliVerb="spring unit policy execution-mode set --scope tenant"
+        testId="policies-tab-execution-mode"
+      />
+      <TenantCliPlaceholderCard
+        title="Initiative"
+        icon={<Zap className="h-4 w-4" />}
+        description="Tenant-wide autonomy ceiling and reflection-action allow / block list."
+        cliVerb="spring agent initiative policy set --scope tenant"
+        testId="policies-tab-initiative"
+      />
+
+      <Card data-testid="tab-tenant-policies-cloning">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Copy className="h-4 w-4" aria-hidden="true" />
+            <span>Cloning</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p className="text-xs text-muted-foreground">
+            Tenant-wide cloning constraints. Read-only summary; edit via the
+            CLI.
+          </p>
+          <TenantCloningPolicyPanel />
+        </CardContent>
+      </Card>
+
+      <PoliciesRouteLink testId="tab-tenant-policies-link" />
+    </div>
+  );
+}
+
+function TenantCliPlaceholderCard({
+  title,
+  icon,
+  description,
+  cliVerb,
+  testId,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  description: string;
+  cliVerb: string;
+  testId: string;
+}) {
+  return (
+    <Card data-testid={testId}>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          {icon}
+          <span>{title}</span>
+          <Badge variant="outline" className="ml-2 text-xs font-normal">
+            set via CLI
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        <p className="text-xs text-muted-foreground">{description}</p>
+        <p className="text-xs text-muted-foreground">
+          Tenant-scope editor lives in the CLI today. Run{" "}
+          <code className="font-mono text-[11px]">{cliVerb}</code> to configure
+          this dimension; per-unit overrides remain editable inline on each
+          unit&apos;s Policies tab.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dimension panels (Unit body)
 // ---------------------------------------------------------------------------
 
 interface PanelChromeProps {
