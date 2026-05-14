@@ -20,7 +20,7 @@ name: E2E CLI (scheduled / manual)
 #   e2e-fast  - fast pool (API only + Postgres; no Worker, no LLM).
 #
 # To add a new fast scenario: drop a `# pool: fast`-tagged .sh file under
-# tests/cli-scenarios/scenarios/<domain>/. See tests/cli-scenarios/README.md.
+# tests/e2e/cli/scenarios/<domain>/. See tests/e2e/cli/README.md.
 
 on:
   schedule:
@@ -187,7 +187,7 @@ jobs:
             dotnet run --project src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
             --no-build --configuration Release --
         run: |
-          cd tests/cli-scenarios
+          cd tests/e2e/cli
           if [[ -n "${SCENARIO_GLOB}" ]]; then
             bash run.sh "${SCENARIO_GLOB}"
           else
@@ -207,7 +207,7 @@ jobs:
             dotnet run --project src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
             --no-build --configuration Release --
         run: |
-          cd tests/cli-scenarios
+          cd tests/e2e/cli
           bash run.sh --sweep || true
 
       - name: Stop API host

@@ -345,36 +345,36 @@ Spring Voyage ships a smoke driver that exercises the unified dispatch path agai
 
 ```bash
 eng/build/build-agent-images.sh --tag dev   # build agent-base + claude + dapr at :dev
-SMOKE_IMAGE_TAG=dev tests/scripts/smoke-agent-images.sh
+SMOKE_IMAGE_TAG=dev tests/smoke/smoke-agent-images.sh
 ```
 
 The script publishes each image on a random host port, waits for `/.well-known/agent.json`, and asserts the minimum Agent Card shape. The CI job `Agent images build + smoke` runs the same steps on every PR that touches the deployment surface.
 
 ### `smoke-1087.sh` — full A2A round-trip across both bridge-bearing paths
 
-`tests/scripts/smoke-1087.sh` is the wire-level conformance smoke for the unified dispatch path. It boots an agent image, polls `/.well-known/agent.json`, fires an A2A `message/send`, and asserts a real response (`result.task.status.state == "TASK_STATE_COMPLETED"`, prompt echoed back via the bridge spawning `cat`). The proto-style enum names follow the .NET A2A SDK contract pinned via `[JsonStringEnumMemberName]`; see issue #1115 for the rationale. It covers both bridge-bearing conformance paths from ADR 0027:
+`tests/smoke/smoke-1087.sh` is the wire-level conformance smoke for the unified dispatch path. It boots an agent image, polls `/.well-known/agent.json`, fires an A2A `message/send`, and asserts a real response (`result.task.status.state == "TASK_STATE_COMPLETED"`, prompt echoed back via the bridge spawning `cat`). The proto-style enum names follow the .NET A2A SDK contract pinned via `[JsonStringEnumMemberName]`; see issue #1115 for the rationale. It covers both bridge-bearing conformance paths from ADR 0027:
 
 ```bash
 # Path 1 only (default; what CI ran on every PR before #1120).
-bash tests/scripts/smoke-1087.sh
-bash tests/scripts/smoke-1087.sh --path 1
+bash tests/smoke/smoke-1087.sh
+bash tests/smoke/smoke-1087.sh --path 1
 
 # Path 2 only — builds tests/fixtures/byoi-path2/Dockerfile against a
 # fresh `npm pack` tarball of src/Cvoya.Spring.AgentSidecar/ and asserts
 # the same A2A round-trip. Requires Node + npm on the host (the
 # tarball is produced ahead of `docker build`).
-bash tests/scripts/smoke-1087.sh --path 2
+bash tests/smoke/smoke-1087.sh --path 2
 
 # Both paths in one run.
-bash tests/scripts/smoke-1087.sh --path all
+bash tests/smoke/smoke-1087.sh --path all
 ```
 
-The CI job `Agent images build + smoke` runs `--path all` on every PR that touches `eng/build/Dockerfile.agent-*`, `src/Cvoya.Spring.AgentSidecar/**`, `agents/spring-voyage-agent/**`, `tests/scripts/smoke-1087.sh`, or `tests/fixtures/byoi-path2/**` — so a sidecar source change, a Dockerfile change, or a smoke-script change exercises both BYOI conformance paths before merge. Path 3 (native A2A) stays gated behind `SMOKE_DAPR=1` pending [#1110](https://github.com/cvoya-com/spring-voyage/issues/1110).
+The CI job `Agent images build + smoke` runs `--path all` on every PR that touches `eng/build/Dockerfile.agent-*`, `src/Cvoya.Spring.AgentSidecar/**`, `agents/spring-voyage-agent/**`, `tests/smoke/smoke-1087.sh`, or `tests/fixtures/byoi-path2/**` — so a sidecar source change, a Dockerfile change, or a smoke-script change exercises both BYOI conformance paths before merge. Path 3 (native A2A) stays gated behind `SMOKE_DAPR=1` pending [#1110](https://github.com/cvoya-com/spring-voyage/issues/1110).
 
-For the full ephemeral-dispatch round-trip (`StartAsync → readiness → A2A → ReleaseAsync`), the `EphemeralDispatchSmokeTests` integration test in `tests/Cvoya.Spring.Integration.Tests/` runs against a real container runtime when you set `SPRING_RUN_DOCKER_SMOKE=1`:
+For the full ephemeral-dispatch round-trip (`StartAsync → readiness → A2A → ReleaseAsync`), the `EphemeralDispatchSmokeTests` integration test in `tests/integration/Cvoya.Spring.Integration.Tests/` runs against a real container runtime when you set `SPRING_RUN_DOCKER_SMOKE=1`:
 
 ```bash
-SPRING_RUN_DOCKER_SMOKE=1 dotnet test tests/Cvoya.Spring.Integration.Tests/Cvoya.Spring.Integration.Tests.csproj \
+SPRING_RUN_DOCKER_SMOKE=1 dotnet test tests/integration/Cvoya.Spring.Integration.Tests/Cvoya.Spring.Integration.Tests.csproj \
   --filter "FullyQualifiedName~EphemeralDispatchSmokeTests"
 ```
 
@@ -387,4 +387,4 @@ SPRING_RUN_DOCKER_SMOKE=1 dotnet test tests/Cvoya.Spring.Integration.Tests/Cvoya
 - ADR [0027](../../decisions/0027-agent-image-conformance-contract.md) — the canonical statement of the wire contract and the three conformance paths.
 - [`docs/architecture/agent-runtime.md`](../../architecture/agent-runtime.md) — full architecture of the dispatcher, the launcher tiers, and the BYOI conformance section that this guide operationalises.
 - [`src/Cvoya.Spring.AgentSidecar/README.md`](../../../src/Cvoya.Spring.AgentSidecar/README.md) — bridge wire contract reference (response headers, JSON-RPC verbs, env defaults).
-- [`tests/scripts/smoke-agent-images.sh`](../../../tests/scripts/smoke-agent-images.sh) — the smoke driver for the in-tree images.
+- [`tests/smoke/smoke-agent-images.sh`](../../../tests/smoke/smoke-agent-images.sh) — the smoke driver for the in-tree images.

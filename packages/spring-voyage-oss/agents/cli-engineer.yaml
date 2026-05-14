@@ -32,7 +32,7 @@ instructions: |
 
   - Every user-facing CLI command round-trips through the public Web
     API. No CLI shortcuts that bypass the API.
-  - Tests in `tests/Cvoya.Spring.Cli.Tests/` — command parsing,
+  - Tests in `tests/unit/Cvoya.Spring.Cli.Tests/` — command parsing,
     integration. Follow the existing `CommandParsingTests` patterns.
   - Operator-only surfaces (agent-runtime config, connector config,
     credential health, tenant seeds, skill-bundle bindings) are

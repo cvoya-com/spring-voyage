@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatform>true</UseMicrosoftTestingPlatform>
+    <RootNamespace>Cvoya.Spring.Integration.Tests</RootNamespace>
+    <TestingPlatformShowTestsFailure>true</TestingPlatformShowTestsFailure>
+    <TestingPlatformShowProgress>true</TestingPlatformShowProgress>
+    <TestingPlatformCaptureOutput>true</TestingPlatformCaptureOutput>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ADR-0038 (#1761): collapsed per-provider projects → runtime catalogue. -->
+    <ProjectReference Include="..\..\..\samples\workflow-agent-image\Cvoya.Spring.Sample.WorkflowAgent\Cvoya.Spring.Sample.WorkflowAgent.csproj" />
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.AgentSdk\Cvoya.Spring.AgentSdk.csproj" />
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.AgentRuntimes\Cvoya.Spring.AgentRuntimes.csproj" />
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.ModelProviders\Cvoya.Spring.ModelProviders.csproj" />
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.RuntimeCatalog\Cvoya.Spring.RuntimeCatalog.csproj" />
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.Connector.GitHub\Cvoya.Spring.Connector.GitHub.csproj" />
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.Dispatcher\Cvoya.Spring.Dispatcher.csproj" />
+    <!-- #698: the Phase 4 CLI E2E audit boots the API host end-to-end via
+         WebApplicationFactory<Program> so the tests exercise the real
+         install / validate / verify-baseline pipelines the CLI calls. -->
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.Host.Api\Cvoya.Spring.Host.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Cvoya.Spring.Host.Api" />
+    <Using Include="Cvoya.Spring.Integration.Tests.TestHelpers" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.mtp-v2" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="Dapr.Actors" />
+    <!-- #676: integration coverage for the default-tenant bootstrap stands
+         up the Dapr DI graph with an in-memory EF Core context so the
+         hosted-service wiring is exercised end-to-end without a live
+         Postgres. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+    <!-- #698: WebApplicationFactory + Dapr workflow stubs for the Phase 4
+         CLI E2E audit (AgentRuntimeCliEndToEndTests). -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Dapr.Workflow" />
+  </ItemGroup>
+
+</Project>

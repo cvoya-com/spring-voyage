@@ -69,10 +69,10 @@ spring agent status
 dotnet test SpringVoyage.slnx
 
 # A specific test project
-dotnet test tests/Cvoya.Spring.Core.Tests/
+dotnet test tests/unit/Cvoya.Spring.Core.Tests/
 
 # With Dapr integration tests (requires Dapr sidecar)
-dotnet test tests/Cvoya.Spring.Dapr.Tests/ --filter Category=Integration
+dotnet test tests/unit/Cvoya.Spring.Dapr.Tests/ --filter Category=Integration
 ```
 
 ## Building Container Images

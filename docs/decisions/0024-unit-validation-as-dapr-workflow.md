@@ -48,7 +48,7 @@ Actors and workflows have meaningful differences for this use case:
 ### Gains
 
 - **Host-vs-container drift is eliminated.** Every probe runs inside the unit's chosen runtime image via `RunContainerProbeActivity`, so if the probe succeeds, `spring unit start` will find the same environment.
-- **Structured redaction.** The `RunContainerProbeActivity` redacts captured `stdout` / `stderr` before persisting or emitting them, and `ProbeStep.InterpretOutput` is contractually forbidden from echoing the raw credential into `UnitValidationError`. The new credential-leak canary test in `tests/Cvoya.Spring.Integration.Tests/` guards the end-to-end path.
+- **Structured redaction.** The `RunContainerProbeActivity` redacts captured `stdout` / `stderr` before persisting or emitting them, and `ProbeStep.InterpretOutput` is contractually forbidden from echoing the raw credential into `UnitValidationError`. The new credential-leak canary test in `tests/integration/Cvoya.Spring.Integration.Tests/` guards the end-to-end path.
 - **Retry is a first-class CLI verb.** `POST /units/{name}/revalidate` + `spring unit revalidate <name>` give operators a one-shot recovery path from `Error` / `Stopped`; the workflow handles the retry lifecycle.
 - **Runtime authors stay in data.** Adding a new runtime is still "register one `IAgentRuntime`", but the plugin surface is now explicitly pure-data (`GetProbeSteps` returns records; the interpreter delegate is local). No actor or workflow implementation per runtime.
 

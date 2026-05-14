@@ -147,13 +147,13 @@ spring agent status --unit engineering-team
 
 ## See it in action
 
-Each step above has a matching end-to-end scenario you can read or run. Scenarios live under [`tests/cli-scenarios/scenarios/`](../../../tests/cli-scenarios/scenarios); see [`tests/cli-scenarios/README.md`](../../../tests/cli-scenarios/README.md) for prerequisites and the `./run.sh` runner.
+Each step above has a matching end-to-end scenario you can read or run. Scenarios live under [`tests/e2e/cli/scenarios/`](../../../tests/e2e/cli/scenarios); see [`tests/e2e/cli/README.md`](../../../tests/e2e/cli/README.md) for prerequisites and the `./run.sh` runner.
 
-- [`api/api-health.sh`](../../../tests/cli-scenarios/scenarios/api/api-health.sh) — a raw smoke check that `/api/v1/connectors` responds. Useful for validating that the stack is up before anything else.
-- [`cli-meta/cli-version-and-help.sh`](../../../tests/cli-scenarios/scenarios/cli-meta/cli-version-and-help.sh) — verifies that `spring --help` starts cleanly and exposes the expected subcommands (`unit`, `apply`, …). Run this to confirm the CLI is wired correctly.
-- [`units/unit-create-scratch.sh`](../../../tests/cli-scenarios/scenarios/units/unit-create-scratch.sh) — creates a minimal unit via `spring unit create` and asserts it shows up in `spring unit list`. This matches the "Creating Your First Unit" walkthrough above.
-- [`units/unit-create-and-start.sh`](../../../tests/cli-scenarios/scenarios/units/unit-create-and-start.sh) — creates a unit and transitions it to `Running` with `spring unit start`, mirroring "Starting the Unit" above.
-- [`messaging/message-human-to-agent.sh`](../../../tests/cli-scenarios/scenarios/messaging/message-human-to-agent.sh) — (`pool: llm`, requires Ollama) sends a human-authored message to an agent via `spring message send agent:<id>`, matching "Your First Interaction".
+- [`api/api-health.sh`](../../../tests/e2e/cli/scenarios/api/api-health.sh) — a raw smoke check that `/api/v1/connectors` responds. Useful for validating that the stack is up before anything else.
+- [`cli-meta/cli-version-and-help.sh`](../../../tests/e2e/cli/scenarios/cli-meta/cli-version-and-help.sh) — verifies that `spring --help` starts cleanly and exposes the expected subcommands (`unit`, `apply`, …). Run this to confirm the CLI is wired correctly.
+- [`units/unit-create-scratch.sh`](../../../tests/e2e/cli/scenarios/units/unit-create-scratch.sh) — creates a minimal unit via `spring unit create` and asserts it shows up in `spring unit list`. This matches the "Creating Your First Unit" walkthrough above.
+- [`units/unit-create-and-start.sh`](../../../tests/e2e/cli/scenarios/units/unit-create-and-start.sh) — creates a unit and transitions it to `Running` with `spring unit start`, mirroring "Starting the Unit" above.
+- [`messaging/message-human-to-agent.sh`](../../../tests/e2e/cli/scenarios/messaging/message-human-to-agent.sh) — (`pool: llm`, requires Ollama) sends a human-authored message to an agent via `spring message send agent:<id>`, matching "Your First Interaction".
 
 ## What's Next
 

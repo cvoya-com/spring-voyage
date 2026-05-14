@@ -115,8 +115,8 @@ jobs:
               - 'eng/build/build-agent-images.sh'
               - 'src/Cvoya.Spring.AgentSidecar/**'
               - 'agents/spring-voyage-agent/**'
-              - 'tests/scripts/smoke-agent-images.sh'
-              - 'tests/scripts/smoke-1087.sh'
+              - 'tests/smoke/smoke-agent-images.sh'
+              - 'tests/smoke/smoke-1087.sh'
               # #1120: BYOI conformance path 2 fixture (npm-installed
               # bridge). The smoke driver builds an image from this
               # Dockerfile + a `npm pack` tarball of the in-tree sidecar,
@@ -1265,7 +1265,7 @@ jobs:
         shell: bash
         env:
           SMOKE_IMAGE_TAG: dev
-        run: bash tests/scripts/smoke-agent-images.sh
+        run: bash tests/smoke/smoke-agent-images.sh
 
       # PR 6 of #1087 (#1099): the unified-dispatch end-to-end smoke fires
       # an A2A `message/send` against the agent-base bridge (path 1) and
@@ -1288,7 +1288,7 @@ jobs:
         shell: bash
         env:
           SMOKE_IMAGE_TAG: dev
-        run: bash tests/scripts/smoke-1087.sh --path all
+        run: bash tests/smoke/smoke-1087.sh --path all
 
   required-checks:
     name: Required checks

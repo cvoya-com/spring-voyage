@@ -17,19 +17,21 @@
     <Project Path="src/Cvoya.Spring.ModelProviders/Cvoya.Spring.ModelProviders.csproj" />
     <Project Path="src/Cvoya.Spring.RuntimeCatalog/Cvoya.Spring.RuntimeCatalog.csproj" />
   </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/Cvoya.Spring.AgentRuntimes.Tests/Cvoya.Spring.AgentRuntimes.Tests.csproj" />
-    <Project Path="tests/Cvoya.Spring.Cli.Tests/Cvoya.Spring.Cli.Tests.csproj" />
-    <Project Path="tests/Cvoya.Spring.Connector.Arxiv.Tests/Cvoya.Spring.Connector.Arxiv.Tests.csproj" />
-    <Project Path="tests/Cvoya.Spring.Connector.GitHub.Tests/Cvoya.Spring.Connector.GitHub.Tests.csproj" />
-    <Project Path="tests/Cvoya.Spring.Connector.WebSearch.Tests/Cvoya.Spring.Connector.WebSearch.Tests.csproj" />
-    <Project Path="tests/Cvoya.Spring.Core.Tests/Cvoya.Spring.Core.Tests.csproj" />
-    <Project Path="tests/Cvoya.Spring.Dapr.Tests/Cvoya.Spring.Dapr.Tests.csproj" />
-    <Project Path="tests/Cvoya.Spring.Dispatcher.Tests/Cvoya.Spring.Dispatcher.Tests.csproj" />
-    <Project Path="tests/Cvoya.Spring.Host.Api.Tests/Cvoya.Spring.Host.Api.Tests.csproj" />
-    <Project Path="tests/Cvoya.Spring.Host.Worker.Tests/Cvoya.Spring.Host.Worker.Tests.csproj" />
-    <Project Path="tests/Cvoya.Spring.Integration.Tests/Cvoya.Spring.Integration.Tests.csproj" />
-    <Project Path="tests/Cvoya.Spring.Manifest.Tests/Cvoya.Spring.Manifest.Tests.csproj" />
+  <Folder Name="/tests/unit/">
+    <Project Path="tests/unit/Cvoya.Spring.AgentRuntimes.Tests/Cvoya.Spring.AgentRuntimes.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.Cli.Tests/Cvoya.Spring.Cli.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.Connector.Arxiv.Tests/Cvoya.Spring.Connector.Arxiv.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.Connector.GitHub.Tests/Cvoya.Spring.Connector.GitHub.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.Connector.WebSearch.Tests/Cvoya.Spring.Connector.WebSearch.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.Core.Tests/Cvoya.Spring.Core.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.Dapr.Tests/Cvoya.Spring.Dapr.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.Dispatcher.Tests/Cvoya.Spring.Dispatcher.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.Host.Api.Tests/Cvoya.Spring.Host.Api.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.Host.Worker.Tests/Cvoya.Spring.Host.Worker.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.Manifest.Tests/Cvoya.Spring.Manifest.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/integration/">
+    <Project Path="tests/integration/Cvoya.Spring.Integration.Tests/Cvoya.Spring.Integration.Tests.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgent/Cvoya.Spring.Sample.WorkflowAgent.csproj" />

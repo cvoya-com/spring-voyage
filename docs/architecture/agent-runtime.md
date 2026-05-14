@@ -693,7 +693,7 @@ Checklist for a fresh `IAgentRuntimeLauncher`:
 5. If Dapr Conversation is involved, honour `AgentLaunchContext.Provider` /
    `Model` and resolve `SPRING_LLM_COMPONENT` to `llm-{provider}` (the
    in-tree Dapr component naming convention from ADR-0038).
-6. Add a `*LauncherTests` in `tests/Cvoya.Spring.AgentRuntimes.Tests/Launchers/`.
+6. Add a `*LauncherTests` in `tests/unit/Cvoya.Spring.AgentRuntimes.Tests/Launchers/`.
 
 The dispatcher auto-discovers launchers via DI and routes by the runtime
 entry's `launcher` id.

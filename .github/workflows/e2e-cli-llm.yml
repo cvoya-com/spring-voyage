@@ -1,7 +1,7 @@
 name: E2E CLI LLM (on-demand)
 
 # LLM-gated companion to e2e-cli.yml. Runs every scenario tagged
-# `# pool: llm` under tests/cli-scenarios/scenarios/ against a real
+# `# pool: llm` under tests/e2e/cli/scenarios/ against a real
 # Ollama backend so the dispatcher → agent JSON-RPC round-trip is
 # exercised against the actual `dapr-agent` image.
 #
@@ -201,7 +201,7 @@ jobs:
             dotnet run --project src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
             --no-build --configuration Release --
         run: |
-          cd tests/cli-scenarios
+          cd tests/e2e/cli
           if [[ -n "${SCENARIO_GLOB}" ]]; then
             bash run.sh --llm "${SCENARIO_GLOB}"
           else
@@ -219,7 +219,7 @@ jobs:
             dotnet run --project src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
             --no-build --configuration Release --
         run: |
-          cd tests/cli-scenarios
+          cd tests/e2e/cli
           bash run.sh --sweep || true
 
       - name: Stop API host

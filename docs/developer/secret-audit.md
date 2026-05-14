@@ -136,5 +136,5 @@ Auditors interested in a retention window (preserve last N versions for N days) 
 - `src/Cvoya.Spring.Core/Secrets/ISecretRegistry.cs` — registry decoration + rotation.
 - `src/Cvoya.Spring.Core/Secrets/SecretResolution.cs` — observable shape.
 - `src/Cvoya.Spring.Core/Secrets/SecretRotation.cs` — rotation event shape.
-- `tests/Cvoya.Spring.Dapr.Tests/Secrets/SecretResolverDecorationTests.cs` — contract lock-in.
+- `tests/unit/Cvoya.Spring.Dapr.Tests/Secrets/SecretResolverDecorationTests.cs` — contract lock-in.
 - `docs/developer/secret-store.md` — storage / encryption / per-tenant components.

@@ -491,7 +491,7 @@ Mirrors `spring package install <ref>` but scoped to "install the agents declare
 
 ## 5. Cross-portal / cross-CLI test matrix
 
-The implementing PR(s) must add scenarios under `tests/cli-scenarios/` and corresponding Playwright e2e specs:
+The implementing PR(s) must add scenarios under `tests/e2e/cli/` and corresponding Playwright e2e specs:
 
 | Scenario | CLI command | Portal flow | Wire path |
 |---|---|---|---|

@@ -90,7 +90,7 @@ Both modes use the **same** PID-1 inside the container — either the agent-base
 
 - **One mental model.** A new launcher fills in `AgentLaunchSpec` and stops. The dispatcher does not care whether the launcher is wrapping a CLI or invoking a native A2A server.
 - **Cancellation is well-defined.** A2A `tasks/cancel` propagates through the bridge to `SIGTERM` on the spawned tool process (the bridge waits `AGENT_CANCEL_GRACE_MS` before `SIGKILL`).
-- **Persistent and ephemeral are testable in the same harness.** The integration smoke (`tests/Cvoya.Spring.Integration.Tests/EphemeralDispatchSmokeTests.cs`) exercises the same `StartAsync → ReleaseAsync` round-trip the persistent path uses; only the registry differs.
+- **Persistent and ephemeral are testable in the same harness.** The integration smoke (`tests/integration/Cvoya.Spring.Integration.Tests/EphemeralDispatchSmokeTests.cs`) exercises the same `StartAsync → ReleaseAsync` round-trip the persistent path uses; only the registry differs.
 - **BYOI is a real contract.** Operators bringing their own image satisfy a single, written wire contract (ADR 0027) and slot into the same dispatch path the OSS launchers use.
 - **Pooled hosting is no longer a special-case shape.** Adding `AgentHostingMode.Pooled` (#362) becomes a registry change — `EphemeralAgentRegistry` becomes a pool; the dispatcher path does not move.
 

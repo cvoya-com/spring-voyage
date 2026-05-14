@@ -71,7 +71,7 @@ Format. Each task lists **Files**, **Deliverable** (what to write / change), **A
 
 **A5 — Default `ExecutionConfigInheritanceResolver` implementation + tests + DI registration**
 
-- **Files:** `src/Cvoya.Spring.Dapr/Agents/ExecutionConfigInheritanceResolver.cs`, `tests/Cvoya.Spring.Dapr.Tests/Agents/ExecutionConfigInheritanceResolverTests.cs`, DI registration in `ServiceCollectionExtensions.cs` (or appropriate extension).
+- **Files:** `src/Cvoya.Spring.Dapr/Agents/ExecutionConfigInheritanceResolver.cs`, `tests/unit/Cvoya.Spring.Dapr.Tests/Agents/ExecutionConfigInheritanceResolverTests.cs`, DI registration in `ServiceCollectionExtensions.cs` (or appropriate extension).
 - **Deliverable.** Implementation reads each parent unit's effective config, intersects per field. Tests cover four cases per ADR-0039 §6: zero parents (tenant fallback), one parent (inherit), N parents identical (inherit), N parents diverging (returns `ConflictingFields` with the diverging field name → list of `(unitId, value)` pairs).
 - **Acceptance.** Test class has at least four `[Theory]` cases pinning each branch. Build + tests green.
 - **Blocked by.** A3.
@@ -170,7 +170,7 @@ Format. Each task lists **Files**, **Deliverable** (what to write / change), **A
 
 **C4 — Migrate `UnitActorTests` from strategy-mocking to runtime-mocking**
 
-- **Files:** `tests/Cvoya.Spring.Dapr.Tests/Actors/UnitActorTests.cs`.
+- **Files:** `tests/unit/Cvoya.Spring.Dapr.Tests/Actors/UnitActorTests.cs`.
 - **Deliverable.** Replace mocks for `IOrchestrationStrategyResolver` and `IOrchestrationStrategy` with mocks for `IRuntimeInvocationPath`. Tests assert that `ReceiveAsync` invokes the runtime path with the unit's address.
 - **Acceptance.** Tests green.
 - **Blocked by.** C2.
@@ -195,7 +195,7 @@ Format. Each task lists **Files**, **Deliverable** (what to write / change), **A
 
 **D1 — Implement `DirectoryOrchestrationToolProvider` + tests**
 
-- **Files:** `src/Cvoya.Spring.Dapr/Orchestration/DirectoryOrchestrationToolProvider.cs`, `tests/Cvoya.Spring.Dapr.Tests/Orchestration/DirectoryOrchestrationToolProviderTests.cs`.
+- **Files:** `src/Cvoya.Spring.Dapr/Orchestration/DirectoryOrchestrationToolProvider.cs`, `tests/unit/Cvoya.Spring.Dapr.Tests/Orchestration/DirectoryOrchestrationToolProviderTests.cs`.
 - **Deliverable.** Reads the directory; returns the closed orchestration-tool set when the agent has children, otherwise empty. The five descriptors carry the JSON schemas for input and output (ADR-0039 §3 lists them; the schemas live alongside the provider as `Resources/<tool-name>.input.schema.json` etc., loaded once at startup).
 - **Acceptance.** Tests cover: leaf agent returns empty; unit with one child returns five descriptors; unit with three children returns five descriptors (the descriptors are static — only the *invocation* sees the children).
 - **Blocked by.** A1.
@@ -600,7 +600,7 @@ Format. Each task lists **Files**, **Deliverable** (what to write / change), **A
 - **Acceptance.** Audit recorded in PR body whether positional was present; CLI scenarios reflect the outcome.
 - **Blocked by.** A1.
 
-**H3 — Update CLI scenarios under `tests/cli-scenarios/`**
+**H3 — Update CLI scenarios under `tests/e2e/cli/`**
 
 - **Files:** Every scenario file that referenced a positional `<id>`.
 - **Deliverable.** Migrate to `--name <…>`. Remove the now-obsolete positional scenarios.
@@ -849,7 +849,7 @@ Format. Each task lists **Files**, **Deliverable** (what to write / change), **A
 
 **L8 — CLI scenario tests for the seven-row test matrix from design §5**
 
-- **Files:** Scenarios under `tests/cli-scenarios/agent-create/`.
+- **Files:** Scenarios under `tests/e2e/cli/agent-create/`.
 - **Deliverable.** One scenario per row of the matrix in [`agent-create-redesign.md` §5](../../design/v0.1/agent-create-redesign.md#5-cross-portal--cross-cli-test-matrix).
 - **Acceptance.** All seven scenarios green.
 - **Blocked by.** L1–L7.
