@@ -323,9 +323,9 @@ export function AgentCreateForm({
   });
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [create, setCreate] = useState<CreateState>(INITIAL_CREATE);
-  // #2246: "Deploy automatically after creation" preference shown next to
-  // the submit button. Only relevant when `hosting === "persistent"` —
-  // ephemeral agents launch per-message and have no deploy step.
+  // #2246: "Activate automatically after creation" preference shown next to
+  // the submit button. For persistent agents this triggers an eager deploy;
+  // for ephemeral agents the deploy call is skipped (they activate on demand).
   // Per-session UI preference; not persisted into the wizard snapshot.
   const [autoDeploy, setAutoDeploy] = useState(true);
 
@@ -1580,11 +1580,10 @@ export function AgentCreateForm({
 
       {/* ── Actions ───────────────────────────────────────────────── */}
       <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
-        {/* #2246: deploy-after-create preference. Persistent agents only
-            — ephemeral agents launch per-message and have no deploy
-            step, and the checkbox is hidden while the create call is
-            in flight so the operator cannot flip it mid-submission. */}
-        {form.hosting === "persistent" && create.phase !== "creating" && create.phase !== "done" && (
+        {/* #2246: activate-after-create preference. Always shown; for
+            ephemeral agents the deploy call is skipped (they activate on
+            first message). Hidden while create is in flight. */}
+        {create.phase !== "creating" && create.phase !== "done" && (
           <label
             className="flex cursor-pointer items-center gap-2 text-sm"
             htmlFor="auto-deploy-agent"
@@ -1597,7 +1596,7 @@ export function AgentCreateForm({
               disabled={submitting}
               data-testid="agent-auto-deploy-checkbox"
             />
-            Deploy automatically after creation
+            Activate automatically after creation
           </label>
         )}
         <Button

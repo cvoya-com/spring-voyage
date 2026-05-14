@@ -577,7 +577,7 @@ export default function CreateUnitPage() {
   const [createdUnitName, setCreatedUnitName] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [startRequested, setStartRequested] = useState(false);
-  // #2246: "Start automatically after install" preference shown on the final
+  // #2246: "Activate automatically after install" preference shown on the final
   // wizard step. Per-session UI preference; not persisted to sessionStorage
   // because rehydrating it across runs would silently change install
   // behaviour after a refresh.
@@ -1464,7 +1464,7 @@ export default function CreateUnitPage() {
   // On install success, invalidate caches and either redirect (catalog
   // path) or hand off to the scratch-path validation polling flow which
   // ultimately redirects to the new unit's Overview tab. #2246 also wires
-  // the optional "Start automatically" checkbox: when on, the wizard
+  // the optional "Activate automatically" checkbox: when on, the wizard
   // starts every created unit and deploys every persistent agent before
   // redirecting. Failures are non-fatal — the operator can still start
   // manually from the Explorer.
@@ -1571,10 +1571,10 @@ export default function CreateUnitPage() {
         clearWizardRun(runId);
       }
       const finalize = async () => {
-        // #2246: when the operator left "Start automatically" checked,
+        // #2246: when the operator left "Activate automatically" checked,
         // start the just-validated unit before redirecting. Validation
         // leaves the unit in `Stopped`; without this step the operator
-        // would have to navigate to the Explorer and start it manually.
+        // would have to navigate to the Explorer and activate it manually.
         // Failures are non-fatal — we still redirect so the operator can
         // see what happened and start the unit manually.
         if (autoStart) {
@@ -2782,7 +2782,7 @@ export default function CreateUnitPage() {
                     disabled={submitting}
                     data-testid="auto-start-checkbox"
                   />
-                  Start automatically after install
+                  Activate automatically after install
                 </label>
                 <Button
                   onClick={() => {
@@ -3002,7 +3002,7 @@ export default function CreateUnitPage() {
                     disabled={submitting}
                     data-testid="auto-start-checkbox"
                   />
-                  Start automatically after install
+                  Activate automatically after install
                 </label>
                 <Button
                   onClick={() => installMutation.mutate()}
