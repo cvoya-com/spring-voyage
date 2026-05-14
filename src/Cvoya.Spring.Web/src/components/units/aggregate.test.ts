@@ -201,18 +201,27 @@ describe("tabsFor", () => {
     ]);
   });
 
-  it("locks the unit tab order and count (per plan §4 — 6 visible + Config overflow)", () => {
+  it("locks the unit tab order and count (#2271/#2272/#2273 — Skills+Traces+Deployment added, canonical order)", () => {
+    // Canonical order per docs/design/canonical-tabs.md § 7.1: Skills,
+    // Traces, and Deployment join the Unit catalog. Activity moved up
+    // to slot 2 (matching Agent + Tenant) and Agents moved down after
+    // Memory so the reading slots (Overview/Activity/Messages/Memory)
+    // are contiguous across all subjects. Deployment sits in overflow
+    // alongside Config — both are deep editors / lifecycle surfaces.
     expect([...UNIT_TABS.visible, ...UNIT_TABS.overflow]).toEqual([
       "Overview",
-      "Agents",
       "Activity",
       "Messages",
       "Memory",
+      "Agents",
+      "Skills",
+      "Traces",
       "Policies",
       "Config",
+      "Deployment",
     ]);
-    expect(UNIT_TABS.visible).toHaveLength(6);
-    expect(UNIT_TABS.overflow).toEqual(["Config"]);
+    expect(UNIT_TABS.visible).toHaveLength(8);
+    expect(UNIT_TABS.overflow).toEqual(["Config", "Deployment"]);
   });
 
   it("locks the agent tab order and count (#1119 adds Deployment tab)", () => {
@@ -231,29 +240,34 @@ describe("tabsFor", () => {
     expect(AGENT_TABS.overflow).toEqual([]);
   });
 
-  it("locks the tenant tab order and count (all visible in v2.0)", () => {
+  it("locks the tenant tab order and count (#2257 — Memory removed)", () => {
+    // Memory is intentionally absent on Tenant — Tenant does not have
+    // memory (canonical-tabs.md § 1 / § 4.1). Messages, Agents, Skills,
+    // Traces, Clones, and Deployment are also intentionally absent.
     expect([...TENANT_TABS.visible, ...TENANT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
       "Policies",
       "Budgets",
-      "Memory",
     ]);
     expect(TENANT_TABS.overflow).toEqual([]);
+    expect(TENANT_TABS.visible).not.toContain("Memory");
   });
 });
 
 describe("visibleTabsFor / overflowTabsFor", () => {
-  it("splits the Unit catalog into 6 visible + 1 overflow", () => {
+  it("splits the Unit catalog into 8 visible + 2 overflow (#2271/#2272/#2273)", () => {
     expect(visibleTabsFor("Unit")).toEqual([
       "Overview",
-      "Agents",
       "Activity",
       "Messages",
       "Memory",
+      "Agents",
+      "Skills",
+      "Traces",
       "Policies",
     ]);
-    expect(overflowTabsFor("Unit")).toEqual(["Config"]);
+    expect(overflowTabsFor("Unit")).toEqual(["Config", "Deployment"]);
   });
 
   it("surfaces the full Agent catalog as visible with no overflow (#1119 added Deployment → 10)", () => {
@@ -263,8 +277,10 @@ describe("visibleTabsFor / overflowTabsFor", () => {
     expect(visibleTabsFor("Agent")).toContain("Deployment");
   });
 
-  it("surfaces the full Tenant catalog as visible with no overflow in v2.0", () => {
-    expect(visibleTabsFor("Tenant")).toHaveLength(5);
+  it("surfaces the Tenant catalog as visible with no overflow (#2257)", () => {
+    // 4 visible: Overview, Activity, Policies, Budgets. Config will be
+    // added as overflow under #2254 (Config unification, sibling PR).
+    expect(visibleTabsFor("Tenant")).toHaveLength(4);
     expect(overflowTabsFor("Tenant")).toEqual([]);
   });
 

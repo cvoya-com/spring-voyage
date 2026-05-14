@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { UnitNode } from "../aggregate";
+import type { UnitNode, AgentNode } from "../aggregate";
 
 const useMemoriesMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
@@ -10,27 +10,41 @@ vi.mock("@/lib/api/queries", () => ({
 
 import UnitMemoryTab from "./unit-memory";
 
-describe("UnitMemoryTab", () => {
-  const node: UnitNode = {
-    kind: "Unit",
-    id: "engineering",
-    name: "Engineering",
-    status: "running",
-  };
+describe("UnitMemoryTab (wrapper)", () => {
+  beforeEach(() => {
+    useMemoriesMock.mockReset();
+  });
 
-  it("renders the v2.1 empty state when both lists are empty", () => {
+  it("delegates to the unified MemoryTab with scope=unit", () => {
     useMemoriesMock.mockReturnValueOnce({
       data: { shortTerm: [], longTerm: [] },
       isLoading: false,
       error: null,
     });
+    const node: UnitNode = {
+      kind: "Unit",
+      id: "engineering",
+      name: "Engineering",
+      status: "running",
+    };
     render(<UnitMemoryTab node={node} path={[node]} />);
     expect(useMemoriesMock).toHaveBeenCalledWith("unit", "engineering");
     expect(screen.getByTestId("tab-unit-memory-empty")).toHaveTextContent(
-      "No memory entries",
-    );
-    expect(screen.getByTestId("tab-unit-memory-empty")).toHaveTextContent(
       "v2.1",
     );
+  });
+
+  it("renders nothing for a non-Unit node (registry-guard)", () => {
+    const agentNode: AgentNode = {
+      kind: "Agent",
+      id: "ada",
+      name: "Ada",
+      status: "running",
+    };
+    const { container } = render(
+      <UnitMemoryTab node={agentNode} path={[agentNode]} />,
+    );
+    expect(container.firstChild).toBeNull();
+    expect(useMemoriesMock).not.toHaveBeenCalled();
   });
 });

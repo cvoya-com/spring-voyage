@@ -275,15 +275,26 @@ export function filterTree(tree: TreeNode, query: string): FilterResult {
  * renders. Overflow tabs follow visible ones.
  */
 export const UNIT_TABS = {
+  // A unit is an agent (see docs/concepts/units-vs-agents.md), so it
+  // gains the agent's introspection slots (Skills, Traces) and the
+  // lifecycle slot (Deployment). Clones is the only agent-only slot —
+  // units cannot be cloned today. See canonical-tabs.md § 7.1.
   visible: [
     "Overview",
-    "Agents",
     "Activity",
     "Messages",
     "Memory",
+    "Agents",
+    "Skills",
+    "Traces",
     "Policies",
   ] as const,
-  overflow: ["Config"] as const,
+  // Deployment is in overflow on both Unit and Agent — both are deep
+  // editors / lifecycle surfaces. The activity-side cluster
+  // (Overview/Activity/Messages/Memory + composition slots) is the
+  // high-frequency surface; overflow placement preserves the existing
+  // `?tab=Deployment` deep-link contract.
+  overflow: ["Config", "Deployment"] as const,
 };
 
 export const AGENT_TABS = {
@@ -308,12 +319,16 @@ export const AGENT_TABS = {
 };
 
 export const TENANT_TABS = {
+  // Memory, Messages, Agents, Skills, Traces, Clones, and Deployment
+  // are intentionally absent — Tenant does not participate in threads,
+  // does not compose thread participants, does not have memory, and is
+  // not addressable as an agent. See canonical-tabs.md § 1 principle
+  // and § 4.1.
   visible: [
     "Overview",
     "Activity",
     "Policies",
     "Budgets",
-    "Memory",
   ] as const,
   overflow: [] as const,
 };

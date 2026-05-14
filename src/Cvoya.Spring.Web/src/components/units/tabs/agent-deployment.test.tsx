@@ -1,11 +1,10 @@
 /**
- * Tests for the Agent Deployment tab (#1119).
+ * Tests for the Agent Deployment tab wrapper (#1119, #2273).
  *
- * Verifies that:
- *   - The tab renders and delegates to LifecyclePanel.
- *   - The correct agentId is forwarded so the lifecycle hooks fire against
- *     the right agent.
- *   - Null-guard: non-Agent nodes return null without erroring.
+ * Verifies that the wrapper:
+ *   - Delegates to the unified `<DeploymentTab>` for an Agent node.
+ *   - Forwards the agent id so the lifecycle hooks fire against the right agent.
+ *   - Returns null for non-Agent nodes (registry-guard).
  */
 
 import { render, screen } from "@testing-library/react";
@@ -16,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AgentDeploymentTab from "./agent-deployment";
 import type { AgentNode, UnitNode } from "../aggregate";
 
-// Mock the LifecyclePanel so this test only validates the tab wrapper's
+// Mock LifecyclePanel so this test only validates the wrapper + dispatcher
 // wiring, not the full lifecycle panel behaviour (which has its own suite
 // in lifecycle-panel.test.tsx).
 vi.mock("@/components/agents/tab-impls/lifecycle-panel", () => ({
@@ -25,7 +24,6 @@ vi.mock("@/components/agents/tab-impls/lifecycle-panel", () => ({
   ),
 }));
 
-// Silence the toast surface — not exercised in this suite.
 vi.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
@@ -51,12 +49,12 @@ const unitNode: UnitNode = {
   status: "running",
 };
 
-describe("AgentDeploymentTab", () => {
+describe("AgentDeploymentTab (wrapper)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("renders the Deployment tab wrapper for an agent node", () => {
+  it("delegates to DeploymentTab for an Agent node", () => {
     render(
       <Wrapper>
         <AgentDeploymentTab node={agentNode} path={[agentNode]} />
@@ -75,7 +73,7 @@ describe("AgentDeploymentTab", () => {
     expect(panel.getAttribute("data-agent-id")).toBe("deploy-test-agent");
   });
 
-  it("renders nothing for a non-Agent node", () => {
+  it("renders nothing for a non-Agent node (registry-guard)", () => {
     const { container } = render(
       <Wrapper>
         <AgentDeploymentTab node={unitNode} path={[unitNode]} />

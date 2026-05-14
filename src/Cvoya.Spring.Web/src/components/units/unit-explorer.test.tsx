@@ -74,8 +74,8 @@ describe("UnitExplorer (foundation scaffold)", () => {
   it("renders the kind's tab strip", () => {
     render(<UnitExplorer tree={tree} />);
     expect(screen.getByTestId("detail-tabstrip")).toBeInTheDocument();
-    // Tenant gets 5 tabs by default.
-    expect(screen.getAllByRole("tab")).toHaveLength(5);
+    // Tenant gets 4 tabs by default (#2257 removed the Memory placeholder).
+    expect(screen.getAllByRole("tab")).toHaveLength(4);
   });
 
   it("falls back to the placeholder when no tab content is registered", () => {
@@ -98,8 +98,9 @@ describe("UnitExplorer (foundation scaffold)", () => {
   it("changes selection when a tree row is clicked, swapping the tab catalog to match", () => {
     render(<UnitExplorer tree={tree} />);
     fireEvent.click(screen.getByTestId("tree-row-unit-eng"));
-    // Engineering is a Unit → 7 tabs (6 visible + Config overflow).
-    expect(screen.getAllByRole("tab")).toHaveLength(7);
+    // Engineering is a Unit → 10 tabs (8 visible + Config + Deployment overflow,
+    // canonical-tabs.md § 7.1).
+    expect(screen.getAllByRole("tab")).toHaveLength(10);
     expect(screen.getByTestId("detail-tab-agents")).toBeInTheDocument();
   });
 
@@ -144,9 +145,9 @@ describe("UnitExplorer (foundation scaffold)", () => {
       "aria-current",
       "page",
     );
-    // Tenant catalog is 5 tabs; Unit would be 7. Confirms the kind-specific
+    // Tenant catalog is 4 tabs; Unit would be 10. Confirms the kind-specific
     // catalog is driven by the fallback node, not the stale id.
-    expect(screen.getAllByRole("tab")).toHaveLength(5);
+    expect(screen.getAllByRole("tab")).toHaveLength(4);
   });
 
   it("auto-snaps to the kind's first tab when the controlled `tab` is out of catalog", () => {
@@ -183,11 +184,11 @@ describe("UnitExplorer (foundation scaffold)", () => {
       "true",
     );
 
-    // Navigate to Engineering (a Unit → 7-tab catalog). First tab
+    // Navigate to Engineering (a Unit → 10-tab catalog). First tab
     // (Overview) should be active because Engineering has no remembered
     // choice.
     fireEvent.click(screen.getByTestId("tree-row-unit-eng"));
-    expect(screen.getAllByRole("tab")).toHaveLength(7);
+    expect(screen.getAllByRole("tab")).toHaveLength(10);
     expect(screen.getByTestId("detail-tab-overview")).toHaveAttribute(
       "aria-selected",
       "true",
@@ -196,7 +197,7 @@ describe("UnitExplorer (foundation scaffold)", () => {
     // Navigate back to the Tenant via the breadcrumb. The remembered
     // Activity tab should come back — not Overview.
     fireEvent.click(screen.getByTestId("detail-crumb-tenant-acme"));
-    expect(screen.getAllByRole("tab")).toHaveLength(5);
+    expect(screen.getAllByRole("tab")).toHaveLength(4);
     expect(screen.getByTestId("detail-tab-activity")).toHaveAttribute(
       "aria-selected",
       "true",
@@ -214,8 +215,8 @@ describe("UnitExplorer (foundation scaffold)", () => {
   });
 
   describe("tabstrip keyboard navigation (V21-explorer-tabstrip-keyboard)", () => {
-    // Tenant tab order (per aggregate.ts TENANT_TABS.visible):
-    //   Overview, Activity, Policies, Budgets, Memory
+    // Tenant tab order (per aggregate.ts TENANT_TABS.visible, post-#2257):
+    //   Overview, Activity, Policies, Budgets
 
     it("ArrowRight activates the next tab", () => {
       const onTabChange = vi.fn();
@@ -232,7 +233,7 @@ describe("UnitExplorer (foundation scaffold)", () => {
       fireEvent.keyDown(screen.getByTestId("detail-tabstrip"), {
         key: "ArrowLeft",
       });
-      expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Memory");
+      expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Budgets");
     });
 
     it("ArrowRight wraps from the last tab back to the first", () => {
@@ -240,7 +241,7 @@ describe("UnitExplorer (foundation scaffold)", () => {
       render(
         <UnitExplorer
           tree={tree}
-          tab="Memory"
+          tab="Budgets"
           onTabChange={onTabChange}
         />,
       );
@@ -271,7 +272,7 @@ describe("UnitExplorer (foundation scaffold)", () => {
       fireEvent.keyDown(screen.getByTestId("detail-tabstrip"), {
         key: "End",
       });
-      expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Memory");
+      expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Budgets");
     });
   });
 

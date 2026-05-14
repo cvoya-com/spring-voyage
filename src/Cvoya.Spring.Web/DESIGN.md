@@ -340,7 +340,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 
 ### 9.1 Per-kind disposition
 
-**Tenant** — 5 visible, 0 overflow. Synthesized root only.
+**Tenant** — 4 visible, 0 overflow. Synthesized root only. Per `docs/design/canonical-tabs.md` § 1 / § 4.1 the Memory, Messages, Agents, Skills, Traces, Clones, and Deployment slots are intentionally absent — Tenant does not participate in threads, does not compose thread participants, does not have memory, and is not addressable as an agent.
 
 | Tab        | Content                                                                                                                         |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -348,19 +348,21 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Activity   | Tenant-wide event feed. Deep-link to `/analytics/throughput` for the filterable view.                                           |
 | Policies   | Tenant-scope policy view via the canonical `<PoliciesTab kind="Tenant" id={...} />` (#2255). Renders the Cloning summary against the existing tenant cloning-policy endpoint plus "set via CLI" placeholders for the dimension panels whose tenant-scope read endpoint has not landed yet (Skill / Model / Cost / ExecutionMode / Initiative — see `docs/design/canonical-tabs.md` § 5.9). The deep-link to `/policies` is preserved for the cross-unit roll-up. |
 | Budgets    | Tenant-wide cost summary card (today / 7d / 30d + sparkline). Deep-link to `/analytics/costs`.                                  |
-| Memory     | Cross-cutting tenant memory (empty in v2.0 — see § 10).                                                                          |
 
-**Unit** — 6 visible + 1 overflow (`Config`).
+**Unit** — 8 visible + 2 overflow (`Config`, `Deployment`). Order follows the canonical reading→composition→constraint→wiring sweep in `docs/design/canonical-tabs.md` § 3.1.
 
 | Tab           | Content                                                                                                                          |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Overview      | Optional description line + `<ValidationPanel>` (Error only) + `<IssuesPanel>` + stat tiles (cost 24h, msgs 24h, sub-units, agents, worst status) + "Cost over time" sparkline card (7d / 30d toggle, `GET /api/v1/tenant/analytics/units/{id}/cost-timeseries`, inline SVG polyline, no charting library) + read-only Expertise card (own + deduped subtree chips, "Manage" deep-links to Config → Expertise) + engagement-portal link. Renders through the shared canonical `<OverviewTab>` control (#2258). The compact `<LifecyclePanel>` embed (canonical-tabs design § 5.1) is deferred to #2274 — `<LifecyclePanel>` is keyed strictly on `agentId`. |
-| Agents        | Child agents + child units in one grid; units carry an outlined card variant and a "unit" pill so they read distinct from agents. |
 | Activity      | Unit-scoped event feed with expandable-row affordance — rows that carry a `details` payload reveal the structured JSON inline (#1665). Shares the canonical `<ActivityTab>` control with the agent surface (#2253).                                                                                                          |
 | Messages      | Single 1:1 engagement timeline + persistent inline composer (`<UnitAgentMessagesView>` body via the canonical `<MessagesTab kind="Unit" id={...} />`; #2256). Shares the same control with the agent surface — only the address scheme changes. See § 9.3 for the timeline + composer contract. |
-| Memory        | Unit-scoped read-only memory inspector (see § 10).                                                                               |
+| Memory        | Unit-scoped read-only memory inspector (see § 10). Shares the canonical `<MemoryTab>` control with the agent surface (#2257).    |
+| Agents        | Child agents + child units in one grid; units carry an outlined card variant and a "unit" pill so they read distinct from agents. |
+| Skills        | Equipped-skills editor (#2271). Shares the canonical `<EquippedSkillsTab>` control with the agent surface. In v0.1 the body is a "Manage via CLI for now" placeholder pending unit-keyed skills endpoints (#2276); the canonical tab position is honored. |
+| Traces        | Mock-backed in v0.1 (same fixture the agent surface uses); real `/api/v1/traces?unit=…` is a v0.2 follow-up. Shares the canonical `<TracesTab>` control with the agent surface (#2272). |
 | Policies      | Unit policies (Skill / Model / Cost / ExecutionMode / Initiative dimension panels + Effective-policy footer) via the canonical `<PoliciesTab kind="Unit" id={...} />` (#2255). Shares the same control with Tenant and Agent — variance is per dimension, not per chrome. |
 | **Config** (overflow) | Six sub-tabs: Boundary, Execution, Connector, Skills, Secrets, Expertise. Sub-tab selection is URL-owned via `?subtab=<name>`. Execution edits unit defaults and shows member-agent hosting with deep links to each agent's Config tab. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
+| **Deployment** (overflow) | Same canonical `<DeploymentTab>` control the agent surface uses (#2273). In v0.1 the body is a "Deploy via CLI for now" placeholder pending unit-keyed lifecycle endpoints (#2274); the canonical tab position is honored. |
 
 **Agent** — 10 visible, 0 overflow.
 

@@ -1,12 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { AgentNode } from "../aggregate";
+import type { AgentNode, UnitNode } from "../aggregate";
 
 import AgentTracesTab from "./agent-traces";
 
-describe("AgentTracesTab", () => {
-  it("renders the V21-traces-api mock note and a table of placeholder rows", () => {
+describe("AgentTracesTab (wrapper)", () => {
+  it("delegates to TracesTab and renders the V21 fixture", () => {
     const node: AgentNode = {
       kind: "Agent",
       id: "ada",
@@ -17,9 +17,19 @@ describe("AgentTracesTab", () => {
     expect(screen.getByTestId("tab-agent-traces-mock-note")).toHaveTextContent(
       "V21-traces-api",
     );
-    // 6 mock rows per the fixture.
-    const rows = screen.getAllByRole("row");
-    // 1 header + 6 body rows = 7.
-    expect(rows.length).toBe(7);
+    expect(screen.getAllByRole("row").length).toBe(7);
+  });
+
+  it("renders nothing for a non-Agent node (registry-guard)", () => {
+    const unitNode: UnitNode = {
+      kind: "Unit",
+      id: "engineering",
+      name: "Engineering",
+      status: "running",
+    };
+    const { container } = render(
+      <AgentTracesTab node={unitNode} path={[unitNode]} />,
+    );
+    expect(container.firstChild).toBeNull();
   });
 });
