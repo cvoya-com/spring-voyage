@@ -25,7 +25,7 @@ using Xunit;
 /// extended-status response carrying the optional deployment block.
 /// The happy-path deploy requires a runnable container and is exercised by
 /// <c>PersistentAgentLifecycleTests</c> + the integration tests in
-/// <c>tests/Cvoya.Spring.Dapr.Tests/Execution/</c>.
+/// <c>tests/unit/Cvoya.Spring.Dapr.Tests/Execution/</c>.
 /// </summary>
 public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 {

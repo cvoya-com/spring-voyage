@@ -80,8 +80,8 @@ public class SpringVoyageOssMigrationTests
     {
         // Walk up from the test binary location to find the repo root,
         // then the OSS package directory. The test binary lives under
-        // tests/Cvoya.Spring.Host.Api.Tests/bin/<config>/<tfm>/, so the
-        // repo root is four levels up.
+        // tests/unit/Cvoya.Spring.Host.Api.Tests/bin/<config>/<tfm>/, so the
+        // repo root is five levels up.
         var dir = new DirectoryInfo(System.AppContext.BaseDirectory);
         for (var i = 0; i < 8 && dir is not null; i++)
         {

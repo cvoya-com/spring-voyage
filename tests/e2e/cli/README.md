@@ -54,7 +54,7 @@ scenario declares its pool inline (see below).
 Scenarios drive only the Web API + CLI surface that real users see.
 Anything that would require bringing up its own hosts, talking to
 Postgres directly, or otherwise bypassing the deployed stack belongs in
-`tests/Cvoya.Spring.Integration.Tests/` instead.
+`tests/integration/Cvoya.Spring.Integration.Tests/` instead.
 
 ## Pools (the `# pool:` header)
 
