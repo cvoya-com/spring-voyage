@@ -27,9 +27,9 @@ import "./agent-policies";
 import "./agent-config";
 import "./agent-deployment"; // #1119
 
-// Tenant tabs
+// Tenant tabs — Memory intentionally absent (#2257; tenant does not
+// have memory, see docs/design/canonical-tabs.md § 1 / § 4.1).
 import "./tenant-overview";
 import "./tenant-activity";
 import "./tenant-policies";
 import "./tenant-budgets";
-import "./tenant-memory";

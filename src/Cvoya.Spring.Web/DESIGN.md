@@ -340,7 +340,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 
 ### 9.1 Per-kind disposition
 
-**Tenant** — 5 visible, 0 overflow. Synthesized root only.
+**Tenant** — 4 visible, 0 overflow. Synthesized root only. Per `docs/design/canonical-tabs.md` § 1 / § 4.1 the Memory, Messages, Agents, Skills, Traces, Clones, and Deployment slots are intentionally absent — Tenant does not participate in threads, does not compose thread participants, does not have memory, and is not addressable as an agent.
 
 | Tab        | Content                                                                                                                         |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -348,7 +348,6 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Activity   | Tenant-wide event feed. Deep-link to `/analytics/throughput` for the filterable view.                                           |
 | Policies   | Tenant-scope policy view via the canonical `<PoliciesTab kind="Tenant" id={...} />` (#2255). Renders the Cloning summary against the existing tenant cloning-policy endpoint plus "set via CLI" placeholders for the dimension panels whose tenant-scope read endpoint has not landed yet (Skill / Model / Cost / ExecutionMode / Initiative — see `docs/design/canonical-tabs.md` § 5.9). The deep-link to `/policies` is preserved for the cross-unit roll-up. |
 | Budgets    | Tenant-wide cost summary card (today / 7d / 30d + sparkline). Deep-link to `/analytics/costs`.                                  |
-| Memory     | Cross-cutting tenant memory (empty in v2.0 — see § 10).                                                                          |
 
 **Unit** — 6 visible + 1 overflow (`Config`).
 

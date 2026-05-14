@@ -231,15 +231,18 @@ describe("tabsFor", () => {
     expect(AGENT_TABS.overflow).toEqual([]);
   });
 
-  it("locks the tenant tab order and count (all visible in v2.0)", () => {
+  it("locks the tenant tab order and count (#2257 — Memory removed)", () => {
+    // Memory is intentionally absent on Tenant — Tenant does not have
+    // memory (canonical-tabs.md § 1 / § 4.1). Messages, Agents, Skills,
+    // Traces, Clones, and Deployment are also intentionally absent.
     expect([...TENANT_TABS.visible, ...TENANT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
       "Policies",
       "Budgets",
-      "Memory",
     ]);
     expect(TENANT_TABS.overflow).toEqual([]);
+    expect(TENANT_TABS.visible).not.toContain("Memory");
   });
 });
 
@@ -263,8 +266,10 @@ describe("visibleTabsFor / overflowTabsFor", () => {
     expect(visibleTabsFor("Agent")).toContain("Deployment");
   });
 
-  it("surfaces the full Tenant catalog as visible with no overflow in v2.0", () => {
-    expect(visibleTabsFor("Tenant")).toHaveLength(5);
+  it("surfaces the Tenant catalog as visible with no overflow (#2257)", () => {
+    // 4 visible: Overview, Activity, Policies, Budgets. Config will be
+    // added as overflow under #2254 (Config unification, sibling PR).
+    expect(visibleTabsFor("Tenant")).toHaveLength(4);
     expect(overflowTabsFor("Tenant")).toEqual([]);
   });
 

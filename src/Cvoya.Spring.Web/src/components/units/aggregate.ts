@@ -308,12 +308,16 @@ export const AGENT_TABS = {
 };
 
 export const TENANT_TABS = {
+  // Memory, Messages, Agents, Skills, Traces, Clones, and Deployment
+  // are intentionally absent — Tenant does not participate in threads,
+  // does not compose thread participants, does not have memory, and is
+  // not addressable as an agent. See canonical-tabs.md § 1 principle
+  // and § 4.1.
   visible: [
     "Overview",
     "Activity",
     "Policies",
     "Budgets",
-    "Memory",
   ] as const,
   overflow: [] as const,
 };
