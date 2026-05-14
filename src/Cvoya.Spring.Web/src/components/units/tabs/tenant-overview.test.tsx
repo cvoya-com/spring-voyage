@@ -1,27 +1,22 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { TenantNode } from "../aggregate";
+import type { AgentNode, TenantNode } from "../aggregate";
 
-vi.mock("next/link", () => ({
-  default: ({
-    href,
-    children,
-    ...rest
-  }: {
-    href: string;
-    children: React.ReactNode;
-  } & Record<string, unknown>) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
+vi.mock("@/components/units/tab-impls/overview-tab", () => ({
+  OverviewTab: ({ kind, node }: { kind: string; node: { id: string } }) => (
+    <div
+      data-testid="unified-overview-tab"
+      data-kind={kind}
+      data-id={node.id}
+    />
   ),
 }));
 
 import TenantOverviewTab from "./tenant-overview";
 
-describe("TenantOverviewTab", () => {
-  it("renders the empty state when tenant has no units", () => {
+describe("TenantOverviewTab adapter", () => {
+  it("forwards the node to the unified OverviewTab as a Tenant subject", () => {
     const node: TenantNode = {
       kind: "Tenant",
       id: "tenant",
@@ -30,32 +25,21 @@ describe("TenantOverviewTab", () => {
       children: [],
     };
     render(<TenantOverviewTab node={node} path={[node]} />);
-    expect(screen.getByTestId("tab-tenant-overview-empty")).toBeInTheDocument();
+    const el = screen.getByTestId("unified-overview-tab");
+    expect(el.dataset.kind).toBe("Tenant");
+    expect(el.dataset.id).toBe("tenant");
   });
 
-  it("renders a UnitCard for each top-level unit", () => {
-    const node: TenantNode = {
-      kind: "Tenant",
-      id: "tenant",
-      name: "Tenant",
+  it("renders nothing when invoked with a non-Tenant node", () => {
+    const node: AgentNode = {
+      kind: "Agent",
+      id: "ada",
+      name: "Ada",
       status: "running",
-      children: [
-        {
-          kind: "Unit",
-          id: "engineering",
-          name: "Engineering",
-          status: "running",
-        },
-        {
-          kind: "Unit",
-          id: "platform",
-          name: "Platform",
-          status: "paused",
-        },
-      ],
     };
-    render(<TenantOverviewTab node={node} path={[node]} />);
-    expect(screen.getByTestId("unit-card-engineering")).toBeInTheDocument();
-    expect(screen.getByTestId("unit-card-platform")).toBeInTheDocument();
+    const { container } = render(
+      <TenantOverviewTab node={node} path={[node]} />,
+    );
+    expect(container.firstChild).toBeNull();
   });
 });
