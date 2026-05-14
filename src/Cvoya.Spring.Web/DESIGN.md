@@ -344,7 +344,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 
 | Tab        | Content                                                                                                                         |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Overview   | Tenant-wide stat tiles + top-level units grid.                                                                                  |
+| Overview   | Optional description line + top-level units grid (one `<UnitCard>` per top-level unit). Renders through the shared canonical `<OverviewTab>` control (#2258); tenant-wide stat tiles and a cost-over-time card are tracked as separate canonical-tabs follow-ups. |
 | Activity   | Tenant-wide event feed. Deep-link to `/analytics/throughput` for the filterable view.                                           |
 | Policies   | Tenant-wide policy rollup.                                                                                                      |
 | Budgets    | Tenant-wide cost summary card (today / 7d / 30d + sparkline). Deep-link to `/analytics/costs`.                                  |
@@ -354,7 +354,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 
 | Tab           | Content                                                                                                                          |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Overview      | Stat tiles (cost 24h, msgs 24h, sub-units, agents, worst status) + "Cost over time" sparkline card (7d / 30d toggle, `GET /api/v1/tenant/analytics/units/{id}/cost-timeseries`, inline SVG polyline, no charting library) + read-only Expertise card (own + deduped subtree chips, "Manage" deep-links to Config → Expertise). |
+| Overview      | Optional description line + `<ValidationPanel>` (Error only) + `<IssuesPanel>` + stat tiles (cost 24h, msgs 24h, sub-units, agents, worst status) + "Cost over time" sparkline card (7d / 30d toggle, `GET /api/v1/tenant/analytics/units/{id}/cost-timeseries`, inline SVG polyline, no charting library) + read-only Expertise card (own + deduped subtree chips, "Manage" deep-links to Config → Expertise) + engagement-portal link. Renders through the shared canonical `<OverviewTab>` control (#2258). The compact `<LifecyclePanel>` embed (canonical-tabs design § 5.1) is deferred to #2274 — `<LifecyclePanel>` is keyed strictly on `agentId`. |
 | Agents        | Child agents + child units in one grid; units carry an outlined card variant and a "unit" pill so they read distinct from agents. |
 | Activity      | Unit-scoped event feed with expandable-row affordance — rows that carry a `details` payload reveal the structured JSON inline (#1665). Shares the canonical `<ActivityTab>` control with the agent surface (#2253).                                                                                                          |
 | Messages      | Inline master/detail: conversation list on the left; selecting a row mounts the thread + composer inline on the right. Selection is URL-owned via `?conversation=<id>`. A prominent **+ New conversation** button sits above the list and opens a modal composer; on submit the portal POSTs `/api/v1/messages` and routes to the new thread (see § 9.3). |
@@ -366,7 +366,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 
 | Tab        | Content                                                                                                                      |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Overview   | Compact lifecycle panel + cost summary tiles.                                                                                |
+| Overview   | Optional description line + `<IssuesPanel>` + compact `<LifecyclePanel>` embed + cost summary card (totals, input/output tokens, record count) + engagement-portal link. Renders through the shared canonical `<OverviewTab>` control (#2258); the lifecycle embed is the same component the Deployment tab surfaces, deep-linked via `?tab=Deployment`. |
 | Activity   | "Cost over time" sparkline card (7d / 24h toggle, `GET /api/v1/tenant/analytics/agents/{id}/cost-timeseries`, inline SVG polyline, no charting library) + "Model cost breakdown" table (`GET /api/v1/tenant/cost/agents/{id}/breakdown`, columns: Model, Kind, Cost, Requests, hidden when empty) + agent-scoped event feed with Refresh + expandable-row affordance — rows that carry a `details` payload reveal the structured JSON inline (#1665). Shares the canonical `<ActivityTab>` control with the unit surface (#2253); the cost cards render only for the agent subject. |
 | Messages   | Inline master/detail (same layout as the unit Messages tab); URL-owned via `?conversation=<id>`. A **+ New conversation** button opens the same modal composer, targeting `agent://<slug>`. |
 | Memory     | Agent-scoped read-only memory inspector (see § 10).                                                                          |
