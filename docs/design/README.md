@@ -34,6 +34,7 @@ If you're a designer using Stitch (or any other tool with an MCP) and want Claud
 ## Related documents
 
 - [`portal-exploration.md`](portal-exploration.md) — the plan of record for the portal redesign: IA, key workflows, standalone-vs-hosted, CLI-UI parity.
+- [`canonical-tabs.md`](canonical-tabs.md) — canonical tab catalog and content map across Tenant, Unit, and Agent Detail Panes. Gates the per-tab unification sub-issues under [#2252](https://github.com/cvoya-com/spring-voyage/issues/2252).
 - [`../../src/Cvoya.Spring.Web/DESIGN.md`](../../src/Cvoya.Spring.Web/DESIGN.md) — the design system itself.
 - [`../architecture/cli-and-web.md`](../architecture/cli-and-web.md) — portal architecture.
 - [`../../AGENTS.md`](../../AGENTS.md) § "Documentation Updates" — the convention that ships doc updates alongside feature work.
