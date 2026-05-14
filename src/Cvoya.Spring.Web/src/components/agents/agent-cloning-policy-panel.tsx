@@ -2,6 +2,12 @@
 
 // Agent-scoped cloning policy panel (#534 / PR-PLAT-CLONE-1).
 //
+// Applies to **Agent only**. Units cannot be cloned today (see
+// `docs/concepts/units-vs-agents.md` and `docs/design/canonical-tabs.md`
+// § 2.5), so unlike `<AgentInitiativePanel>` the Cloning panel does not
+// promote to a Unit surface — it stays exclusively under Agent ×
+// Policies.
+//
 // Read-only summary of the persistent cloning policy for a single
 // agent. When no agent-specific policy is set the server returns the
 // empty-policy shape (not a 404), which the panel renders as

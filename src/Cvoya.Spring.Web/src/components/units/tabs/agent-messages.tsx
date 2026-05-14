@@ -1,25 +1,18 @@
 "use client";
 
-// Agent Messages tab (#1459 / #1460).
-//
-// Renders the full timeline of the {current human, agent} 1:1
-// engagement inline, with a persistent composer at the bottom.
-// See `unit-messages.tsx` for the shared rationale.
+// Agent Messages tab (#1459 / #1460; unified under #2256).
+// Thin wrapper around the canonical `<MessagesTab>` — same timeline,
+// same composer, same address routing shared with the unit surface.
+// See `unit-messages.tsx` for the shared rationale and
+// docs/design/canonical-tabs.md § 5.3.
 
-import type { TabContentProps } from "./index";
-import { registerTab } from "./index";
-import { UnitAgentMessagesView } from "./unit-agent-messages-view";
+import { MessagesTab } from "@/components/units/tab-impls/messages-tab";
+
+import { registerTab, type TabContentProps } from "./index";
 
 function AgentMessagesTab({ node }: TabContentProps) {
   if (node.kind !== "Agent") return null;
-  return (
-    <UnitAgentMessagesView
-      targetScheme="agent"
-      targetPath={node.id}
-      targetName={node.name}
-      rootTestId="tab-agent-messages"
-    />
-  );
+  return <MessagesTab kind="Agent" id={node.id} name={node.name} />;
 }
 
 registerTab("Agent", "Messages", AgentMessagesTab);

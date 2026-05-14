@@ -3,22 +3,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AgentNode, UnitNode } from "../aggregate";
 
-vi.mock("@/components/agents/agent-initiative-panel", () => ({
-  AgentInitiativePanel: ({ agentId }: { agentId: string }) => (
-    <div data-testid="initiative-panel-stub" data-agent-id={agentId} />
-  ),
-}));
-
-vi.mock("@/components/agents/agent-cloning-policy-panel", () => ({
-  AgentCloningPolicyPanel: ({ agentId }: { agentId: string }) => (
-    <div data-testid="cloning-policy-panel-stub" data-agent-id={agentId} />
+vi.mock("@/components/units/tab-impls/policies-tab", () => ({
+  PoliciesTab: ({ kind, id }: { kind: string; id: string }) => (
+    <div data-testid="canonical-policies-tab" data-kind={kind} data-id={id} />
   ),
 }));
 
 import AgentPoliciesTab from "./agent-policies";
 
-describe("AgentPoliciesTab (issues #934 + #534)", () => {
-  it("mounts the initiative panel with the agent id", () => {
+describe("AgentPoliciesTab adapter (#2255, was #934 + #534)", () => {
+  it("delegates to the canonical PoliciesTab with kind='Agent' and node.id", () => {
     const node: AgentNode = {
       kind: "Agent",
       id: "ada",
@@ -26,24 +20,9 @@ describe("AgentPoliciesTab (issues #934 + #534)", () => {
       status: "running",
     };
     render(<AgentPoliciesTab node={node} path={[node]} />);
-    expect(screen.getByTestId("tab-agent-policies")).toBeInTheDocument();
-    expect(
-      screen.getByTestId("initiative-panel-stub").dataset.agentId,
-    ).toBe("ada");
-  });
-
-  it("mounts the cloning-policy panel with the agent id (#534)", () => {
-    const node: AgentNode = {
-      kind: "Agent",
-      id: "ada",
-      name: "Ada",
-      status: "running",
-    };
-    render(<AgentPoliciesTab node={node} path={[node]} />);
-    expect(screen.getByTestId("tab-agent-policies-cloning")).toBeInTheDocument();
-    expect(
-      screen.getByTestId("cloning-policy-panel-stub").dataset.agentId,
-    ).toBe("ada");
+    const tab = screen.getByTestId("canonical-policies-tab");
+    expect(tab.dataset.kind).toBe("Agent");
+    expect(tab.dataset.id).toBe("ada");
   });
 
   it("renders nothing for non-agent nodes", () => {

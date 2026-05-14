@@ -1,12 +1,17 @@
 "use client";
 
 /**
- * Agent initiative editor (#934 / #815 §2 + §4).
+ * Initiative policy editor — applies to **Unit and Agent** subjects
+ * (#934 / #815 §2 + §4; canonicalised under #2255).
  *
- * Lives inside the Agent Policies tab (the user explicitly chose the
- * "Policies" placement — symmetrical with the Unit surface). Reads
- * through `useAgentInitiativeLevel` + `useAgentInitiativePolicy` and
- * writes via `api.setAgentInitiativePolicy`. Mirrors the CLI
+ * Per `docs/design/canonical-tabs.md` § 2.5 and `docs/concepts/units-vs-
+ * agents.md`, a unit *is* an agent — the same Initiative panel surfaces
+ * on Unit × Policies → Initiative and Agent × Policies → Initiative.
+ * The "agent-" prefix on the file path reflects history, not scope; the
+ * panel is canonical for both subjects.
+ *
+ * Reads through `useAgentInitiativeLevel` + `useAgentInitiativePolicy`
+ * and writes via `api.setAgentInitiativePolicy`. Mirrors the CLI
  * `spring agent initiative {level,policy} {get,set,clear}`.
  *
  * Clearing is modelled as "save an empty policy" — the server treats
