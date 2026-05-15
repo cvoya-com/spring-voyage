@@ -14,5 +14,7 @@ readme: README.md
 # agent so the install path can be exercised end-to-end without a stub
 # connector binding — load-bearing for fast-pool E2E coverage that doesn't
 # care about any specific connector.
-content:
-  - unit: hello-world
+#
+# ADR-0043: directory layout is the manifest — no `content:` block. The
+# package ships exactly the artefacts discovered under `units/` and
+# `agents/`.

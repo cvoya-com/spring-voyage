@@ -1,0 +1,4 @@
+apiVersion: spring.voyage/v1
+kind: Workflow
+name: software-dev-cycle
+description: Software development cycle workflow — triages an incoming issue, assigns it by expertise, creates a plan, implements, reviews, and merges. Backed by the SoftwareDevCycle .NET project shipped alongside this manifest.

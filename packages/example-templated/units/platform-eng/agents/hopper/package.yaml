@@ -1,0 +1,7 @@
+apiVersion: spring.voyage/v1
+kind: Agent
+name: hopper
+description: Hopper — software engineer specialised in compilers / language runtimes. Concrete instance of the `software-engineer` template.
+from: software-engineer
+# Inherits everything from the software-engineer template. The
+# description override is the only per-instance customisation.

@@ -11,12 +11,12 @@ readme: README.md
 # is the union, computed at install time. Operators configure the GitHub
 # binding once via the wizard's connector step or `spring package install
 # --connector github=<owner>/<repo>@<installation-id>`.
-
-# Sub-units (sv-oss-software-engineering / -design / -product-management /
-# -program-management) are discovered automatically from the umbrella unit's
-# `members:` list — the old `subUnits:` enumeration was redundant and is gone.
-content:
-  - unit: spring-voyage-oss
+#
+# ADR-0043 §2: directory layout is the manifest — no `content:` block. The
+# package ships exactly the artefacts discovered under `units/` and
+# `agents/`. Sub-units (sv-oss-software-engineering / -design /
+# -product-management / -program-management) are members of the umbrella
+# unit, declared in its own `members:` list.
 
 # Package-level execution defaults (#1679). The umbrella's container image
 # becomes the package default — sub-units that don't ship their own

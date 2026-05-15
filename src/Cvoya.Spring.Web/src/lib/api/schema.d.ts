@@ -3316,6 +3316,7 @@ export interface components {
             connectorBindings?: null | components["schemas"]["PackageConnectorBindings"];
             version?: null | string;
             credentials?: null | components["schemas"]["CredentialBindingPayload"][];
+            intoUnit?: null | string;
         };
         PackageRequiredCredentialEntryResponse: {
             provider: string;

@@ -24,7 +24,7 @@ using Xunit;
 /// </summary>
 public class HelloWorldPackageTests
 {
-    [Fact(Skip = "Pending Chunk 4 in-repo packages/hello-world migration to ADR-0043 recursive layout (issue #2304).")]
+    [Fact]
     public async Task HelloWorld_ResolvedManifest_HasNoConnectorRequirements()
     {
         var packageRoot = LocatePackageRoot();
@@ -45,7 +45,7 @@ public class HelloWorldPackageTests
             "hello-world ships connector-free; adding a connector requirement defeats #2115");
     }
 
-    [Fact(Skip = "Pending Chunk 4 in-repo packages/hello-world migration to ADR-0043 recursive layout (issue #2304).")]
+    [Fact]
     public async Task HelloWorld_ResolvedManifest_ShipsExactlyOneUnit()
     {
         // Smoke-test that the install pipeline actually has something to
@@ -69,8 +69,8 @@ public class HelloWorldPackageTests
         resolved.Units.Count.ShouldBe(1, "hello-world ships exactly one unit");
         resolved.Units[0].Name.ShouldBe("hello-world");
 
-        File.Exists(Path.Combine(packageRoot, "agents", "greeter.yaml"))
-            .ShouldBeTrue("hello-world ships a greeter agent on disk");
+        File.Exists(Path.Combine(packageRoot, "agents", "greeter", "package.yaml"))
+            .ShouldBeTrue("hello-world ships a greeter agent on disk (ADR-0043 recursive layout)");
 
         // The unit's resolved YAML body must reference the greeter so the
         // activator's directory fall-back can wire the membership.
