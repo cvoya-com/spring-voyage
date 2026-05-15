@@ -411,6 +411,14 @@ public static class ManifestParser
                     "'ai.model: { provider: <provider-id>, id: <model-id> }' " +
                     "(e.g. 'ai.model: { provider: anthropic, id: claude-opus-4-7 }').");
             }
+
+            // ADR-0043 + #2298: `ai.prompt:` is hoisted to top-level
+            // `instructions:` (canonical on both Unit and Agent kinds).
+            // The legacy slot is rejected with a precise migration hint.
+            if (aiNode.Children.ContainsKey(new YamlScalarNode("prompt")))
+            {
+                throw new ManifestParseException(Adr0043ParseErrors.LegacyAiPromptField);
+            }
         }
     }
 

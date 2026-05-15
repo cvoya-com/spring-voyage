@@ -192,10 +192,6 @@ public class AiManifest
     [YamlMember(Alias = "model")]
     public AiModelManifest? Model { get; set; }
 
-    /// <summary>System prompt for the orchestrator.</summary>
-    [YamlMember(Alias = "prompt")]
-    public string? Prompt { get; set; }
-
     /// <summary>Skills available to the orchestrator.</summary>
     [YamlMember(Alias = "skills")]
     public List<SkillReference>? Skills { get; set; }

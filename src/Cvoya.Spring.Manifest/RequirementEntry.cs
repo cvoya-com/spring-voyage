@@ -11,9 +11,9 @@ namespace Cvoya.Spring.Manifest;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The discriminator-as-key shape matches <see cref="ContentEntry"/> from
-/// PR #1719 — same parser pattern, same operator mental model. For v0.1
-/// the only supported requirement type is
+/// The discriminator-as-key shape is intentionally idiomatic with the
+/// <c>members:</c> grammar — same parser pattern, same operator mental
+/// model. For v0.1 the only supported requirement type is
 /// <see cref="RequirementType.Connector"/>; the type system is open for
 /// future kinds and a v0.2 follow-up (#1728) will generalise the value
 /// shape to versioned <c>&lt;pkg&gt;/&lt;name&gt;@&lt;version&gt;</c>

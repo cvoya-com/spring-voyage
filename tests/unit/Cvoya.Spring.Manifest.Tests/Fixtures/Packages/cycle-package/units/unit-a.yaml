@@ -1,6 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Unit
-name: unit-a
-description: First unit in a circular reference chain.
-members:
-  - unit: unit-b

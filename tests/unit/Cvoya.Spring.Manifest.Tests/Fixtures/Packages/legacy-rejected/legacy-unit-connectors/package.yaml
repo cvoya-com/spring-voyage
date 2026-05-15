@@ -1,7 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Package
-name: legacy-unit-connectors
-description: Package whose unit YAML still uses the legacy connectors: block — parser must reject with LegacyUnitConnectorsField.
-version: 1.0.0
-content:
-  - unit: connector-bearing

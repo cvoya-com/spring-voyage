@@ -1,6 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Unit
-name: sub-unit
-description: A sub-unit.
-members:
-  - agent: helper

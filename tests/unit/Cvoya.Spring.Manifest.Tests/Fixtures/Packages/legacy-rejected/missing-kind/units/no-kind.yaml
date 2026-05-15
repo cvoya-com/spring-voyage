@@ -1,3 +1,0 @@
-apiVersion: spring.voyage/v1
-name: no-kind
-description: Unit that omits the required kind header.

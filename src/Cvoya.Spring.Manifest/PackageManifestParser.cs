@@ -15,23 +15,42 @@ using YamlDotNet.Serialization.NamingConventions;
 
 /// <summary>
 /// Parses and validates a <c>package.yaml</c> manifest into a
-/// <see cref="ResolvedPackage"/>. Implements ADR-0035 decisions 2, 3, 8,
-/// 10, and 14 plus #1718 items 1+2 (drop <c>kind:</c>, unify artefact
-/// declarations under a single <c>content:</c> list):
+/// <see cref="ResolvedPackage"/>. Implements ADR-0037 decisions and the
+/// ADR-0043 recursive folder layout:
 /// <list type="bullet">
-///   <item><description>Decision 2: One root <c>package.yaml</c> per package.</description></item>
-///   <item><description>Decision 3: Uniform composition — bare = within-package, qualified = cross-package.</description></item>
-///   <item><description>Decision 8: Scalar <c>${{ inputs.foo }}</c> substitution before reference resolution.</description></item>
-///   <item><description>Decision 10: Name uniqueness — first collision aborts with all offending names.</description></item>
-///   <item><description>Decision 14: Cross-package batch resolution via <see cref="IPackageCatalogProvider"/>.</description></item>
+///   <item><description>ADR-0037 D2: one root <c>package.yaml</c> per package.</description></item>
+///   <item><description>ADR-0037 D3: uniform composition — bare = within-package, qualified = cross-package.</description></item>
+///   <item><description>ADR-0037 D10: name uniqueness — first collision aborts with all offending names.</description></item>
+///   <item><description>ADR-0037 D14: cross-package batch resolution via <see cref="IPackageCatalogProvider"/>.</description></item>
+///   <item><description>ADR-0043 §2: directory layout IS the content — <c>content:</c> is rejected.</description></item>
+///   <item><description>ADR-0043 §3: artefacts can ship nested children; the walker descends every conventional subdirectory at every depth.</description></item>
+///   <item><description>ADR-0043 §4: inner artefact <c>package.yaml</c> files do not declare <c>version:</c>.</description></item>
+///   <item><description>ADR-0043 §8: legacy shape signals (flat artefact layout, <c>content:</c>, inner <c>version:</c>, folder-name mismatch, <c>ai.prompt:</c>) are rejected with precise migration hints.</description></item>
 /// </list>
 /// </summary>
 public static class PackageManifestParser
 {
     /// <summary>
+    /// Conventional subdirectories that the catalog walker descends at every
+    /// depth (ADR-0043 §2). Each name maps to the artefact kind(s) that may
+    /// live directly beneath it. <c>templates/</c> hosts both kinds — the
+    /// inner <c>kind:</c> field disambiguates.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, IReadOnlyList<ArtefactKind>> ConventionalSubdirs =
+        new Dictionary<string, IReadOnlyList<ArtefactKind>>(StringComparer.Ordinal)
+        {
+            ["units"] = new[] { ArtefactKind.Unit },
+            ["agents"] = new[] { ArtefactKind.Agent },
+            ["skills"] = new[] { ArtefactKind.Skill },
+            ["workflows"] = new[] { ArtefactKind.Workflow },
+            ["templates"] = new[] { ArtefactKind.Unit, ArtefactKind.Agent }, // UnitTemplate / AgentTemplate
+            ["connectors"] = Array.Empty<ArtefactKind>(), // reserved (ADR-0037 §1) — walked, but no kind
+        };
+
+    /// <summary>
     /// Parses a <c>package.yaml</c> YAML string into a <see cref="PackageManifest"/>
-    /// without resolving references or substituting inputs. Useful for inspecting
-    /// the raw manifest shape before resolution.
+    /// without resolving references. Useful for inspecting the raw manifest
+    /// shape before resolution.
     /// </summary>
     /// <exception cref="PackageParseException">Thrown when YAML is malformed or required fields are missing.</exception>
     public static PackageManifest ParseRaw(string yamlText)
@@ -46,10 +65,6 @@ public static class PackageManifestParser
         }
         catch (PackageParseException)
         {
-            // Bubble through — converters may already throw the right
-            // type, e.g. legacy-shape rejection in BuildDeserializer's
-            // path. (Today there is no such converter; preserved for
-            // forward symmetry.)
             throw;
         }
         catch (YamlDotNet.Core.YamlException ex)
@@ -64,7 +79,6 @@ public static class PackageManifestParser
 
         ValidateLegacyFields(yamlText, doc);
         ValidateRequiredFields(doc);
-        ValidatePackageGrammar(doc);
 
         // ADR-0039 § 9: reject `execution.containerRuntime:` (and the
         // hoisted root-level form) on the package-level `execution:`
@@ -85,36 +99,10 @@ public static class PackageManifestParser
     }
 
     /// <summary>
-    /// Validates the package-level grammar against the v0.1 rules introduced
-    /// by #1629 PR7 — namely that every reference field rejects path-style
-    /// values (<c>scheme://...</c>). Runs from <see cref="ParseRaw"/> so the
-    /// rejection fires even on paths that never make it as far as
-    /// <see cref="ParseAndResolveAsync"/> (e.g. export tooling that only
-    /// inspects the schema).
-    /// </summary>
-    private static void ValidatePackageGrammar(PackageManifest doc)
-    {
-        if (doc.Content is not { Count: > 0 } content)
-        {
-            return;
-        }
-
-        for (var i = 0; i < content.Count; i++)
-        {
-            var entry = content[i];
-            if (entry?.Definition is { IsInline: false } slot
-                && !string.IsNullOrWhiteSpace(slot.Reference))
-            {
-                LocalSymbolValidator.RejectPathStyleReference(
-                    slot.Reference, $"content[{i}].{KindKey(entry.Kind)}", GrammarLayer.PackageManifest);
-            }
-        }
-    }
-
-    /// <summary>
-    /// ADR-0037 decision 6: reject every legacy-shape signal with a precise
-    /// migration hint. Covers items 1+2 from #1718 (already shipped in PR #1719)
-    /// plus the per-artefact decomposition from ADR-0037.
+    /// ADR-0037 decision 6 + ADR-0043 §8: reject every legacy-shape signal
+    /// with a precise migration hint. Covers items 1+2 from #1718 (already
+    /// shipped in PR #1719) plus the per-artefact decomposition from
+    /// ADR-0037 plus the recursive folder layout from ADR-0043.
     /// </summary>
     private static void ValidateLegacyFields(string yamlText, PackageManifest doc)
     {
@@ -163,23 +151,20 @@ public static class PackageManifestParser
             {
                 throw new PackageParseException(
                     $"Package manifest declares the obsolete top-level '{key}:' field. " +
-                    "v0.1 declares all bundled artefacts under a single 'content:' list " +
-                    "(#1718 item 2). Move the artefact reference into 'content:' as " +
-                    $"'- {SuggestedContentKey(key)}: <name>'. " +
+                    "v0.1 declares all bundled artefacts under conventional folders " +
+                    "(units/, agents/, skills/, workflows/, templates/) per ADR-0043 §2. " +
                     "Sub-units of an umbrella unit are discovered automatically from " +
-                    "the umbrella's 'members:' list — they no longer need to be " +
-                    "enumerated under 'subUnits:'.");
+                    "the umbrella's 'members:' list.");
             }
         }
-    }
 
-    private static string SuggestedContentKey(string legacyKey) => legacyKey switch
-    {
-        "subUnits" => "unit",
-        "skills" => "skill",
-        "workflows" => "workflow",
-        _ => legacyKey,
-    };
+        // ADR-0043 §8: `content:` is removed. The directory layout under
+        // agents/, units/, skills/, workflows/, templates/ is the content.
+        if (TopLevelKeyPresent(yamlText, "content"))
+        {
+            throw new PackageParseException(Adr0043ParseErrors.LegacyContentField);
+        }
+    }
 
     /// <summary>
     /// Best-effort top-level-key probe: scans line-starts of the raw YAML
@@ -201,21 +186,14 @@ public static class PackageManifestParser
         var prefix = key + ":";
         foreach (var rawLine in lines)
         {
-            // Strip any trailing CR (CRLF endings).
             var line = rawLine.EndsWith('\r') ? rawLine[..^1] : rawLine;
             if (line.Length == 0) continue;
-            // Top-level keys live at column 0.
             if (line[0] is ' ' or '\t' or '#') continue;
             if (line.StartsWith(prefix, StringComparison.Ordinal))
             {
-                // Exactly the key followed by ':' (no extra alphanumeric
-                // chars — `unit:` matches but `unitTemplate:` does not).
                 if (line.Length == prefix.Length || !IsKeyChar(line[prefix.Length - 1])
                     || line[prefix.Length] is ' ' or '\t' or '\0' or '\r')
                 {
-                    // Re-check: line[prefix.Length-1] is ':' so the key
-                    // boundary is well-formed; the next char (if any) must
-                    // be whitespace or end-of-line.
                     if (line.Length == prefix.Length) return true;
                     var next = line[prefix.Length];
                     if (next is ' ' or '\t' or '\r' or '#') return true;
@@ -229,45 +207,30 @@ public static class PackageManifestParser
 
     /// <summary>
     /// Fully parses and resolves a <c>package.yaml</c> into a
-    /// <see cref="ResolvedPackage"/>. Steps (per ADR-0035 decision 8):
-    /// <list type="number">
-    ///   <item><description>Validate input schema against supplied values.</description></item>
-    ///   <item><description>Perform scalar <c>${{ inputs.* }}</c> substitution on the YAML text.</description></item>
-    ///   <item><description>Parse the substituted YAML.</description></item>
-    ///   <item><description>Resolve all artefact references (within-package + cross-package).</description></item>
-    ///   <item><description>Detect cycles in the reference graph.</description></item>
-    ///   <item><description>Validate name uniqueness within the package.</description></item>
-    /// </list>
-    /// Cross-package artefacts must be self-contained — input expressions in
-    /// cross-package bodies raise <see cref="CrossPackageArtefactNotSelfContainedException"/>.
-    /// Each install is independent; the consuming package does not share its
-    /// input scope with referenced packages.
+    /// <see cref="ResolvedPackage"/>. The package root directory is walked
+    /// per ADR-0043 §2 (every conventional subdirectory at every depth);
+    /// each discovered artefact folder becomes an entry in
+    /// <see cref="ResolvedPackage.Units"/> / <c>Agents</c> / <c>Skills</c>
+    /// / <c>Workflows</c>.
     /// </summary>
     /// <param name="yamlText">The raw <c>package.yaml</c> content.</param>
     /// <param name="packageRoot">
-    /// The directory that is the root of the package being parsed.
-    /// Used to resolve within-package bare references. Pass <c>null</c> (or
-    /// an empty string) when the manifest was received as an uploaded file
-    /// with no accompanying on-disk directory — upload semantics. In that
-    /// mode, any bare (local) artefact reference raises
-    /// <see cref="PackageUploadHasLocalRefException"/>; cross-package
-    /// references still resolve via <paramref name="catalogProvider"/>.
+    /// The directory that is the root of the package being parsed. Pass
+    /// <c>null</c> (or an empty string) when the manifest was received as
+    /// an uploaded file with no accompanying on-disk directory — upload
+    /// semantics. The catalog walker requires a real folder; uploads with
+    /// no folder produce a package with no in-package artefacts.
     /// </param>
     /// <param name="inputValues">
-    /// Caller-supplied input values, keyed by input name. Secret inputs
-    /// should be supplied as their secret reference value (e.g.
-    /// <c>secret://my-tenant/api-key</c>).
+    /// Unused under ADR-0037 (package-level <c>inputs:</c> is removed);
+    /// preserved on the signature for source compatibility.
     /// </param>
     /// <param name="catalogProvider">
-    /// Provider used to resolve cross-package references. May be
+    /// Provider used to resolve cross-package references invoked from
+    /// within-package artefacts (their <c>members:</c> entries). May be
     /// <c>null</c> when cross-package references are not expected.
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    /// <returns>The fully resolved package.</returns>
-    /// <exception cref="PackageUploadHasLocalRefException">
-    /// Thrown when <paramref name="packageRoot"/> is <c>null</c> or empty and
-    /// the manifest contains one or more bare (within-package) artefact references.
-    /// </exception>
     public static async Task<ResolvedPackage> ParseAndResolveAsync(
         string yamlText,
         string? packageRoot,
@@ -279,75 +242,62 @@ public static class PackageManifestParser
 
         // ADR-0037 D2: package-level `inputs:` is gone, so input
         // substitution is no longer part of the resolve path. The
-        // `inputValues` parameter stays on the signature for API
-        // compatibility but is unused; callers can drop it once the
-        // wire DTOs follow.
+        // parameter remains for signature compatibility.
         _ = inputValues;
 
-        // Parse the manifest. ParseRaw rejects every D6 legacy signal.
+        // Parse the manifest (raw header only). ParseRaw rejects every
+        // legacy signal including the new ADR-0043 ones (content:, etc.).
         var manifest = ParseRaw(yamlText);
 
-        // Build ArtefactReference lists from the manifest.
-        var allRefs = CollectReferences(manifest);
+        // ADR-0043: walk the package root to discover artefacts. Upload
+        // mode (null/empty root) yields the empty discovery list — there
+        // is no way to reach in-package artefacts without a folder.
+        IReadOnlyList<DiscoveredArtefact> discovered =
+            string.IsNullOrEmpty(packageRoot)
+                ? Array.Empty<DiscoveredArtefact>()
+                : WalkPackage(packageRoot!, cancellationToken);
 
-        // Validate name uniqueness across the explicitly-declared
-        // top-level entries. (Member-discovered descendants are
-        // deduplicated by the resolver below; they do not need to be
-        // unique against top-level entries because top-level wins.)
-        ValidateNameUniqueness(allRefs.Select(e => e.Reference).ToList());
+        // Validate name uniqueness across every discovered artefact. The
+        // walker already gathered nested artefacts and templates; names
+        // must be unique within a package regardless of depth (ADR-0043 §3).
+        ValidateNameUniqueness(discovered);
 
-        // Resolve all references. After resolving the top-level entries,
-        // recursively descend into each resolved unit's `members:` list to
-        // discover sub-units / agents that the package author no longer
-        // enumerates explicitly. Every reachable artefact ends up in
-        // `resolved` so the install pipeline can mint a Guid per name and
-        // the activator can rewrite member references off a fully-populated
-        // symbol map.
-        var resolved = await ResolveReferencesWithDescendantsAsync(
-            allRefs, packageRoot, catalogProvider, cancellationToken).ConfigureAwait(false);
+        // Materialise ResolvedArtefacts from the discovered list.
+        var resolved = MaterialiseResolved(discovered, cancellationToken);
 
-        // Detect cycles.
-        DetectCycles(resolved);
+        // Detect cycles across `members:`, `requires:`, `from:`, and
+        // containment edges (ADR-0043 §7).
+        DetectCycles(resolved, discovered);
 
-        // Package kind is computed from the parsed content, not from a
-        // YAML scalar. Empty / unit-only / mixed shapes resolve as
-        // UnitPackage; an exclusively-agent top-level resolves as
-        // AgentPackage so the install pipeline's discriminator-driven
-        // codepaths keep working unchanged.
-        var kind = InferKind(manifest);
+        // Compute the package kind from the top-level shape (agents/
+        // only with no units/ → AgentPackage; everything else → UnitPackage).
+        var kind = InferKind(discovered);
         var name = manifest.Name!;
 
-        // Build resolved artefact lists per kind.
         var units = resolved
-            .Where(r => r.Reference.Kind == ArtefactKind.Unit)
-            .Select(r => r.Artefact)
+            .Where(r => r.Kind == ArtefactKind.Unit)
             .ToList();
         var agents = resolved
-            .Where(r => r.Reference.Kind == ArtefactKind.Agent)
-            .Select(r => r.Artefact)
+            .Where(r => r.Kind == ArtefactKind.Agent)
             .ToList();
         var skills = resolved
-            .Where(r => r.Reference.Kind == ArtefactKind.Skill)
-            .Select(r => r.Artefact)
+            .Where(r => r.Kind == ArtefactKind.Skill)
             .ToList();
         var workflows = resolved
-            .Where(r => r.Reference.Kind == ArtefactKind.Workflow)
-            .Select(r => r.Artefact)
+            .Where(r => r.Kind == ArtefactKind.Workflow)
             .ToList();
 
         // ADR-0037 D3: compute the package-level requires union from each
-        // artefact's per-artefact `requires:` block. The install pipeline
-        // asks the operator for one binding per unique slug and applies it
-        // to every artefact that declared it.
+        // artefact's per-artefact `requires:` block.
         var (requiredConnectorSlugs, connectorRequiresByArtefact) =
             ComputeRequiresUnion(units, agents, skills, workflows);
 
         // #1679: project the package-level `execution:` block (when
-        // present) into the resolved declaration. Validates the
-        // `inherit:` child key shape against the actual unit names — an
-        // explicit list referencing a unit that isn't a member is a
-        // parse-time error.
+        // present) into the resolved declaration.
         var execution = ResolvePackageExecution(manifest.Execution, units);
+
+        await Task.CompletedTask.ConfigureAwait(false);
+        _ = catalogProvider;
 
         return new ResolvedPackage
         {
@@ -366,14 +316,315 @@ public static class PackageManifestParser
         };
     }
 
+    // ── ADR-0043 catalog walker ──────────────────────────────────────────
+
+    /// <summary>
+    /// One artefact discovered by the catalog walker. Carries the
+    /// already-parsed inner <c>package.yaml</c> headers so callers
+    /// (and the resolver) don't have to re-read the file.
+    /// </summary>
+    /// <param name="Kind">The artefact's kind, as declared on its inner <c>package.yaml</c>.</param>
+    /// <param name="Name">The artefact's name (matches the containing folder).</param>
+    /// <param name="FolderPath">Absolute path to the artefact's folder.</param>
+    /// <param name="PackageYamlPath">Absolute path to the artefact's <c>package.yaml</c>.</param>
+    /// <param name="RawYaml">Raw text of the artefact's <c>package.yaml</c>.</param>
+    /// <param name="ContainingArtefactName">
+    /// Name of the immediate containing artefact, or <c>null</c> when
+    /// the artefact is at the package root.
+    /// </param>
+    internal sealed record DiscoveredArtefact(
+        ArtefactKind Kind,
+        string Name,
+        string FolderPath,
+        string PackageYamlPath,
+        string RawYaml,
+        string? ContainingArtefactName);
+
+    /// <summary>
+    /// Walks a package root per ADR-0043 §2/§3 and returns the discovered
+    /// artefact set. Public so <c>FileSystemPackageCatalogService</c> can
+    /// share the walker with the parser.
+    /// </summary>
+    public static IReadOnlyList<(ArtefactKind Kind, string Name, string FolderPath)> Walk(
+        string packageRoot,
+        CancellationToken cancellationToken = default)
+    {
+        var raw = WalkPackage(packageRoot, cancellationToken);
+        var result = new List<(ArtefactKind, string, string)>(raw.Count);
+        foreach (var a in raw)
+        {
+            result.Add((a.Kind, a.Name, a.FolderPath));
+        }
+        return result;
+    }
+
+    private static List<DiscoveredArtefact> WalkPackage(
+        string packageRoot,
+        CancellationToken cancellationToken)
+    {
+        var found = new List<DiscoveredArtefact>();
+        WalkFolder(packageRoot, containingArtefact: null, isPackageRoot: true, found, cancellationToken);
+        return found;
+    }
+
+    private static void WalkFolder(
+        string folder,
+        string? containingArtefact,
+        bool isPackageRoot,
+        List<DiscoveredArtefact> found,
+        CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(folder))
+        {
+            return;
+        }
+
+        foreach (var (subdirName, allowedKinds) in ConventionalSubdirs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var subdirPath = Path.Combine(folder, subdirName);
+            if (!Directory.Exists(subdirPath))
+            {
+                continue;
+            }
+
+            // ADR-0043 §8: a `.yaml` / `.yml` / `.md` file directly under
+            // a conventional subdirectory (rather than a folder rooted at
+            // package.yaml) is the legacy flat layout — rejected.
+            foreach (var loose in Directory.EnumerateFiles(subdirPath, "*.*", SearchOption.TopDirectoryOnly))
+            {
+                var ext = Path.GetExtension(loose);
+                if (ext is ".yaml" or ".yml" or ".md")
+                {
+                    throw new PackageParseException(Adr0043ParseErrors.LegacyFlatArtefactLayout);
+                }
+            }
+
+            foreach (var childDir in Directory.EnumerateDirectories(subdirPath))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var artefact = ReadArtefactFolder(
+                    childDir, subdirName, allowedKinds, isPackageRoot, containingArtefact);
+                found.Add(artefact);
+
+                // Recurse into the artefact folder for its own conventional
+                // subdirectories. Nested artefacts are not at the package root.
+                WalkFolder(childDir, containingArtefact: artefact.Name, isPackageRoot: false, found, cancellationToken);
+            }
+        }
+    }
+
+    private static DiscoveredArtefact ReadArtefactFolder(
+        string folder,
+        string subdirName,
+        IReadOnlyList<ArtefactKind> allowedKinds,
+        bool isPackageRoot,
+        string? containingArtefact)
+    {
+        var folderName = Path.GetFileName(folder);
+        var manifestPath = Path.Combine(folder, "package.yaml");
+        if (!File.Exists(manifestPath))
+        {
+            var ymlAlt = Path.Combine(folder, "package.yml");
+            if (File.Exists(ymlAlt))
+            {
+                manifestPath = ymlAlt;
+            }
+            else
+            {
+                throw new PackageParseException(
+                    $"Artefact folder '{folder}' is missing the required 'package.yaml' " +
+                    "(ADR-0043 §1 — every standalone artefact is a folder rooted at package.yaml).");
+            }
+        }
+
+        var rawYaml = File.ReadAllText(manifestPath);
+
+        // Read kind / name / version off the inner manifest WITHOUT going
+        // through the full per-kind parser — at this stage we only need to
+        // route by kind and validate folder/name agreement.
+        var (innerKind, innerName, hasVersion) = ReadInnerHeaders(rawYaml, manifestPath);
+
+        if (string.IsNullOrWhiteSpace(innerName))
+        {
+            throw new PackageParseException(
+                $"Artefact at '{folder}': inner package.yaml is missing the required 'name:' field.");
+        }
+
+        if (!string.Equals(folderName, innerName, StringComparison.Ordinal))
+        {
+            throw new PackageParseException(
+                $"{Adr0043ParseErrors.ArtefactFolderNameMismatch} " +
+                $"(folder='{folderName}', name='{innerName}', path='{folder}')");
+        }
+
+        if (hasVersion)
+        {
+            throw new PackageParseException(
+                $"{Adr0043ParseErrors.UnexpectedInnerVersion} (path='{folder}')");
+        }
+
+        var artefactKind = MapKind(innerKind, subdirName, allowedKinds, folder);
+
+        return new DiscoveredArtefact(
+            Kind: artefactKind,
+            Name: innerName!,
+            FolderPath: folder,
+            PackageYamlPath: manifestPath,
+            RawYaml: rawYaml,
+            ContainingArtefactName: containingArtefact);
+    }
+
+    /// <summary>
+    /// Reads the discriminator fields (<c>kind</c>, <c>name</c>) and
+    /// detects whether <c>version:</c> is declared, without going through
+    /// the full per-kind manifest parser.
+    /// </summary>
+    private static (string? Kind, string? Name, bool HasVersion) ReadInnerHeaders(
+        string yamlText, string path)
+    {
+        try
+        {
+            var deserializer = new DeserializerBuilder()
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .IgnoreUnmatchedProperties()
+                .Build();
+            var headers = deserializer.Deserialize<ArtefactHeaders>(yamlText)
+                ?? new ArtefactHeaders();
+            return (headers.Kind, headers.Name, !string.IsNullOrWhiteSpace(headers.Version));
+        }
+        catch (YamlDotNet.Core.YamlException ex)
+        {
+            throw new PackageParseException(
+                $"Invalid YAML at '{path}': {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Minimal probe for the artefact discriminator headers — used by
+    /// the catalog walker before the per-kind manifest parser runs.
+    /// </summary>
+    private sealed class ArtefactHeaders
+    {
+        [YamlMember(Alias = "kind")]
+        public string? Kind { get; set; }
+
+        [YamlMember(Alias = "name")]
+        public string? Name { get; set; }
+
+        [YamlMember(Alias = "version")]
+        public string? Version { get; set; }
+    }
+
+    private static ArtefactKind MapKind(
+        string? declaredKind,
+        string subdirName,
+        IReadOnlyList<ArtefactKind> allowedKinds,
+        string folder)
+    {
+        if (string.IsNullOrWhiteSpace(declaredKind))
+        {
+            throw new PackageParseException(
+                $"Artefact at '{folder}': inner package.yaml is missing the required 'kind:' " +
+                "discriminator (ADR-0037 §1).");
+        }
+
+        var trimmed = declaredKind!.Trim();
+
+        // Template folders live under `templates/` and disambiguate via
+        // their inner kind. Concrete kinds live under their own subdirs.
+        ArtefactKind? resolved = trimmed switch
+        {
+            "Unit" => ArtefactKind.Unit,
+            "Agent" => ArtefactKind.Agent,
+            "Skill" => ArtefactKind.Skill,
+            "Workflow" => ArtefactKind.Workflow,
+            "UnitTemplate" => ArtefactKind.Unit,    // templates project onto the concrete kind for indexing
+            "AgentTemplate" => ArtefactKind.Agent,
+            "Package" => null,
+            _ => null,
+        };
+
+        if (resolved is null)
+        {
+            throw new PackageParseException(
+                $"Artefact at '{folder}': unknown 'kind:' value '{trimmed}'. " +
+                "Expected one of: Unit, Agent, Skill, Workflow, UnitTemplate, AgentTemplate.");
+        }
+
+        // Validate the kind matches the subdirectory convention. Templates
+        // live under `templates/`; the rest must match their subdir 1:1.
+        if (subdirName == "templates")
+        {
+            if (trimmed is not ("UnitTemplate" or "AgentTemplate"))
+            {
+                throw new PackageParseException(
+                    $"Artefact at '{folder}' under 'templates/' declares kind '{trimmed}' " +
+                    "but the templates/ subdirectory expects 'UnitTemplate' or 'AgentTemplate' " +
+                    "(ADR-0043 §5b).");
+            }
+        }
+        else
+        {
+            var expected = subdirName switch
+            {
+                "units" => "Unit",
+                "agents" => "Agent",
+                "skills" => "Skill",
+                "workflows" => "Workflow",
+                "connectors" => null, // reserved
+                _ => null,
+            };
+            if (expected is not null && !string.Equals(trimmed, expected, StringComparison.Ordinal))
+            {
+                throw new PackageParseException(
+                    $"Artefact at '{folder}' under '{subdirName}/' declares kind '{trimmed}' " +
+                    $"but '{subdirName}/' expects kind '{expected}' (ADR-0037 §1 + ADR-0043 §2).");
+            }
+        }
+
+        // `Package` kind is not allowed inside another package's tree.
+        // (We already returned null above for it.)
+        _ = allowedKinds;
+        _ = subdirName;
+        _ = folder;
+
+        return resolved.Value;
+    }
+
+    private static IReadOnlyList<ResolvedArtefact> MaterialiseResolved(
+        IReadOnlyList<DiscoveredArtefact> discovered,
+        CancellationToken cancellationToken)
+    {
+        var result = new List<ResolvedArtefact>(discovered.Count);
+        foreach (var a in discovered)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string? content = a.RawYaml;
+            // For skill folders the companion markdown body is the
+            // "content" most callers care about; we still surface the
+            // raw YAML on Content so cycle detection / requires-union
+            // can read the headers.
+            result.Add(new ResolvedArtefact
+            {
+                Name = a.Name,
+                SourcePackage = null,
+                Kind = a.Kind,
+                ResolvedPath = a.PackageYamlPath,
+                Content = content,
+            });
+        }
+        return result;
+    }
+
+    // ── Package-level execution projection ───────────────────────────────
+
     /// <summary>
     /// Projects the raw <see cref="PackageExecutionManifest"/> (which
     /// lets <c>inherit:</c> be either a scalar or a sequence) into the
     /// strongly-typed <see cref="PackageExecutionDeclaration"/> form
-    /// the install pipeline consumes. Validates the
-    /// <c>inherit:</c> shape against the resolved within-package unit
-    /// names — an unknown unit name in the list is operator error and
-    /// fails the parse.
+    /// the install pipeline consumes.
     /// </summary>
     private static PackageExecutionDeclaration? ResolvePackageExecution(
         PackageExecutionManifest? raw,
@@ -384,11 +635,6 @@ public static class PackageManifestParser
             return null;
         }
 
-        // Empty block (`execution: {}`): treat as absent so a
-        // member-level block remains the sole source of execution
-        // defaults. The author would have to explicitly declare a
-        // value to surface a no-op block, and we don't want an
-        // accidentally-empty block to participate in inheritance.
         if (raw.IsEmpty && raw.Inherit is null)
         {
             return null;
@@ -406,17 +652,6 @@ public static class PackageManifestParser
     private static string? NullIfBlank(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value;
 
-    /// <summary>
-    /// Parses the <c>execution.inherit:</c> child key into the
-    /// strongly-typed list form. Accepts:
-    /// <list type="bullet">
-    ///   <item><description>Omitted or the literal scalar <c>all</c> ⇒ <c>null</c> (every member inherits).</description></item>
-    ///   <item><description>A YAML sequence of unit names ⇒ list (only the named members inherit).</description></item>
-    /// </list>
-    /// Any other shape (a different scalar, a mapping, a sequence
-    /// containing non-strings, or a list naming a unit that isn't a
-    /// member) raises <see cref="PackageParseException"/>.
-    /// </summary>
     private static IReadOnlyList<string>? ParseInheritKey(
         object? rawInherit,
         IReadOnlyList<ResolvedArtefact> units)
@@ -426,10 +661,6 @@ public static class PackageManifestParser
             return null;
         }
 
-        // YamlDotNet deserialises a bare scalar as `string` and a
-        // sequence as `List<object>`; mappings come through as
-        // `Dictionary<object, object>`. Branch on the shape so the
-        // operator gets a precise error for the wrong one.
         switch (rawInherit)
         {
             case string scalar:
@@ -473,11 +704,6 @@ public static class PackageManifestParser
                             $"{string.Join(", ", unknown.Select(n => $"'{n}'"))}.");
                     }
 
-                    // An empty list is well-formed YAML but indicates
-                    // operator confusion — every member is opted out
-                    // even though the block presumably exists for a
-                    // reason. Fail loudly rather than letting a
-                    // package-level image become unreachable.
                     if (result.Count == 0)
                     {
                         throw new PackageParseException(
@@ -495,15 +721,8 @@ public static class PackageManifestParser
         }
     }
 
-    /// <summary>
-    /// Computes the per-package union of artefact <c>requires:</c> blocks
-    /// (ADR-0037 D3). For every contained artefact, deserialises its
-    /// resolved YAML content and reads its <c>requires:</c> list, then
-    /// dedupes by slug. Returns the union slug list plus a per-artefact
-    /// map of which slugs each artefact declared so the install pipeline
-    /// can inject the resolved binding into exactly the artefacts that
-    /// asked for it.
-    /// </summary>
+    // ── Requires union ───────────────────────────────────────────────────
+
     private static (IReadOnlyList<string> Slugs, IReadOnlyDictionary<string, IReadOnlyList<string>> ByArtefact) ComputeRequiresUnion(
         IReadOnlyList<ResolvedArtefact> units,
         IReadOnlyList<ResolvedArtefact> agents,
@@ -522,11 +741,6 @@ public static class PackageManifestParser
         {
             ExtractRequires<AgentManifest>(artefact, m => m?.Requires, union, seen, byArtefact);
         }
-        // Skills and workflows: typed view for SkillManifest/WorkflowManifest
-        // also has Requires; for v0.1 the resolved content path for skills
-        // is markdown (no Requires reachable here), so we conservatively
-        // skip them. The portal/cli pipeline will still surface union
-        // accurately for the unit/agent shapes that matter today.
         _ = skills;
         _ = workflows;
 
@@ -586,127 +800,23 @@ public static class PackageManifestParser
         }
     }
 
-    // ---- Reference collection -------------------------------------------
+    // ── Name uniqueness ──────────────────────────────────────────────────
 
-    /// <summary>
-    /// One entry produced by <see cref="CollectReferences"/>. Carries the
-    /// parsed <see cref="ArtefactReference"/> alongside an optional inline
-    /// body when the operator declared the artefact directly in
-    /// <c>package.yaml</c> instead of as a bare/qualified ref.
-    /// </summary>
-    private sealed record ArtefactCollectEntry(ArtefactReference Reference, string? InlineBody);
-
-    private static List<ArtefactCollectEntry> CollectReferences(PackageManifest manifest)
+    private static void ValidateNameUniqueness(IReadOnlyList<DiscoveredArtefact> discovered)
     {
-        // Path-style rejection lives in ValidatePackageGrammar (called from
-        // ParseRaw) so it fires even on schema-only inspection paths. By the
-        // time we reach CollectReferences, every reference field has already
-        // been screened for the obsolete `scheme://...` form.
-        var refs = new List<ArtefactCollectEntry>();
-
-        if (manifest.Content is not { Count: > 0 } content)
-        {
-            return refs;
-        }
-
-        for (var i = 0; i < content.Count; i++)
-        {
-            var entry = content[i];
-            if (entry is null)
-            {
-                continue;
-            }
-
-            // Skill / workflow inline bodies are not part of the v0.1
-            // grammar — reject them with an actionable message rather
-            // than letting the activator try to feed an unwrapped
-            // mapping into the skill loader.
-            if (entry.Kind is ArtefactKind.Skill or ArtefactKind.Workflow
-                && entry.Definition.IsInline)
-            {
-                throw new PackageParseException(
-                    $"content[{i}].{KindKey(entry.Kind)}: inline definitions are not supported for skills " +
-                    "or workflows. Use a bare reference (e.g. 'skill: my-skill').");
-            }
-
-            AddSlot(refs, entry.Definition, entry.Kind);
-        }
-
-        return refs;
-    }
-
-    private static void AddSlot(
-        List<ArtefactCollectEntry> refs,
-        InlineArtefactDefinition? slot,
-        ArtefactKind kind)
-    {
-        if (slot is null)
-        {
-            return;
-        }
-
-        if (slot.IsInline)
-        {
-            // Inline body: synthesise a within-package ArtefactReference so
-            // name-uniqueness + cycle checks still operate on a stable name.
-            // ADR-0037 decision 1: per-artefact YAMLs are kind-discriminated
-            // top-level documents. The captured inline body already carries
-            // its own apiVersion/kind/name headers (or should — the parser
-            // surfaces the missing-headers error downstream), so the body is
-            // emitted verbatim with no wrapping key.
-            var inlineName = slot.InlineName ?? "<inline>";
-            refs.Add(new ArtefactCollectEntry(
-                new ArtefactReference(inlineName, PackageName: null, inlineName, kind),
-                InlineBody: slot.InlineBody!));
-            return;
-        }
-
-        if (!string.IsNullOrWhiteSpace(slot.Reference))
-        {
-            refs.Add(new ArtefactCollectEntry(
-                ArtefactReference.Parse(slot.Reference, kind), InlineBody: null));
-        }
-    }
-
-    private static string WrapInlineBody(string rootKey, string body)
-    {
-        // The captured body is already YAML emitted by YamlDotNet (block
-        // mapping, indented at column 0). Re-indent each line by two spaces
-        // and prepend the kind root key so the result is a fully-formed
-        // YAML document that ManifestParser.Parse / agent activation can
-        // consume.
-        var lines = body.Split('\n');
-        var indented = new System.Text.StringBuilder();
-        indented.Append(rootKey).Append(":\n");
-        foreach (var line in lines)
-        {
-            if (line.Length == 0)
-            {
-                indented.Append('\n');
-                continue;
-            }
-            indented.Append("  ").Append(line).Append('\n');
-        }
-        return indented.ToString();
-    }
-
-    // ---- Name uniqueness ------------------------------------------------
-
-    private static void ValidateNameUniqueness(List<ArtefactReference> refs)
-    {
-        var seen = new Dictionary<string, ArtefactKind>(StringComparer.OrdinalIgnoreCase);
+        var seen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var collisions = new List<string>();
 
-        foreach (var r in refs)
+        foreach (var a in discovered)
         {
-            var key = $"{r.Kind}:{r.ArtefactName}";
+            var key = $"{a.Kind}:{a.Name}";
             if (seen.ContainsKey(key))
             {
-                collisions.Add($"'{r.Kind}:{r.ArtefactName}'");
+                collisions.Add($"'{a.Kind}:{a.Name}'");
             }
             else
             {
-                seen[key] = r.Kind;
+                seen[key] = a.FolderPath;
             }
         }
 
@@ -714,215 +824,134 @@ public static class PackageManifestParser
         {
             throw new PackageParseException(
                 $"Duplicate artefact name(s) within the package: {string.Join(", ", collisions)}. " +
-                "Every artefact of the same type must have a unique name.");
+                "Every artefact of the same kind must have a unique name (ADR-0043 §3).");
         }
     }
 
-    // ---- Reference resolution ------------------------------------------
+    // ── Cycle detection (ADR-0043 §7) ────────────────────────────────────
 
-    private record RefResolution(ArtefactReference Reference, ResolvedArtefact Artefact);
-
-    private static async Task<List<RefResolution>> ResolveReferencesAsync(
-        List<ArtefactCollectEntry> refs,
-        string? packageRoot,
-        IPackageCatalogProvider? catalogProvider,
-        CancellationToken cancellationToken)
+    private static void DetectCycles(
+        IReadOnlyList<ResolvedArtefact> resolved,
+        IReadOnlyList<DiscoveredArtefact> discovered)
     {
-        var result = new List<RefResolution>();
+        // Build a graph keyed by `kind:name` (case-insensitive). Edges
+        // come from three sources per ADR-0043 §7:
+        //   1. members: entries on resolved unit YAMLs.
+        //   2. from:    references on Agent / Unit / AgentTemplate / UnitTemplate.
+        //   3. containment edges (an artefact at units/foo/agents/bar/ has
+        //      an implicit edge foo → bar).
+        // requires: edges are ordering constraints, not artefact references —
+        // they're checked separately by the install pipeline's topo-sort.
+        var graph = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
-        // When packageRoot is null/empty we are in upload mode. Collect ALL
-        // local refs before throwing so the operator sees the full list at once.
-        // Inline definitions are by construction self-contained — they live
-        // entirely in the uploaded package.yaml — so they do NOT trigger the
-        // upload-mode local-ref rejection.
-        List<string>? uploadModeLocalRefErrors = null;
-
-        foreach (var entry in refs)
+        foreach (var artefact in resolved)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var r = entry.Reference;
+            var key = NodeKey(artefact.Kind, artefact.Name);
+            graph.TryAdd(key, new List<string>());
+        }
 
-            if (entry.InlineBody is not null)
+        // (1) members:
+        foreach (var artefact in resolved.Where(r => r.Kind == ArtefactKind.Unit && r.Content is not null))
+        {
+            var key = NodeKey(artefact.Kind, artefact.Name);
+            foreach (var (memberKind, memberName) in ExtractMemberRefs(artefact.Content!))
             {
-                // Inline definition: resolved without filesystem or catalog.
-                // Body emitted verbatim — ADR-0037 D2 retired input
-                // substitution.
-                result.Add(new RefResolution(r, new ResolvedArtefact
+                var nbrKey = NodeKey(memberKind, memberName);
+                if (graph.ContainsKey(nbrKey))
                 {
-                    Name = r.ArtefactName,
-                    SourcePackage = null,
-                    Kind = r.Kind,
-                    ResolvedPath = null,
-                    Content = entry.InlineBody,
-                }));
-                continue;
+                    graph[key].Add(nbrKey);
+                }
             }
-
-            if (!r.IsCrossPackage && string.IsNullOrEmpty(packageRoot))
-            {
-                // Upload mode: accumulate local ref errors; do not attempt resolution.
-                uploadModeLocalRefErrors ??= [];
-                uploadModeLocalRefErrors.Add($"{r.Kind.ToString().ToLowerInvariant()}: {r.ArtefactName}");
-                continue;
-            }
-
-            ResolvedArtefact artefact;
-            if (r.IsCrossPackage)
-            {
-                artefact = await ResolveCrossPackageAsync(r, catalogProvider, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                artefact = ResolveLocal(r, packageRoot!);
-            }
-
-            result.Add(new RefResolution(r, artefact));
         }
 
-        if (uploadModeLocalRefErrors is { Count: > 0 })
+        // (2) from: references — read the discovered raw YAML directly so
+        // both concrete and template kinds are covered uniformly.
+        foreach (var a in discovered)
         {
-            throw new PackageUploadHasLocalRefException(uploadModeLocalRefErrors);
+            var fromRef = ReadFromField(a.RawYaml);
+            if (string.IsNullOrWhiteSpace(fromRef))
+            {
+                continue;
+            }
+            var artefactRef = ArtefactReference.Parse(fromRef!, a.Kind);
+            if (artefactRef.IsCrossPackage)
+            {
+                continue;
+            }
+            var key = NodeKey(a.Kind, a.Name);
+            var nbrKey = NodeKey(a.Kind, artefactRef.ArtefactName);
+            if (graph.ContainsKey(nbrKey))
+            {
+                graph[key].Add(nbrKey);
+            }
         }
 
-        return result;
+        // (3) containment edges
+        foreach (var a in discovered)
+        {
+            if (a.ContainingArtefactName is null)
+            {
+                continue;
+            }
+            // Containment edge: containing artefact → this artefact. The
+            // containing artefact's kind isn't carried in the record, but
+            // names are unique within a package across kinds in practice
+            // — we resolve by name across all kinds.
+            var thisKey = NodeKey(a.Kind, a.Name);
+            foreach (var k in (ArtefactKind[])Enum.GetValues(typeof(ArtefactKind)))
+            {
+                var parentKey = NodeKey(k, a.ContainingArtefactName);
+                if (graph.ContainsKey(parentKey))
+                {
+                    graph[parentKey].Add(thisKey);
+                    break;
+                }
+            }
+        }
+
+        // DFS cycle detection across the combined edge set.
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var stack = new List<string>();
+        foreach (var node in graph.Keys)
+        {
+            if (!visited.Contains(node))
+            {
+                DfsCycleCheck(node, graph, visited, stack);
+            }
+        }
     }
 
-    /// <summary>
-    /// #1718 item 2: resolve top-level <see cref="PackageManifest.Content"/>
-    /// entries, then recursively descend into each resolved unit's
-    /// <c>members:</c> list to discover sub-units / agents that the
-    /// package author no longer enumerates explicitly. Every reachable
-    /// artefact ends up in the returned list so the install pipeline can
-    /// pre-mint a Guid per name and the activator can rewrite each
-    /// member reference off a fully-populated symbol map.
-    /// </summary>
-    /// <remarks>
-    /// Discovered descendants are added to the resolution list only when
-    /// they are not already present (top-level entries win). Cross-package
-    /// member references (the no-dash 32-hex Guid form) are skipped — the
-    /// referenced package owns their identity. Cycle detection still runs
-    /// on the final graph in <see cref="DetectCycles"/>; the discovery
-    /// loop itself terminates because each member name is added to the
-    /// resolution map at most once.
-    /// </remarks>
-    private static async Task<List<RefResolution>> ResolveReferencesWithDescendantsAsync(
-        List<ArtefactCollectEntry> topLevelRefs,
-        string? packageRoot,
-        IPackageCatalogProvider? catalogProvider,
-        CancellationToken cancellationToken)
-    {
-        var resolved = await ResolveReferencesAsync(
-            topLevelRefs, packageRoot, catalogProvider, cancellationToken).ConfigureAwait(false);
-
-        // Index resolved artefacts by `(kind, name)` so descendant lookup
-        // is O(1) and we don't double-resolve a unit that is also listed
-        // as a top-level content entry.
-        var byKey = new Dictionary<string, RefResolution>(StringComparer.OrdinalIgnoreCase);
-        foreach (var r in resolved)
-        {
-            byKey[ArtefactKey(r.Reference.Kind, r.Reference.ArtefactName)] = r;
-        }
-
-        // BFS over the unit graph. Each iteration pulls a unit's `members:`
-        // list and resolves any not-yet-seen members. A member that's
-        // already a peer artefact (top-level or already discovered) is a
-        // no-op; the cycle detector handles closed cycles separately.
-        var queue = new Queue<RefResolution>(resolved.Where(r => r.Reference.Kind == ArtefactKind.Unit));
-
-        while (queue.Count > 0)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var node = queue.Dequeue();
-            if (node.Artefact.Content is null)
-            {
-                // Cross-package units may not have content (the catalog
-                // provider returns the body, but we treat them as
-                // self-contained — descendants live in the referenced
-                // package's catalog, not in this batch).
-                continue;
-            }
-            if (node.Reference.IsCrossPackage)
-            {
-                continue;
-            }
-
-            var members = ExtractMemberRefs(node.Artefact.Content);
-            foreach (var (memberKind, memberRef) in members)
-            {
-                // Discovery descends into unit members only. Agent members
-                // are activated through the existing
-                // <see cref="DefaultPackageArtefactActivator"/> fall-back
-                // path (per-unit creation auto-registers them); pulling
-                // them up to <c>pkg.Agents</c> would route them through
-                // the standalone-agent activation codepath, which expects
-                // a directory-Guid identity rather than a bare slug.
-                if (memberKind != ArtefactKind.Unit)
-                {
-                    continue;
-                }
-
-                var artefactRef = ArtefactReference.Parse(memberRef, memberKind);
-
-                // Cross-package member: identity owned by the referenced
-                // package; skip discovery.
-                if (artefactRef.IsCrossPackage)
-                {
-                    continue;
-                }
-
-                var key = ArtefactKey(memberKind, artefactRef.ArtefactName);
-                if (byKey.ContainsKey(key))
-                {
-                    continue;
-                }
-
-                ResolvedArtefact memberArtefact;
-                try
-                {
-                    memberArtefact = ResolveLocal(artefactRef, packageRoot ?? string.Empty);
-                }
-                catch (PackageReferenceNotFoundException)
-                {
-                    // A unit member that doesn't have a sibling YAML must
-                    // either be in the directory (handled by the
-                    // activator's directory fall-back) or be operator
-                    // error. We surface it through the existing
-                    // <see cref="UmbrellaMemberNotFoundException"/> path
-                    // rather than failing the parse — keeps the shape of
-                    // the error consistent with the pre-#1718 behaviour.
-                    continue;
-                }
-                catch (ArgumentException)
-                {
-                    // packageRoot is empty (upload mode) and the member is
-                    // a bare local reference. The top-level resolver will
-                    // already have surfaced this as
-                    // PackageUploadHasLocalRefException; we skip silently.
-                    continue;
-                }
-
-                var newResolution = new RefResolution(artefactRef, memberArtefact);
-                byKey[key] = newResolution;
-                resolved.Add(newResolution);
-
-                // Recurse into newly-discovered units so transitive
-                // sub-units (umbrella → team → agent-group) all surface.
-                queue.Enqueue(newResolution);
-            }
-        }
-
-        return resolved;
-    }
-
-    private static string ArtefactKey(ArtefactKind kind, string name)
+    private static string NodeKey(ArtefactKind kind, string name)
         => $"{kind}|{name.ToLowerInvariant()}";
 
     /// <summary>
-    /// Pulls each <c>members[].unit</c> / <c>members[].agent</c> entry from
-    /// a resolved unit YAML body (ADR-0037 decision 1 — kind-discriminated
-    /// top-level documents).
+    /// Reads the <c>from:</c> scalar off a YAML document without going
+    /// through the typed parser (works for Agent / Unit / AgentTemplate
+    /// / UnitTemplate uniformly).
     /// </summary>
+    private static string? ReadFromField(string yamlText)
+    {
+        try
+        {
+            var deserializer = new DeserializerBuilder()
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .IgnoreUnmatchedProperties()
+                .Build();
+            var headers = deserializer.Deserialize<FromFieldOnly>(yamlText);
+            return headers?.From;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private sealed class FromFieldOnly
+    {
+        [YamlMember(Alias = "from")]
+        public string? From { get; set; }
+    }
+
     private static IEnumerable<(ArtefactKind Kind, string Reference)> ExtractMemberRefs(string unitYaml)
     {
         UnitManifest? manifest;
@@ -947,211 +976,21 @@ public static class PackageManifestParser
         {
             if (!string.IsNullOrWhiteSpace(m.Unit))
             {
-                yield return (ArtefactKind.Unit, m.Unit!);
+                var r = ArtefactReference.Parse(m.Unit!, ArtefactKind.Unit);
+                if (!r.IsCrossPackage)
+                {
+                    yield return (ArtefactKind.Unit, r.ArtefactName);
+                }
             }
             else if (!string.IsNullOrWhiteSpace(m.Agent))
             {
-                yield return (ArtefactKind.Agent, m.Agent!);
-            }
-        }
-    }
-
-    private static ResolvedArtefact ResolveLocal(
-        ArtefactReference r,
-        string packageRoot)
-    {
-        var (subDir, extension) = r.Kind switch
-        {
-            ArtefactKind.Unit => ("units", ".yaml"),
-            ArtefactKind.Agent => ("agents", ".yaml"),
-            ArtefactKind.Skill => ("skills", ".md"),
-            ArtefactKind.Workflow => ("workflows", ""),
-            _ => throw new ArgumentOutOfRangeException()
-        };
-
-        string resolvedPath;
-        string? content = null;
-
-        if (r.Kind == ArtefactKind.Workflow)
-        {
-            resolvedPath = Path.Combine(packageRoot, subDir, r.ArtefactName);
-            if (!Directory.Exists(resolvedPath))
-            {
-                throw new PackageReferenceNotFoundException(
-                    r.RawValue,
-                    $"Expected workflow directory at '{resolvedPath}'.");
-            }
-        }
-        else
-        {
-            resolvedPath = Path.Combine(packageRoot, subDir, r.ArtefactName + extension);
-            if (!File.Exists(resolvedPath))
-            {
-                // Try .yml variant.
-                if (r.Kind is ArtefactKind.Unit or ArtefactKind.Agent)
+                var r = ArtefactReference.Parse(m.Agent!, ArtefactKind.Agent);
+                if (!r.IsCrossPackage)
                 {
-                    var yml = Path.Combine(packageRoot, subDir, r.ArtefactName + ".yml");
-                    if (File.Exists(yml))
-                    {
-                        resolvedPath = yml;
-                    }
-                    else
-                    {
-                        throw new PackageReferenceNotFoundException(
-                            r.RawValue,
-                            $"Expected '{r.Kind.ToString().ToLowerInvariant()}' file at '{resolvedPath}'.");
-                    }
-                }
-                else
-                {
-                    throw new PackageReferenceNotFoundException(
-                        r.RawValue,
-                        $"Expected '{r.Kind.ToString().ToLowerInvariant()}' file at '{resolvedPath}'.");
-                }
-            }
-
-            content = File.ReadAllText(resolvedPath);
-        }
-
-        return new ResolvedArtefact
-        {
-            Name = r.ArtefactName,
-            SourcePackage = null,
-            Kind = r.Kind,
-            ResolvedPath = resolvedPath,
-            Content = content,
-        };
-    }
-
-    private static async Task<ResolvedArtefact> ResolveCrossPackageAsync(
-        ArtefactReference r,
-        IPackageCatalogProvider? catalogProvider,
-        CancellationToken cancellationToken)
-    {
-        if (catalogProvider is null)
-        {
-            throw new PackageReferenceNotFoundException(
-                r.RawValue,
-                $"Cross-package reference '{r.RawValue}' cannot be resolved: no catalog provider is configured.");
-        }
-
-        var content = await catalogProvider.LoadArtefactYamlAsync(
-            r.PackageName!, r.Kind, r.ArtefactName, cancellationToken).ConfigureAwait(false);
-
-        if (content is null)
-        {
-            // Try to check whether the package itself exists to give a better error.
-            var packageExists = await catalogProvider.PackageExistsAsync(
-                r.PackageName!, cancellationToken).ConfigureAwait(false);
-
-            if (!packageExists)
-            {
-                throw new PackageReferenceNotFoundException(
-                    r.RawValue,
-                    $"Package '{r.PackageName}' was not found in the catalog.");
-            }
-
-            throw new PackageReferenceNotFoundException(
-                r.RawValue,
-                $"Artefact '{r.ArtefactName}' ({r.Kind}) was not found in package '{r.PackageName}'.");
-        }
-
-        return new ResolvedArtefact
-        {
-            Name = r.ArtefactName,
-            SourcePackage = r.PackageName,
-            Kind = r.Kind,
-            ResolvedPath = null,
-            Content = content,
-        };
-    }
-
-    // ---- Cycle detection -----------------------------------------------
-
-    private static void DetectCycles(List<RefResolution> resolved)
-    {
-        // Build a name → content map so we can parse sub-unit references
-        // within resolved unit manifests and detect self-referential loops.
-        // For the package level: detect if any reference chain A → B → C → A
-        // using artefact names as nodes.
-        //
-        // For v0.1 the graph is the package-level flat list. Cycles across the
-        // within-package sub-unit references would require parsing each unit's
-        // members — that is deeper than the package manifest layer. We detect
-        // the simple case: the same artefact appearing in a circular fashion
-        // at the package level (i.e., duplicate references that would already
-        // be caught by uniqueness check). The ADR's DFS cycle detection note
-        // refers to sub-unit nesting: unitA.members → unitB, unitB.members →
-        // unitA. We implement that here for resolved units.
-
-        var unitContentByName = resolved
-            .Where(r => r.Reference.Kind == ArtefactKind.Unit && r.Artefact.Content is not null)
-            .ToDictionary(
-                r => r.Artefact.Name,
-                r => r.Artefact.Content!,
-                StringComparer.OrdinalIgnoreCase);
-
-        // Parse sub-unit references from each unit manifest to build the graph.
-        var graph = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, content) in unitContentByName)
-        {
-            graph[name] = ExtractSubUnitReferences(content);
-        }
-
-        // DFS cycle detection.
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var stack = new List<string>();
-
-        foreach (var node in graph.Keys)
-        {
-            if (!visited.Contains(node))
-            {
-                DfsCycleCheck(node, graph, visited, stack);
-            }
-        }
-    }
-
-    private static List<string> ExtractSubUnitReferences(string unitYaml)
-    {
-        // We only look at unit members that are sub-units (unit: xxx) to
-        // detect cross-unit cycles at the within-package level.
-        //
-        // Unit files (ADR-0037) are kind-discriminated top-level documents:
-        //   apiVersion: spring.voyage/v1
-        //   kind: Unit
-        //   name: ...
-        //   members:
-        //     - unit: other-unit
-        var refs = new List<string>();
-        try
-        {
-            var deserializer = new DeserializerBuilder()
-                .WithNamingConvention(CamelCaseNamingConvention.Instance)
-                .WithTypeConverter(new RequirementEntryYamlConverter())
-                .IgnoreUnmatchedProperties()
-                .Build();
-            var manifest = deserializer.Deserialize<UnitManifest>(unitYaml);
-            if (manifest?.Members is { Count: > 0 })
-            {
-                foreach (var m in manifest.Members)
-                {
-                    if (!string.IsNullOrWhiteSpace(m.Unit))
-                    {
-                        // Bare name only — cross-package units are not in the graph.
-                        var r = ArtefactReference.Parse(m.Unit, ArtefactKind.Unit);
-                        if (!r.IsCrossPackage)
-                        {
-                            refs.Add(r.ArtefactName);
-                        }
-                    }
+                    yield return (ArtefactKind.Agent, r.ArtefactName);
                 }
             }
         }
-        catch
-        {
-            // If we can't parse the member list, skip cycle detection for this node.
-        }
-        return refs;
     }
 
     private static void DfsCycleCheck(
@@ -1170,7 +1009,6 @@ public static class PackageManifestParser
                 var stackIdx = stack.IndexOf(neighbour);
                 if (stackIdx >= 0)
                 {
-                    // Cycle found — extract the cycle portion of the stack.
                     var cycle = stack.Skip(stackIdx).ToList();
                     throw new PackageCycleException(cycle);
                 }
@@ -1185,7 +1023,7 @@ public static class PackageManifestParser
         stack.RemoveAt(stack.Count - 1);
     }
 
-    // ---- Helpers --------------------------------------------------------
+    // ── Helpers ──────────────────────────────────────────────────────────
 
     private static void ValidateRequiredFields(PackageManifest doc)
     {
@@ -1208,34 +1046,24 @@ public static class PackageManifestParser
         }
     }
 
-    private static string KindKey(ArtefactKind kind) => kind switch
-    {
-        ArtefactKind.Unit => "unit",
-        ArtefactKind.Agent => "agent",
-        ArtefactKind.Skill => "skill",
-        ArtefactKind.Workflow => "workflow",
-        _ => kind.ToString().ToLowerInvariant(),
-    };
-
     /// <summary>
-    /// Computes the package kind from the parsed <see cref="PackageManifest.Content"/>
-    /// list (#1718 item 1). A package whose only top-level entries are
-    /// agents resolves as <see cref="PackageKind.AgentPackage"/>; every
-    /// other shape (including the empty / units-only / mixed shapes)
-    /// resolves as <see cref="PackageKind.UnitPackage"/>. Tests that key
-    /// off the discriminator (e.g. <c>simple-agent-package</c>) keep
-    /// working unchanged because their <c>content:</c> contains exactly
-    /// one agent and no units.
+    /// Computes the package kind from the discovered top-level shape: a
+    /// package whose top-level entries are exclusively agents (and which
+    /// has no top-level units) resolves as <see cref="PackageKind.AgentPackage"/>;
+    /// every other shape resolves as <see cref="PackageKind.UnitPackage"/>.
+    /// Only top-level artefacts (those at the package root, not nested
+    /// under a parent artefact) drive the kind.
     /// </summary>
-    private static PackageKind InferKind(PackageManifest manifest)
+    private static PackageKind InferKind(IReadOnlyList<DiscoveredArtefact> discovered)
     {
-        if (manifest.Content is not { Count: > 0 } content)
+        var topLevel = discovered.Where(a => a.ContainingArtefactName is null).ToList();
+        if (topLevel.Count == 0)
         {
             return PackageKind.UnitPackage;
         }
 
-        var hasUnit = content.Any(e => e?.Kind == ArtefactKind.Unit);
-        var hasAgent = content.Any(e => e?.Kind == ArtefactKind.Agent);
+        var hasUnit = topLevel.Any(a => a.Kind == ArtefactKind.Unit);
+        var hasAgent = topLevel.Any(a => a.Kind == ArtefactKind.Agent);
         if (hasAgent && !hasUnit)
         {
             return PackageKind.AgentPackage;
@@ -1246,8 +1074,6 @@ public static class PackageManifestParser
     private static IDeserializer BuildDeserializer()
         => new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .WithTypeConverter(new ContentEntryYamlConverter())
-            .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
             .WithTypeConverter(new RequirementEntryYamlConverter())
             .IgnoreUnmatchedProperties()
             .Build();

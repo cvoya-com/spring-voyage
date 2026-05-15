@@ -119,26 +119,22 @@ public static class PackageValidator
         // where it appears.
         ValidateInputInterpolations(packageYaml, packageYamlPath, diagnostics);
 
-        // ── units/*.yaml ─────────────────────────────────────────────────────
-        var unitFiles = source.EnumerateFiles("units", "*.yaml").ToList();
-        unitFiles.AddRange(source.EnumerateFiles("units", "*.yml"));
+        // ── ADR-0043: walk units/<name>/package.yaml and agents/<name>/package.yaml.
+        // Each artefact is a folder rooted at package.yaml; the validator
+        // sees the inner package.yaml path as the "file" (so per-artefact
+        // diagnostics still point operators at a concrete file).
+        var unitFiles = EnumerateArtefactManifests(source, "units").ToList();
         var unitNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var unitFile in unitFiles)
         {
-            // Filename without extension is the bare local symbol referenced
-            // from members[].unit — see ResolveLocal in PackageManifestParser.
-            var name = StripExtension(System.IO.Path.GetFileName(unitFile));
-            unitNames.Add(name);
+            unitNames.Add(ArtefactFolderName(unitFile));
         }
 
-        // ── agents/*.yaml ────────────────────────────────────────────────────
-        var agentFiles = source.EnumerateFiles("agents", "*.yaml").ToList();
-        agentFiles.AddRange(source.EnumerateFiles("agents", "*.yml"));
+        var agentFiles = EnumerateArtefactManifests(source, "agents").ToList();
         var agentNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var agentFile in agentFiles)
         {
-            var name = StripExtension(System.IO.Path.GetFileName(agentFile));
-            agentNames.Add(name);
+            agentNames.Add(ArtefactFolderName(agentFile));
         }
 
         // Walk units. Each file: schema parse + execution.image required +
@@ -212,7 +208,7 @@ public static class PackageValidator
                                 PackageValidationSeverity.Error,
                                 "unit-member-agent-not-found",
                                 $"unit '{unit.Name ?? "<unnamed>"}': members[{i}].agent '{member.Agent}' " +
-                                $"does not match any file in agents/ (expected agents/{member.Agent}.yaml)."));
+                                $"does not match any folder under agents/ (expected agents/{member.Agent}/package.yaml)."));
                         }
                     }
                     else if (!string.IsNullOrWhiteSpace(member.Unit))
@@ -224,7 +220,7 @@ public static class PackageValidator
                                 PackageValidationSeverity.Error,
                                 "unit-member-unit-not-found",
                                 $"unit '{unit.Name ?? "<unnamed>"}': members[{i}].unit '{member.Unit}' " +
-                                $"does not match any file in units/ (expected units/{member.Unit}.yaml)."));
+                                $"does not match any folder under units/ (expected units/{member.Unit}/package.yaml)."));
                         }
                     }
                 }
@@ -438,6 +434,56 @@ public static class PackageValidator
     {
         var dot = fileName.LastIndexOf('.');
         return dot < 0 ? fileName : fileName[..dot];
+    }
+
+    /// <summary>
+    /// ADR-0043 §2: enumerate inner artefact manifests under a top-level
+    /// conventional subdirectory. Each artefact is a folder rooted at
+    /// <c>package.yaml</c>; the artefact path returned is the relative path
+    /// to the inner <c>package.yaml</c> so diagnostics can pinpoint the file.
+    /// </summary>
+    private static IEnumerable<string> EnumerateArtefactManifests(IPackageSource source, string subdir)
+    {
+        // The catalog walker is on the parser; the validator's
+        // IPackageSource only knows EnumerateFiles. Probe the standard
+        // shape — `<subdir>/<name>/package.yaml` — without recursing into
+        // nested conventional subdirectories (the top-level grouping is
+        // what the connector-binding / image-required check operates on).
+        if (source is DirectoryPackageSource dir)
+        {
+            var fullSubdir = System.IO.Path.Combine(dir.RootPath, subdir);
+            if (!System.IO.Directory.Exists(fullSubdir))
+            {
+                yield break;
+            }
+            foreach (var folder in System.IO.Directory.EnumerateDirectories(fullSubdir))
+            {
+                var manifest = System.IO.Path.Combine(folder, "package.yaml");
+                if (System.IO.File.Exists(manifest))
+                {
+                    yield return System.IO.Path.GetRelativePath(dir.RootPath, manifest).Replace('\\', '/');
+                    continue;
+                }
+                var ymlAlt = System.IO.Path.Combine(folder, "package.yml");
+                if (System.IO.File.Exists(ymlAlt))
+                {
+                    yield return System.IO.Path.GetRelativePath(dir.RootPath, ymlAlt).Replace('\\', '/');
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns the artefact folder name given the relative path to its
+    /// inner <c>package.yaml</c> (e.g. <c>units/alpha/package.yaml</c>
+    /// returns <c>alpha</c>).
+    /// </summary>
+    private static string ArtefactFolderName(string relativeManifestPath)
+    {
+        // Path is forward-slash normalised by the source.
+        var parts = relativeManifestPath.Split('/');
+        // parts[^1] is package.yaml; parts[^2] is the folder name.
+        return parts.Length >= 2 ? parts[^2] : string.Empty;
     }
 
     private static bool IsCrossPackageGuid(string symbol)

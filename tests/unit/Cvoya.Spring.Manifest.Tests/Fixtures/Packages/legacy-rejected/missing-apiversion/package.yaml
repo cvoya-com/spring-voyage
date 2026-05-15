@@ -1,7 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Package
-name: missing-apiversion
-description: Package whose unit YAML omits apiVersion — parser must reject with MissingApiVersion.
-version: 1.0.0
-content:
-  - unit: no-apiversion

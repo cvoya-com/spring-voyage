@@ -1,6 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Unit
-name: connector-bearing
-description: Unit that still uses the legacy connectors: block.
-connectors:
-  - type: github
