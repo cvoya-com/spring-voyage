@@ -8,47 +8,45 @@ using System.Collections.Generic;
 using YamlDotNet.Serialization;
 
 /// <summary>
-/// Typed view of an <c>./agents/&lt;name&gt;.yaml</c> document under
-/// ADR-0037. Each agent YAML is a kind-discriminated top-level document
-/// with its own <c>apiVersion</c>, <c>kind</c>, <c>name</c>,
-/// <c>description</c>, optional <c>readme</c>, and the agent body fields.
-/// The wrapping <c>agent:</c> key from the pre-ADR-0037 grammar is gone.
+/// Typed view of an <c>./templates/&lt;name&gt;/package.yaml</c> document
+/// whose <c>kind:</c> discriminator is <c>AgentTemplate</c> (ADR-0043 §5).
 /// </summary>
 /// <remarks>
 /// <para>
-/// Body fields beyond the headers are intentionally lightweight on the
-/// typed side — the activation pipeline consumes the raw post-substitution
-/// YAML stored on <see cref="ResolvedArtefact.Content"/> and re-projects it
-/// onto its own typed shape. The parser uses <see cref="AgentManifest"/>
-/// only to validate the headers and pick out cross-package references for
-/// <see cref="CrossPackageCycleDetector"/>.
+/// An <c>AgentTemplate</c> accepts every field that an <see cref="AgentManifest"/>
+/// accepts. The discriminator tells the resolver "do not activate me; clone
+/// me when a concrete artefact declares <c>from:</c>." The <see cref="From"/>
+/// field permits template chaining — a template extending another template.
+/// </para>
+/// <para>
+/// The <c>from:</c>-driven clone operator is wired up in chunk 3 of the
+/// ADR-0043 implementation. For chunk 1 the field is parsed but inert.
 /// </para>
 /// </remarks>
-public class AgentManifest
+public class AgentTemplateManifest
 {
     /// <summary>API version string (e.g. <c>spring.voyage/v1</c>). Required.</summary>
     [YamlMember(Alias = "apiVersion")]
     public string? ApiVersion { get; set; }
 
     /// <summary>
-    /// Document kind discriminator. Must be the literal string <c>Agent</c>
-    /// (ADR-0037 decision 1).
+    /// Document kind discriminator. Must be the literal string
+    /// <c>AgentTemplate</c> (ADR-0043 §5a).
     /// </summary>
     [YamlMember(Alias = "kind")]
     public string? Kind { get; set; }
 
-    /// <summary>Agent name (required). Hoisted from the legacy nested <c>agent.name</c>.</summary>
+    /// <summary>Template name (required).</summary>
     [YamlMember(Alias = "name")]
     public string? Name { get; set; }
 
-    /// <summary>Human-readable single-line summary of the agent (required).</summary>
+    /// <summary>Human-readable single-line summary of the template (required).</summary>
     [YamlMember(Alias = "description")]
     public string? Description { get; set; }
 
     /// <summary>
     /// Optional relative path to a markdown file with long-form prose for
-    /// UIs (ADR-0037 decision 2). When omitted, the catalog scanner looks
-    /// for a sibling <c>&lt;name&gt;.md</c> and uses it implicitly.
+    /// UIs (ADR-0037 decision 2).
     /// </summary>
     [YamlMember(Alias = "readme")]
     public string? Readme { get; set; }
@@ -58,7 +56,7 @@ public class AgentManifest
     public string? Id { get; set; }
 
     /// <summary>
-    /// Optional template reference (ADR-0043 §5). Bare name resolves
+    /// Optional template chain reference (ADR-0043 §5e). Bare name resolves
     /// within the package; qualified name <c>&lt;pkg&gt;/&lt;name&gt;@&lt;version&gt;</c>
     /// resolves cross-package per ADR-0037 §5.
     /// </summary>
@@ -86,20 +84,10 @@ public class AgentManifest
     public List<ExpertiseManifestEntry>? Expertise { get; set; }
 
     /// <summary>
-    /// Optional <c>requires:</c> block declaring this agent's own
+    /// Optional <c>requires:</c> block declaring this template's own
     /// requirements (ADR-0037 decision 3). Each entry is a single-key
-    /// mapping (<c>connector: github</c>, etc.). The package's effective
-    /// requirement set is the union of every contained artefact's
-    /// <see cref="Requires"/>.
+    /// mapping (<c>connector: github</c>, etc.).
     /// </summary>
     [YamlMember(Alias = "requires")]
     public List<RequirementEntry>? Requires { get; set; }
-
-    /// <summary>
-    /// Captured legacy wrapping <c>agent:</c> map. Present only so the
-    /// parser can surface an actionable <c>LegacyArtefactWrapper</c> error
-    /// per ADR-0037 decision 6 when an old-shape file still wraps the body.
-    /// </summary>
-    [YamlMember(Alias = "agent")]
-    public object? LegacyAgentWrapper { get; set; }
 }

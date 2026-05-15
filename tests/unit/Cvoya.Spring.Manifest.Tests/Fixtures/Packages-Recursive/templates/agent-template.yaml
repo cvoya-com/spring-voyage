@@ -1,0 +1,20 @@
+apiVersion: spring.voyage/v1
+kind: AgentTemplate
+name: software-engineer
+description: A reusable software-engineer archetype.
+role: engineer
+capabilities:
+  - code
+  - review
+ai:
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-opus-4-7
+instructions: |
+  You are a senior software engineer.
+expertise:
+  - domain: dotnet
+    level: expert
+requires:
+  - connector: github

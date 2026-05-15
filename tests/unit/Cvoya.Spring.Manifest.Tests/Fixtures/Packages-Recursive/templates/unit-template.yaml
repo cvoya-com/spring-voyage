@@ -1,0 +1,16 @@
+apiVersion: spring.voyage/v1
+kind: UnitTemplate
+name: engineering-team
+description: A reusable engineering-team archetype.
+ai:
+  runtime: spring-voyage
+  model:
+    provider: anthropic
+    id: claude-opus-4-7
+instructions: |
+  Coordinate the team's work.
+members:
+  - agent: team-lead
+  - agent: senior-engineer
+requires:
+  - connector: github

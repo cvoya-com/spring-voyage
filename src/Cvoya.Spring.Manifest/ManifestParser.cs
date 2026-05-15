@@ -207,6 +207,123 @@ public static class ManifestParser
     }
 
     /// <summary>
+    /// Parses a <c>kind: AgentTemplate</c> YAML document (ADR-0043 §5) into
+    /// an <see cref="AgentTemplateManifest"/>. Shares the legacy-rejection
+    /// pre-checks with <see cref="Parse"/> so template documents reject the
+    /// same pre-ADR-0038 / ADR-0039 shapes as concrete agents.
+    /// </summary>
+    public static AgentTemplateManifest ParseAgentTemplate(string yamlText)
+    {
+        DetectLegacyAiShapes(yamlText);
+        DetectLegacyContainerRuntime(yamlText);
+
+        AgentTemplateManifest? manifest;
+        try
+        {
+            var deserializer = new DeserializerBuilder()
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .WithTypeConverter(new RequirementEntryYamlConverter())
+                .IgnoreUnmatchedProperties()
+                .Build();
+            manifest = deserializer.Deserialize<AgentTemplateManifest>(yamlText);
+        }
+        catch (YamlDotNet.Core.YamlException ex)
+        {
+            throw new ManifestParseException($"Invalid YAML: {ex.Message}", ex);
+        }
+
+        if (manifest is null)
+        {
+            throw new ManifestParseException("Manifest is empty.");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.ApiVersion))
+        {
+            throw new ManifestParseException(
+                "MissingApiVersion: every artefact YAML declares apiVersion: spring.voyage/v1 (ADR-0037 decision 1).");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.Kind))
+        {
+            throw new ManifestParseException(
+                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill/Workflow/UnitTemplate/AgentTemplate (ADR-0037 decision 1).");
+        }
+
+        if (!string.Equals(manifest.Kind.Trim(), "AgentTemplate", System.StringComparison.Ordinal))
+        {
+            throw new ManifestParseException(
+                $"AgentTemplate YAML declares kind: '{manifest.Kind}' but expected 'AgentTemplate'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.Name))
+        {
+            throw new ManifestParseException(
+                "Manifest is missing the required top-level 'name' field.");
+        }
+
+        return manifest;
+    }
+
+    /// <summary>
+    /// Parses a <c>kind: UnitTemplate</c> YAML document (ADR-0043 §5) into
+    /// a <see cref="UnitTemplateManifest"/>. Shares the legacy-rejection
+    /// pre-checks with <see cref="Parse"/> so template documents reject the
+    /// same pre-ADR-0038 / ADR-0039 shapes as concrete units.
+    /// </summary>
+    public static UnitTemplateManifest ParseUnitTemplate(string yamlText)
+    {
+        DetectLegacyAiShapes(yamlText);
+        DetectLegacyContainerRuntime(yamlText);
+        DetectLegacyUnitOrchestrationField(yamlText);
+
+        UnitTemplateManifest? manifest;
+        try
+        {
+            var deserializer = new DeserializerBuilder()
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .WithTypeConverter(new RequirementEntryYamlConverter())
+                .IgnoreUnmatchedProperties()
+                .Build();
+            manifest = deserializer.Deserialize<UnitTemplateManifest>(yamlText);
+        }
+        catch (YamlDotNet.Core.YamlException ex)
+        {
+            throw new ManifestParseException($"Invalid YAML: {ex.Message}", ex);
+        }
+
+        if (manifest is null)
+        {
+            throw new ManifestParseException("Manifest is empty.");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.ApiVersion))
+        {
+            throw new ManifestParseException(
+                "MissingApiVersion: every artefact YAML declares apiVersion: spring.voyage/v1 (ADR-0037 decision 1).");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.Kind))
+        {
+            throw new ManifestParseException(
+                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill/Workflow/UnitTemplate/AgentTemplate (ADR-0037 decision 1).");
+        }
+
+        if (!string.Equals(manifest.Kind.Trim(), "UnitTemplate", System.StringComparison.Ordinal))
+        {
+            throw new ManifestParseException(
+                $"UnitTemplate YAML declares kind: '{manifest.Kind}' but expected 'UnitTemplate'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.Name))
+        {
+            throw new ManifestParseException(
+                "Manifest is missing the required top-level 'name' field.");
+        }
+
+        return manifest;
+    }
+
+    /// <summary>
     /// Returns the list of <see cref="UnsupportedSections"/> that are actually
     /// populated on <paramref name="manifest"/>.
     /// </summary>
