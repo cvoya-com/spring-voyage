@@ -94,6 +94,14 @@ public record CreateAgentRequest(
 /// <see cref="ParentUnitId"/> is what callers should pass back as the
 /// <c>{id}</c> on <c>/api/v1/tenant/units/{id}/...</c> routes (#2250).
 /// </param>
+/// <param name="Instructions">
+/// The agent's own <c>instructions</c> slot, read from the persisted
+/// agent-definition JSON (ADR-0043). <c>null</c> when the agent has no
+/// instructions of its own — the dispatcher merges the parent unit's
+/// instructions in at dispatch time, but this field carries only what
+/// is persisted on the agent row so the portal can render the
+/// inherited overlay separately. Added by #2293.
+/// </param>
 public record AgentResponse(
     Guid Id,
     string Name,
@@ -110,7 +118,8 @@ public record AgentResponse(
     string? HostingMode = null,
     string? InitiativeLevel = null,
     string? LifecycleStatus = null,
-    string? LifecycleError = null);
+    string? LifecycleError = null,
+    string? Instructions = null);
 
 /// <summary>
 /// Request body for <c>PATCH /api/v1/agents/{id}</c>. All fields optional;
@@ -119,11 +128,24 @@ public record AgentResponse(
 /// endpoints so the <c>agent.ParentUnit</c> ↔ <c>unit.Members</c> invariant
 /// is maintained in one place.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <see cref="Instructions"/> is a tri-state slot per ADR-0043: omitting the
+/// property leaves the agent's <c>instructions</c> unchanged; an explicit JSON
+/// <c>null</c> clears it; a string replaces it. The DTO collapses absent /
+/// explicit-null at deserialization, so the endpoint inspects the raw JSON
+/// body to distinguish the two — callers that PATCH this record directly
+/// (e.g. typed C# clients) will get the "leave unchanged" semantics for
+/// <c>Instructions = null</c>; callers that send an explicit
+/// <c>"instructions": null</c> on the wire get the clear semantics.
+/// </para>
+/// </remarks>
 public record UpdateAgentMetadataRequest(
     string? Model = null,
     string? Specialty = null,
     bool? Enabled = null,
-    AgentExecutionMode? ExecutionMode = null);
+    AgentExecutionMode? ExecutionMode = null,
+    string? Instructions = null);
 
 /// <summary>
 /// Response body for <c>GET /api/v1/agents/{id}</c> when the StatusQuery to

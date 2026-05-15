@@ -102,6 +102,9 @@ public static class UnitCommand
 
         unitCommand.Subcommands.Add(CreateListCommand(outputOption));
         unitCommand.Subcommands.Add(CreateCreateCommand(outputOption));
+        // #2293: `spring unit set <unit>` for top-level slot edits. Today
+        // the only flag is --instructions (set / clear / read from file).
+        unitCommand.Subcommands.Add(CreateSetCommand());
         // #1629 PR6 — `show <id-or-name>` accepts a Guid (canonical no-dash
         // 32-hex or dashed) for direct lookup, OR a display_name for search
         // with disambiguation. `--unit <parent-name-or-guid>` constrains the
@@ -486,6 +489,98 @@ public static class UnitCommand
             if (waitExitCode != 0)
             {
                 Environment.Exit(waitExitCode);
+            }
+        });
+
+        return command;
+    }
+
+    /// <summary>
+    /// `spring unit set <unit> --instructions <text|@path>` (#2293).
+    /// Top-level prompt-surface PATCH. The verb is intentionally minimal
+    /// — it carries only slots that have no dedicated subcommand (so it
+    /// doesn't collide with <c>unit execution set</c> /
+    /// <c>unit boundary set</c> / etc.).
+    /// </summary>
+    /// <remarks>
+    /// Flag semantics for <c>--instructions</c>:
+    /// <list type="bullet">
+    ///   <item><description><c>--instructions "literal text"</c> replaces the slot.</description></item>
+    ///   <item><description><c>--instructions @path/to/file.md</c> reads the file contents and sends them as the new value.</description></item>
+    ///   <item><description><c>--instructions ""</c> clears the slot via PATCH <c>instructions: null</c>.</description></item>
+    /// </list>
+    /// </remarks>
+    internal static Command CreateSetCommand()
+    {
+        var unitArg = new Argument<string>("unit")
+        {
+            Description = "The unit identifier (Guid or display_name).",
+        };
+        var instructionsOption = new Option<string?>("--instructions")
+        {
+            Description =
+                "New value for the unit's `instructions` slot. " +
+                "Pass a literal string, an empty string \"\" to clear, " +
+                "or `@path/to/file.md` to read the file contents.",
+        };
+
+        var command = new Command(
+            "set",
+            "Update top-level unit slots. Today: --instructions (set / clear / @file).");
+        command.Arguments.Add(unitArg);
+        command.Options.Add(instructionsOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var idOrName = parseResult.GetValue(unitArg)!;
+            var rawInstructions = parseResult.GetValue(instructionsOption);
+            var instructionsSupplied = parseResult.GetResult(instructionsOption) is not null;
+
+            if (!instructionsSupplied)
+            {
+                await Console.Error.WriteLineAsync(
+                    "Nothing to set. Pass --instructions <text|@path|''>.");
+                Environment.Exit(1);
+                return;
+            }
+
+            string? newValue;
+            try
+            {
+                newValue = await AgentCommand.ResolveInstructionsArgumentAsync(
+                    rawInstructions, ct);
+            }
+            catch (FileNotFoundException ex)
+            {
+                await Console.Error.WriteLineAsync(ex.Message);
+                Environment.Exit(1);
+                return;
+            }
+
+            var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+            Guid unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitAsync(idOrName, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            var canonical = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitId);
+            await client.SetUnitInstructionsAsync(canonical, newValue, ct);
+
+            if (newValue is null)
+            {
+                Console.WriteLine($"Unit '{idOrName}' instructions cleared.");
+            }
+            else
+            {
+                Console.WriteLine($"Unit '{idOrName}' instructions updated.");
             }
         });
 

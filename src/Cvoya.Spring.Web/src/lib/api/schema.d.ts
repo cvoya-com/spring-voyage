@@ -143,7 +143,7 @@ export interface paths {
         delete: operations["DeleteAgent"];
         options?: never;
         head?: never;
-        /** Update the agent's metadata (model, specialty, enabled, execution mode) */
+        /** Update the agent's metadata (model, specialty, enabled, execution mode, instructions) */
         patch: operations["UpdateAgentMetadata"];
         trace?: never;
     };
@@ -319,7 +319,7 @@ export interface paths {
         delete: operations["DeleteUnit"];
         options?: never;
         head?: never;
-        /** Update mutable unit metadata (displayName, description, model, color) */
+        /** Update mutable unit metadata (displayName, description, model, color, hosting, instructions) */
         patch: operations["UpdateUnit"];
         trace?: never;
     };
@@ -2643,6 +2643,7 @@ export interface components {
             initiativeLevel?: null | string;
             lifecycleStatus?: null | string;
             lifecycleError?: null | string;
+            instructions?: null | string;
         };
         AgentRuntimeStatusResponse: {
             status: string;
@@ -3766,6 +3767,7 @@ export interface components {
             hosting?: null | string;
             lastValidationError?: null | components["schemas"]["UnitValidationError"];
             lastValidationRunId?: null | string;
+            instructions?: null | string;
         };
         UnitSecretsListResponse: {
             secrets: components["schemas"]["SecretMetadata"][];
@@ -3814,6 +3816,7 @@ export interface components {
             specialty?: null | string;
             enabled?: null | boolean;
             executionMode?: null | components["schemas"]["AgentExecutionMode"];
+            instructions?: null | string;
         };
         UpdateTenantRequest: {
             displayName: null | string;
@@ -3824,6 +3827,7 @@ export interface components {
             model?: null | string;
             color?: null | string;
             hosting?: null | string;
+            instructions?: null | string;
         };
         UpsertMembershipRequest: {
             model?: null | string;
@@ -4410,6 +4414,15 @@ export interface operations {
                     "application/json": components["schemas"]["AgentResponse"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -4972,6 +4985,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnitResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
             /** @description Not Found */

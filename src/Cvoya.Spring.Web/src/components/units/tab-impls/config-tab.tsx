@@ -53,6 +53,7 @@ import { BoundaryTab } from "@/components/units/tab-impls/boundary-tab";
 import { ConnectorTab } from "@/components/units/tab-impls/connector-tab";
 import { EquippedSkillsTab } from "@/components/units/tab-impls/equipped-skills-tab";
 import { ExecutionTab } from "@/components/units/tab-impls/execution-tab";
+import { InstructionsPanel } from "@/components/units/tab-impls/instructions-panel";
 import { SecretsTab } from "@/components/units/tab-impls/secrets-tab";
 import { SkillsTab } from "@/components/units/tab-impls/skills-tab";
 import {
@@ -107,6 +108,7 @@ const TENANT_SUBTABS = ["Secrets", "Budget", "Cloning"] as const;
 const UNIT_SUBTABS = [
   "Boundary",
   "Execution",
+  "Instructions",
   "Connector",
   "Skills",
   "Secrets",
@@ -116,6 +118,7 @@ const UNIT_SUBTABS = [
 ] as const;
 const AGENT_SUBTABS = [
   "Execution",
+  "Instructions",
   "Budget",
   "Connector",
   "Skills",
@@ -242,6 +245,9 @@ export function ConfigTab({
             <TabsContent value="Execution" className="space-y-2">
               <ExecutionTab unitId={id} />
             </TabsContent>
+            <TabsContent value="Instructions" className="space-y-2">
+              <InstructionsPanel kind="Unit" id={id} />
+            </TabsContent>
             <TabsContent value="Connector" className="space-y-2">
               <ConnectorTab unitId={id} />
             </TabsContent>
@@ -271,6 +277,13 @@ export function ConfigTab({
           <>
             <TabsContent value="Execution" className="space-y-2">
               <AgentExecutionPanel agentId={id} parentUnitId={parentUnitId} />
+            </TabsContent>
+            <TabsContent value="Instructions" className="space-y-2">
+              <InstructionsPanel
+                kind="Agent"
+                id={id}
+                parentUnitId={parentUnitId}
+              />
             </TabsContent>
             <TabsContent value="Budget" className="space-y-2">
               <AgentBudgetPanel agentId={id} />
@@ -309,15 +322,16 @@ function describeSubject(kind: ConfigSubjectKind): string {
       );
     case "Unit":
       return (
-        "Boundary, execution defaults, connector, skills, secrets, expertise, " +
-        "and budget for this unit. Each section mirrors the matching `spring unit …` " +
-        "CLI subcommand."
+        "Boundary, execution defaults, instructions, connector, skills, secrets, " +
+        "expertise, and budget for this unit. Each section mirrors the matching " +
+        "`spring unit …` CLI subcommand."
       );
     case "Agent":
       return (
-        "Execution defaults, daily budget, connector, equipped skills, secret " +
-        "overrides, expertise, and debug for this agent. Mirrors the matching " +
-        "`spring agent …` CLI subcommands. Initiative lives on the Policies tab."
+        "Execution defaults, instructions, daily budget, connector, equipped " +
+        "skills, secret overrides, expertise, and debug for this agent. " +
+        "Mirrors the matching `spring agent …` CLI subcommands. Initiative " +
+        "lives on the Policies tab."
       );
   }
 }

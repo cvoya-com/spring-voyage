@@ -150,7 +150,21 @@ Agent identity is assigned by the platform (a server-allocated Guid) per ADR-003
 Agent instructions, expertise, and other properties are typically set via YAML definitions. For quick adjustments:
 
 ```bash
+# Replace the agent's instructions in place.
 spring agent set <agent> --instructions "You are a backend engineer..."
+
+# Read the new instructions from a file.
+spring agent set <agent> --instructions @path/to/prompt.md
+
+# Clear the slot (the agent then inherits from its parent unit).
+spring agent set <agent> --instructions ""
+```
+
+The same verb shape works on a unit (members that have no own
+`instructions` slot inherit the unit's value at dispatch):
+
+```bash
+spring unit set <unit> --instructions "Be helpful."
 ```
 
 ### Viewing Agent Status

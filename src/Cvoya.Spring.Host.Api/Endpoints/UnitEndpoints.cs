@@ -65,8 +65,13 @@ public static class UnitEndpoints
 
         group.MapPatch("/{id}", UpdateUnitAsync)
             .WithName("UpdateUnit")
-            .WithSummary("Update mutable unit metadata (displayName, description, model, color)")
+            .WithSummary("Update mutable unit metadata (displayName, description, model, color, hosting, instructions)")
+            // #2293: the handler reads the body via HttpContext so it can
+            // distinguish absent-vs-explicit-null on the `instructions`
+            // tri-state, so we declare the contract surface via .Accepts.
+            .Accepts<UpdateUnitRequest>("application/json")
             .Produces<UnitResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{id}", DeleteUnitAsync)
@@ -381,6 +386,11 @@ public static class UnitEndpoints
         var metadata = await TryGetUnitMetadataAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
         var validationTracking = await TryGetValidationTrackingAsync(
             scopeFactory, entry.ActorId, logger, id, cancellationToken);
+        // #2293: surface the persisted `instructions` slot from the
+        // unit definition so the portal's Instructions sub-tab can read
+        // and overlay inherited values without a second round-trip.
+        var instructions = await TryReadUnitInstructionsAsync(
+            scopeFactory, entry.ActorId, logger, id, cancellationToken);
 
         // #339: Read the unit's status-query payload (status + member count)
         // by calling the actor proxy directly, bypassing the message router.
@@ -393,7 +403,7 @@ public static class UnitEndpoints
         var details = await TryGetUnitStatusPayloadAsync(
             actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
 
-        var unitResponse = ToUnitResponse(entry, status, metadata, validationTracking);
+        var unitResponse = ToUnitResponse(entry, status, metadata, validationTracking, instructions);
         return Results.Ok(new UnitDetailResponse(unitResponse, details));
     }
 
@@ -571,13 +581,42 @@ public static class UnitEndpoints
 
     private static async Task<IResult> UpdateUnitAsync(
         string id,
-        UpdateUnitRequest request,
+        HttpContext httpContext,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] IServiceScopeFactory scopeFactory,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.UnitEndpoints");
+
+        // #2293: parse the body twice — once as the typed DTO for the
+        // existing fields, and once as a raw JsonDocument so we can
+        // distinguish "absent" from "explicit null" for the tri-state
+        // `instructions` slot (set / clear / leave-alone). The typed
+        // DTO collapses both shapes at deserialization.
+        var jsonOptions = httpContext.RequestServices
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
+            .Value
+            .SerializerOptions;
+
+        UpdateUnitRequest? request;
+        InstructionsPatch instructionsPatch;
+        try
+        {
+            using var document = await JsonDocument.ParseAsync(
+                httpContext.Request.Body, cancellationToken: cancellationToken);
+            request = document.RootElement.Deserialize<UpdateUnitRequest>(jsonOptions);
+            instructionsPatch = ReadInstructionsPatch(document.RootElement);
+        }
+        catch (JsonException ex)
+        {
+            return Results.Problem(
+                detail: $"Request body is not valid JSON: {ex.Message}",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        request ??= new UpdateUnitRequest();
 
         // #1632: validate only when the caller actually supplied a new
         // display name — null means "leave unchanged" on the PATCH surface
@@ -627,10 +666,178 @@ public static class UnitEndpoints
 
         await proxy.SetMetadataAsync(metadata, cancellationToken);
 
+        // #2293: when the caller addressed the `instructions` slot, apply
+        // the patch in place on the persisted Definition JSON. Read-
+        // modify-write preserves every sibling property (mirrors the
+        // expertise precedent in UnitCreationService).
+        if (instructionsPatch.IsPresent)
+        {
+            await ApplyUnitInstructionsPatchAsync(
+                scopeFactory, entry.ActorId, logger, id, instructionsPatch.Value, cancellationToken);
+        }
+
         var status = await TryGetUnitStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
         var updatedMetadata = await TryGetUnitMetadataAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
+        var instructions = await TryReadUnitInstructionsAsync(
+            scopeFactory, entry.ActorId, logger, id, cancellationToken);
 
-        return Results.Ok(ToUnitResponse(entry, status, updatedMetadata));
+        return Results.Ok(ToUnitResponse(entry, status, updatedMetadata, validationTracking: null, instructions));
+    }
+
+    /// <summary>
+    /// Tri-state for the optional <c>instructions</c> slot on PATCH bodies.
+    /// </summary>
+    /// <param name="IsPresent">
+    /// <c>true</c> when the request body carried the property (with any
+    /// value, including JSON <c>null</c>). <c>false</c> means the property
+    /// was absent — the slot should be left unchanged.
+    /// </param>
+    /// <param name="Value">
+    /// The new value to persist when <see cref="IsPresent"/> is <c>true</c>.
+    /// <c>null</c> means "clear the slot"; a string means "replace".
+    /// </param>
+    private readonly record struct InstructionsPatch(bool IsPresent, string? Value)
+    {
+        public static InstructionsPatch Absent => new(false, null);
+    }
+
+    /// <summary>
+    /// Inspects the raw request body for the <c>instructions</c> property
+    /// and returns the corresponding patch tri-state. Property lookup is
+    /// case-insensitive so wire forms produced by JS / C# clients both work.
+    /// </summary>
+    private static InstructionsPatch ReadInstructionsPatch(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return InstructionsPatch.Absent;
+        }
+
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (!string.Equals(prop.Name, "instructions", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return prop.Value.ValueKind switch
+            {
+                JsonValueKind.Null => new InstructionsPatch(true, null),
+                JsonValueKind.String => new InstructionsPatch(true, prop.Value.GetString()),
+                _ => InstructionsPatch.Absent,
+            };
+        }
+
+        return InstructionsPatch.Absent;
+    }
+
+    /// <summary>
+    /// Applies the <c>instructions</c> tri-state to the unit's persisted
+    /// <c>UnitDefinitions.Definition</c> column. Preserves every sibling
+    /// property (mirrors the expertise read-modify-write precedent in
+    /// <c>UnitCreationService</c>). <c>null</c> removes the key; a string
+    /// replaces it.
+    /// </summary>
+    private static async Task ApplyUnitInstructionsPatchAsync(
+        IServiceScopeFactory scopeFactory,
+        Guid unitActorId,
+        ILogger logger,
+        string unitId,
+        string? value,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            var entity = await db.UnitDefinitions
+                .FirstOrDefaultAsync(u => u.Id == unitActorId && u.DeletedAt == null, cancellationToken);
+
+            if (entity is null)
+            {
+                logger.LogWarning(
+                    "Unit '{UnitId}': no UnitDefinition row found while applying instructions patch; skipping.",
+                    unitId);
+                return;
+            }
+
+            var payload = new Dictionary<string, object?>(StringComparer.Ordinal);
+            if (entity.Definition is { ValueKind: JsonValueKind.Object } existing)
+            {
+                foreach (var prop in existing.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "instructions", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    payload[prop.Name] = prop.Value;
+                }
+            }
+
+            if (value is not null)
+            {
+                payload["instructions"] = value;
+            }
+
+            entity.Definition = JsonSerializer.SerializeToElement(payload);
+            entity.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Unit '{UnitId}': failed to apply instructions patch on UnitDefinition.",
+                unitId);
+        }
+    }
+
+    /// <summary>
+    /// Reads the unit's persisted <c>instructions</c> string from the
+    /// <c>UnitDefinitions.Definition</c> JSON. Returns <c>null</c> when the
+    /// row, the document, or the property is missing — surfaces as "no own
+    /// instructions" on the response.
+    /// </summary>
+    private static async Task<string?> TryReadUnitInstructionsAsync(
+        IServiceScopeFactory scopeFactory,
+        Guid unitActorId,
+        ILogger logger,
+        string unitId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            var entity = await db.UnitDefinitions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == unitActorId && u.DeletedAt == null, cancellationToken);
+
+            if (entity?.Definition is { ValueKind: JsonValueKind.Object } definition
+                && definition.TryGetProperty("instructions", out var prop)
+                && prop.ValueKind == JsonValueKind.String)
+            {
+                return prop.GetString();
+            }
+
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Unit '{UnitId}': failed to read instructions from UnitDefinition.",
+                unitId);
+            return null;
+        }
     }
 
     private static async Task<IResult> DeleteUnitAsync(
@@ -1417,7 +1624,8 @@ public static class UnitEndpoints
         DirectoryEntry entry,
         UnitStatus status = UnitStatus.Draft,
         UnitMetadata? metadata = null,
-        UnitValidationTracking? validationTracking = null) =>
+        UnitValidationTracking? validationTracking = null,
+        string? instructions = null) =>
         new(
             entry.ActorId,
             entry.Address.Path,
@@ -1429,7 +1637,8 @@ public static class UnitEndpoints
             metadata?.Color,
             metadata?.Hosting,
             validationTracking?.LastValidationError,
-            validationTracking?.LastValidationRunId);
+            validationTracking?.LastValidationRunId,
+            instructions);
 
     /// <summary>
     /// View of the per-unit validation-tracking columns projected into the
