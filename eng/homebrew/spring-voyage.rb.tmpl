@@ -1,0 +1,26 @@
+class SpringVoyage < Formula
+  desc "CLI for operating the Spring Voyage agent platform"
+  homepage "https://github.com/cvoya-com/spring-voyage"
+  license "BUSL-1.1"
+  version "{{VERSION}}"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/cvoya-com/spring-voyage/releases/download/spring-voyage-v#{version}/spring-voyage-#{version}-osx-arm64.tar.gz"
+      sha256 "{{SHA256_OSX_ARM64}}"
+    end
+    on_intel do
+      url "https://github.com/cvoya-com/spring-voyage/releases/download/spring-voyage-v#{version}/spring-voyage-#{version}-osx-x64.tar.gz"
+      sha256 "{{SHA256_OSX_X64}}"
+    end
+  end
+
+  def install
+    bin.install "cli/spring"
+  end
+
+  test do
+    output = shell_output("#{bin}/spring --version 2>&1")
+    assert_match version.to_s, output
+  end
+end

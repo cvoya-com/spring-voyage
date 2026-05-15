@@ -23,6 +23,8 @@ name: Spring Voyage — Release
 #                        └─→ ... ┬─→ publish-sha256sums   (needs every release-attached job)
 #                                ▼
 #                        finalize-release (promote draft → published)
+#                                │
+#                        bump-homebrew-formula (stable releases only)
 #
 # Why ci-gate instead of re-running build/test (#2027): tags must point at a
 # commit that is already on main, and main is gated by ci.yml's "Required
@@ -1644,3 +1646,81 @@ jobs:
             --repo "${REPO}" \
             ${prerelease_flag}
           echo "GitHub Release published: https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
+
+  # ── 14. Bump Homebrew formula ──────────────────────────────────────────────
+  #
+  # After the release is public, push the rendered formula to
+  # cvoya-com/homebrew-tap so that `brew install cvoya-com/tap/spring-voyage`
+  # serves the new version.
+  #
+  # Only stable (non-prerelease) releases update the tap formula; RC / alpha
+  # tarballs are not surfaced through Homebrew.
+  #
+  # Requires the TAP_GITHUB_TOKEN secret: a classic PAT (or GitHub App
+  # installation token) with `contents: write` on cvoya-com/homebrew-tap.
+  # The job skips gracefully when the secret is absent so the release pipeline
+  # keeps working while the tap is being bootstrapped.
+  bump-homebrew-formula:
+    name: Bump Homebrew formula (spring-voyage)
+    runs-on: ubuntu-latest
+    needs:
+      - resolve
+      - finalize-release
+    if: needs.resolve.outputs.is_prerelease == 'false'
+    timeout-minutes: 10
+    env:
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+      TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout (formula template only)
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            eng/homebrew
+          sparse-checkout-cone-mode: false
+
+      - name: Download SHA256SUMS from release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release download "${RELEASE_TAG}" \
+            --repo "${REPO}" \
+            --pattern "SHA256SUMS" \
+            --output SHA256SUMS
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+
+      - name: Render formula from template
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash eng/homebrew/bump-formula.sh \
+            "${RELEASE_VERSION}" \
+            SHA256SUMS \
+            spring-voyage.rb
+
+      - name: Push formula to tap
+        if: ${{ env.TAP_GITHUB_TOKEN != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone \
+            "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/cvoya-com/homebrew-tap.git" \
+            tap
+          mkdir -p tap/Formula
+          cp spring-voyage.rb tap/Formula/spring-voyage.rb
+          cd tap
+          git config user.email "savasp-agent[bot]@users.noreply.github.com"
+          git config user.name "savasp-agent[bot]"
+          git add Formula/spring-voyage.rb
+          if git diff --cached --quiet; then
+            echo "Formula unchanged — nothing to push."
+          else
+            git commit -m "chore: bump spring-voyage to ${RELEASE_VERSION}"
+            git push
+          fi
