@@ -19,7 +19,6 @@ A unit and a leaf agent share every aspect of being an agent. Anything that appl
 | Budget (per-subject daily-budget) | Unit + Agent |
 | Initiative policy (passive vs proactive) | Unit + Agent |
 | Expertise declaration | Unit + Agent |
-| Connector binding (translates external events into messages) | Unit + Agent |
 | Deployment lifecycle (deploy / undeploy / scale / logs) | Unit + Agent |
 | Validation workflow | Unit + Agent |
 
@@ -36,6 +35,7 @@ There are only a handful of real differences. They flow from one structural fact
 | **Children** | Units compose member agents and sub-units. A leaf agent has none. The child list drives orchestration tool attachment, expertise aggregation, and the Unit × Agents tab. |
 | **Boundary** | Units define a boundary (`UnitBoundary`) that controls what callers outside the unit see and which work the unit is eligible to receive. Leaf agents have no boundary surface. |
 | **Recursively-enforced policies** | Policies set on a unit cascade to its children (skill / model / cost / execution-mode dimensions). Policies set on a leaf agent are local. |
+| **Connector binding** | A unit owns a connector binding that translates external events (GitHub webhooks, Slack messages, etc.) into platform messages. Agents inherit connector reachability from their owning unit; they cannot bind connectors directly. The Agent × Config → Connector sub-tab is a read-only inherited view of the owning unit's binding. |
 | **Orchestration strategy** | A unit declares a pluggable orchestration strategy ([AGENTS.md](../../AGENTS.md)) that decides how member agents handle a unit-scoped message. Leaf agents have no orchestration layer below them. |
 | **Membership operations** | Add / remove member agents and sub-units via the membership endpoints. Leaf agents only participate as members. |
 | **Multi-parent membership** | A unit can be a member of multiple parent units (see [Multi-Parent](../decisions/) when filed). Leaf-agent membership rules are simpler. |

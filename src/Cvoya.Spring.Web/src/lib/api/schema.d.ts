@@ -343,6 +343,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/units/{id}/deployment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the deployment / lifecycle status for a unit
+         * @description Returns whether the unit is running and its current status label. Mirrors the agent deployment surface so the portal's Deployment tab renders start/stop controls for units and agents identically.
+         */
+        get: operations["GetUnitDeployment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/units/{id}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the equipped skills for a unit
+         * @description A unit is an agent (ADR-0039); its skills are stored by the same agent-live-config store used for leaf agents. Mirrors `spring agent skills get`.
+         */
+        get: operations["GetUnitSkills"];
+        /**
+         * Replace the equipped skills for a unit
+         * @description Full replacement — pass the complete desired skill list. Use [] to clear. Mirrors `spring agent skills set`.
+         */
+        put: operations["SetUnitSkills"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/units/{id}/start": {
         parameters: {
             query?: never;
@@ -3632,6 +3676,10 @@ export interface components {
             registeredAt: string;
             status: components["schemas"]["UnitStatus"];
         };
+        UnitDeploymentResponse: {
+            running: boolean;
+            status: string;
+        };
         UnitDetailResponse: {
             unit: components["schemas"]["UnitResponse"];
             details: components["schemas"]["JsonElement"];
@@ -4953,6 +5001,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnitReadinessResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetUnitDeployment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitDeploymentResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetUnitSkills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkillsResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    SetUnitSkills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAgentSkillsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkillsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
             /** @description Not Found */

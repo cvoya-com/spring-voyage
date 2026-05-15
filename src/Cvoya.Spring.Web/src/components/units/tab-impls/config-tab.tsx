@@ -41,6 +41,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { Link2, Settings } from "lucide-react";
 
 import { AgentBudgetPanel } from "@/components/agents/agent-budget-panel";
+import { UnitBudgetPanel } from "@/components/units/unit-budget-panel";
 import { AgentExecutionPanel } from "@/components/agents/tab-impls/execution-panel";
 import { AgentExpertisePanel } from "@/components/expertise/agent-expertise-panel";
 import { AgentOverridesPanel } from "@/components/settings/agent-overrides-panel";
@@ -254,7 +255,7 @@ export function ConfigTab({
               <UnitExpertisePanel unitId={id} />
             </TabsContent>
             <TabsContent value="Budget" className="space-y-2">
-              <UnitBudgetPlaceholder unitId={id} />
+              <UnitBudgetPanel unitId={id} />
             </TabsContent>
             <TabsContent value="Debug" className="space-y-2">
               <DebugSection
@@ -275,7 +276,7 @@ export function ConfigTab({
               <AgentBudgetPanel agentId={id} />
             </TabsContent>
             <TabsContent value="Connector" className="space-y-2">
-              <AgentConnectorPlaceholder agentId={id} />
+              <AgentConnectorInheritedView parentUnitId={parentUnitId} />
             </TabsContent>
             <TabsContent value="Skills" className="space-y-2">
               <EquippedSkillsTab kind="Agent" id={id} name={name} />
@@ -385,48 +386,19 @@ function DebugSection({
 // when the body is a CLI deep-link.
 // ---------------------------------------------------------------------------
 
-function UnitBudgetPlaceholder({ unitId }: { unitId: string }) {
-  return (
-    <div
-      className="space-y-3 rounded-lg border border-dashed border-border bg-muted/30 p-6 text-sm"
-      data-testid="tab-unit-config-budget-cli-placeholder"
-    >
-      <div className="flex items-start gap-2">
-        <Settings
-          className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-        <div className="space-y-2">
-          <p className="font-medium">Manage the unit budget via the CLI for now</p>
-          <p className="text-xs text-muted-foreground">
-            The portal will surface a unit-scope daily-budget editor inline
-            once unit-keyed budget endpoints land. Today only the tenant
-            envelope and per-agent overrides are wired; a unit budget sits
-            between them in the resolver chain and tracks under{" "}
-            <a
-              href="https://github.com/cvoya-com/spring-voyage/issues/2280"
-              className="underline"
-              target="_blank"
-              rel="noreferrer"
-            >
-              #2280
-            </a>
-            .
-          </p>
-          <p className="font-mono text-xs">
-            spring cost set-budget --scope unit --unit {unitId} --amount &lt;n&gt; --period daily
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
+function AgentConnectorInheritedView({
+  parentUnitId,
+}: {
+  parentUnitId?: string | null;
+}) {
+  const unitLink = parentUnitId
+    ? `?node=${parentUnitId}&tab=Config&subtab=Connector`
+    : null;
 
-function AgentConnectorPlaceholder({ agentId }: { agentId: string }) {
   return (
     <div
-      className="space-y-3 rounded-lg border border-dashed border-border bg-muted/30 p-6 text-sm"
-      data-testid="tab-agent-config-connector-cli-placeholder"
+      className="space-y-3 rounded-lg border border-border bg-muted/10 p-6 text-sm"
+      data-testid="tab-agent-config-connector-inherited"
     >
       <div className="flex items-start gap-2">
         <Link2
@@ -434,29 +406,25 @@ function AgentConnectorPlaceholder({ agentId }: { agentId: string }) {
           aria-hidden="true"
         />
         <div className="space-y-2">
-          <p className="font-medium">Manage connectors via the CLI for now</p>
+          <p className="font-medium">Connector binding — inherited from owning unit</p>
           <p className="text-xs text-muted-foreground">
-            Connector binding is unit-scoped in v0.1 — every agent inherits
-            its connector from the owning unit. The canonical-tabs design
-            keeps an Agent × Config → Connector slot so the sub-tab strip
-            reads consistently across subjects; an agent-scope wire (or a
-            documented inheritance-only view) lands under{" "}
-            <a
-              href="https://github.com/cvoya-com/spring-voyage/issues/2279"
-              className="underline"
-              target="_blank"
-              rel="noreferrer"
-            >
-              #2279
-            </a>
-            .
+            Connector binding is a unit-only concept. An agent inherits
+            connector reachability from the unit that owns it. To configure
+            which external events reach this agent, edit the{" "}
+            {unitLink ? (
+              <a href={unitLink} className="underline">
+                owning unit&apos;s Connector
+              </a>
+            ) : (
+              "owning unit's Connector"
+            )}{" "}
+            sub-tab.
           </p>
           <p className="text-xs text-muted-foreground">
-            To edit the connector for the unit hosting this agent, open the
-            owning unit&apos;s Config tab and pick Connector there.
-          </p>
-          <p className="font-mono text-xs">
-            spring agent show {agentId}
+            To view the current binding:{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+              spring unit connector show &lt;unit-id&gt;
+            </code>
           </p>
         </div>
       </div>
