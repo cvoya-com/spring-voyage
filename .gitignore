@@ -91,3 +91,6 @@ test-results/
 
 # CodeGraph data files — these are local to each machine and should not be committed.
 .codegraph/
+
+# new vs code cache files
+*.lscache
