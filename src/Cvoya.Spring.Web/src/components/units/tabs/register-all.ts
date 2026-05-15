@@ -32,7 +32,11 @@ import "./agent-deployment"; // #1119
 
 // Tenant tabs — Memory intentionally absent (#2257; tenant does not
 // have memory, see docs/design/canonical-tabs.md § 1 / § 4.1).
+// Config is new under #2254 (tenant-default credentials, tenant budget
+// editor, tenant cloning-policy summary). The `/settings` page keeps
+// its cards — same panel bodies, two access paths.
 import "./tenant-overview";
 import "./tenant-activity";
 import "./tenant-policies";
 import "./tenant-budgets";
+import "./tenant-config"; // #2254

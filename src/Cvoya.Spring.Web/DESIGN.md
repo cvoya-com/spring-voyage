@@ -340,7 +340,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 
 ### 9.1 Per-kind disposition
 
-**Tenant** — 4 visible, 0 overflow. Synthesized root only. Per `docs/design/canonical-tabs.md` § 1 / § 4.1 the Memory, Messages, Agents, Skills, Traces, Clones, and Deployment slots are intentionally absent — Tenant does not participate in threads, does not compose thread participants, does not have memory, and is not addressable as an agent.
+**Tenant** — 4 visible + 1 overflow (`Config`). Synthesized root only. Per `docs/design/canonical-tabs.md` § 1 / § 4.1 the Memory, Messages, Agents, Skills, Traces, Clones, and Deployment slots are intentionally absent — Tenant does not participate in threads, does not compose thread participants, does not have memory, and is not addressable as an agent.
 
 | Tab        | Content                                                                                                                         |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -348,6 +348,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Activity   | Tenant-wide event feed. Deep-link to `/analytics/throughput` for the filterable view.                                           |
 | Policies   | Tenant-scope policy view via the canonical `<PoliciesTab kind="Tenant" id={...} />` (#2255). Renders the Cloning summary against the existing tenant cloning-policy endpoint plus "set via CLI" placeholders for the dimension panels whose tenant-scope read endpoint has not landed yet (Skill / Model / Cost / ExecutionMode / Initiative — see `docs/design/canonical-tabs.md` § 5.9). The deep-link to `/policies` is preserved for the cross-unit roll-up. |
 | Budgets    | Tenant-wide cost summary card (today / 7d / 30d + sparkline). Deep-link to `/analytics/costs`.                                  |
+| **Config** (overflow) | Three sub-tabs: Secrets, Budget, Cloning. New tab under #2254 — surfaces the tenant-scope settings reached today via `/settings` inside the Explorer Detail Pane. Bodies are the existing `<TenantDefaultsPanel>` (fixed-list LLM credentials), `<BudgetPanel>` (daily-budget editor), and `<CloningPolicyPanel>` (read-only summary; editor rides `spring agent clone policy set --scope tenant`). Renders through the shared canonical `<ConfigTab>` control. The `/settings` cards keep rendering — they embed the same panel bodies, so there is exactly one canonical implementation per panel and two access paths. URL contract `?tab=Config&subtab=<name>`. |
 
 **Unit** — 8 visible + 2 overflow (`Config`, `Deployment`). Order follows the canonical reading→composition→constraint→wiring sweep in `docs/design/canonical-tabs.md` § 3.1.
 
@@ -361,10 +362,10 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Skills        | Equipped-skills editor (#2271). Shares the canonical `<EquippedSkillsTab>` control with the agent surface. In v0.1 the body is a "Manage via CLI for now" placeholder pending unit-keyed skills endpoints (#2276); the canonical tab position is honored. |
 | Traces        | Mock-backed in v0.1 (same fixture the agent surface uses); real `/api/v1/traces?unit=…` is a v0.2 follow-up. Shares the canonical `<TracesTab>` control with the agent surface (#2272). |
 | Policies      | Unit policies (Skill / Model / Cost / ExecutionMode / Initiative dimension panels + Effective-policy footer) via the canonical `<PoliciesTab kind="Unit" id={...} />` (#2255). Shares the same control with Tenant and Agent — variance is per dimension, not per chrome. |
-| **Config** (overflow) | Six sub-tabs: Boundary, Execution, Connector, Skills, Secrets, Expertise. Sub-tab selection is URL-owned via `?subtab=<name>`. Execution edits unit defaults and shows member-agent hosting with deep links to each agent's Config tab. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
+| **Config** (overflow) | Eight sub-tabs: Boundary, Execution, Connector, Skills, Secrets, Expertise, Budget, Debug. Renders through the shared canonical `<ConfigTab>` control (#2254). Existing six sub-tabs preserved; Budget + Debug added under alignment for parity with Agent × Config — per `docs/concepts/units-vs-agents.md` rule 3 a unit *is* an agent, so the Budget sub-tab applies to both subjects. Budget body is a "Manage via CLI" placeholder pending the unit-scope budget endpoint (#2280); Debug renders an empty `<details>` body with copy describing the gap. Sub-tab selection is URL-owned via `?subtab=<name>`. Execution edits unit defaults and shows member-agent hosting with deep links to each agent's Config tab. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
 | **Deployment** (overflow) | Same canonical `<DeploymentTab>` control the agent surface uses (#2273). In v0.1 the body is a "Deploy via CLI for now" placeholder pending unit-keyed lifecycle endpoints (#2274); the canonical tab position is honored. |
 
-**Agent** — 10 visible, 0 overflow.
+**Agent** — 8 visible + 2 overflow (`Config`, `Deployment`). Mirrors the Unit shape; Config + Deployment are deep editors / lifecycle surfaces and sit in overflow per `docs/design/canonical-tabs.md` § 3.3.
 
 | Tab        | Content                                                                                                                      |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -376,14 +377,14 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Traces     | Mock-backed in v2.0; a real `/api/v1/traces?agent=…` endpoint is a v2.1 follow-up.                                           |
 | Clones     | Per-agent clones table.                                                                                                      |
 | Policies   | Agent Policies (Initiative + Cloning) via the canonical `<PoliciesTab kind="Agent" id={...} />` (#2255). Same chrome as Unit and Tenant; the dimension set is agent-scope — Initiative (shared panel with Unit) + Cloning (agent-only, read-only summary). Cost / Model / Skill / ExecutionMode dimensions are declared on the owning unit by design and intentionally absent here. |
-| Config     | Merged info + daily-budget editor + execution editor, plus a collapsible Debug section with the status JSON. Initiative lives on the Policies tab; expertise lives on the owning unit. |
-| Deployment | Full-fidelity persistent-agent lifecycle surface (#1119). Mirrors `spring agent deploy / undeploy / scale / logs` 1:1. Destructive verbs (Undeploy, Scale to 0) require confirmation. The Overview tab embeds a compact version; this tab is the canonical deep-link target (e.g. from the AgentCard "Deployment" quick-action). |
+| **Config** (overflow) | Seven sub-tabs: Execution, Budget, Connector, Skills, Secrets, Expertise, Debug. Renders through the shared canonical `<ConfigTab>` control (#2254). **Structural promotion**: the legacy stacked layout (four sections — Execution / Budget / Expertise / Debug — rendered vertically) is replaced with the sub-tab strip Unit × Config uses, so the per-subject sub-tab catalog reads consistently across subjects. Connector, Skills, and Secrets are added under alignment for parity with Unit × Config. Connector body is a "Manage via CLI" placeholder pending the agent-scope connector wire (#2279); Skills embeds the canonical `<EquippedSkillsTab kind="Agent" …>`; Secrets embeds `<AgentOverridesPanel agentId={…}>` (same panel `/settings` renders, with the agent picker hidden when scoped to a single agent). Sub-tab selection is URL-owned via `?tab=Config&subtab=<name>`. Initiative still lives on the Policies tab. |
+| **Deployment** (overflow) | Full-fidelity persistent-agent lifecycle surface (#1119). Mirrors `spring agent deploy / undeploy / scale / logs` 1:1. Destructive verbs (Undeploy, Scale to 0) require confirmation. The Overview tab embeds a compact version; this tab is the canonical deep-link target (e.g. from the AgentCard "Deployment" quick-action). |
 
 ### 9.2 Registry
 
 Each tab implementation is a dedicated module under `src/components/units/tabs/` (`unit-overview.tsx`, `agent-config.tsx`, etc.). Every module calls `registerTab(kind, tab, Component)` at top-level, and `src/components/units/tabs/register-all.ts` imports each module so the Explorer route mounts with every tab wired. `lookupTab(kind, tab)` returns the registered component or `null`; the `DetailPane` substitutes `<TabPlaceholder>` for the `null` case so the surface stays testable.
 
-The overflow strip (Unit's `Config`) renders as a second `role="tablist"` after a `bg-border` separator. Triggers are functionally identical to visible tabs — same `onTabChange` callback, same URL shape — so a deep-link to `?tab=Config` just snaps to the overflow trigger.
+The overflow strip (Unit / Agent `Config` + `Deployment`; Tenant `Config`) renders as a second `role="tablist"` after a `bg-border` separator. Triggers are functionally identical to visible tabs — same `onTabChange` callback, same URL shape — so a deep-link to `?tab=Config` just snaps to the overflow trigger.
 
 ### 9.3 Pane header actions and compose
 
@@ -432,6 +433,8 @@ Layout:
 2. **Catalog & admin tiles** — a `grid-cols-1 sm:grid-cols-2` tile set linking to the Settings subpages: `/settings/skills`, `/settings/packages`, `/settings/agent-runtimes`, `/settings/system-configuration`.
 
 Each subpage hosts the content that used to live at the retired top-level `/skills`, `/packages`, `/admin/agent-runtimes`, and `/system/configuration` routes. The admin surfaces follow the AGENTS.md "admin is CLI-only" carve-out: the portal renders visibility-only tables plus a credential-health badge; install / configure / credential-validate ride `spring`. Shared chrome (CLI callout, credential-health badge, tables) lives in `src/components/admin/shared.tsx`; the page bodies live in `src/components/admin/agent-runtimes-page.tsx`, `packages-page.tsx`, `package-detail-client.tsx`, `template-detail-client.tsx`, and `system-configuration-page.tsx`.
+
+**Embedding relationship with Config tabs (#2254).** Tenant × Config (Secrets / Budget / Cloning) and Agent × Config → Secrets surface the same panel bodies the `/settings` hub renders — `<TenantDefaultsPanel>`, `<BudgetPanel>`, `<CloningPolicyPanel>`, and `<AgentOverridesPanel>`. There is exactly one canonical implementation of each panel; both surfaces embed it. `/settings` stays as the entry point for the first-time tenant-setup workflow (set LLM credentials before picking a unit in the Explorer); the per-subject Config tab is the entry point for operators already inspecting a subject. `<AgentOverridesPanel>` accepts an optional `agentId` prop — when passed (Agent × Config → Secrets) the panel hides its agent picker and scopes the CRUD form to that agent; when omitted (`/settings` standalone) the panel keeps the picker so the operator can reach into any agent. See `docs/design/canonical-tabs.md` § 5.11 and § 6.1.
 
 ### 11.3 Drawer-panel extension contract
 

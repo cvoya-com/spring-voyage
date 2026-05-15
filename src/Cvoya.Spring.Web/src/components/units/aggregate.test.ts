@@ -224,7 +224,7 @@ describe("tabsFor", () => {
     expect(UNIT_TABS.overflow).toEqual(["Config", "Deployment"]);
   });
 
-  it("locks the agent tab order and count (#1119 adds Deployment tab)", () => {
+  it("locks the agent tab order — 8 visible + Config/Deployment overflow (canonical-tabs §3.3)", () => {
     expect([...AGENT_TABS.visible, ...AGENT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
@@ -237,20 +237,25 @@ describe("tabsFor", () => {
       "Config",
       "Deployment",
     ]);
-    expect(AGENT_TABS.overflow).toEqual([]);
+    expect(AGENT_TABS.visible).toHaveLength(8);
+    expect(AGENT_TABS.overflow).toEqual(["Config", "Deployment"]);
   });
 
-  it("locks the tenant tab order and count (#2257 — Memory removed)", () => {
+  it("locks the tenant tab order — 4 visible + Config overflow (#2254)", () => {
     // Memory is intentionally absent on Tenant — Tenant does not have
     // memory (canonical-tabs.md § 1 / § 4.1). Messages, Agents, Skills,
     // Traces, Clones, and Deployment are also intentionally absent.
+    // Config is in overflow (added under #2254): the canonical home for
+    // tenant-default credentials, tenant budget editor, and tenant
+    // cloning-policy summary, all reachable today via /settings.
     expect([...TENANT_TABS.visible, ...TENANT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
       "Policies",
       "Budgets",
+      "Config",
     ]);
-    expect(TENANT_TABS.overflow).toEqual([]);
+    expect(TENANT_TABS.overflow).toEqual(["Config"]);
     expect(TENANT_TABS.visible).not.toContain("Memory");
   });
 });
@@ -270,18 +275,27 @@ describe("visibleTabsFor / overflowTabsFor", () => {
     expect(overflowTabsFor("Unit")).toEqual(["Config", "Deployment"]);
   });
 
-  it("surfaces the full Agent catalog as visible with no overflow (#1119 added Deployment → 10)", () => {
-    expect(visibleTabsFor("Agent")).toHaveLength(10);
-    expect(overflowTabsFor("Agent")).toEqual([]);
-    // Deployment tab must be in the catalog.
-    expect(visibleTabsFor("Agent")).toContain("Deployment");
+  it("splits the Agent catalog into 8 visible + 2 overflow (canonical-tabs §3.3 / §7.1)", () => {
+    expect(visibleTabsFor("Agent")).toEqual([
+      "Overview",
+      "Activity",
+      "Messages",
+      "Memory",
+      "Skills",
+      "Traces",
+      "Clones",
+      "Policies",
+    ]);
+    expect(overflowTabsFor("Agent")).toEqual(["Config", "Deployment"]);
   });
 
-  it("surfaces the Tenant catalog as visible with no overflow (#2257)", () => {
-    // 4 visible: Overview, Activity, Policies, Budgets. Config will be
-    // added as overflow under #2254 (Config unification, sibling PR).
+  it("surfaces the Tenant catalog as 4 visible + Config overflow (#2254)", () => {
+    // 4 visible: Overview, Activity, Policies, Budgets. Config is added
+    // under #2254 (Config unification) as overflow, mirroring the Unit
+    // and Agent split: Config is a deep editor reached less often than
+    // the read-side tabs.
     expect(visibleTabsFor("Tenant")).toHaveLength(4);
-    expect(overflowTabsFor("Tenant")).toEqual([]);
+    expect(overflowTabsFor("Tenant")).toEqual(["Config"]);
   });
 
   it("keeps `tabsFor` = [...visible, ...overflow] for every kind", () => {

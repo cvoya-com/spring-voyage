@@ -21,6 +21,14 @@
 // `propagate` toggle the unit Secrets tab carries (#1741) is
 // deliberately omitted. The `--propagate` CLI flag is unit-only by
 // design; the server ignores `propagate` at agent scope.
+//
+// Two access paths, one body (#2254 / canonical-tabs.md § 5.11). When
+// rendered standalone on `/settings`, the panel ships its own agent
+// picker so an operator can reach into any agent without first
+// navigating to it in the Explorer. When rendered inside Agent × Config
+// → Secrets the open agent is already known, so the picker is hidden
+// and the form scopes directly to that agent — same panel body, two
+// entry shapes.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { KeyRound, Plus, Trash2 } from "lucide-react";
@@ -36,15 +44,33 @@ import type { AgentResponse, SecretMetadata } from "@/lib/api/types";
 
 type AddMode = "value" | "externalStoreKey";
 
-export function AgentOverridesPanel() {
-  const { toast } = useToast();
+export interface AgentOverridesPanelProps {
+  /**
+   * When set, the panel hides the agent picker and scopes the CRUD form
+   * directly to this agent. Used by Agent × Config → Secrets where the
+   * open agent is already known from the Detail Pane's selection.
+   * When omitted (the `/settings` standalone case) the picker renders
+   * so an operator can pick any agent without first selecting it.
+   */
+  agentId?: string;
+}
 
-  // Agent directory + selection
+export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) {
+  const { toast } = useToast();
+  // Pinned mode = caller passed a specific agent. The picker chrome
+  // (filter input + select + agent directory fetch + empty state) is
+  // suppressed; `selectedAgentId` reads directly off the prop.
+  const pinned = agentId !== undefined;
+
+  // Agent directory + selection. In pinned mode the directory fetch is
+  // skipped — the open agent is already known, the picker is hidden, and
+  // the panel just needs the chosen id to drive the secret-CRUD wire.
   const [agents, setAgents] = useState<AgentResponse[]>([]);
-  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [agentsLoading, setAgentsLoading] = useState(!pinned);
   const [agentsError, setAgentsError] = useState<unknown>(null);
-  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const [pickedAgentId, setPickedAgentId] = useState<string>("");
   const [agentFilter, setAgentFilter] = useState<string>("");
+  const selectedAgentId = pinned ? agentId! : pickedAgentId;
 
   // Per-agent secrets
   const [secrets, setSecrets] = useState<SecretMetadata[] | null>(null);
@@ -65,8 +91,12 @@ export function AgentOverridesPanel() {
 
   const [deletingName, setDeletingName] = useState<string | null>(null);
 
-  // Initial agent list
+  // Initial agent list — only when the panel renders its own picker.
+  // In pinned mode the caller already knows which agent it is scoping
+  // CRUD to, so an `api.listAgents()` round-trip would be wasted work
+  // (and would surface a spurious "Loading agents…" select).
   useEffect(() => {
+    if (pinned) return;
     let cancelled = false;
     setAgentsLoading(true);
     void api
@@ -88,7 +118,7 @@ export function AgentOverridesPanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [pinned]);
 
   const refreshSecrets = useCallback(
     async (agentId: string) => {
@@ -227,45 +257,47 @@ export function AgentOverridesPanel() {
 
       {agentsError !== null && <ApiErrorMessage error={agentsError} />}
 
-      <div className="space-y-2">
-        <label className="block space-y-1">
-          <span className="text-xs text-muted-foreground">Agent</span>
-          <Input
-            type="search"
-            value={agentFilter}
-            onChange={(e) => setAgentFilter(e.target.value)}
-            placeholder="Filter agents…"
-            autoComplete="off"
-            spellCheck={false}
-            className="text-xs"
-            data-testid="agent-overrides-filter"
-            disabled={agentsLoading || agents.length === 0}
-          />
-        </label>
-        <select
-          value={selectedAgentId}
-          onChange={(e) => setSelectedAgentId(e.target.value)}
-          aria-label="Agent"
-          disabled={agentsLoading || filteredAgents.length === 0}
-          className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-          data-testid="agent-overrides-agent-select"
-        >
-          <option value="">
-            {agentsLoading
-              ? "Loading agents…"
-              : agents.length === 0
-                ? "No agents available"
-                : filteredAgents.length === 0
-                  ? "No agents match the filter"
-                  : "Pick an agent…"}
-          </option>
-          {filteredAgents.map((a) => (
-            <option key={a.name} value={a.name}>
-              {a.displayName ? `${a.displayName} (${a.name})` : a.name}
+      {pinned ? null : (
+        <div className="space-y-2">
+          <label className="block space-y-1">
+            <span className="text-xs text-muted-foreground">Agent</span>
+            <Input
+              type="search"
+              value={agentFilter}
+              onChange={(e) => setAgentFilter(e.target.value)}
+              placeholder="Filter agents…"
+              autoComplete="off"
+              spellCheck={false}
+              className="text-xs"
+              data-testid="agent-overrides-filter"
+              disabled={agentsLoading || agents.length === 0}
+            />
+          </label>
+          <select
+            value={pickedAgentId}
+            onChange={(e) => setPickedAgentId(e.target.value)}
+            aria-label="Agent"
+            disabled={agentsLoading || filteredAgents.length === 0}
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            data-testid="agent-overrides-agent-select"
+          >
+            <option value="">
+              {agentsLoading
+                ? "Loading agents…"
+                : agents.length === 0
+                  ? "No agents available"
+                  : filteredAgents.length === 0
+                    ? "No agents match the filter"
+                    : "Pick an agent…"}
             </option>
-          ))}
-        </select>
-      </div>
+            {filteredAgents.map((a) => (
+              <option key={a.name} value={a.name}>
+                {a.displayName ? `${a.displayName} (${a.name})` : a.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {!selectedAgentId ? (
         <p

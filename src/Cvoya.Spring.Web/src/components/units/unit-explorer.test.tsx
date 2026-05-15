@@ -74,8 +74,9 @@ describe("UnitExplorer (foundation scaffold)", () => {
   it("renders the kind's tab strip", () => {
     render(<UnitExplorer tree={tree} />);
     expect(screen.getByTestId("detail-tabstrip")).toBeInTheDocument();
-    // Tenant gets 4 tabs by default (#2257 removed the Memory placeholder).
-    expect(screen.getAllByRole("tab")).toHaveLength(4);
+    // Tenant gets 4 visible + 1 overflow = 5 tabs (#2257 removed the
+    // Memory placeholder; #2254 added Config to overflow).
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
   });
 
   it("falls back to the placeholder when no tab content is registered", () => {
@@ -145,9 +146,10 @@ describe("UnitExplorer (foundation scaffold)", () => {
       "aria-current",
       "page",
     );
-    // Tenant catalog is 4 tabs; Unit would be 10. Confirms the kind-specific
-    // catalog is driven by the fallback node, not the stale id.
-    expect(screen.getAllByRole("tab")).toHaveLength(4);
+    // Tenant catalog is 4 visible + 1 overflow (#2254 added Config); Unit
+    // would be 10. Confirms the kind-specific catalog is driven by the
+    // fallback node, not the stale id.
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
   });
 
   it("auto-snaps to the kind's first tab when the controlled `tab` is out of catalog", () => {
@@ -195,9 +197,10 @@ describe("UnitExplorer (foundation scaffold)", () => {
     );
 
     // Navigate back to the Tenant via the breadcrumb. The remembered
-    // Activity tab should come back — not Overview.
+    // Activity tab should come back — not Overview. 4 visible + 1
+    // overflow = 5 tabs on Tenant after #2254.
     fireEvent.click(screen.getByTestId("detail-crumb-tenant-acme"));
-    expect(screen.getAllByRole("tab")).toHaveLength(4);
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
     expect(screen.getByTestId("detail-tab-activity")).toHaveAttribute(
       "aria-selected",
       "true",
