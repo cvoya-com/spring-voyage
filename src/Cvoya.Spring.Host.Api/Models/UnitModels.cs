@@ -49,6 +49,15 @@ public record CreateUnitRequest(
 /// Request body for updating mutable unit metadata. All fields are optional;
 /// <c>null</c> means "leave the existing value untouched".
 /// </summary>
+/// <remarks>
+/// <para>
+/// <see cref="Instructions"/> is a tri-state slot per ADR-0043: omitting the
+/// property leaves the unit's <c>instructions</c> unchanged; an explicit
+/// JSON <c>null</c> clears it; a string replaces it. The DTO collapses
+/// absent / explicit-null at deserialization, so the endpoint inspects the
+/// raw JSON body to distinguish the two.
+/// </para>
+/// </remarks>
 /// <param name="DisplayName">The new display name, or <c>null</c> to leave unchanged.</param>
 /// <param name="Description">The new description, or <c>null</c> to leave unchanged.</param>
 /// <param name="Model">The new model hint, or <c>null</c> to leave unchanged.</param>
@@ -58,7 +67,8 @@ public record UpdateUnitRequest(
     string? Description = null,
     string? Model = null,
     string? Color = null,
-    string? Hosting = null);
+    string? Hosting = null,
+    string? Instructions = null);
 
 /// <summary>
 /// Response body representing a unit.
@@ -92,7 +102,8 @@ public record UnitResponse(
     string? Color,
     string? Hosting = null,
     UnitValidationError? LastValidationError = null,
-    string? LastValidationRunId = null);
+    string? LastValidationRunId = null,
+    string? Instructions = null);
 
 /// <summary>
 /// Request body for adding a member to a unit.

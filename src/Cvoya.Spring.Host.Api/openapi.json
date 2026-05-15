@@ -605,7 +605,7 @@
         "tags": [
           "Agents"
         ],
-        "summary": "Update the agent's metadata (model, specialty, enabled, execution mode)",
+        "summary": "Update the agent's metadata (model, specialty, enabled, execution mode, instructions)",
         "operationId": "UpdateAgentMetadata",
         "parameters": [
           {
@@ -634,6 +634,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AgentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -1351,7 +1361,7 @@
         "tags": [
           "Units"
         ],
-        "summary": "Update mutable unit metadata (displayName, description, model, color)",
+        "summary": "Update mutable unit metadata (displayName, description, model, color, hosting, instructions)",
         "operationId": "UpdateUnit",
         "parameters": [
           {
@@ -1380,6 +1390,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UnitResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -9448,6 +9468,12 @@
               "null",
               "string"
             ]
+          },
+          "instructions": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -13871,6 +13897,12 @@
               "null",
               "string"
             ]
+          },
+          "instructions": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -14077,6 +14109,12 @@
                 "$ref": "#/components/schemas/AgentExecutionMode"
               }
             ]
+          },
+          "instructions": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -14122,6 +14160,12 @@
             ]
           },
           "hosting": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "instructions": {
             "type": [
               "null",
               "string"

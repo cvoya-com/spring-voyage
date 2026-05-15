@@ -94,6 +94,11 @@ public static class AgentCommand
 
         agentCommand.Subcommands.Add(CreateListCommand(outputOption));
         agentCommand.Subcommands.Add(CreateCreateCommand(outputOption, clientFactory));
+        // #2293: `spring agent set <agent>` for top-level slot edits. Today
+        // the only flag is --instructions (set / clear / read from file);
+        // additional partial-PATCH knobs (e.g. role, specialty) can join
+        // this verb without a new subcommand tree.
+        agentCommand.Subcommands.Add(CreateSetCommand(clientFactory));
         // #1629 PR6 — `show <id-or-name>` accepts a Guid (canonical no-dash
         // 32-hex or dashed) for direct lookup, OR a display_name for search
         // with disambiguation. `--unit <name-or-guid>` constrains the search
@@ -791,6 +796,129 @@ public static class AgentCommand
         }
 
         return definitionJson;
+    }
+
+    /// <summary>
+    /// `spring agent set <agent> --instructions <text|@path>` (#2293).
+    /// Top-level prompt-surface PATCH. The verb is intentionally
+    /// minimal — it carries only the slots that have no dedicated
+    /// subcommand (so it doesn't collide with
+    /// <c>agent execution set</c> /
+    /// <c>agent expertise set</c>).
+    /// </summary>
+    /// <remarks>
+    /// Flag semantics for <c>--instructions</c>:
+    /// <list type="bullet">
+    ///   <item><description><c>--instructions "literal text"</c> replaces the slot.</description></item>
+    ///   <item><description><c>--instructions @path/to/file.md</c> reads the file contents and sends them as the new value.</description></item>
+    ///   <item><description><c>--instructions ""</c> clears the slot via PATCH <c>instructions: null</c>.</description></item>
+    /// </list>
+    /// </remarks>
+    internal static Command CreateSetCommand(Func<SpringApiClient> clientFactory)
+    {
+        var agentArg = new Argument<string>("agent")
+        {
+            Description = "The agent identifier (Guid or display_name).",
+        };
+        var instructionsOption = new Option<string?>("--instructions")
+        {
+            Description =
+                "New value for the agent's `instructions` slot. " +
+                "Pass a literal string, an empty string \"\" to clear, " +
+                "or `@path/to/file.md` to read the file contents.",
+        };
+
+        var command = new Command(
+            "set",
+            "Update top-level agent slots. Today: --instructions (set / clear / @file).");
+        command.Arguments.Add(agentArg);
+        command.Options.Add(instructionsOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var idOrName = parseResult.GetValue(agentArg)!;
+            var rawInstructions = parseResult.GetValue(instructionsOption);
+            var instructionsSupplied = parseResult.GetResult(instructionsOption) is not null;
+
+            if (!instructionsSupplied)
+            {
+                await Console.Error.WriteLineAsync(
+                    "Nothing to set. Pass --instructions <text|@path|''>.");
+                Environment.Exit(1);
+                return;
+            }
+
+            string? newValue;
+            try
+            {
+                newValue = await ResolveInstructionsArgumentAsync(rawInstructions, ct);
+            }
+            catch (FileNotFoundException ex)
+            {
+                await Console.Error.WriteLineAsync(ex.Message);
+                Environment.Exit(1);
+                return;
+            }
+
+            var client = clientFactory();
+            var resolver = new CliResolver(client);
+            string agentId;
+            try
+            {
+                agentId = await resolver.ResolveAgentIdAsync(idOrName, unitContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            await client.SetAgentInstructionsAsync(agentId, newValue, ct);
+
+            if (newValue is null)
+            {
+                Console.WriteLine($"Agent '{idOrName}' instructions cleared.");
+            }
+            else
+            {
+                Console.WriteLine($"Agent '{idOrName}' instructions updated.");
+            }
+        });
+
+        return command;
+    }
+
+    /// <summary>
+    /// Maps the raw <c>--instructions</c> argument to the wire value:
+    /// <c>""</c> -&gt; <c>null</c> (clear); <c>@path</c> -&gt; file
+    /// contents; anything else -&gt; the literal string. The file-mode
+    /// failure surfaces as a <see cref="FileNotFoundException"/> so the
+    /// caller can print a single concise message.
+    /// </summary>
+    internal static async Task<string?> ResolveInstructionsArgumentAsync(
+        string? raw, CancellationToken ct)
+    {
+        if (raw is null)
+        {
+            return null;
+        }
+        if (raw.Length == 0)
+        {
+            return null;
+        }
+        if (raw.StartsWith('@'))
+        {
+            var path = raw[1..];
+            if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
+            {
+                throw new FileNotFoundException($"Instructions file not found: {path}");
+            }
+
+            return await System.IO.File.ReadAllTextAsync(path, ct);
+        }
+
+        return raw;
     }
 
     // #1629 PR6 — show columns. `show` is the read-on-name verb: it

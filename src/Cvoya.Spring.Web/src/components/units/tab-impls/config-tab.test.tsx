@@ -176,7 +176,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
   });
 
   describe("Unit", () => {
-    it("renders eight sub-tabs — existing six plus Budget + Debug", () => {
+    it("renders nine sub-tabs — existing six plus Instructions + Budget + Debug", () => {
       render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
 
       expect(screen.getByTestId("tab-unit-config")).toBeInTheDocument();
@@ -184,6 +184,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
       expect(tabs.map((t) => t.textContent)).toEqual([
         "Boundary",
         "Execution",
+        "Instructions",
         "Connector",
         "Skills",
         "Secrets",
@@ -231,13 +232,14 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
   });
 
   describe("Agent", () => {
-    it("renders seven sub-tabs — Execution / Budget / Connector / Skills / Secrets / Expertise / Debug", () => {
+    it("renders eight sub-tabs — Execution / Instructions / Budget / Connector / Skills / Secrets / Expertise / Debug", () => {
       render(<ConfigTab kind="Agent" id="ada" name="Ada" />);
 
       expect(screen.getByTestId("tab-agent-config")).toBeInTheDocument();
       const tabs = screen.getAllByRole("tab");
       expect(tabs.map((t) => t.textContent)).toEqual([
         "Execution",
+        "Instructions",
         "Budget",
         "Connector",
         "Skills",

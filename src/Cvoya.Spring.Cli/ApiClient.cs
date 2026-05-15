@@ -164,6 +164,88 @@ public class SpringApiClient
     public Task DeleteAgentAsync(string id, CancellationToken ct = default)
         => _client.Api.V1.Tenant.Agents[id].DeleteAsync(cancellationToken: ct);
 
+    /// <summary>
+    /// PATCH the agent's <c>instructions</c> slot (#2293). The wire format
+    /// is tri-state: <c>null</c> clears the slot (sends explicit JSON
+    /// <c>null</c>); a string replaces it. The CLI's
+    /// <c>spring agent set --instructions</c> verb maps an empty-string
+    /// argument to <c>null</c> here.
+    /// </summary>
+    /// <remarks>
+    /// Bypasses Kiota's request adapter for two reasons: (1) Kiota's
+    /// JsonSerializationWriter elides <c>null</c> string values rather
+    /// than emitting <c>"instructions": null</c>, which would defeat the
+    /// clear semantics; (2) keeping every other field absent makes the
+    /// patch surgically scoped to one slot. Auth headers and base URL
+    /// come from the shared <see cref="HttpClient"/> so this matches the
+    /// rest of the CLI's request envelope.
+    /// </remarks>
+    public async Task SetAgentInstructionsAsync(
+        string agentId,
+        string? instructions,
+        CancellationToken ct = default)
+    {
+        var body = BuildInstructionsBody(instructions);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Patch, $"{_baseUrl}/api/v1/tenant/agents/{agentId}")
+        {
+            Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+        };
+        using var response = await _httpClient.SendAsync(request, ct);
+        await EnsureSuccessOrThrowAsync(response, $"agent '{agentId}'", ct);
+    }
+
+    /// <summary>
+    /// PATCH the unit's <c>instructions</c> slot (#2293). Same tri-state
+    /// semantics as <see cref="SetAgentInstructionsAsync"/>.
+    /// </summary>
+    public async Task SetUnitInstructionsAsync(
+        string unitId,
+        string? instructions,
+        CancellationToken ct = default)
+    {
+        var body = BuildInstructionsBody(instructions);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Patch, $"{_baseUrl}/api/v1/tenant/units/{unitId}")
+        {
+            Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+        };
+        using var response = await _httpClient.SendAsync(request, ct);
+        await EnsureSuccessOrThrowAsync(response, $"unit '{unitId}'", ct);
+    }
+
+    /// <summary>
+    /// Builds the raw PATCH body for an instructions-only update. The
+    /// JSON shape is <c>{"instructions": &lt;value-or-null&gt;}</c>; the
+    /// server's tri-state distinguishes absent / explicit-null /
+    /// string and only this property is sent.
+    /// </summary>
+    internal static string BuildInstructionsBody(string? instructions)
+    {
+        if (instructions is null)
+        {
+            return "{\"instructions\":null}";
+        }
+
+        // Use the System.Text.Json escaper so embedded quotes, newlines,
+        // and unicode round-trip correctly.
+        return "{\"instructions\":"
+            + System.Text.Json.JsonSerializer.Serialize(instructions)
+            + "}";
+    }
+
+    private static async Task EnsureSuccessOrThrowAsync(
+        HttpResponseMessage response, string subjectDescription, CancellationToken ct)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+        var body = await response.Content.ReadAsStringAsync(ct);
+        throw new InvalidOperationException(
+            $"PATCH {subjectDescription} failed: HTTP {(int)response.StatusCode} {response.ReasonPhrase}. {body}");
+    }
+
     // Persistent-agent lifecycle (#396). Each verb maps 1:1 to the endpoint
     // of the same name under /api/v1/agents/{id}. The CLI layer composes
     // these into `spring agent deploy / undeploy / scale / logs`; the status

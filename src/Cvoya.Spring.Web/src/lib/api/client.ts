@@ -461,6 +461,10 @@ export const api = {
       description: string;
       model: string;
       color: string;
+      // #2293: tri-state. Omit the property to leave instructions alone;
+      // set to `null` to clear; set to a string to replace. The server
+      // inspects the raw body to distinguish absent from explicit-null.
+      instructions: string | null;
     }>,
   ) =>
     unwrap(

@@ -27,6 +27,8 @@ using global::Dapr.Actors.Client;
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Maps agent-related API endpoints.
@@ -66,8 +68,13 @@ public static class AgentEndpoints
 
         group.MapPatch("/{id}", UpdateAgentMetadataAsync)
             .WithName("UpdateAgentMetadata")
-            .WithSummary("Update the agent's metadata (model, specialty, enabled, execution mode)")
+            .WithSummary("Update the agent's metadata (model, specialty, enabled, execution mode, instructions)")
+            // #2293: the handler reads the body via HttpContext so it can
+            // distinguish absent-vs-explicit-null on the `instructions`
+            // tri-state, so we declare the contract surface via .Accepts.
+            .Accepts<UpdateAgentMetadataRequest>("application/json")
             .Produces<AgentResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/{id}/skills", GetAgentSkillsAsync)
@@ -1012,6 +1019,8 @@ public static class AgentEndpoints
         [FromServices] PersistentAgentRegistry persistentAgentRegistry,
         [FromServices] IAgentExecutionStore executionStore,
         [FromServices] IInitiativeEngine initiativeEngine,
+        [FromServices] IServiceScopeFactory scopeFactory,
+        [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         var address = Address.For("agent", id);
@@ -1103,6 +1112,17 @@ public static class AgentEndpoints
             // Fail-open: lifecycle stays null.
         }
 
+        // #2293: surface the persisted `instructions` slot from the agent
+        // definition so the portal's Instructions sub-tab and the CLI can
+        // see the agent's own value without a follow-up call. Fail-open
+        // (null) — the dispatcher always re-reads at dispatch time.
+        var instructions = await TryReadAgentInstructionsAsync(
+            scopeFactory,
+            entry.ActorId,
+            loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.AgentEndpoints"),
+            id,
+            cancellationToken);
+
         var agentResponse = ToAgentResponse(
             entry,
             metadata,
@@ -1110,7 +1130,8 @@ public static class AgentEndpoints
             initiativeLevel: level,
             lifecycleStatus: lifecycleStatus,
             lifecycleError: lifecycleError,
-            parentUnitId: parentUnitGuid);
+            parentUnitId: parentUnitGuid,
+            instructions: instructions);
         if (!result.IsSuccess)
         {
             return Results.Ok(new AgentDetailResponse(agentResponse, null, deployment));
@@ -1129,12 +1150,43 @@ public static class AgentEndpoints
 
     private static async Task<IResult> UpdateAgentMetadataAsync(
         string id,
-        UpdateAgentMetadataRequest request,
+        HttpContext httpContext,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitMembershipRepository membershipRepository,
+        [FromServices] IServiceScopeFactory scopeFactory,
+        [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.AgentEndpoints");
+
+        // #2293: read the body twice — once typed (for the existing
+        // metadata fields), once raw (so the `instructions` tri-state can
+        // distinguish absent from explicit-null on the wire). Mirrors the
+        // shape used by UnitEndpoints.UpdateUnitAsync.
+        var jsonOptions = httpContext.RequestServices
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
+            .Value
+            .SerializerOptions;
+
+        UpdateAgentMetadataRequest? request;
+        AgentInstructionsPatch instructionsPatch;
+        try
+        {
+            using var document = await JsonDocument.ParseAsync(
+                httpContext.Request.Body, cancellationToken: cancellationToken);
+            request = document.RootElement.Deserialize<UpdateAgentMetadataRequest>(jsonOptions);
+            instructionsPatch = ReadAgentInstructionsPatch(document.RootElement);
+        }
+        catch (JsonException ex)
+        {
+            return Results.Problem(
+                detail: $"Request body is not valid JSON: {ex.Message}",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        request ??= new UpdateAgentMetadataRequest();
+
         var address = Address.For("agent", id);
         var entry = await directoryService.ResolveAsync(address, cancellationToken);
 
@@ -1158,12 +1210,168 @@ public static class AgentEndpoints
                 ParentUnit: null),
             cancellationToken);
 
+        // #2293: read-modify-write the agent's persisted Definition JSON
+        // when the caller addressed the `instructions` slot. Preserves
+        // every sibling property (mirrors UnitCreationService's expertise
+        // precedent).
+        if (instructionsPatch.IsPresent)
+        {
+            await ApplyAgentInstructionsPatchAsync(
+                scopeFactory, entry.ActorId, logger, id, instructionsPatch.Value, cancellationToken);
+        }
+
         var updated = await proxy.GetMetadataAsync(cancellationToken);
         // #2250: carry the membership-derived primary unit Guid through so
         // the patched response shape matches the GET path.
         var memberships = await membershipRepository.ListByAgentAsync(entry.ActorId, cancellationToken);
         Guid? parentUnitGuid = memberships.Count > 0 ? memberships[0].UnitId : null;
-        return Results.Ok(ToAgentResponse(entry, updated, parentUnitId: parentUnitGuid));
+        var instructions = await TryReadAgentInstructionsAsync(
+            scopeFactory, entry.ActorId, logger, id, cancellationToken);
+        return Results.Ok(ToAgentResponse(entry, updated, parentUnitId: parentUnitGuid, instructions: instructions));
+    }
+
+    /// <summary>
+    /// Tri-state for the optional <c>instructions</c> slot on PATCH bodies.
+    /// </summary>
+    private readonly record struct AgentInstructionsPatch(bool IsPresent, string? Value)
+    {
+        public static AgentInstructionsPatch Absent => new(false, null);
+    }
+
+    /// <summary>
+    /// Inspects the raw PATCH body for the <c>instructions</c> property
+    /// and projects it to the tri-state used by the endpoint
+    /// (set / clear / leave-alone).
+    /// </summary>
+    private static AgentInstructionsPatch ReadAgentInstructionsPatch(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return AgentInstructionsPatch.Absent;
+        }
+
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (!string.Equals(prop.Name, "instructions", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return prop.Value.ValueKind switch
+            {
+                JsonValueKind.Null => new AgentInstructionsPatch(true, null),
+                JsonValueKind.String => new AgentInstructionsPatch(true, prop.Value.GetString()),
+                _ => AgentInstructionsPatch.Absent,
+            };
+        }
+
+        return AgentInstructionsPatch.Absent;
+    }
+
+    /// <summary>
+    /// Applies the <c>instructions</c> tri-state to the agent's persisted
+    /// <c>AgentDefinitions.Definition</c> column. <c>null</c> removes the
+    /// key; a string replaces it. Every sibling property is preserved.
+    /// </summary>
+    private static async Task ApplyAgentInstructionsPatchAsync(
+        IServiceScopeFactory scopeFactory,
+        Guid agentActorId,
+        Microsoft.Extensions.Logging.ILogger logger,
+        string agentId,
+        string? value,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            var entity = await db.AgentDefinitions
+                .FirstOrDefaultAsync(a => a.Id == agentActorId && a.DeletedAt == null, cancellationToken);
+
+            if (entity is null)
+            {
+                logger.LogWarning(
+                    "Agent '{AgentId}': no AgentDefinition row found while applying instructions patch; skipping.",
+                    agentId);
+                return;
+            }
+
+            var payload = new Dictionary<string, object?>(StringComparer.Ordinal);
+            if (entity.Definition is { ValueKind: JsonValueKind.Object } existing)
+            {
+                foreach (var prop in existing.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "instructions", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    payload[prop.Name] = prop.Value;
+                }
+            }
+
+            if (value is not null)
+            {
+                payload["instructions"] = value;
+            }
+
+            entity.Definition = JsonSerializer.SerializeToElement(payload);
+            entity.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Agent '{AgentId}': failed to apply instructions patch on AgentDefinition.",
+                agentId);
+        }
+    }
+
+    /// <summary>
+    /// Reads the agent's persisted <c>instructions</c> string from the
+    /// <c>AgentDefinitions.Definition</c> JSON. Returns <c>null</c> when
+    /// the row, the document, or the property is missing.
+    /// </summary>
+    internal static async Task<string?> TryReadAgentInstructionsAsync(
+        IServiceScopeFactory scopeFactory,
+        Guid agentActorId,
+        Microsoft.Extensions.Logging.ILogger logger,
+        string agentId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            var entity = await db.AgentDefinitions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Id == agentActorId && a.DeletedAt == null, cancellationToken);
+
+            if (entity?.Definition is { ValueKind: JsonValueKind.Object } definition
+                && definition.TryGetProperty("instructions", out var prop)
+                && prop.ValueKind == JsonValueKind.String)
+            {
+                return prop.GetString();
+            }
+
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Agent '{AgentId}': failed to read instructions from AgentDefinition.",
+                agentId);
+            return null;
+        }
     }
 
     private static async Task<IResult> CreateAgentAsync(
@@ -1523,7 +1731,8 @@ public static class AgentEndpoints
         InitiativeLevel? initiativeLevel = null,
         AgentLifecycleStatus? lifecycleStatus = null,
         string? lifecycleError = null,
-        Guid? parentUnitId = null) =>
+        Guid? parentUnitId = null,
+        string? instructions = null) =>
         new(
             entry.ActorId,
             // #2114: Name carries the canonical 32-char no-dash hex form
@@ -1559,7 +1768,8 @@ public static class AgentEndpoints
             LifecycleStatus: lifecycleStatus.HasValue
                 ? lifecycleStatus.Value.ToString().ToLowerInvariant()
                 : null,
-            LifecycleError: lifecycleError);
+            LifecycleError: lifecycleError,
+            Instructions: instructions);
 
     /// <summary>
     /// Best-effort read of the agent actor's metadata. A failure here is
