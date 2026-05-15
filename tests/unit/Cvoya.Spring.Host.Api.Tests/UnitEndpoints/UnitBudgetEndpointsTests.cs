@@ -22,23 +22,18 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Handler-level tests for the unit-keyed budget endpoints
+/// Authorisation tests for the unit-keyed budget endpoints
 /// (<c>GET / PUT /api/v1/tenant/units/{id}/budget</c>) introduced in
-/// #2280.
+/// #2280. Without <c>LocalDev</c> the host runs <c>ApiTokenScheme</c>
+/// and a missing token must 401 before any handler logic executes.
 /// </summary>
 /// <remarks>
-/// <para>
 /// The happy-path, 404, validation, and tenant-isolation cases for
 /// these routes already live alongside the agent/tenant budget tests
 /// in <see cref="BudgetEndpointsTests"/> (search for
-/// <c>SetUnitBudget_*</c> / <c>GetUnitBudget_*</c>). The existing
-/// coverage is intentionally not duplicated under this folder.
-/// </para>
-/// <para>
-/// This file pins the authentication contract — the auth precedent for
-/// these routes documented here, alongside the rest of the
-/// <c>UnitEndpoints/</c> suites added in #2285.
-/// </para>
+/// <c>SetUnitBudget_*</c> / <c>GetUnitBudget_*</c>) and are not
+/// duplicated under this folder. This file pins the authentication
+/// contract — the auth-gate regression closed by #2288.
 /// </remarks>
 public class UnitBudgetEndpointsUnauthenticatedTests : IDisposable
 {
@@ -56,11 +51,7 @@ public class UnitBudgetEndpointsUnauthenticatedTests : IDisposable
             {
                 // No LocalDev setting — the host picks ApiTokenScheme so
                 // any route gated by .RequireAuthorization() rejects with
-                // 401 before its handler runs. The unit-budget routes
-                // happen to currently *bypass* that gate (see test note
-                // below), so they take the same path the existing
-                // SetUnitBudget_ZeroBudget_ReturnsBadRequest pins:
-                // through to the in-memory EF handler.
+                // 401 before its handler runs.
                 builder.UseSetting("ConnectionStrings:SpringDb",
                     "Host=test;Database=test;Username=test;Password=test");
                 builder.ConfigureServices(services =>
@@ -81,18 +72,8 @@ public class UnitBudgetEndpointsUnauthenticatedTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    // The unit-budget routes are mapped inside MapBudgetEndpoints on a
-    // separate `unitGroup` from the `agentGroup` that the
-    // .RequireAuthorization(RolePolicies.TenantOperator) wiring in
-    // Program.cs targets — MapBudgetEndpoints returns only the agent
-    // group, so the auth chain in Program.cs binds to agents and never
-    // reaches the unit-scoped group. These tests pin the current
-    // unauthenticated behaviour rather than a hypothetical 401, so the
-    // gap (if intentional, ratify; if accidental, fix) shows up as a
-    // visible expectation rather than a silent "works on my machine".
-
     [Fact]
-    public async Task GetBudget_NoAuthGate_ReachesHandlerAndReturns404ForMissingBudget()
+    public async Task GetBudget_Unauthenticated_Returns401()
     {
         // Arrange
         var ct = TestContext.Current.CancellationToken;
@@ -102,29 +83,165 @@ public class UnitBudgetEndpointsUnauthenticatedTests : IDisposable
         var response = await client.GetAsync(
             $"/api/v1/tenant/units/{Guid.NewGuid():N}/budget", ct);
 
-        // Assert — the handler runs and returns 404 (no row planted),
-        // confirming routing did NOT short-circuit at auth. If a future
-        // PR wraps the unit-budget group in .RequireAuthorization() this
-        // test will turn into a 401, surfacing the regression target.
-        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        // Assert — the role gate on the unit-budget group rejects with
+        // 401 before the handler runs. Pre-#2288 this surfaced as 404
+        // because MapBudgetEndpoints only returned the agent group, so
+        // the auth chain in Program.cs never reached the unit-scoped
+        // group.
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
-    public async Task SetBudget_NoAuthGate_ReachesHandlerAndReturns200OnValidBody()
+    public async Task SetBudget_Unauthenticated_Returns401()
     {
         // Arrange
         var ct = TestContext.Current.CancellationToken;
         using var client = _factory.CreateClient();
 
-        // Act — valid body so the EF upsert runs cleanly.
+        // Act — valid body so a missing gate would have let the EF
+        // upsert run cleanly. The new gate must short-circuit here.
         var response = await client.PutAsJsonAsync(
             $"/api/v1/tenant/units/{Guid.NewGuid():N}/budget",
             new SetBudgetRequest(25.50m),
             ct);
 
-        // Assert — the handler runs and upserts. As above, the moment
-        // the unit-budget group gets .RequireAuthorization() this will
-        // flip to 401.
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        // Assert — pre-#2288 this returned 200 (handler reached). The
+        // gate now rejects with 401 before the body is processed.
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+}
+
+/// <summary>
+/// Authorisation tests for the tenant-scope budget endpoints
+/// (<c>GET / PUT /api/v1/tenant/budget</c>). Like the unit-scope
+/// suite above this pins the auth-gate regression closed by #2288 —
+/// the tenant-scope group also lived behind no gate because
+/// <c>MapBudgetEndpoints</c> only returned the agent group.
+/// </summary>
+public class TenantBudgetEndpointsUnauthenticatedTests : IDisposable
+{
+    private readonly WebApplicationFactory<Program> _factory;
+
+    public TenantBudgetEndpointsUnauthenticatedTests()
+    {
+        var dbName = $"TenantBudgetAuthTestDb_{Guid.NewGuid()}";
+        var directoryService = Substitute.For<IDirectoryService>();
+        var actorProxyFactory = Substitute.For<IActorProxyFactory>();
+        var agentProxyResolver = Substitute.For<IAgentProxyResolver>();
+
+        _factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseSetting("ConnectionStrings:SpringDb",
+                    "Host=test;Database=test;Username=test;Password=test");
+                builder.ConfigureServices(services =>
+                {
+                    UnauthenticatedTestHostHelpers.ReplaceDbAndRuntime(
+                        services,
+                        dbName,
+                        directoryService,
+                        actorProxyFactory,
+                        agentProxyResolver);
+                });
+            });
+    }
+
+    public void Dispose()
+    {
+        _factory.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    [Fact]
+    public async Task GetTenantBudget_Unauthenticated_Returns401()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/api/v1/tenant/budget", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task SetTenantBudget_Unauthenticated_Returns401()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var client = _factory.CreateClient();
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/tenant/budget",
+            new SetBudgetRequest(50.0m),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+}
+
+/// <summary>
+/// Authorisation tests for the agent-scope budget endpoints
+/// (<c>GET / PUT /api/v1/tenant/agents/{id}/budget</c>). This was
+/// the only group correctly gated pre-#2288; the suite pins the
+/// behaviour so the move-auth-into-the-endpoint-file refactor in
+/// #2288 doesn't accidentally drop the agent gate too.
+/// </summary>
+public class AgentBudgetEndpointsUnauthenticatedTests : IDisposable
+{
+    private readonly WebApplicationFactory<Program> _factory;
+
+    public AgentBudgetEndpointsUnauthenticatedTests()
+    {
+        var dbName = $"AgentBudgetAuthTestDb_{Guid.NewGuid()}";
+        var directoryService = Substitute.For<IDirectoryService>();
+        var actorProxyFactory = Substitute.For<IActorProxyFactory>();
+        var agentProxyResolver = Substitute.For<IAgentProxyResolver>();
+
+        _factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseSetting("ConnectionStrings:SpringDb",
+                    "Host=test;Database=test;Username=test;Password=test");
+                builder.ConfigureServices(services =>
+                {
+                    UnauthenticatedTestHostHelpers.ReplaceDbAndRuntime(
+                        services,
+                        dbName,
+                        directoryService,
+                        actorProxyFactory,
+                        agentProxyResolver);
+                });
+            });
+    }
+
+    public void Dispose()
+    {
+        _factory.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    [Fact]
+    public async Task GetAgentBudget_Unauthenticated_Returns401()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync(
+            $"/api/v1/tenant/agents/{Guid.NewGuid():N}/budget", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task SetAgentBudget_Unauthenticated_Returns401()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var client = _factory.CreateClient();
+
+        var response = await client.PutAsJsonAsync(
+            $"/api/v1/tenant/agents/{Guid.NewGuid():N}/budget",
+            new SetBudgetRequest(10.0m),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 }
