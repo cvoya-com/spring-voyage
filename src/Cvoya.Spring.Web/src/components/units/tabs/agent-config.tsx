@@ -15,6 +15,12 @@
 // wrapper — not in the canonical control — so the Tenant and Unit
 // subjects don't pay for an agent-detail query they would never
 // consume.
+//
+// `parentUnit` carries the unit's display name (slug-shaped human label);
+// `parentUnitId` carries the canonical 32-char Guid form. The Execution
+// panel feeds `parentUnitId` into `/api/v1/tenant/units/{id}/...` route
+// templates, so anything but a Guid here breaks the inherited-defaults
+// fetch (see #2250 — slug-where-guid was the root cause).
 
 import { ConfigTab } from "@/components/units/tab-impls/config-tab";
 import { useAgent } from "@/lib/api/queries";
@@ -28,7 +34,7 @@ function AgentConfigTab({ node }: TabContentProps) {
   const { data } = useAgent(node.id);
   if (node.kind !== "Agent") return null;
   const agent = node as AgentNode;
-  const parentUnitId = data?.agent?.parentUnit ?? null;
+  const parentUnitId = data?.agent?.parentUnitId ?? null;
   const status = data?.status;
 
   return (

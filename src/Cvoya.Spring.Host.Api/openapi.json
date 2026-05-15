@@ -9419,6 +9419,12 @@
               "string"
             ]
           },
+          "parentUnitId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "hostingMode": {
             "type": [
               "null",

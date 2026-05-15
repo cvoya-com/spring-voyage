@@ -75,9 +75,7 @@ public record Address(
     {
         if (!GuidFormatter.TryParse(idString, out var id))
         {
-            throw new ArgumentException(
-                $"Address id '{idString}' is not a valid Guid.",
-                nameof(idString));
+            throw new InvalidAddressIdException(scheme, idString);
         }
 
         return new Address(scheme, id);
@@ -125,4 +123,27 @@ public record Address(
         address = new Address(scheme, id);
         return true;
     }
+}
+
+/// <summary>
+/// Thrown by <see cref="Address.For(string, string)"/> when the id segment
+/// cannot be parsed as a Guid. Subtype of <see cref="ArgumentException"/>
+/// so existing catches still work; the dedicated type lets the HTTP host
+/// translate this specific failure into a 400 ProblemDetails instead of
+/// the framework default 500 (#2250).
+/// </summary>
+public sealed class InvalidAddressIdException : ArgumentException
+{
+    public InvalidAddressIdException(string scheme, string idString)
+        : base($"Address id '{idString}' is not a valid Guid (scheme '{scheme}').", nameof(idString))
+    {
+        Scheme = scheme;
+        IdString = idString;
+    }
+
+    /// <summary>The address scheme passed to <see cref="Address.For"/>.</summary>
+    public string Scheme { get; }
+
+    /// <summary>The raw id string that failed Guid parsing.</summary>
+    public string IdString { get; }
 }

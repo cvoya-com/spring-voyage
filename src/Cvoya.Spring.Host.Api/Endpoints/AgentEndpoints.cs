@@ -945,7 +945,29 @@ public static class AgentEndpoints
                 // Fail-open: initiative level stays null on transient error.
             }
 
-            return ToAgentResponse(e, hostingMode: shape?.Hosting, initiativeLevel: level);
+            // #2250: surface the primary parent unit Guid so the portal /
+            // CLI can fetch unit-scoped resources without a slug→guid
+            // round trip. Fail-open (null) — list view stays usable if
+            // the membership table is briefly unreachable.
+            Guid? parentUnitGuid = null;
+            try
+            {
+                var memberships = await membershipRepository.ListByAgentAsync(e.ActorId, cancellationToken);
+                if (memberships.Count > 0)
+                {
+                    parentUnitGuid = memberships[0].UnitId;
+                }
+            }
+            catch
+            {
+                // Fail-open: parent-unit pointer stays null on transient error.
+            }
+
+            return ToAgentResponse(
+                e,
+                hostingMode: shape?.Hosting,
+                initiativeLevel: level,
+                parentUnitId: parentUnitGuid);
         });
 
         var agents = await Task.WhenAll(enrichmentTasks);
@@ -1003,7 +1025,7 @@ public static class AgentEndpoints
         var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
             new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(AgentActor));
         var agentActorUuid = entry.ActorId;
-        var metadata = await GetDerivedAgentMetadataAsync(proxy, membershipRepository, agentActorUuid, directoryService, cancellationToken);
+        var (metadata, parentUnitGuid) = await GetDerivedAgentMetadataAsync(proxy, membershipRepository, agentActorUuid, directoryService, cancellationToken);
 
         // #339: Thread the authenticated caller's identity through as the
         // From address rather than hardcoding `human://api`. The router's
@@ -1087,7 +1109,8 @@ public static class AgentEndpoints
             hostingMode: shape?.Hosting,
             initiativeLevel: level,
             lifecycleStatus: lifecycleStatus,
-            lifecycleError: lifecycleError);
+            lifecycleError: lifecycleError,
+            parentUnitId: parentUnitGuid);
         if (!result.IsSuccess)
         {
             return Results.Ok(new AgentDetailResponse(agentResponse, null, deployment));
@@ -1109,6 +1132,7 @@ public static class AgentEndpoints
         UpdateAgentMetadataRequest request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] IUnitMembershipRepository membershipRepository,
         CancellationToken cancellationToken)
     {
         var address = Address.For("agent", id);
@@ -1135,7 +1159,11 @@ public static class AgentEndpoints
             cancellationToken);
 
         var updated = await proxy.GetMetadataAsync(cancellationToken);
-        return Results.Ok(ToAgentResponse(entry, updated));
+        // #2250: carry the membership-derived primary unit Guid through so
+        // the patched response shape matches the GET path.
+        var memberships = await membershipRepository.ListByAgentAsync(entry.ActorId, cancellationToken);
+        Guid? parentUnitGuid = memberships.Count > 0 ? memberships[0].UnitId : null;
+        return Results.Ok(ToAgentResponse(entry, updated, parentUnitId: parentUnitGuid));
     }
 
     private static async Task<IResult> CreateAgentAsync(
@@ -1388,7 +1416,13 @@ public static class AgentEndpoints
             }
         }
 
-        var response = ToAgentResponse(entry, new AgentMetadata(ParentUnit: primaryUnit));
+        var primaryUnitGuid = resolvedUnits.Count > 0
+            ? resolvedUnits[0].Entry.ActorId
+            : (Guid?)null;
+        var response = ToAgentResponse(
+            entry,
+            new AgentMetadata(ParentUnit: primaryUnit),
+            parentUnitId: primaryUnitGuid);
         return Results.Created($"/api/v1/tenant/agents/{actorId}", response);
     }
 
@@ -1488,7 +1522,8 @@ public static class AgentEndpoints
         string? hostingMode = null,
         InitiativeLevel? initiativeLevel = null,
         AgentLifecycleStatus? lifecycleStatus = null,
-        string? lifecycleError = null) =>
+        string? lifecycleError = null,
+        Guid? parentUnitId = null) =>
         new(
             entry.ActorId,
             // #2114: Name carries the canonical 32-char no-dash hex form
@@ -1505,6 +1540,12 @@ public static class AgentEndpoints
             metadata?.Enabled ?? true,
             metadata?.ExecutionMode ?? AgentExecutionMode.Auto,
             metadata?.ParentUnit,
+            // #2250: ParentUnitId is the Guid in 32-char no-dash form so the
+            // portal / CLI can pass it straight into /units/{id}/... routes.
+            // ParentUnit (above) stays as the human-readable display name.
+            ParentUnitId: parentUnitId.HasValue && parentUnitId.Value != Guid.Empty
+                ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parentUnitId.Value)
+                : null,
             HostingMode: hostingMode,
             InitiativeLevel: initiativeLevel.HasValue
                 ? initiativeLevel.Value.ToString().ToLowerInvariant()
@@ -1558,7 +1599,7 @@ public static class AgentEndpoints
     /// <c>Agent:ParentUnit</c> state on the actor is a legacy mirror kept
     /// for non-critical readers and the backfill path.
     /// </summary>
-    internal static async Task<AgentMetadata?> GetDerivedAgentMetadataAsync(
+    internal static async Task<(AgentMetadata? Metadata, Guid? ParentUnitId)> GetDerivedAgentMetadataAsync(
         IAgentActor proxy,
         IUnitMembershipRepository membershipRepository,
         Guid agentActorUuid,
@@ -1577,27 +1618,31 @@ public static class AgentEndpoints
 
         // #1492: membership is now keyed by UUID. Derive the primary unit slug
         // by resolving the UUID back to the navigation-form address for the
-        // ParentUnit field (slug-based legacy compat).
+        // ParentUnit field (slug-based legacy compat). #2250: also return the
+        // primary unit Guid so the AgentResponse can carry it as ParentUnitId
+        // — the form the portal needs to fetch unit-scoped resources without
+        // a slug→guid round trip.
         string? derivedParent = null;
+        Guid? primaryUnitId = null;
         if (agentActorUuid != Guid.Empty)
         {
             var memberships = await membershipRepository.ListByAgentAsync(agentActorUuid, cancellationToken);
             if (memberships.Count > 0)
             {
-                var primaryUnitId = memberships[0].UnitId;
+                primaryUnitId = memberships[0].UnitId;
                 // Resolve Guid → slug via directory for the ParentUnit string field.
                 if (directoryService is not null)
                 {
                     var allEntries = await directoryService.ListAllAsync(cancellationToken);
                     var unitEntry = allEntries.FirstOrDefault(
                         e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase)
-                             && e.ActorId == primaryUnitId);
+                             && e.ActorId == primaryUnitId.Value);
                     derivedParent = unitEntry?.DisplayName
-                        ?? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(primaryUnitId);
+                        ?? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(primaryUnitId.Value);
                 }
                 else
                 {
-                    derivedParent = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(primaryUnitId);
+                    derivedParent = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(primaryUnitId.Value);
                 }
             }
         }
@@ -1606,10 +1651,10 @@ public static class AgentEndpoints
         {
             // No actor state; synthesise a metadata record so the response
             // still carries the derived parent (and defaults for the rest).
-            return new AgentMetadata(ParentUnit: derivedParent);
+            return (new AgentMetadata(ParentUnit: derivedParent), primaryUnitId);
         }
 
-        return metadata with { ParentUnit = derivedParent };
+        return (metadata with { ParentUnit = derivedParent }, primaryUnitId);
     }
 
     /// <summary>
