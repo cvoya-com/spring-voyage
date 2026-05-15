@@ -53,9 +53,23 @@ export interface AgentOverridesPanelProps {
    * so an operator can pick any agent without first selecting it.
    */
   agentId?: string;
+
+  /**
+   * Primary parent unit (Guid in 32-char no-dash form) for the pinned
+   * agent. When supplied the panel renders inherited secrets from the
+   * unit and the tenant alongside the agent-scope overrides — matching
+   * the unit Secrets tab so operators see the full resolver chain
+   * (Agent → Unit → Tenant) at a glance (#2250). Omitted in standalone
+   * mode; the panel derives it from the picked agent's
+   * <code>parentUnitId</code> instead.
+   */
+  parentUnitId?: string;
 }
 
-export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) {
+export function AgentOverridesPanel({
+  agentId,
+  parentUnitId,
+}: AgentOverridesPanelProps = {}) {
   const { toast } = useToast();
   // Pinned mode = caller passed a specific agent. The picker chrome
   // (filter input + select + agent directory fetch + empty state) is
@@ -72,8 +86,13 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
   const [agentFilter, setAgentFilter] = useState<string>("");
   const selectedAgentId = pinned ? agentId! : pickedAgentId;
 
-  // Per-agent secrets
+  // Per-agent secrets + inherited tiers (#2250). The unit and tenant
+  // lists feed the inheritance indicator; listing failures are non-fatal
+  // (we render agent overrides only) so a permissions hiccup at a
+  // broader scope doesn't blank the panel.
   const [secrets, setSecrets] = useState<SecretMetadata[] | null>(null);
+  const [unitSecrets, setUnitSecrets] = useState<SecretMetadata[]>([]);
+  const [tenantSecrets, setTenantSecrets] = useState<SecretMetadata[]>([]);
   const [secretsLoading, setSecretsLoading] = useState(false);
   const [secretsError, setSecretsError] = useState<unknown>(null);
 
@@ -90,6 +109,57 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
   const [submitting, setSubmitting] = useState(false);
 
   const [deletingName, setDeletingName] = useState<string | null>(null);
+
+  // Merge agent-scope overrides + inherited unit + inherited tenant rows
+  // into a single display list (#2250 — parity with the unit Secrets
+  // tab). Resolution order matches LlmCredentialResolver:
+  //   Agent → Unit → Tenant
+  // The narrowest tier wins for the same name; broader tiers render
+  // read-only with an "inherited from …" badge. Only agent-scope rows
+  // expose a delete button — the broader tiers must be cleared at their
+  // own panel.
+  const displayRows = useMemo(() => {
+    type Row = {
+      name: string;
+      origin: "agent" | "unit" | "tenant";
+      createdAt: string;
+      canDelete: boolean;
+    };
+    const seen = new Set<string>();
+    const rows: Row[] = [];
+    for (const s of secrets ?? []) {
+      if (seen.has(s.name)) continue;
+      seen.add(s.name);
+      rows.push({
+        name: s.name,
+        origin: "agent",
+        createdAt: s.createdAt,
+        canDelete: true,
+      });
+    }
+    for (const s of unitSecrets) {
+      if (seen.has(s.name)) continue;
+      seen.add(s.name);
+      rows.push({
+        name: s.name,
+        origin: "unit",
+        createdAt: s.createdAt,
+        canDelete: false,
+      });
+    }
+    for (const s of tenantSecrets) {
+      if (seen.has(s.name)) continue;
+      seen.add(s.name);
+      rows.push({
+        name: s.name,
+        origin: "tenant",
+        createdAt: s.createdAt,
+        canDelete: false,
+      });
+    }
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  }, [secrets, unitSecrets, tenantSecrets]);
+  const agentOverrideCount = (secrets ?? []).length;
 
   // Initial agent list — only when the panel renders its own picker.
   // In pinned mode the caller already knows which agent it is scoping
@@ -120,8 +190,22 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
     };
   }, [pinned]);
 
+  // Effective parent unit Guid. In pinned mode the caller passes it
+  // directly (the Detail Pane already knows). In standalone mode we
+  // derive it from the picked agent's `parentUnitId`. Either way it's
+  // used to fetch the unit's secret list for the inheritance indicator;
+  // when null the inheritance display falls back to "agent + tenant".
+  const selectedAgent = useMemo(
+    () => agents.find((a) => a.name === selectedAgentId) ?? null,
+    [agents, selectedAgentId],
+  );
+  const effectiveParentUnitId: string | null = useMemo(() => {
+    if (pinned) return parentUnitId ?? null;
+    return selectedAgent?.parentUnitId ?? null;
+  }, [pinned, parentUnitId, selectedAgent]);
+
   const refreshSecrets = useCallback(
-    async (agentId: string) => {
+    async (agentId: string, unitId: string | null) => {
       try {
         const list = await api.listAgentSecrets(agentId);
         setSecrets(list.secrets ?? []);
@@ -130,20 +214,45 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
         setSecretsError(err);
         setSecrets([]);
       }
+      // Unit-scope inheritance (#2250). Fail-open: a permissions or
+      // network hiccup at this tier doesn't blank the agent overrides
+      // surface — we simply render fewer "inherited from unit" rows.
+      if (unitId) {
+        try {
+          const unitList = await api.listUnitSecrets(unitId);
+          setUnitSecrets(unitList.secrets ?? []);
+        } catch {
+          setUnitSecrets([]);
+        }
+      } else {
+        setUnitSecrets([]);
+      }
+      // Tenant-scope inheritance (#2250). Same fail-open contract as the
+      // unit-side Secrets tab — see `secrets-tab.tsx`.
+      try {
+        const tenantList = await api.listTenantSecrets();
+        setTenantSecrets(tenantList.secrets ?? []);
+      } catch {
+        setTenantSecrets([]);
+      }
     },
     [],
   );
 
-  // Reload secret list whenever the operator picks a different agent
+  // Reload secret list whenever the operator picks a different agent or
+  // the resolved parent-unit changes (e.g. standalone mode where the
+  // unit id is only known after the agent list resolves).
   useEffect(() => {
     if (!selectedAgentId) {
       setSecrets(null);
+      setUnitSecrets([]);
+      setTenantSecrets([]);
       setSecretsError(null);
       return;
     }
     let cancelled = false;
     setSecretsLoading(true);
-    refreshSecrets(selectedAgentId).finally(() => {
+    refreshSecrets(selectedAgentId, effectiveParentUnitId).finally(() => {
       if (!cancelled) setSecretsLoading(false);
     });
     return () => {
@@ -153,7 +262,7 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
       setNewValue("");
       setNewExternalKey("");
     };
-  }, [selectedAgentId, refreshSecrets]);
+  }, [selectedAgentId, effectiveParentUnitId, refreshSecrets]);
 
   // Filtered agent list — typeahead. The match is case-insensitive
   // across the human-facing displayName and the address-bound name so
@@ -167,11 +276,6 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
       return dn.includes(q) || nm.includes(q);
     });
   }, [agents, agentFilter]);
-
-  const selectedAgent = useMemo(
-    () => agents.find((a) => a.name === selectedAgentId) ?? null,
-    [agents, selectedAgentId],
-  );
 
   const resetForm = () => {
     setNewName("");
@@ -214,7 +318,7 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
       });
       toast({ title: "Agent override added", description: newName.trim() });
       resetForm();
-      await refreshSecrets(selectedAgentId);
+      await refreshSecrets(selectedAgentId, effectiveParentUnitId);
     } catch (err) {
       setSubmitError(err);
       toast({
@@ -233,7 +337,7 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
     try {
       await api.deleteAgentSecret(selectedAgentId, name);
       toast({ title: "Agent override cleared", description: name });
-      await refreshSecrets(selectedAgentId);
+      await refreshSecrets(selectedAgentId, effectiveParentUnitId);
     } catch (err) {
       toast({
         title: "Delete failed",
@@ -248,11 +352,12 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
   return (
     <div className="space-y-4" data-testid="settings-agent-overrides">
       <p className="text-xs text-muted-foreground">
-        Per-agent secret overrides. Values set here win over unit-scoped
-        and tenant-default secrets for the chosen agent only — useful
-        when one agent needs a different LLM key, a sandboxed tool
-        token, or any other narrowed credential. Values are stored
-        server-side and never returned to the browser.
+        Per-agent secret overrides plus the inherited values the agent
+        actually resolves at dispatch time (Agent → Unit → Tenant).
+        Agent-scope rows win over the broader tiers for the same name;
+        agent-scope is the only row you can delete here — the broader
+        tiers are read-only and must be cleared at their own panel.
+        Values are stored server-side and never returned to the browser.
       </p>
 
       {agentsError !== null && <ApiErrorMessage error={agentsError} />}
@@ -319,8 +424,8 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
               {selectedAgent?.displayName || selectedAgentId}
             </span>
             <Badge variant="outline" className="text-[10px]">
-              {(secrets ?? []).length} override
-              {(secrets ?? []).length === 1 ? "" : "s"}
+              {agentOverrideCount} override
+              {agentOverrideCount === 1 ? "" : "s"}
             </Badge>
           </div>
 
@@ -328,25 +433,34 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
 
           {secretsLoading ? (
             <p className="text-xs text-muted-foreground">Loading…</p>
-          ) : (secrets ?? []).length === 0 ? (
+          ) : displayRows.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              No agent-scope overrides registered. The agent inherits
-              every secret from its unit, parent unit, and tenant.
+              No secrets resolved for this agent. Set one below as an
+              agent-scope override, or add a unit / tenant default from
+              the broader scope.
             </p>
           ) : (
             <ul
               className="divide-y divide-border rounded-md border border-border"
               data-testid="agent-overrides-list"
             >
-              {(secrets ?? []).map((s) => (
+              {displayRows.map((s) => (
                 <li
-                  key={s.name}
+                  key={`${s.origin}:${s.name}`}
                   className="flex items-center gap-3 px-3 py-2"
                   data-testid={`agent-override-row-${s.name}`}
                 >
                   <span className="font-mono text-xs">{s.name}</span>
-                  <Badge variant="outline" className="text-[10px]">
-                    set on agent
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] ${s.origin === "agent" ? "" : "text-muted-foreground"}`}
+                    data-testid={`agent-override-badge-${s.name}`}
+                  >
+                    {s.origin === "agent"
+                      ? "set on agent"
+                      : s.origin === "unit"
+                        ? "inherited from unit"
+                        : "inherited from tenant"}
                   </Badge>
                   <span className="ml-auto text-[10px] text-muted-foreground">
                     {new Date(s.createdAt).toLocaleString()}
@@ -355,8 +469,15 @@ export function AgentOverridesPanel({ agentId }: AgentOverridesPanelProps = {}) 
                     size="sm"
                     variant="outline"
                     onClick={() => handleDelete(s.name)}
-                    disabled={deletingName === s.name}
+                    disabled={!s.canDelete || deletingName === s.name}
                     aria-label={`Delete ${s.name}`}
+                    title={
+                      s.canDelete
+                        ? undefined
+                        : s.origin === "unit"
+                          ? "Inherited from unit — clear via the Unit Secrets tab."
+                          : "Inherited from tenant — clear via the Tenant defaults panel in Settings."
+                    }
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>

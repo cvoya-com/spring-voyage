@@ -86,6 +86,14 @@ public record CreateAgentRequest(
 /// <c>null</c> when <see cref="LifecycleStatus"/> is <c>"active"</c> or
 /// when the lifecycle could not be read. Added by #2156.
 /// </param>
+/// <param name="ParentUnitId">
+/// Guid of the primary parent unit (32-char hex, no dashes — the wire form
+/// that the rest of the API uses as a path parameter). <c>null</c> when the
+/// agent has no memberships. Companion to <see cref="ParentUnit"/>, which
+/// carries the unit's display name for human-readable surfaces;
+/// <see cref="ParentUnitId"/> is what callers should pass back as the
+/// <c>{id}</c> on <c>/api/v1/tenant/units/{id}/...</c> routes (#2250).
+/// </param>
 public record AgentResponse(
     Guid Id,
     string Name,
@@ -98,6 +106,7 @@ public record AgentResponse(
     bool Enabled,
     AgentExecutionMode ExecutionMode,
     string? ParentUnit,
+    string? ParentUnitId = null,
     string? HostingMode = null,
     string? InitiativeLevel = null,
     string? LifecycleStatus = null,

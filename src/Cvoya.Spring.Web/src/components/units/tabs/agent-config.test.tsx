@@ -38,9 +38,16 @@ import AgentConfigTab from "./agent-config";
 
 describe("AgentConfigTab — canonical wrapper (#2254)", () => {
   it("wires the canonical ConfigTab with the agent's parent unit + status", () => {
+    // #2250: the wrapper now reads `parentUnitId` (Guid hex form) rather
+    // than `parentUnit` (display name). The server-side response carries
+    // both; the wrapper picks the Guid so the Execution panel's
+    // `/api/v1/tenant/units/{id}/...` fetches resolve cleanly.
     useAgentMock.mockReturnValueOnce({
       data: {
-        agent: { parentUnit: "engineering" },
+        agent: {
+          parentUnit: "engineering",
+          parentUnitId: "deadbeefcafef00d1234567890abcdef",
+        },
         status: { mode: "Auto", running: true },
       },
     });
@@ -56,7 +63,9 @@ describe("AgentConfigTab — canonical wrapper (#2254)", () => {
     expect(canonical.dataset.kind).toBe("Agent");
     expect(canonical.dataset.id).toBe("ada");
     expect(canonical.dataset.name).toBe("Ada");
-    expect(canonical.dataset.parentUnitId).toBe("engineering");
+    expect(canonical.dataset.parentUnitId).toBe(
+      "deadbeefcafef00d1234567890abcdef",
+    );
     expect(canonical.dataset.status).toContain('"mode":"Auto"');
   });
 

@@ -282,7 +282,10 @@ export function ConfigTab({
               <EquippedSkillsTab kind="Agent" id={id} name={name} />
             </TabsContent>
             <TabsContent value="Secrets" className="space-y-2">
-              <AgentOverridesPanel agentId={id} />
+              <AgentOverridesPanel
+                agentId={id}
+                parentUnitId={parentUnitId ?? undefined}
+              />
             </TabsContent>
             <TabsContent value="Expertise" className="space-y-2">
               <AgentExpertisePanel agentId={id} />

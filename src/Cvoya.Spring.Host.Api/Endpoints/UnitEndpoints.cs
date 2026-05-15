@@ -1555,9 +1555,9 @@ public static class UnitEndpoints
             }
             var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
                 new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(AgentActor));
-            var metadata = await AgentEndpoints.GetDerivedAgentMetadataAsync(
+            var (metadata, parentUnitGuid) = await AgentEndpoints.GetDerivedAgentMetadataAsync(
                 proxy, membershipRepository, entry.ActorId, directoryService, cancellationToken);
-            responses.Add(AgentEndpoints.ToAgentResponse(entry, metadata));
+            responses.Add(AgentEndpoints.ToAgentResponse(entry, metadata, parentUnitId: parentUnitGuid));
         }
 
         return Results.Ok(responses);
@@ -1677,9 +1677,9 @@ public static class UnitEndpoints
         logger.LogInformation(
             "Agent {AgentId} assigned to unit {UnitId}.", agentId, id);
 
-        var refreshed = await AgentEndpoints.GetDerivedAgentMetadataAsync(
+        var (refreshed, refreshedParentUnitGuid) = await AgentEndpoints.GetDerivedAgentMetadataAsync(
             agentProxy, membershipRepository, agentAssignUuid, directoryService, cancellationToken);
-        return Results.Ok(AgentEndpoints.ToAgentResponse(agentEntry, refreshed));
+        return Results.Ok(AgentEndpoints.ToAgentResponse(agentEntry, refreshed, parentUnitId: refreshedParentUnitGuid));
     }
 
     /// <summary>

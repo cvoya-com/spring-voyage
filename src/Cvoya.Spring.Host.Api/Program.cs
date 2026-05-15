@@ -163,7 +163,26 @@ public partial class Program
                     new Cvoya.Spring.Host.Api.Serialization.NullableNoDashGuidJsonConverter());
             });
 
-            builder.Services.AddProblemDetails();
+            builder.Services.AddProblemDetails(options =>
+            {
+                // #2250: surface the structured detail when Address.For rejects
+                // a non-Guid path parameter. The framework default leaves
+                // ProblemDetails.Detail empty for synthesised 4xx responses,
+                // which renders a useless "Bad Request" in the portal. The
+                // exception message is safe to echo — it only references the
+                // path segment the caller already provided.
+                options.CustomizeProblemDetails = ctx =>
+                {
+                    var ex = ctx.HttpContext.Features
+                        .Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+                    if (ex is Cvoya.Spring.Core.Messaging.InvalidAddressIdException invalidId)
+                    {
+                        ctx.ProblemDetails.Detail = invalidId.Message;
+                        ctx.ProblemDetails.Extensions["scheme"] = invalidId.Scheme;
+                        ctx.ProblemDetails.Extensions["idString"] = invalidId.IdString;
+                    }
+                };
+            });
             builder.Services.AddEndpointsApiExplorer();
 
             // .NET 10's native OpenAPI. The document is emitted as a build artefact
@@ -425,13 +444,18 @@ public partial class Program
             // RequestDelegateFactory.TryReadBodyAsync). The default
             // ExceptionHandlerMiddleware ignores that property and emits 500;
             // the StatusCodeSelector below honours it so deserialization
-            // failures surface as a clean 400. Other exception types fall
-            // through to the framework default (500). See #1644.
+            // failures surface as a clean 400. InvalidAddressIdException
+            // (raised by Address.For when a path segment isn't Guid-shaped)
+            // gets the same 400 treatment — see #2250. Other exception types
+            // fall through to the framework default (500). See #1644.
             app.UseExceptionHandler(new ExceptionHandlerOptions
             {
-                StatusCodeSelector = ex => ex is BadHttpRequestException badRequest
-                    ? badRequest.StatusCode
-                    : StatusCodes.Status500InternalServerError,
+                StatusCodeSelector = ex => ex switch
+                {
+                    BadHttpRequestException badRequest => badRequest.StatusCode,
+                    Cvoya.Spring.Core.Messaging.InvalidAddressIdException => StatusCodes.Status400BadRequest,
+                    _ => StatusCodes.Status500InternalServerError,
+                },
             });
             app.UseAuthentication();
             app.UseAuthorization();

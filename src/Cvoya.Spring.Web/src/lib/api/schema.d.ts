@@ -2638,6 +2638,7 @@ export interface components {
             enabled: boolean;
             executionMode: components["schemas"]["AgentExecutionMode"];
             parentUnit: null | string;
+            parentUnitId?: null | string;
             hostingMode?: null | string;
             initiativeLevel?: null | string;
             lifecycleStatus?: null | string;
