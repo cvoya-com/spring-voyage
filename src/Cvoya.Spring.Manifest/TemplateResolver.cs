@@ -549,22 +549,31 @@ public sealed class TemplateResolver : ITemplateResolver
         // consumer body.
         var mergedYaml = MergeYaml(consumerYaml: consumerYaml, templateYaml: resolvedTemplateYaml);
 
-        // Stamp out the template's nested concrete children. Only
-        // in-package templates can carry children — cross-package
-        // template stamping uses the cross-package side for the body
-        // only (the children would have to be walked through the
-        // catalog provider, which is not exposed today; cross-package
-        // archetype libraries that ship nested children are a future
-        // extension).
+        // Stamp out the template's nested concrete children. In-package
+        // templates use the on-disk folder tree; cross-package templates
+        // pull their nested children through the catalog provider's
+        // EnumerateNestedArtefactsAsync method (ADR-0043 §5h
+        // archetype-library case).
         var childArtefacts = new List<ResolvedArtefact>();
         if (templateEntry is not null && templateFolder is not null)
         {
-            CollectTemplateChildren(
+            await CollectTemplateChildrenAsync(
                 templateFolder: templateFolder,
                 packageRoot: packageRoot,
                 resolverIndex: index,
                 output: childArtefacts,
-                ct: ct);
+                ct: ct).ConfigureAwait(false);
+        }
+        else if (reference.IsCrossPackage && _catalogProvider is not null)
+        {
+            await CollectCrossPackageTemplateChildrenAsync(
+                packageName: reference.PackageName!,
+                parentKind: consumerKind,
+                parentArtefactName: reference.ArtefactName,
+                resolverIndex: index,
+                packageRoot: packageRoot,
+                output: childArtefacts,
+                ct: ct).ConfigureAwait(false);
         }
 
         var combined = new List<ResolvedArtefact>(chainedChildren.Count + childArtefacts.Count);
@@ -581,7 +590,7 @@ public sealed class TemplateResolver : ITemplateResolver
     /// <c>Agent</c> or <c>Unit</c>; nested templates are themselves
     /// candidates for future cloning but don't produce activated rows).
     /// </summary>
-    private void CollectTemplateChildren(
+    private async Task CollectTemplateChildrenAsync(
         string templateFolder,
         string? packageRoot,
         IReadOnlyList<TemplateIndexEntry> resolverIndex,
@@ -647,14 +656,14 @@ public sealed class TemplateResolver : ITemplateResolver
                 IReadOnlyList<ResolvedArtefact> grandchildren = Array.Empty<ResolvedArtefact>();
                 if (!string.IsNullOrWhiteSpace(fromRef))
                 {
-                    var (mergedYaml, gc) = StampFromChainAsync(
+                    var (mergedYaml, gc) = await StampFromChainAsync(
                         consumerYaml: rawYaml,
                         consumerKind: childKind,
                         fromRef: fromRef!,
                         index: resolverIndex,
                         packageRoot: packageRoot,
                         visited: new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                        ct: ct).GetAwaiter().GetResult();
+                        ct: ct).ConfigureAwait(false);
                     childYaml = mergedYaml;
                     grandchildren = gc;
                 }
@@ -672,13 +681,99 @@ public sealed class TemplateResolver : ITemplateResolver
                 // Recurse on the cloned child's own subtree so a nested
                 // concrete child of the cloned child also lands in the
                 // output.
-                CollectTemplateChildren(
+                await CollectTemplateChildrenAsync(
                     templateFolder: childDir,
                     packageRoot: packageRoot,
                     resolverIndex: resolverIndex,
                     output: output,
-                    ct: ct);
+                    ct: ct).ConfigureAwait(false);
             }
+        }
+    }
+
+    /// <summary>
+    /// Cross-package counterpart of <see cref="CollectTemplateChildrenAsync"/>:
+    /// for a cross-package <c>from:</c> reference, asks the catalog
+    /// provider for the source template's nested concrete children and
+    /// stamps each one into the consumer's tree. ADR-0043 §5h
+    /// archetype-library case.
+    /// </summary>
+    /// <remarks>
+    /// Each cloned child's <see cref="ResolvedArtefact.SourcePackage"/>
+    /// is left <c>null</c> — the child belongs to the consumer's
+    /// package, not to the archetype library. Identity (a fresh Guid per
+    /// ADR-0036) is minted by the install pipeline downstream. The
+    /// resolver also recurses on each child's own <c>from:</c> chain so
+    /// a cross-package archetype that itself chains into another
+    /// archetype resolves transitively.
+    /// </remarks>
+    private async Task CollectCrossPackageTemplateChildrenAsync(
+        string packageName,
+        ArtefactKind parentKind,
+        string parentArtefactName,
+        IReadOnlyList<TemplateIndexEntry> resolverIndex,
+        string? packageRoot,
+        List<ResolvedArtefact> output,
+        CancellationToken ct)
+    {
+        if (_catalogProvider is null)
+        {
+            return;
+        }
+
+        IReadOnlyList<NestedArtefactDescriptor> descriptors;
+        try
+        {
+            descriptors = await _catalogProvider
+                .EnumerateNestedArtefactsAsync(packageName, parentKind, parentArtefactName, ct)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // Defensive: a catalog provider that throws on the enumeration
+            // shouldn't crash the resolver; degrade to "no nested children"
+            // (cross-package archetypes that don't surface nested children
+            // are still valid — they just don't stamp out a subtree).
+            return;
+        }
+
+        foreach (var descriptor in descriptors)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            string childYaml = descriptor.Yaml;
+            IReadOnlyList<ResolvedArtefact> grandchildren = Array.Empty<ResolvedArtefact>();
+
+            // Recurse on the cloned child's own `from:` chain — handles
+            // a cross-package archetype whose nested children themselves
+            // chain across package boundaries.
+            var fromRef = ReadFromField(descriptor.Yaml);
+            if (!string.IsNullOrWhiteSpace(fromRef))
+            {
+                var (mergedYaml, gc) = await StampFromChainAsync(
+                    consumerYaml: descriptor.Yaml,
+                    consumerKind: descriptor.Kind,
+                    fromRef: fromRef!,
+                    index: resolverIndex,
+                    packageRoot: packageRoot,
+                    visited: new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                    ct: ct).ConfigureAwait(false);
+                childYaml = mergedYaml;
+                grandchildren = gc;
+            }
+
+            output.Add(new ResolvedArtefact
+            {
+                Name = descriptor.Name,
+                SourcePackage = null,
+                Kind = descriptor.Kind,
+                // No on-disk path — the child was materialised from the
+                // catalog provider, not walked from the consumer's tree.
+                ResolvedPath = null,
+                Content = childYaml,
+                ContainingArtefactName = descriptor.ContainingArtefactName,
+            });
+            output.AddRange(grandchildren);
         }
     }
 

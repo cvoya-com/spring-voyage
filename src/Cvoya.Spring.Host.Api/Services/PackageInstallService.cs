@@ -1504,4 +1504,24 @@ internal sealed class InFlightBatchCatalogProvider : IPackageCatalogProvider
 
         return null;
     }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<NestedArtefactDescriptor>> EnumerateNestedArtefactsAsync(
+        string packageName,
+        ArtefactKind parentKind,
+        string parentArtefactName,
+        CancellationToken cancellationToken = default)
+    {
+        // In-flight packages: not used today for the archetype-library
+        // case (§5h targets already-installed cross-package templates).
+        // Forward to the underlying catalog for non-in-flight packages so
+        // the resolver can walk a sibling package on disk.
+        if (_underlying is not null && !_inFlight.ContainsKey(packageName))
+        {
+            return _underlying.EnumerateNestedArtefactsAsync(
+                packageName, parentKind, parentArtefactName, cancellationToken);
+        }
+        return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(
+            System.Array.Empty<NestedArtefactDescriptor>());
+    }
 }

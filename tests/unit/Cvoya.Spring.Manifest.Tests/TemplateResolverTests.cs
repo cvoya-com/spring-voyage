@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Manifest.Tests;
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -410,6 +411,205 @@ public class TemplateResolverTests
     }
 
     [Fact]
+    public async Task ResolveAsync_CrossPackageFrom_WithOneNestedAgent_StampsChild()
+    {
+        // ADR-0043 §5h archetype-library case: the cross-package template
+        // ships ONE nested concrete agent. The consumer instance gets the
+        // nested agent stamped fresh into its own tree.
+        using var pkg = BuildPackage(
+            files: new[]
+            {
+                ("units/local-team/package.yaml", """
+                    apiVersion: spring.voyage/v1
+                    kind: Unit
+                    name: local-team
+                    description: x
+                    from: pkg-a/team-template@1.0
+                    """),
+            });
+
+        var resolved = await ParseAsync(pkg.Root);
+
+        var stubProvider = new MultiKeyStubCatalogProvider();
+        stubProvider.AddArtefact("pkg-a", ArtefactKind.Unit, "team-template", """
+            apiVersion: spring.voyage/v1
+            kind: UnitTemplate
+            name: team-template
+            description: cross-pkg team archetype
+            """);
+        stubProvider.AddNested("pkg-a", ArtefactKind.Unit, "team-template", new[]
+        {
+            new NestedArtefactDescriptor(
+                Kind: ArtefactKind.Agent,
+                Name: "external-lead",
+                Yaml: """
+                    apiVersion: spring.voyage/v1
+                    kind: Agent
+                    name: external-lead
+                    description: lead from the cross-package archetype
+                    """,
+                ContainingArtefactName: null),
+        });
+
+        var resolver = new TemplateResolver(stubProvider);
+        var output = await resolver.ResolveAsync(resolved, pkg.Root, TestContext.Current.CancellationToken);
+
+        output.Units.Count(u => u.Name == "local-team").ShouldBe(1);
+        output.Agents.Count(a => a.Name == "external-lead").ShouldBe(1);
+
+        // The cloned child is owned by the consumer unit, not by the
+        // archetype library — its ContainingArtefactName has been
+        // rebound to the consumer.
+        var lead = output.Agents.Single(a => a.Name == "external-lead");
+        lead.ContainingArtefactName.ShouldBe("local-team");
+        lead.IsCrossPackage.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ResolveAsync_CrossPackageFrom_WithTwoNestedAgentsUnderSubUnit_StampsFullTree()
+    {
+        // ADR-0043 §5h: the cross-package template ships a nested
+        // sub-unit that owns two agents. The consumer should receive
+        // the full subtree — one sub-unit plus its two agents.
+        using var pkg = BuildPackage(
+            files: new[]
+            {
+                ("units/local-org/package.yaml", """
+                    apiVersion: spring.voyage/v1
+                    kind: Unit
+                    name: local-org
+                    description: x
+                    from: pkg-b/org-template@1.0
+                    """),
+            });
+
+        var resolved = await ParseAsync(pkg.Root);
+
+        var stubProvider = new MultiKeyStubCatalogProvider();
+        stubProvider.AddArtefact("pkg-b", ArtefactKind.Unit, "org-template", """
+            apiVersion: spring.voyage/v1
+            kind: UnitTemplate
+            name: org-template
+            description: x
+            """);
+        stubProvider.AddNested("pkg-b", ArtefactKind.Unit, "org-template", new[]
+        {
+            new NestedArtefactDescriptor(
+                Kind: ArtefactKind.Unit,
+                Name: "sub-team",
+                Yaml: """
+                    apiVersion: spring.voyage/v1
+                    kind: Unit
+                    name: sub-team
+                    description: nested sub-unit
+                    """,
+                ContainingArtefactName: null),
+            new NestedArtefactDescriptor(
+                Kind: ArtefactKind.Agent,
+                Name: "alpha",
+                Yaml: """
+                    apiVersion: spring.voyage/v1
+                    kind: Agent
+                    name: alpha
+                    description: agent under sub-team
+                    """,
+                ContainingArtefactName: "sub-team"),
+            new NestedArtefactDescriptor(
+                Kind: ArtefactKind.Agent,
+                Name: "beta",
+                Yaml: """
+                    apiVersion: spring.voyage/v1
+                    kind: Agent
+                    name: beta
+                    description: agent under sub-team
+                    """,
+                ContainingArtefactName: "sub-team"),
+        });
+
+        var resolver = new TemplateResolver(stubProvider);
+        var output = await resolver.ResolveAsync(resolved, pkg.Root, TestContext.Current.CancellationToken);
+
+        // Consumer + one cloned sub-unit + two cloned agents.
+        output.Units.Count(u => u.Name == "local-org").ShouldBe(1);
+        output.Units.Count(u => u.Name == "sub-team").ShouldBe(1);
+        output.Agents.Count(a => a.Name == "alpha").ShouldBe(1);
+        output.Agents.Count(a => a.Name == "beta").ShouldBe(1);
+
+        // Containment chain stays honest: agents are owned by sub-team;
+        // sub-team is owned by the consumer unit.
+        output.Agents.Single(a => a.Name == "alpha").ContainingArtefactName.ShouldBe("sub-team");
+        output.Agents.Single(a => a.Name == "beta").ContainingArtefactName.ShouldBe("sub-team");
+        output.Units.Single(u => u.Name == "sub-team").ContainingArtefactName.ShouldBe("local-org");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_CrossPackageFrom_WithChainedFromAcrossPackages_ResolvesTransitively()
+    {
+        // ADR-0043 §5e + §5h: a cross-package template whose nested
+        // child itself declares `from: <other-pkg>/<other-template>`
+        // resolves transitively — the consumer sees the chained
+        // template's body merged into the nested child.
+        using var pkg = BuildPackage(
+            files: new[]
+            {
+                ("units/local-org/package.yaml", """
+                    apiVersion: spring.voyage/v1
+                    kind: Unit
+                    name: local-org
+                    description: x
+                    from: pkg-c/team-template@1.0
+                    """),
+            });
+
+        var resolved = await ParseAsync(pkg.Root);
+
+        var stubProvider = new MultiKeyStubCatalogProvider();
+        // Outer cross-package template body.
+        stubProvider.AddArtefact("pkg-c", ArtefactKind.Unit, "team-template", """
+            apiVersion: spring.voyage/v1
+            kind: UnitTemplate
+            name: team-template
+            description: x
+            """);
+        // Nested child carries its own cross-package `from:` →
+        // another package's archetype template body.
+        stubProvider.AddNested("pkg-c", ArtefactKind.Unit, "team-template", new[]
+        {
+            new NestedArtefactDescriptor(
+                Kind: ArtefactKind.Agent,
+                Name: "engineer",
+                Yaml: """
+                    apiVersion: spring.voyage/v1
+                    kind: Agent
+                    name: engineer
+                    description: x
+                    from: pkg-d/engineer-archetype@1.0
+                    """,
+                ContainingArtefactName: null),
+        });
+        // Far-side archetype template.
+        stubProvider.AddArtefact("pkg-d", ArtefactKind.Agent, "engineer-archetype", """
+            apiVersion: spring.voyage/v1
+            kind: AgentTemplate
+            name: engineer-archetype
+            description: x
+            role: senior-engineer
+            instructions: |
+                Far-side archetype instructions.
+            """);
+
+        var resolver = new TemplateResolver(stubProvider);
+        var output = await resolver.ResolveAsync(resolved, pkg.Root, TestContext.Current.CancellationToken);
+
+        var engineer = output.Agents.Single(a => a.Name == "engineer");
+        engineer.Content.ShouldNotBeNull();
+        var engineerContent = engineer.Content!;
+        // Far-side archetype body flows through into the cloned child.
+        engineerContent.ShouldContain("role: senior-engineer");
+        engineerContent.ShouldContain("Far-side archetype instructions.");
+    }
+
+    [Fact]
     public async Task ResolveAsync_MissingTemplate_RaisesParseException()
     {
         using var pkg = BuildPackage(
@@ -504,5 +704,67 @@ public class TemplateResolverTests
             }
             return Task.FromResult<string?>(null);
         }
+    }
+
+    /// <summary>
+    /// Test catalog provider that supports multiple (package, kind, name)
+    /// keys and per-template nested-child enumeration. Backs the
+    /// cross-package archetype-library tests for ADR-0043 §5h.
+    /// </summary>
+    private sealed class MultiKeyStubCatalogProvider : IPackageCatalogProvider
+    {
+        private readonly Dictionary<string, string> _artefacts = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, IReadOnlyList<NestedArtefactDescriptor>> _nested =
+            new(StringComparer.Ordinal);
+
+        public void AddArtefact(string packageName, ArtefactKind kind, string artefactName, string yaml)
+        {
+            _artefacts[Key(packageName, kind, artefactName)] = yaml;
+        }
+
+        public void AddNested(string packageName, ArtefactKind parentKind, string parentName,
+            IReadOnlyList<NestedArtefactDescriptor> descriptors)
+        {
+            _nested[Key(packageName, parentKind, parentName)] = descriptors;
+        }
+
+        public Task<bool> PackageExistsAsync(string packageName, CancellationToken cancellationToken = default)
+        {
+            foreach (var key in _artefacts.Keys)
+            {
+                if (key.StartsWith(packageName + "|", StringComparison.Ordinal))
+                {
+                    return Task.FromResult(true);
+                }
+            }
+            return Task.FromResult(false);
+        }
+
+        public Task<string?> LoadArtefactYamlAsync(
+            string packageName,
+            ArtefactKind kind,
+            string artefactName,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<string?>(
+                _artefacts.TryGetValue(Key(packageName, kind, artefactName), out var yaml)
+                    ? yaml
+                    : null);
+        }
+
+        public Task<IReadOnlyList<NestedArtefactDescriptor>> EnumerateNestedArtefactsAsync(
+            string packageName,
+            ArtefactKind parentKind,
+            string parentArtefactName,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(
+                _nested.TryGetValue(Key(packageName, parentKind, parentArtefactName), out var nested)
+                    ? nested
+                    : (IReadOnlyList<NestedArtefactDescriptor>)Array.Empty<NestedArtefactDescriptor>());
+        }
+
+        private static string Key(string packageName, ArtefactKind kind, string name)
+            => $"{packageName}|{kind}|{name}";
     }
 }

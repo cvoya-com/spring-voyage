@@ -493,6 +493,163 @@ public class FileSystemPackageCatalogService(
         return await File.ReadAllTextAsync(fullCandidate, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// ADR-0043 §5h archetype-library case: when another package
+    /// declares <c>from: this-pkg/<template>@<version></c>, the
+    /// <see cref="TemplateResolver"/> calls this method to enumerate the
+    /// template's concrete nested children so they can be stamped fresh
+    /// into the consumer's tree. Returns concrete Unit / Agent
+    /// artefacts only; nested templates do not activate.
+    /// </remarks>
+    public Task<IReadOnlyList<NestedArtefactDescriptor>> EnumerateNestedArtefactsAsync(
+        string packageName,
+        ArtefactKind parentKind,
+        string parentArtefactName,
+        CancellationToken cancellationToken = default)
+    {
+        var root = options.Root;
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(Array.Empty<NestedArtefactDescriptor>());
+        }
+
+        if (ContainsTraversal(packageName) || ContainsTraversal(parentArtefactName))
+        {
+            return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(Array.Empty<NestedArtefactDescriptor>());
+        }
+
+        var packageDir = Path.Combine(root, packageName);
+        if (!Directory.Exists(packageDir))
+        {
+            return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(Array.Empty<NestedArtefactDescriptor>());
+        }
+
+        var fullRoot = Path.GetFullPath(root);
+        var fullPackageDir = Path.GetFullPath(packageDir);
+        if (!fullPackageDir.StartsWith(fullRoot, StringComparison.Ordinal))
+        {
+            return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(Array.Empty<NestedArtefactDescriptor>());
+        }
+
+        var discovered = TryWalk(packageDir, cancellationToken);
+
+        // Locate the parent. The parent's kind is projected — a UnitTemplate
+        // shows up as ArtefactKind.Unit; the catalog walker has already
+        // collapsed `UnitTemplate` / `AgentTemplate` into their concrete
+        // counterparts in the discovery list. Match by (Kind, Name).
+        var parent = discovered.FirstOrDefault(
+            d => d.Kind == parentKind &&
+                 string.Equals(d.Name, parentArtefactName, StringComparison.Ordinal));
+        if (parent is null)
+        {
+            return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(Array.Empty<NestedArtefactDescriptor>());
+        }
+
+        // Surface every artefact whose on-disk folder lives strictly
+        // beneath the parent's folder. Build a "child folder path map"
+        // first so we can resolve each entry's containing-artefact name
+        // (the closest discovered ancestor folder, not the parent itself
+        // for grandchildren).
+        var parentFolderWithSep = parent.FolderPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var children = new List<DiscoveredEntry>();
+        foreach (var d in discovered)
+        {
+            if (ReferenceEquals(d, parent)) continue;
+            var folder = d.FolderPath;
+            if (folder.StartsWith(parentFolderWithSep, StringComparison.Ordinal))
+            {
+                children.Add(d);
+            }
+        }
+
+        // Sort by folder depth so containing-artefact lookups always
+        // resolve to the closest ancestor.
+        children.Sort((a, b) =>
+            CountSeparators(a.FolderPath).CompareTo(CountSeparators(b.FolderPath)));
+
+        var result = new List<NestedArtefactDescriptor>(children.Count);
+        foreach (var d in children)
+        {
+            // Only concrete Unit / Agent kinds activate. The catalog walker
+            // projects UnitTemplate / AgentTemplate onto Unit / Agent for
+            // indexing — read the declared kind to disambiguate.
+            var declaredKind = ReadDeclaredKind(d.RawYaml);
+            if (!string.Equals(declaredKind, "Unit", StringComparison.Ordinal)
+                && !string.Equals(declaredKind, "Agent", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Containing-artefact lookup: the longest discovered ancestor
+            // folder that is a strict prefix of this folder, or the parent
+            // template itself if no nested discovered folder fits.
+            string? containing = parent.Name;
+            string longestPrefix = parentFolderWithSep;
+            foreach (var candidate in children)
+            {
+                if (ReferenceEquals(candidate, d)) continue;
+                var candidateFolderWithSep = candidate.FolderPath.TrimEnd(Path.DirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                if (d.FolderPath.StartsWith(candidateFolderWithSep, StringComparison.Ordinal)
+                    && candidateFolderWithSep.Length > longestPrefix.Length)
+                {
+                    longestPrefix = candidateFolderWithSep;
+                    containing = candidate.Name;
+                }
+            }
+
+            // For the top-level children of the template itself we leave
+            // ContainingArtefactName=null so the caller's rebinding step
+            // can re-parent them onto the consumer.
+            if (ReferenceEquals(containing, parent.Name))
+            {
+                containing = null;
+            }
+
+            result.Add(new NestedArtefactDescriptor(
+                Kind: d.Kind,
+                Name: d.Name,
+                Yaml: d.RawYaml,
+                ContainingArtefactName: containing));
+        }
+
+        return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(result);
+    }
+
+    private static int CountSeparators(string path)
+    {
+        var n = 0;
+        foreach (var c in path)
+        {
+            if (c == Path.DirectorySeparatorChar) n++;
+        }
+        return n;
+    }
+
+    private static string? ReadDeclaredKind(string yamlText)
+    {
+        try
+        {
+            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+                .IgnoreUnmatchedProperties()
+                .Build();
+            var headers = deserializer.Deserialize<KindOnly>(yamlText);
+            return headers?.Kind;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private sealed class KindOnly
+    {
+        [YamlDotNet.Serialization.YamlMember(Alias = "kind")]
+        public string? Kind { get; set; }
+    }
+
     // ── Walker glue ─────────────────────────────────────────────────────
 
     /// <summary>
