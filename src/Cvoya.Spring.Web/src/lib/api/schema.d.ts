@@ -784,7 +784,7 @@ export interface paths {
         put?: never;
         /**
          * Install one or more packages as a single atomic batch
-         * @description Phase 1 (single EF transaction): validate, topo-sort, collision pre-flight, write staging rows. Phase 2 (post-commit): activate actors in dependency order. Returns 201 with the install status. Phase-2 failures appear as status=failed in the body; use GET /api/v1/installs/{id} for detail.
+         * @description Phase 1 (single EF transaction): validate, topo-sort, write staging rows. Phase 2 (post-commit): activate actors in dependency order. Returns 201 with the install status. Phase-2 failures appear as status=failed in the body; use GET /api/v1/installs/{id} for detail.
          */
         post: operations["InstallPackages"];
         delete?: never;
@@ -3317,6 +3317,7 @@ export interface components {
             version?: null | string;
             credentials?: null | components["schemas"]["CredentialBindingPayload"][];
             intoUnit?: null | string;
+            displayName?: null | string;
         };
         PackageRequiredCredentialEntryResponse: {
             provider: string;
@@ -6169,15 +6170,6 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
         };
     };
     InstallPackageFromFile: {
@@ -6206,15 +6198,6 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Conflict */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };

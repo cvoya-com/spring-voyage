@@ -30,13 +30,16 @@ using Microsoft.EntityFrameworkCore;
 /// </list>
 ///
 /// All five endpoints are thin adapters over <see cref="IPackageInstallService"/>.
-/// Error mapping follows ADR-0035 decisions 10/11 and the issue acceptance criteria:
+/// Error mapping follows ADR-0035 decision 11 and the issue acceptance criteria:
 /// <list type="bullet">
 ///   <item><description>Phase-1 dep-graph closure violation (<see cref="PackageDepGraphException"/>) → 400.</description></item>
-///   <item><description>Phase-1 name collision (<see cref="PackageNameCollisionException"/>) → 409.</description></item>
+///   <item><description>Phase-1 ambiguous display-name override (#2310) → 400 with <c>code: AmbiguousDisplayName</c>.</description></item>
 ///   <item><description>Phase-1 parse/validation errors → 400.</description></item>
 ///   <item><description>Phase-2 activation failure → 201 with <c>status=failed</c>.</description></item>
 /// </list>
+/// Per ADR-0036 names are presentation-only — there is no 409 name-collision
+/// pre-flight (#2310). Installing the same package multiple times produces
+/// distinct rows with distinct Guids that may share a display name.
 ///
 /// <para>
 /// Phase-2 status code decision: Phase 2 runs synchronously in
@@ -68,13 +71,12 @@ public static class PackageInstallEndpoints
             .WithName("InstallPackages")
             .WithSummary("Install one or more packages as a single atomic batch")
             .WithDescription(
-                "Phase 1 (single EF transaction): validate, topo-sort, collision pre-flight, write staging rows. " +
+                "Phase 1 (single EF transaction): validate, topo-sort, write staging rows. " +
                 "Phase 2 (post-commit): activate actors in dependency order. Returns 201 with the install status. " +
                 "Phase-2 failures appear as status=failed in the body; use GET /api/v1/installs/{id} for detail.")
             .Accepts<PackageInstallRequest>("application/json")
             .Produces<InstallStatusResponse>(StatusCodes.Status201Created)
-            .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // ── POST /api/v1/packages/install/file ────────────────────────────
         group.MapPost("/api/v1/packages/install/file", InstallPackageFromFileAsync)
@@ -87,7 +89,6 @@ public static class PackageInstallEndpoints
             .Accepts<IFormFile>("multipart/form-data")
             .Produces<InstallStatusResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status409Conflict)
             .DisableAntiforgery();
 
         // ── GET /api/v1/installs/{id} ──────────────────────────────────────
@@ -446,12 +447,21 @@ public static class PackageInstallEndpoints
                 detail: ex.Message,
                 statusCode: StatusCodes.Status400BadRequest);
         }
-        catch (PackageNameCollisionException ex)
+        catch (AmbiguousDisplayNameException ex)
         {
-            // ADR-0035 decision 10: name collision → 409.
+            // #2310: display-name override is singular — multi-top-level
+            // packages reject the override with a precise 400 so the wizard
+            // / CLI can surface the rejection without parsing prose.
             return Results.Problem(
                 detail: ex.Message,
-                statusCode: StatusCodes.Status409Conflict);
+                statusCode: StatusCodes.Status400BadRequest,
+                type: "https://cvoya.com/problems/ambiguous-display-name",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "AmbiguousDisplayName",
+                    ["packageName"] = ex.PackageName,
+                    ["topLevelCount"] = ex.TopLevelCount,
+                });
         }
         catch (PackageParseException ex)
         {
@@ -544,7 +554,8 @@ public static class PackageInstallEndpoints
                 PackageBindings: pkgBindings,
                 UnitBindings: unitBindings,
                 Credentials: credentials,
-                IntoUnit: t.IntoUnit));
+                IntoUnit: t.IntoUnit,
+                DisplayName: t.DisplayName));
         }
 
         return result;

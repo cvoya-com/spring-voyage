@@ -102,6 +102,15 @@ public interface IPackageInstallService
 /// explicit form of the default. The package name is rejected here —
 /// packages don't contain other packages' artefacts.
 /// </param>
+/// <param name="DisplayName">
+/// Optional display-name override (#2310). When set, the package's
+/// single top-level activatable (one top-level Unit or one top-level
+/// Agent) is registered under this display name instead of the value
+/// declared in the package YAML. Identity remains a fresh Guid;
+/// only the display name changes. Packages that ship multiple
+/// top-level activatables surface an
+/// <see cref="AmbiguousDisplayNameException"/> when this is set.
+/// </param>
 public record InstallTarget(
     string PackageName,
     IReadOnlyDictionary<string, string> Inputs,
@@ -110,7 +119,8 @@ public record InstallTarget(
     IReadOnlyDictionary<string, ConnectorBinding>? PackageBindings = null,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? UnitBindings = null,
     IReadOnlyList<CredentialBinding>? Credentials = null,
-    string? IntoUnit = null);
+    string? IntoUnit = null,
+    string? DisplayName = null);
 
 /// <summary>
 /// Outcome of a single <c>IPackageInstallService.InstallAsync</c> call.

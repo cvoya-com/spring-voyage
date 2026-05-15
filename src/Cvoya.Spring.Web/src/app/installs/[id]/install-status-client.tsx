@@ -213,6 +213,34 @@ export default function InstallStatusClient({ id }: Props) {
         </Card>
       )}
 
+      {/* #2312: aggregate error-details card. Renders for failed installs
+          so the operator sees every per-package activation error without
+          spelunking through podman logs. Per-package detail still shows
+          on each PackageDetailRow below; this card is the summary. */}
+      {aggregateStatus === "failed" && status.packages.some(
+        (p) => p.errorMessage && p.errorMessage.length > 0,
+      ) && (
+        <Card className="border-destructive/50" data-testid="install-error-details">
+          <CardHeader>
+            <CardTitle className="text-base text-destructive">
+              Error details
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="whitespace-pre-wrap text-xs text-destructive">
+              {status.packages
+                .filter((p) => p.errorMessage && p.errorMessage.length > 0)
+                .flatMap((p) =>
+                  p
+                    .errorMessage!.split(/\r?\n/)
+                    .map((line) => `${p.packageName}: ${line}`),
+                )
+                .join("\n")}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Per-package detail */}
       <Card>
         <CardHeader>

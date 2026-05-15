@@ -232,6 +232,7 @@ public class PackageInstallServiceIntoUnitTests
             LocalSymbolMap symbolMap,
             IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
             ResolvedExecutionDefaults? executionDefaults = null,
+            string? displayNameOverride = null,
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
     }

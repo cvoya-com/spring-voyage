@@ -192,6 +192,7 @@ public class PackageInstallServiceExecutionPreflightTests
             LocalSymbolMap symbolMap,
             IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
             ResolvedExecutionDefaults? executionDefaults = null,
+            string? displayNameOverride = null,
             CancellationToken cancellationToken = default)
         {
             if (artefact.Kind == ArtefactKind.Unit)

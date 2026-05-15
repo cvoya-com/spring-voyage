@@ -14,7 +14,11 @@ import type { PackageDetail, InstallStatusResponse } from "@/lib/api/types";
 
 const getPackage = vi.fn<(name: string) => Promise<PackageDetail | null>>();
 const installPackages = vi.fn<
-  (targets: { packageName: string; inputs: Record<string, string> | null }[]) =>
+  (targets: {
+    packageName: string;
+    inputs: Record<string, string> | null;
+    displayName?: string;
+  }[]) =>
     Promise<InstallStatusResponse>
 >();
 
@@ -226,6 +230,59 @@ describe("PackageDetailClient — Install button", () => {
       expect(mockPush).toHaveBeenCalledWith(
         "/installs/aaaabbbb-0000-0000-0000-000000000001",
       );
+    });
+  });
+
+  // ---- #2310: display-name override input ----
+
+  it("renders the display-name input in the install dialog", async () => {
+    getPackage.mockResolvedValue(makePackage());
+    renderPage();
+    await waitFor(() => screen.getByTestId("install-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("install-button"));
+    });
+    expect(screen.getByTestId("install-display-name-input")).toBeInTheDocument();
+  });
+
+  it("submit with a display-name value sends displayName on the wire", async () => {
+    getPackage.mockResolvedValue(makePackage());
+    installPackages.mockResolvedValue(makeInstallStatus());
+    renderPage();
+    await waitFor(() => screen.getByTestId("install-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("install-button"));
+    });
+    fireEvent.change(screen.getByTestId("install-display-name-input"), {
+      target: { value: "my-rename" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("install-submit-button"));
+    });
+
+    await waitFor(() => {
+      expect(installPackages).toHaveBeenCalledWith([
+        { packageName: "my-pkg", inputs: {}, displayName: "my-rename" },
+      ]);
+    });
+  });
+
+  it("submit with an empty display-name omits displayName from the wire payload", async () => {
+    getPackage.mockResolvedValue(makePackage());
+    installPackages.mockResolvedValue(makeInstallStatus());
+    renderPage();
+    await waitFor(() => screen.getByTestId("install-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("install-button"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("install-submit-button"));
+    });
+
+    await waitFor(() => {
+      expect(installPackages).toHaveBeenCalledWith([
+        { packageName: "my-pkg", inputs: {} },
+      ]);
     });
   });
 

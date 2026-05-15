@@ -92,6 +92,84 @@ public class PackageCommandTests
         parseResult.Errors.ShouldNotBeEmpty();
     }
 
+    // #2310: --as flag parses and surfaces on the wire as displayName.
+    [Fact]
+    public void PackageInstall_AsFlag_ParsesAndAccepts()
+    {
+        var outputOption = CreateOutputOption();
+        var packageCommand = PackageCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(packageCommand);
+
+        var parseResult = rootCommand.Parse("package install hello-world --as my-rename");
+
+        parseResult.Errors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task InstallPackagesAsync_SendsDisplayNameOnWire()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/packages/install",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                """{"installId":"11111111-1111-1111-1111-111111111111","status":"active","packages":[],"startedAt":null,"completedAt":null,"error":null}""",
+            returnStatusCode: HttpStatusCode.Created,
+            validateRequestBody: body =>
+            {
+                // The CLI's JSON serializer uses camelCase and omits null
+                // properties, so a non-null displayName surfaces as
+                // "displayName":"my-rename" on the wire.
+                body.ShouldContain("\"displayName\":\"my-rename\"");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.InstallPackagesAsync(
+            new[]
+            {
+                new SpringApiClient.PackageInstallTargetRequest(
+                    PackageName: "hello-world",
+                    Inputs: new Dictionary<string, string>(),
+                    DisplayName: "my-rename"),
+            },
+            TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task InstallPackagesAsync_OmitsDisplayNameWhenNull()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/packages/install",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                """{"installId":"11111111-1111-1111-1111-111111111111","status":"active","packages":[],"startedAt":null,"completedAt":null,"error":null}""",
+            returnStatusCode: HttpStatusCode.Created,
+            validateRequestBody: body =>
+            {
+                // Default (null) displayName: WhenWritingNull is the
+                // serializer policy, so the key should not appear.
+                body.ShouldNotContain("displayName");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.InstallPackagesAsync(
+            new[]
+            {
+                new SpringApiClient.PackageInstallTargetRequest(
+                    PackageName: "hello-world",
+                    Inputs: new Dictionary<string, string>()),
+            },
+            TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
     [Fact]
     public void TemplateShow_ParsesReference()
     {
