@@ -1,14 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
-import { api } from "@/lib/api/client";
-import { useUnitBudget } from "@/lib/api/queries";
-import { queryKeys } from "@/lib/api/query-keys";
+import { useSetUnitBudget, useUnitBudget } from "@/lib/api/queries";
 import { formatTranslatedError } from "@/lib/api/translate-error";
 import { formatCost } from "@/lib/utils";
 
@@ -18,8 +15,8 @@ interface UnitBudgetPanelProps {
 
 export function UnitBudgetPanel({ unitId }: UnitBudgetPanelProps) {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
   const budgetQuery = useUnitBudget(unitId);
+  const save = useSetUnitBudget(unitId);
 
   const current = budgetQuery.data ?? null;
   const [input, setInput] = useState("");
@@ -31,22 +28,6 @@ export function UnitBudgetPanel({ unitId }: UnitBudgetPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current]);
 
-  const save = useMutation({
-    mutationFn: (dailyBudget: number) =>
-      api.setUnitBudget(unitId, { dailyBudget }),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(queryKeys.units.budget(unitId), updated);
-      toast({ title: "Unit budget saved" });
-    },
-    onError: (err) => {
-      toast({
-        title: "Failed to save budget",
-        description: formatTranslatedError(err),
-        variant: "destructive",
-      });
-    },
-  });
-
   const handleSave = () => {
     const value = Number(input);
     if (!Number.isFinite(value) || value <= 0) {
@@ -57,7 +38,18 @@ export function UnitBudgetPanel({ unitId }: UnitBudgetPanelProps) {
       });
       return;
     }
-    save.mutate(value);
+    save.mutate(value, {
+      onSuccess: () => {
+        toast({ title: "Unit budget saved" });
+      },
+      onError: (err) => {
+        toast({
+          title: "Failed to save budget",
+          description: formatTranslatedError(err),
+          variant: "destructive",
+        });
+      },
+    });
   };
 
   const saving = save.isPending;

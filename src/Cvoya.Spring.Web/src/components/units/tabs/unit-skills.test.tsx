@@ -1,17 +1,28 @@
+/**
+ * Tests for the Unit Skills tab wrapper (#2271, #2276).
+ *
+ * The Unit branch renders the unified `<EquippedSkillsTab>` against the
+ * unit-keyed skills endpoints. We mock the api client + assert that the
+ * Unit-flavoured skills hooks fire with the unit id and that the chip
+ * list + Add-skill combobox render.
+ */
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import type { AgentNode, UnitNode } from "../aggregate";
 
-const getAgentSkills = vi.fn();
+const getUnitSkills = vi.fn();
+const setUnitSkills = vi.fn();
+const listSkills = vi.fn();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
-    getAgentSkills: (...args: unknown[]) => getAgentSkills(...args),
-    setAgentSkills: vi.fn(),
-    listSkills: vi.fn(),
+    getUnitSkills: (...args: unknown[]) => getUnitSkills(...args),
+    setUnitSkills: (...args: unknown[]) => setUnitSkills(...args),
+    listSkills: (...args: unknown[]) => listSkills(...args),
   },
 }));
 
@@ -40,24 +51,27 @@ const unitNode: UnitNode = {
 
 describe("UnitSkillsTab (wrapper)", () => {
   beforeEach(() => {
-    getAgentSkills.mockReset();
+    getUnitSkills.mockReset();
+    setUnitSkills.mockReset();
+    listSkills.mockReset();
   });
 
-  it("renders the CLI-deeplink placeholder for a Unit node (endpoint deferred to #2276)", () => {
+  it("delegates to EquippedSkillsTab for a Unit node and renders equipped skills", async () => {
+    getUnitSkills.mockResolvedValue({ skills: ["git", "grep"] });
+    listSkills.mockResolvedValue([]);
+
     render(
       <Wrapper>
         <UnitSkillsTab node={unitNode} path={[unitNode]} />
       </Wrapper>,
     );
-    const placeholder = screen.getByTestId("tab-unit-skills-cli-placeholder");
-    expect(placeholder).toBeInTheDocument();
-    expect(placeholder).toHaveTextContent("Manage skills via the CLI");
-    expect(placeholder).toHaveTextContent("spring agent skills");
-    expect(placeholder).toHaveTextContent("engineering");
-    // The agent-skills hook must not fire when rendering the Unit
-    // placeholder — unit-keyed endpoints don't exist today and we don't
-    // want to 404 against the agent endpoint with a unit id.
-    expect(getAgentSkills).not.toHaveBeenCalled();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("tab-unit-skills")).toBeInTheDocument(),
+    );
+    expect(getUnitSkills).toHaveBeenCalledWith("engineering");
+    expect(screen.getByText("git")).toBeInTheDocument();
+    expect(screen.getByText("grep")).toBeInTheDocument();
   });
 
   it("renders nothing for a non-Unit node (registry-guard)", () => {
@@ -73,5 +87,6 @@ describe("UnitSkillsTab (wrapper)", () => {
       </Wrapper>,
     );
     expect(container.firstChild).toBeNull();
+    expect(getUnitSkills).not.toHaveBeenCalled();
   });
 });
