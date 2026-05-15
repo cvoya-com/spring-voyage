@@ -95,6 +95,13 @@ public interface IPackageInstallService
 /// by connector slug (#1671). Wins over the package-scope inherited
 /// binding. Empty when no unit-scope overrides are supplied.
 /// </param>
+/// <param name="IntoUnit">
+/// Optional install-scope binding (ADR-0043 §6). When set, the package's
+/// top-level artefacts are bound to the named unit (Guid or display
+/// name) instead of the tenant. The literal <c>"tenant"</c> is the
+/// explicit form of the default. The package name is rejected here —
+/// packages don't contain other packages' artefacts.
+/// </param>
 public record InstallTarget(
     string PackageName,
     IReadOnlyDictionary<string, string> Inputs,
@@ -102,7 +109,8 @@ public record InstallTarget(
     string? PackageRoot = null,
     IReadOnlyDictionary<string, ConnectorBinding>? PackageBindings = null,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? UnitBindings = null,
-    IReadOnlyList<CredentialBinding>? Credentials = null);
+    IReadOnlyList<CredentialBinding>? Credentials = null,
+    string? IntoUnit = null);
 
 /// <summary>
 /// Outcome of a single <c>IPackageInstallService.InstallAsync</c> call.

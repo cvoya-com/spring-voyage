@@ -613,6 +613,7 @@ public static class PackageManifestParser
                 Kind = a.Kind,
                 ResolvedPath = a.PackageYamlPath,
                 Content = content,
+                ContainingArtefactName = a.ContainingArtefactName,
             });
         }
         return result;

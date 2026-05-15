@@ -2750,7 +2750,8 @@ public class SpringApiClient
         IReadOnlyDictionary<string, string>? Inputs,
         PackageConnectorBindingsRequest? ConnectorBindings = null,
         string? Version = null,
-        IReadOnlyList<CredentialBindingPayloadRequest>? Credentials = null);
+        IReadOnlyList<CredentialBindingPayloadRequest>? Credentials = null,
+        string? IntoUnit = null);
 
     /// <summary>
     /// Wire shape for one operator-supplied LLM credential at install

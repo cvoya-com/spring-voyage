@@ -114,6 +114,25 @@ public class ResolvedArtefact
     /// </summary>
     public string? Content { get; init; }
 
+    /// <summary>
+    /// Name of the immediately containing artefact in the package's folder
+    /// tree, or <c>null</c> when this artefact sits directly under the
+    /// package root (i.e. it is one of the package's top-level artefacts).
+    /// Drives ADR-0043 §6's <c>--into</c> binding — only top-level
+    /// artefacts are re-parented at install time; nested artefacts stay
+    /// owned by their containing artefact in the package.
+    /// </summary>
+    public string? ContainingArtefactName { get; init; }
+
+    /// <summary>
+    /// <c>true</c> when this artefact sits directly under one of the
+    /// package root's conventional subdirectories (its
+    /// <see cref="ContainingArtefactName"/> is <c>null</c>). The install
+    /// pipeline's scope-binding logic (ADR-0043 §6) only acts on
+    /// top-level artefacts.
+    /// </summary>
+    public bool IsTopLevel => ContainingArtefactName is null && !IsCrossPackage;
+
     /// <summary><c>true</c> when this artefact came from another package.</summary>
     public bool IsCrossPackage => SourcePackage is not null;
 }

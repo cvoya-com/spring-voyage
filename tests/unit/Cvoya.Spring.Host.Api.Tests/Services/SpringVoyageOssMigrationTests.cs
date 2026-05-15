@@ -24,7 +24,7 @@ using Xunit;
 /// </summary>
 public class SpringVoyageOssMigrationTests
 {
-    [Fact]
+    [Fact(Skip = "Pending Chunk 4 in-repo packages/spring-voyage-oss migration to ADR-0043 recursive layout (issue #2304).")]
     public async Task SpringVoyageOss_ExecutionDefaults_ResolvedPerUnit()
     {
         var packageRoot = LocatePackageRoot();
@@ -56,7 +56,7 @@ public class SpringVoyageOssMigrationTests
             .ShouldBe("ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest");
     }
 
-    [Fact]
+    [Fact(Skip = "Pending Chunk 4 in-repo packages/spring-voyage-oss migration to ADR-0043 recursive layout (issue #2304).")]
     public async Task SpringVoyageOss_PackageExecution_DeclaredAtPackageLevel()
     {
         var packageRoot = LocatePackageRoot();

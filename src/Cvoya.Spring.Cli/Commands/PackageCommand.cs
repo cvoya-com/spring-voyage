@@ -208,6 +208,19 @@ public static class PackageCommand
             AllowMultipleArgumentsPerToken = false,
         };
 
+        // ADR-0043 §6: --into <unit-ref> binds the package's top-level
+        // artefacts to the named unit instead of the tenant. Applies to
+        // every target in a multi-target install. `--into tenant` is
+        // the explicit form of the default.
+        var intoOption = new Option<string?>("--into")
+        {
+            Description =
+                "Bind the package's top-level artefacts to the named unit instead of the tenant " +
+                "(ADR-0043 §6). Accepts a unit display name or Guid. " +
+                "Use --into tenant for the explicit default. " +
+                "Applies to every target in a multi-target install.",
+        };
+
         // #2159: --secret flag — repeatable. Form:
         //   <provider>:<auth-method>=<value>                    (single-target install)
         //   <pkg>.<provider>:<auth-method>=<value>              (multi-target install)
@@ -249,6 +262,7 @@ public static class PackageCommand
         command.Options.Add(connectorOption);
         command.Options.Add(versionOption);
         command.Options.Add(secretOption);
+        command.Options.Add(intoOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -371,6 +385,11 @@ public static class PackageCommand
             // per-target with separate invocations.
             var versionPin = parseResult.GetValue(versionOption);
 
+            // ADR-0043 §6: --into <unit-ref> applies to every target in
+            // the install. There is one --into per `spring package install`
+            // invocation; per-target overrides are not supported in v0.1.
+            var intoRef = parseResult.GetValue(intoOption);
+
             List<SpringApiClient.PackageInstallTargetRequest> BuildTargets() => names
                 .Select(n => new SpringApiClient.PackageInstallTargetRequest(
                     PackageName: n,
@@ -380,7 +399,8 @@ public static class PackageCommand
                     Version: versionPin,
                     Credentials: perPackageSecrets.TryGetValue(n, out var s) && s.Count > 0
                         ? s.ToList()
-                        : null))
+                        : null,
+                    IntoUnit: string.IsNullOrWhiteSpace(intoRef) ? null : intoRef))
                 .ToList();
 
             SpringApiClient.PackageInstallResponse catalogResult;

@@ -425,6 +425,19 @@ public static class PackageInstallEndpoints
                     ["authMethod"] = FormatAuthMethod(ex.AuthMethod),
                 });
         }
+        catch (InvalidInstallScopeException ex)
+        {
+            // ADR-0043 §6: `--into` reference failed validation. Surface as
+            // a 400 with a precise code so the CLI can render the message.
+            return Results.Problem(
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest,
+                type: "https://cvoya.com/problems/invalid-install-scope",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "InvalidInstallScope",
+                });
+        }
         catch (PackageDepGraphException ex)
         {
             // ADR-0035 decision 14: dep-graph closure violations carry the
@@ -530,7 +543,8 @@ public static class PackageInstallEndpoints
                 PackageRoot: packageRoot,
                 PackageBindings: pkgBindings,
                 UnitBindings: unitBindings,
-                Credentials: credentials));
+                Credentials: credentials,
+                IntoUnit: t.IntoUnit));
         }
 
         return result;
