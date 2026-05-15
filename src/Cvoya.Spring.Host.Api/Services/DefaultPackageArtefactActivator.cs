@@ -382,13 +382,16 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         var displayName = string.IsNullOrWhiteSpace(fields.DisplayName) ? slug : fields.DisplayName!;
         var description = fields.Description ?? string.Empty;
 
-        // #1629 PR7: resolve the agent's identity through the local-symbol
-        // map so a re-run of activation reuses the pre-allocated Guid. The
-        // directory's own ResolveAsync still wins when the agent already has
-        // a registration (e.g. retry after Phase-2 partial failure).
-        var address = Address.For("agent", slug);
+        // #1629 PR7: identity is server-allocated; the local-symbol map is
+        // the source of truth for (kind, name) → Guid so a retry reuses the
+        // pre-allocated Guid. Mint first, build the address from the Guid
+        // (ADR-0036 wire form is `scheme:<32-hex>` — never a slug), then
+        // probe the directory in case a prior Phase-2 partial-failure left
+        // the registration in place.
+        var actorId = symbolMap.GetOrMint(ArtefactKind.Agent, artefact.Name);
+        var address = Address.ForIdentity("agent", actorId);
         var existing = await _directoryService.ResolveAsync(address, ct);
-        var actorId = existing?.ActorId ?? symbolMap.GetOrMint(ArtefactKind.Agent, artefact.Name);
+        actorId = existing?.ActorId ?? actorId;
 
         var entry = new DirectoryEntry(
             address,
