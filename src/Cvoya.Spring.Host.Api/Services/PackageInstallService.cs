@@ -1507,10 +1507,23 @@ public class AmbiguousDisplayNameException : Exception
 /// packages in a multi-package batch can resolve cross-package references
 /// to each other before the batch has been committed (ADR-0035 decision 14).
 /// </summary>
+/// <remarks>
+/// ADR-0043 §1 — every artefact is a folder rooted at <c>package.yaml</c>;
+/// the pre-ADR-0043 flat <c>&lt;subdir&gt;/&lt;name&gt;.yaml</c> layout is
+/// no longer supported. This provider delegates discovery to
+/// <see cref="PackageManifestParser.Walk"/> (the same walker the production
+/// <c>FileSystemPackageCatalogService</c> uses) and matches by
+/// <c>(kind, name)</c>, so in-flight cross-package references resolve
+/// against the recursive folder shape on disk. The walked catalog is
+/// cached per in-flight package so repeated lookups in the same install
+/// batch don't re-scan the tree.
+/// </remarks>
 internal sealed class InFlightBatchCatalogProvider : IPackageCatalogProvider
 {
     private readonly Dictionary<string, (InstallTarget Target, string PackageRoot)> _inFlight;
     private readonly IPackageCatalogProvider? _underlying;
+    private readonly Dictionary<string, IReadOnlyList<WalkedEntry>> _walkCache =
+        new(StringComparer.OrdinalIgnoreCase);
 
     internal InFlightBatchCatalogProvider(
         Dictionary<string, (InstallTarget Target, string PackageRoot)> inFlight,
@@ -1540,22 +1553,19 @@ internal sealed class InFlightBatchCatalogProvider : IPackageCatalogProvider
     {
         if (_inFlight.TryGetValue(packageName, out var inFlight))
         {
-            // Resolve from the in-flight package's local directory.
-            var subDir = kind switch
+            // Resolve via the ADR-0043 walker so artefacts at any depth
+            // under the in-flight package root are reachable; the flat
+            // `<subdir>/<name>.yaml` layout is gone.
+            var walked = GetOrWalk(inFlight.PackageRoot, cancellationToken);
+            var match = walked.FirstOrDefault(
+                e => e.Kind == kind &&
+                     string.Equals(e.Name, artefactName, StringComparison.Ordinal));
+            if (match is null)
             {
-                ArtefactKind.Unit => "units",
-                ArtefactKind.Agent => "agents",
-                ArtefactKind.Skill => "skills",
-                ArtefactKind.Workflow => "workflows",
-                _ => throw new ArgumentOutOfRangeException(nameof(kind))
-            };
-            var ext = kind == ArtefactKind.Skill ? ".md" : ".yaml";
-            var path = System.IO.Path.Combine(inFlight.PackageRoot, subDir, artefactName + ext);
-            if (System.IO.File.Exists(path))
-            {
-                return await System.IO.File.ReadAllTextAsync(path, cancellationToken);
+                return null;
             }
-            return null;
+            return await System.IO.File.ReadAllTextAsync(match.PackageYamlPath, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         if (_underlying is not null)
@@ -1574,16 +1584,201 @@ internal sealed class InFlightBatchCatalogProvider : IPackageCatalogProvider
         string parentArtefactName,
         CancellationToken cancellationToken = default)
     {
-        // In-flight packages: not used today for the archetype-library
-        // case (§5h targets already-installed cross-package templates).
-        // Forward to the underlying catalog for non-in-flight packages so
-        // the resolver can walk a sibling package on disk.
-        if (_underlying is not null && !_inFlight.ContainsKey(packageName))
+        if (_inFlight.TryGetValue(packageName, out var inFlight))
+        {
+            // ADR-0043 §5h: a cross-package `from:` may target a sibling
+            // in-flight package's template; stamp its nested concrete
+            // children using the same walker as the production catalog
+            // path so the recursive folder layout is honoured.
+            var walked = GetOrWalk(inFlight.PackageRoot, cancellationToken);
+            return Task.FromResult(BuildNestedDescriptors(walked, parentKind, parentArtefactName));
+        }
+
+        if (_underlying is not null)
         {
             return _underlying.EnumerateNestedArtefactsAsync(
                 packageName, parentKind, parentArtefactName, cancellationToken);
         }
+
         return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(
             System.Array.Empty<NestedArtefactDescriptor>());
     }
+
+    /// <summary>
+    /// Walks <paramref name="packageRoot"/> via
+    /// <see cref="PackageManifestParser.Walk"/> and caches the discovered
+    /// entries (kind + name + folder + inner YAML) so repeated lookups
+    /// inside a single install batch don't re-scan the tree.
+    /// </summary>
+    private IReadOnlyList<WalkedEntry> GetOrWalk(string packageRoot, CancellationToken cancellationToken)
+    {
+        if (_walkCache.TryGetValue(packageRoot, out var cached))
+        {
+            return cached;
+        }
+
+        IReadOnlyList<WalkedEntry> result;
+        try
+        {
+            var walked = PackageManifestParser.Walk(packageRoot, cancellationToken);
+            var entries = new List<WalkedEntry>(walked.Count);
+            foreach (var (kind, name, folderPath) in walked)
+            {
+                var manifestPath = System.IO.Path.Combine(folderPath, "package.yaml");
+                if (!System.IO.File.Exists(manifestPath))
+                {
+                    var alt = System.IO.Path.Combine(folderPath, "package.yml");
+                    if (System.IO.File.Exists(alt))
+                    {
+                        manifestPath = alt;
+                    }
+                }
+                string rawYaml;
+                try
+                {
+                    rawYaml = System.IO.File.ReadAllText(manifestPath);
+                }
+                catch (System.IO.IOException)
+                {
+                    rawYaml = string.Empty;
+                }
+                entries.Add(new WalkedEntry(kind, name, folderPath, manifestPath, rawYaml));
+            }
+            result = entries;
+        }
+        catch (PackageParseException)
+        {
+            // Best-effort overlay walk: a parse error here will surface
+            // again through the regular install pipeline with full detail.
+            result = System.Array.Empty<WalkedEntry>();
+        }
+        catch (System.IO.IOException)
+        {
+            result = System.Array.Empty<WalkedEntry>();
+        }
+
+        _walkCache[packageRoot] = result;
+        return result;
+    }
+
+    /// <summary>
+    /// Mirrors <c>FileSystemPackageCatalogService.EnumerateNestedArtefactsAsync</c>:
+    /// returns every concrete Unit / Agent whose on-disk folder lives
+    /// strictly beneath the named parent's folder, with the containing-
+    /// artefact name set to the closest discovered ancestor (or
+    /// <c>null</c> when the child sits directly under the parent so the
+    /// caller can re-parent onto the consumer).
+    /// </summary>
+    private static IReadOnlyList<NestedArtefactDescriptor> BuildNestedDescriptors(
+        IReadOnlyList<WalkedEntry> walked,
+        ArtefactKind parentKind,
+        string parentArtefactName)
+    {
+        var parent = walked.FirstOrDefault(
+            e => e.Kind == parentKind &&
+                 string.Equals(e.Name, parentArtefactName, StringComparison.Ordinal));
+        if (parent is null)
+        {
+            return System.Array.Empty<NestedArtefactDescriptor>();
+        }
+
+        var parentFolderWithSep = parent.FolderPath.TrimEnd(System.IO.Path.DirectorySeparatorChar)
+            + System.IO.Path.DirectorySeparatorChar;
+
+        var children = new List<WalkedEntry>();
+        foreach (var e in walked)
+        {
+            if (ReferenceEquals(e, parent)) continue;
+            if (e.FolderPath.StartsWith(parentFolderWithSep, StringComparison.Ordinal))
+            {
+                children.Add(e);
+            }
+        }
+
+        children.Sort((a, b) =>
+            CountSeparators(a.FolderPath).CompareTo(CountSeparators(b.FolderPath)));
+
+        var result = new List<NestedArtefactDescriptor>(children.Count);
+        foreach (var c in children)
+        {
+            var declaredKind = ReadDeclaredKind(c.RawYaml);
+            if (!string.Equals(declaredKind, "Unit", StringComparison.Ordinal)
+                && !string.Equals(declaredKind, "Agent", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string? containing = parent.Name;
+            string longestPrefix = parentFolderWithSep;
+            foreach (var candidate in children)
+            {
+                if (ReferenceEquals(candidate, c)) continue;
+                var candidateFolderWithSep = candidate.FolderPath.TrimEnd(System.IO.Path.DirectorySeparatorChar)
+                    + System.IO.Path.DirectorySeparatorChar;
+                if (c.FolderPath.StartsWith(candidateFolderWithSep, StringComparison.Ordinal)
+                    && candidateFolderWithSep.Length > longestPrefix.Length)
+                {
+                    longestPrefix = candidateFolderWithSep;
+                    containing = candidate.Name;
+                }
+            }
+
+            if (ReferenceEquals(containing, parent.Name))
+            {
+                containing = null;
+            }
+
+            result.Add(new NestedArtefactDescriptor(
+                Kind: c.Kind,
+                Name: c.Name,
+                Yaml: c.RawYaml,
+                ContainingArtefactName: containing));
+        }
+
+        return result;
+    }
+
+    private static int CountSeparators(string path)
+    {
+        var n = 0;
+        foreach (var ch in path)
+        {
+            if (ch == System.IO.Path.DirectorySeparatorChar) n++;
+        }
+        return n;
+    }
+
+    private static string? ReadDeclaredKind(string yamlText)
+    {
+        if (string.IsNullOrWhiteSpace(yamlText))
+        {
+            return null;
+        }
+        try
+        {
+            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+                .IgnoreUnmatchedProperties()
+                .Build();
+            var headers = deserializer.Deserialize<KindOnly>(yamlText);
+            return headers?.Kind;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private sealed class KindOnly
+    {
+        [YamlDotNet.Serialization.YamlMember(Alias = "kind")]
+        public string? Kind { get; set; }
+    }
+
+    private sealed record WalkedEntry(
+        ArtefactKind Kind,
+        string Name,
+        string FolderPath,
+        string PackageYamlPath,
+        string RawYaml);
 }
