@@ -70,6 +70,7 @@ import type {
   UnitDetailResponse,
   UnitExecutionResponse,
   UnitPolicyResponse,
+  UnitDeploymentResponse,
   UnitReadinessResponse,
   UnitResponse,
   UnitTemplateDetail,
@@ -385,6 +386,99 @@ export function useUnitAggregatedExpertise(
     queryFn: async () => {
       try {
         return await api.getUnitAggregatedExpertise(id);
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Read a unit's daily-budget envelope (#2280). Surfaces `null` when no budget
+ * has been set so the Config → Budget sub-tab can render the empty state
+ * without trapping the error boundary. Mirrors `spring cost set-budget
+ * --scope unit`.
+ */
+export function useUnitBudget(
+  id: string,
+  opts?: SliceOptions<BudgetResponse | null>,
+): UseQueryResult<BudgetResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.units.budget(id),
+    queryFn: async () => {
+      try {
+        return await api.getUnitBudget(id);
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+export function useSetUnitBudget(
+  id: string,
+): UseMutationResult<BudgetResponse, Error, number> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (dailyBudget: number) =>
+      api.setUnitBudget(id, { dailyBudget }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.units.budget(id), updated);
+    },
+  });
+}
+
+/**
+ * Read a unit's equipped skills (#2276). Mirrors `spring agent skills get`
+ * against the unit's actor id. Returns empty list on any error so the
+ * Skills tab renders the empty state instead of an error boundary.
+ */
+export function useUnitSkills(
+  id: string,
+  opts?: SliceOptions<AgentSkillsResponse>,
+): UseQueryResult<AgentSkillsResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.units.skills(id),
+    queryFn: () => api.getUnitSkills(id),
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+export function useSetUnitSkills(
+  id: string,
+): UseMutationResult<AgentSkillsResponse, Error, string[]> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (skills: string[]) => api.setUnitSkills(id, skills),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.units.skills(id), data);
+      queryClient.invalidateQueries({ queryKey: queryKeys.units.skills(id) });
+    },
+  });
+}
+
+/**
+ * Current deployment status for a unit (#2274). Returns `null` on 404
+ * (unit removed) so the Deployment tab renders the empty state. Mirrors
+ * the agent deployment hook but backed by the unit-keyed endpoint.
+ */
+export function useUnitDeployment(
+  id: string,
+  opts?: SliceOptions<UnitDeploymentResponse | null>,
+): UseQueryResult<UnitDeploymentResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.units.deployment(id),
+    queryFn: async () => {
+      try {
+        return await api.getUnitDeployment(id);
       } catch {
         return null;
       }

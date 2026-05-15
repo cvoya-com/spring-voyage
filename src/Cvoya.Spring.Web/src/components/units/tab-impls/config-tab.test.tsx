@@ -101,6 +101,13 @@ vi.mock("@/components/agents/agent-budget-panel", () => ({
     </div>
   ),
 }));
+vi.mock("@/components/units/unit-budget-panel", () => ({
+  UnitBudgetPanel: ({ unitId }: { unitId: string }) => (
+    <div data-testid="legacy-unit-budget" data-unit-id={unitId}>
+      Unit budget
+    </div>
+  ),
+}));
 vi.mock("@/components/settings/agent-overrides-panel", () => ({
   AgentOverridesPanel: ({ agentId }: { agentId?: string }) => (
     <div data-testid="legacy-agent-overrides" data-agent-id={agentId ?? ""}>
@@ -196,12 +203,12 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
       );
     });
 
-    it("renders the Budget sub-tab with a CLI placeholder (unit-scope wire deferred to #2280)", () => {
+    it("renders the Budget sub-tab with the live unit budget editor (#2280)", () => {
       render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
       fireEvent.click(screen.getByRole("tab", { name: "Budget" }));
-      expect(
-        screen.getByTestId("tab-unit-config-budget-cli-placeholder"),
-      ).toBeInTheDocument();
+      expect(screen.getByTestId("legacy-unit-budget").dataset.unitId).toBe(
+        "engineering",
+      );
     });
 
     it("renders the Debug sub-tab with a collapsed details element", () => {
@@ -265,12 +272,23 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
       );
     });
 
-    it("renders the Connector sub-tab with a CLI placeholder (agent-scope wire deferred to #2279)", () => {
-      render(<ConfigTab kind="Agent" id="ada" name="Ada" />);
+    it("renders the Connector sub-tab as an inherited read-only view linking to the owning unit (#2279)", () => {
+      render(
+        <ConfigTab
+          kind="Agent"
+          id="ada"
+          name="Ada"
+          parentUnitId="engineering"
+        />,
+      );
       fireEvent.click(screen.getByRole("tab", { name: "Connector" }));
+      const inherited = screen.getByTestId(
+        "tab-agent-config-connector-inherited",
+      );
+      expect(inherited).toBeInTheDocument();
       expect(
-        screen.getByTestId("tab-agent-config-connector-cli-placeholder"),
-      ).toBeInTheDocument();
+        inherited.querySelector("a")?.getAttribute("href"),
+      ).toBe("?node=engineering&tab=Config&subtab=Connector");
     });
 
     it("renders the Skills sub-tab via <EquippedSkillsTab kind='Agent' …>", () => {

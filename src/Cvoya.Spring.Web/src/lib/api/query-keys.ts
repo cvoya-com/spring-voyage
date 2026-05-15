@@ -78,6 +78,9 @@ export const queryKeys = {
       ["units", "costTimeseries", id, window, bucket] as const,
     /** Runtime-status indicator polled by `<RuntimeStatusBadge>` (#2100). */
     runtimeStatus: (id: string) => ["units", "runtimeStatus", id] as const,
+    skills: (id: string) => ["units", "skills", id] as const,
+    budget: (id: string) => ["units", "budget", id] as const,
+    deployment: (id: string) => ["units", "deployment", id] as const,
   },
 
   directory: {

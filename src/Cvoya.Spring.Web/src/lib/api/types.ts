@@ -583,6 +583,9 @@ export type GitHubMissingOAuthResponse = Schemas["GitHubMissingOAuthResponse"];
 /** GET /api/v1/units/{id}/readiness response. */
 export type UnitReadinessResponse = Schemas["UnitReadinessResponse"];
 
+/** GET /api/v1/units/{id}/deployment response (#2274). */
+export type UnitDeploymentResponse = Schemas["UnitDeploymentResponse"];
+
 // ---------------------------------------------------------------------------
 // Unit boundary (#413 — opacity / projection / synthesis)
 // ---------------------------------------------------------------------------

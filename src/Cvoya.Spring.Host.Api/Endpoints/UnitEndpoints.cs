@@ -83,6 +83,28 @@ public static class UnitEndpoints
             .Produces<UnitReadinessResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapGet("/{id}/deployment", GetUnitDeploymentAsync)
+            .WithName("GetUnitDeployment")
+            .WithSummary("Get the deployment / lifecycle status for a unit")
+            .WithDescription("Returns whether the unit is running and its current status label. Mirrors the agent deployment surface so the portal's Deployment tab renders start/stop controls for units and agents identically.")
+            .Produces<UnitDeploymentResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{id}/skills", GetUnitSkillsAsync)
+            .WithName("GetUnitSkills")
+            .WithSummary("Get the equipped skills for a unit")
+            .WithDescription("A unit is an agent (ADR-0039); its skills are stored by the same agent-live-config store used for leaf agents. Mirrors `spring agent skills get`.")
+            .Produces<AgentSkillsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPut("/{id}/skills", SetUnitSkillsAsync)
+            .WithName("SetUnitSkills")
+            .WithSummary("Replace the equipped skills for a unit")
+            .WithDescription("Full replacement — pass the complete desired skill list. Use [] to clear. Mirrors `spring agent skills set`.")
+            .Produces<AgentSkillsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapPost("/{id}/start", StartUnitAsync)
             .WithName("StartUnit")
             .WithSummary("Start the runtime container for a unit")
@@ -2076,5 +2098,100 @@ public static class UnitEndpoints
                 ["error"] = "MultiParentInheritanceConflict",
                 ["conflictingFields"] = conflictingFields,
             });
+    }
+
+    // -------------------------------------------------------------------------
+    // Unit deployment status (#2274). Returns whether the unit is running
+    // and its current status label. Mirrors the agent deployment surface
+    // so the portal's unified DeploymentTab renders the same controls.
+    // -------------------------------------------------------------------------
+
+    private static async Task<IResult> GetUnitDeploymentAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        var address = Address.For("unit", id);
+        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)),
+            nameof(UnitActor));
+
+        var status = await proxy.GetStatusAsync(cancellationToken);
+        return Results.Ok(new UnitDeploymentResponse(
+            Running: status == UnitStatus.Running,
+            Status: status.ToString()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Unit skills (#2276). A unit is an agent (ADR-0039); its skills are
+    // stored in the same agent-live-config store as leaf agents, keyed by
+    // the unit's actor id. The coordinator is called directly here because
+    // IUnitActor does not expose GetSkillsAsync / SetSkillsAsync (the
+    // IAgentActor methods are on a separate interface). The emitActivity
+    // delegate is a no-op since the activity event fires from the actor
+    // during actor-invocation paths; the endpoint read/write goes direct.
+    // -------------------------------------------------------------------------
+
+    private static async Task<IResult> GetUnitSkillsAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IAgentStateCoordinator agentStateCoordinator,
+        CancellationToken cancellationToken)
+    {
+        var address = Address.For("unit", id);
+        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        var skills = await agentStateCoordinator.GetSkillsAsync(actorId, cancellationToken);
+        return Results.Ok(new AgentSkillsResponse(skills));
+    }
+
+    private static async Task<IResult> SetUnitSkillsAsync(
+        string id,
+        SetAgentSkillsRequest request,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IAgentStateCoordinator agentStateCoordinator,
+        CancellationToken cancellationToken)
+    {
+        if (request.Skills is null)
+        {
+            return Results.Problem(
+                detail: "Skills list is required (use [] to clear).",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var address = Address.For("unit", id);
+        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        await agentStateCoordinator.SetSkillsAsync(
+            actorId,
+            request.Skills.ToArray(),
+            (_, _) => Task.CompletedTask,
+            cancellationToken);
+
+        var updated = await agentStateCoordinator.GetSkillsAsync(actorId, cancellationToken);
+        return Results.Ok(new AgentSkillsResponse(updated));
     }
 }

@@ -201,3 +201,15 @@ public record UnitConnectorBindingRequest(
 /// <param name="IsReady">True when the unit can be started.</param>
 /// <param name="MissingRequirements">Labels for unsatisfied requirements (e.g. <c>"model"</c>).</param>
 public record UnitReadinessResponse(bool IsReady, string[] MissingRequirements);
+
+/// <summary>
+/// Response body for <c>GET /api/v1/units/{id}/deployment</c>. Surfaces
+/// the unit's lifecycle state in a deployment-shaped view so the portal's
+/// Deployment tab can render start/stop controls without a separate unit
+/// status query. A unit that is <see cref="UnitStatus.Running"/> is
+/// considered <see cref="Running"/>; all other states map to
+/// <c>Running = false</c>.
+/// </summary>
+/// <param name="Running">True when the unit status is <c>Running</c>.</param>
+/// <param name="Status">The current <see cref="UnitStatus"/> label.</param>
+public record UnitDeploymentResponse(bool Running, string Status);

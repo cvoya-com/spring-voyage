@@ -487,6 +487,38 @@ export const api = {
         params: { path: { id } },
       }),
     ),
+  getUnitDeployment: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/units/{id}/deployment", {
+        params: { path: { id } },
+      }),
+    ),
+  getUnitSkills: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/units/{id}/skills", {
+        params: { path: { id } },
+      }),
+    ),
+  setUnitSkills: async (id: string, skills: string[]) =>
+    unwrap(
+      await fetchClient.PUT("/api/v1/tenant/units/{id}/skills", {
+        params: { path: { id } },
+        body: { skills },
+      }),
+    ),
+  getUnitBudget: async (unitId: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/units/{unitId}/budget", {
+        params: { path: { unitId } },
+      }),
+    ),
+  setUnitBudget: async (unitId: string, body: { dailyBudget: number }) =>
+    unwrap(
+      await fetchClient.PUT("/api/v1/tenant/units/{unitId}/budget", {
+        params: { path: { unitId } },
+        body,
+      }),
+    ),
   // #1137: `force` skips the API's lifecycle-status gate and tombstones
   // the unit even from non-terminal states (Validating, Starting, Running,
   // Stopping). The portal uses it as a recovery path triggered by the
