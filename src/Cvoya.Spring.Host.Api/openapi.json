@@ -2981,7 +2981,7 @@
           "PackageInstall"
         ],
         "summary": "Install one or more packages as a single atomic batch",
-        "description": "Phase 1 (single EF transaction): validate, topo-sort, collision pre-flight, write staging rows. Phase 2 (post-commit): activate actors in dependency order. Returns 201 with the install status. Phase-2 failures appear as status=failed in the body; use GET /api/v1/installs/{id} for detail.",
+        "description": "Phase 1 (single EF transaction): validate, topo-sort, write staging rows. Phase 2 (post-commit): activate actors in dependency order. Returns 201 with the install status. Phase-2 failures appear as status=failed in the body; use GET /api/v1/installs/{id} for detail.",
         "operationId": "InstallPackages",
         "requestBody": {
           "content": {
@@ -3006,16 +3006,6 @@
           },
           "400": {
             "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3063,16 +3053,6 @@
           },
           "400": {
             "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -12131,6 +12111,12 @@
             }
           },
           "intoUnit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "displayName": {
             "type": [
               "null",
               "string"

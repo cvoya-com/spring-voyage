@@ -103,9 +103,34 @@ public class PackageInstallService : IPackageInstallService
         {
             throw;
         }
-        catch (PackageNameCollisionException)
+
+        // #2310: validate any per-target DisplayName override against the
+        // package's top-level activatable count BEFORE any DB writes. The
+        // override is singular — it applies to either:
+        //   • exactly one top-level Unit, or
+        //   • exactly one top-level Agent (when the package has no
+        //     top-level Units — typical AgentPackage shape).
+        // Hello-world shapes — one top-level Unit that pulls in a top-level
+        // Agent as a member — fall into the first branch: the override
+        // names the Unit. Any other shape (two top-level Units, two
+        // top-level Agents, etc.) rejects with code: AmbiguousDisplayName
+        // so the wizard / CLI surfaces the rejection cleanly.
+        foreach (var (target, pkg) in resolvedTargets)
         {
-            throw;
+            if (string.IsNullOrWhiteSpace(target.DisplayName))
+            {
+                continue;
+            }
+            var topLevelUnits = pkg.Units.Count(a => a.IsTopLevel);
+            var topLevelAgents = pkg.Agents.Count(a => a.IsTopLevel);
+            var resolvesToOneUnit = topLevelUnits == 1;
+            var resolvesToOneAgent = topLevelUnits == 0 && topLevelAgents == 1;
+            if (!resolvesToOneUnit && !resolvesToOneAgent)
+            {
+                // Aggregate count for the diagnostic — operator-actionable
+                // detail trumps clean separation here.
+                throw new AmbiguousDisplayNameException(pkg.Name, topLevelUnits + topLevelAgents);
+            }
         }
 
         // ADR-0043 §6: resolve each target's `--into <unit>` to a parent
@@ -253,9 +278,11 @@ public class PackageInstallService : IPackageInstallService
         await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            // Name collision pre-flight (ADR-0035 decision 10): collect every
-            // artefact name across all packages, check each against the directory.
-            await PreflightNameCollisionsAsync(sorted, cancellationToken);
+            // #2310: the historical name-collision pre-flight is gone.
+            // Per ADR-0036, identity is a fresh Guid minted at install time
+            // and display names are presentation-only — installing the same
+            // package twice is allowed and produces two rows with distinct
+            // Guids that happen to share a display name.
 
             // Write all staging rows.
             var now = DateTimeOffset.UtcNow;
@@ -279,34 +306,40 @@ public class PackageInstallService : IPackageInstallService
                 // DisplayName only. The Guid is taken from the per-package
                 // symbol map so the staging row and the directory entry the
                 // activator later writes share a single identity (#1629 PR7).
+                //
+                // #2310: each install gets a fresh row keyed by the
+                // per-install Guid from the symbol map. We deliberately do
+                // NOT look up an existing row by display name — installing
+                // the same package twice is supported, and the second pass
+                // must mint a fresh row rather than mutate the first.
+                // For the package's single top-level unit, the
+                // operator-supplied DisplayName override (when present) is
+                // recorded on the staging row so polling reflects the same
+                // label the activator will write in Phase 2. (When the
+                // package has no top-level Unit, the override targets the
+                // top-level Agent — agents have no Phase-1 staging row, so
+                // it's applied in Phase 2 only.)
                 var pkgMap = symbolMap[pkg.Name];
+                var unitOverride = !string.IsNullOrWhiteSpace(target.DisplayName)
+                    ? target.DisplayName
+                    : null;
                 foreach (var unit in pkg.Units.Where(a => !a.IsCrossPackage))
                 {
                     var unitId = pkgMap.GetOrMint(ArtefactKind.Unit, unit.Name);
-                    var existing = await db.UnitDefinitions
-                        .IgnoreQueryFilters()
-                        .FirstOrDefaultAsync(u =>
-                            u.DisplayName == unit.Name && u.DeletedAt == null,
-                            cancellationToken);
-                    if (existing is null)
+                    var stagedDisplayName = unit.IsTopLevel && unitOverride is not null
+                        ? unitOverride
+                        : unit.Name;
+                    var entity = new UnitDefinitionEntity
                     {
-                        var entity = new UnitDefinitionEntity
-                        {
-                            Id = unitId,
-                            DisplayName = unit.Name,
-                            Description = string.Empty,
-                            InstallState = PackageInstallState.Staging,
-                            InstallId = installId,
-                            CreatedAt = now,
-                            UpdatedAt = now,
-                        };
-                        db.UnitDefinitions.Add(entity);
-                    }
-                    else
-                    {
-                        existing.InstallState = PackageInstallState.Staging;
-                        existing.InstallId = installId;
-                    }
+                        Id = unitId,
+                        DisplayName = stagedDisplayName,
+                        Description = string.Empty,
+                        InstallState = PackageInstallState.Staging,
+                        InstallId = installId,
+                        CreatedAt = now,
+                        UpdatedAt = now,
+                    };
+                    db.UnitDefinitions.Add(entity);
                 }
 
                 // Write agent-level entries as unit_definitions with agent scheme.
@@ -361,7 +394,8 @@ public class PackageInstallService : IPackageInstallService
                 : null;
             var parentUnitId = resolvedScopes.TryGetValue(pkg.Name, out var p) ? p : null;
             var (outcome, error) = await ActivatePackageAsync(
-                pkg, installId, symbolMap[pkg.Name], pkgBindings, pkgExec, cancellationToken);
+                pkg, installId, symbolMap[pkg.Name], pkgBindings, pkgExec,
+                target.DisplayName, cancellationToken);
 
             // ADR-0043 §6: re-bind top-level artefacts to the chosen
             // parent unit (when `--into` was supplied). Runs after the
@@ -538,7 +572,7 @@ public class PackageInstallService : IPackageInstallService
                         .Where(a => !a.IsCrossPackage)
                         .Select(a => a.Name)
                         .ToList();
-                    var activeMap = await BuildSymbolMapFromStagingAsync(alreadyActivePkg, installId, cancellationToken);
+                    var (activeMap, _) = await BuildSymbolMapFromStagingAsync(alreadyActivePkg, installId, cancellationToken);
                     activeAgentIds = alreadyActivePkg.Agents
                         .Where(a => !a.IsCrossPackage)
                         .Select(a => activeMap.GetOrMint(ArtefactKind.Agent, a.Name).ToString())
@@ -585,7 +619,12 @@ public class PackageInstallService : IPackageInstallService
             // install. Looking the rows up by display-name keeps the symbol
             // map deterministic across retries — every artefact resolves to
             // its previously-minted id rather than getting a fresh one.
-            var retryMap = await BuildSymbolMapFromStagingAsync(pkg, installId, cancellationToken);
+            // #2310: the helper also recovers the operator-supplied
+            // DisplayName override (when any) for the top-level unit so
+            // the retry re-applies the same label instead of reverting to
+            // the manifest's `name:` field.
+            var (retryMap, retryTopLevelDisplayName) = await BuildSymbolMapFromStagingAsync(
+                pkg, installId, cancellationToken);
 
             // #1671: rehydrate the package-scope bindings from
             // tenant_connector_installs so retry resolves the same per-unit
@@ -604,7 +643,8 @@ public class PackageInstallService : IPackageInstallService
             var rehydratedExec = ExecutionDefaultsResolver.Resolve(pkg);
 
             var (outcome, error) = await ActivatePackageAsync(
-                pkg, installId, retryMap, rehydratedResolution.Bindings, rehydratedExec.ByUnit, cancellationToken);
+                pkg, installId, retryMap, rehydratedResolution.Bindings, rehydratedExec.ByUnit,
+                retryTopLevelDisplayName, cancellationToken);
 
             // #2246: surface created artefact identities so clients can
             // take post-retry actions (auto-start / auto-deploy).
@@ -963,81 +1003,62 @@ public class PackageInstallService : IPackageInstallService
         return sorted;
     }
 
-    private async Task PreflightNameCollisionsAsync(
-        List<(InstallTarget Target, ResolvedPackage Package)> sorted,
-        CancellationToken cancellationToken)
-    {
-        // Under #1629 every artefact's identity is a fresh Guid minted at
-        // install time, not its display name; the directory is keyed by Guid
-        // and offers no name → entry resolver. Name-collision pre-flight
-        // therefore queries the staging tables directly: an in-tenant unit
-        // (display-name match, not soft-deleted) means the install would
-        // produce a confusing duplicate, even though Guid identity would be
-        // distinct.
-        var collisions = new List<string>();
-
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-
-        foreach (var (_, pkg) in sorted)
-        {
-            foreach (var unit in pkg.Units.Where(a => !a.IsCrossPackage))
-            {
-                var nameTaken = await db.UnitDefinitions
-                    .AnyAsync(
-                        u => u.DisplayName == unit.Name && u.DeletedAt == null,
-                        cancellationToken);
-                if (nameTaken)
-                {
-                    collisions.Add(unit.Name);
-                }
-            }
-
-            foreach (var agent in pkg.Agents.Where(a => !a.IsCrossPackage))
-            {
-                var nameTaken = await db.AgentDefinitions
-                    .AnyAsync(
-                        a => a.DisplayName == agent.Name && a.DeletedAt == null,
-                        cancellationToken);
-                if (nameTaken)
-                {
-                    collisions.Add(agent.Name);
-                }
-            }
-        }
-
-        if (collisions.Count > 0)
-        {
-            throw new PackageNameCollisionException(collisions);
-        }
-    }
-
     /// <summary>
     /// Reconstructs a <see cref="LocalSymbolMap"/> for a retry by reading
     /// the staging rows that the original install wrote. Each artefact is
     /// re-bound to its existing Guid so re-running activation does not
-    /// create a duplicate entity with a different id.
+    /// create a duplicate entity with a different id. Also reports the
+    /// effective DisplayName the activator should re-apply for the
+    /// top-level unit (#2310) — the staging row preserves the operator-
+    /// supplied override so the retry doesn't accidentally revert it.
     /// </summary>
-    private async Task<LocalSymbolMap> BuildSymbolMapFromStagingAsync(
+    private async Task<(LocalSymbolMap Map, string? TopLevelDisplayName)> BuildSymbolMapFromStagingAsync(
         ResolvedPackage pkg,
         Guid installId,
         CancellationToken cancellationToken)
     {
         var map = new LocalSymbolMap();
+        string? topLevelDisplayName = null;
 
         await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
+        // Top-level units: the staging row's DisplayName encodes any
+        // operator override, so look up by (installId, Id) once we know
+        // the Guid. Fall back to a (installId, name) probe for retries
+        // against rows minted before #2310 (no override pathway).
         foreach (var unit in pkg.Units.Where(a => !a.IsCrossPackage))
         {
-            var row = await db.UnitDefinitions
+            // Probe by name first — that's the only stable handle we
+            // have when the override is unknown. The staging row carries
+            // either the manifest name or the override; both forms are
+            // searched here.
+            var byName = await db.UnitDefinitions
                 .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(
-                    u => u.InstallId == installId && u.DisplayName == unit.Name,
-                    cancellationToken);
+                .Where(u => u.InstallId == installId && u.DisplayName == unit.Name)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            UnitDefinitionEntity? row = byName;
+            if (row is null && unit.IsTopLevel)
+            {
+                // No name match — the staging row's DisplayName must have
+                // been overridden. There is exactly one top-level row per
+                // install when an override was supplied (#2310 ambiguity
+                // check); fall back to the lone top-level row.
+                var topLevelRows = await db.UnitDefinitions
+                    .IgnoreQueryFilters()
+                    .Where(u => u.InstallId == installId)
+                    .ToListAsync(cancellationToken);
+                row = topLevelRows.Count == 1 ? topLevelRows[0] : null;
+            }
+
             if (row is not null)
             {
                 map.Bind(ArtefactKind.Unit, unit.Name, row.Id);
+                if (unit.IsTopLevel && !string.Equals(row.DisplayName, unit.Name, StringComparison.Ordinal))
+                {
+                    topLevelDisplayName = row.DisplayName;
+                }
             }
             else
             {
@@ -1047,6 +1068,9 @@ public class PackageInstallService : IPackageInstallService
 
         foreach (var agent in pkg.Agents.Where(a => !a.IsCrossPackage))
         {
+            // agent_definitions has no install_id column — best-effort
+            // lookup by display name. Multi-install retry collisions are
+            // a known follow-up; see #2311 for the regression test guard.
             var row = await db.AgentDefinitions
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(
@@ -1062,7 +1086,7 @@ public class PackageInstallService : IPackageInstallService
             }
         }
 
-        return map;
+        return (map, topLevelDisplayName);
     }
 
     /// <summary>
@@ -1236,6 +1260,7 @@ public class PackageInstallService : IPackageInstallService
         LocalSymbolMap symbolMap,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? perUnitBindings,
         IReadOnlyDictionary<string, ResolvedExecutionDefaults>? perUnitExecution,
+        string? displayNameOverride,
         CancellationToken cancellationToken)
     {
         string? firstError = null;
@@ -1263,11 +1288,27 @@ public class PackageInstallService : IPackageInstallService
                 unitExecution = e;
             }
 
+            // #2310: only apply the DisplayName override to the package's
+            // single top-level activatable. The earlier ambiguity check
+            // narrows the population:
+            //   • when the package has any top-level Unit, the override
+            //     names that Unit (a Unit + member-Agent pair counts as
+            //     a single activatable).
+            //   • otherwise (AgentPackage shape), the override names the
+            //     single top-level Agent.
+            var packageHasTopLevelUnit = pkg.Units.Any(a => a.IsTopLevel);
+            var isOverrideTarget = artefact.IsTopLevel
+                && (packageHasTopLevelUnit
+                    ? artefact.Kind == ArtefactKind.Unit
+                    : artefact.Kind == ArtefactKind.Agent);
+            var perArtefactDisplayName = isOverrideTarget ? displayNameOverride : null;
+
             try
             {
                 await _activator.ActivateAsync(
-                    pkg.Name, artefact, installId, symbolMap, unitBindings, unitExecution, cancellationToken);
-                await FlipArtefactStateToActiveAsync(artefact, installId, cancellationToken);
+                    pkg.Name, artefact, installId, symbolMap, unitBindings, unitExecution,
+                    perArtefactDisplayName, cancellationToken);
+                await FlipArtefactStateToActiveAsync(artefact, installId, perArtefactDisplayName, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -1279,7 +1320,7 @@ public class PackageInstallService : IPackageInstallService
                 _logger.LogWarning(ex,
                     "Phase 2: activation failed for {Kind} '{Name}' in package '{Package}' (install {InstallId}).",
                     artefact.Kind, artefact.Name, pkg.Name, installId);
-                await FlipArtefactStateToFailedAsync(artefact, installId, msg, cancellationToken);
+                await FlipArtefactStateToFailedAsync(artefact, installId, perArtefactDisplayName, msg, cancellationToken);
                 firstError ??= msg;
                 allSucceeded = false;
                 // Continue — every artefact gets its best shot.
@@ -1294,6 +1335,7 @@ public class PackageInstallService : IPackageInstallService
     private async Task FlipArtefactStateToActiveAsync(
         ResolvedArtefact artefact,
         Guid installId,
+        string? displayNameOverride,
         CancellationToken cancellationToken)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
@@ -1301,10 +1343,15 @@ public class PackageInstallService : IPackageInstallService
 
         if (artefact.Kind == ArtefactKind.Unit)
         {
+            // #2310: the staging row's DisplayName reflects the override
+            // (when present) — look it up by the same value Phase 1 wrote.
+            var stagedDisplayName = !string.IsNullOrWhiteSpace(displayNameOverride)
+                ? displayNameOverride!
+                : artefact.Name;
             var row = await db.UnitDefinitions
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(u =>
-                    u.InstallId == installId && u.DisplayName == artefact.Name,
+                    u.InstallId == installId && u.DisplayName == stagedDisplayName,
                     cancellationToken);
             if (row is not null)
             {
@@ -1319,6 +1366,7 @@ public class PackageInstallService : IPackageInstallService
     private async Task FlipArtefactStateToFailedAsync(
         ResolvedArtefact artefact,
         Guid installId,
+        string? displayNameOverride,
         string errorMessage,
         CancellationToken cancellationToken)
     {
@@ -1329,10 +1377,13 @@ public class PackageInstallService : IPackageInstallService
 
             if (artefact.Kind == ArtefactKind.Unit)
             {
+                var stagedDisplayName = !string.IsNullOrWhiteSpace(displayNameOverride)
+                    ? displayNameOverride!
+                    : artefact.Name;
                 var row = await db.UnitDefinitions
                     .IgnoreQueryFilters()
                     .FirstOrDefaultAsync(u =>
-                        u.InstallId == installId && u.DisplayName == artefact.Name,
+                        u.InstallId == installId && u.DisplayName == stagedDisplayName,
                         cancellationToken);
                 if (row is not null)
                 {
@@ -1421,22 +1472,33 @@ public class PackageDepGraphException : Exception
 }
 
 /// <summary>
-/// Thrown when Phase 1's name-collision pre-flight finds one or more
-/// artefact names already registered in the tenant directory
-/// (ADR-0035 decision 10).
+/// Thrown when an install target supplies a <c>DisplayName</c> override
+/// but the package ships more than one top-level activatable
+/// (#2310). The override is singular — there is no unambiguous artefact
+/// to apply it to when the package contains, say, two top-level units.
+/// Surfaces as ProblemDetails 400 with
+/// <c>code: AmbiguousDisplayName</c> so the wizard / CLI can render a
+/// precise error.
 /// </summary>
-public class PackageNameCollisionException : Exception
+public class AmbiguousDisplayNameException : Exception
 {
-    /// <summary>Initialises a new <see cref="PackageNameCollisionException"/>.</summary>
-    /// <param name="collidingNames">The names that already exist in the directory.</param>
-    public PackageNameCollisionException(IReadOnlyList<string> collidingNames)
-        : base($"The following names already exist in the tenant: {string.Join(", ", collidingNames)}")
+    /// <summary>
+    /// Initialises a new <see cref="AmbiguousDisplayNameException"/>.
+    /// </summary>
+    /// <param name="packageName">The package the override was supplied for.</param>
+    /// <param name="topLevelCount">The number of top-level activatables the package ships.</param>
+    public AmbiguousDisplayNameException(string packageName, int topLevelCount)
+        : base($"the package has {topLevelCount} top-level activatables; --display-name applies only to single-activatable packages")
     {
-        CollidingNames = collidingNames;
+        PackageName = packageName;
+        TopLevelCount = topLevelCount;
     }
 
-    /// <summary>The names that caused the collision.</summary>
-    public IReadOnlyList<string> CollidingNames { get; }
+    /// <summary>The package name the rejection applies to.</summary>
+    public string PackageName { get; }
+
+    /// <summary>The number of top-level activatables the package ships.</summary>
+    public int TopLevelCount { get; }
 }
 
 /// <summary>

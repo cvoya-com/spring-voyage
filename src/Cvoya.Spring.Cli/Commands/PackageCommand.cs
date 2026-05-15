@@ -221,6 +221,21 @@ public static class PackageCommand
                 "Applies to every target in a multi-target install.",
         };
 
+        // #2310: --as <display-name> overrides the display name of the
+        // package's single top-level activatable. Useful when installing
+        // the same package multiple times so the resulting units / agents
+        // can be told apart in the UI. Rejected by the server with
+        // `code: AmbiguousDisplayName` (400) when the package ships
+        // multiple top-level activatables.
+        var asOption = new Option<string?>("--as")
+        {
+            Description =
+                "Override the display name of the package's single top-level activatable " +
+                "(#2310). Useful when installing the same package multiple times. " +
+                "Applies to every target in a multi-target install. " +
+                "Rejected when any target's package ships more than one top-level activatable.",
+        };
+
         // #2159: --secret flag — repeatable. Form:
         //   <provider>:<auth-method>=<value>                    (single-target install)
         //   <pkg>.<provider>:<auth-method>=<value>              (multi-target install)
@@ -254,7 +269,10 @@ public static class PackageCommand
             "Per-unit override: --connector <slug>:<unit-name>=...\n\n" +
             "Version pinning (ADR-0037 D5): use --version <v> to install a specific package version. " +
             "When omitted the install resolves to the most recently installed version.\n\n" +
-            "Exit codes: 0 = success, 2 = bad request / dep-graph error, 4 = name collision, 1 = server error.");
+            "Display name (#2310): use --as <name> to override the display name of the " +
+            "package's single top-level activatable. Useful when installing the same package " +
+            "multiple times.\n\n" +
+            "Exit codes: 0 = success, 2 = bad request / dep-graph error, 1 = server error.");
         command.Arguments.Add(nameArg);
         command.Options.Add(fileOption);
         command.Options.Add(inputOption);
@@ -263,6 +281,7 @@ public static class PackageCommand
         command.Options.Add(versionOption);
         command.Options.Add(secretOption);
         command.Options.Add(intoOption);
+        command.Options.Add(asOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -390,6 +409,11 @@ public static class PackageCommand
             // invocation; per-target overrides are not supported in v0.1.
             var intoRef = parseResult.GetValue(intoOption);
 
+            // #2310: --as <name> applies to every target. The server
+            // rejects the flag with code: AmbiguousDisplayName when any
+            // target's package has more than one top-level activatable.
+            var asName = parseResult.GetValue(asOption);
+
             List<SpringApiClient.PackageInstallTargetRequest> BuildTargets() => names
                 .Select(n => new SpringApiClient.PackageInstallTargetRequest(
                     PackageName: n,
@@ -400,7 +424,8 @@ public static class PackageCommand
                     Credentials: perPackageSecrets.TryGetValue(n, out var s) && s.Count > 0
                         ? s.ToList()
                         : null,
-                    IntoUnit: string.IsNullOrWhiteSpace(intoRef) ? null : intoRef))
+                    IntoUnit: string.IsNullOrWhiteSpace(intoRef) ? null : intoRef,
+                    DisplayName: string.IsNullOrWhiteSpace(asName) ? null : asName))
                 .ToList();
 
             SpringApiClient.PackageInstallResponse catalogResult;

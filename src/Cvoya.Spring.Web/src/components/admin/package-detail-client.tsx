@@ -64,6 +64,7 @@ export default function PackageDetailClient({ name }: Props) {
 
   const [installOpen, setInstallOpen] = useState(false);
   const [inputRows, setInputRows] = useState<InputRow[]>([]);
+  const [displayNameOverride, setDisplayNameOverride] = useState("");
   const [submitError, setSubmitError] = useState<unknown | null>(null);
 
   const installMutation = useInstallPackages();
@@ -73,6 +74,10 @@ export default function PackageDetailClient({ name }: Props) {
     // wizard no longer pre-fills input rows from a manifest schema.
     // #1727 deletes the input-rendering UI in this component.
     setInputRows([]);
+    // #2310: reset the optional display-name override on every open so
+    // a closed-without-submitting dialog doesn't bleed the last value
+    // into the next install attempt.
+    setDisplayNameOverride("");
     setSubmitError(null);
     setInstallOpen(true);
   }
@@ -110,10 +115,26 @@ export default function PackageDetailClient({ name }: Props) {
       }
     }
 
+    // #2310: trim the display-name override; an empty string means
+    // "use the package default" and goes on the wire as undefined.
+    // The backend rejects the override with `code: AmbiguousDisplayName`
+    // when the package has multiple top-level activatables; the existing
+    // submitError plumbing renders that rejection.
+    const trimmedDisplayName = displayNameOverride.trim();
+    const target: {
+      packageName: string;
+      inputs: Record<string, string>;
+      displayName?: string;
+    } = {
+      packageName: name,
+      inputs,
+    };
+    if (trimmedDisplayName.length > 0) {
+      target.displayName = trimmedDisplayName;
+    }
+
     try {
-      const result = await installMutation.mutateAsync([
-        { packageName: name, inputs },
-      ]);
+      const result = await installMutation.mutateAsync([target]);
       setInstallOpen(false);
       router.push(`/installs/${result.installId}`);
     } catch (err) {
@@ -391,6 +412,33 @@ export default function PackageDetailClient({ name }: Props) {
         }
       >
         <form id="install-inputs-form" onSubmit={handleInstallSubmit} noValidate>
+          {/* #2310: display-name override. Optional — leaving blank
+              installs under the package's declared name. The backend
+              rejects the override with code: AmbiguousDisplayName when
+              the package has multiple top-level activatables; the
+              error renders through the same install-error plumbing
+              the connector-binding failure uses. */}
+          <div className="mb-4 space-y-1">
+            <label
+              htmlFor="install-display-name"
+              className="text-sm font-medium"
+            >
+              Display name (optional)
+            </label>
+            <Input
+              id="install-display-name"
+              placeholder={pkg.name ?? name}
+              value={displayNameOverride}
+              onChange={(e) => setDisplayNameOverride(e.target.value)}
+              aria-label="Display name override"
+              data-testid="install-display-name-input"
+            />
+            <p className="text-xs text-muted-foreground">
+              Leave blank to use the package&apos;s default name. Useful
+              when installing the same package multiple times.
+            </p>
+          </div>
+
           {inputRows.length > 0 && (
             <div
               className="mb-3 space-y-3"

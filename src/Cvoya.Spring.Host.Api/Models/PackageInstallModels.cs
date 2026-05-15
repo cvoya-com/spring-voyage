@@ -55,13 +55,24 @@ public sealed record PackageInstallRequest(
 /// the tenant). The package's internal structure (a top-level unit's
 /// own members, an agent's own skills) is unaffected.
 /// </param>
+/// <param name="DisplayName">
+/// Optional display-name override for the package's single top-level
+/// activatable (#2310). When set, replaces the artefact's <c>name:</c>
+/// field for display purposes — useful when installing the same package
+/// multiple times so the operator can distinguish the instances in the
+/// UI. Identity is always a fresh Guid; the override only changes the
+/// display name. Packages that ship multiple top-level activatables
+/// reject the override with a 400
+/// (<c>code: AmbiguousDisplayName</c>).
+/// </param>
 public sealed record PackageInstallTarget(
     string PackageName,
     IReadOnlyDictionary<string, string>? Inputs,
     PackageConnectorBindings? ConnectorBindings = null,
     string? Version = null,
     IReadOnlyList<CredentialBindingPayload>? Credentials = null,
-    string? IntoUnit = null);
+    string? IntoUnit = null,
+    string? DisplayName = null);
 
 /// <summary>
 /// Operator-supplied connector bindings for a single package install

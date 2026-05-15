@@ -50,6 +50,18 @@ public interface IPackageArtefactActivator
     /// unit-creation service so the persisted execution block reflects
     /// the merged result rather than the raw member-level YAML.
     /// </param>
+    /// <param name="displayNameOverride">
+    /// Optional display-name override (#2310). When non-null, replaces
+    /// the artefact's <c>name:</c> field for display purposes — the
+    /// directory entry the activator registers and the persisted
+    /// <c>unit_definitions</c> / <c>agent_definitions</c> row carry this
+    /// name instead. Used by the install pipeline so the same package
+    /// can be installed multiple times without producing confusingly
+    /// identical display names. Caller-side validation (rejection when
+    /// the package ships multiple top-level activatables) lives in
+    /// <see cref="IPackageInstallService"/>; the activator just trusts
+    /// what it receives.
+    /// </param>
     /// <param name="cancellationToken">A cancellation token.</param>
     Task ActivateAsync(
         string packageName,
@@ -58,5 +70,6 @@ public interface IPackageArtefactActivator
         LocalSymbolMap symbolMap,
         IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
         ResolvedExecutionDefaults? executionDefaults = null,
+        string? displayNameOverride = null,
         CancellationToken cancellationToken = default);
 }

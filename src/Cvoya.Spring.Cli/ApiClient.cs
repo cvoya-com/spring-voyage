@@ -2833,7 +2833,8 @@ public class SpringApiClient
         PackageConnectorBindingsRequest? ConnectorBindings = null,
         string? Version = null,
         IReadOnlyList<CredentialBindingPayloadRequest>? Credentials = null,
-        string? IntoUnit = null);
+        string? IntoUnit = null,
+        string? DisplayName = null);
 
     /// <summary>
     /// Wire shape for one operator-supplied LLM credential at install

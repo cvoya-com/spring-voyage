@@ -179,6 +179,52 @@ describe("InstallStatusClient", () => {
     expect(screen.getByText(/install failed/i)).toBeInTheDocument();
   });
 
+  // ---- #2312: aggregate error-details card ----
+
+  it("renders aggregate error-details card when any package has an errorMessage", async () => {
+    getInstallStatus.mockResolvedValue(makeFailedStatus("Actor placement timeout"));
+    renderPage();
+    await waitFor(() => screen.getByTestId("install-status-failed"));
+    expect(screen.getByTestId("install-error-details")).toBeInTheDocument();
+    expect(screen.getByTestId("install-error-details")).toHaveTextContent(
+      "my-pkg: Actor placement timeout",
+    );
+  });
+
+  it("aggregates errorMessage values across multiple packages and prefixes each line with the package name", async () => {
+    getInstallStatus.mockResolvedValue({
+      installId: INSTALL_ID,
+      status: "failed",
+      packages: [
+        { packageName: "pkg-a", state: "failed", errorMessage: "first failure" },
+        { packageName: "pkg-b", state: "failed", errorMessage: "second\nthird" },
+      ],
+      startedAt: "2026-05-01T10:00:00Z",
+      completedAt: null,
+      error: null,
+    });
+    renderPage();
+    await waitFor(() => screen.getByTestId("install-status-failed"));
+    const card = screen.getByTestId("install-error-details");
+    expect(card).toHaveTextContent("pkg-a: first failure");
+    expect(card).toHaveTextContent("pkg-b: second");
+    expect(card).toHaveTextContent("pkg-b: third");
+  });
+
+  it("does not render aggregate error-details card in staging state", async () => {
+    getInstallStatus.mockResolvedValue(makeStagingStatus());
+    renderPage();
+    await waitFor(() => screen.getByTestId("install-status-staging"));
+    expect(screen.queryByTestId("install-error-details")).not.toBeInTheDocument();
+  });
+
+  it("does not render aggregate error-details card in active state", async () => {
+    getInstallStatus.mockResolvedValue(makeActiveStatus());
+    renderPage();
+    await waitFor(() => screen.getByTestId("install-status-active"));
+    expect(screen.queryByTestId("install-error-details")).not.toBeInTheDocument();
+  });
+
   it("shows Retry and Abort buttons in failed state", async () => {
     getInstallStatus.mockResolvedValue(makeFailedStatus());
     renderPage();
@@ -191,7 +237,12 @@ describe("InstallStatusClient", () => {
     getInstallStatus.mockResolvedValue(makeFailedStatus("Dapr placement timeout"));
     renderPage();
     await waitFor(() => screen.getByTestId("install-status-failed"));
-    expect(screen.getByText(/dapr placement timeout/i)).toBeInTheDocument();
+    // #2312 now also renders an aggregate "Error details" card with the
+    // same message, so the per-package row's destructive paragraph
+    // becomes one of two matches. Scope to the per-row to keep the
+    // pre-#2312 contract intact.
+    const row = screen.getByTestId("package-detail-row-my-pkg");
+    expect(row).toHaveTextContent(/dapr placement timeout/i);
   });
 
   // ---- retry action ----

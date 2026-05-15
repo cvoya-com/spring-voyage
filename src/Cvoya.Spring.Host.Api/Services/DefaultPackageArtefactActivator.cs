@@ -84,6 +84,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         LocalSymbolMap symbolMap,
         IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
         ResolvedExecutionDefaults? executionDefaults = null,
+        string? displayNameOverride = null,
         CancellationToken cancellationToken = default)
     {
         if (artefact.Content is null)
@@ -96,11 +97,11 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         switch (artefact.Kind)
         {
             case ArtefactKind.Unit:
-                await ActivateUnitAsync(artefact, symbolMap, connectorBindings, executionDefaults, cancellationToken);
+                await ActivateUnitAsync(artefact, symbolMap, connectorBindings, executionDefaults, displayNameOverride, cancellationToken);
                 break;
 
             case ArtefactKind.Agent:
-                await ActivateAgentAsync(artefact, symbolMap, cancellationToken);
+                await ActivateAgentAsync(artefact, symbolMap, displayNameOverride, cancellationToken);
                 break;
 
             case ArtefactKind.Skill:
@@ -125,6 +126,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         LocalSymbolMap symbolMap,
         IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings,
         ResolvedExecutionDefaults? executionDefaults,
+        string? displayNameOverride,
         CancellationToken ct)
     {
         var manifest = ManifestParser.Parse(artefact.Content!);
@@ -185,7 +187,15 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             await ResolveMemberReferencesAsync(manifest.Members, symbolMap, ct);
         }
 
-        var overrides = new UnitCreationOverrides(IsTopLevel: true, ActorId: actorId);
+        // #2310: when the install request supplied a display-name override,
+        // forward it through UnitCreationOverrides.DisplayName so the
+        // directory entry + unit_definitions row carry the operator's
+        // chosen label instead of the package's declared `name:`. Identity
+        // remains the pre-minted Guid; the override is purely cosmetic.
+        var overrides = new UnitCreationOverrides(
+            IsTopLevel: true,
+            ActorId: actorId,
+            DisplayName: string.IsNullOrWhiteSpace(displayNameOverride) ? null : displayNameOverride);
 
         // #1671: forward the resolved per-unit connector binding to
         // IUnitCreationService through the existing UnitConnectorBindingRequest
@@ -349,6 +359,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
     private async Task ActivateAgentAsync(
         ResolvedArtefact artefact,
         LocalSymbolMap symbolMap,
+        string? displayNameOverride,
         CancellationToken ct)
     {
         var content = artefact.Content!;
@@ -379,7 +390,15 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
                 $"Agent artefact '{artefact.Name}' has no name; cannot register in directory.");
         }
 
-        var displayName = string.IsNullOrWhiteSpace(fields.DisplayName) ? slug : fields.DisplayName!;
+        // #2310: the install pipeline may have supplied a display-name
+        // override for the package's single top-level activatable. When
+        // present, it wins over both the agent YAML's `name:` field
+        // (i.e. fields.DisplayName) and the slug. Used so the operator
+        // can install the same agent package multiple times without
+        // every instance landing under the same display name.
+        var displayName = !string.IsNullOrWhiteSpace(displayNameOverride)
+            ? displayNameOverride!
+            : (string.IsNullOrWhiteSpace(fields.DisplayName) ? slug : fields.DisplayName!);
         var description = fields.Description ?? string.Empty;
 
         // #1629 PR7: identity is server-allocated; the local-symbol map is
