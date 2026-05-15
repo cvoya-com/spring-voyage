@@ -1,0 +1,28 @@
+apiVersion: spring.voyage/v1
+kind: UnitTemplate
+name: engineering-team
+description: Engineering team archetype — the type definition. Ships nested concrete children (`team-lead`, `senior-engineer`) that the install pipeline stamps under each consumer instance.
+ai:
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
+instructions: |
+  You orchestrate a software engineering team made up of a team lead, a
+  senior engineer, and additional individual contributors that the
+  consumer adds via concrete `from: software-engineer` instances. Route
+  scope and design questions to the team lead; route implementation
+  work to the engineer whose declared expertise best matches the task.
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+policies:
+  communication: through-unit
+  work_assignment: capability-match
+  expertise_sharing: advertise
+  initiative:
+    max_level: attentive
+    max_actions_per_hour: 10
+humans:
+  - identity: owner
+    permission: owner
+    notifications: ["escalation", "completion"]

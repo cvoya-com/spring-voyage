@@ -1,3 +1,0 @@
-kind: Unit
-name: no-apiversion
-description: Unit that omits the required apiVersion header.

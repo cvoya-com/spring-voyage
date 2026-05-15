@@ -3,8 +3,30 @@
 
 namespace Cvoya.Spring.Manifest;
 
+using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+
+/// <summary>
+/// One nested artefact discovered under a named parent artefact in a
+/// cross-package catalog walk. Used by <see cref="TemplateResolver"/> to
+/// stamp out the nested children of a cross-package template
+/// (ADR-0043 §5h archetype-library case).
+/// </summary>
+/// <param name="Kind">The artefact's kind (Unit / Agent only — nested templates do not activate).</param>
+/// <param name="Name">The artefact's <c>name:</c> field (unique within the source package per ADR-0043 §3).</param>
+/// <param name="Yaml">Raw YAML body of the artefact's inner <c>package.yaml</c>.</param>
+/// <param name="ContainingArtefactName">
+/// Immediate containing artefact's name (the artefact whose folder this
+/// one lives directly inside), or <c>null</c> when the artefact sits
+/// directly under the parent template's folder.
+/// </param>
+public sealed record NestedArtefactDescriptor(
+    ArtefactKind Kind,
+    string Name,
+    string Yaml,
+    string? ContainingArtefactName);
 
 /// <summary>
 /// Provides access to the package catalog for cross-package reference
@@ -39,4 +61,27 @@ public interface IPackageCatalogProvider
         ArtefactKind kind,
         string artefactName,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Enumerates the concrete nested children of <paramref name="parentArtefactName"/>
+    /// in <paramref name="packageName"/> — every <c>kind: Unit</c> /
+    /// <c>kind: Agent</c> artefact discovered anywhere under the parent's
+    /// folder tree (its own <c>agents/</c> and <c>units/</c> subdirectories
+    /// at any depth). Used by <see cref="TemplateResolver"/> to stamp out
+    /// nested children of a cross-package template (ADR-0043 §5h
+    /// archetype-library case).
+    /// </summary>
+    /// <remarks>
+    /// The default implementation returns an empty list — implementations
+    /// that don't surface the cross-package folder tree (in-flight overlay,
+    /// remote registry stubs) opt in by overriding this method. Templates
+    /// themselves are <em>not</em> returned; only concrete artefacts that
+    /// would activate when the parent is stamped.
+    /// </remarks>
+    Task<IReadOnlyList<NestedArtefactDescriptor>> EnumerateNestedArtefactsAsync(
+        string packageName,
+        ArtefactKind parentKind,
+        string parentArtefactName,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(Array.Empty<NestedArtefactDescriptor>());
 }

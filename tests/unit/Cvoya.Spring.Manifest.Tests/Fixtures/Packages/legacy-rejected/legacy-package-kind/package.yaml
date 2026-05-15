@@ -1,6 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: UnitPackage
-name: legacy-package-kind
-description: Pre-ADR-0037 kind discriminator (UnitPackage) that the parser must reject with LegacyPackageKind.
-version: 1.0.0
-content: []

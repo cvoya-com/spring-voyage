@@ -108,6 +108,11 @@ public class PackageInstallService : IPackageInstallService
             throw;
         }
 
+        // ADR-0043 §6: resolve each target's `--into <unit>` to a parent
+        // Guid (or null for tenant-scope). Runs before any DB writes so
+        // an invalid scope binding fails the install fast with a 400.
+        var resolvedScopes = await ResolveInstallScopesAsync(resolvedTargets, cancellationToken);
+
         // #1671: connector-binding pre-flight before any DB writes. Aggregate
         // every gap across every package in the batch into a single
         // ConnectorBindingsMissingException so the operator sees the full
@@ -354,8 +359,31 @@ public class PackageInstallService : IPackageInstallService
             var pkgExec = resolvedExecutions.TryGetValue(pkg.Name, out var re)
                 ? re
                 : null;
+            var parentUnitId = resolvedScopes.TryGetValue(pkg.Name, out var p) ? p : null;
             var (outcome, error) = await ActivatePackageAsync(
                 pkg, installId, symbolMap[pkg.Name], pkgBindings, pkgExec, cancellationToken);
+
+            // ADR-0043 §6: re-bind top-level artefacts to the chosen
+            // parent unit (when `--into` was supplied). Runs after the
+            // activator wrote the default tenant-scope edges so the
+            // operation is "edge swap" rather than "edge create" — the
+            // activator's existing top-level logic stays untouched.
+            if (outcome == PackageInstallOutcome.Active && parentUnitId.HasValue)
+            {
+                try
+                {
+                    await BindTopLevelArtefactsToParentAsync(
+                        pkg, symbolMap[pkg.Name], parentUnitId.Value, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex,
+                        "Phase 2: failed to bind package '{Package}' top-level artefacts to parent unit '{ParentId}' (install {InstallId}).",
+                        pkg.Name, parentUnitId.Value, installId);
+                    outcome = PackageInstallOutcome.Failed;
+                    error ??= $"Failed to bind top-level artefacts to parent unit '{parentUnitId.Value}': {ex.Message}";
+                }
+            }
 
             // #2246: surface the artefact identities the install created so
             // clients (wizard, CLI) can take follow-up actions like
@@ -680,21 +708,128 @@ public class PackageInstallService : IPackageInstallService
 
         var overlayCatalog = new InFlightBatchCatalogProvider(inFlightPackages, _catalogProvider);
 
+        // ADR-0043 §5: a single resolver instance covers every target in
+        // the batch — chained / cross-package templates resolve against
+        // the in-flight overlay catalog so a package can `from:` a
+        // template defined by another package in the same install.
+        var templateResolver = new TemplateResolver(overlayCatalog);
+
         foreach (var target in targets)
         {
-            var pkg = await PackageManifestParser.ParseAndResolveAsync(
+            var parsed = await PackageManifestParser.ParseAndResolveAsync(
                 target.OriginalYaml,
                 packageRoot: target.PackageRoot,
                 inputValues: target.Inputs,
                 catalogProvider: overlayCatalog,
                 cancellationToken: cancellationToken);
 
-            result.Add((target, pkg));
+            // ADR-0043 §5: stamp `from:` references before any
+            // downstream pipeline step consumes the resolved package.
+            // The stamped tree replaces every `from:` reference with
+            // its merged-body concrete artefact plus cloned children;
+            // templates themselves drop out.
+            var stamped = await templateResolver.ResolveAsync(
+                parsed, target.PackageRoot, cancellationToken);
+
+            result.Add((target, stamped));
         }
 
         // Validate dep-graph closure: every cross-package reference must resolve
         // to a package in this batch or to an already-installed package.
         await ValidateDepGraphClosureAsync(result, cancellationToken);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Resolves each install target's optional <c>IntoUnit</c> reference
+    /// (ADR-0043 §6) to a parent unit Guid (or <c>null</c> for the
+    /// tenant-scope default). Rejects ambiguous / unknown references
+    /// before any DB writes so the install fails fast with a clean 400.
+    /// </summary>
+    private async Task<Dictionary<string, Guid?>> ResolveInstallScopesAsync(
+        List<(InstallTarget Target, ResolvedPackage Package)> resolvedTargets,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, Guid?>(StringComparer.OrdinalIgnoreCase);
+
+        // Build a set of package names in the batch so we can reject
+        // `--into <package-name>` early without a DB round-trip.
+        var batchPackageNames = new HashSet<string>(
+            resolvedTargets.Select(r => r.Package.Name),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (target, pkg) in resolvedTargets)
+        {
+            var raw = target.IntoUnit?.Trim();
+            if (string.IsNullOrEmpty(raw))
+            {
+                result[pkg.Name] = null;  // tenant-scope default
+                continue;
+            }
+
+            // Explicit "tenant" — the readable form of the default.
+            if (string.Equals(raw, "tenant", StringComparison.OrdinalIgnoreCase))
+            {
+                result[pkg.Name] = null;
+                continue;
+            }
+
+            // Reject `--into <package-name>` — packages don't contain
+            // other packages' artefacts (ADR-0043 §6).
+            if (batchPackageNames.Contains(raw))
+            {
+                throw new InvalidInstallScopeException(
+                    $"--into '{raw}' is rejected: '{raw}' is a package name in this install batch, " +
+                    "not a unit. Packages don't contain other packages' artefacts. " +
+                    "Pass a unit display name or unit id, or omit --into for the tenant default.");
+            }
+
+            // Lookup by Guid first; fall back to display-name lookup.
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            Guid? resolved = null;
+            if (Guid.TryParse(raw, out var asGuid)
+                || Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(raw, out asGuid))
+            {
+                var byId = await db.UnitDefinitions
+                    .AsNoTracking()
+                    .Where(u => u.Id == asGuid && u.DeletedAt == null)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (byId is not null)
+                {
+                    resolved = byId.Id;
+                }
+            }
+
+            if (resolved is null)
+            {
+                var matches = await db.UnitDefinitions
+                    .AsNoTracking()
+                    .Where(u => u.DisplayName == raw && u.DeletedAt == null)
+                    .ToListAsync(cancellationToken);
+                if (matches.Count == 1)
+                {
+                    resolved = matches[0].Id;
+                }
+                else if (matches.Count > 1)
+                {
+                    throw new InvalidInstallScopeException(
+                        $"--into '{raw}' is ambiguous: {matches.Count} units share that display name. " +
+                        "Pass the unit's Guid id instead.");
+                }
+            }
+
+            if (resolved is null)
+            {
+                throw new InvalidInstallScopeException(
+                    $"--into '{raw}' did not resolve to a known unit in this tenant. " +
+                    "Pass an existing unit's display name or Guid, or omit --into for the tenant default.");
+            }
+
+            result[pkg.Name] = resolved;
+        }
 
         return result;
     }
@@ -1015,6 +1150,86 @@ public class PackageInstallService : IPackageInstallService
 
     // ── Phase 2 helpers ────────────────────────────────────────────────────
 
+    /// <summary>
+    /// ADR-0043 §6: re-binds the package's top-level Units / Agents to
+    /// <paramref name="parentUnitId"/>. The activator has already written
+    /// the default tenant-scope edge for each top-level Unit; this method
+    /// replaces those edges with parent-edges and adds the
+    /// <c>unit_memberships</c> rows that put top-level Agents inside the
+    /// chosen parent. Nested artefacts (a top-level unit's own members,
+    /// an agent's own skills) are unaffected.
+    /// </summary>
+    private async Task BindTopLevelArtefactsToParentAsync(
+        ResolvedPackage pkg,
+        LocalSymbolMap symbolMap,
+        Guid parentUnitId,
+        CancellationToken cancellationToken)
+    {
+        var tenantId = _tenantContext.CurrentTenantId;
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        foreach (var unit in pkg.Units.Where(u => u.IsTopLevel))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!symbolMap.TryResolve(ArtefactKind.Unit, unit.Name, out var childId))
+            {
+                continue;
+            }
+
+            // Retire the tenant-root edge if the activator wrote one.
+            var tenantEdge = await db.UnitSubunitMemberships
+                .FirstOrDefaultAsync(
+                    e => e.ParentId == tenantId && e.ChildId == childId,
+                    cancellationToken);
+            if (tenantEdge is not null)
+            {
+                db.UnitSubunitMemberships.Remove(tenantEdge);
+            }
+
+            // Upsert the parent-edge.
+            var existing = await db.UnitSubunitMemberships
+                .FirstOrDefaultAsync(
+                    e => e.ParentId == parentUnitId && e.ChildId == childId,
+                    cancellationToken);
+            if (existing is null)
+            {
+                db.UnitSubunitMemberships.Add(new Cvoya.Spring.Dapr.Data.Entities.UnitSubunitMembershipEntity
+                {
+                    ParentId = parentUnitId,
+                    ChildId = childId,
+                });
+            }
+        }
+
+        foreach (var agent in pkg.Agents.Where(a => a.IsTopLevel))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!symbolMap.TryResolve(ArtefactKind.Agent, agent.Name, out var agentId))
+            {
+                continue;
+            }
+
+            var existing = await db.UnitMemberships
+                .FirstOrDefaultAsync(
+                    m => m.UnitId == parentUnitId && m.AgentId == agentId,
+                    cancellationToken);
+            if (existing is null)
+            {
+                db.UnitMemberships.Add(new Cvoya.Spring.Dapr.Data.Entities.UnitMembershipEntity
+                {
+                    UnitId = parentUnitId,
+                    AgentId = agentId,
+                    Enabled = true,
+                    IsPrimary = true,
+                });
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     private async Task<(PackageInstallOutcome Outcome, string? Error)> ActivatePackageAsync(
         ResolvedPackage pkg,
         Guid installId,
@@ -1168,6 +1383,18 @@ public class PackageInstallService : IPackageInstallService
 }
 
 /// <summary>
+/// Thrown when the install pipeline rejects an <c>--into &lt;unit&gt;</c>
+/// binding (ADR-0043 §6). Covers: unknown unit reference, unit reference
+/// that resolved to a package name (operator confusion), or empty
+/// reference string. Surfaces as ProblemDetails 400.
+/// </summary>
+public class InvalidInstallScopeException : Exception
+{
+    /// <summary>Initialises a new <see cref="InvalidInstallScopeException"/>.</summary>
+    public InvalidInstallScopeException(string message) : base(message) { }
+}
+
+/// <summary>
 /// Thrown when Phase 1 detects a cross-package reference that cannot be
 /// resolved within the install batch or in already-installed packages
 /// (ADR-0035 decision 14).
@@ -1276,5 +1503,25 @@ internal sealed class InFlightBatchCatalogProvider : IPackageCatalogProvider
         }
 
         return null;
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<NestedArtefactDescriptor>> EnumerateNestedArtefactsAsync(
+        string packageName,
+        ArtefactKind parentKind,
+        string parentArtefactName,
+        CancellationToken cancellationToken = default)
+    {
+        // In-flight packages: not used today for the archetype-library
+        // case (§5h targets already-installed cross-package templates).
+        // Forward to the underlying catalog for non-in-flight packages so
+        // the resolver can walk a sibling package on disk.
+        if (_underlying is not null && !_inFlight.ContainsKey(packageName))
+        {
+            return _underlying.EnumerateNestedArtefactsAsync(
+                packageName, parentKind, parentArtefactName, cancellationToken);
+        }
+        return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(
+            System.Array.Empty<NestedArtefactDescriptor>());
     }
 }

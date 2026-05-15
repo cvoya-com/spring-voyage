@@ -55,8 +55,6 @@ public class PackageInstallServiceExecutionPreflightTests
                 name: pkg-1679-happy
                 description: x
                 version: 1.0.0
-                content:
-                  - unit: alpha
                 execution:
                   image: ghcr.io/example/agents:latest
                 """,
@@ -65,7 +63,7 @@ public class PackageInstallServiceExecutionPreflightTests
                 ("alpha.yaml", """
                     apiVersion: spring.voyage/v1
                     kind: Unit
-                    name: alpha-1679-happy
+                    name: alpha
                     description: x
                     """),
             });
@@ -97,15 +95,13 @@ public class PackageInstallServiceExecutionPreflightTests
                 name: pkg-1679-missing
                 description: x
                 version: 1.0.0
-                content:
-                  - unit: alpha
                 """,
             unitFiles: new[]
             {
                 ("alpha.yaml", """
                     apiVersion: spring.voyage/v1
                     kind: Unit
-                    name: alpha-1679-missing
+                    name: alpha
                     description: x
                     """),
             });
@@ -144,8 +140,6 @@ public class PackageInstallServiceExecutionPreflightTests
                 name: pkg-1679-merge
                 description: x
                 version: 1.0.0
-                content:
-                  - unit: alpha
                 execution:
                   image: ghcr.io/example/pkg:latest
                   model: claude-opus-4-7
@@ -155,7 +149,7 @@ public class PackageInstallServiceExecutionPreflightTests
                 ("alpha.yaml", """
                     apiVersion: spring.voyage/v1
                     kind: Unit
-                    name: alpha-1679-merge
+                    name: alpha
                     description: x
                     execution:
                       image: ghcr.io/example/alpha:latest
@@ -249,6 +243,15 @@ public class PackageInstallServiceExecutionPreflightTests
         return (service, activator);
     }
 
+    /// <summary>
+    /// Builds a package tree in the ADR-0043 recursive shape. Each
+    /// <paramref name="unitFiles"/> tuple is treated as
+    /// <c>(&lt;short-name&gt;.yaml, &lt;content&gt;)</c>; the
+    /// <c>.yaml</c> extension is stripped to derive the folder name
+    /// (<c>units/&lt;short-name&gt;/package.yaml</c>). The unit's
+    /// inner manifest's <c>name:</c> field must match the folder
+    /// name (ADR-0043 §8 — <c>ArtefactFolderNameMismatch</c>).
+    /// </summary>
     private static async Task<TempPackage> BuildPackageAsync(
         string packageYaml,
         (string Filename, string Content)[] unitFiles)
@@ -262,7 +265,10 @@ public class PackageInstallServiceExecutionPreflightTests
         await File.WriteAllTextAsync(packagePath, packageYaml);
         foreach (var (filename, content) in unitFiles)
         {
-            await File.WriteAllTextAsync(Path.Combine(unitsDir, filename), content);
+            var folderName = Path.GetFileNameWithoutExtension(filename);
+            var unitDir = Path.Combine(unitsDir, folderName);
+            Directory.CreateDirectory(unitDir);
+            await File.WriteAllTextAsync(Path.Combine(unitDir, "package.yaml"), content);
         }
 
         return new TempPackage(tempRoot, packageYaml);

@@ -1,0 +1,8 @@
+apiVersion: spring.voyage/v1
+kind: Agent
+name: ada
+description: Ada — software engineer specialised in numerical / algorithmic work. Concrete instance of the `software-engineer` template.
+from: software-engineer
+# Inherits ai, role, capabilities, instructions, expertise from the
+# software-engineer template per ADR-0043 §5d. The instance overrides
+# description only; everything else flows through.

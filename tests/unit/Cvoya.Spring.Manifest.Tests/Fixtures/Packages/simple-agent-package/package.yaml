@@ -1,7 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Package
-name: simple-agent-package
-description: A test package bundling a single agent.
-version: 1.0.0
-content:
-  - agent: my-agent

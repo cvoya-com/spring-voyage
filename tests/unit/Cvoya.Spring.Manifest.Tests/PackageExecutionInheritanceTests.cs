@@ -17,6 +17,11 @@ using Xunit;
 /// <c>[list]</c>), and the per-unit projection through
 /// <see cref="ResolvedPackage.Execution"/>.
 /// </summary>
+/// <remarks>
+/// Test fixtures use the ADR-0043 recursive folder layout: every unit
+/// lives at <c>&lt;root&gt;/units/&lt;name&gt;/package.yaml</c>; the
+/// package manifest carries metadata only (no <c>content:</c>).
+/// </remarks>
 public class PackageExecutionInheritanceTests
 {
     [Fact]
@@ -28,8 +33,6 @@ public class PackageExecutionInheritanceTests
             name: my-package
             description: x
             version: 1.0.0
-            content:
-              - unit: my-unit
             execution:
               image: ghcr.io/example/agent:latest
               provider: anthropic
@@ -53,8 +56,6 @@ public class PackageExecutionInheritanceTests
             name: my-package
             description: x
             version: 1.0.0
-            content:
-              - unit: my-unit
             execution:
               image: ghcr.io/example/agent:latest
               inherit: all
@@ -79,14 +80,12 @@ public class PackageExecutionInheritanceTests
                 name: pkg
                 description: x
                 version: 1.0.0
-                content:
-                  - unit: alpha
                 execution:
                   image: ghcr.io/example/agent:latest
                 """,
             unitFiles: new[]
             {
-                ("alpha.yaml", """
+                ("alpha", """
                     apiVersion: spring.voyage/v1
                     kind: Unit
                     name: alpha
@@ -113,12 +112,10 @@ public class PackageExecutionInheritanceTests
                 name: pkg
                 description: x
                 version: 1.0.0
-                content:
-                  - unit: alpha
                 """,
             unitFiles: new[]
             {
-                ("alpha.yaml", """
+                ("alpha", """
                     apiVersion: spring.voyage/v1
                     kind: Unit
                     name: alpha
@@ -145,15 +142,13 @@ public class PackageExecutionInheritanceTests
                 name: pkg
                 description: x
                 version: 1.0.0
-                content:
-                  - unit: alpha
                 execution:
                   image: ghcr.io/example/agent:latest
                   inherit: all
                 """,
             unitFiles: new[]
             {
-                ("alpha.yaml", """
+                ("alpha", """
                     apiVersion: spring.voyage/v1
                     kind: Unit
                     name: alpha
@@ -179,9 +174,6 @@ public class PackageExecutionInheritanceTests
                 name: pkg
                 description: x
                 version: 1.0.0
-                content:
-                  - unit: alpha
-                  - unit: beta
                 execution:
                   image: ghcr.io/example/agent:latest
                   inherit:
@@ -189,13 +181,13 @@ public class PackageExecutionInheritanceTests
                 """,
             unitFiles: new[]
             {
-                ("alpha.yaml", """
+                ("alpha", """
                     apiVersion: spring.voyage/v1
                     kind: Unit
                     name: alpha
                     description: x
                     """),
-                ("beta.yaml", """
+                ("beta", """
                     apiVersion: spring.voyage/v1
                     kind: Unit
                     name: beta
@@ -225,8 +217,6 @@ public class PackageExecutionInheritanceTests
                 name: pkg
                 description: x
                 version: 1.0.0
-                content:
-                  - unit: alpha
                 execution:
                   image: ghcr.io/example/agent:latest
                   inherit:
@@ -235,7 +225,7 @@ public class PackageExecutionInheritanceTests
                 """,
             unitFiles: new[]
             {
-                ("alpha.yaml", """
+                ("alpha", """
                     apiVersion: spring.voyage/v1
                     kind: Unit
                     name: alpha
@@ -260,15 +250,13 @@ public class PackageExecutionInheritanceTests
                 name: pkg
                 description: x
                 version: 1.0.0
-                content:
-                  - unit: alpha
                 execution:
                   image: ghcr.io/example/agent:latest
                   inherit: []
                 """,
             unitFiles: new[]
             {
-                ("alpha.yaml", """
+                ("alpha", """
                     apiVersion: spring.voyage/v1
                     kind: Unit
                     name: alpha
@@ -293,15 +281,13 @@ public class PackageExecutionInheritanceTests
                 name: pkg
                 description: x
                 version: 1.0.0
-                content:
-                  - unit: alpha
                 execution:
                   image: ghcr.io/example/agent:latest
                   inherit: none
                 """,
             unitFiles: new[]
             {
-                ("alpha.yaml", """
+                ("alpha", """
                     apiVersion: spring.voyage/v1
                     kind: Unit
                     name: alpha
@@ -354,8 +340,6 @@ public class PackageExecutionInheritanceTests
             name: test-pkg
             description: x
             version: 1.0.0
-            content:
-              - unit: umbrella
             execution:
               image: ghcr.io/example/agent:latest
             """;
@@ -365,7 +349,7 @@ public class PackageExecutionInheritanceTests
             name: umbrella
             description: x
             """;
-        using var pkg = await CreatePackageAsync(packageYaml, [("umbrella.yaml", unitYaml)]);
+        using var pkg = await CreatePackageAsync(packageYaml, [("umbrella", unitYaml)]);
         var source = new Cvoya.Spring.Manifest.Validation.DirectoryPackageSource(pkg.PackageRoot);
 
         var result = await Cvoya.Spring.Manifest.Validation.PackageValidator.ValidateAsync(
@@ -386,8 +370,6 @@ public class PackageExecutionInheritanceTests
             name: test-pkg
             description: x
             version: 1.0.0
-            content:
-              - unit: umbrella
             """;
         var unitYaml = """
             apiVersion: spring.voyage/v1
@@ -395,7 +377,7 @@ public class PackageExecutionInheritanceTests
             name: umbrella
             description: x
             """;
-        using var pkg = await CreatePackageAsync(packageYaml, [("umbrella.yaml", unitYaml)]);
+        using var pkg = await CreatePackageAsync(packageYaml, [("umbrella", unitYaml)]);
         var source = new Cvoya.Spring.Manifest.Validation.DirectoryPackageSource(pkg.PackageRoot);
 
         var result = await Cvoya.Spring.Manifest.Validation.PackageValidator.ValidateAsync(
@@ -415,9 +397,6 @@ public class PackageExecutionInheritanceTests
             name: test-pkg
             description: x
             version: 1.0.0
-            content:
-              - unit: umbrella
-              - unit: other
             execution:
               image: ghcr.io/example/agent:latest
               inherit:
@@ -437,7 +416,7 @@ public class PackageExecutionInheritanceTests
             """;
         using var pkg = await CreatePackageAsync(
             packageYaml,
-            [("umbrella.yaml", umbrellaYaml), ("other.yaml", otherYaml)]);
+            [("umbrella", umbrellaYaml), ("other", otherYaml)]);
         var source = new Cvoya.Spring.Manifest.Validation.DirectoryPackageSource(pkg.PackageRoot);
 
         var result = await Cvoya.Spring.Manifest.Validation.PackageValidator.ValidateAsync(
@@ -446,6 +425,8 @@ public class PackageExecutionInheritanceTests
         result.Diagnostics.ShouldContain(
             d => d.Code == "unit-missing-image"
                 && d.Message.Contains("umbrella"));
+        // 'other' is in the inherit list so it inherits the image and
+        // should not error.
         result.Diagnostics.ShouldNotContain(
             d => d.Code == "unit-missing-image"
                 && d.Message.Contains("'other'"));
@@ -453,11 +434,16 @@ public class PackageExecutionInheritanceTests
 
     // ---- Test fixture helpers ------------------------------------------
 
+    /// <summary>
+    /// Builds an on-disk fixture in the ADR-0043 recursive shape:
+    /// <c>&lt;root&gt;/package.yaml</c> + for each <c>(name, yaml)</c>
+    /// entry <c>&lt;root&gt;/units/&lt;name&gt;/package.yaml</c>.
+    /// </summary>
     private static async Task<TempPackage> CreatePackageAsync(
         string packageYaml,
-        (string Filename, string Content)[] unitFiles)
+        (string Name, string Content)[] unitFiles)
     {
-        var tempRoot = Path.Combine(Path.GetTempPath(), "sv-1679-test-" + Path.GetRandomFileName());
+        var tempRoot = Path.Combine(Path.GetTempPath(), "sv-adr0043-test-" + Path.GetRandomFileName());
         Directory.CreateDirectory(tempRoot);
         var unitsDir = Path.Combine(tempRoot, "units");
         Directory.CreateDirectory(unitsDir);
@@ -465,9 +451,11 @@ public class PackageExecutionInheritanceTests
         var packagePath = Path.Combine(tempRoot, "package.yaml");
         await File.WriteAllTextAsync(packagePath, packageYaml);
 
-        foreach (var (filename, content) in unitFiles)
+        foreach (var (name, content) in unitFiles)
         {
-            await File.WriteAllTextAsync(Path.Combine(unitsDir, filename), content);
+            var unitDir = Path.Combine(unitsDir, name);
+            Directory.CreateDirectory(unitDir);
+            await File.WriteAllTextAsync(Path.Combine(unitDir, "package.yaml"), content);
         }
 
         return new TempPackage(tempRoot, packageYaml);

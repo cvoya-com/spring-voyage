@@ -1,7 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Package
-name: legacy-unit-structure
-description: Package whose unit YAML still declares structure: — parser must reject with LegacyStructureField.
-version: 1.0.0
-content:
-  - unit: structure-bearing

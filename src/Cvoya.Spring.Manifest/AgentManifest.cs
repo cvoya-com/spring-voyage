@@ -57,6 +57,14 @@ public class AgentManifest
     [YamlMember(Alias = "id")]
     public string? Id { get; set; }
 
+    /// <summary>
+    /// Optional template reference (ADR-0043 §5). Bare name resolves
+    /// within the package; qualified name <c>&lt;pkg&gt;/&lt;name&gt;@&lt;version&gt;</c>
+    /// resolves cross-package per ADR-0037 §5.
+    /// </summary>
+    [YamlMember(Alias = "from")]
+    public string? From { get; set; }
+
     /// <summary>Optional agent role label.</summary>
     [YamlMember(Alias = "role")]
     public string? Role { get; set; }

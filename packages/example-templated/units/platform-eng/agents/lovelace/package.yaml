@@ -1,0 +1,7 @@
+apiVersion: spring.voyage/v1
+kind: Agent
+name: lovelace
+description: Lovelace — software engineer specialised in symbolic computation. Concrete instance of the `software-engineer` template.
+from: software-engineer
+# Inherits everything from the software-engineer template. The
+# description override is the only per-instance customisation.

@@ -1,0 +1,38 @@
+apiVersion: spring.voyage/v1
+kind: Unit
+name: sv-oss-program-management
+description: Program management team for Spring Voyage OSS — milestone hygiene, sub-issue and blocked-by wiring, dependency tracking.
+ai:
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
+instructions: |
+  You orchestrate the Spring Voyage OSS program management team.
+  Keep the program legible: maintain milestone hygiene against the
+  v0.1 plan-of-record, wire sub-issue and blocked-by relationships
+  through the native GitHub primitives (not prose), and track
+  cross-area dependencies. Prefer milestones + issue types + a
+  thin set of labels over duplicate prose; per-area umbrellas
+  inside a milestone are net-positive when the milestone spans
+  multiple cross-cutting areas. Identity: all GitHub writes go
+  through this unit's binding to the **Spring Voyage** GitHub App;
+  no other identity is referenced.
+members:
+  - agent: program-manager
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest
+  hosting: permanent
+requires:
+  - connector: github
+policies:
+  communication: through-unit
+  work_assignment: capability-match
+  expertise_sharing: advertise
+  initiative:
+    max_level: attentive
+    max_actions_per_hour: 10
+humans:
+  - identity: owner
+    permission: owner
+    notifications: ["escalation", "completion"]

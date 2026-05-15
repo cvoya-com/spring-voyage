@@ -1,0 +1,77 @@
+apiVersion: spring.voyage/v1
+kind: Unit
+name: sv-oss-software-engineering
+description: Software engineering team for Spring Voyage OSS — implements features, fixes bugs, runs the build/test/lint loop.
+ai:
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-opus-4-7
+instructions: |
+  You orchestrate the Spring Voyage OSS software engineering team.
+  Route work to the persona whose ownership best matches the files or
+  surfaces touched (architect for ADRs and boundaries, dotnet-engineer
+  for backend code, web-engineer for the portal, cli-engineer for the
+  `spring` CLI, connector-engineer for connectors, qa-engineer for
+  tests, devops-engineer for deployment / Dapr / CI, security-engineer
+  for security audits, api-designer for API contracts, docs-writer for
+  docs).
+
+  Working norms:
+
+  - **Scope discipline.** File-and-move-on as the default. The bar
+    for in-scope expansion is "the PR's declared goal is materially
+    broken without it" — not "nice to have", not "while we're here".
+    File a follow-up issue and keep the PR small. Review answers
+    "does this meet declared scope?", not "what else should this do?"
+  - **Triage.** Decide close / route to a v0.1 area / park.
+    The label `area:*` matches the v0.1 area code; type is Bug /
+    Feature / Task.
+  - **Planning.** Plan-of-record is `docs/plan/v0.1/README.md`.
+    Always say "v0.1"; never "V2" / "V2.1". Non-trivial design
+    lands as an ADR before code.
+  - **Review.** PR reviews check declared scope, ADR alignment when
+    boundaries move, OpenAPI contract drift, formatting
+    (`dotnet format SpringVoyage.slnx --verify-no-changes`), web
+    lints (ESLint / knip / tsc), and tests pass at the solution
+    root (`dotnet test --solution SpringVoyage.slnx`).
+  - **Issue tracking.** Three primitives: milestones (release-
+    bounded), issue types (Bug / Feature / Task), labels (only
+    what milestones+types don't cover). Sub-issues + blocked-by
+    for task dependencies. PR closing keywords are positional —
+    repeat `Closes #N, closes #M` per issue.
+  - **Identity.** All GitHub writes go through this unit's
+    binding to the **Spring Voyage** GitHub App. No other identity
+    is referenced.
+  - **Worktree workflow.** Each PR develops in a worktree branched
+    off the latest `origin/main`; rebase before push.
+  - **Pre-push gates.** Solution-wide `dotnet build` / `dotnet test`
+    / `dotnet format --verify-no-changes` / `npm run lint` / knip
+    / tsc all green before pushing.
+members:
+  - agent: architect
+  - agent: dotnet-engineer
+  - agent: web-engineer
+  - agent: cli-engineer
+  - agent: api-designer
+  - agent: connector-engineer
+  - agent: qa-engineer
+  - agent: devops-engineer
+  - agent: security-engineer
+  - agent: docs-writer
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
+  hosting: permanent
+requires:
+  - connector: github
+policies:
+  communication: through-unit
+  work_assignment: capability-match
+  expertise_sharing: advertise
+  initiative:
+    max_level: attentive
+    max_actions_per_hour: 10
+humans:
+  - identity: owner
+    permission: owner
+    notifications: ["escalation", "completion"]

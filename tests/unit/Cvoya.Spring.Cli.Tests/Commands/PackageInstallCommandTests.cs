@@ -106,6 +106,62 @@ public class PackageInstallCommandTests
         parseResult.Errors.ShouldBeEmpty();
     }
 
+    // ── ADR-0043 §6 --into <unit-ref> parsing tests ──────────────────────────
+
+    [Fact]
+    public void PackageInstall_ParsesIntoFlag_WithDisplayName()
+    {
+        var outputOption = CreateOutputOption();
+        var packageCommand = PackageCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(packageCommand);
+
+        var parseResult = rootCommand.Parse("package install my-pkg --into engineering");
+
+        parseResult.Errors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void PackageInstall_ParsesIntoFlag_WithExplicitTenant()
+    {
+        var outputOption = CreateOutputOption();
+        var packageCommand = PackageCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(packageCommand);
+
+        var parseResult = rootCommand.Parse("package install my-pkg --into tenant");
+
+        parseResult.Errors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void PackageInstall_ParsesIntoFlag_WithGuid()
+    {
+        var outputOption = CreateOutputOption();
+        var packageCommand = PackageCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(packageCommand);
+
+        var parseResult = rootCommand.Parse(
+            "package install my-pkg --into 11111111-2222-3333-4444-555555555555");
+
+        parseResult.Errors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void PackageInstall_OmittedIntoFlag_StillParses()
+    {
+        // No --into → tenant-scope default.
+        var outputOption = CreateOutputOption();
+        var packageCommand = PackageCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(packageCommand);
+
+        var parseResult = rootCommand.Parse("package install my-pkg");
+
+        parseResult.Errors.ShouldBeEmpty();
+    }
+
     [Fact]
     public void PackageStatus_ParsesInstallId()
     {

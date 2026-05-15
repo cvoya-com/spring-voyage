@@ -41,7 +41,7 @@ public static class PackageExportEndpoints
                 "Use withValues=true to materialise resolved input values; " +
                 "secret inputs are emitted as placeholder references, never as cleartext.")
             .Accepts<PackageExportRequest>("application/json")
-            .Produces(StatusCodes.Status200OK, contentType: "application/x-yaml")
+            .Produces(StatusCodes.Status200OK, contentType: "application/zip")
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 

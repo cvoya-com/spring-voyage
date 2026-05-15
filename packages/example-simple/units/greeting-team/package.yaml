@@ -1,0 +1,30 @@
+apiVersion: spring.voyage/v1
+kind: Unit
+name: greeting-team
+description: An ADR-0043 example unit — coordinates two greeter agents (one casual, one formal). Connector-free.
+ai:
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
+instructions: |
+  You coordinate a two-agent greeting team. Route casual / informal
+  greetings to friendly-greeter and formal / professional greetings to
+  polite-greeter. There are no other team members; do not invent
+  capabilities the package does not ship.
+members:
+  - agent: friendly-greeter
+  - agent: polite-greeter
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+policies:
+  communication: through-unit
+  work_assignment: capability-match
+  expertise_sharing: advertise
+  initiative:
+    max_level: attentive
+    max_actions_per_hour: 10
+humans:
+  - identity: owner
+    permission: owner
+    notifications: ["escalation", "completion"]

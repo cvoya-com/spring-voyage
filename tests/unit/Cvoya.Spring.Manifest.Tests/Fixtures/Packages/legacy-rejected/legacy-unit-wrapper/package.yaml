@@ -1,7 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Package
-name: legacy-unit-wrapper
-description: Package whose unit YAML still wraps the body in a unit: key — parser must reject with LegacyArtefactWrapper.
-version: 1.0.0
-content:
-  - unit: legacy-wrapped

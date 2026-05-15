@@ -1,5 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Unit
-name: structure-bearing
-description: Unit that still declares the obsolete structure: field.
-structure: hierarchical

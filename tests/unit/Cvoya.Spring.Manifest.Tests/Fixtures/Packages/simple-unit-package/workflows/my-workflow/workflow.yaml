@@ -1,4 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Workflow
-name: my-workflow
-description: A test workflow.

@@ -1,3 +1,0 @@
-unit:
-  name: legacy-wrapped
-  description: Pre-ADR-0037 unit shape with unit: wrapper.

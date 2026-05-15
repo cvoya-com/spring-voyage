@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Manifest.Validation;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -22,24 +23,41 @@ using YamlDotNet.Serialization.NamingConventions;
 /// state and for the operator's local pre-publish check.
 /// </summary>
 /// <remarks>
-/// <para>The validator runs in five passes (each independent so a single
-/// failing file does not abort the whole run):</para>
+/// <para>
+/// ADR-0043 §2/§3/§5: the validator runs the same parse + resolve pipeline
+/// the install service uses so it sees the same shape the platform will
+/// install — concretely:
+/// </para>
 /// <list type="number">
 ///   <item><description>Parse <c>package.yaml</c> via
-///   <see cref="PackageManifestParser.ParseRaw"/>.</description></item>
-///   <item><description>Parse every <c>units/*.yaml</c> via
-///   <see cref="ManifestParser.Parse"/> and check
-///   <c>execution.image</c>.</description></item>
-///   <item><description>Parse every <c>agents/*.yaml</c> via a tolerant local
-///   YamlDotNet shape and check <c>ai.model</c>.</description></item>
-///   <item><description>Walk every YAML file (package + units + agents) for
-///   <c>${{ inputs.&lt;name&gt; }}</c> tokens and confirm each name appears
-///   in <c>package.yaml</c>'s <c>inputs:</c>.</description></item>
-///   <item><description>For every unit YAML, verify each
-///   <c>members[].agent</c> / <c>members[].unit</c> reference resolves to a
-///   sibling agent / unit file (skipping cross-package Guid references) and
-///   each <c>connectors[].type</c> slug is one of the v0.1 known set.</description></item>
+///   <see cref="PackageManifestParser.ParseAndResolveAsync"/> — this walks
+///   the recursive folder layout, discovers every nested artefact, and
+///   rejects every legacy-shape signal.</description></item>
+///   <item><description>Run <see cref="TemplateResolver.ResolveAsync"/> so
+///   each <c>from:</c>-bearing instance inherits its template's body
+///   (ADR-0043 §5). Required-field checks (<c>execution.image</c>,
+///   <c>ai.model</c>) run against the resolved tree — otherwise a unit
+///   that inherits its image from a template falsely reports the field
+///   missing.</description></item>
+///   <item><description>For every resolved unit YAML, verify each
+///   <c>members[].agent</c> / <c>members[].unit</c> reference resolves to
+///   an artefact discovered anywhere under the package's tree (per
+///   ADR-0043 §3 names are unique within a package regardless of folder
+///   location). Cross-package Guid references are accepted unconditionally
+///   — the catalog resolves them at install time.</description></item>
+///   <item><description>For every resolved unit / agent YAML, walk
+///   <c>requires:</c> entries and confirm each connector slug is one of
+///   the v0.1 known set.</description></item>
+///   <item><description>Walk every YAML file (package + nested artefacts)
+///   for <c>${{ inputs.&lt;name&gt; }}</c> tokens — ADR-0037 D2 removed
+///   package-level <c>inputs:</c>, so any such expression is now invalid
+///   regardless of where it appears.</description></item>
 /// </list>
+/// <para>
+/// Cross-package <c>from:</c> references are skipped when no catalog is
+/// available (offline validation) — the install pipeline checks those at
+/// install time when the in-flight overlay catalog is wired up.
+/// </para>
 /// </remarks>
 public static class PackageValidator
 {
@@ -100,6 +118,16 @@ public static class PackageValidator
 
         var packageYaml = await source.ReadTextAsync(packageYamlPath, ct).ConfigureAwait(false);
 
+        // ADR-0037 D2: package-level `inputs:` is removed; any
+        // `${{ inputs.* }}` expression is now invalid regardless of
+        // where it appears.
+        ValidateInputInterpolations(packageYaml, packageYamlPath, diagnostics);
+
+        // The header-only parse runs first so a malformed package.yaml
+        // surfaces a precise diagnostic before the catalog walker tries
+        // to descend the tree. (ParseAndResolveAsync also runs the same
+        // check, but we keep the diagnostic format identical to the
+        // pre-ADR-0043 validator.)
         PackageManifest? packageManifest = null;
         try
         {
@@ -112,42 +140,105 @@ public static class PackageValidator
                 PackageValidationSeverity.Error,
                 "package-parse",
                 ex.Message));
+            return new PackageValidationResult
+            {
+                Files = visitedFiles,
+                Diagnostics = diagnostics,
+            };
         }
 
-        // ADR-0037 D2: package-level `inputs:` is removed; any
-        // `${{ inputs.* }}` expression is now invalid regardless of
-        // where it appears.
-        ValidateInputInterpolations(packageYaml, packageYamlPath, diagnostics);
-
-        // ── units/*.yaml ─────────────────────────────────────────────────────
-        var unitFiles = source.EnumerateFiles("units", "*.yaml").ToList();
-        unitFiles.AddRange(source.EnumerateFiles("units", "*.yml"));
-        var unitNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var unitFile in unitFiles)
+        // ADR-0043 §2/§3: walk the package root through the production
+        // parser. This discovers every artefact at every depth (a unit's
+        // nested member agents, a template's nested children, etc.).
+        // Validation runs against the SAME shape the install pipeline
+        // consumes.
+        ResolvedPackage? resolved = null;
+        if (source is not DirectoryPackageSource dirSource)
         {
-            // Filename without extension is the bare local symbol referenced
-            // from members[].unit — see ResolveLocal in PackageManifestParser.
-            var name = StripExtension(System.IO.Path.GetFileName(unitFile));
-            unitNames.Add(name);
+            // The validator only supports DirectoryPackageSource in v0.1;
+            // a non-directory source would require a different walker.
+            diagnostics.Add(new PackageValidationDiagnostic(
+                packageYamlPath,
+                PackageValidationSeverity.Error,
+                "package-unsupported-source",
+                $"PackageValidator only supports DirectoryPackageSource (got '{source.GetType().Name}')."));
+            return new PackageValidationResult
+            {
+                Files = visitedFiles,
+                Diagnostics = diagnostics,
+            };
         }
 
-        // ── agents/*.yaml ────────────────────────────────────────────────────
-        var agentFiles = source.EnumerateFiles("agents", "*.yaml").ToList();
-        agentFiles.AddRange(source.EnumerateFiles("agents", "*.yml"));
-        var agentNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var agentFile in agentFiles)
+        try
         {
-            var name = StripExtension(System.IO.Path.GetFileName(agentFile));
-            agentNames.Add(name);
+            resolved = await PackageManifestParser
+                .ParseAndResolveAsync(packageYaml, dirSource.RootPath, cancellationToken: ct)
+                .ConfigureAwait(false);
+        }
+        catch (PackageParseException ex)
+        {
+            diagnostics.Add(new PackageValidationDiagnostic(
+                packageYamlPath,
+                PackageValidationSeverity.Error,
+                "package-walk",
+                ex.Message));
+            return new PackageValidationResult
+            {
+                Files = visitedFiles,
+                Diagnostics = diagnostics,
+            };
         }
 
-        // Walk units. Each file: schema parse + execution.image required +
-        // member refs resolve + connector slugs known + input interpolations.
-        foreach (var unitFile in unitFiles)
+        // ADR-0043 §5: resolve `from:` references so the required-field
+        // checks below see each instance's stamped (template-inherited)
+        // body. Cross-package `from:` references cannot resolve offline
+        // (no catalog wired up); we tolerate that here by swallowing the
+        // PackageParseException and surfacing the failing artefacts as
+        // a single warning. The install pipeline catches the same case
+        // with the in-flight overlay catalog.
+        ResolvedPackage resolvedForChecks = resolved;
+        try
         {
-            visitedFiles.Add(unitFile);
+            var resolver = new TemplateResolver(catalogProvider: null);
+            resolvedForChecks = await resolver
+                .ResolveAsync(resolved, dirSource.RootPath, ct)
+                .ConfigureAwait(false);
+        }
+        catch (PackageParseException ex)
+        {
+            // Cross-package `from:` reference offline → degrade gracefully.
+            // Emit a warning so the operator knows a check was skipped, but
+            // fall back to the unresolved tree so the per-artefact loops
+            // below still run.
+            diagnostics.Add(new PackageValidationDiagnostic(
+                packageYamlPath,
+                PackageValidationSeverity.Warning,
+                "template-resolve-skipped",
+                $"Cross-package template resolution skipped offline: {ex.Message}"));
+        }
+
+        // Index resolved artefacts by (kind, name) for membership lookups.
+        // ADR-0043 §3: names are unique within a package regardless of
+        // folder location, so a name-only lookup is sufficient.
+        var unitNames = new HashSet<string>(
+            resolvedForChecks.Units.Where(u => !u.IsCrossPackage).Select(u => u.Name),
+            StringComparer.OrdinalIgnoreCase);
+        var agentNames = new HashSet<string>(
+            resolvedForChecks.Agents.Where(a => !a.IsCrossPackage).Select(a => a.Name),
+            StringComparer.OrdinalIgnoreCase);
+
+        // ── Walk units ───────────────────────────────────────────────────────
+        foreach (var unitArtefact in resolvedForChecks.Units.Where(u => !u.IsCrossPackage))
+        {
             ct.ThrowIfCancellationRequested();
-            var unitYaml = await source.ReadTextAsync(unitFile, ct).ConfigureAwait(false);
+            var unitFile = ToRelativePath(unitArtefact.ResolvedPath!, dirSource.RootPath);
+            visitedFiles.Add(unitFile);
+
+            var unitYaml = unitArtefact.Content;
+            if (string.IsNullOrEmpty(unitYaml))
+            {
+                continue;
+            }
 
             UnitManifest? unit = null;
             try
@@ -197,7 +288,9 @@ public static class PackageValidator
 
             // members[].agent / members[].unit must resolve in-package.
             // Cross-package Guid refs are accepted unconditionally (the
-            // catalog resolves them at install time).
+            // catalog resolves them at install time). Per ADR-0043 §3 the
+            // lookup is by name across the whole package tree — the
+            // catalog walker has already discovered every nested artefact.
             if (unit.Members is { Count: > 0 })
             {
                 for (var i = 0; i < unit.Members.Count; i++)
@@ -212,7 +305,7 @@ public static class PackageValidator
                                 PackageValidationSeverity.Error,
                                 "unit-member-agent-not-found",
                                 $"unit '{unit.Name ?? "<unnamed>"}': members[{i}].agent '{member.Agent}' " +
-                                $"does not match any file in agents/ (expected agents/{member.Agent}.yaml)."));
+                                $"does not match any agent declared in the package."));
                         }
                     }
                     else if (!string.IsNullOrWhiteSpace(member.Unit))
@@ -224,7 +317,7 @@ public static class PackageValidator
                                 PackageValidationSeverity.Error,
                                 "unit-member-unit-not-found",
                                 $"unit '{unit.Name ?? "<unnamed>"}': members[{i}].unit '{member.Unit}' " +
-                                $"does not match any file in units/ (expected units/{member.Unit}.yaml)."));
+                                $"does not match any unit declared in the package."));
                         }
                     }
                 }
@@ -268,15 +361,21 @@ public static class PackageValidator
             }
         }
 
-        // Walk agents. ADR-0037 D1: agent YAMLs are kind-discriminated
-        // top-level documents (apiVersion / kind: Agent / name / description)
-        // — the legacy `agent:` wrapper is gone. Validate headers, then
-        // ai.model, then input interpolations.
-        foreach (var agentFile in agentFiles)
+        // ── Walk agents ──────────────────────────────────────────────────────
+        // ADR-0037 D1: agent YAMLs are kind-discriminated top-level documents
+        // (apiVersion / kind: Agent / name / description) — the legacy
+        // `agent:` wrapper is gone.
+        foreach (var agentArtefact in resolvedForChecks.Agents.Where(a => !a.IsCrossPackage))
         {
-            visitedFiles.Add(agentFile);
             ct.ThrowIfCancellationRequested();
-            var agentYaml = await source.ReadTextAsync(agentFile, ct).ConfigureAwait(false);
+            var agentFile = ToRelativePath(agentArtefact.ResolvedPath!, dirSource.RootPath);
+            visitedFiles.Add(agentFile);
+
+            var agentYaml = agentArtefact.Content;
+            if (string.IsNullOrEmpty(agentYaml))
+            {
+                continue;
+            }
 
             AgentDocument? doc = null;
             try
@@ -434,10 +533,15 @@ public static class PackageValidator
         }
     }
 
-    private static string StripExtension(string fileName)
+    /// <summary>
+    /// Normalises an absolute path returned by the catalog walker to a
+    /// forward-slash relative path inside the package — the shape the
+    /// validator's diagnostics use for the <c>file:</c> field.
+    /// </summary>
+    private static string ToRelativePath(string absolutePath, string rootPath)
     {
-        var dot = fileName.LastIndexOf('.');
-        return dot < 0 ? fileName : fileName[..dot];
+        var rel = Path.GetRelativePath(rootPath, absolutePath);
+        return rel.Replace('\\', '/');
     }
 
     private static bool IsCrossPackageGuid(string symbol)

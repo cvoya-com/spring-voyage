@@ -1,0 +1,4 @@
+apiVersion: spring.voyage/v1
+kind: Skill
+name: say-hello-formally
+description: Formal hello opener — a one-line courteous greeting.

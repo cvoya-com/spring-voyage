@@ -1,0 +1,4 @@
+apiVersion: spring.voyage/v1
+kind: Skill
+name: pr-review-cycle
+description: PR Review Cycle

@@ -44,12 +44,24 @@ public sealed record PackageInstallRequest(
 /// list of <see cref="ConnectorBindingMissingDetail"/> entries when a
 /// required connector has no binding.
 /// </param>
+/// <param name="IntoUnit">
+/// Optional install-scope binding (ADR-0043 §6). When set, the package's
+/// top-level artefacts (Units / Agents directly under
+/// <c>packages/&lt;pkg&gt;/units/</c> or <c>packages/&lt;pkg&gt;/agents/</c>)
+/// are bound to the named unit instead of the tenant — top-level
+/// agents become members of that unit, top-level units become its
+/// sub-units. Accepts either a Guid or a display name; <c>"tenant"</c>
+/// is the explicit form of the default (top-level artefacts bind to
+/// the tenant). The package's internal structure (a top-level unit's
+/// own members, an agent's own skills) is unaffected.
+/// </param>
 public sealed record PackageInstallTarget(
     string PackageName,
     IReadOnlyDictionary<string, string>? Inputs,
     PackageConnectorBindings? ConnectorBindings = null,
     string? Version = null,
-    IReadOnlyList<CredentialBindingPayload>? Credentials = null);
+    IReadOnlyList<CredentialBindingPayload>? Credentials = null,
+    string? IntoUnit = null);
 
 /// <summary>
 /// Operator-supplied connector bindings for a single package install

@@ -15,30 +15,22 @@ using Cvoya.Spring.Manifest;
 
 using Microsoft.Extensions.Logging;
 
-using YamlDotNet.RepresentationModel;
-
 using ArtefactKind = Cvoya.Spring.Manifest.ArtefactKind;
 
 /// <summary>
 /// File-system backed <see cref="IPackageCatalogService"/>. Scans a
 /// <c>packages/</c> root on disk and materialises summary + detail
-/// responses for every <c>packages/{package}/...</c> directory.
+/// responses for every <c>packages/{package}/</c> directory following the
+/// ADR-0043 recursive folder layout: each artefact is a folder rooted at
+/// <c>package.yaml</c>; conventional subdirectories (<c>units/</c>,
+/// <c>agents/</c>, <c>skills/</c>, <c>workflows/</c>, <c>connectors/</c>,
+/// <c>templates/</c>) compose recursively to any depth.
 ///
 /// The packages root is configured via <see cref="PackageCatalogOptions.Root"/>
 /// (setting <c>Packages:Root</c>). When the directory is missing the
 /// service returns empty results rather than throwing — the normal case
 /// for deployments that don't ship the packages tree alongside the API.
 /// </summary>
-/// <remarks>
-/// Agent manifests ship under <c>agents/</c> with an <c>agent:</c> root
-/// key (not the unit grammar <see cref="ManifestParser"/> targets), so
-/// they're parsed via the lower-level YamlDotNet representation model to
-/// pluck display metadata without coupling this service to a second
-/// typed manifest. The skill-bundle detection mirrors the convention
-/// documented in <c>docs/architecture/packages.md</c> (§ Authoring a
-/// Skill Bundle) — <c>{name}.md</c> is the bundle, <c>{name}.tools.json</c>
-/// is an optional sibling.
-/// </remarks>
 public class FileSystemPackageCatalogService(
     PackageCatalogOptions options,
     ILogger<FileSystemPackageCatalogService> logger)
@@ -63,14 +55,17 @@ public class FileSystemPackageCatalogService(
             cancellationToken.ThrowIfCancellationRequested();
 
             var name = Path.GetFileName(packageDir);
+            var discovered = TryWalk(packageDir);
+            var topLevel = discovered.Where(d => IsAtDepth(packageDir, d.FolderPath, depth: 2)).ToList();
+
             packages.Add(new PackageSummary(
                 Name: name,
                 Description: TryReadReadmeSummary(packageDir),
-                UnitTemplateCount: CountManifestFiles(Path.Combine(packageDir, "units")),
-                AgentTemplateCount: CountManifestFiles(Path.Combine(packageDir, "agents")),
-                SkillCount: CountSkillBundles(Path.Combine(packageDir, "skills")),
+                UnitTemplateCount: topLevel.Count(d => d.Kind == ArtefactKind.Unit),
+                AgentTemplateCount: topLevel.Count(d => d.Kind == ArtefactKind.Agent),
+                SkillCount: topLevel.Count(d => d.Kind == ArtefactKind.Skill),
                 ConnectorCount: CountAssets(Path.Combine(packageDir, "connectors")),
-                WorkflowCount: CountDirectories(Path.Combine(packageDir, "workflows")),
+                WorkflowCount: topLevel.Count(d => d.Kind == ArtefactKind.Workflow),
                 Version: ReadVersion(packageDir)));
         }
 
@@ -91,11 +86,6 @@ public class FileSystemPackageCatalogService(
             return Task.FromResult<PackageDetail?>(null);
         }
 
-        // Defensive: reject identifiers that would escape the packages
-        // root. Mirrors the guard on LoadUnitTemplateYamlAsync — the
-        // browse surface is Viewer-gated and the catalog lives on disk,
-        // so path traversal would otherwise hand an attacker an arbitrary
-        // directory listing.
         if (ContainsTraversal(name))
         {
             return Task.FromResult<PackageDetail?>(null);
@@ -107,14 +97,15 @@ public class FileSystemPackageCatalogService(
             return Task.FromResult<PackageDetail?>(null);
         }
 
-        var unitTemplates = ReadUnitTemplates(packageDir, name, cancellationToken);
-        var agentTemplates = ReadAgentTemplates(packageDir, name, cancellationToken);
-        var skills = ReadSkills(packageDir, name, cancellationToken);
-        var connectors = ReadConnectors(packageDir, name, cancellationToken);
-        var workflows = ReadWorkflows(packageDir, name, cancellationToken);
+        var discovered = TryWalk(packageDir, cancellationToken);
 
-        var connectorDeclarations = ReadConnectorDeclarations(packageDir);
-        var content = ReadContentEntries(packageDir);
+        var unitTemplates = BuildUnitTemplateSummaries(discovered, name);
+        var agentTemplates = BuildAgentTemplateSummaries(discovered, name);
+        var skills = BuildSkillSummaries(discovered, name);
+        var connectors = ReadConnectors(packageDir, name, cancellationToken);
+        var workflows = BuildWorkflowSummaries(discovered, name);
+
+        var connectorDeclarations = ReadConnectorDeclarations(discovered);
         var version = ReadVersion(packageDir);
         var execution = ReadPackageExecution(packageDir);
 
@@ -129,19 +120,14 @@ public class FileSystemPackageCatalogService(
             Connectors: connectors,
             Workflows: workflows,
             ConnectorDeclarations: connectorDeclarations,
-            Content: content,
+            Content: BuildContentSummary(discovered, packageDir),
             Execution: execution);
 
         return Task.FromResult<PackageDetail?>(detail);
     }
 
     /// <summary>
-    /// Reads the package manifest's top-level <c>version:</c> scalar
-    /// (ADR-0037 D5). Returns <c>null</c> when the manifest is missing or
-    /// malformed; <see cref="PackageManifestParser.ParseRaw"/> would
-    /// otherwise reject the package outright, but the catalog stays
-    /// best-effort so a malformed package still appears with a null
-    /// version rather than disappearing from the listing.
+    /// Reads the package manifest's top-level <c>version:</c> scalar.
     /// </summary>
     private string? ReadVersion(string packageDir)
     {
@@ -164,11 +150,7 @@ public class FileSystemPackageCatalogService(
     }
 
     /// <summary>
-    /// Reads the package manifest's <c>execution:</c> block (#1679) so
-    /// the portal / CLI can render the package-level execution defaults
-    /// (and the optional <c>inherit:</c> selector) on the package detail
-    /// page. Best-effort like <see cref="ReadVersion"/> — a malformed
-    /// manifest returns null rather than blowing up the catalog read.
+    /// Reads the package manifest's <c>execution:</c> block.
     /// </summary>
     private PackageExecutionSummary? ReadPackageExecution(string packageDir)
     {
@@ -178,10 +160,6 @@ public class FileSystemPackageCatalogService(
         try
         {
             var yaml = File.ReadAllText(manifestPath);
-            // Use ParseAndResolveAsync so the inherit-key validation
-            // runs against the actual unit set; ParseRaw alone would
-            // surface a `PackageExecutionManifest.Inherit` of raw
-            // YamlDotNet shape rather than the resolved list.
             var resolved = PackageManifestParser.ParseAndResolveAsync(
                 yaml, packageDir).GetAwaiter().GetResult();
             var exec = resolved.Execution;
@@ -205,94 +183,58 @@ public class FileSystemPackageCatalogService(
     }
 
     /// <summary>
-    /// Reads the package manifest's <c>content:</c> list (#1718 item 2) so
-    /// the wizard / CLI can render "what this package installs" alongside
-    /// the inputs and connector-declaration sections. Failures fall back
-    /// to an empty list — best-effort metadata, like
-    /// <see cref="ReadConnectorDeclarations"/> and
-    /// <see cref="ReadPackageInputs"/>.
+    /// Builds the <c>content:</c>-style top-level summary used by the
+    /// portal / CLI display. Under ADR-0043 there is no <c>content:</c>
+    /// list in YAML — top-level artefacts are the folders directly under
+    /// the package root's conventional subdirectories. We surface that
+    /// same shape so the CLI's "what gets installed" view keeps working.
     /// </summary>
-    private List<PackageContentEntry> ReadContentEntries(string packageDir)
+    private List<PackageContentEntry> BuildContentSummary(
+        IReadOnlyList<DiscoveredEntry> discovered,
+        string packageDir)
     {
-        var manifestPath = FindManifestPath(packageDir);
-        if (manifestPath is null)
+        var result = new List<PackageContentEntry>();
+        foreach (var d in discovered)
         {
-            return [];
-        }
-
-        try
-        {
-            var yaml = File.ReadAllText(manifestPath);
-            var manifest = PackageManifestParser.ParseRaw(yaml);
-            if (manifest.Content is null || manifest.Content.Count == 0)
+            // Only top-level artefacts go into the content summary —
+            // nested artefacts are owned by their containing artefact.
+            if (!IsAtDepth(packageDir, d.FolderPath, depth: 2))
             {
-                return [];
+                continue;
             }
-
-            var result = new List<PackageContentEntry>(manifest.Content.Count);
-            foreach (var entry in manifest.Content)
+            var key = d.Kind switch
             {
-                if (entry?.Definition is null)
-                {
-                    continue;
-                }
-                var kindKey = entry.Kind switch
-                {
-                    ArtefactKind.Unit => "unit",
-                    ArtefactKind.Agent => "agent",
-                    ArtefactKind.Skill => "skill",
-                    ArtefactKind.Workflow => "workflow",
-                    _ => entry.Kind.ToString().ToLowerInvariant(),
-                };
-                // The wire shape carries the reference string the manifest
-                // declares (bare name for within-package, qualified for
-                // cross-package, or the inline body's identifier).
-                var name = entry.Definition.IsInline
-                    ? (entry.Definition.InlineName ?? "<inline>")
-                    : (entry.Definition.Reference ?? string.Empty);
-                if (string.IsNullOrEmpty(name)) continue;
-                result.Add(new PackageContentEntry(kindKey, name));
-            }
-            return result;
+                ArtefactKind.Unit => "unit",
+                ArtefactKind.Agent => "agent",
+                ArtefactKind.Skill => "skill",
+                ArtefactKind.Workflow => "workflow",
+                _ => d.Kind.ToString().ToLowerInvariant(),
+            };
+            result.Add(new PackageContentEntry(key, d.Name));
         }
-        catch (Exception ex) when (ex is PackageParseException or YamlDotNet.Core.YamlException or IOException)
-        {
-            logger.LogWarning(ex,
-                "Skipping content entries for package manifest '{Path}' because it could not be parsed.",
-                manifestPath);
-            return [];
-        }
+        return result;
     }
 
-    /// <summary>
-    /// Computes the union of connector slugs declared by every artefact in
-    /// the package (ADR-0037 D3). Walks <c>units/*.yaml</c> and
-    /// <c>agents/*.yaml</c>, parses each as the appropriate kind-discriminated
-    /// document, reads its <c>requires:</c> block, and dedupes by slug.
-    /// Returns one <see cref="RequiredConnectorSummary"/> row per unique
-    /// slug so the wizard / CLI can render the connector-binding step.
-    /// </summary>
-    /// <remarks>
-    /// The returned <see cref="RequiredConnectorSummary.InheritAll"/> is
-    /// always true and <see cref="RequiredConnectorSummary.InheritUnits"/>
-    /// is null — under ADR-0037 D3 every artefact that declares a slug
-    /// gets the binding 1:1 (no inheritance matrix). The transitional
-    /// shape is kept so the existing wizard / CLI rendering path doesn't
-    /// have to change in lockstep.
-    /// </remarks>
-    private List<RequiredConnectorSummary> ReadConnectorDeclarations(string packageDir)
+    private List<RequiredConnectorSummary> ReadConnectorDeclarations(
+        IReadOnlyList<DiscoveredEntry> discovered)
     {
         var union = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            CollectArtefactRequires<UnitManifest>(packageDir, "units", "*.yaml", m => m.Requires, union);
-            CollectArtefactRequires<AgentManifest>(packageDir, "agents", "*.yaml", m => m.Requires, union);
+            foreach (var d in discovered)
+            {
+                if (d.Kind != ArtefactKind.Unit && d.Kind != ArtefactKind.Agent)
+                {
+                    continue;
+                }
+                var slugs = ExtractConnectorSlugs(d);
+                foreach (var s in slugs) union.Add(s);
+            }
         }
         catch (Exception ex) when (ex is PackageParseException or YamlDotNet.Core.YamlException or IOException)
         {
             logger.LogWarning(ex,
-                "Skipping connector declarations for package '{Dir}' because an artefact YAML could not be parsed.",
-                packageDir);
+                "Skipping connector declarations because an artefact YAML could not be parsed.");
             return [];
         }
 
@@ -304,24 +246,10 @@ public class FileSystemPackageCatalogService(
         return result;
     }
 
-    /// <summary>
-    /// Walks one artefact-kind subdirectory (<c>units/</c>, <c>agents/</c>),
-    /// parses every <c>*.yaml</c> as <typeparamref name="TManifest"/>, reads
-    /// its <c>requires:</c> list via <paramref name="getRequires"/>, and
-    /// folds the slugs into <paramref name="union"/>. Per-file parse errors
-    /// are logged at debug; the catalog stays best-effort so a single
-    /// malformed artefact doesn't hide the rest of the package.
-    /// </summary>
-    private void CollectArtefactRequires<TManifest>(
-        string packageDir,
-        string subdir,
-        string searchPattern,
-        Func<TManifest, List<RequirementEntry>?> getRequires,
-        HashSet<string> union)
-        where TManifest : class, new()
+    private static IEnumerable<string> ExtractConnectorSlugs(DiscoveredEntry entry)
     {
-        var dir = Path.Combine(packageDir, subdir);
-        if (!Directory.Exists(dir)) return;
+        var yaml = entry.RawYaml;
+        if (string.IsNullOrWhiteSpace(yaml)) yield break;
 
         var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
             .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
@@ -329,28 +257,30 @@ public class FileSystemPackageCatalogService(
             .IgnoreUnmatchedProperties()
             .Build();
 
-        foreach (var path in Directory.EnumerateFiles(dir, searchPattern, SearchOption.TopDirectoryOnly))
+        List<RequirementEntry>? requires = null;
+        try
         {
-            try
+            if (entry.Kind == ArtefactKind.Unit)
             {
-                var text = File.ReadAllText(path);
-                var manifest = deserializer.Deserialize<TManifest>(text);
-                if (manifest is null) continue;
-                var requires = getRequires(manifest);
-                if (requires is null) continue;
-                foreach (var entry in requires)
-                {
-                    if (entry.Type != RequirementType.Connector) continue;
-                    var slug = entry.Identifier?.Trim();
-                    if (string.IsNullOrEmpty(slug)) continue;
-                    union.Add(slug);
-                }
+                requires = deserializer.Deserialize<UnitManifest>(yaml)?.Requires;
             }
-            catch (Exception ex) when (ex is YamlDotNet.Core.YamlException or IOException)
+            else if (entry.Kind == ArtefactKind.Agent)
             {
-                logger.LogDebug(ex,
-                    "Skipping artefact '{Path}' while computing requires union.", path);
+                requires = deserializer.Deserialize<AgentManifest>(yaml)?.Requires;
             }
+        }
+        catch (YamlDotNet.Core.YamlException)
+        {
+            yield break;
+        }
+
+        if (requires is null) yield break;
+        foreach (var r in requires)
+        {
+            if (r.Type != RequirementType.Connector) continue;
+            var slug = r.Identifier?.Trim();
+            if (string.IsNullOrEmpty(slug)) continue;
+            yield return slug;
         }
     }
 
@@ -384,7 +314,8 @@ public class FileSystemPackageCatalogService(
         foreach (var packageDir in Directory.EnumerateDirectories(root))
         {
             var packageName = Path.GetFileName(packageDir);
-            templates.AddRange(ReadUnitTemplates(packageDir, packageName, cancellationToken));
+            var discovered = TryWalk(packageDir, cancellationToken);
+            templates.AddRange(BuildUnitTemplateSummaries(discovered, packageName));
         }
 
         templates.Sort(static (a, b) =>
@@ -408,33 +339,36 @@ public class FileSystemPackageCatalogService(
             return null;
         }
 
-        // Defensive: reject identifiers that attempt directory traversal so the
-        // caller can't read arbitrary files off the host by asking for
-        // "../../etc/passwd" as a template name.
         if (ContainsTraversal(package) || ContainsTraversal(name))
         {
             return null;
         }
 
-        var candidate = Path.Combine(root, package, "units", name + ".yaml");
-        if (!File.Exists(candidate))
+        var packageDir = Path.Combine(root, package);
+        if (!Directory.Exists(packageDir))
         {
-            candidate = Path.Combine(root, package, "units", name + ".yml");
-            if (!File.Exists(candidate))
-            {
-                return null;
-            }
+            return null;
         }
 
-        // Re-check the resolved path is still inside the packages root.
+        // Find the unit's folder by walking the package. The unit may
+        // live at any depth under `units/`; we resolve by name.
+        var discovered = TryWalk(packageDir, cancellationToken);
+        var match = discovered.FirstOrDefault(
+            d => d.Kind == ArtefactKind.Unit &&
+                 string.Equals(d.Name, name, StringComparison.Ordinal));
+        if (match is null)
+        {
+            return null;
+        }
+
         var fullRoot = Path.GetFullPath(root);
-        var fullCandidate = Path.GetFullPath(candidate);
+        var fullCandidate = Path.GetFullPath(match.PackageYamlPath);
         if (!fullCandidate.StartsWith(fullRoot, StringComparison.Ordinal))
         {
             return null;
         }
 
-        return await File.ReadAllTextAsync(fullCandidate, cancellationToken);
+        return await File.ReadAllTextAsync(fullCandidate, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -479,7 +413,6 @@ public class FileSystemPackageCatalogService(
             return null;
         }
 
-        // Re-check resolved path is inside the packages root.
         var fullRoot = Path.GetFullPath(root);
         var fullPackageDir = Path.GetFullPath(packageDir);
         if (!fullPackageDir.StartsWith(fullRoot, StringComparison.Ordinal))
@@ -517,152 +450,372 @@ public class FileSystemPackageCatalogService(
             return null;
         }
 
-        var subDir = kind switch
-        {
-            ArtefactKind.Unit => "units",
-            ArtefactKind.Agent => "agents",
-            ArtefactKind.Skill => "skills",
-            ArtefactKind.Workflow => "workflows",
-            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
-        };
-
-        var extension = kind == ArtefactKind.Skill ? ".md" : ".yaml";
         var packageDir = Path.Combine(root, packageName);
-        var candidate = Path.Combine(packageDir, subDir, artefactName + extension);
-
-        // Re-check resolved path is inside the packages root.
-        var fullRoot = Path.GetFullPath(root);
-        var fullCandidate = Path.GetFullPath(candidate);
-        if (!fullCandidate.StartsWith(fullRoot, StringComparison.Ordinal))
+        if (!Directory.Exists(packageDir))
         {
             return null;
         }
 
-        if (!File.Exists(fullCandidate))
+        var discovered = TryWalk(packageDir, cancellationToken);
+        var match = discovered.FirstOrDefault(
+            d => d.Kind == kind &&
+                 string.Equals(d.Name, artefactName, StringComparison.Ordinal));
+        if (match is null)
         {
-            // Try .yml variant for unit/agent files.
-            if (kind is ArtefactKind.Unit or ArtefactKind.Agent)
+            return null;
+        }
+
+        // For skill folders, the companion markdown is the canonical
+        // body the platform consumes (compatibility with the pre-ADR-0043
+        // single-file shape). When present, return that. Otherwise return
+        // the package.yaml so callers see at least the headers.
+        if (kind == ArtefactKind.Skill)
+        {
+            var md = Path.Combine(match.FolderPath, match.Name + ".md");
+            if (File.Exists(md))
             {
-                var ymlCandidate = Path.Combine(packageDir, subDir, artefactName + ".yml");
-                var fullYml = Path.GetFullPath(ymlCandidate);
-                if (fullYml.StartsWith(fullRoot, StringComparison.Ordinal) && File.Exists(fullYml))
+                var fullMd = Path.GetFullPath(md);
+                var fullRootForMd = Path.GetFullPath(root);
+                if (fullMd.StartsWith(fullRootForMd, StringComparison.Ordinal))
                 {
-                    return await File.ReadAllTextAsync(fullYml, cancellationToken).ConfigureAwait(false);
+                    return await File.ReadAllTextAsync(fullMd, cancellationToken).ConfigureAwait(false);
                 }
             }
+        }
+
+        var fullRoot = Path.GetFullPath(root);
+        var fullCandidate = Path.GetFullPath(match.PackageYamlPath);
+        if (!fullCandidate.StartsWith(fullRoot, StringComparison.Ordinal))
+        {
             return null;
         }
 
         return await File.ReadAllTextAsync(fullCandidate, cancellationToken).ConfigureAwait(false);
     }
 
-    private List<UnitTemplateSummary> ReadUnitTemplates(
-        string packageDir,
+    /// <inheritdoc />
+    /// <remarks>
+    /// ADR-0043 §5h archetype-library case: when another package
+    /// declares <c>from: this-pkg/<template>@<version></c>, the
+    /// <see cref="TemplateResolver"/> calls this method to enumerate the
+    /// template's concrete nested children so they can be stamped fresh
+    /// into the consumer's tree. Returns concrete Unit / Agent
+    /// artefacts only; nested templates do not activate.
+    /// </remarks>
+    public Task<IReadOnlyList<NestedArtefactDescriptor>> EnumerateNestedArtefactsAsync(
         string packageName,
-        CancellationToken cancellationToken)
+        ArtefactKind parentKind,
+        string parentArtefactName,
+        CancellationToken cancellationToken = default)
     {
-        var result = new List<UnitTemplateSummary>();
-        var unitsDir = Path.Combine(packageDir, "units");
-        if (!Directory.Exists(unitsDir))
+        var root = options.Root;
+        if (string.IsNullOrWhiteSpace(root))
         {
-            return result;
+            return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(Array.Empty<NestedArtefactDescriptor>());
         }
 
-        foreach (var file in EnumerateYamlFiles(unitsDir))
+        if (ContainsTraversal(packageName) || ContainsTraversal(parentArtefactName))
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(Array.Empty<NestedArtefactDescriptor>());
+        }
+
+        var packageDir = Path.Combine(root, packageName);
+        if (!Directory.Exists(packageDir))
+        {
+            return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(Array.Empty<NestedArtefactDescriptor>());
+        }
+
+        var fullRoot = Path.GetFullPath(root);
+        var fullPackageDir = Path.GetFullPath(packageDir);
+        if (!fullPackageDir.StartsWith(fullRoot, StringComparison.Ordinal))
+        {
+            return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(Array.Empty<NestedArtefactDescriptor>());
+        }
+
+        var discovered = TryWalk(packageDir, cancellationToken);
+
+        // Locate the parent. The parent's kind is projected — a UnitTemplate
+        // shows up as ArtefactKind.Unit; the catalog walker has already
+        // collapsed `UnitTemplate` / `AgentTemplate` into their concrete
+        // counterparts in the discovery list. Match by (Kind, Name).
+        var parent = discovered.FirstOrDefault(
+            d => d.Kind == parentKind &&
+                 string.Equals(d.Name, parentArtefactName, StringComparison.Ordinal));
+        if (parent is null)
+        {
+            return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(Array.Empty<NestedArtefactDescriptor>());
+        }
+
+        // Surface every artefact whose on-disk folder lives strictly
+        // beneath the parent's folder. Build a "child folder path map"
+        // first so we can resolve each entry's containing-artefact name
+        // (the closest discovered ancestor folder, not the parent itself
+        // for grandchildren).
+        var parentFolderWithSep = parent.FolderPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var children = new List<DiscoveredEntry>();
+        foreach (var d in discovered)
+        {
+            if (ReferenceEquals(d, parent)) continue;
+            var folder = d.FolderPath;
+            if (folder.StartsWith(parentFolderWithSep, StringComparison.Ordinal))
+            {
+                children.Add(d);
+            }
+        }
+
+        // Sort by folder depth so containing-artefact lookups always
+        // resolve to the closest ancestor.
+        children.Sort((a, b) =>
+            CountSeparators(a.FolderPath).CompareTo(CountSeparators(b.FolderPath)));
+
+        var result = new List<NestedArtefactDescriptor>(children.Count);
+        foreach (var d in children)
+        {
+            // Only concrete Unit / Agent kinds activate. The catalog walker
+            // projects UnitTemplate / AgentTemplate onto Unit / Agent for
+            // indexing — read the declared kind to disambiguate.
+            var declaredKind = ReadDeclaredKind(d.RawYaml);
+            if (!string.Equals(declaredKind, "Unit", StringComparison.Ordinal)
+                && !string.Equals(declaredKind, "Agent", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Containing-artefact lookup: the longest discovered ancestor
+            // folder that is a strict prefix of this folder, or the parent
+            // template itself if no nested discovered folder fits.
+            string? containing = parent.Name;
+            string longestPrefix = parentFolderWithSep;
+            foreach (var candidate in children)
+            {
+                if (ReferenceEquals(candidate, d)) continue;
+                var candidateFolderWithSep = candidate.FolderPath.TrimEnd(Path.DirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                if (d.FolderPath.StartsWith(candidateFolderWithSep, StringComparison.Ordinal)
+                    && candidateFolderWithSep.Length > longestPrefix.Length)
+                {
+                    longestPrefix = candidateFolderWithSep;
+                    containing = candidate.Name;
+                }
+            }
+
+            // For the top-level children of the template itself we leave
+            // ContainingArtefactName=null so the caller's rebinding step
+            // can re-parent them onto the consumer.
+            if (ReferenceEquals(containing, parent.Name))
+            {
+                containing = null;
+            }
+
+            result.Add(new NestedArtefactDescriptor(
+                Kind: d.Kind,
+                Name: d.Name,
+                Yaml: d.RawYaml,
+                ContainingArtefactName: containing));
+        }
+
+        return Task.FromResult<IReadOnlyList<NestedArtefactDescriptor>>(result);
+    }
+
+    private static int CountSeparators(string path)
+    {
+        var n = 0;
+        foreach (var c in path)
+        {
+            if (c == Path.DirectorySeparatorChar) n++;
+        }
+        return n;
+    }
+
+    private static string? ReadDeclaredKind(string yamlText)
+    {
+        try
+        {
+            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+                .IgnoreUnmatchedProperties()
+                .Build();
+            var headers = deserializer.Deserialize<KindOnly>(yamlText);
+            return headers?.Kind;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private sealed class KindOnly
+    {
+        [YamlDotNet.Serialization.YamlMember(Alias = "kind")]
+        public string? Kind { get; set; }
+    }
+
+    // ── Walker glue ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Lightweight wrapper around <see cref="PackageManifestParser.Walk"/>
+    /// that also caches the raw YAML of each discovered artefact so the
+    /// requires-union / display-metadata reads don't have to re-read each
+    /// file from disk. Empty when the walker raises any
+    /// <see cref="PackageParseException"/> (best-effort catalog read; the
+    /// install pipeline will surface the same error with the full message).
+    /// </summary>
+    private IReadOnlyList<DiscoveredEntry> TryWalk(
+        string packageDir, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var walked = PackageManifestParser.Walk(packageDir, cancellationToken);
+            var result = new List<DiscoveredEntry>(walked.Count);
+            foreach (var (kind, name, folderPath) in walked)
+            {
+                var manifestPath = Path.Combine(folderPath, "package.yaml");
+                if (!File.Exists(manifestPath))
+                {
+                    var alt = Path.Combine(folderPath, "package.yml");
+                    if (File.Exists(alt)) manifestPath = alt;
+                }
+                string rawYaml;
+                try
+                {
+                    rawYaml = File.ReadAllText(manifestPath);
+                }
+                catch (IOException)
+                {
+                    rawYaml = string.Empty;
+                }
+                result.Add(new DiscoveredEntry(kind, name, folderPath, manifestPath, rawYaml));
+            }
+            return result;
+        }
+        catch (PackageParseException ex)
+        {
+            logger.LogDebug(ex,
+                "Catalog walker rejected package at '{Dir}'; returning empty discovery list.",
+                packageDir);
+            return Array.Empty<DiscoveredEntry>();
+        }
+        catch (IOException ex)
+        {
+            logger.LogDebug(ex,
+                "Catalog walker encountered an IO error on package '{Dir}'; returning empty discovery list.",
+                packageDir);
+            return Array.Empty<DiscoveredEntry>();
+        }
+    }
+
+    private sealed record DiscoveredEntry(
+        ArtefactKind Kind,
+        string Name,
+        string FolderPath,
+        string PackageYamlPath,
+        string RawYaml);
+
+    private List<UnitTemplateSummary> BuildUnitTemplateSummaries(
+        IReadOnlyList<DiscoveredEntry> discovered,
+        string packageName)
+    {
+        var result = new List<UnitTemplateSummary>();
+        foreach (var d in discovered)
+        {
+            if (d.Kind != ArtefactKind.Unit) continue;
             try
             {
-                var yaml = File.ReadAllText(file);
-                var manifest = ManifestParser.Parse(yaml);
+                var manifest = ManifestParser.Parse(d.RawYaml);
                 result.Add(new UnitTemplateSummary(
                     Package: packageName,
                     Name: manifest.Name!,
                     Description: manifest.Description,
-                    Path: RelativePath(file)));
+                    Path: RelativePath(d.PackageYamlPath)));
             }
             catch (ManifestParseException ex)
             {
                 logger.LogWarning(
                     ex,
-                    "Skipping unit template '{File}' because its YAML could not be parsed.",
-                    file);
+                    "Skipping unit template '{Path}' because its YAML could not be parsed.",
+                    d.PackageYamlPath);
             }
         }
-
         result.Sort(static (a, b) =>
             string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         return result;
     }
 
-    private List<AgentTemplateSummary> ReadAgentTemplates(
-        string packageDir,
-        string packageName,
-        CancellationToken cancellationToken)
+    private List<AgentTemplateSummary> BuildAgentTemplateSummaries(
+        IReadOnlyList<DiscoveredEntry> discovered,
+        string packageName)
     {
         var result = new List<AgentTemplateSummary>();
-        var agentsDir = Path.Combine(packageDir, "agents");
-        if (!Directory.Exists(agentsDir))
+        var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+            .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+            .IgnoreUnmatchedProperties()
+            .Build();
+        foreach (var d in discovered)
         {
-            return result;
-        }
-
-        foreach (var file in EnumerateYamlFiles(agentsDir))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
+            if (d.Kind != ArtefactKind.Agent) continue;
             try
             {
-                var agent = ReadAgentManifest(file);
-                // Fall back to the file basename when the manifest omits
-                // the id field so every agent YAML still appears in the
-                // catalog rather than silently dropping.
-                var id = agent.Id ?? Path.GetFileNameWithoutExtension(file);
+                var agent = deserializer.Deserialize<AgentManifest>(d.RawYaml);
+                if (agent is null) continue;
+                var id = agent.Id ?? agent.Name ?? d.Name;
                 result.Add(new AgentTemplateSummary(
                     Package: packageName,
                     Name: id,
                     DisplayName: agent.Name,
                     Role: agent.Role,
                     Description: Truncate(agent.Instructions, maxLength: 240),
-                    Path: RelativePath(file)));
+                    Path: RelativePath(d.PackageYamlPath)));
             }
             catch (Exception ex) when (ex is YamlDotNet.Core.YamlException or IOException)
             {
                 logger.LogWarning(
                     ex,
-                    "Skipping agent template '{File}' because its YAML could not be parsed.",
-                    file);
+                    "Skipping agent template '{Path}' because its YAML could not be parsed.",
+                    d.PackageYamlPath);
             }
         }
-
         result.Sort(static (a, b) =>
             string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         return result;
     }
 
-    private List<SkillSummary> ReadSkills(
-        string packageDir,
-        string packageName,
-        CancellationToken cancellationToken)
+    private List<SkillSummary> BuildSkillSummaries(
+        IReadOnlyList<DiscoveredEntry> discovered,
+        string packageName)
     {
         var result = new List<SkillSummary>();
-        var skillsDir = Path.Combine(packageDir, "skills");
-        if (!Directory.Exists(skillsDir))
+        foreach (var d in discovered)
         {
-            return result;
-        }
-
-        foreach (var file in Directory.EnumerateFiles(skillsDir, "*.md"))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var name = Path.GetFileNameWithoutExtension(file);
-            var toolsFile = Path.Combine(skillsDir, name + ".tools.json");
+            if (d.Kind != ArtefactKind.Skill) continue;
+            // Companion markdown body lives at `<folder>/<name>.md` in
+            // the recursive shape; an adjacent tools.json is optional.
+            var mdPath = Path.Combine(d.FolderPath, d.Name + ".md");
+            var hasMd = File.Exists(mdPath);
+            var toolsPath = Path.Combine(d.FolderPath, d.Name + ".tools.json");
             result.Add(new SkillSummary(
                 Package: packageName,
-                Name: name,
-                HasTools: File.Exists(toolsFile),
-                Path: RelativePath(file)));
+                Name: d.Name,
+                HasTools: File.Exists(toolsPath),
+                Path: RelativePath(hasMd ? mdPath : d.PackageYamlPath)));
         }
+        result.Sort(static (a, b) =>
+            string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        return result;
+    }
 
+    private List<WorkflowSummary> BuildWorkflowSummaries(
+        IReadOnlyList<DiscoveredEntry> discovered,
+        string packageName)
+    {
+        var result = new List<WorkflowSummary>();
+        foreach (var d in discovered)
+        {
+            if (d.Kind != ArtefactKind.Workflow) continue;
+            result.Add(new WorkflowSummary(
+                Package: packageName,
+                Name: d.Name,
+                Path: RelativePath(d.FolderPath)));
+        }
         result.Sort(static (a, b) =>
             string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         return result;
@@ -673,13 +826,16 @@ public class FileSystemPackageCatalogService(
         string packageName,
         CancellationToken cancellationToken)
     {
+        // The `connectors/` directory is reserved per ADR-0037 §1 and
+        // ADR-0043 §2 — concrete activation semantics ship with the
+        // connector ADR. We surface whatever lives there so the portal
+        // can show what's been authored.
         var result = new List<ConnectorSummary>();
         var dir = Path.Combine(packageDir, "connectors");
         if (!Directory.Exists(dir))
         {
             return result;
         }
-
         foreach (var entry in Directory.EnumerateFileSystemEntries(dir))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -688,62 +844,27 @@ public class FileSystemPackageCatalogService(
                 Name: Path.GetFileName(entry),
                 Path: RelativePath(entry)));
         }
-
         result.Sort(static (a, b) =>
             string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         return result;
     }
 
-    private List<WorkflowSummary> ReadWorkflows(
-        string packageDir,
-        string packageName,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Returns true when <paramref name="path"/> is at exactly
+    /// <paramref name="depth"/> segments below <paramref name="root"/>.
+    /// Depth 2 = direct child of a top-level conventional subdir
+    /// (e.g. <c>&lt;pkg&gt;/units/foo</c>).
+    /// </summary>
+    private static bool IsAtDepth(string root, string path, int depth)
     {
-        var result = new List<WorkflowSummary>();
-        var dir = Path.Combine(packageDir, "workflows");
-        if (!Directory.Exists(dir))
-        {
-            return result;
-        }
-
-        foreach (var entry in Directory.EnumerateDirectories(dir))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            result.Add(new WorkflowSummary(
-                Package: packageName,
-                Name: Path.GetFileName(entry),
-                Path: RelativePath(entry)));
-        }
-
-        result.Sort(static (a, b) =>
-            string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-        return result;
+        var rel = Path.GetRelativePath(root, path);
+        if (rel.StartsWith("..")) return false;
+        var segments = rel.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar });
+        return segments.Length == depth;
     }
 
     private string RelativePath(string absolutePath)
         => Path.GetRelativePath(options.Root!, absolutePath).Replace('\\', '/');
-
-    private static IEnumerable<string> EnumerateYamlFiles(string directory)
-        => Directory.EnumerateFiles(directory, "*.yaml")
-            .Concat(Directory.EnumerateFiles(directory, "*.yml"));
-
-    private static int CountManifestFiles(string directory)
-    {
-        if (!Directory.Exists(directory))
-        {
-            return 0;
-        }
-        return EnumerateYamlFiles(directory).Count();
-    }
-
-    private static int CountSkillBundles(string directory)
-    {
-        if (!Directory.Exists(directory))
-        {
-            return 0;
-        }
-        return Directory.EnumerateFiles(directory, "*.md").Count();
-    }
 
     private static int CountAssets(string directory)
     {
@@ -752,15 +873,6 @@ public class FileSystemPackageCatalogService(
             return 0;
         }
         return Directory.EnumerateFileSystemEntries(directory).Count();
-    }
-
-    private static int CountDirectories(string directory)
-    {
-        if (!Directory.Exists(directory))
-        {
-            return 0;
-        }
-        return Directory.EnumerateDirectories(directory).Count();
     }
 
     private static string? TryReadReadmeSummary(string packageDir)
@@ -773,9 +885,6 @@ public class FileSystemPackageCatalogService(
 
         try
         {
-            // Pluck the first non-empty paragraph that isn't a heading. The
-            // README layout isn't enforced, so this is best-effort: a null
-            // is better than surfacing noisy markdown to the cards.
             foreach (var raw in File.ReadLines(readme))
             {
                 var line = raw.Trim();
@@ -788,8 +897,7 @@ public class FileSystemPackageCatalogService(
         }
         catch (IOException)
         {
-            // Readme is advisory metadata — a read failure should not
-            // prevent the package from appearing in the catalog.
+            // README is advisory metadata.
         }
 
         return null;
@@ -813,41 +921,6 @@ public class FileSystemPackageCatalogService(
         }
     }
 
-    private static AgentManifestView ReadAgentManifest(string file)
-    {
-        using var reader = new StreamReader(file);
-        var stream = new YamlStream();
-        stream.Load(reader);
-
-        if (stream.Documents.Count == 0
-            || stream.Documents[0].RootNode is not YamlMappingNode root)
-        {
-            return default;
-        }
-
-        if (!root.Children.TryGetValue(new YamlScalarNode("agent"), out var agentNode)
-            || agentNode is not YamlMappingNode agent)
-        {
-            return default;
-        }
-
-        return new AgentManifestView(
-            Id: TryReadScalar(agent, "id"),
-            Name: TryReadScalar(agent, "name"),
-            Role: TryReadScalar(agent, "role"),
-            Instructions: TryReadScalar(agent, "instructions"));
-    }
-
-    private static string? TryReadScalar(YamlMappingNode node, string key)
-    {
-        if (node.Children.TryGetValue(new YamlScalarNode(key), out var value)
-            && value is YamlScalarNode scalar)
-        {
-            return string.IsNullOrWhiteSpace(scalar.Value) ? null : scalar.Value;
-        }
-        return null;
-    }
-
     private static string? Truncate(string? value, int maxLength)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -868,17 +941,6 @@ public class FileSystemPackageCatalogService(
         || segment.Contains("..", StringComparison.Ordinal)
         || segment.Contains('/', StringComparison.Ordinal)
         || segment.Contains('\\', StringComparison.Ordinal);
-
-    /// <summary>
-    /// Minimal internal view over the <c>agent:</c> YAML node. We keep
-    /// this internal so packages.md's authoring contract stays the
-    /// external surface — the catalog only needs a few display fields.
-    /// </summary>
-    private readonly record struct AgentManifestView(
-        string? Id,
-        string? Name,
-        string? Role,
-        string? Instructions);
 }
 
 /// <summary>

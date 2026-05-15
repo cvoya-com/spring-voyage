@@ -9,13 +9,12 @@ using YamlDotNet.Serialization;
 
 /// <summary>
 /// Discriminates the kind of package post-resolve. Computed by
-/// <see cref="PackageManifestParser"/> from the parsed
-/// <see cref="PackageManifest.Content"/> entries.
+/// <see cref="PackageManifestParser"/> from the discovered artefact set.
 /// </summary>
 /// <remarks>
-/// A package whose <see cref="PackageManifest.Content"/> entries are all
-/// agents (and which has no top-level units) resolves as
-/// <see cref="AgentPackage"/>. Every other shape — including the empty
+/// A package whose top-level artefacts (under <c>agents/</c>) are all
+/// agents (and which has no top-level units under <c>units/</c>) resolves
+/// as <see cref="AgentPackage"/>. Every other shape — including the empty
 /// shape used by upload-mode minimal packages — resolves as
 /// <see cref="UnitPackage"/>. This is purely a downstream convenience for
 /// the install-pipeline tests; production code keys off the per-artefact
@@ -36,7 +35,7 @@ public enum PackageKind
 /// </summary>
 /// <remarks>
 /// <para>
-/// The package YAML shape under ADR-0037 (decision 2):
+/// The package YAML shape under ADR-0043 (decision 2):
 /// </para>
 /// <code>
 /// apiVersion: spring.voyage/v1
@@ -45,26 +44,30 @@ public enum PackageKind
 /// description: Single-line summary.
 /// readme: README.md            # optional; relative path to a markdown file
 /// version: 1.0.0
-/// content:
-///   - unit: sv-oss-design                  # bare = local symbol → ./units/sv-oss-design.yaml
-///   - agent: standalone-agent              # standalone agent (resolves to ./agents/standalone-agent.yaml)
-///   - unit: other-pkg/shared-unit@1.0.0    # qualified + version (ADR-0037 decision 5)
 /// </code>
 /// <para>
-/// <b>ADR-0037:</b> the package manifest is the container manifest only.
-/// Per-artefact YAMLs (<c>./units/&lt;name&gt;.yaml</c>,
-/// <c>./agents/&lt;name&gt;.yaml</c>, etc.) are kind-discriminated
-/// top-level documents in their own right with their own <c>apiVersion</c>,
-/// <c>kind</c>, <c>name</c>, <c>description</c>, <c>readme</c>, and
-/// <c>requires</c> blocks. The package's effective requirement set at
-/// install time is the union of every contained artefact's
-/// <c>requires</c>; the package itself does not declare requirements.
+/// <b>ADR-0043:</b> the package manifest is metadata only. The package's
+/// contents are exactly the artefact folders found under the conventional
+/// subdirectories (<c>units/</c>, <c>agents/</c>, <c>skills/</c>,
+/// <c>workflows/</c>, <c>templates/</c>, <c>connectors/</c>). The legacy
+/// <c>content:</c> list from ADR-0037 is removed — the catalog walker
+/// discovers artefacts from the filesystem; declaring them a second time
+/// would be a duplicate source of truth.
+/// </para>
+/// <para>
+/// <b>ADR-0037:</b> per-artefact <c>package.yaml</c> files are
+/// kind-discriminated top-level documents in their own right with their
+/// own <c>apiVersion</c>, <c>kind</c>, <c>name</c>, <c>description</c>,
+/// <c>readme</c>, and <c>requires</c> blocks. The package's effective
+/// requirement set at install time is the union of every contained
+/// artefact's <c>requires</c>; the package itself does not declare
+/// requirements.
 /// </para>
 /// <para>
 /// <b>Reference grammar:</b> within a manifest, references between artefacts
-/// use IaC-style local symbols (the bare-name form above) that are mapped to
-/// fresh Guids at install time and never persist. Cross-package references
-/// to live entities are written as <c>&lt;pkg&gt;/&lt;name&gt;@&lt;version&gt;</c>
+/// use IaC-style local symbols (bare names) that are mapped to fresh Guids
+/// at install time and never persist. Cross-package references to live
+/// entities are written as <c>&lt;pkg&gt;/&lt;name&gt;@&lt;version&gt;</c>
 /// (version optional — defaults to the most recently installed version per
 /// ADR-0037 decision 5). Path-style references like
 /// <c>unit://eng/backend</c> are rejected.
@@ -111,18 +114,6 @@ public class PackageManifest
     /// </summary>
     [YamlMember(Alias = "version")]
     public string? Version { get; set; }
-
-    /// <summary>
-    /// Top-level artefacts bundled in the package. Each entry is a
-    /// single-key map keyed by artefact kind (<c>unit:</c>, <c>agent:</c>,
-    /// <c>skill:</c>, or <c>workflow:</c>) whose value is either a
-    /// bare/qualified reference string or — for <c>unit:</c> /
-    /// <c>agent:</c> only — an inline body. Descendants of umbrella units
-    /// (their <c>members:</c> list) are discovered recursively at resolve
-    /// time and do not need to appear here.
-    /// </summary>
-    [YamlMember(Alias = "content")]
-    public List<ContentEntry>? Content { get; set; }
 
     /// <summary>
     /// Optional package-level <c>execution:</c> block (#1679). Member
@@ -201,34 +192,3 @@ public class PackageExecutionManifest
         && string.IsNullOrWhiteSpace(Model);
 }
 
-/// <summary>
-/// One top-level entry in a <see cref="PackageManifest.Content"/> list.
-/// Each entry is a single-key YAML mapping whose key is the artefact kind
-/// (<c>unit</c>, <c>agent</c>, <c>skill</c>, <c>workflow</c>) and whose
-/// value is either a bare/qualified reference string or — for
-/// <c>unit</c> / <c>agent</c> only — an inline artefact body. The parser
-/// surfaces the discriminator on <see cref="Kind"/> and the reference /
-/// inline body on <see cref="Definition"/>.
-/// </summary>
-public sealed class ContentEntry
-{
-    /// <summary>
-    /// The artefact kind this entry declares, e.g.
-    /// <see cref="ArtefactKind.Unit"/>. The YAML key (<c>unit</c>,
-    /// <c>agent</c>, <c>skill</c>, <c>workflow</c>) is reflected onto this
-    /// property by the parser; it is never present as a separate scalar
-    /// on the YAML side.
-    /// </summary>
-    public ArtefactKind Kind { get; init; }
-
-    /// <summary>
-    /// The reference string or inline body declared for this entry.
-    /// Bare reference resolves to <c>./units/&lt;name&gt;.yaml</c> /
-    /// <c>./agents/&lt;name&gt;.yaml</c> / <c>./skills/&lt;name&gt;.md</c>
-    /// / <c>./workflows/&lt;name&gt;/</c> per the artefact kind. A
-    /// qualified reference (<c>pkg/name</c> or <c>pkg/name@version</c>)
-    /// resolves via the catalog. Inline bodies are accepted only for
-    /// <see cref="ArtefactKind.Unit"/> and <see cref="ArtefactKind.Agent"/>.
-    /// </summary>
-    public InlineArtefactDefinition Definition { get; init; } = default!;
-}

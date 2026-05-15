@@ -41,11 +41,27 @@ public class UnitManifest
     public string? Readme { get; set; }
 
     /// <summary>
+    /// Optional template reference (ADR-0043 §5). Bare name resolves
+    /// within the package; qualified name <c>&lt;pkg&gt;/&lt;name&gt;@&lt;version&gt;</c>
+    /// resolves cross-package per ADR-0037 §5.
+    /// </summary>
+    [YamlMember(Alias = "from")]
+    public string? From { get; set; }
+
+    /// <summary>
     /// Optional AI runtime configuration. Parsed but not yet applied
     /// by the platform API.
     /// </summary>
     [YamlMember(Alias = "ai")]
     public AiManifest? Ai { get; set; }
+
+    /// <summary>
+    /// User-provided prompt for the unit. Top-level slot per ADR-0043 + #2298;
+    /// replaces the legacy <c>ai.prompt:</c> nesting which is removed in
+    /// chunk 2 of the ADR-0043 implementation.
+    /// </summary>
+    [YamlMember(Alias = "instructions")]
+    public string? Instructions { get; set; }
 
     /// <summary>Members of the unit (agents or other units).</summary>
     [YamlMember(Alias = "members")]
@@ -175,10 +191,6 @@ public class AiManifest
     /// </summary>
     [YamlMember(Alias = "model")]
     public AiModelManifest? Model { get; set; }
-
-    /// <summary>System prompt for the orchestrator.</summary>
-    [YamlMember(Alias = "prompt")]
-    public string? Prompt { get; set; }
 
     /// <summary>Skills available to the orchestrator.</summary>
     [YamlMember(Alias = "skills")]

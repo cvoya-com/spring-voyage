@@ -26,14 +26,14 @@ public class Adr0037Tests
     [Fact]
     public void ParseRaw_NewShape_Succeeds()
     {
+        // ADR-0043 §2: `content:` is removed; the package manifest is
+        // metadata only and the directory layout is the content.
         var yaml = """
             apiVersion: spring.voyage/v1
             kind: Package
             name: my-package
             description: A new-shape package.
             version: 1.0.0
-            content:
-              - unit: root-unit
             """;
 
         var manifest = PackageManifestParser.ParseRaw(yaml);
@@ -42,10 +42,6 @@ public class Adr0037Tests
         manifest.Description.ShouldBe("A new-shape package.");
         manifest.Version.ShouldBe("1.0.0");
         manifest.Kind.ShouldBe("Package");
-        manifest.Content.ShouldNotBeNull();
-        manifest.Content!.Count.ShouldBe(1);
-        manifest.Content[0].Kind.ShouldBe(ArtefactKind.Unit);
-        manifest.Content[0].Definition.Reference.ShouldBe("root-unit");
     }
 
     [Fact]
@@ -58,8 +54,6 @@ public class Adr0037Tests
             description: Description.
             version: 1.0.0
             readme: README.md
-            content:
-              - unit: root
             """;
 
         var manifest = PackageManifestParser.ParseRaw(yaml);
@@ -77,7 +71,6 @@ public class Adr0037Tests
             kind: Package
             description: x
             version: 1.0.0
-            content: []
             """;
 
         var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
@@ -92,7 +85,6 @@ public class Adr0037Tests
             kind: Package
             name: my-package
             version: 1.0.0
-            content: []
             """;
 
         var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
@@ -107,7 +99,6 @@ public class Adr0037Tests
             kind: Package
             name: my-package
             description: x
-            content: []
             """;
 
         var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
@@ -428,8 +419,6 @@ public class Adr0037Tests
             execution:
               image: ghcr.io/example/agent:latest
               containerRuntime: podman
-            content:
-              - unit: root
             """;
 
         var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
@@ -646,6 +635,8 @@ public class Adr0037Tests
         // ADR-0037 D2: a new-shape package.yaml that round-trips through
         // ParseRaw should preserve every field. This guards against
         // accidental field drops on the manifest model.
+        // ADR-0043 §2: the package manifest is metadata only; `content:`
+        // is removed (the directory layout is the content).
         var yaml = """
             apiVersion: spring.voyage/v1
             kind: Package
@@ -653,9 +644,6 @@ public class Adr0037Tests
             description: A package whose ParseRaw output preserves every field.
             readme: README.md
             version: 2.5.0
-            content:
-              - unit: my-unit
-              - agent: my-agent
             """;
 
         var manifest = PackageManifestParser.ParseRaw(yaml);
@@ -666,10 +654,5 @@ public class Adr0037Tests
         manifest.Description.ShouldBe("A package whose ParseRaw output preserves every field.");
         manifest.Readme.ShouldBe("README.md");
         manifest.Version.ShouldBe("2.5.0");
-        manifest.Content!.Count.ShouldBe(2);
-        manifest.Content[0].Kind.ShouldBe(ArtefactKind.Unit);
-        manifest.Content[0].Definition.Reference.ShouldBe("my-unit");
-        manifest.Content[1].Kind.ShouldBe(ArtefactKind.Agent);
-        manifest.Content[1].Definition.Reference.ShouldBe("my-agent");
     }
 }

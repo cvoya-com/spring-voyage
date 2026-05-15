@@ -4,5 +4,4 @@ name: research
 description: Research team — generalist researcher, literature reviewer, and data analyst.
 version: 1.0.0
 readme: README.md
-content:
-  - unit: research-team
+# ADR-0043 §2: directory layout is the manifest — no `content:` block.
