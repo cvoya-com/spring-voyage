@@ -475,8 +475,13 @@ public partial class Program
             app.MapCloningPolicyEndpoints();
             app.MapCostEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapTenantCostEndpoints().RequireAuthorization(RolePolicies.TenantUser);
-            // Budgets are operator-config — gate on TenantOperator.
-            app.MapBudgetEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
+            // Budgets are operator-config — each route group inside
+            // MapBudgetEndpoints self-gates on TenantOperator (agent +
+            // tenant + unit). Do NOT chain a second .RequireAuthorization
+            // here; the previous wiring only bound the role gate to the
+            // returned agent group, leaving the tenant- and unit-scope
+            // groups unauthenticated (#2288).
+            app.MapBudgetEndpoints();
             app.MapInitiativeEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapActivityEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapThreadEndpoints().RequireAuthorization(RolePolicies.TenantUser);

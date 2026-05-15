@@ -7,6 +7,7 @@ using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.EntityFrameworkCore;
@@ -30,8 +31,17 @@ public static class BudgetEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapBudgetEndpoints(this IEndpointRouteBuilder app)
     {
+        // Budgets are operator-config — every group self-gates on the
+        // TenantOperator role here so all three scopes (agent / tenant /
+        // unit) inherit the gate uniformly. Previously the only gate
+        // lived in Program.cs and chained off MapBudgetEndpoints' return
+        // value, which exposed the tenant- and unit-scoped groups as
+        // unauthenticated (issue #2288). The auth precedent matches
+        // MapAuthEndpoints / MapConnectorEndpoints — auth lives inside
+        // the endpoint file, not on the caller.
         var agentGroup = app.MapGroup("/api/v1/tenant/agents/{agentId}/budget")
-            .WithTags("Budgets");
+            .WithTags("Budgets")
+            .RequireAuthorization(RolePolicies.TenantOperator);
 
         agentGroup.MapGet("/", GetAgentBudgetAsync)
             .WithName("GetAgentBudget")
@@ -46,7 +56,8 @@ public static class BudgetEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest);
 
         var tenantGroup = app.MapGroup("/api/v1/tenant/budget")
-            .WithTags("Budgets");
+            .WithTags("Budgets")
+            .RequireAuthorization(RolePolicies.TenantOperator);
 
         tenantGroup.MapGet("/", GetTenantBudgetAsync)
             .WithName("GetTenantBudget")
@@ -64,7 +75,8 @@ public static class BudgetEndpoints
         // CLI's `spring cost set-budget --scope unit` and the portal's
         // per-unit "Edit budget" action target the same endpoint.
         var unitGroup = app.MapGroup("/api/v1/tenant/units/{unitId}/budget")
-            .WithTags("Budgets");
+            .WithTags("Budgets")
+            .RequireAuthorization(RolePolicies.TenantOperator);
 
         unitGroup.MapGet("/", GetUnitBudgetAsync)
             .WithName("GetUnitBudget")
