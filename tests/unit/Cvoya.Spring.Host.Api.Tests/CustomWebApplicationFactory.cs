@@ -7,6 +7,7 @@ using System.Reactive.Linq;
 
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
@@ -197,6 +198,16 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IInitiativeEngine InitiativeEngine { get; } = CreateDefaultInitiativeEngine();
 
+    /// <summary>
+    /// Gets the substitute <see cref="IAgentStateCoordinator"/> wired into
+    /// the test DI container. The unit-keyed skills endpoints
+    /// (#2276, GET/PUT <c>/api/v1/tenant/units/{id}/skills</c>) call this
+    /// coordinator directly rather than going through <c>IUnitActor</c>,
+    /// so handler-level tests arrange responses on this stub to control
+    /// what the endpoint sees.
+    /// </summary>
+    public IAgentStateCoordinator AgentStateCoordinator { get; } = CreateDefaultAgentStateCoordinator();
+
     private static IAgentExecutionStore CreateDefaultAgentExecutionStore()
     {
         // Default: every agent has no execution shape (hosting mode = null).
@@ -212,6 +223,22 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         var stub = Substitute.For<IUnitExecutionStore>();
         stub.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(null));
+        return stub;
+    }
+
+    private static IAgentStateCoordinator CreateDefaultAgentStateCoordinator()
+    {
+        // Default: every agent / unit has an empty skill list and a default
+        // metadata record. Tests that need richer state override per-call.
+        var stub = Substitute.For<IAgentStateCoordinator>();
+        stub.GetSkillsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(Array.Empty<string>()));
+        stub.SetSkillsAsync(
+                Arg.Any<string>(),
+                Arg.Any<string[]>(),
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
         return stub;
     }
 
@@ -387,6 +414,10 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 // legacy-rejection tests can exercise the PUT path without a
                 // real Dapr backing.
                 typeof(IUnitExecutionStore),
+                // #2285: replace the agent state coordinator so unit-keyed
+                // skills endpoint tests can stub skill reads / writes
+                // without touching the EF live-config repository.
+                typeof(IAgentStateCoordinator),
             };
 
             var descriptors = services
@@ -421,6 +452,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(AgentExecutionStore);
             services.AddSingleton(UnitExecutionStore);
             services.AddSingleton(InitiativeEngine);
+            services.AddSingleton(AgentStateCoordinator);
             services.AddSingleton(new DirectoryCache());
 
             // #687: the skill-bundle resolver is now wrapped in a
