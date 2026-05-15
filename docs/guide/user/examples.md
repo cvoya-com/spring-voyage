@@ -1,5 +1,31 @@
 # Runnable Examples
 
+Two surfaces ship as runnable examples: the **example packages** under `packages/` show the ADR-0043 recursive package shape end-to-end, and the **CLI scenario suite** under `tests/e2e/cli/scenarios/` exercises individual platform features against a running stack.
+
+## Example packages
+
+The `packages/` directory ships two purpose-built examples that pair as a learning sequence — one builds the same problem shape twice, once instance-only and once templated, so the difference between the two authoring styles is visible at a glance. Both install end-to-end against a fresh stack and are documented as step-by-step walkthroughs in the [Declarative configuration guide](declarative.md).
+
+### `example-simple` — instance-only
+
+[`packages/example-simple/`](../../../packages/example-simple/) demonstrates the ADR-0043 recursive folder shape using **concrete instances only** — no templates, no `from:` clones. Every artefact is authored as a literal folder under the conventional subdirectories. Installing it produces one unit (`greeting-team`), two agents that are members of that unit (`friendly-greeter`, `polite-greeter`), and one skill owned by each agent (`say-hello`, `say-hello-formally`). The skills sit inside their owning agent's folder, so they are granted only to that one agent.
+
+Read this package first to see the recursive shape without the type / instance separation; pair with `example-templated` to see what the same problem looks like templated.
+
+- Package README: [`packages/example-simple/README.md`](../../../packages/example-simple/README.md)
+- Step-by-step walkthrough: [Building `example-simple` step by step](declarative.md#building-example-simple-step-by-step)
+
+### `example-templated` — template-based
+
+[`packages/example-templated/`](../../../packages/example-templated/) demonstrates **type / instance separation** via templates ([ADR-0043 §5](../../decisions/0043-recursive-package-format.md#5-type-and-instance-templates-are-non-activating-artefact-folders-cloned-by-from)). The same problem shape as `example-simple` — a unit with member agents — but expressed via one `UnitTemplate` (`engineering-team`, with two stamped nested children) and one `AgentTemplate` (`software-engineer`, stamped three times under one concrete unit). Installing it produces one unit and five agents; the duplication that would otherwise be three folders of repeated content is collapsed to three `from: software-engineer` references.
+
+Read this package after `example-simple` to see how `from:` cloning, snapshot binding, and the override-merge rules ([ADR-0043 §5d](../../decisions/0043-recursive-package-format.md#5d-overrides)) apply to a real package.
+
+- Package README: [`packages/example-templated/README.md`](../../../packages/example-templated/README.md)
+- Step-by-step walkthrough: [Building `example-templated` step by step](declarative.md#building-example-templated-step-by-step)
+
+## CLI scenario suite
+
 The CLI scenario suite under [`tests/e2e/cli/scenarios/`](../../../tests/e2e/cli/scenarios) is more than a regression safety net — each script is a self-contained usage example that drives the real `spring` CLI against a running stack. Reading them is the fastest way to see how a given feature is used today; executing them is the fastest way to validate a fresh environment.
 
 Every scenario:
@@ -60,6 +86,8 @@ Pick the right domain bucket under `scenarios/` (or add a new one if no existing
 
 ## Related reading
 
+- [Declarative configuration](declarative.md) — step-by-step walkthroughs of the two example packages plus the install-flag reference.
+- [Packages](../../concepts/packages.md), [Templates](../../concepts/templates.md) — the concept docs that frame what the example packages demonstrate.
 - [Getting Started](../intro/getting-started.md) — the same flows walked through step-by-step.
 - [Managing Units and Agents](units-and-agents.md) — the CLI reference these scenarios exercise.
 - [`tests/e2e/cli/README.md`](../../../tests/e2e/cli/README.md) — runner, prerequisites, and conventions.
