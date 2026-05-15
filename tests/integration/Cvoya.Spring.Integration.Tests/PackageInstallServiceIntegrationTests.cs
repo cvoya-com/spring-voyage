@@ -316,7 +316,90 @@ public class PackageInstallServiceIntegrationTests : IDisposable
         ex.TopLevelCount.ShouldBeGreaterThanOrEqualTo(2);
     }
 
-    // ── (7) malformed manifest fails cleanly ─────────────────────────────
+    // ── (7) in-flight cross-package `from:` resolves via the recursive layout
+
+    /// <summary>
+    /// #2308: <see cref="InFlightBatchCatalogProvider"/> resolves
+    /// cross-package <c>from:</c> references between sibling packages in
+    /// the same multi-package install batch by walking each in-flight
+    /// package's ADR-0043 recursive folder layout — not by constructing
+    /// flat <c>&lt;subdir&gt;/&lt;name&gt;.yaml</c> paths (the pre-ADR-0043
+    /// layout the bug was using). Two synthetic packages are constructed
+    /// in temp dirs:
+    /// <list type="bullet">
+    ///   <item><description>
+    ///     archetype package — ships a <c>UnitTemplate</c> under
+    ///     <c>templates/</c> with one nested concrete agent that gets
+    ///     stamped under every consumer.
+    ///   </description></item>
+    ///   <item><description>
+    ///     consumer package — ships a <c>Unit</c> whose <c>from:</c>
+    ///     points cross-package at the archetype's template.
+    ///   </description></item>
+    /// </list>
+    /// Both are installed in a single batch. Before the fix
+    /// <see cref="InFlightBatchCatalogProvider.LoadArtefactYamlAsync"/>
+    /// looked for <c>&lt;archetype-root&gt;/units/&lt;tpl-name&gt;.yaml</c>
+    /// (the legacy flat layout) and raised "template not found in the
+    /// catalog" because the template lives at
+    /// <c>&lt;archetype-root&gt;/templates/&lt;tpl-name&gt;/package.yaml</c>.
+    /// </summary>
+    [Fact]
+    public async Task InstallBatch_CrossPackageFromReference_ResolvesViaRecursiveLayout()
+    {
+        using var fx = BuildFixture();
+        using var pkgs = BuildCrossPackageFromBatch();
+
+        var archetypeTarget = new InstallTarget(
+            PackageName: pkgs.ArchetypePackageName,
+            Inputs: new Dictionary<string, string>(),
+            OriginalYaml: pkgs.ArchetypePackageYaml,
+            PackageRoot: pkgs.ArchetypePackageRoot);
+
+        var consumerTarget = new InstallTarget(
+            PackageName: pkgs.ConsumerPackageName,
+            Inputs: new Dictionary<string, string>(),
+            OriginalYaml: pkgs.ConsumerPackageYaml,
+            PackageRoot: pkgs.ConsumerPackageRoot);
+
+        var result = await fx.Service.InstallAsync(
+            new[] { archetypeTarget, consumerTarget },
+            TestContext.Current.CancellationToken);
+
+        result.PackageResults.Count.ShouldBe(2);
+        foreach (var pr in result.PackageResults)
+        {
+            pr.Status.ShouldBe(
+                PackageInstallOutcome.Active,
+                $"package '{pr.PackageName}' should install successfully (error: {pr.ErrorMessage}).");
+        }
+
+        await using var scope = fx.ScopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        // The consumer's top-level unit must exist — Phase 2 wrote it after
+        // the cross-package template resolved via the in-flight overlay.
+        var consumerUnit = await db.UnitDefinitions
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.DisplayName == pkgs.ConsumerUnitName,
+                TestContext.Current.CancellationToken);
+        consumerUnit.ShouldNotBeNull(
+            "the consumer unit should be written after the cross-package `from:` resolved through the in-flight overlay");
+
+        // The template's stamped agent child must exist — proves
+        // EnumerateNestedArtefactsAsync also walked the in-flight
+        // archetype's recursive layout. Before the fix this row would be
+        // absent because the resolver raised "template not found" before
+        // reaching the stamping step.
+        var stampedAgent = await db.AgentDefinitions
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(a => a.DisplayName == pkgs.TemplateChildAgentName,
+                TestContext.Current.CancellationToken);
+        stampedAgent.ShouldNotBeNull(
+            "the template's nested child agent should be stamped fresh under the consumer unit");
+    }
+
+    // ── (8) malformed manifest fails cleanly ─────────────────────────────
 
     [Fact]
     public async Task InstallMalformedManifest_FailsCleanly()
@@ -493,6 +576,156 @@ public class PackageInstallServiceIntegrationTests : IDisposable
             PackageRoot = root,
             PackageName = packageName,
             PackageYaml = packageYaml,
+        };
+    }
+
+    private sealed class CrossPackageFromBatch : IDisposable
+    {
+        public required string Root { get; init; }
+        public required string ArchetypePackageRoot { get; init; }
+        public required string ConsumerPackageRoot { get; init; }
+        public required string ArchetypePackageName { get; init; }
+        public required string ConsumerPackageName { get; init; }
+        public required string ArchetypePackageYaml { get; init; }
+        public required string ConsumerPackageYaml { get; init; }
+        public required string ConsumerUnitName { get; init; }
+        public required string TemplateChildAgentName { get; init; }
+
+        public void Dispose()
+        {
+            try
+            {
+                if (Directory.Exists(Root))
+                {
+                    Directory.Delete(Root, recursive: true);
+                }
+            }
+            catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// Builds a pair of synthetic ADR-0043 packages on disk that exercise
+    /// the in-flight cross-package <c>from:</c> path (#2308). Both
+    /// packages are connector-free so the install pipeline doesn't need a
+    /// binding pre-flight to succeed. Names are namespaced with a fresh
+    /// Guid suffix so parallel test runs don't collide on display-name
+    /// lookups in the in-memory EF database.
+    /// </summary>
+    private static CrossPackageFromBatch BuildCrossPackageFromBatch()
+    {
+        var stamp = Guid.NewGuid().ToString("N")[..8];
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "spring-voyage-tests",
+            $"xpkg-from-{stamp}");
+        Directory.CreateDirectory(root);
+
+        var archetypeName = $"xpkg-archetype-{stamp}";
+        var consumerName = $"xpkg-consumer-{stamp}";
+        var templateName = $"engineering-team-tpl-{stamp}";
+        var consumerUnitName = $"platform-team-{stamp}";
+        var templateChildAgentName = $"team-lead-tpl-{stamp}";
+
+        // ── Archetype package — ships a UnitTemplate with a nested Agent.
+        var archetypeRoot = Path.Combine(root, archetypeName);
+        Directory.CreateDirectory(archetypeRoot);
+        var archetypePackageYaml = $"""
+            apiVersion: spring.voyage/v1
+            kind: Package
+            name: {archetypeName}
+            description: Archetype library for the #2308 cross-package in-flight test.
+            version: 1.0.0
+            """;
+        File.WriteAllText(
+            Path.Combine(archetypeRoot, "package.yaml"), archetypePackageYaml);
+
+        var templateDir = Path.Combine(archetypeRoot, "templates", templateName);
+        Directory.CreateDirectory(templateDir);
+        File.WriteAllText(Path.Combine(templateDir, "package.yaml"), $"""
+            apiVersion: spring.voyage/v1
+            kind: UnitTemplate
+            name: {templateName}
+            description: Engineering-team archetype used by the #2308 in-flight regression test.
+            ai:
+              runtime: claude-code
+              model:
+                provider: anthropic
+                id: claude-sonnet-4-6
+            instructions: |
+              You orchestrate an engineering team derived from the archetype.
+            execution:
+              image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+            policies:
+              communication: through-unit
+              work_assignment: capability-match
+              expertise_sharing: advertise
+              initiative:
+                max_level: attentive
+                max_actions_per_hour: 10
+            humans:
+              - identity: owner
+                permission: owner
+                notifications: ["escalation"]
+            """);
+
+        var teamLeadDir = Path.Combine(templateDir, "agents", templateChildAgentName);
+        Directory.CreateDirectory(teamLeadDir);
+        File.WriteAllText(Path.Combine(teamLeadDir, "package.yaml"), $"""
+            apiVersion: spring.voyage/v1
+            kind: Agent
+            name: {templateChildAgentName}
+            description: Team lead stamped under every archetype instance.
+            role: team-lead
+            capabilities: ["design-review"]
+            ai:
+              runtime: claude-code
+              model:
+                provider: anthropic
+                id: claude-sonnet-4-6
+              environment:
+                image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+            instructions: |
+              You are the team lead.
+            expertise:
+              - domain: design-review
+                level: expert
+            """);
+
+        // ── Consumer package — declares a Unit with cross-package `from:`.
+        var consumerRoot = Path.Combine(root, consumerName);
+        Directory.CreateDirectory(consumerRoot);
+        var consumerPackageYaml = $"""
+            apiVersion: spring.voyage/v1
+            kind: Package
+            name: {consumerName}
+            description: Consumer that cross-references the archetype's template (in-flight, #2308).
+            version: 1.0.0
+            """;
+        File.WriteAllText(
+            Path.Combine(consumerRoot, "package.yaml"), consumerPackageYaml);
+
+        var consumerUnitDir = Path.Combine(consumerRoot, "units", consumerUnitName);
+        Directory.CreateDirectory(consumerUnitDir);
+        File.WriteAllText(Path.Combine(consumerUnitDir, "package.yaml"), $"""
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: {consumerUnitName}
+            description: Concrete unit stamped from the cross-package archetype.
+            from: {archetypeName}/{templateName}
+            """);
+
+        return new CrossPackageFromBatch
+        {
+            Root = root,
+            ArchetypePackageRoot = archetypeRoot,
+            ConsumerPackageRoot = consumerRoot,
+            ArchetypePackageName = archetypeName,
+            ConsumerPackageName = consumerName,
+            ArchetypePackageYaml = archetypePackageYaml,
+            ConsumerPackageYaml = consumerPackageYaml,
+            ConsumerUnitName = consumerUnitName,
+            TemplateChildAgentName = templateChildAgentName,
         };
     }
 
