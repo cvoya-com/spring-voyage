@@ -1909,15 +1909,16 @@ public static class AgentEndpoints
             InitiativeLevel: initiativeLevel.HasValue
                 ? initiativeLevel.Value.ToString().ToLowerInvariant()
                 : null,
-            // #2156: surface the lifecycle outcome as a lowercase string so
-            // the wire shape mirrors InitiativeLevel and avoids the
-            // nullable-enum oneOf ambiguity that the contract-test JSON
-            // Schema runner flags as a violation. The string surface
-            // round-trips Active / Error verbatim — Kiota lowers it to a
-            // plain string property on the generated client.
-            LifecycleStatus: lifecycleStatus.HasValue
-                ? lifecycleStatus.Value.ToString().ToLowerInvariant()
-                : null,
+            // #2388: surface the lifecycle status as the PascalCase enum
+            // name (e.g. "Draft" / "Running") so the wire matches the
+            // committed OpenAPI contract and the portal's lifecycle gates
+            // (which compare against "Draft" / "Running" / "Stopped"
+            // verbatim). UnitResponse.Status already emits this shape via
+            // the global JsonStringEnumConverter; the agent field carries
+            // a string rather than the typed enum so the shared
+            // LifecycleStatus schema isn't widened with a `null` member
+            // when the property is nullable.
+            LifecycleStatus: lifecycleStatus?.ToString(),
             LifecycleError: lifecycleError,
             Instructions: instructions,
             // #2337 Sub D: effective-tools projection used by the portal's

@@ -953,6 +953,47 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body.Agent.ExecutionImage.ShouldBeNull();
     }
 
+    // -------------------------------------------------------------------
+    // #2388: wire-contract regression — AgentResponse.lifecycleStatus must
+    // serialize as the PascalCase LifecycleStatus enum name ("Draft" /
+    // "Running" / "Stopped" / …) so the portal's action-button gates and
+    // the Kiota-generated client see the same shape that UnitResponse.status
+    // already emits. The earlier #2156 implementation lowercased the value
+    // to dodge a nullable-enum oneOf ambiguity in the schema, which broke
+    // the contract and the portal lifecycle gates downstream.
+    // -------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Draft, "Draft")]
+    [InlineData(Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Running, "Running")]
+    [InlineData(Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Stopped, "Stopped")]
+    [InlineData(Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Error, "Error")]
+    public async Task GetAgent_LifecycleStatus_SerializesAsPascalCaseEnumName(
+        Cvoya.Spring.Core.Lifecycle.LifecycleStatus status,
+        string expectedWire)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Lifecycle Wire Agent");
+        var proxy = ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 0, channels: 0);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(status));
+
+        var response = await _client.GetAsync($"/api/v1/tenant/agents/{agentId:N}", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Read the raw body so we can pin the exact wire string the portal
+        // sees — round-tripping through AgentResponse would re-parse the
+        // value and mask a casing drift.
+        var body = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(body);
+        var agent = doc.RootElement.GetProperty("agent");
+        agent.TryGetProperty("lifecycleStatus", out var lifecycleStatus).ShouldBeTrue(
+            "AgentResponse must include 'lifecycleStatus' on the wire");
+        lifecycleStatus.ValueKind.ShouldBe(JsonValueKind.String);
+        lifecycleStatus.GetString().ShouldBe(expectedWire);
+    }
+
     private async Task SeedAgentDefinitionAsync(
         Guid agentId,
         string displayName,
@@ -1024,7 +1065,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             .Returns(entry);
     }
 
-    private void ArrangeAgentRuntimeStatus(Guid agentId, int inFlight, int queued, int channels)
+    private IAgentActor ArrangeAgentRuntimeStatus(Guid agentId, int inFlight, int queued, int channels)
     {
         var actorIdString = agentId.ToString("N");
         var proxy = Substitute.For<IAgentActor>();
@@ -1039,6 +1080,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 Arg.Is<ActorId>(a => a.GetId() == actorIdString),
                 Arg.Any<string>())
             .Returns(proxy);
+        return proxy;
     }
 
     private void ArrangeAgentExecutionShape(Guid agentId, string hosting)
