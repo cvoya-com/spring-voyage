@@ -154,12 +154,38 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get the agent's configured skill list (tool names the agent is allowed to invoke) */
+        /**
+         * List the skill bundles equipped on an agent
+         * @description Returns the resolved bundles in declaration order. Each entry carries the package + skill coordinates, a prompt-body summary, and the bundle's required-tool list.
+         */
         get: operations["GetAgentSkills"];
-        /** Replace the agent's skill list in full; empty list means the agent is disabled from every tool */
-        put: operations["SetAgentSkills"];
-        post?: never;
+        put?: never;
+        /**
+         * Equip a skill bundle on an agent
+         * @description Idempotent on (packageName, skillName). The store re-resolves the bundle so the persisted record carries the freshest prompt + required-tools snapshot. Returns the new effective list in declaration order.
+         */
+        post: operations["EquipAgentSkill"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/agents/{id}/skills/{packageName}/{skillName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unequip a skill bundle from an agent
+         * @description No-op when the bundle is not currently equipped. Returns the new effective list.
+         */
+        delete: operations["UnequipAgentSkill"];
         options?: never;
         head?: never;
         patch?: never;
@@ -371,17 +397,37 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get the equipped skills for a unit
-         * @description A unit is an agent (ADR-0039); its skills are stored by the same agent-live-config store used for leaf agents.
+         * List the skill bundles equipped on a unit
+         * @description Returns the resolved bundles in declaration order. Each entry carries the package + skill coordinates, a prompt-body summary, and the bundle's required-tool list.
          */
         get: operations["GetUnitSkills"];
+        put?: never;
         /**
-         * Replace the equipped skills for a unit
-         * @description Full replacement — pass the complete desired skill list. Use [] to clear.
+         * Equip a skill bundle on a unit
+         * @description Idempotent on (packageName, skillName). The store re-resolves the bundle so the persisted record carries the freshest prompt + required-tools snapshot. Returns the new effective list in declaration order.
          */
-        put: operations["SetUnitSkills"];
-        post?: never;
+        post: operations["EquipUnitSkill"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/units/{id}/skills/{packageName}/{skillName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unequip a skill bundle from a unit
+         * @description No-op when the bundle is not currently equipped. Returns the new effective list.
+         */
+        delete: operations["UnequipUnitSkill"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2690,9 +2736,6 @@ export interface components {
             /** Format: int32 */
             queuedMessageCount: number;
         };
-        AgentSkillsResponse: {
-            skills: string[];
-        };
         AgentTemplateSummary: {
             package: string;
             name: string;
@@ -3031,6 +3074,24 @@ export interface components {
             description: string;
             provenance: string;
             inheritedFromUnitName: null | string;
+        };
+        EquippedSkillEntry: {
+            packageName: string;
+            skillName: string;
+            promptSummary: string;
+            requiredTools: components["schemas"]["EquippedSkillToolRequirement"][];
+        };
+        EquippedSkillsResponse: {
+            skills: components["schemas"]["EquippedSkillEntry"][];
+        };
+        EquippedSkillToolRequirement: {
+            name: string;
+            description: string;
+            optional: boolean;
+        };
+        EquipSkillRequest: {
+            packageName: string;
+            skillName: string;
         };
         ExecutionModePolicy: {
             forced?: components["schemas"]["AgentExecutionMode"];
@@ -3525,9 +3586,6 @@ export interface components {
             type: string;
             threadId: null | string;
             payload: components["schemas"]["JsonElement"];
-        };
-        SetAgentSkillsRequest: {
-            skills: string[];
         };
         SetBudgetRequest: {
             /** Format: double */
@@ -4514,7 +4572,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentSkillsResponse"];
+                    "application/json": components["schemas"]["EquippedSkillsResponse"];
                 };
             };
             /** @description Not Found */
@@ -4528,7 +4586,7 @@ export interface operations {
             };
         };
     };
-    SetAgentSkills: {
+    EquipAgentSkill: {
         parameters: {
             query?: never;
             header?: never;
@@ -4539,7 +4597,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SetAgentSkillsRequest"];
+                "application/json": components["schemas"]["EquipSkillRequest"];
             };
         };
         responses: {
@@ -4549,7 +4607,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentSkillsResponse"];
+                    "application/json": components["schemas"]["EquippedSkillsResponse"];
                 };
             };
             /** @description Bad Request */
@@ -4559,6 +4617,39 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    UnequipAgentSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                packageName: string;
+                skillName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquippedSkillsResponse"];
                 };
             };
             /** @description Not Found */
@@ -5149,7 +5240,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentSkillsResponse"];
+                    "application/json": components["schemas"]["EquippedSkillsResponse"];
                 };
             };
             /** @description Not Found */
@@ -5163,7 +5254,7 @@ export interface operations {
             };
         };
     };
-    SetUnitSkills: {
+    EquipUnitSkill: {
         parameters: {
             query?: never;
             header?: never;
@@ -5174,7 +5265,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SetAgentSkillsRequest"];
+                "application/json": components["schemas"]["EquipSkillRequest"];
             };
         };
         responses: {
@@ -5184,7 +5275,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentSkillsResponse"];
+                    "application/json": components["schemas"]["EquippedSkillsResponse"];
                 };
             };
             /** @description Bad Request */
@@ -5194,6 +5285,39 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    UnequipUnitSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                packageName: string;
+                skillName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquippedSkillsResponse"];
                 };
             };
             /** @description Not Found */

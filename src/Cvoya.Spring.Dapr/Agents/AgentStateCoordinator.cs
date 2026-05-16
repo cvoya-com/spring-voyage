@@ -96,53 +96,6 @@ public class AgentStateCoordinator(
     }
 
     /// <inheritdoc />
-    public async Task<string[]> GetSkillsAsync(
-        string agentId, CancellationToken cancellationToken = default)
-    {
-        if (!GuidFormatter.TryParse(agentId, out var agentGuid))
-        {
-            return [];
-        }
-
-        return await liveConfigStore.GetSkillsAsync(agentGuid, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public async Task SetSkillsAsync(
-        string agentId,
-        string[] skills,
-        Func<ActivityEvent, CancellationToken, Task> emitActivity,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(skills);
-        ArgumentNullException.ThrowIfNull(emitActivity);
-
-        if (!GuidFormatter.TryParse(agentId, out var agentGuid))
-        {
-            logger.LogWarning(
-                "Agent {AgentId} SetSkills received non-UUID actor id; cannot persist EF state.",
-                agentId);
-            return;
-        }
-
-        var persisted = await liveConfigStore.SetSkillsAsync(agentGuid, skills, cancellationToken);
-
-        await emitActivity(
-            BuildEvent(
-                agentId,
-                ActivityEventType.StateChanged,
-                ActivitySeverity.Debug,
-                $"Agent skills replaced: {persisted.Length} skill(s).",
-                details: JsonSerializer.SerializeToElement(new
-                {
-                    action = "AgentSkillsReplaced",
-                    count = persisted.Length,
-                    skills = persisted,
-                })),
-            cancellationToken);
-    }
-
-    /// <inheritdoc />
     public async Task<ExpertiseDomain[]> GetExpertiseAsync(
         string agentId, CancellationToken cancellationToken = default)
     {

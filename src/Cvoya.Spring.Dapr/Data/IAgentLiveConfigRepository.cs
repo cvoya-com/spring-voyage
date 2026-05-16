@@ -46,22 +46,6 @@ public interface IAgentLiveConfigRepository
         Guid agentId, AgentMetadata metadata, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the configured skill list for <paramref name="agentId"/>
-    /// in the current tenant, sorted by skill name. Empty when no row
-    /// exists or the agent has no granted skills.
-    /// </summary>
-    Task<string[]> GetSkillsAsync(Guid agentId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Replaces the configured skill list for <paramref name="agentId"/>
-    /// with <paramref name="skills"/> in full. Empty list is a legitimate
-    /// "disable everything" state. Skills are normalised: trimmed,
-    /// whitespace dropped, deduplicated case-insensitively, sorted.
-    /// </summary>
-    Task<string[]> SetSkillsAsync(
-        Guid agentId, IReadOnlyList<string> skills, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Returns the configured expertise list for
     /// <paramref name="agentId"/> in the current tenant, sorted by
     /// domain name. Empty when no row exists or the agent has no

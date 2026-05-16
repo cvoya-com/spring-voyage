@@ -19,9 +19,8 @@ using Microsoft.Extensions.Logging;
 /// <c>SpringDbContext</c>) resolves cleanly from the agent actor's
 /// singleton-style activation. Logs the wall-clock duration of every
 /// activation-path read (<see cref="GetMetadataAsync"/>,
-/// <see cref="GetSkillsAsync"/>, <see cref="GetExpertiseAsync"/>,
-/// <see cref="HasExpertiseSetAsync"/>) so the v0.2 cache decision is
-/// data-driven (ADR-0040 § 3).
+/// <see cref="GetExpertiseAsync"/>, <see cref="HasExpertiseSetAsync"/>)
+/// so the v0.2 cache decision is data-driven (ADR-0040 § 3).
 /// </summary>
 public class AgentLiveConfigStore(
     IServiceScopeFactory scopeFactory,
@@ -56,32 +55,6 @@ public class AgentLiveConfigStore(
                 agentId, string.Join(",", written));
         }
         return written;
-    }
-
-    /// <inheritdoc />
-    public async Task<string[]> GetSkillsAsync(Guid agentId, CancellationToken cancellationToken = default)
-    {
-        var sw = Stopwatch.StartNew();
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IAgentLiveConfigRepository>();
-        var result = await repo.GetSkillsAsync(agentId, cancellationToken);
-        sw.Stop();
-        logger.LogDebug(
-            "AgentLiveConfig.GetSkills agent={AgentId} count={Count} elapsedMs={ElapsedMs}",
-            agentId, result.Length, sw.Elapsed.TotalMilliseconds);
-        return result;
-    }
-
-    /// <inheritdoc />
-    public async Task<string[]> SetSkillsAsync(
-        Guid agentId, IReadOnlyList<string> skills, CancellationToken cancellationToken = default)
-    {
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IAgentLiveConfigRepository>();
-        var persisted = await repo.SetSkillsAsync(agentId, skills, cancellationToken);
-        logger.LogInformation(
-            "Agent {AgentId} skills replaced. Count: {Count}", agentId, persisted.Length);
-        return persisted;
     }
 
     /// <inheritdoc />

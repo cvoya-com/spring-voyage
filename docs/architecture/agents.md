@@ -152,9 +152,9 @@ The agent's AI needs context beyond its user-defined instructions. The actor ass
 | Layer                          | Source                                      | Content                                                                      | Mutability      |
 | ------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------- | --------------- |
 | **1. Platform**                | System-provided                             | Platform tool descriptions, safety constraints, behavioral guidance          | Immutable       |
-| **2. Unit context**            | Injected by actor at activation             | Unit policies, peer directory snapshot, active workflow state, skill prompts | Dynamic         |
+| **2. Unit context**            | Injected by actor at activation             | Unit policies, peer directory snapshot, active workflow state, unit-equipped [skill](../concepts/skills.md) bundles | Dynamic         |
 | **3. Thread context**          | Injected by actor per invocation            | Prior messages, checkpoints, partial results for the agent's current thread  | Per-invocation  |
-| **4. Agent instructions**      | User-defined (`instructions` in agent YAML) | Role-specific guidance, domain knowledge, personality                        | User-controlled |
+| **4. Agent instructions**      | User-defined (`instructions` in agent YAML) + agent-equipped [skill](../concepts/skills.md) bundles | Role-specific guidance, domain knowledge, personality, and the agent's own equipped skills | User-controlled |
 
 
 The composed prompt becomes the system prompt handed to the execution environment (typically written to `AGENTS.md` / `CLAUDE.md` in the container's working directory or passed via `SPRING_SYSTEM_PROMPT`).

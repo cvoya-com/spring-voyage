@@ -206,55 +206,6 @@ public class AgentMetadataTests
     }
 
     [Fact]
-    public async Task GetSkillsAsync_NothingPersisted_ReturnsEmpty()
-    {
-        var skills = await _actor.GetSkillsAsync(TestContext.Current.CancellationToken);
-        skills.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task SetSkillsAsync_PersistsNormalisedListAndEmitsEvent()
-    {
-        // Input has duplicates, whitespace, and unstable order — the
-        // persisted list must be deduped, trimmed, and ordinal-sorted.
-        var input = new[] { " github.write_file ", "github.read_file", "github.write_file", "" };
-
-        await _actor.SetSkillsAsync(input, TestContext.Current.CancellationToken);
-
-        var stored = await _liveConfigStore.GetSkillsAsync(AgentGuid, TestContext.Current.CancellationToken);
-        stored.Length.ShouldBe(2);
-        stored[0].ShouldBe("github.read_file");
-        stored[1].ShouldBe("github.write_file");
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("skills replaced")),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task SetSkillsAsync_EmptyList_PersistsExplicitClear()
-    {
-        // Empty list is not "leave alone" — it's a meaningful configured
-        // state (agent has no skills enabled). Must persist and emit.
-        await _actor.SetSkillsAsync(Array.Empty<string>(), TestContext.Current.CancellationToken);
-
-        var stored = await _liveConfigStore.GetSkillsAsync(AgentGuid, TestContext.Current.CancellationToken);
-        stored.ShouldBeEmpty();
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task SetSkillsAsync_Null_Throws()
-    {
-        await Should.ThrowAsync<ArgumentNullException>(
-            () => _actor.SetSkillsAsync(null!, TestContext.Current.CancellationToken));
-    }
-
-    [Fact]
     public async Task SetExpertiseAsync_PersistsListAndEmitsEvent()
     {
         var input = new[]

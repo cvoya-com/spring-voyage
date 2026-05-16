@@ -200,11 +200,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
     /// <summary>
     /// Gets the substitute <see cref="IAgentStateCoordinator"/> wired into
-    /// the test DI container. The unit-keyed skills endpoints
-    /// (#2276, GET/PUT <c>/api/v1/tenant/units/{id}/skills</c>) call this
-    /// coordinator directly rather than going through <c>IUnitActor</c>,
-    /// so handler-level tests arrange responses on this stub to control
-    /// what the endpoint sees.
+    /// the test DI container. Used by endpoint tests that exercise the
+    /// metadata + expertise paths; the legacy unit-keyed skills surface
+    /// that used to call this coordinator was retired in #2360.
     /// </summary>
     public IAgentStateCoordinator AgentStateCoordinator { get; } = CreateDefaultAgentStateCoordinator();
 
@@ -218,6 +216,23 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// passing.
     /// </summary>
     public IToolGrantResolver ToolGrantResolver { get; } = CreateDefaultToolGrantResolver();
+
+    /// <summary>
+    /// Gets the substitute <see cref="IUnitSkillBundleStore"/> wired into
+    /// the test DI container (#2360). The unit equipped-skills endpoints
+    /// (<c>GET/POST/DELETE /api/v1/tenant/units/{id}/skills</c>) call
+    /// this store directly; handler-level tests arrange responses on
+    /// this stub so they don't need a real state-store backing.
+    /// </summary>
+    public IUnitSkillBundleStore UnitSkillBundleStore { get; } = CreateDefaultUnitSkillBundleStore();
+
+    /// <summary>
+    /// Gets the substitute <see cref="IAgentSkillBundleStore"/> wired
+    /// into the test DI container (#2360). Same role as
+    /// <see cref="UnitSkillBundleStore"/> but for the agent-subject
+    /// surface.
+    /// </summary>
+    public IAgentSkillBundleStore AgentSkillBundleStore { get; } = CreateDefaultAgentSkillBundleStore();
 
     private static IAgentExecutionStore CreateDefaultAgentExecutionStore()
     {
@@ -239,18 +254,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
     private static IAgentStateCoordinator CreateDefaultAgentStateCoordinator()
     {
-        // Default: every agent / unit has an empty skill list and a default
-        // metadata record. Tests that need richer state override per-call.
-        var stub = Substitute.For<IAgentStateCoordinator>();
-        stub.GetSkillsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Array.Empty<string>()));
-        stub.SetSkillsAsync(
-                Arg.Any<string>(),
-                Arg.Any<string[]>(),
-                Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.CompletedTask);
-        return stub;
+        // Default: returns a substitute with no per-call arrangements.
+        // Tests that need richer state override per-call. The legacy
+        // skill (string[]) Get/Set methods were retired in #2360; the
+        // coordinator now covers metadata + expertise only.
+        return Substitute.For<IAgentStateCoordinator>();
     }
 
     private static IInitiativeEngine CreateDefaultInitiativeEngine()
@@ -269,6 +277,26 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         var stub = Substitute.For<IToolGrantResolver>();
         stub.ResolveAsync(Arg.Any<Cvoya.Spring.Core.Messaging.Address>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<EffectiveTool>>(Array.Empty<EffectiveTool>()));
+        return stub;
+    }
+
+    private static IUnitSkillBundleStore CreateDefaultUnitSkillBundleStore()
+    {
+        // Default: every unit has an empty equipped-skills list.
+        var stub = Substitute.For<IUnitSkillBundleStore>();
+        stub.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Cvoya.Spring.Core.Skills.SkillBundle>>(
+                Array.Empty<Cvoya.Spring.Core.Skills.SkillBundle>()));
+        return stub;
+    }
+
+    private static IAgentSkillBundleStore CreateDefaultAgentSkillBundleStore()
+    {
+        // Default: every agent has an empty equipped-skills list.
+        var stub = Substitute.For<IAgentSkillBundleStore>();
+        stub.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Cvoya.Spring.Core.Skills.SkillBundle>>(
+                Array.Empty<Cvoya.Spring.Core.Skills.SkillBundle>()));
         return stub;
     }
 
@@ -444,6 +472,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 // effective-tools projection without exercising the EF
                 // connector-binding + grants tables.
                 typeof(IToolGrantResolver),
+                // #2360: replace the equipped-skill stores so the
+                // operator-equip endpoint tests can arrange the bundle
+                // list without standing up the state-store backing.
+                typeof(IUnitSkillBundleStore),
+                typeof(IAgentSkillBundleStore),
             };
 
             var descriptors = services
@@ -480,6 +513,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(InitiativeEngine);
             services.AddSingleton(AgentStateCoordinator);
             services.AddSingleton(ToolGrantResolver);
+            services.AddSingleton(UnitSkillBundleStore);
+            services.AddSingleton(AgentSkillBundleStore);
             services.AddSingleton(new DirectoryCache());
 
             // #687: the skill-bundle resolver is now wrapped in a

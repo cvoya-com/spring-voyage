@@ -855,9 +855,14 @@ public class UnitCreationService : IUnitCreationService
             // (a key prefix), so the only effect of switching from name to
             // actorId is rename-safety and uniformity with the connector /
             // execution / orchestration stores.
-            if (resolvedBundles.Count > 0)
+            // The store's SetAsync takes SkillBundleReference values and
+            // re-resolves them internally so the persisted record always
+            // carries the freshest prompt + required-tools snapshot. The
+            // pre-resolution above (resolvedBundles) is for synchronous
+            // validation only — its lifetime ends with this request.
+            if (skillReferences.Count > 0)
             {
-                await _bundleStore.SetAsync(actorId, resolvedBundles, cancellationToken);
+                await _bundleStore.SetAsync(actorId, skillReferences, cancellationToken);
             }
 
             // #947 / T-05: backend-validated creation. Direct-create

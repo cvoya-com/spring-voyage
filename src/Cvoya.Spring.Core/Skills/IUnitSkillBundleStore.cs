@@ -7,22 +7,30 @@ using System.Collections.Generic;
 
 /// <summary>
 /// Persists the list of resolved <see cref="SkillBundle"/> instances attached
-/// to a unit by its manifest. Prompt-assembly consumers read from here at
-/// message-turn time to compose the unit prompt with the bundle prompts and
-/// to build the effective tool list the agent can invoke.
+/// to a unit by its manifest or operator-equip flow. Prompt-assembly
+/// consumers read from here at message-turn time to compose the unit prompt
+/// (Layer 2) with the bundle prompts and to build the effective tool list
+/// the unit can invoke.
 /// </summary>
 /// <remarks>
 /// <para>
-/// OSS default implementation is in <c>Cvoya.Spring.Dapr</c> and uses a
-/// simple in-memory dictionary backed by the Dapr state store via
+/// OSS default implementation is in <c>Cvoya.Spring.Dapr</c> and persists
+/// the bundle list as a single JSON document per unit under the shared
 /// <see cref="State.IStateStore"/>. The private cloud repo swaps in a
 /// tenant-scoped store; call sites depend on this interface so no
 /// downstream code has to change.
 /// </para>
 /// <para>
-/// The order of bundles is significant and preserved across round-trips:
+/// Every mutation re-resolves the supplied
+/// <see cref="SkillBundleReference"/> coordinates through
+/// <see cref="ISkillBundleResolver"/> before persisting, so the on-disk
+/// record always carries the latest prompt + required-tools snapshot. The
+/// order of bundles is significant and preserved across round-trips:
 /// declaration order in the manifest drives concatenation order in the
-/// final prompt, per <c>docs/architecture/packages.md</c>.
+/// final prompt, per <c>docs/architecture/packages.md</c>. Operator-equip
+/// mutations preserve insertion order so a freshly equipped bundle appears
+/// at the end of the list — matching the manifest "declaration order"
+/// rule for the operator-driven equip path.
 /// </para>
 /// </remarks>
 public interface IUnitSkillBundleStore
@@ -37,11 +45,36 @@ public interface IUnitSkillBundleStore
 
     /// <summary>
     /// Replaces the bundles attached to the unit. Passing an empty list is a
-    /// valid "clear all" operation.
+    /// valid "clear all" operation. Each reference is resolved through
+    /// <see cref="ISkillBundleResolver"/> so the persisted record carries
+    /// the full prompt + required-tools snapshot.
     /// </summary>
-    Task SetAsync(
+    Task<IReadOnlyList<SkillBundle>> SetAsync(
         string unitId,
-        IReadOnlyList<SkillBundle> bundles,
+        IReadOnlyList<SkillBundleReference> references,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Appends a bundle to the unit's equipped list. Idempotent on the
+    /// <c>(packageName, skillName)</c> pair — adding a bundle that is
+    /// already equipped re-resolves the entry in place (refreshing its
+    /// prompt + required-tools snapshot) without moving it within the
+    /// ordered list.
+    /// </summary>
+    Task<IReadOnlyList<SkillBundle>> AddAsync(
+        string unitId,
+        SkillBundleReference reference,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes the bundle identified by <paramref name="packageName"/> +
+    /// <paramref name="skillName"/> from the unit's equipped list. No-op
+    /// when the bundle is not currently equipped.
+    /// </summary>
+    Task<IReadOnlyList<SkillBundle>> RemoveAsync(
+        string unitId,
+        string packageName,
+        string skillName,
         CancellationToken cancellationToken = default);
 
     /// <summary>

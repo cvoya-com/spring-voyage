@@ -641,6 +641,19 @@ public class AgentActor(
             priorMessages,
             cancellationToken);
 
+        // Skill-bundle equipage (#2360). Both stores are scoped (they depend
+        // on the scoped tenant-filtering bundle resolver) so the actor opens
+        // a short-lived scope per turn to read them. The unit store is
+        // keyed by actor id — for a unit-as-agent (ADR-0039) this returns
+        // the unit's equipped bundles; for a leaf agent the result is
+        // empty and Layer 2 omits the section. The agent store is keyed
+        // by this actor's id and feeds Layer 4.
+        //
+        // Member-agent → unit Layer-2 inheritance (so a member agent sees
+        // its owning unit's bundles in Layer 2) is tracked separately —
+        // the leaf-agent path here only surfaces this agent's own bundles.
+        var (unitBundles, agentBundles) = await LoadEquippedBundlesAsync(cancellationToken);
+
         return new PromptAssemblyContext(
             Policies: null,
             Skills: skills,
@@ -648,8 +661,43 @@ public class AgentActor(
             LastCheckpoint: null,
             AgentInstructions: definition?.Instructions,
             EffectiveMetadata: effective,
+            SkillBundles: unitBundles,
+            AgentSkillBundles: agentBundles,
             PendingAmendments: amendments,
             PriorMessageSenderDisplayNames: senderDisplayNames);
+    }
+
+    /// <summary>
+    /// Resolves the unit-scoped and agent-scoped skill bundles for this
+    /// actor (#2360). Both stores are scoped DI services so the read goes
+    /// through a child scope from the root <see cref="IServiceScopeFactory"/>.
+    /// When the scope factory is unavailable (legacy test compositions
+    /// without DI), the call returns two empty lists so the prompt-
+    /// assembly path degrades to the no-bundle render.
+    /// </summary>
+    private async Task<(IReadOnlyList<SkillBundle>? Unit, IReadOnlyList<SkillBundle>? Agent)> LoadEquippedBundlesAsync(
+        CancellationToken cancellationToken)
+    {
+        if (scopeFactory is null)
+        {
+            return (null, null);
+        }
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var unitStore = scope.ServiceProvider.GetService<IUnitSkillBundleStore>();
+        var agentStore = scope.ServiceProvider.GetService<IAgentSkillBundleStore>();
+
+        var actorId = Id.GetId();
+        var unitBundles = unitStore is null
+            ? null
+            : await unitStore.GetAsync(actorId, cancellationToken).ConfigureAwait(false);
+        var agentBundles = agentStore is null
+            ? null
+            : await agentStore.GetAsync(actorId, cancellationToken).ConfigureAwait(false);
+
+        return (
+            unitBundles is { Count: > 0 } ? unitBundles : null,
+            agentBundles is { Count: > 0 } ? agentBundles : null);
     }
 
     /// <summary>
@@ -1266,22 +1314,6 @@ public class AgentActor(
             {
                 action = "AgentParentUnitCleared",
             }));
-    }
-
-    /// <inheritdoc />
-    public Task<string[]> GetSkillsAsync(CancellationToken cancellationToken = default)
-    {
-        return stateCoordinator.GetSkillsAsync(Id.GetId(), cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task SetSkillsAsync(string[] skills, CancellationToken cancellationToken = default)
-    {
-        return stateCoordinator.SetSkillsAsync(
-            Id.GetId(),
-            skills,
-            EmitActivityEventAsync,
-            cancellationToken);
     }
 
     /// <inheritdoc />

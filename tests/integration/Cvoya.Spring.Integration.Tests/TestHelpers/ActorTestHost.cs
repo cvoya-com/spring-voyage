@@ -139,9 +139,6 @@ public static class ActorTestHost
             .GetMetadataAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new Cvoya.Spring.Core.Agents.AgentMetadata());
         liveConfigStore
-            .GetSkillsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<string>());
-        liveConfigStore
             .GetExpertiseAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Cvoya.Spring.Core.Capabilities.ExpertiseDomain>());
 

@@ -76,33 +76,6 @@ public interface IAgentStateCoordinator
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reads the agent's configured skill list from EF, sorted by
-    /// skill name. Returns an empty array when no grants exist.
-    /// </summary>
-    /// <param name="agentId">The Dapr actor id of the agent.</param>
-    /// <param name="cancellationToken">Cancels the read operation.</param>
-    Task<string[]> GetSkillsAsync(string agentId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Replaces the agent's skill list in full. Empty list is a
-    /// legitimate "disable everything" state. Emits a
-    /// <see cref="ActivityEventType.StateChanged"/> event after the
-    /// write commits.
-    /// </summary>
-    /// <param name="agentId">The Dapr actor id of the agent.</param>
-    /// <param name="skills">The skill list to normalise and persist.</param>
-    /// <param name="emitActivity">
-    /// Delegate that publishes an <see cref="ActivityEvent"/> to the
-    /// activity bus.
-    /// </param>
-    /// <param name="cancellationToken">Cancels the write operation.</param>
-    Task SetSkillsAsync(
-        string agentId,
-        string[] skills,
-        Func<ActivityEvent, CancellationToken, Task> emitActivity,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Reads the agent's configured expertise domains from EF, sorted
     /// by domain name. Returns an empty array when no rows exist.
     /// </summary>

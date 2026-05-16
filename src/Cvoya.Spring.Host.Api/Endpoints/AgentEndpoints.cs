@@ -77,17 +77,32 @@ public static class AgentEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapGet("/{id}/skills", GetAgentSkillsAsync)
+        // #2360: equipped skill bundles on an agent. The pre-#2360
+        // `/skills` surface returned a flat string[] of tool names
+        // (legacy MCP-tool grant shape from the Tools wave); it was
+        // superseded by the proper Tools surface under Config → Tools.
+        // The new shape under this route is operator-equip of skill
+        // bundles, which feeds Layer 4 of the assembled prompt.
+        group.MapGet("/{id}/skills", GetEquippedSkillsAsync)
             .WithName("GetAgentSkills")
-            .WithSummary("Get the agent's configured skill list (tool names the agent is allowed to invoke)")
-            .Produces<AgentSkillsResponse>(StatusCodes.Status200OK)
+            .WithSummary("List the skill bundles equipped on an agent")
+            .WithDescription("Returns the resolved bundles in declaration order. Each entry carries the package + skill coordinates, a prompt-body summary, and the bundle's required-tool list.")
+            .Produces<EquippedSkillsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPut("/{id}/skills", SetAgentSkillsAsync)
-            .WithName("SetAgentSkills")
-            .WithSummary("Replace the agent's skill list in full; empty list means the agent is disabled from every tool")
-            .Produces<AgentSkillsResponse>(StatusCodes.Status200OK)
+        group.MapPost("/{id}/skills", EquipAgentSkillAsync)
+            .WithName("EquipAgentSkill")
+            .WithSummary("Equip a skill bundle on an agent")
+            .WithDescription("Idempotent on (packageName, skillName). The store re-resolves the bundle so the persisted record carries the freshest prompt + required-tools snapshot. Returns the new effective list in declaration order.")
+            .Produces<EquippedSkillsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapDelete("/{id}/skills/{packageName}/{skillName}", UnequipAgentSkillAsync)
+            .WithName("UnequipAgentSkill")
+            .WithSummary("Unequip a skill bundle from an agent")
+            .WithDescription("No-op when the bundle is not currently equipped. Returns the new effective list.")
+            .Produces<EquippedSkillsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{id}", DeleteAgentAsync)
@@ -1713,10 +1728,18 @@ public static class AgentEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> GetAgentSkillsAsync(
+    // -------------------------------------------------------------------------
+    // Equipped skill bundles (#2360). The agent store feeds Layer 4 of the
+    // assembled prompt — distinct from the unit store, which feeds Layer 2.
+    // Endpoints below are the agent-subject side; UnitEndpoints maps the
+    // unit-subject side against IUnitSkillBundleStore. The two stores share
+    // the same JSON-state-store backing pattern keyed by subject id.
+    // -------------------------------------------------------------------------
+
+    private static async Task<IResult> GetEquippedSkillsAsync(
         string id,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] IAgentSkillBundleStore bundleStore,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -1725,23 +1748,25 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-            new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(AgentActor));
-
-        var skills = await proxy.GetSkillsAsync(cancellationToken);
-        return Results.Ok(new AgentSkillsResponse(skills));
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        var bundles = await bundleStore.GetAsync(actorId, cancellationToken);
+        return Results.Ok(new EquippedSkillsResponse(EquippedSkillsProjection.From(bundles)));
     }
 
-    private static async Task<IResult> SetAgentSkillsAsync(
+    private static async Task<IResult> EquipAgentSkillAsync(
         string id,
-        SetAgentSkillsRequest request,
+        EquipSkillRequest request,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] IAgentSkillBundleStore bundleStore,
         CancellationToken cancellationToken)
     {
-        if (request.Skills is null)
+        if (request is null
+            || string.IsNullOrWhiteSpace(request.PackageName)
+            || string.IsNullOrWhiteSpace(request.SkillName))
         {
-            return Results.Problem(detail: "Skills list is required (use [] to clear).", statusCode: StatusCodes.Status400BadRequest);
+            return Results.Problem(
+                detail: "Both 'packageName' and 'skillName' are required.",
+                statusCode: StatusCodes.Status400BadRequest);
         }
 
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -1750,13 +1775,42 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-            new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(AgentActor));
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        try
+        {
+            var updated = await bundleStore.AddAsync(
+                actorId,
+                new Cvoya.Spring.Core.Skills.SkillBundleReference(request.PackageName, request.SkillName),
+                cancellationToken);
+            return Results.Ok(new EquippedSkillsResponse(EquippedSkillsProjection.From(updated)));
+        }
+        catch (Cvoya.Spring.Core.Skills.SkillBundlePackageNotFoundException ex)
+        {
+            return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (Cvoya.Spring.Core.Skills.SkillBundleNotFoundException ex)
+        {
+            return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
 
-        await proxy.SetSkillsAsync(request.Skills.ToArray(), cancellationToken);
+    private static async Task<IResult> UnequipAgentSkillAsync(
+        string id,
+        string packageName,
+        string skillName,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IAgentSkillBundleStore bundleStore,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
 
-        var updated = await proxy.GetSkillsAsync(cancellationToken);
-        return Results.Ok(new AgentSkillsResponse(updated));
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        var updated = await bundleStore.RemoveAsync(actorId, packageName, skillName, cancellationToken);
+        return Results.Ok(new EquippedSkillsResponse(EquippedSkillsProjection.From(updated)));
     }
 
     /// <summary>

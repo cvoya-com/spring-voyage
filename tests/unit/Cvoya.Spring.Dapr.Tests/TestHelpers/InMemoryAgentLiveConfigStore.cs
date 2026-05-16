@@ -19,7 +19,6 @@ using Cvoya.Spring.Dapr.Agents;
 public class InMemoryAgentLiveConfigStore : IAgentLiveConfigStore
 {
     private readonly ConcurrentDictionary<Guid, AgentMetadata> _metadata = new();
-    private readonly ConcurrentDictionary<Guid, string[]> _skills = new();
     private readonly ConcurrentDictionary<Guid, ExpertiseDomain[]> _expertise = new();
     private readonly ConcurrentDictionary<Guid, bool> _expertiseInitialised = new();
 
@@ -60,24 +59,6 @@ public class InMemoryAgentLiveConfigStore : IAgentLiveConfigStore
             _metadata[agentId] = existing;
         }
         return Task.FromResult<IReadOnlyList<string>>(written);
-    }
-
-    public Task<string[]> GetSkillsAsync(Guid agentId, CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(_skills.TryGetValue(agentId, out var v) ? v : []);
-    }
-
-    public Task<string[]> SetSkillsAsync(
-        Guid agentId, IReadOnlyList<string> skills, CancellationToken cancellationToken = default)
-    {
-        var normalised = skills
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Select(s => s.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(s => s, StringComparer.Ordinal)
-            .ToArray();
-        _skills[agentId] = normalised;
-        return Task.FromResult(normalised);
     }
 
     public Task<ExpertiseDomain[]> GetExpertiseAsync(Guid agentId, CancellationToken cancellationToken = default)
