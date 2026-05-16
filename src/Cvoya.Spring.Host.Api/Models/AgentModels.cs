@@ -72,19 +72,20 @@ public record CreateAgentRequest(
 /// (e.g. policy store unavailable — fail-open on the list path). Added by #573.
 /// </param>
 /// <param name="LifecycleStatus">
-/// Installation-lifecycle outcome for the agent (<c>"active"</c> when the
-/// activation step that registered the directory entry and persisted the
-/// definition JSON succeeded; <c>"error"</c> when either step failed and
-/// was recorded by the package activator). <c>null</c> when the GET could
-/// not read the actor's lifecycle row — treat that as no signal rather
-/// than implicitly <c>"active"</c>. Wire form is the lowercase enum name
-/// to match the existing <see cref="InitiativeLevel"/> pattern (avoids the
-/// nullable-enum <c>oneOf</c> ambiguity that JSON Schema 2020-12 reports
-/// as a contract violation). Added by #2156.
+/// The agent's current lifecycle state per the unified state machine
+/// (<see cref="Cvoya.Spring.Core.Lifecycle.LifecycleStatus"/>). <c>null</c>
+/// when the GET could not read the actor's lifecycle row — treat that as
+/// no signal rather than implicitly any specific state. Wire form is the
+/// PascalCase enum name as a string (e.g. <c>"Draft"</c>, <c>"Running"</c>) so
+/// the generated <c>LifecycleStatus</c> enum on the client (<see cref="UnitResponse.Status"/>
+/// already emits the same shape) round-trips cleanly. A string field is
+/// used rather than the strongly-typed enum to avoid polluting the
+/// shared <c>LifecycleStatus</c> schema with a <c>null</c> member when
+/// the property is nullable (#2388 / #2156).
 /// </param>
 /// <param name="LifecycleError">
-/// Diagnostic message persisted alongside an <c>error</c> lifecycle row.
-/// <c>null</c> when <see cref="LifecycleStatus"/> is <c>"active"</c> or
+/// Diagnostic message persisted alongside an <c>Error</c> lifecycle row.
+/// <c>null</c> when <see cref="LifecycleStatus"/> is not <c>Error</c> or
 /// when the lifecycle could not be read. Added by #2156.
 /// </param>
 /// <param name="ParentUnitId">
