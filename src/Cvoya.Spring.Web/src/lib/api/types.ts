@@ -163,25 +163,39 @@ export type EquipSkillRequest = Schemas["EquipSkillRequest"];
 /** Entry in `PackageDetail.skills` (`kind: Skill` bundles in a package). */
 export type SkillSummary = Schemas["SkillSummary"];
 
-/** Matches Cvoya.Spring.Core.Units.UnitStatus enum. */
-export type UnitStatus = Schemas["UnitStatus"];
+/**
+ * Shared lifecycle status for both units and agents (#2364). Replaces the
+ * historical `UnitStatus` schema. The portal continues to import this under
+ * the `UnitStatus` alias today; the proper rename happens in the agent-side
+ * portal UX work (#2372).
+ */
+export type LifecycleStatus = Schemas["LifecycleStatus"];
+
+/** @deprecated Use {@link LifecycleStatus}. Alias retained for the portal pending #2372. */
+export type UnitStatus = LifecycleStatus;
 
 /**
  * Structured error surfaced on `UnitResponse.lastValidationError` after the
- * backend UnitValidationWorkflow ends in `Error`. Carries the step that
+ * backend ArtefactValidationWorkflow ends in `Error`. Carries the step that
  * failed (`PullingImage` / `VerifyingTool` / `ValidatingCredential` /
- * `ResolvingModel`), a stable code from `UnitValidationCodes`, an
+ * `ResolvingModel`), a stable code from `ArtefactValidationCodes`, an
  * operator-facing message, and optional details. The T-07 Validation
  * panel branches on `code` to render friendly remediation copy.
  */
-export type UnitValidationError = Schemas["UnitValidationError"];
+export type ArtefactValidationError = Schemas["ArtefactValidationError"];
+
+/** @deprecated Use {@link ArtefactValidationError}. Alias retained pending #2372. */
+export type UnitValidationError = ArtefactValidationError;
 
 /**
- * One of four probe steps emitted by the backend UnitValidationWorkflow
+ * One of four probe steps emitted by the backend ArtefactValidationWorkflow
  * (T-04). Order mirrors the workflow: `PullingImage → VerifyingTool →
  * ValidatingCredential → ResolvingModel`.
  */
-export type UnitValidationStep = Schemas["UnitValidationStep"];
+export type ArtefactValidationStep = Schemas["ArtefactValidationStep"];
+
+/** @deprecated Use {@link ArtefactValidationStep}. Alias retained pending #2372. */
+export type UnitValidationStep = ArtefactValidationStep;
 
 /** GET /api/v1/units/{id} response envelope. */
 export type UnitResponse = Schemas["UnitResponse"];

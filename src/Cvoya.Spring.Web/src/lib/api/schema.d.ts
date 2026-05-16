@@ -225,6 +225,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/agents/{id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start an agent (transitions Stopped → Starting → Running) */
+        post: operations["StartAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/agents/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop a running agent (transitions Running → Stopping → Stopped) */
+        post: operations["StopAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/agents/{id}/revalidate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-run the validation workflow for an agent (Draft/Error/Stopped → Validating). Settles in Stopped on success. */
+        post: operations["RevalidateAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/agents/{id}/scale": {
         parameters: {
             query?: never;
@@ -478,7 +529,7 @@ export interface paths {
         put?: never;
         /**
          * Re-run backend validation for a unit in Error or Stopped state
-         * @description Transitions the unit into Validating and kicks off a new UnitValidationWorkflow run. The handler returns immediately — progress is observable via SSE ValidationProgress events and the terminal state is written back by the workflow.
+         * @description Transitions the unit into Validating and kicks off a new ArtefactValidationWorkflow run. The handler returns immediately — progress is observable via SSE ValidationProgress events and the terminal state is written back by the workflow.
          */
         post: operations["RevalidateUnit"];
         delete?: never;
@@ -2704,6 +2755,11 @@ export interface components {
             hosting?: null | string;
             concurrentThreads?: null | boolean;
         };
+        AgentLifecycleResponse: {
+            /** Format: uuid */
+            agentId: string;
+            status: components["schemas"]["LifecycleStatus"];
+        };
         AgentResponse: {
             /** Format: uuid */
             id: string;
@@ -2777,6 +2833,16 @@ export interface components {
             to: string;
             points: components["schemas"]["AnalyticsCostTimeseriesBucketResponse"][];
         };
+        ArtefactValidationError: {
+            step: components["schemas"]["ArtefactValidationStep"];
+            code: string;
+            message: string;
+            details: null | {
+                [key: string]: string;
+            };
+        };
+        /** @enum {unknown} */
+        ArtefactValidationStep: "PullingImage" | "VerifyingTool" | "ValidatingCredential" | "ResolvingModel" | "SchedulingWorkflow";
         /** @enum {unknown} */
         AttachmentMode: "detached" | "attached";
         BoundaryOpacityRuleDto: {
@@ -3280,6 +3346,8 @@ export interface components {
             details?: unknown;
         };
         JsonElement: unknown;
+        /** @enum {unknown} */
+        LifecycleStatus: "Draft" | "Stopped" | "Starting" | "Running" | "Stopping" | "Error" | "Validating";
         MemoriesResponse: {
             shortTerm: components["schemas"]["MemoryEntry"][];
             longTerm: components["schemas"]["MemoryEntry"][];
@@ -3784,7 +3852,7 @@ export interface components {
             displayName: string;
             /** Format: date-time */
             registeredAt: string;
-            status: components["schemas"]["UnitStatus"];
+            status: components["schemas"]["LifecycleStatus"];
         };
         UnitDeploymentResponse: {
             running: boolean;
@@ -3824,7 +3892,7 @@ export interface components {
         UnitLifecycleResponse: {
             /** Format: uuid */
             unitId: string;
-            status: components["schemas"]["UnitStatus"];
+            status: components["schemas"]["LifecycleStatus"];
         };
         UnitMembershipResponse: {
             unitId: string;
@@ -3868,11 +3936,11 @@ export interface components {
             description: string;
             /** Format: date-time */
             registeredAt: string;
-            status: components["schemas"]["UnitStatus"];
+            status: components["schemas"]["LifecycleStatus"];
             model: null | string;
             color: null | string;
             hosting?: null | string;
-            lastValidationError?: null | components["schemas"]["UnitValidationError"];
+            lastValidationError?: null | components["schemas"]["ArtefactValidationError"];
             lastValidationRunId?: null | string;
             instructions?: null | string;
             role?: null | string;
@@ -3886,8 +3954,6 @@ export interface components {
         UnitSecretsListResponse: {
             secrets: components["schemas"]["SecretMetadata"][];
         };
-        /** @enum {unknown} */
-        UnitStatus: "Draft" | "Stopped" | "Starting" | "Running" | "Stopping" | "Error" | "Validating";
         UnitTemplateDetail: {
             package: string;
             name: string;
@@ -3900,16 +3966,6 @@ export interface components {
             description: null | string;
             path: string;
         };
-        UnitValidationError: {
-            step: components["schemas"]["UnitValidationStep"];
-            code: string;
-            message: string;
-            details: null | {
-                [key: string]: string;
-            };
-        };
-        /** @enum {unknown} */
-        UnitValidationStep: "PullingImage" | "VerifyingTool" | "ValidatingCredential" | "ResolvingModel" | "SchedulingWorkflow";
         UnitWebSearchConfigRequest: {
             provider: string;
             apiKeySecretName?: null | string;
@@ -4729,6 +4785,126 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    StartAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLifecycleResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    StopAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLifecycleResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    RevalidateAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLifecycleResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
