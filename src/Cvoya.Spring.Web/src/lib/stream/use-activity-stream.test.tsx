@@ -106,8 +106,9 @@ describe("useActivityStream", () => {
       );
     });
 
-    // Expect at least the four keys the source resolves to
-    // (activity.all, dashboard.all, agents.detail, agents.cost).
+    // Expect at least the keys the source resolves to: activity.all,
+    // dashboard.all, agents.detail, agents.cost, and (#2387) tenant.tree
+    // so the explorer dots refresh on lifecycle transitions.
     const queryKeysCalled = invalidateSpy.mock.calls.map(
       (call) => call[0]?.queryKey,
     );
@@ -117,6 +118,7 @@ describe("useActivityStream", () => {
         queryKeys.dashboard.all,
         queryKeys.agents.detail("agent-1"),
         queryKeys.agents.cost("agent-1"),
+        queryKeys.tenant.tree(),
       ]),
     );
   });
@@ -140,6 +142,8 @@ describe("useActivityStream", () => {
       );
     });
 
+    // #2387: tenant.tree must be invalidated on unit SSE events so the
+    // explorer dots reflect lifecycle transitions without a reload.
     const queryKeysCalled = invalidateSpy.mock.calls.map(
       (call) => call[0]?.queryKey,
     );
@@ -149,6 +153,7 @@ describe("useActivityStream", () => {
         queryKeys.dashboard.all,
         queryKeys.units.detail("eng"),
         queryKeys.units.cost("eng"),
+        queryKeys.tenant.tree(),
       ]),
     );
   });

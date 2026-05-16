@@ -61,13 +61,10 @@ vi.mock("@/lib/api/queries", () => ({
   useModelProviders: () => ({ data: [], isPending: false, isError: false }),
 }));
 
-// #1787: the Status tile invalidates the tenant-tree once validation
-// exits. Stub the query client so we can assert the invalidation
-// without spinning up a real provider.
-const invalidateQueriesMock = vi.fn();
-vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ invalidateQueries: invalidateQueriesMock }),
-}));
+// #2387: tenant-tree invalidation moved out of OverviewTab into the
+// activity-stream SSE handler (`queryKeysAffectedBySource`). The
+// behaviour is covered there by `use-activity-stream.test.tsx`; the
+// Overview tab no longer touches the query client directly.
 
 // `<ValidationPanel>` is rendered for `Error` units; stub it out so
 // the Overview tests don't need to thread the panel's full mutation /
@@ -99,7 +96,6 @@ beforeEach(() => {
   useAgentCostMock.mockReset();
   useUnitIssuesMock.mockReset();
   useAgentIssuesMock.mockReset();
-  invalidateQueriesMock.mockReset();
   useUnitCostTimeseriesMock.mockReturnValue(emptyTimeseries);
   useUnitMock.mockReturnValue(noUnit);
   useUnitExecutionMock.mockReturnValue(noExecution);
@@ -318,9 +314,10 @@ describe("OverviewTab (Unit subject)", () => {
   });
 
   // #1787: while the unit is validating we poll every 3 s so the
-  // Status tile updates without a manual refresh; once validation
-  // exits we invalidate the tenant-tree so the sidebar / roll-ups
-  // follow.
+  // Status tile updates without a manual refresh. Tenant-tree
+  // invalidation on the Validating→terminal edge used to live here
+  // too; it moved into the SSE handler under #2387, so the tab itself
+  // is only responsible for the refetch cadence now.
   it("#1787: passes a refetchInterval that returns 3000 ms while validating", () => {
     useUnitMock.mockReturnValue({
       data: {
@@ -351,43 +348,6 @@ describe("OverviewTab (Unit subject)", () => {
     expect(
       refetchInterval({ state: { data: { status: "Stopped" } } }),
     ).toBe(false);
-  });
-
-  it("#1787: invalidates tenant-tree when status transitions out of Validating", () => {
-    useUnitMock.mockReturnValue({
-      data: {
-        id: "engineering",
-        name: "engineering",
-        displayName: "Engineering",
-        status: "Validating",
-        lastValidationError: null,
-      },
-      isLoading: false,
-    });
-    const node: UnitNode = {
-      kind: "Unit",
-      id: "engineering",
-      name: "Engineering",
-      status: "validating",
-    };
-    const { rerender } = render(<OverviewTab kind="Unit" node={node} />);
-    expect(invalidateQueriesMock).not.toHaveBeenCalled();
-
-    useUnitMock.mockReturnValue({
-      data: {
-        id: "engineering",
-        name: "engineering",
-        displayName: "Engineering",
-        status: "Stopped",
-        lastValidationError: null,
-      },
-      isLoading: false,
-    });
-    rerender(<OverviewTab kind="Unit" node={node} />);
-    expect(invalidateQueriesMock).toHaveBeenCalledTimes(1);
-    expect(invalidateQueriesMock).toHaveBeenCalledWith({
-      queryKey: ["tenant", "tree"],
-    });
   });
 
   it("does not render the validation panel for healthy units", () => {

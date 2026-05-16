@@ -1477,7 +1477,8 @@ export default function CreateUnitPage() {
 
     queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-    queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+    // #2387: tenant.tree() is invalidated by the activity SSE handler
+    // (`queryKeysAffectedBySource` for `unit://…`) — no manual call needed.
 
     const finishCatalogInstall = async () => {
       if (autoStart && latestInstallStatus) {
@@ -1649,7 +1650,8 @@ export default function CreateUnitPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+      // #2387: tenant.tree() is invalidated by the activity SSE handler
+      // (`queryKeysAffectedBySource` for `unit://…`) — no manual call needed.
       setCreatedUnitName(null);
       setStartRequested(false);
       setStartError(null);

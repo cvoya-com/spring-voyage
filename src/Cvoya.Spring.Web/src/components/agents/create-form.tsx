@@ -601,7 +601,8 @@ export function AgentCreateForm({
     queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-    queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+    // #2387: tenant.tree() is invalidated by the activity SSE handler
+    // (`queryKeysAffectedBySource` for `agent://…`) — no manual call needed.
   }, [queryClient]);
 
   const resolveSelectedUnits = useCallback(() => {
