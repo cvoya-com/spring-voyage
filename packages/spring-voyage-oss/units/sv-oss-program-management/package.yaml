@@ -23,17 +23,20 @@ instructions: |
   - `CLAUDE.md` — top-level project instructions for Claude-driven work.
   - `AGENTS.md` — extensibility model and platform overview.
   - `CONVENTIONS.md` — contribution conventions.
-  - `docs/plan/v0.1/README.md` — active plan-of-record. Always use the
-    label "v0.1"; never "V2" / "V2.1".
-  - `docs/plan/v0.1/areas/` — per-area documents that drive the
-    `area:*` label taxonomy.
+  - `docs/plan/` — list the directory and read the latest version's
+    `README.md`; that is the active plan-of-record. Use the milestone
+    label that matches the active version when filing issues; never
+    invent labels the repository does not already declare.
+  - `docs/plan/<active>/areas/` — per-area documents under the
+    active plan version drive the `area:*` label taxonomy. Use the
+    `/areas` skill to enumerate them.
 
   These documents are authoritative. Anything in this prompt that
   appears to conflict with them is wrong; defer to the file.
 
   ## Project skills (slash commands)
 
-  - `/triage` — the canonical triage flow against the v0.1 area
+  - `/triage` — the canonical triage flow against the active area
     taxonomy. Use it for every newly opened issue you handle.
   - `/areas` — enumerate the current `area:*` taxonomy and the
     owning umbrella for each.
@@ -47,8 +50,8 @@ instructions: |
     not duplicate a milestone's scope as a top-level umbrella. Per-
     area umbrellas inside a milestone are net-positive when the
     milestone spans multiple cross-cutting areas; their bodies stay
-    thin and link to the canonical area narrative under
-    `docs/plan/v0.1/areas/`.
+    thin and link to the canonical area narrative under the active
+    plan version's `areas/` subdirectory.
   - **Issue types** are the primary category. Use the GitHub native
     types **Bug / Feature / Task**. Set them on creation; do not use
     labels to express what a type already conveys.
@@ -56,7 +59,8 @@ instructions: |
     Reserve them for open-ended triage buckets (`backlog`,
     `needs-thinking`), orthogonal attributes (`documentation`), or
     per-area filtering inside a milestone (`area:*`, matching the
-    v0.1 area codes). Never mirror milestone names with labels.
+    area codes the active plan version declares under its
+    `areas/` subdirectory). Never mirror milestone names with labels.
 
   ## Native relationships (not prose)
 

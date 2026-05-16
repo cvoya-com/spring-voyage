@@ -12,14 +12,14 @@ This package ships as part of the platform and is **automatically visible in the
 
 - **Umbrella unit** (`units/spring-voyage-oss/`, display name *Spring Voyage OSS*) — routes incoming work between the two sub-units.
   - `sv-oss-software-engineering` (*Software Engineering*) — five engineer instances (`ada`, `hopper`, `knuth`, `ritchie`, `turing`) all stamped from the package's `software-engineer` AgentTemplate. Owns implementation, code review, and the build/test/lint loop; dispatches focused work to repository-defined persona subagents under `.claude/agents/`. Five instances let the orchestrator parallelise genuinely independent work without one instance blocking another.
-  - `sv-oss-program-management` (*Program Management*) — two PM instances (`drucker`, `deming`) stamped from the package's `program-manager` AgentTemplate. Owns issue triage, milestone hygiene, and native sub-issue / blocked-by relationships against `docs/plan/v0.1/README.md`. Two instances let triage run concurrently on disjoint issue sets.
+  - `sv-oss-program-management` (*Program Management*) — two PM instances (`drucker`, `deming`) stamped from the package's `program-manager` AgentTemplate. Owns issue triage, milestone hygiene, and native sub-issue / blocked-by relationships against whichever plan version is active under `docs/plan/`. Two instances let triage run concurrently on disjoint issue sets.
 - **AgentTemplates** (`templates/`):
   - `software-engineer` — the shared instructions / model / image / capabilities every engineer instance inherits.
   - `program-manager` — the shared instructions / model / image / capabilities every PM instance inherits.
 
 Per ADR-0043 §5g, each engineer / PM is declared inline on the sub-unit's `members:` list as `- agent: { name: <instance>, from: <template>, displayName: "<label>" }`. At install time the inline body is stamped into a fresh concrete agent: the named template is cloned per §5d (scalars on the instance win, the template fills the rest) and the inline `displayName:` flows through to the persisted agent. Each instance gets a fresh Guid identity and runs in its own container, so multiple instances can handle independent tasks concurrently.
 
-Each sub-unit binds the `github` connector. Both rely on the repository's checked-in instructions (`CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the `docs/architecture/` and `docs/decisions/` indexes, the v0.1 plan-of-record) and the canonical slash-command skills under `.agents/skills/` (`/build`, `/test`, `/lint`, `/triage`, `/areas`, `/adr-new`, `/openapi-diff`, `/web`). The package itself ships no agent prompts that duplicate those documents — when the project's rules change, the in-repo source of truth is the only thing to edit.
+Each sub-unit binds the `github` connector. Both rely on the repository's checked-in instructions (`CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the `docs/architecture/` and `docs/decisions/` indexes, and whichever plan version is active under `docs/plan/`) and the canonical slash-command skills under `.agents/skills/` (`/build`, `/test`, `/lint`, `/triage`, `/areas`, `/adr-new`, `/openapi-diff`, `/web`). The package itself ships no agent prompts that duplicate those documents — when the project's rules or active milestone change, the in-repo source of truth is the only thing to edit.
 
 ## Required inputs
 
@@ -101,5 +101,5 @@ All GitHub writes from agents in this organisation go through each sub-unit's bi
 
 - `docs/concepts/spring-voyage-oss.md` — what the dogfooding org is at conceptual level.
 - `docs/guide/operator/dogfooding-oss-unit.md` — operator-facing bring-up guide.
-- `docs/plan/v0.1/README.md` — the active plan-of-record.
+- `docs/plan/` — the active plan-of-record lives under the latest version directory in here.
 - `docs/decisions/0043-recursive-package-format.md` — the recursive folder layout this package uses.

@@ -31,9 +31,11 @@ triage rules do not change. The **caller** owns the side effects.
 
 ## Required reading
 
-- `docs/plan/v0.1/README.md` — active plan-of-record, area taxonomy.
-- `docs/plan/v0.1/areas/` — per-area documents declaring the
-  `area:*` label scheme.
+- The active plan-of-record under `docs/plan/`. Plans live in
+  version-named directories (`docs/plan/v0.1/`, `docs/plan/v0.2/`,
+  …); the active version is the most recent one. Read its
+  `README.md` for scope and its `areas/` subdirectory for the
+  per-area documents declaring the `area:*` label scheme.
 - `AGENTS.md` § "Issue tracking" — three-primitives discipline
   (milestones, types, labels) plus sub-issue / blocked-by rules.
 
@@ -41,9 +43,11 @@ triage rules do not change. The **caller** owns the side effects.
 
 Three primitives, three purposes:
 
-- **Milestones** group issues that ship together (`v0.1`, `v0.2`,
-  unmilestoned). Set the milestone when the issue is in-scope for a
-  release; leave unmilestoned for backlog / parking.
+- **Milestones** group issues that ship together. The repository
+  declares milestone names matching the active plan version; never
+  invent labels the repository does not already declare. Set the
+  milestone when the issue is in-scope for the active release; leave
+  unmilestoned for backlog / parking.
 - **Issue types** are the GitHub native categories **Bug / Feature /
   Task**. Set on creation; never use a label for what a type already
   conveys.
@@ -62,7 +66,7 @@ Return a structured advisory block the caller can act on or discard:
 ```
 Decision: close | route | park
 Type:     Bug | Feature | Task
-Milestone: v0.1 | v0.2 | (none)
+Milestone: <active-version> | (none)
 Labels:    area:<area-code>, [other labels...]
 Sub-issue of: #<parent>   (or "none")
 Blocked-by:   #<other>    (or "none")

@@ -26,24 +26,27 @@ instructions: |
   matching expertise.
 
   Start every task by reading the anchor documents declared by the
-  parent unit (`CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`,
-  `docs/plan/v0.1/README.md`, and the relevant per-area documents
-  under `docs/plan/v0.1/areas/`). They define the working norms; this
-  prompt does not duplicate them.
+  parent unit (`CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the
+  active plan-of-record under `docs/plan/` — list the directory and
+  read the latest version's `README.md` — and the relevant per-area
+  documents under that version's `areas/` subdirectory). They define
+  the working norms; this prompt does not duplicate them.
 
   ## Triage loop
 
   For each new issue:
 
-  1. Decide close / route to a v0.1 area / park. Use the `/triage`
-     skill (`.agents/skills/triage/SKILL.md`) for the canonical
-     decision flow.
+  1. Decide close / route / park. Use the `/triage` skill
+     (`.agents/skills/triage/SKILL.md`) for the canonical decision
+     flow.
   2. For the active area taxonomy, use the `/areas` skill
      (`.agents/skills/areas/SKILL.md`) to enumerate current
      `area:*` labels and their owning umbrellas.
-  3. If routing: assign the milestone (`v0.1` / `v0.2` /
-     unmilestoned), set the issue type (Bug / Feature / Task), and
-     add the per-area label (`area:*`) when relevant.
+  3. If routing: assign the milestone that matches the active plan
+     version (or leave unmilestoned for backlog / parking), set the
+     issue type (Bug / Feature / Task), and add the per-area label
+     (`area:*`) when relevant. Never assign a milestone label the
+     repository does not already declare.
   4. If part of a larger effort: wire the child as a sub-issue of
      the parent and add any blocked-by edges. Confirm the parent's
      sub-issue panel reflects the new child.

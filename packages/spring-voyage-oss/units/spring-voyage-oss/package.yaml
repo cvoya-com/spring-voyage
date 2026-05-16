@@ -17,13 +17,15 @@ instructions: |
     `tests/`, `docs/`, and `eng/`.
   - `sv-oss-program-management` — triages incoming issues, maintains
     milestone hygiene, and wires native sub-issue / blocked-by
-    relationships against the v0.1 plan-of-record.
+    relationships against the active plan-of-record.
 
   Route incoming work to the sub-unit whose ownership best matches the
   shape of the request. Hold the line on:
 
-  - **Plan-of-record.** `docs/plan/v0.1/README.md`. Always use the label
-    "v0.1"; never "V2" / "V2.1".
+  - **Plan-of-record.** The active plan lives under `docs/plan/` —
+    list the directory and read the latest version's `README.md`. Use
+    the milestone label that matches that version when assigning
+    issues; never invent labels that don't exist in the repository.
   - **Identity.** All GitHub writes flow through this organisation's
     binding to the Spring Voyage GitHub App. No other GitHub identity is
     referenced anywhere in this unit's prompts, decisions, or artefacts.

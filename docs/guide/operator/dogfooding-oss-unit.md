@@ -134,7 +134,7 @@ spring message send sv-oss-program-management \
   "New issue opened: 'Agent container restarts on every turn even with hosting: permanent set.' Triage this."
 ```
 
-Expected response: identifies the sub-system (agent runtime / hosting mode), proposes a milestone (`v0.1` or `v0.2`), suggests an issue type (`Bug`), proposes one or more `area:*` labels, and — if this looks like a dependency — suggests a sub-issue or `blocked-by` relationship with an existing issue.
+Expected response: identifies the sub-system (agent runtime / hosting mode), proposes a milestone matching whichever plan version is active under `docs/plan/`, suggests an issue type (`Bug`), proposes one or more `area:*` labels, and — if this looks like a dependency — suggests a sub-issue or `blocked-by` relationship with an existing issue.
 
 ### Software engineering
 
@@ -145,7 +145,7 @@ spring message send sv-oss-software-engineering \
   "The unit execution defaults merge doesn't honour the agent's own model field when the unit also sets one. Propose a fix."
 ```
 
-Expected response: cites scope discipline, references `docs/plan/v0.1/README.md` for area placement, proposes an `area:*` label and issue type, and — because this touches the execution-config merge path — dispatches via Claude Code's Task tool to the `dotnet-engineer` or `architect` persona defined under `.claude/agents/` and may suggest an ADR before code.
+Expected response: cites scope discipline, references the active plan-of-record under `docs/plan/` for area placement, proposes an `area:*` label and issue type, and — because this touches the execution-config merge path — dispatches via Claude Code's Task tool to the `dotnet-engineer` or `architect` persona defined under `.claude/agents/` and may suggest an ADR before code.
 
 ---
 

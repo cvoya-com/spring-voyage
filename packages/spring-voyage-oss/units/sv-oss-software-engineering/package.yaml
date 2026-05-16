@@ -2,7 +2,7 @@ apiVersion: spring.voyage/v1
 kind: Unit
 name: sv-oss-software-engineering
 displayName: Software Engineering
-description: Software engineering team for Spring Voyage OSS — plans, implements, reviews, and lands changes against the v0.1 plan-of-record.
+description: Software engineering team for Spring Voyage OSS — plans, implements, reviews, and lands changes against the active plan-of-record.
 ai:
   runtime: claude-code
   model:
@@ -27,7 +27,10 @@ instructions: |
   - `CONVENTIONS.md` — coding conventions, DI rules, build configuration.
   - `docs/architecture/README.md` — index of architecture documents.
   - `docs/decisions/README.md` — ADR index.
-  - `docs/plan/v0.1/README.md` — active plan-of-record. Always use "v0.1".
+  - `docs/plan/` — list the directory and read the latest version's
+    `README.md`; that is the active plan-of-record. Use the milestone
+    label that matches the active version when filing or routing
+    issues; never invent labels that the repository does not declare.
 
   These documents are authoritative. Anything in this prompt that
   appears to conflict with them is wrong; defer to the file.
@@ -41,7 +44,7 @@ instructions: |
   - `/test` — full solution test invocation; matches CI exactly
   - `/lint` — `dotnet format --verify-no-changes`, ESLint, knip, tsc
   - `/openapi-diff` — OpenAPI contract drift check
-  - `/triage` — issue triage against the v0.1 area taxonomy
+  - `/triage` — issue triage against the active area taxonomy
   - `/areas` — enumerate the current `area:*` taxonomy and owning umbrellas
   - `/adr-new` — scaffold a new ADR under `docs/decisions/`
   - `/web` — start the portal dev server

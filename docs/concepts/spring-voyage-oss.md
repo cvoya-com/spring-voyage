@@ -2,7 +2,7 @@
 
 The **Spring Voyage OSS** unit is a built-in, hierarchical unit that uses Spring Voyage to develop Spring Voyage itself. It ships as a package (`packages/spring-voyage-oss/`) that is automatically visible in the platform catalog. When installed via `spring package install spring-voyage-oss`, it creates a three-unit hierarchy in a single atomic operation: a top-level coordination unit plus two role-flavoured sub-units covering software engineering and program management.
 
-The unit is the concrete realisation of the v0.1 stretch criterion: "SV is usable for further development of SV" (`docs/plan/v0.1/README.md`, exit criteria). It turns that criterion into something observable — a running team that plans, triages, implements, reviews, and ships the platform on itself.
+The unit is the concrete realisation of the dogfooding stretch criterion: "SV is usable for further development of SV". That criterion was first stated as a v0.1 stretch goal in `docs/plan/v0.1/README.md` and carries forward across plan versions. The unit turns it into something observable — a running team that plans, triages, implements, reviews, and ships the platform on itself.
 
 ## Why this exists
 
@@ -29,7 +29,7 @@ Responsible for implementing features, fixing bugs, code review, and running the
 - `gh` CLI for GitHub App-mediated issue and PR work
 - Node 22 + npm (inherited from spring-voyage-agent-base), `ruff`, and full Playwright browser support (Chromium, Firefox, WebKit) including all required system dependencies
 
-**Anchor documents:** The sub-unit's `instructions:` field points at the project's checked-in rules — `CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the `docs/architecture/` and `docs/decisions/` indexes, and `docs/plan/v0.1/README.md`. The prompt does not duplicate those documents; it tells the agent to read them and defer to them when this prompt and a file disagree.
+**Anchor documents:** The sub-unit's `instructions:` field points at the project's checked-in rules — `CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the `docs/architecture/` and `docs/decisions/` indexes, and whichever plan version is active under `docs/plan/`. The prompt does not duplicate those documents; it tells the agent to read them and defer to them when this prompt and a file disagree, so the package stays useful as the active milestone changes.
 
 **Slash-command skills:** The sub-unit uses the canonical slash-command skills under `.agents/skills/` — `/build`, `/test`, `/lint`, `/openapi-diff`, `/triage`, `/adr-new`, `/web` — for CI-aligned invocations.
 
@@ -41,9 +41,9 @@ Responsible for issue triage, milestone hygiene, sub-issue and blocked-by relati
 
 **Image:** `ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management` — adds `gh` CLI and `markdownlint-cli2`.
 
-**Anchor documents:** `CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, `docs/plan/v0.1/README.md`, and the per-area documents under `docs/plan/v0.1/areas/`. The sub-unit's prompt encodes the three issue primitives (milestones, issue types, labels), the sub-issue/blocked-by relationship model, and the rule that prose "blocked by #N" in a body is not enough — the relationship must be registered natively so it surfaces in GitHub's dependency view.
+**Anchor documents:** `CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, and the active plan-of-record under `docs/plan/` (along with its `areas/` subdirectory). The sub-unit's prompt encodes the three issue primitives (milestones, issue types, labels), the sub-issue/blocked-by relationship model, and the rule that prose "blocked by #N" in a body is not enough — the relationship must be registered natively so it surfaces in GitHub's dependency view.
 
-**Slash-command skills:** `/triage` — the canonical triage flow against the v0.1 area taxonomy.
+**Slash-command skills:** `/triage` — the canonical triage flow against the active area taxonomy.
 
 ## How the unit runs
 
@@ -63,7 +63,7 @@ The Spring Voyage OSS unit exercises platform features as a working team, not as
 - `dotnet format SpringVoyage.slnx --verify-no-changes` for format enforcement
 - `npm run lint`, `npm --workspace=spring-voyage-dashboard run knip`, `npm --workspace=spring-voyage-dashboard run typecheck` for the web layer
 
-**Program Management** manages issues, milestones, and sub-issue/blocked-by relationships in `cvoya-com/spring-voyage` via `gh issue` commands, exercising the same GitHub connector skills available to any unit. Sprint planning outputs live in the same `docs/plan/` structure the project already uses; the plan-of-record is `docs/plan/v0.1/README.md`.
+**Program Management** manages issues, milestones, and sub-issue/blocked-by relationships in `cvoya-com/spring-voyage` via `gh issue` commands, exercising the same GitHub connector skills available to any unit. Sprint planning outputs live in the same `docs/plan/` structure the project already uses; the plan-of-record is whichever version directory under `docs/plan/` is currently active.
 
 Bugs the team encounters are bugs in Spring Voyage. Friction it hits — in the CLI, the connector, the portal wizard — is improvement feedback for the platform. The team works in the open: every issue it files, every PR it raises, and every review it posts flows through the Spring Voyage GitHub App, making the identity and access model a live part of the feedback loop.
 
