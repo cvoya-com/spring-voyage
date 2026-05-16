@@ -68,17 +68,16 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvDirectorySkillRegistry>(
             sp => sp.GetRequiredService<SvDirectorySkillRegistry>()));
 
-        // Spring Voyage memory tools (#2342). EF-backed memory + topic
-        // stores power the sv.memory_* / sv.topic_* tool surface that
-        // lets agents and units write, recall, and organise their own
-        // memory at runtime. The stores are owner- and tenant-scoped
-        // singletons that create a fresh DI scope per call (matches
+        // Spring Voyage memory tools (#2342). EF-backed memory store
+        // powers the sv.memory_* tool surface that lets agents and
+        // units write, recall, and organise their own memory at
+        // runtime. The store is owner- and tenant-scoped singleton
+        // that creates a fresh DI scope per call (matches
         // UnitConnectorBindingStore's pattern). The skill registry is
-        // also a singleton and depends only on the two stores — no
+        // also a singleton and depends only on the store — no
         // IEnumerable<ISkillRegistry> closure, so the DI cycle warning
         // documented on the connector binding store does not apply.
         services.TryAddSingleton<IMemoryStore, EfMemoryStore>();
-        services.TryAddSingleton<IMemoryTopicStore, EfMemoryTopicStore>();
         services.TryAddSingleton<SvMemorySkillRegistry>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvMemorySkillRegistry>(
             sp => sp.GetRequiredService<SvMemorySkillRegistry>()));

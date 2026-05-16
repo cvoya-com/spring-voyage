@@ -10,6 +10,14 @@ using Cvoya.Spring.Core.Messaging;
 /// unit) per ADR-0036; the storage layer derives the (tenant,
 /// owner_scheme, owner_id) triple from <see cref="Owner"/>.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Topics were intentionally dropped from this record (#2342 follow-up).
+/// They will return later as a *type* of memory once the memory model
+/// evolves to a graph — collapsing the topic / entry split into a single
+/// node-and-edge shape rather than two parallel tables.
+/// </para>
+/// </remarks>
 /// <param name="Id">Stable Guid identifier for the entry.</param>
 /// <param name="Owner">
 /// Address of the owning agent or unit. Long-term entries are scoped on
@@ -33,12 +41,8 @@ using Cvoya.Spring.Core.Messaging;
 /// </param>
 /// <param name="CreatedAt">UTC timestamp the entry was first captured.</param>
 /// <param name="UpdatedAt">
-/// UTC timestamp of the last content / topic mutation; equal to
+/// UTC timestamp of the last content mutation; equal to
 /// <see cref="CreatedAt"/> for entries that have never been updated.
-/// </param>
-/// <param name="TopicIds">
-/// Topics this entry is associated with. The list may be empty; entries
-/// without topics surface in <c>SearchAsync</c> via free-text only.
 /// </param>
 public record MemoryEntry(
     Guid Id,
@@ -48,5 +52,4 @@ public record MemoryEntry(
     string? Source,
     Guid? ThreadId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt,
-    IReadOnlyList<Guid> TopicIds);
+    DateTimeOffset UpdatedAt);

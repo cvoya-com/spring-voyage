@@ -15,7 +15,7 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// The endpoint is backed by the <c>IMemoryStore</c> (#2342) and
 /// returns entries owned by the addressed agent or unit. The route
 /// also accepts <c>kind</c> (<c>long_term</c> / <c>short_term</c>),
-/// <c>topicId</c>, <c>limit</c>, and <c>offset</c> query-string
+/// <c>limit</c>, <c>offset</c>, and <c>query</c> query-string
 /// parameters; when <c>kind</c> is supplied the other side of the
 /// response surfaces as an empty array so the wire shape stays stable
 /// regardless of the filter.
@@ -44,10 +44,6 @@ public record MemoriesResponse(
 /// Memory kind. Values: <c>"long_term"</c> or <c>"short_term"</c>.
 /// </param>
 /// <param name="UpdatedAt">UTC timestamp of the last mutation.</param>
-/// <param name="TopicIds">
-/// Stable identifiers of topics this entry is linked to. Empty list
-/// when the entry has no topic associations.
-/// </param>
 /// <param name="ThreadId">
 /// Thread the entry was captured in. Populated for short-term entries;
 /// null for long-term entries.
@@ -59,29 +55,4 @@ public record MemoryEntry(
     string? Source,
     string Kind,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<string> TopicIds,
     string? ThreadId = null);
-
-/// <summary>
-/// Response body for <c>GET /api/v1/tenant/units/{id}/topics</c> and
-/// <c>GET /api/v1/tenant/agents/{id}/topics</c>. Returns the topics
-/// owned by the addressed agent or unit.
-/// </summary>
-/// <param name="Topics">Owner-owned topics ordered by name.</param>
-public record TopicsResponse(IReadOnlyList<MemoryTopic> Topics);
-
-/// <summary>
-/// Wire form for one memory topic. Mirrors
-/// <c>Cvoya.Spring.Core.Memory.MemoryTopic</c>.
-/// </summary>
-/// <param name="Id">Stable identifier for the topic.</param>
-/// <param name="Name">Owner-unique topic name.</param>
-/// <param name="Description">Optional free-text description.</param>
-/// <param name="CreatedAt">UTC timestamp the topic was created.</param>
-/// <param name="UpdatedAt">UTC timestamp of the last mutation.</param>
-public record MemoryTopic(
-    string Id,
-    string Name,
-    string? Description,
-    DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);

@@ -62,6 +62,6 @@ public class MemoryEntity : ITenantScopedEntity
     /// <summary>UTC timestamp when the entry was first captured.</summary>
     public DateTimeOffset CreatedAt { get; set; }
 
-    /// <summary>UTC timestamp of the last content / topic-links mutation.</summary>
+    /// <summary>UTC timestamp of the last content mutation.</summary>
     public DateTimeOffset UpdatedAt { get; set; }
 }

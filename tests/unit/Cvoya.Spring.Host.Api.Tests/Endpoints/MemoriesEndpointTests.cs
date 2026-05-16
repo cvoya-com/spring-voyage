@@ -24,10 +24,9 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Endpoint coverage for the memory + topic read API (#2342). The
-/// existing test suite shipped against an empty-arrays stub; this
-/// rewrite exercises the real <c>IMemoryStore</c> + <c>IMemoryTopicStore</c>
-/// path with rows seeded directly into the in-memory EF context.
+/// Endpoint coverage for the memory read API (#2342). Exercises the
+/// real <c>IMemoryStore</c> path with rows seeded directly into the
+/// in-memory EF context.
 /// </summary>
 public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
 {
@@ -153,46 +152,64 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GetUnitTopics_KnownUnitNoData_ReturnsEmptyTopics()
+    public async Task GetAgentMemories_QueryParameter_RestrictsBySearch()
     {
         var ct = TestContext.Current.CancellationToken;
-        ArrangeDirectoryHit("unit", "engineering", ActorEng_Id);
+        var agentId = Guid.NewGuid();
+        ArrangeDirectoryHit("agent", "rosa-query", agentId);
 
-        var response = await _client.GetAsync($"/api/v1/tenant/units/{ActorEng_Id:N}/topics", ct);
+        SeedMemoryRow(agentId, kind: 0, content: "the quick brown fox", threadId: null);
+        SeedMemoryRow(agentId, kind: 0, content: "completely unrelated material", threadId: null);
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/agents/{agentId:N}/memories?query=brown", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var body = await response.Content.ReadFromJsonAsync<TopicsResponse>(JsonOptions, ct);
+        var body = await response.Content.ReadFromJsonAsync<MemoriesResponse>(JsonOptions, ct);
         body.ShouldNotBeNull();
-        body!.Topics.ShouldBeEmpty();
+        body!.LongTerm.Count.ShouldBe(1);
+        body.LongTerm[0].Content.ShouldContain("brown");
     }
 
     [Fact]
-    public async Task GetUnitTopics_RowsSeeded_ReturnsOwnedTopics()
+    public async Task GetAgentMemoryById_RowSeeded_ReturnsEntry()
     {
         var ct = TestContext.Current.CancellationToken;
-        var unitId = Guid.NewGuid();
-        ArrangeDirectoryHit("unit", "ops", unitId);
+        var agentId = Guid.NewGuid();
+        ArrangeDirectoryHit("agent", "rosa-by-id", agentId);
 
-        var topicId = SeedTopicRow(unitId, "unit", "design-decisions", "where we record the why");
+        var memoryId = SeedMemoryRow(agentId, kind: 0, content: "specific entry", threadId: null);
 
-        var response = await _client.GetAsync($"/api/v1/tenant/units/{unitId:N}/topics", ct);
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/agents/{agentId:N}/memories/{memoryId:N}", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var body = await response.Content.ReadFromJsonAsync<TopicsResponse>(JsonOptions, ct);
+        var body = await response.Content.ReadFromJsonAsync<MemoryEntry>(JsonOptions, ct);
         body.ShouldNotBeNull();
-        body!.Topics.Count.ShouldBe(1);
-        body.Topics[0].Id.ShouldBe(GuidFormatter.Format(topicId));
-        body.Topics[0].Name.ShouldBe("design-decisions");
-        body.Topics[0].Description.ShouldBe("where we record the why");
+        body!.Id.ShouldBe(GuidFormatter.Format(memoryId));
+        body.Content.ShouldBe("specific entry");
     }
 
     [Fact]
-    public async Task GetAgentTopics_UnknownAgent_Returns404()
+    public async Task GetAgentMemoryById_UnknownId_Returns404()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeDirectoryHit("agent", "rosa-missing", agentId);
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/agents/{agentId:N}/memories/{Guid.NewGuid():N}", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetUnitMemoryById_UnknownUnit_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
         ArrangeDirectoryMiss();
 
-        var response = await _client.GetAsync($"/api/v1/tenant/agents/{Guid.NewGuid():N}/topics", ct);
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/units/{Guid.NewGuid():N}/memories/{Guid.NewGuid():N}", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -209,25 +226,6 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
             Kind = kind,
             ThreadId = threadId,
             Content = content,
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        });
-        db.SaveChanges();
-        return id;
-    }
-
-    private Guid SeedTopicRow(Guid ownerId, string scheme, string name, string description)
-    {
-        using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-        var id = Guid.NewGuid();
-        db.MemoryTopics.Add(new MemoryTopicEntity
-        {
-            Id = id,
-            OwnerScheme = scheme,
-            OwnerId = ownerId,
-            Name = name,
-            Description = description,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
         });

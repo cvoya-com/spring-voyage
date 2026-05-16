@@ -5,7 +5,11 @@ import type { UnitNode, AgentNode } from "../aggregate";
 
 const useMemoriesMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
-  useMemories: (scope: string, id: string) => useMemoriesMock(scope, id),
+  useMemories: (
+    scope: string,
+    id: string,
+    options?: Record<string, unknown>,
+  ) => useMemoriesMock(scope, id, options),
 }));
 
 import UnitMemoryTab from "./unit-memory";
@@ -16,7 +20,7 @@ describe("UnitMemoryTab (wrapper)", () => {
   });
 
   it("delegates to the unified MemoryTab with scope=unit", () => {
-    useMemoriesMock.mockReturnValueOnce({
+    useMemoriesMock.mockReturnValue({
       data: { shortTerm: [], longTerm: [] },
       isLoading: false,
       error: null,
@@ -28,10 +32,12 @@ describe("UnitMemoryTab (wrapper)", () => {
       status: "running",
     };
     render(<UnitMemoryTab node={node} path={[node]} />);
-    expect(useMemoriesMock).toHaveBeenCalledWith("unit", "engineering");
-    expect(screen.getByTestId("tab-unit-memory-empty")).toHaveTextContent(
-      "v2.1",
+    expect(useMemoriesMock).toHaveBeenCalledWith(
+      "unit",
+      "engineering",
+      expect.objectContaining({}),
     );
+    expect(screen.getByTestId("tab-unit-memory-empty")).toBeInTheDocument();
   });
 
   it("renders nothing for a non-Unit node (registry-guard)", () => {

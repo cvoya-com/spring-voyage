@@ -39,11 +39,6 @@ public interface IMemoryStore
     /// Required for <see cref="MemoryKind.ShortTerm"/>; ignored (and
     /// persisted as <c>null</c>) for <see cref="MemoryKind.LongTerm"/>.
     /// </param>
-    /// <param name="topicIds">
-    /// Topics the new entry should be associated with. May be empty;
-    /// topics that do not exist or are owned by a different addressable
-    /// are silently dropped.
-    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The persisted entry, with server-assigned id + timestamps.</returns>
     Task<MemoryEntry> AddAsync(
@@ -52,7 +47,6 @@ public interface IMemoryStore
         string content,
         string? source,
         Guid? threadId,
-        IReadOnlyList<Guid> topicIds,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -67,14 +61,12 @@ public interface IMemoryStore
 
     /// <summary>
     /// Lists entries owned by <paramref name="owner"/>, optionally
-    /// filtered by <paramref name="kind"/> and/or
-    /// <paramref name="topicId"/>. Ordered by <c>CreatedAt</c> desc so
-    /// the most recent entries surface first.
+    /// filtered by <paramref name="kind"/>. Ordered by <c>CreatedAt</c>
+    /// desc so the most recent entries surface first.
     /// </summary>
     Task<IReadOnlyList<MemoryEntry>> ListAsync(
         Address owner,
         MemoryKind? kind,
-        Guid? topicId,
         int limit,
         int offset,
         CancellationToken cancellationToken = default);
@@ -89,28 +81,25 @@ public interface IMemoryStore
     /// <param name="owner">Owning agent or unit.</param>
     /// <param name="query">Free-text search query.</param>
     /// <param name="kind">Optional kind filter.</param>
-    /// <param name="topicId">Optional topic filter.</param>
     /// <param name="limit">Maximum hits to return.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<IReadOnlyList<MemoryEntry>> SearchAsync(
         Address owner,
         string query,
         MemoryKind? kind,
-        Guid? topicId,
         int limit,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Mutates the content and/or topic links of an existing entry. Pass
-    /// <c>null</c> for a field to leave it untouched (partial-update
-    /// semantics). Returns the updated entry, or <c>null</c> when the
-    /// entry does not exist or is owned by a different addressable.
+    /// Mutates the content of an existing entry. Pass <c>null</c> for
+    /// the content to leave it untouched (partial-update semantics).
+    /// Returns the updated entry, or <c>null</c> when the entry does
+    /// not exist or is owned by a different addressable.
     /// </summary>
     Task<MemoryEntry?> UpdateAsync(
         Address owner,
         Guid id,
         string? content,
-        IReadOnlyList<Guid>? topicIds,
         CancellationToken cancellationToken = default);
 
     /// <summary>

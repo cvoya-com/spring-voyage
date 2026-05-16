@@ -56,7 +56,6 @@ public sealed class EfMemoryStore : IMemoryStore
         string content,
         string? source,
         Guid? threadId,
-        IReadOnlyList<Guid> topicIds,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(owner);
@@ -84,29 +83,13 @@ public sealed class EfMemoryStore : IMemoryStore
         };
 
         db.Memories.Add(entry);
-
-        // Drop topic ids that aren't owned by the same addressable. The
-        // store accepts mis-typed ids gracefully — a tool caller that
-        // passes a topic id from a different owner should not see the
-        // add fail; the link is dropped instead so partial wiring
-        // self-heals.
-        var ownedTopicIds = await ResolveOwnedTopicIdsAsync(db, owner, topicIds, cancellationToken);
-        foreach (var topicId in ownedTopicIds)
-        {
-            db.MemoryTopicLinks.Add(new MemoryTopicLinkEntity
-            {
-                MemoryId = entry.Id,
-                TopicId = topicId,
-            });
-        }
-
         await db.SaveChangesAsync(cancellationToken);
 
         _logger.LogDebug(
-            "Memory.Add owner={Owner} kind={Kind} topics={TopicCount} id={Id}",
-            owner, kind, ownedTopicIds.Count, entry.Id);
+            "Memory.Add owner={Owner} kind={Kind} id={Id}",
+            owner, kind, entry.Id);
 
-        return ToEntry(entry, ownedTopicIds);
+        return ToEntry(entry);
     }
 
     /// <inheritdoc />
@@ -126,20 +109,13 @@ public sealed class EfMemoryStore : IMemoryStore
                 && m.OwnerScheme == owner.Scheme
                 && m.OwnerId == owner.Id)
             .FirstOrDefaultAsync(cancellationToken);
-        if (row is null)
-        {
-            return null;
-        }
-
-        var topicIds = await ReadTopicIdsAsync(db, row.Id, cancellationToken);
-        return ToEntry(row, topicIds);
+        return row is null ? null : ToEntry(row);
     }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<MemoryEntry>> ListAsync(
         Address owner,
         MemoryKind? kind,
-        Guid? topicId,
         int limit,
         int offset,
         CancellationToken cancellationToken = default)
@@ -159,23 +135,13 @@ public sealed class EfMemoryStore : IMemoryStore
             query = query.Where(m => m.Kind == kindInt);
         }
 
-        if (topicId is { } t)
-        {
-            // Join through the link table to filter by topic. The
-            // tenant filter on MemoryTopicLinks fires automatically;
-            // we still constrain on tenant + topic via the where below
-            // to keep the plan simple.
-            query = query.Where(m =>
-                db.MemoryTopicLinks.Any(l => l.MemoryId == m.Id && l.TopicId == t));
-        }
-
         var rows = await query
             .OrderByDescending(m => m.CreatedAt)
             .Skip(Math.Max(0, offset))
             .Take(Math.Max(1, limit))
             .ToListAsync(cancellationToken);
 
-        return await HydrateEntriesAsync(db, rows, cancellationToken);
+        return rows.Select(ToEntry).ToList();
     }
 
     /// <inheritdoc />
@@ -183,7 +149,6 @@ public sealed class EfMemoryStore : IMemoryStore
         Address owner,
         string query,
         MemoryKind? kind,
-        Guid? topicId,
         int limit,
         CancellationToken cancellationToken = default)
     {
@@ -204,12 +169,6 @@ public sealed class EfMemoryStore : IMemoryStore
         {
             var kindInt = (int)k;
             baseQuery = baseQuery.Where(m => m.Kind == kindInt);
-        }
-
-        if (topicId is { } t)
-        {
-            baseQuery = baseQuery.Where(m =>
-                db.MemoryTopicLinks.Any(l => l.MemoryId == m.Id && l.TopicId == t));
         }
 
         List<MemoryEntity> rows;
@@ -244,7 +203,7 @@ public sealed class EfMemoryStore : IMemoryStore
                 .ToListAsync(cancellationToken);
         }
 
-        return await HydrateEntriesAsync(db, rows, cancellationToken);
+        return rows.Select(ToEntry).ToList();
     }
 
     /// <inheritdoc />
@@ -252,7 +211,6 @@ public sealed class EfMemoryStore : IMemoryStore
         Address owner,
         Guid id,
         string? content,
-        IReadOnlyList<Guid>? topicIds,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(owner);
@@ -277,27 +235,6 @@ public sealed class EfMemoryStore : IMemoryStore
             mutated = true;
         }
 
-        if (topicIds is not null)
-        {
-            // Replace the link set wholesale. SaveChanges below stamps
-            // UpdatedAt via the audit pipeline.
-            var existingLinks = await db.MemoryTopicLinks
-                .Where(l => l.MemoryId == row.Id)
-                .ToListAsync(cancellationToken);
-            db.MemoryTopicLinks.RemoveRange(existingLinks);
-
-            var ownedTopicIds = await ResolveOwnedTopicIdsAsync(db, owner, topicIds, cancellationToken);
-            foreach (var topicId in ownedTopicIds)
-            {
-                db.MemoryTopicLinks.Add(new MemoryTopicLinkEntity
-                {
-                    MemoryId = row.Id,
-                    TopicId = topicId,
-                });
-            }
-            mutated = true;
-        }
-
         if (mutated)
         {
             row.UpdatedAt = _timeProvider.GetUtcNow();
@@ -307,13 +244,7 @@ public sealed class EfMemoryStore : IMemoryStore
         var refreshed = await db.Memories
             .AsNoTracking()
             .FirstOrDefaultAsync(m => m.Id == row.Id, cancellationToken);
-        if (refreshed is null)
-        {
-            return null;
-        }
-
-        var finalTopicIds = await ReadTopicIdsAsync(db, refreshed.Id, cancellationToken);
-        return ToEntry(refreshed, finalTopicIds);
+        return refreshed is null ? null : ToEntry(refreshed);
     }
 
     /// <inheritdoc />
@@ -337,84 +268,12 @@ public sealed class EfMemoryStore : IMemoryStore
             return false;
         }
 
-        var links = await db.MemoryTopicLinks
-            .Where(l => l.MemoryId == row.Id)
-            .ToListAsync(cancellationToken);
-        if (links.Count > 0)
-        {
-            db.MemoryTopicLinks.RemoveRange(links);
-        }
         db.Memories.Remove(row);
         await db.SaveChangesAsync(cancellationToken);
         return true;
     }
 
-    private static async Task<IReadOnlyList<Guid>> ResolveOwnedTopicIdsAsync(
-        SpringDbContext db,
-        Address owner,
-        IReadOnlyList<Guid> topicIds,
-        CancellationToken cancellationToken)
-    {
-        if (topicIds is null || topicIds.Count == 0)
-        {
-            return Array.Empty<Guid>();
-        }
-
-        var distinct = topicIds.Distinct().ToList();
-        var owned = await db.MemoryTopics
-            .AsNoTracking()
-            .Where(t => t.OwnerScheme == owner.Scheme
-                && t.OwnerId == owner.Id
-                && distinct.Contains(t.Id))
-            .Select(t => t.Id)
-            .ToListAsync(cancellationToken);
-        return owned;
-    }
-
-    private static async Task<IReadOnlyList<Guid>> ReadTopicIdsAsync(
-        SpringDbContext db,
-        Guid memoryId,
-        CancellationToken cancellationToken)
-    {
-        return await db.MemoryTopicLinks
-            .AsNoTracking()
-            .Where(l => l.MemoryId == memoryId)
-            .Select(l => l.TopicId)
-            .OrderBy(t => t)
-            .ToListAsync(cancellationToken);
-    }
-
-    private static async Task<IReadOnlyList<MemoryEntry>> HydrateEntriesAsync(
-        SpringDbContext db,
-        List<MemoryEntity> rows,
-        CancellationToken cancellationToken)
-    {
-        if (rows.Count == 0)
-        {
-            return Array.Empty<MemoryEntry>();
-        }
-
-        var ids = rows.Select(r => r.Id).ToList();
-        var links = await db.MemoryTopicLinks
-            .AsNoTracking()
-            .Where(l => ids.Contains(l.MemoryId))
-            .Select(l => new { l.MemoryId, l.TopicId })
-            .ToListAsync(cancellationToken);
-
-        var byMemory = links
-            .GroupBy(l => l.MemoryId)
-            .ToDictionary(g => g.Key, g => (IReadOnlyList<Guid>)g.Select(x => x.TopicId).OrderBy(x => x).ToList());
-
-        var results = new List<MemoryEntry>(rows.Count);
-        foreach (var row in rows)
-        {
-            byMemory.TryGetValue(row.Id, out var topics);
-            results.Add(ToEntry(row, topics ?? Array.Empty<Guid>()));
-        }
-        return results;
-    }
-
-    private static MemoryEntry ToEntry(MemoryEntity row, IReadOnlyList<Guid> topicIds) =>
+    private static MemoryEntry ToEntry(MemoryEntity row) =>
         new(
             Id: row.Id,
             Owner: new Address(row.OwnerScheme, row.OwnerId),
@@ -423,6 +282,5 @@ public sealed class EfMemoryStore : IMemoryStore
             Source: row.Source,
             ThreadId: row.ThreadId,
             CreatedAt: row.CreatedAt,
-            UpdatedAt: row.UpdatedAt,
-            TopicIds: topicIds);
+            UpdatedAt: row.UpdatedAt);
 }

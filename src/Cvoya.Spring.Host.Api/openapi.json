@@ -5653,14 +5653,10 @@
             }
           },
           {
-            "name": "topicId",
+            "name": "query",
             "in": "query",
             "schema": {
-              "type": [
-                "null",
-                "string"
-              ],
-              "format": "uuid"
+              "type": "string"
             }
           },
           {
@@ -5734,14 +5730,10 @@
             }
           },
           {
-            "name": "topicId",
+            "name": "query",
             "in": "query",
             "schema": {
-              "type": [
-                "null",
-                "string"
-              ],
-              "format": "uuid"
+              "type": "string"
             }
           },
           {
@@ -5791,13 +5783,13 @@
         }
       }
     },
-    "/api/v1/tenant/units/{id}/topics": {
+    "/api/v1/tenant/units/{id}/memories/{memoryId}": {
       "get": {
         "tags": [
           "Units"
         ],
-        "summary": "Read the unit's memory topics (#2342)",
-        "operationId": "GetUnitTopics",
+        "summary": "Read a single memory entry by id, scoped to the unit (#2342)",
+        "operationId": "GetUnitMemory",
         "parameters": [
           {
             "name": "id",
@@ -5808,25 +5800,12 @@
             }
           },
           {
-            "name": "limit",
-            "in": "query",
+            "name": "memoryId",
+            "in": "path",
+            "required": true,
             "schema": {
-              "type": [
-                "null",
-                "integer"
-              ],
-              "format": "int32"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "schema": {
-              "type": [
-                "null",
-                "integer"
-              ],
-              "format": "int32"
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
@@ -5836,7 +5815,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TopicsResponse"
+                  "$ref": "#/components/schemas/MemoryEntry"
                 }
               }
             }
@@ -5854,13 +5833,13 @@
         }
       }
     },
-    "/api/v1/tenant/agents/{id}/topics": {
+    "/api/v1/tenant/agents/{id}/memories/{memoryId}": {
       "get": {
         "tags": [
           "Agents"
         ],
-        "summary": "Read the agent's memory topics (#2342)",
-        "operationId": "GetAgentTopics",
+        "summary": "Read a single memory entry by id, scoped to the agent (#2342)",
+        "operationId": "GetAgentMemory",
         "parameters": [
           {
             "name": "id",
@@ -5871,25 +5850,12 @@
             }
           },
           {
-            "name": "limit",
-            "in": "query",
+            "name": "memoryId",
+            "in": "path",
+            "required": true,
             "schema": {
-              "type": [
-                "null",
-                "integer"
-              ],
-              "format": "int32"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "schema": {
-              "type": [
-                "null",
-                "integer"
-              ],
-              "format": "int32"
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
@@ -5899,7 +5865,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TopicsResponse"
+                  "$ref": "#/components/schemas/MemoryEntry"
                 }
               }
             }
@@ -11734,8 +11700,7 @@
           "createdAt",
           "source",
           "kind",
-          "updatedAt",
-          "topicIds"
+          "updatedAt"
         ],
         "type": "object",
         "properties": {
@@ -11762,49 +11727,11 @@
             "type": "string",
             "format": "date-time"
           },
-          "topicIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
           "threadId": {
             "type": [
               "null",
               "string"
             ]
-          }
-        }
-      },
-      "MemoryTopic": {
-        "required": [
-          "id",
-          "name",
-          "description",
-          "createdAt",
-          "updatedAt"
-        ],
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "description": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -13650,20 +13577,6 @@
             ],
             "items": {
               "type": "string"
-            }
-          }
-        }
-      },
-      "TopicsResponse": {
-        "required": [
-          "topics"
-        ],
-        "type": "object",
-        "properties": {
-          "topics": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/MemoryTopic"
             }
           }
         }

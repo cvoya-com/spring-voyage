@@ -233,22 +233,6 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<MemoryEntity> Memories => Set<MemoryEntity>();
 
-    /// <summary>
-    /// Gets the set of memory topics (#2342). Topics group memory
-    /// entries; the unique index on
-    /// <c>(tenant_id, owner_scheme, owner_id, name)</c> enforces
-    /// owner-unique topic names.
-    /// </summary>
-    public DbSet<MemoryTopicEntity> MemoryTopics => Set<MemoryTopicEntity>();
-
-    /// <summary>
-    /// Gets the set of memory↔topic junction rows (#2342). Composite
-    /// PK on <c>(tenant_id, memory_id, topic_id)</c>; deletes cascade
-    /// from both sides (handled in the migration) so removing a topic
-    /// drops its links while leaving the underlying memories intact.
-    /// </summary>
-    public DbSet<MemoryTopicLinkEntity> MemoryTopicLinks => Set<MemoryTopicLinkEntity>();
-
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -292,8 +276,6 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new UnitConnectorBindingEntityConfiguration());
         modelBuilder.ApplyConfiguration(new CloningPolicyEntityConfiguration());
         modelBuilder.ApplyConfiguration(new MemoryEntityConfiguration());
-        modelBuilder.ApplyConfiguration(new MemoryTopicEntityConfiguration());
-        modelBuilder.ApplyConfiguration(new MemoryTopicLinkEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -407,14 +389,10 @@ public class SpringDbContext : DbContext
         modelBuilder.Entity<CloningPolicyEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
 
-        // Memory entries, topics, and junction links: tenant-scoped, no
-        // soft-delete (#2342). Owner scope is enforced inside the store
-        // implementation on top of the tenant filter.
+        // Memory entries: tenant-scoped, no soft-delete (#2342). Owner
+        // scope is enforced inside the store implementation on top of
+        // the tenant filter.
         modelBuilder.Entity<MemoryEntity>()
-            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
-        modelBuilder.Entity<MemoryTopicEntity>()
-            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
-        modelBuilder.Entity<MemoryTopicLinkEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 

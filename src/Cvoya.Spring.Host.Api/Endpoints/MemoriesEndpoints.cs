@@ -12,23 +12,24 @@ using Cvoya.Spring.Host.Api.Models;
 using Microsoft.AspNetCore.Mvc;
 
 using CoreMemoryEntry = Cvoya.Spring.Core.Memory.MemoryEntry;
-using CoreMemoryTopic = Cvoya.Spring.Core.Memory.MemoryTopic;
 using WireMemoryEntry = Cvoya.Spring.Host.Api.Models.MemoryEntry;
-using WireMemoryTopic = Cvoya.Spring.Host.Api.Models.MemoryTopic;
 
 /// <summary>
-/// Maps the memory inspector read API (#2342). Two endpoint pairs mirror
-/// the Explorer's Memory and Topics tabs:
-/// <c>GET /api/v1/tenant/{units|agents}/{id}/memories</c> returns the
-/// short-term and long-term entries; <c>/topics</c> returns the topic
-/// inventory. Both routes route through <see cref="IDirectoryService"/>
-/// to translate the addressed id into a real entry; an unknown agent /
-/// unit returns 404. Write paths live on the <c>sv.memory_*</c> /
-/// <c>sv.topic_*</c> agent-runtime tools, not on the HTTP surface.
+/// Maps the memory inspector read API (#2342). Three routes per
+/// addressable kind (unit / agent):
+/// <c>GET /api/v1/tenant/{units|agents}/{id}/memories</c> lists or
+/// searches entries (FTS via the optional <c>?query=</c> param);
+/// <c>GET /api/v1/tenant/{units|agents}/{id}/memories/{memoryId}</c>
+/// reads a single entry. All routes resolve through
+/// <see cref="IDirectoryService"/> first; an unknown agent / unit
+/// returns 404, as does a memory id that is not owned by the
+/// addressable. Write paths live on the <c>sv.memory_*</c>
+/// agent-runtime tools, not on the HTTP surface (operator writes are
+/// tracked under v0.2 #2357).
 /// </summary>
 public static class MemoriesEndpoints
 {
-    /// <summary>Default page size for both endpoints.</summary>
+    /// <summary>Default page size for the list endpoint.</summary>
     public const int DefaultLimit = 50;
 
     /// <summary>Maximum allowed page size.</summary>
@@ -38,9 +39,9 @@ public static class MemoriesEndpoints
     private const string KindShortTerm = "short_term";
 
     /// <summary>
-    /// Registers the memory + topic endpoints. Call from
-    /// <c>Program.cs</c> after <c>MapTenantTreeEndpoints</c>. Returns a
-    /// single <see cref="RouteGroupBuilder"/> so callers can apply
+    /// Registers the memory endpoints. Call from <c>Program.cs</c>
+    /// after <c>MapTenantTreeEndpoints</c>. Returns a single
+    /// <see cref="RouteGroupBuilder"/> so callers can apply
     /// <c>RequireAuthorization()</c> uniformly.
     /// </summary>
     public static RouteGroupBuilder MapMemoriesEndpoints(this IEndpointRouteBuilder app)
@@ -61,18 +62,18 @@ public static class MemoriesEndpoints
             .Produces<MemoriesResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapGet("/api/v1/tenant/units/{id}/topics", GetUnitTopicsAsync)
+        group.MapGet("/api/v1/tenant/units/{id}/memories/{memoryId}", GetUnitMemoryAsync)
             .WithTags("Units")
-            .WithName("GetUnitTopics")
-            .WithSummary("Read the unit's memory topics (#2342)")
-            .Produces<TopicsResponse>(StatusCodes.Status200OK)
+            .WithName("GetUnitMemory")
+            .WithSummary("Read a single memory entry by id, scoped to the unit (#2342)")
+            .Produces<WireMemoryEntry>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapGet("/api/v1/tenant/agents/{id}/topics", GetAgentTopicsAsync)
+        group.MapGet("/api/v1/tenant/agents/{id}/memories/{memoryId}", GetAgentMemoryAsync)
             .WithTags("Agents")
-            .WithName("GetAgentTopics")
-            .WithSummary("Read the agent's memory topics (#2342)")
-            .Produces<TopicsResponse>(StatusCodes.Status200OK)
+            .WithName("GetAgentMemory")
+            .WithSummary("Read a single memory entry by id, scoped to the agent (#2342)")
+            .Produces<WireMemoryEntry>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         return group;
@@ -81,52 +82,50 @@ public static class MemoriesEndpoints
     private static Task<IResult> GetUnitMemoriesAsync(
         string id,
         [FromQuery] string? kind,
-        [FromQuery] Guid? topicId,
+        [FromQuery] string? query,
         [FromQuery] int? limit,
         [FromQuery] int? offset,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IMemoryStore memoryStore,
         CancellationToken cancellationToken)
-        => GetMemoriesAsync(Address.UnitScheme, id, kind, topicId, limit, offset,
+        => GetMemoriesAsync(Address.UnitScheme, id, kind, query, limit, offset,
             directoryService, memoryStore, cancellationToken);
 
     private static Task<IResult> GetAgentMemoriesAsync(
         string id,
         [FromQuery] string? kind,
-        [FromQuery] Guid? topicId,
+        [FromQuery] string? query,
         [FromQuery] int? limit,
         [FromQuery] int? offset,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IMemoryStore memoryStore,
         CancellationToken cancellationToken)
-        => GetMemoriesAsync(Address.AgentScheme, id, kind, topicId, limit, offset,
+        => GetMemoriesAsync(Address.AgentScheme, id, kind, query, limit, offset,
             directoryService, memoryStore, cancellationToken);
 
-    private static Task<IResult> GetUnitTopicsAsync(
+    private static Task<IResult> GetUnitMemoryAsync(
         string id,
-        [FromQuery] int? limit,
-        [FromQuery] int? offset,
+        Guid memoryId,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] IMemoryTopicStore topicStore,
+        [FromServices] IMemoryStore memoryStore,
         CancellationToken cancellationToken)
-        => GetTopicsAsync(Address.UnitScheme, id, limit, offset,
-            directoryService, topicStore, cancellationToken);
+        => GetSingleMemoryAsync(Address.UnitScheme, id, memoryId,
+            directoryService, memoryStore, cancellationToken);
 
-    private static Task<IResult> GetAgentTopicsAsync(
+    private static Task<IResult> GetAgentMemoryAsync(
         string id,
-        [FromQuery] int? limit,
-        [FromQuery] int? offset,
+        Guid memoryId,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] IMemoryTopicStore topicStore,
+        [FromServices] IMemoryStore memoryStore,
         CancellationToken cancellationToken)
-        => GetTopicsAsync(Address.AgentScheme, id, limit, offset,
-            directoryService, topicStore, cancellationToken);
+        => GetSingleMemoryAsync(Address.AgentScheme, id, memoryId,
+            directoryService, memoryStore, cancellationToken);
 
     private static async Task<IResult> GetMemoriesAsync(
         string scheme,
         string id,
         string? kindArg,
-        Guid? topicId,
+        string? queryArg,
         int? limitArg,
         int? offsetArg,
         IDirectoryService directoryService,
@@ -150,8 +149,21 @@ public static class MemoriesEndpoints
 
         var (limit, offset) = NormalisePaging(limitArg, offsetArg);
 
-        var entries = await memoryStore.ListAsync(
-            address, kindFilter, topicId, limit, offset, cancellationToken);
+        // When `query` is supplied, route through the FTS path. The
+        // store ignores `offset` on search (relevance ordering makes
+        // paging meaningless without a stable cursor); we surface
+        // `limit` only. The list path keeps offset-based paging.
+        IReadOnlyList<CoreMemoryEntry> entries;
+        if (!string.IsNullOrWhiteSpace(queryArg))
+        {
+            entries = await memoryStore.SearchAsync(
+                address, queryArg, kindFilter, limit, cancellationToken);
+        }
+        else
+        {
+            entries = await memoryStore.ListAsync(
+                address, kindFilter, limit, offset, cancellationToken);
+        }
 
         // Partition into short/long-term arrays in-memory. The list
         // already filtered down to the requested kind if one was
@@ -175,13 +187,12 @@ public static class MemoriesEndpoints
         return Results.Ok(new MemoriesResponse(shortTerm, longTerm));
     }
 
-    private static async Task<IResult> GetTopicsAsync(
+    private static async Task<IResult> GetSingleMemoryAsync(
         string scheme,
         string id,
-        int? limitArg,
-        int? offsetArg,
+        Guid memoryId,
         IDirectoryService directoryService,
-        IMemoryTopicStore topicStore,
+        IMemoryStore memoryStore,
         CancellationToken cancellationToken)
     {
         var address = Address.For(scheme, id);
@@ -191,9 +202,15 @@ public static class MemoriesEndpoints
             return NotFoundFor(scheme, id);
         }
 
-        var (limit, offset) = NormalisePaging(limitArg, offsetArg);
-        var topics = await topicStore.ListAsync(address, limit, offset, cancellationToken);
-        return Results.Ok(new TopicsResponse(topics.Select(ToWire).ToList()));
+        var row = await memoryStore.GetAsync(address, memoryId, cancellationToken);
+        if (row is null)
+        {
+            return Results.Problem(
+                detail: $"Memory '{memoryId:N}' not found.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Ok(ToWire(row));
     }
 
     private static IResult NotFoundFor(string scheme, string id) =>
@@ -236,14 +253,5 @@ public static class MemoriesEndpoints
             Source: entry.Source,
             Kind: entry.Kind == MemoryKind.ShortTerm ? KindShortTerm : KindLongTerm,
             UpdatedAt: entry.UpdatedAt,
-            TopicIds: entry.TopicIds.Select(GuidFormatter.Format).ToList(),
             ThreadId: entry.ThreadId is { } tid ? GuidFormatter.Format(tid) : null);
-
-    private static WireMemoryTopic ToWire(CoreMemoryTopic topic) =>
-        new(
-            Id: GuidFormatter.Format(topic.Id),
-            Name: topic.Name,
-            Description: topic.Description,
-            CreatedAt: topic.CreatedAt,
-            UpdatedAt: topic.UpdatedAt);
 }

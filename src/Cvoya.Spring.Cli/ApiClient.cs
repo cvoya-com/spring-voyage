@@ -612,6 +612,131 @@ public class SpringApiClient
             $"Server returned an empty issues response for agent '{id}'.");
     }
 
+    // Memory inspector read API (#2342). Backs `spring (agent|unit) memory
+    // {list,get,search}`. The CLI verb only ever issues GETs against
+    // these endpoints — operator write parity is tracked under v0.2
+    // (#2357). Every call goes through the Kiota-generated client per the
+    // CLI-never-raw-HTTP guard.
+
+    /// <summary>
+    /// Lists the unit's short-term + long-term memory entries (#2342).
+    /// Optional <paramref name="kind"/> filter narrows to a single axis;
+    /// <paramref name="limit"/> / <paramref name="offset"/> drive offset
+    /// paging.
+    /// </summary>
+    public async Task<MemoriesResponse> GetUnitMemoriesAsync(
+        string unitId,
+        string? kind = null,
+        int? limit = null,
+        int? offset = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Units[unitId].Memories.GetAsync(
+            requestConfiguration: c =>
+            {
+                if (!string.IsNullOrWhiteSpace(kind)) c.QueryParameters.Kind = kind;
+                if (limit is { } l) c.QueryParameters.Limit = l;
+                if (offset is { } o) c.QueryParameters.Offset = o;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty memories response for unit '{unitId}'.");
+    }
+
+    /// <summary>
+    /// Lists the agent's short-term + long-term memory entries (#2342).
+    /// Optional <paramref name="kind"/> filter narrows to a single axis;
+    /// <paramref name="limit"/> / <paramref name="offset"/> drive offset
+    /// paging.
+    /// </summary>
+    public async Task<MemoriesResponse> GetAgentMemoriesAsync(
+        string agentId,
+        string? kind = null,
+        int? limit = null,
+        int? offset = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Memories.GetAsync(
+            requestConfiguration: c =>
+            {
+                if (!string.IsNullOrWhiteSpace(kind)) c.QueryParameters.Kind = kind;
+                if (limit is { } l) c.QueryParameters.Limit = l;
+                if (offset is { } o) c.QueryParameters.Offset = o;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty memories response for agent '{agentId}'.");
+    }
+
+    /// <summary>
+    /// Free-text searches the unit's memory entries via the
+    /// <c>?query=</c> query parameter (#2342). Server-side FTS — results
+    /// are ordered by relevance (highest first). The
+    /// <paramref name="kind"/> filter scopes to a single axis; the
+    /// <paramref name="limit"/> caps hit count (offset is meaningless on
+    /// a relevance-ordered result set).
+    /// </summary>
+    public async Task<MemoriesResponse> SearchUnitMemoriesAsync(
+        string unitId,
+        string query,
+        string? kind = null,
+        int? limit = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Units[unitId].Memories.GetAsync(
+            requestConfiguration: c =>
+            {
+                c.QueryParameters.Query = query;
+                if (!string.IsNullOrWhiteSpace(kind)) c.QueryParameters.Kind = kind;
+                if (limit is { } l) c.QueryParameters.Limit = l;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty memories search response for unit '{unitId}'.");
+    }
+
+    /// <summary>
+    /// Free-text searches the agent's memory entries via the
+    /// <c>?query=</c> query parameter (#2342). Server-side FTS — results
+    /// are ordered by relevance (highest first). The
+    /// <paramref name="kind"/> filter scopes to a single axis; the
+    /// <paramref name="limit"/> caps hit count.
+    /// </summary>
+    public async Task<MemoriesResponse> SearchAgentMemoriesAsync(
+        string agentId,
+        string query,
+        string? kind = null,
+        int? limit = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Memories.GetAsync(
+            requestConfiguration: c =>
+            {
+                c.QueryParameters.Query = query;
+                if (!string.IsNullOrWhiteSpace(kind)) c.QueryParameters.Kind = kind;
+                if (limit is { } l) c.QueryParameters.Limit = l;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty memories search response for agent '{agentId}'.");
+    }
+
+    /// <summary>
+    /// Reads a single memory entry by id, scoped to the unit (#2342).
+    /// Returns <c>null</c> when the id is not owned by the unit.
+    /// </summary>
+    public Task<MemoryEntry?> GetUnitMemoryAsync(
+        string unitId, Guid memoryId, CancellationToken ct = default)
+        => _client.Api.V1.Tenant.Units[unitId].Memories[memoryId].GetAsync(cancellationToken: ct);
+
+    /// <summary>
+    /// Reads a single memory entry by id, scoped to the agent (#2342).
+    /// Returns <c>null</c> when the id is not owned by the agent.
+    /// </summary>
+    public Task<MemoryEntry?> GetAgentMemoryAsync(
+        string agentId, Guid memoryId, CancellationToken ct = default)
+        => _client.Api.V1.Tenant.Agents[agentId].Memories[memoryId].GetAsync(cancellationToken: ct);
+
     /// <summary>Gets a unit's details.</summary>
     public async Task<UnitDetailResponse> GetUnitAsync(string id, CancellationToken ct = default)
     {
