@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Core.Units;
 
 using System.Runtime.Serialization;
 
+using Cvoya.Spring.Core.Agents;
+
 /// <summary>
 /// Mutable display metadata for a unit. All fields are optional; callers set the
 /// subset they want to update. Consumers of <c>SetMetadataAsync</c> treat a
@@ -27,6 +29,22 @@ using System.Runtime.Serialization;
 /// <param name="Color">An optional UI color hint used by the dashboard, or <c>null</c> to leave unchanged.</param>
 /// <param name="Provider">Optional LLM provider identifier persisted on the unit-actor metadata, or <c>null</c> to leave unchanged.</param>
 /// <param name="Hosting">Optional hosting hint persisted on the unit-actor metadata, or <c>null</c> to leave unchanged.</param>
+/// <param name="Specialty">
+/// Optional free-form specialty label consumed by orchestration strategies
+/// (e.g. "reviewer", "implementer"). Mirrors
+/// <see cref="AgentMetadata.Specialty"/>; <c>null</c> to leave unchanged.
+/// Added in #2341 for unit/agent parity per <c>units-vs-agents.md</c>.
+/// </param>
+/// <param name="Enabled">
+/// When <c>false</c>, orchestration strategies skip this unit. Re-enabling is
+/// cheap. Mirrors <see cref="AgentMetadata.Enabled"/>; <c>null</c> to leave
+/// unchanged. Added in #2341.
+/// </param>
+/// <param name="ExecutionMode">
+/// How this unit participates in message dispatch. Mirrors
+/// <see cref="AgentMetadata.ExecutionMode"/>; <c>null</c> to leave unchanged.
+/// Added in #2341.
+/// </param>
 /// <remarks>
 /// #1732: the standalone <c>Tool</c> slot was dropped — the execution tool
 /// is derived from the runtime registry via the unit's
@@ -40,4 +58,7 @@ public record UnitMetadata(
     [property: DataMember] string? Model,
     [property: DataMember] string? Color,
     [property: DataMember] string? Provider = null,
-    [property: DataMember] string? Hosting = null);
+    [property: DataMember] string? Hosting = null,
+    [property: DataMember] string? Specialty = null,
+    [property: DataMember] bool? Enabled = null,
+    [property: DataMember] AgentExecutionMode? ExecutionMode = null);

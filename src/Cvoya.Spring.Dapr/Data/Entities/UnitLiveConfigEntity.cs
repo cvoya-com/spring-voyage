@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Data.Entities;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Auth;
 
@@ -75,6 +76,31 @@ public class UnitLiveConfigEntity : ITenantScopedEntity
     /// #1065.
     /// </summary>
     public string? Hosting { get; set; }
+
+    /// <summary>
+    /// Free-form specialty label (e.g. <c>reviewer</c>, <c>implementer</c>)
+    /// consumed by orchestration strategies. Mirrors
+    /// <see cref="AgentLiveConfigEntity.Specialty"/>. Null when unset.
+    /// Added in #2341 for unit/agent parity.
+    /// </summary>
+    public string? Specialty { get; set; }
+
+    /// <summary>
+    /// Whether the unit participates in orchestration. Defaults to
+    /// <c>true</c> — orchestration strategies skip units whose row holds
+    /// an explicit <c>false</c>. Mirrors <see cref="AgentLiveConfigEntity.Enabled"/>.
+    /// Added in #2341.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// How the unit participates in dispatch. Persisted as the
+    /// <see cref="AgentExecutionMode"/> ordinal so a default of
+    /// <see cref="AgentExecutionMode.Auto"/> (0) maps to "unset" without
+    /// requiring a nullable column. Mirrors
+    /// <see cref="AgentLiveConfigEntity.ExecutionMode"/>. Added in #2341.
+    /// </summary>
+    public AgentExecutionMode ExecutionMode { get; set; } = AgentExecutionMode.Auto;
 
     /// <summary>
     /// Permission-inheritance flag (<see cref="UnitPermissionInheritance"/>)

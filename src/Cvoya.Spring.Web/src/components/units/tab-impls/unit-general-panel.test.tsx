@@ -148,4 +148,100 @@ describe("UnitGeneralPanel (#2331)", () => {
     render(withClient(<UnitGeneralPanel unitId="engineering" />));
     expect(screen.getByTestId("unit-general-skeleton")).toBeInTheDocument();
   });
+
+  // #2341: unit/agent parity fields. Same UX shape as <AgentGeneralPanel>.
+
+  it("seeds the parity fields (role / specialty / enabled / executionMode) from the persisted unit", () => {
+    useUnitMock.mockReturnValue({
+      isPending: false,
+      data: {
+        displayName: "Engineering",
+        description: "",
+        model: "",
+        color: "",
+        role: "backend-team",
+        specialty: "reviewer",
+        enabled: false,
+        executionMode: "OnDemand",
+      },
+    });
+    render(withClient(<UnitGeneralPanel unitId="engineering" />));
+
+    expect(
+      (screen.getByTestId("unit-general-role") as HTMLInputElement).value,
+    ).toBe("backend-team");
+    expect(
+      (screen.getByTestId("unit-general-specialty") as HTMLInputElement).value,
+    ).toBe("reviewer");
+    expect(
+      (screen.getByTestId("unit-general-enabled") as HTMLInputElement).checked,
+    ).toBe(false);
+    expect(
+      (screen.getByTestId("unit-general-execution-mode") as HTMLSelectElement)
+        .value,
+    ).toBe("OnDemand");
+  });
+
+  it("sends only the dirty parity fields on save (role + enabled toggle)", async () => {
+    useUnitMock.mockReturnValue({
+      isPending: false,
+      data: {
+        displayName: "Engineering",
+        description: "Builds stuff",
+        model: "",
+        color: "",
+        role: "",
+        specialty: "",
+        enabled: true,
+        executionMode: "Auto",
+      },
+    });
+    updateUnitMock.mockResolvedValue(undefined);
+
+    render(withClient(<UnitGeneralPanel unitId="engineering" />));
+
+    fireEvent.change(screen.getByTestId("unit-general-role"), {
+      target: { value: "backend-team" },
+    });
+    fireEvent.click(screen.getByTestId("unit-general-enabled"));
+
+    fireEvent.click(screen.getByTestId("unit-general-save"));
+
+    await waitFor(() => {
+      expect(updateUnitMock).toHaveBeenCalledWith("engineering", {
+        role: "backend-team",
+        enabled: false,
+      });
+    });
+  });
+
+  it("sends executionMode when the select changes", async () => {
+    useUnitMock.mockReturnValue({
+      isPending: false,
+      data: {
+        displayName: "Engineering",
+        description: "",
+        model: "",
+        color: "",
+        role: "",
+        specialty: "",
+        enabled: true,
+        executionMode: "Auto",
+      },
+    });
+    updateUnitMock.mockResolvedValue(undefined);
+
+    render(withClient(<UnitGeneralPanel unitId="engineering" />));
+
+    fireEvent.change(screen.getByTestId("unit-general-execution-mode"), {
+      target: { value: "OnDemand" },
+    });
+    fireEvent.click(screen.getByTestId("unit-general-save"));
+
+    await waitFor(() => {
+      expect(updateUnitMock).toHaveBeenCalledWith("engineering", {
+        executionMode: "OnDemand",
+      });
+    });
+  });
 });

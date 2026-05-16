@@ -3769,6 +3769,11 @@ export interface components {
             lastValidationError?: null | components["schemas"]["UnitValidationError"];
             lastValidationRunId?: null | string;
             instructions?: null | string;
+            role?: null | string;
+            specialty?: null | string;
+            /** @default true */
+            enabled: boolean;
+            executionMode?: components["schemas"]["AgentExecutionMode"];
         };
         UnitSecretsListResponse: {
             secrets: components["schemas"]["SecretMetadata"][];
@@ -3832,6 +3837,10 @@ export interface components {
             color?: null | string;
             hosting?: null | string;
             instructions?: null | string;
+            role?: null | string;
+            specialty?: null | string;
+            enabled?: null | boolean;
+            executionMode?: null | components["schemas"]["AgentExecutionMode"];
         };
         UpsertMembershipRequest: {
             model?: null | string;

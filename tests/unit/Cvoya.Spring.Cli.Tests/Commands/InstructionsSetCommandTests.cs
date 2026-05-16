@@ -141,6 +141,60 @@ public class InstructionsSetCommandTests
             .ShouldBe("She said \"hi\"\nthen left.");
     }
 
+    // --- #2341: unit set parity flags ---
+
+    [Fact]
+    public void UnitSet_AcceptsRoleSpecialtyEnabledExecutionModeFlags()
+    {
+        var (root, _) = BuildRoot();
+        var result = root.Parse(new[]
+        {
+            "unit", "set", "my-unit",
+            "--role", "backend-team",
+            "--specialty", "reviewer",
+            "--enabled", "false",
+            "--execution-mode", "OnDemand",
+        });
+        result.Errors.ShouldBeEmpty();
+        result.GetValue<string?>("--role").ShouldBe("backend-team");
+        result.GetValue<string?>("--specialty").ShouldBe("reviewer");
+        result.GetValue<bool?>("--enabled").ShouldBe(false);
+        result.GetValue<Cvoya.Spring.Cli.Generated.Models.AgentExecutionMode?>("--execution-mode")
+            .ShouldBe(Cvoya.Spring.Cli.Generated.Models.AgentExecutionMode.OnDemand);
+    }
+
+    [Fact]
+    public void UnitSet_AcceptsDisplayNameDescriptionModelColorHostingFlags()
+    {
+        var (root, _) = BuildRoot();
+        var result = root.Parse(new[]
+        {
+            "unit", "set", "my-unit",
+            "--display-name", "Eng Team",
+            "--description", "Builds stuff",
+            "--model", "claude-3-5-sonnet-latest",
+            "--color", "#5b8def",
+            "--hosting", "ephemeral",
+        });
+        result.Errors.ShouldBeEmpty();
+        result.GetValue<string?>("--display-name").ShouldBe("Eng Team");
+        result.GetValue<string?>("--description").ShouldBe("Builds stuff");
+        result.GetValue<string?>("--model").ShouldBe("claude-3-5-sonnet-latest");
+        result.GetValue<string?>("--color").ShouldBe("#5b8def");
+        result.GetValue<string?>("--hosting").ShouldBe("ephemeral");
+    }
+
+    [Fact]
+    public void UnitSet_RejectsInvalidExecutionModeValue()
+    {
+        var (root, _) = BuildRoot();
+        var result = root.Parse(new[]
+        {
+            "unit", "set", "my-unit", "--execution-mode", "Frobulate",
+        });
+        result.Errors.ShouldNotBeEmpty();
+    }
+
     // --- Helpers ---
 
     private static (RootCommand root, Option<string> outputOption) BuildRoot()

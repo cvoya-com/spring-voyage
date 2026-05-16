@@ -496,11 +496,11 @@ public static class UnitCommand
     }
 
     /// <summary>
-    /// `spring unit set <unit> --instructions <text|@path>` (#2293).
-    /// Top-level prompt-surface PATCH. The verb is intentionally minimal
-    /// — it carries only slots that have no dedicated subcommand (so it
-    /// doesn't collide with <c>unit execution set</c> /
-    /// <c>unit boundary set</c> / etc.).
+    /// `spring unit set <unit> [flags]` (#2293, extended in #2341 for unit/agent
+    /// parity). Top-level metadata PATCH. The verb stays minimal — it carries
+    /// the slots that have no dedicated subcommand (so it doesn't collide with
+    /// <c>unit execution set</c> / <c>unit boundary set</c> / etc.) but now
+    /// covers every directory- and live-config-owned field a unit can have.
     /// </summary>
     /// <remarks>
     /// Flag semantics for <c>--instructions</c>:
@@ -509,6 +509,9 @@ public static class UnitCommand
     ///   <item><description><c>--instructions @path/to/file.md</c> reads the file contents and sends them as the new value.</description></item>
     ///   <item><description><c>--instructions ""</c> clears the slot via PATCH <c>instructions: null</c>.</description></item>
     /// </list>
+    /// All other flags treat omission as "leave unchanged" and a supplied value
+    /// as "replace". <c>--enabled</c> is boolean (<c>true|false</c>);
+    /// <c>--execution-mode</c> accepts <c>Auto</c> or <c>OnDemand</c>.
     /// </remarks>
     internal static Command CreateSetCommand()
     {
@@ -523,12 +526,58 @@ public static class UnitCommand
                 "Pass a literal string, an empty string \"\" to clear, " +
                 "or `@path/to/file.md` to read the file contents.",
         };
+        var displayNameOption = new Option<string?>("--display-name")
+        {
+            Description = "New human-readable display name.",
+        };
+        var descriptionOption = new Option<string?>("--description")
+        {
+            Description = "New description of the unit's purpose.",
+        };
+        var modelOption = new Option<string?>("--model")
+        {
+            Description = "Default LLM model identifier hint.",
+        };
+        var colorOption = new Option<string?>("--color")
+        {
+            Description = "UI color hint (e.g. #5b8def).",
+        };
+        var hostingOption = new Option<string?>("--hosting")
+        {
+            Description = "Hosting hint (e.g. ephemeral, persistent).",
+        };
+        var roleOption = new Option<string?>("--role")
+        {
+            Description = "Role identifier used by multicast resolution (mirrors --role on agents).",
+        };
+        var specialtyOption = new Option<string?>("--specialty")
+        {
+            Description = "Free-form specialty label consumed by orchestration strategies.",
+        };
+        var enabledOption = new Option<bool?>("--enabled")
+        {
+            Description = "Whether the unit participates in orchestration.",
+        };
+        var executionModeOption = new Option<Cvoya.Spring.Cli.Generated.Models.AgentExecutionMode?>(
+            "--execution-mode")
+        {
+            Description = "How the unit participates in dispatch (Auto | OnDemand).",
+        };
 
         var command = new Command(
             "set",
-            "Update top-level unit slots. Today: --instructions (set / clear / @file).");
+            "Update top-level unit metadata. Each flag is optional; omitted flags leave the existing value untouched.");
         command.Arguments.Add(unitArg);
         command.Options.Add(instructionsOption);
+        command.Options.Add(displayNameOption);
+        command.Options.Add(descriptionOption);
+        command.Options.Add(modelOption);
+        command.Options.Add(colorOption);
+        command.Options.Add(hostingOption);
+        command.Options.Add(roleOption);
+        command.Options.Add(specialtyOption);
+        command.Options.Add(enabledOption);
+        command.Options.Add(executionModeOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -536,25 +585,49 @@ public static class UnitCommand
             var rawInstructions = parseResult.GetValue(instructionsOption);
             var instructionsSupplied = parseResult.GetResult(instructionsOption) is not null;
 
-            if (!instructionsSupplied)
+            var displayName = parseResult.GetValue(displayNameOption);
+            var description = parseResult.GetValue(descriptionOption);
+            var model = parseResult.GetValue(modelOption);
+            var color = parseResult.GetValue(colorOption);
+            var hosting = parseResult.GetValue(hostingOption);
+            var role = parseResult.GetValue(roleOption);
+            var specialty = parseResult.GetValue(specialtyOption);
+            var enabled = parseResult.GetValue(enabledOption);
+            var executionMode = parseResult.GetValue(executionModeOption);
+
+            var metadataSupplied =
+                displayName is not null
+                || description is not null
+                || model is not null
+                || color is not null
+                || hosting is not null
+                || role is not null
+                || specialty is not null
+                || enabled is not null
+                || executionMode is not null;
+
+            if (!instructionsSupplied && !metadataSupplied)
             {
                 await Console.Error.WriteLineAsync(
-                    "Nothing to set. Pass --instructions <text|@path|''>.");
+                    "Nothing to set. Pass --instructions, --display-name, --description, --role, --specialty, --model, --color, --hosting, --enabled, or --execution-mode.");
                 Environment.Exit(1);
                 return;
             }
 
-            string? newValue;
-            try
+            string? newInstructions = null;
+            if (instructionsSupplied)
             {
-                newValue = await AgentCommand.ResolveInstructionsArgumentAsync(
-                    rawInstructions, ct);
-            }
-            catch (FileNotFoundException ex)
-            {
-                await Console.Error.WriteLineAsync(ex.Message);
-                Environment.Exit(1);
-                return;
+                try
+                {
+                    newInstructions = await AgentCommand.ResolveInstructionsArgumentAsync(
+                        rawInstructions, ct);
+                }
+                catch (FileNotFoundException ex)
+                {
+                    await Console.Error.WriteLineAsync(ex.Message);
+                    Environment.Exit(1);
+                    return;
+                }
             }
 
             var client = ClientFactory.Create();
@@ -572,15 +645,48 @@ public static class UnitCommand
             }
 
             var canonical = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitId);
-            await client.SetUnitInstructionsAsync(canonical, newValue, ct);
 
-            if (newValue is null)
+            // Two-call sequencing: send the typed metadata patch through Kiota
+            // first (when present), then the raw-JSON instructions patch (when
+            // present). Splitting keeps the instructions tri-state on its own
+            // hand-built body and lets every other field ride the generated
+            // client — matches the feedback rule that CLI writes go through
+            // Kiota whenever the tri-state quirk doesn't force raw HTTP.
+            if (metadataSupplied)
             {
-                Console.WriteLine($"Unit '{idOrName}' instructions cleared.");
+                await client.UpdateUnitAsync(
+                    canonical,
+                    displayName: displayName,
+                    description: description,
+                    model: model,
+                    color: color,
+                    hosting: hosting,
+                    role: role,
+                    specialty: specialty,
+                    enabled: enabled,
+                    executionMode: executionMode,
+                    ct: ct);
+            }
+
+            if (instructionsSupplied)
+            {
+                await client.SetUnitInstructionsAsync(canonical, newInstructions, ct);
+            }
+
+            if (metadataSupplied && instructionsSupplied)
+            {
+                Console.WriteLine($"Unit '{idOrName}' metadata and instructions updated.");
+            }
+            else if (instructionsSupplied)
+            {
+                Console.WriteLine(
+                    newInstructions is null
+                        ? $"Unit '{idOrName}' instructions cleared."
+                        : $"Unit '{idOrName}' instructions updated.");
             }
             else
             {
-                Console.WriteLine($"Unit '{idOrName}' instructions updated.");
+                Console.WriteLine($"Unit '{idOrName}' metadata updated.");
             }
         });
 

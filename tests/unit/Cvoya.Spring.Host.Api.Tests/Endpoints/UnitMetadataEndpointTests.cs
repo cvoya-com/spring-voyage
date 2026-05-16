@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Tests.Endpoints;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
@@ -233,6 +234,117 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PatchUnit_UpdatesRole_RoutesThroughDirectory()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
+            .Returns(new UnitMetadata(null, null, null, null));
+
+        ArrangeResolved(proxy);
+
+        _factory.DirectoryService
+            .UpdateEntryAsync(
+                Arg.Any<Address>(),
+                Arg.Any<string?>(),
+                Arg.Any<string?>(),
+                Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(ci => new DirectoryEntry(
+                new Address("unit", ActorId_Guid),
+                ActorId_Guid,
+                "Engineering",
+                "Engineering unit",
+                ci.ArgAt<string?>(3),
+                DateTimeOffset.UtcNow));
+
+        var patchResponse = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{UnitName}",
+            new UpdateUnitRequest(Role: "backend-team"),
+            ct);
+
+        patchResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // #2341: Role is directory-owned, same split as DisplayName/Description.
+        await _factory.DirectoryService.Received(1).UpdateEntryAsync(
+            Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == UnitName),
+            null,
+            null,
+            "backend-team",
+            Arg.Any<CancellationToken>());
+
+        var body = await patchResponse.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("role").GetString().ShouldBe("backend-team");
+    }
+
+    [Fact]
+    public async Task PatchUnit_UpdatesParityActorFields_ForwardsToSetMetadata()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
+            .Returns(new UnitMetadata(
+                DisplayName: null,
+                Description: null,
+                Model: null,
+                Color: null,
+                Provider: null,
+                Hosting: null,
+                Specialty: "reviewer",
+                Enabled: false,
+                ExecutionMode: Cvoya.Spring.Core.Agents.AgentExecutionMode.OnDemand));
+
+        ArrangeResolved(proxy);
+
+        // Server uses JsonStringEnumConverter (allowIntegerValues:false in
+        // Program.cs); pass a matching client converter so AgentExecutionMode
+        // round-trips as a string. PatchAsJsonAsync uses default options that
+        // would serialize the enum as an integer and trip BadRequest.
+        var enumJsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            Converters = { new JsonStringEnumConverter() },
+        };
+        using var patchRequest = new HttpRequestMessage(
+            HttpMethod.Patch, $"/api/v1/tenant/units/{UnitName}")
+        {
+            Content = JsonContent.Create(
+                new UpdateUnitRequest(
+                    Specialty: "reviewer",
+                    Enabled: false,
+                    ExecutionMode: Cvoya.Spring.Core.Agents.AgentExecutionMode.OnDemand),
+                options: enumJsonOptions),
+        };
+        var patchResponse = await _client.SendAsync(patchRequest, ct);
+
+        patchResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // #2341: the parity slots ride the actor metadata path.
+        await proxy.Received(1).SetMetadataAsync(
+            Arg.Is<UnitMetadata>(m =>
+                m.Specialty == "reviewer" &&
+                m.Enabled == false &&
+                m.ExecutionMode == Cvoya.Spring.Core.Agents.AgentExecutionMode.OnDemand),
+            Arg.Any<CancellationToken>());
+
+        // No directory write — these are all actor-owned slots.
+        await _factory.DirectoryService.DidNotReceive().UpdateEntryAsync(
+            Arg.Any<Address>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<CancellationToken>());
+
+        var body = await patchResponse.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("specialty").GetString().ShouldBe("reviewer");
+        doc.RootElement.GetProperty("enabled").GetBoolean().ShouldBeFalse();
+        doc.RootElement.GetProperty("executionMode").GetString().ShouldBe("OnDemand");
     }
 
     [Fact]

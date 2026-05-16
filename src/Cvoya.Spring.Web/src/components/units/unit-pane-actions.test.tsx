@@ -96,11 +96,10 @@ function makeUnit(status: UnitStatus): UnitResponse {
     status,
     model: null,
     color: null,
-    tool: null,
-    provider: null,
     hosting: null,
     lastValidationError: null,
     lastValidationRunId: null,
+    enabled: true,
   } as UnitResponse;
 }
 

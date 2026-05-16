@@ -198,6 +198,7 @@ public class DirectoryService(
         {
             existing.DisplayName = entry.DisplayName;
             existing.Description = entry.Description;
+            existing.Role = entry.Role;
             existing.DeletedAt = null;
         }
         else
@@ -207,6 +208,7 @@ public class DirectoryService(
                 Id = id,
                 DisplayName = entry.DisplayName,
                 Description = entry.Description,
+                Role = entry.Role,
             });
         }
 
@@ -482,7 +484,7 @@ public class DirectoryService(
                     entity.Id,
                     entity.DisplayName,
                     entity.Description ?? string.Empty,
-                    Role: null,
+                    entity.Role,
                     entity.CreatedAt);
             }
         }
@@ -541,7 +543,7 @@ public class DirectoryService(
                 u.Id,
                 u.DisplayName,
                 u.Description ?? string.Empty,
-                Role: null,
+                u.Role,
                 u.CreatedAt);
 
             var key = ToKey(address);

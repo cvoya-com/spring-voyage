@@ -30,6 +30,13 @@ internal class UnitLiveConfigEntityConfiguration : IEntityTypeConfiguration<Unit
         builder.Property(e => e.Color).HasColumnName("color").HasMaxLength(64);
         builder.Property(e => e.Provider).HasColumnName("provider").HasMaxLength(128);
         builder.Property(e => e.Hosting).HasColumnName("hosting").HasMaxLength(64);
+        // #2341: agent-parity columns. Same shape as AgentLiveConfigEntityConfiguration.
+        builder.Property(e => e.Specialty).HasColumnName("specialty").HasMaxLength(256);
+        builder.Property(e => e.Enabled).HasColumnName("enabled").IsRequired().HasDefaultValue(true);
+        builder.Property(e => e.ExecutionMode)
+            .HasColumnName("execution_mode")
+            .IsRequired()
+            .HasConversion<int>();
         builder.Property(e => e.PermissionInheritance)
             .HasColumnName("permission_inheritance")
             .IsRequired()

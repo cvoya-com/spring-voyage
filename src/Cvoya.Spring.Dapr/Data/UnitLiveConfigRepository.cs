@@ -44,7 +44,10 @@ public class UnitLiveConfigRepository(SpringDbContext context) : IUnitLiveConfig
             Model: row.Model,
             Color: row.Color,
             Provider: row.Provider,
-            Hosting: row.Hosting);
+            Hosting: row.Hosting,
+            Specialty: row.Specialty,
+            Enabled: row.Enabled,
+            ExecutionMode: row.ExecutionMode);
     }
 
     /// <inheritdoc />
@@ -56,12 +59,15 @@ public class UnitLiveConfigRepository(SpringDbContext context) : IUnitLiveConfig
         // Identify which actor-owned fields are actually being patched
         // first so we can both decide whether to write and emit an
         // accurate field list on the activity event. DisplayName /
-        // Description are ignored — the directory entity owns them.
+        // Description / Role are ignored — the directory entity owns them.
         var written = new List<string>();
         if (metadata.Model is not null) written.Add(nameof(metadata.Model));
         if (metadata.Color is not null) written.Add(nameof(metadata.Color));
         if (metadata.Provider is not null) written.Add(nameof(metadata.Provider));
         if (metadata.Hosting is not null) written.Add(nameof(metadata.Hosting));
+        if (metadata.Specialty is not null) written.Add(nameof(metadata.Specialty));
+        if (metadata.Enabled is not null) written.Add(nameof(metadata.Enabled));
+        if (metadata.ExecutionMode is not null) written.Add(nameof(metadata.ExecutionMode));
 
         if (written.Count == 0)
         {
@@ -83,6 +89,9 @@ public class UnitLiveConfigRepository(SpringDbContext context) : IUnitLiveConfig
         if (metadata.Color is not null) row.Color = metadata.Color;
         if (metadata.Provider is not null) row.Provider = metadata.Provider;
         if (metadata.Hosting is not null) row.Hosting = metadata.Hosting;
+        if (metadata.Specialty is not null) row.Specialty = metadata.Specialty;
+        if (metadata.Enabled is not null) row.Enabled = metadata.Enabled.Value;
+        if (metadata.ExecutionMode is not null) row.ExecutionMode = metadata.ExecutionMode.Value;
 
         await context.SaveChangesAsync(cancellationToken);
         return written;
