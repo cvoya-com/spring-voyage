@@ -16,7 +16,10 @@ using Cvoya.Spring.Dapr.Actors;
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
+using Microsoft.Extensions.DependencyInjection;
+
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 using Shouldly;
 
@@ -170,6 +173,99 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
             Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _factory.ActivityEventBus.DidNotReceive().PublishAsync(
             Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteUnit_Force_PersistentAgentMembers_UndeploysEachAndReturns204()
+    {
+        // #2397: force-delete must iterate the unit's members and undeploy
+        // each persistent-agent deployment alongside the other best-effort
+        // teardown steps.
+        var ct = TestContext.Current.CancellationToken;
+        ArrangeUnit(LifecycleStatus.Error);
+
+        var agentA = new Guid("bbbb2222-0000-0000-0000-000000000001");
+        var agentB = new Guid("bbbb2222-0000-0000-0000-000000000002");
+
+        var membershipRepo = Substitute.For<IUnitMembershipRepository>();
+        membershipRepo.ListByUnitAsync(ActorId_Guid, Arg.Any<CancellationToken>())
+            .Returns(new List<UnitMembership>
+            {
+                new(ActorId_Guid, agentA, Enabled: true),
+                new(ActorId_Guid, agentB, Enabled: true),
+            });
+
+        using var probingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                var existing = services
+                    .Where(d => d.ServiceType == typeof(IUnitMembershipRepository))
+                    .ToList();
+                foreach (var d in existing)
+                {
+                    services.Remove(d);
+                }
+                services.AddSingleton(membershipRepo);
+            });
+        });
+        var client = probingFactory.CreateClient();
+
+        var response = await client.DeleteAsync($"/api/v1/tenant/units/{UnitName}?force=true", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        await membershipRepo.Received(1)
+            .ListByUnitAsync(ActorId_Guid, Arg.Any<CancellationToken>());
+        await _factory.DirectoryService.Received(1).UnregisterAsync(
+            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteUnit_Force_PersistentAgentMembersLookupThrows_RecordsFailureAndStillUnregisters()
+    {
+        // A best-effort step failure surfaces in the response's
+        // teardownFailures list but does not block the directory unregister
+        // — matching the existing container-step failure behavior (#147).
+        var ct = TestContext.Current.CancellationToken;
+        ArrangeUnit(LifecycleStatus.Error);
+
+        var membershipRepo = Substitute.For<IUnitMembershipRepository>();
+        membershipRepo.ListByUnitAsync(ActorId_Guid, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("db down"));
+
+        using var probingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                var existing = services
+                    .Where(d => d.ServiceType == typeof(IUnitMembershipRepository))
+                    .ToList();
+                foreach (var d in existing)
+                {
+                    services.Remove(d);
+                }
+                services.AddSingleton(membershipRepo);
+            });
+        });
+        var client = probingFactory.CreateClient();
+
+        var response = await client.DeleteAsync($"/api/v1/tenant/units/{UnitName}?force=true", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("forceDeleted").GetBoolean().ShouldBeTrue();
+        doc.RootElement.GetProperty("teardownFailures")
+            .EnumerateArray()
+            .Select(e => e.GetString())
+            .ShouldContain("persistent-agent-members");
+
+        await _factory.DirectoryService.Received(1).UnregisterAsync(
+            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

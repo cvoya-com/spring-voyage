@@ -16,6 +16,8 @@ using Cvoya.Spring.Dapr.Actors;
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
+using Microsoft.Extensions.DependencyInjection;
+
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -27,9 +29,11 @@ using Xunit;
 /// Integration tests for <see cref="UnitEndpoints"/> lifecycle routes
 /// (<c>POST /api/v1/units/{id}/start</c> and <c>POST /api/v1/units/{id}/stop</c>).
 ///
-/// Since #371 the start/stop endpoints no longer shell out to a container
-/// runtime — they simply transition the unit actor through its state machine.
-/// Agent-container lifecycle is managed by the A2A dispatcher (#346/#349).
+/// Since #371 the start/stop endpoints no longer shell out to the legacy
+/// per-unit container surface. The ephemeral per-conversation container
+/// lifecycle is owned by the A2A dispatcher (#346/#349). Persistent-agent
+/// deployments are torn down by /stop and /force-delete iterating the
+/// unit's members (#2397).
 /// </summary>
 public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFactory>
 {
@@ -198,6 +202,106 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         await _factory.StubConnectorType.DidNotReceive()
             .OnUnitStoppingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StopUnit_PersistentAgentMembers_UndeploysEachBeforeStopped()
+    {
+        // #2397: /stop must iterate the unit's members and undeploy each
+        // persistent-agent deployment so the per-agent container + Dapr
+        // sidecar do not survive Stopped. The IUnitContainerLifecycle
+        // surface from the pre-#371 design stays inert.
+        var ct = TestContext.Current.CancellationToken;
+
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.TransitionAsync(LifecycleStatus.Stopping, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopping, null));
+        proxy.TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopped, null));
+
+        ArrangeResolved(proxy);
+
+        var agentA = new Guid("aaaa1111-0000-0000-0000-000000000001");
+        var agentB = new Guid("aaaa1111-0000-0000-0000-000000000002");
+
+        var membershipRepo = Substitute.For<IUnitMembershipRepository>();
+        membershipRepo.ListByUnitAsync(ActorId_Guid, Arg.Any<CancellationToken>())
+            .Returns(new List<UnitMembership>
+            {
+                new(ActorId_Guid, agentA, Enabled: true),
+                new(ActorId_Guid, agentB, Enabled: true),
+            });
+
+        using var probingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                var existing = services
+                    .Where(d => d.ServiceType == typeof(IUnitMembershipRepository))
+                    .ToList();
+                foreach (var d in existing)
+                {
+                    services.Remove(d);
+                }
+                services.AddSingleton(membershipRepo);
+            });
+        });
+        var client = probingFactory.CreateClient();
+
+        var response = await client.PostAsync($"/api/v1/tenant/units/{UnitName}/stop", content: null, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+
+        await membershipRepo.Received(1)
+            .ListByUnitAsync(ActorId_Guid, Arg.Any<CancellationToken>());
+
+        // The unit still transitions through Stopping → Stopped after the
+        // member teardown.
+        await proxy.Received(1).TransitionAsync(LifecycleStatus.Stopping, Arg.Any<CancellationToken>());
+        await proxy.Received(1).TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StopUnit_PersistentAgentMembersLookupThrows_StillTransitionsToStopped()
+    {
+        // The member-teardown step is best-effort: a hard failure in the
+        // membership lookup is logged and swallowed so the unit still
+        // reaches Stopped. The operator's recovery path is /force-delete
+        // for leaked containers (#2397).
+        var ct = TestContext.Current.CancellationToken;
+
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.TransitionAsync(LifecycleStatus.Stopping, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopping, null));
+        proxy.TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopped, null));
+
+        ArrangeResolved(proxy);
+
+        var membershipRepo = Substitute.For<IUnitMembershipRepository>();
+        membershipRepo.ListByUnitAsync(ActorId_Guid, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("db down"));
+
+        using var probingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                var existing = services
+                    .Where(d => d.ServiceType == typeof(IUnitMembershipRepository))
+                    .ToList();
+                foreach (var d in existing)
+                {
+                    services.Remove(d);
+                }
+                services.AddSingleton(membershipRepo);
+            });
+        });
+        var client = probingFactory.CreateClient();
+
+        var response = await client.PostAsync($"/api/v1/tenant/units/{UnitName}/stop", content: null, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        await proxy.Received(1).TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>());
     }
 
     [Fact]
