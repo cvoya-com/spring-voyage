@@ -19,6 +19,7 @@
   </Folder>
   <Folder Name="/tests/unit/">
     <Project Path="tests/unit/Cvoya.Spring.AgentRuntimes.Tests/Cvoya.Spring.AgentRuntimes.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.AgentSdk.Tests/Cvoya.Spring.AgentSdk.Tests.csproj" />
     <Project Path="tests/unit/Cvoya.Spring.Cli.Tests/Cvoya.Spring.Cli.Tests.csproj" />
     <Project Path="tests/unit/Cvoya.Spring.Connector.Arxiv.Tests/Cvoya.Spring.Connector.Arxiv.Tests.csproj" />
     <Project Path="tests/unit/Cvoya.Spring.Connector.GitHub.Tests/Cvoya.Spring.Connector.GitHub.Tests.csproj" />
@@ -34,6 +35,7 @@
     <Project Path="tests/integration/Cvoya.Spring.Integration.Tests/Cvoya.Spring.Integration.Tests.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/tools-agent-image/Cvoya.Spring.Sample.ToolsAgent/Cvoya.Spring.Sample.ToolsAgent.csproj" />
     <Project Path="samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgent/Cvoya.Spring.Sample.WorkflowAgent.csproj" />
     <Project Path="samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgent.Tests/Cvoya.Spring.Sample.WorkflowAgent.Tests.csproj" />
   </Folder>

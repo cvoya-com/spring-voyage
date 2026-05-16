@@ -27,6 +27,7 @@ internal class UnitDefinitionEntityConfiguration : IEntityTypeConfiguration<Unit
         builder.Property(e => e.DisplayName).HasColumnName("display_name").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Description).HasColumnName("description").HasMaxLength(1024);
         builder.Property(e => e.Definition).HasColumnName("definition").HasColumnType("jsonb");
+        builder.Property(e => e.ImageTools).HasColumnName("image_tools").HasColumnType("jsonb");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
         builder.Property(e => e.DeletedAt).HasColumnName("deleted_at");

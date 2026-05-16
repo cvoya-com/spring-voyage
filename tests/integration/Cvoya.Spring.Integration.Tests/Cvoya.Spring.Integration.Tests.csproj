@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <!-- ADR-0038 (#1761): collapsed per-provider projects → runtime catalogue. -->
+    <ProjectReference Include="..\..\..\samples\tools-agent-image\Cvoya.Spring.Sample.ToolsAgent\Cvoya.Spring.Sample.ToolsAgent.csproj" />
     <ProjectReference Include="..\..\..\samples\workflow-agent-image\Cvoya.Spring.Sample.WorkflowAgent\Cvoya.Spring.Sample.WorkflowAgent.csproj" />
     <ProjectReference Include="..\..\..\src\Cvoya.Spring.AgentSdk\Cvoya.Spring.AgentSdk.csproj" />
     <ProjectReference Include="..\..\..\src\Cvoya.Spring.AgentRuntimes\Cvoya.Spring.AgentRuntimes.csproj" />

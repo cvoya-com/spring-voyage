@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Cvoya.Spring.Sample.ToolsAgent</RootNamespace>
+    <AssemblyName>Cvoya.Spring.Sample.ToolsAgent</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.AgentSdk\Cvoya.Spring.AgentSdk.csproj" />
+  </ItemGroup>
+
+</Project>

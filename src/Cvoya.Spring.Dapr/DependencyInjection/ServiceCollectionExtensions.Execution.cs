@@ -14,6 +14,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Runtime;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Agents;
 using Cvoya.Spring.Dapr.Auth;
@@ -235,6 +236,17 @@ internal static class ServiceCollectionExtensionsExecution
         // "there is a message to run" and the operator surface stays focused on
         // "there is a container to manage."
         services.TryAddSingleton<PersistentAgentLifecycle>();
+
+        // #2336 / Sub C of #2332. The introspector fetches the agent's
+        // image-tier tool definitions from its /a2a/tools endpoint at
+        // deploy / image-rotation time and caches them onto
+        // agent_definitions.image_tools / unit_definitions.image_tools.
+        // Named HttpClient so cloud overlays can layer interceptors
+        // (telemetry, mTLS) without touching the introspector.
+        // TryAdd so a test fixture or cloud overlay can swap the
+        // implementation.
+        services.AddHttpClient(HttpAgentToolsIntrospector.HttpClientName);
+        services.TryAddSingleton<IAgentToolsIntrospector, HttpAgentToolsIntrospector>();
 
         // In-process MCP server — options and singleton always registered so
         // endpoints that depend on IMcpServer resolve correctly during OpenAPI
