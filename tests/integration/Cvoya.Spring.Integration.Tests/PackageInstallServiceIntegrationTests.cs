@@ -168,6 +168,82 @@ public class PackageInstallServiceIntegrationTests : IDisposable
             new[] { friendly.Id, polite.Id }, ignoreOrder: true);
     }
 
+    // ── (2b) #2388: agent Definition carries the canonical execution block ─
+
+    /// <summary>
+    /// Regression guard for #2388 bug 2. The install pipeline now projects
+    /// every agent's <c>ai:</c> block onto the canonical
+    /// <c>execution:{image, agent, provider, model}</c> shape on
+    /// <c>AgentDefinitions.Definition</c>. Without this projection the
+    /// shared <see cref="Cvoya.Spring.Host.Api.Services.IArtefactAutoStartGate"/>
+    /// reads through <see cref="Cvoya.Spring.Core.Execution.IAgentExecutionStore"/>
+    /// (which only recognises the modern <c>execution:</c> block) and skips
+    /// the gate, leaving every catalog-installed agent stranded in
+    /// <see cref="Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Draft"/> while
+    /// the parent unit reaches Running. The gate's lifecycle side-effects
+    /// are exercised by
+    /// <c>Cvoya.Spring.Host.Api.Tests.Services.ArtefactAutoStartGateTests</c>
+    /// — here we pin the precondition (Definition shape) that lets the gate
+    /// fire end-to-end via the install path.
+    /// </summary>
+    [Theory]
+    [InlineData("hello-world", "greeter")]
+    [InlineData("example-simple", "friendly-greeter")]
+    [InlineData("example-simple", "polite-greeter")]
+    public async Task InstallPackage_AgentDefinition_CarriesCanonicalExecutionBlock(
+        string packageName, string agentDisplayName)
+    {
+        using var fx = BuildFixture();
+
+        var result = await fx.Service.InstallAsync(
+            new[] { LoadTarget(packageName) },
+            TestContext.Current.CancellationToken);
+        result.PackageResults.Single().Status.ShouldBe(PackageInstallOutcome.Active);
+
+        await using var scope = fx.ScopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var agent = await db.AgentDefinitions
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(a => a.DisplayName == agentDisplayName,
+                TestContext.Current.CancellationToken);
+        agent.ShouldNotBeNull($"agent '{agentDisplayName}' must be persisted");
+
+        agent!.Definition.ShouldNotBeNull(
+            $"agent '{agentDisplayName}' must carry a Definition document");
+        var def = agent.Definition!.Value;
+        def.TryGetProperty("execution", out var exec).ShouldBeTrue(
+            $"agent '{agentDisplayName}' Definition must carry an 'execution' block " +
+            "so the auto-start gate (IAgentExecutionStore.Extract) can read image/model/agent.");
+        exec.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Object);
+
+        // Each catalog package above uses the modern ADR-0038 ai: shape with
+        // claude-code + anthropic + claude-sonnet-4-6 and the OSS claude
+        // base image. Pinning the exact values here doubles as a guard
+        // against the projection silently dropping a field.
+        exec.GetProperty("agent").GetString().ShouldBe("claude-code");
+        exec.GetProperty("provider").GetString().ShouldBe("anthropic");
+        exec.GetProperty("model").GetString().ShouldBe("claude-sonnet-4-6");
+        exec.GetProperty("image").GetString().ShouldStartWith(
+            "ghcr.io/cvoya-com/spring-voyage-claude-code-base");
+
+        // The auto-start gate consumes IAgentExecutionStore directly; round-
+        // tripping through the same store the gate uses pins that the
+        // projected slots actually surface end-to-end (covers any future
+        // drift between DbAgentExecutionStore.Extract and the projection).
+        var store = scope.ServiceProvider
+            .GetRequiredService<Cvoya.Spring.Core.Execution.IAgentExecutionStore>();
+        var shape = await store.GetAsync(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(agent.Id),
+            TestContext.Current.CancellationToken);
+        shape.ShouldNotBeNull(
+            $"IAgentExecutionStore.GetAsync must return a populated shape for '{agentDisplayName}' " +
+            "— the auto-start gate (#2374 / #2388) reads through this seam.");
+        shape!.Agent.ShouldBe("claude-code");
+        shape.Provider.ShouldBe("anthropic");
+        shape.Model.ShouldBe("claude-sonnet-4-6");
+        shape.Image.ShouldStartWith("ghcr.io/cvoya-com/spring-voyage-claude-code-base");
+    }
+
     // ── (3) example-templated ────────────────────────────────────────────
 
     [Fact]
