@@ -109,6 +109,36 @@ public class WorkerCompositionTests
             "Regression for issue #2359.");
     }
 
+    /// <summary>
+    /// Regression test for #2364: the shared validation pipeline (workflow
+    /// scheduler, coordinator, tracker) must resolve in the Worker DI graph
+    /// so both <see cref="Actors.UnitActor"/> and <see cref="Actors.AgentActor"/>
+    /// can schedule + complete validation. The rename in #2371
+    /// (<c>UnitValidation*</c> → <c>ArtefactValidation*</c>) means any host
+    /// that missed an updated registration would surface here.
+    /// </summary>
+    [Fact]
+    public void AddWorkerServices_ArtefactValidationPipeline_Resolves()
+    {
+        using var provider = BuildWorkerServiceProvider();
+
+        var scheduler = provider.GetService<Cvoya.Spring.Core.Lifecycle.IArtefactValidationWorkflowScheduler>();
+        var coordinator = provider.GetService<Cvoya.Spring.Core.Lifecycle.IArtefactValidationCoordinator>();
+        var tracker = provider.GetService<Cvoya.Spring.Core.Lifecycle.IArtefactValidationTracker>();
+
+        scheduler.ShouldNotBeNull(
+            "IArtefactValidationWorkflowScheduler must resolve in the Worker DI graph; " +
+            "without it, transitions into Validating silently no-op and no workflow runs. " +
+            "Regression guard for the #2371 rename.");
+        coordinator.ShouldNotBeNull(
+            "IArtefactValidationCoordinator must resolve in the Worker DI graph; " +
+            "both UnitActor.TransitionAsync(Validating) and AgentActor.TransitionAsync(Validating) " +
+            "delegate to it.");
+        tracker.ShouldNotBeNull(
+            "IArtefactValidationTracker must resolve in the Worker DI graph; " +
+            "the coordinator uses it for the stale-run guard on Validating completion callbacks.");
+    }
+
     [Fact]
     public void AddWorkerServices_EveryConnectorTypeResolves()
     {
