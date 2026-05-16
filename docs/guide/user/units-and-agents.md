@@ -267,6 +267,16 @@ spring agent delete   <id>   # removes agent record; does NOT stop a running con
 - **logs** prints stdout+stderr tail (default 200 lines). Agent must be deployed.
 - **status** shows directory info plus container state, health, and id for persistent agents. Use `--output json` for the full deployment block.
 
+## Inspecting tools
+
+Every unit and every agent has an **effective tool set** — the flat list of tools its runtime sees at dispatch. The portal surfaces it on the subject's **Config → Tools** sub-tab, split into three sections:
+
+- **Platform** (collapsed) — every `sv.*` tool the runtime ships with. Implicit for every subject; no operator action grants or revokes it.
+- **Connectors** — one group per bound connector. Binding a connector to a unit auto-grants the whole namespace (`github.*`, `arxiv.*`, …) to that unit and to every agent in it; an inherited-from-unit badge appears on an agent's view when the grant flowed in from a parent unit.
+- **Image** — the tools the agent's container image declared at `GET /a2a/tools`. Read-only and 1:1 with the running image.
+
+The same array is available on the `effectiveTools` field of every `AgentResponse` / `UnitResponse`. See [Tools](../../concepts/tools.md) for the model, the precedence rules, and how each tier reaches the subject.
+
 ## Connector Management
 
 ```bash
