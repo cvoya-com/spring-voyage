@@ -198,7 +198,7 @@ function TenantOverviewBody({ tenant }: { tenant: TenantNode }) {
 
 // Tenant-side helper: the tree-level `NodeStatus` strings are
 // lowercase ("running" / "paused" / …) but the shared `<UnitCard>`
-// expects the API's `UnitStatus` casing. Kept inline because the
+// expects the API's `LifecycleStatus` casing. Kept inline because the
 // tenant body is the only consumer; promoting this to a util would
 // scatter the mapping across files.
 function mapTenantUnitStatus(status: string): string {

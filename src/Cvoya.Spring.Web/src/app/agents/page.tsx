@@ -74,7 +74,10 @@ function agentToCardShape(agent: AgentResponse): AgentCardAgent {
     displayName: agent.displayName,
     role: agent.role ?? null,
     registeredAt: agent.registeredAt,
-    status: agent.enabled ? "running" : "stopped",
+    // #2372: surface the agent's persisted 7-state LifecycleStatus
+    // (Draft / Validating / Stopped / Starting / Running / Stopping / Error)
+    // rather than the legacy `enabled ? running : stopped` projection.
+    status: agent.lifecycleStatus ?? null,
     parentUnit: agent.parentUnit ?? null,
     executionMode: agent.executionMode,
   };

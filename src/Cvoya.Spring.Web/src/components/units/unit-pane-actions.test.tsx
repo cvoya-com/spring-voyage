@@ -3,7 +3,7 @@
  *
  * Covers:
  *   - Status-gated button surface: Validate / Revalidate / Start / Stop
- *     each show on the matching UnitStatus; Delete is always shown.
+ *     each show on the matching LifecycleStatus; Delete is always shown.
  *   - Delete requires confirmation and only fires the mutation when the
  *     user explicitly confirms — Cancel dismisses without a POST.
  *   - Successful mutations invalidate the relevant query-key slices so
@@ -24,7 +24,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentNode, UnitNode } from "./aggregate";
-import type { UnitResponse, UnitStatus } from "@/lib/api/types";
+import type { AgentDetailResponse, LifecycleStatus, UnitResponse } from "@/lib/api/types";
 
 const routerReplaceMock = vi.fn();
 const routerPushMock = vi.fn();
@@ -40,6 +40,9 @@ const stopUnitMock = vi.fn();
 const revalidateUnitMock = vi.fn();
 const deleteUnitMock = vi.fn();
 const deleteAgentMock = vi.fn();
+const startAgentMock = vi.fn();
+const stopAgentMock = vi.fn();
+const revalidateAgentMock = vi.fn();
 
 // Re-export the real ApiError so the production code's `instanceof
 // ApiError` check inside the unit-pane-actions component matches the
@@ -58,6 +61,9 @@ vi.mock("@/lib/api/client", async () => {
       deleteUnit: (id: string, options?: { force?: boolean }) =>
         deleteUnitMock(id, options),
       deleteAgent: (id: string) => deleteAgentMock(id),
+      startAgent: (id: string) => startAgentMock(id),
+      stopAgent: (id: string) => stopAgentMock(id),
+      revalidateAgent: (id: string) => revalidateAgentMock(id),
     },
   };
 });
@@ -65,9 +71,32 @@ vi.mock("@/lib/api/client", async () => {
 import { ApiError } from "@/lib/api/client";
 
 const useUnitMock = vi.fn();
+const useAgentMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
   useUnit: (id: string) => useUnitMock(id),
+  useAgent: (id: string) => useAgentMock(id),
 }));
+
+function makeAgent(status: LifecycleStatus | null): AgentDetailResponse {
+  return {
+    agent: {
+      id: "ada",
+      name: "ada",
+      displayName: "Ada",
+      description: "",
+      role: null,
+      registeredAt: "2026-04-21T00:00:00Z",
+      model: null,
+      specialty: null,
+      enabled: true,
+      executionMode: "Auto",
+      parentUnit: null,
+      lifecycleStatus: status,
+    },
+    status: null,
+    deployment: null,
+  } as AgentDetailResponse;
+}
 
 const toastMock = vi.fn();
 vi.mock("@/components/ui/toast", () => ({
@@ -86,7 +115,7 @@ function wrap(node: ReactNode) {
   return <QueryClientProvider client={client}>{node}</QueryClientProvider>;
 }
 
-function makeUnit(status: UnitStatus): UnitResponse {
+function makeUnit(status: LifecycleStatus): UnitResponse {
   return {
     id: "alpha",
     name: "alpha",
@@ -125,13 +154,23 @@ beforeEach(() => {
   revalidateUnitMock.mockReset();
   deleteUnitMock.mockReset();
   deleteAgentMock.mockReset();
+  startAgentMock.mockReset();
+  stopAgentMock.mockReset();
+  revalidateAgentMock.mockReset();
   useUnitMock.mockReset();
+  useAgentMock.mockReset();
+  // Default to "no data yet" so tests that don't care about the agent
+  // detail query (engagement / sub-unit navigation / agent-only chrome)
+  // don't crash with `agentQuery is undefined`. Tests that need a
+  // concrete status override this per-it.
+  useAgentMock.mockReturnValue({ data: undefined });
+  useUnitMock.mockReturnValue({ data: undefined });
   toastMock.mockReset();
 });
 
 describe("UnitPaneActions — Unit status gating", () => {
   const cases: Array<{
-    status: UnitStatus;
+    status: LifecycleStatus;
     visible: string[];
     hidden: string[];
   }> = [
@@ -207,7 +246,7 @@ describe("UnitPaneActions — Unit status gating", () => {
 // wizard reads the `parent` query param and threads `parentUnitIds`
 // onto the create-unit API call. The button is unconditional — see
 // the status-gating loop above for the cross-status assertion that
-// every UnitStatus surfaces it.
+// every LifecycleStatus surfaces it.
 describe("UnitPaneActions — Engagement (#1463 / #1464)", () => {
   it("navigates to /engagement/mine pre-selecting the unit", async () => {
     useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
@@ -439,7 +478,8 @@ describe("UnitPaneActions — Force delete recovery (#1137)", () => {
 });
 
 describe("UnitPaneActions — Agent", () => {
-  it("renders Engagement + Delete for an agent node", () => {
+  it("renders Engagement + Delete for an agent node with no lifecycle data", () => {
+    useAgentMock.mockReturnValue({ data: undefined });
     render(wrap(<UnitPaneActions node={agentNode} />));
     expect(screen.getByTestId("agent-action-delete")).toBeInTheDocument();
     // #1463/#1464: agent panes also surface the engagement entry-point.
@@ -449,12 +489,16 @@ describe("UnitPaneActions — Agent", () => {
     expect(screen.queryByTestId("unit-action-start")).toBeNull();
     expect(screen.queryByTestId("unit-action-stop")).toBeNull();
     expect(screen.queryByTestId("unit-action-revalidate")).toBeNull();
-    // No agent-level Start/Stop ships today — the CLI has no equivalent.
+    // Without a known status no lifecycle verbs render — same as the
+    // unit-side fallback.
     expect(screen.queryByTestId("agent-action-start")).toBeNull();
     expect(screen.queryByTestId("agent-action-stop")).toBeNull();
+    expect(screen.queryByTestId("agent-action-validate")).toBeNull();
+    expect(screen.queryByTestId("agent-action-revalidate")).toBeNull();
   });
 
   it("requires confirmation before firing deleteAgent", async () => {
+    useAgentMock.mockReturnValue({ data: makeAgent("Stopped") });
     deleteAgentMock.mockResolvedValue(undefined);
     render(wrap(<UnitPaneActions node={agentNode} />));
     fireEvent.click(screen.getByTestId("agent-action-delete"));
@@ -470,6 +514,129 @@ describe("UnitPaneActions — Agent", () => {
     });
     await waitFor(() => {
       expect(routerReplaceMock).toHaveBeenCalledWith("/units");
+    });
+  });
+});
+
+// #2372: agent surface now mirrors the unit verbs — Run / Stop /
+// Revalidate / Validate, status-gated against the live LifecycleStatus
+// read from `useAgent(id)`. Status-gating + dispatch coverage follows
+// the unit-side test layout so future status-mapping changes have one
+// place to update both sides.
+describe("UnitPaneActions — Agent status gating (#2372)", () => {
+  const cases: Array<{
+    status: LifecycleStatus;
+    visible: string[];
+    hidden: string[];
+  }> = [
+    {
+      status: "Draft",
+      visible: ["agent-action-validate", "agent-action-delete"],
+      hidden: [
+        "agent-action-revalidate",
+        "agent-action-start",
+        "agent-action-stop",
+      ],
+    },
+    {
+      status: "Stopped",
+      visible: [
+        "agent-action-revalidate",
+        "agent-action-start",
+        "agent-action-delete",
+      ],
+      hidden: ["agent-action-validate", "agent-action-stop"],
+    },
+    {
+      status: "Running",
+      visible: ["agent-action-stop", "agent-action-delete"],
+      hidden: [
+        "agent-action-validate",
+        "agent-action-start",
+        "agent-action-revalidate",
+      ],
+    },
+    {
+      status: "Error",
+      visible: ["agent-action-revalidate", "agent-action-delete"],
+      hidden: [
+        "agent-action-validate",
+        "agent-action-start",
+        "agent-action-stop",
+      ],
+    },
+    {
+      status: "Validating",
+      visible: ["agent-action-delete"],
+      hidden: [
+        "agent-action-validate",
+        "agent-action-revalidate",
+        "agent-action-start",
+        "agent-action-stop",
+      ],
+    },
+  ];
+
+  for (const c of cases) {
+    it(`renders the expected buttons for status="${c.status}"`, () => {
+      useAgentMock.mockReturnValue({ data: makeAgent(c.status) });
+      render(wrap(<UnitPaneActions node={agentNode} />));
+      for (const id of c.visible) {
+        expect(screen.getByTestId(id)).toBeInTheDocument();
+      }
+      for (const id of c.hidden) {
+        expect(screen.queryByTestId(id)).toBeNull();
+      }
+    });
+  }
+});
+
+describe("UnitPaneActions — Agent Start / Stop / Revalidate dispatch (#2372)", () => {
+  it("fires startAgent when Run is clicked on a Stopped agent", async () => {
+    useAgentMock.mockReturnValue({ data: makeAgent("Stopped") });
+    startAgentMock.mockResolvedValue({});
+    render(wrap(<UnitPaneActions node={agentNode} />));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("agent-action-start"));
+    });
+    await waitFor(() => {
+      expect(startAgentMock).toHaveBeenCalledWith("ada");
+    });
+  });
+
+  it("fires stopAgent when Stop is clicked on a Running agent", async () => {
+    useAgentMock.mockReturnValue({ data: makeAgent("Running") });
+    stopAgentMock.mockResolvedValue({});
+    render(wrap(<UnitPaneActions node={agentNode} />));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("agent-action-stop"));
+    });
+    await waitFor(() => {
+      expect(stopAgentMock).toHaveBeenCalledWith("ada");
+    });
+  });
+
+  it("fires revalidateAgent when Revalidate is clicked on an Error agent", async () => {
+    useAgentMock.mockReturnValue({ data: makeAgent("Error") });
+    revalidateAgentMock.mockResolvedValue({});
+    render(wrap(<UnitPaneActions node={agentNode} />));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("agent-action-revalidate"));
+    });
+    await waitFor(() => {
+      expect(revalidateAgentMock).toHaveBeenCalledWith("ada");
+    });
+  });
+
+  it("fires revalidateAgent when Validate is clicked on a Draft agent", async () => {
+    useAgentMock.mockReturnValue({ data: makeAgent("Draft") });
+    revalidateAgentMock.mockResolvedValue({});
+    render(wrap(<UnitPaneActions node={agentNode} />));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("agent-action-validate"));
+    });
+    await waitFor(() => {
+      expect(revalidateAgentMock).toHaveBeenCalledWith("ada");
     });
   });
 });
@@ -515,13 +682,13 @@ describe("UnitPaneActions — error surfacing", () => {
 // still rendered so operators know it exists — it just isn't actionable
 // until the unit reaches a deletable state (Draft, Stopped, or Error).
 describe("UnitPaneActions — delete gating (#1019)", () => {
-  const blockingStatuses: UnitStatus[] = [
+  const blockingStatuses: LifecycleStatus[] = [
     "Running",
     "Starting",
     "Stopping",
     "Validating",
   ];
-  const allowedStatuses: UnitStatus[] = ["Draft", "Stopped", "Error"];
+  const allowedStatuses: LifecycleStatus[] = ["Draft", "Stopped", "Error"];
 
   for (const status of blockingStatuses) {
     it(`disables the Delete button when status is "${status}"`, () => {
@@ -594,7 +761,7 @@ describe("UnitPaneActions — stuck-transient advisory (#1145)", () => {
 
   it("does not render the advisory for non-transient statuses", () => {
     for (const status of ["Running", "Stopped", "Error", "Draft", "Validating"] as const) {
-      useUnitMock.mockReturnValue({ data: makeUnit(status as UnitStatus) });
+      useUnitMock.mockReturnValue({ data: makeUnit(status as LifecycleStatus) });
       const { unmount } = render(wrap(<UnitPaneActions node={unitNode} />));
       act(() => { vi.advanceTimersByTime(90_000); });
       expect(screen.queryByTestId("unit-stuck-advisory")).toBeNull();

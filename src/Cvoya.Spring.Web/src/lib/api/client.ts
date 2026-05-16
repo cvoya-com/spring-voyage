@@ -325,6 +325,30 @@ export const api = {
     );
   },
 
+  // Agent lifecycle (#2371): mirror the unit Start/Stop/Revalidate verbs
+  // exposed under `/agents/{id}`. The API returns 202 + AgentLifecycleResponse;
+  // callers route by status (Stopped → start, Running → stop, Draft/Error/Stopped
+  // → revalidate). 409s come back as ApiError, surfaced by the portal's
+  // translate-error layer like the unit equivalents.
+  startAgent: async (id: string) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/tenant/agents/{id}/start", {
+        params: { path: { id } },
+      }),
+    ),
+  stopAgent: async (id: string) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/tenant/agents/{id}/stop", {
+        params: { path: { id } },
+      }),
+    ),
+  revalidateAgent: async (id: string) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/tenant/agents/{id}/revalidate", {
+        params: { path: { id } },
+      }),
+    ),
+
   // Persistent-agent lifecycle (#396 / PR-PLAT-RUN-2b). The same verbs the
   // CLI ships under `spring agent {deploy,undeploy,scale,logs}` plus the
   // read-only `deployment` inspector. Ephemeral agents will receive a 400

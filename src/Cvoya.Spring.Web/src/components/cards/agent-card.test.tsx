@@ -46,7 +46,11 @@ describe("AgentCard", () => {
           role: "backend",
           registeredAt: "2026-04-01T00:00:00Z",
           parentUnit: "engineering",
-          status: "active",
+          // #2372: agent cards now render the shared 7-state lifecycle
+          // badge (Draft/Validating/Stopped/Starting/Running/Stopping/
+          // Error). The legacy `"active"/"idle"/"busy"/"error"` projection
+          // is gone — pass the canonical lifecycle status instead.
+          status: "Running",
           executionMode: "Auto",
         }}
       />,
@@ -66,7 +70,7 @@ describe("AgentCard", () => {
       "Auto",
     );
     expect(screen.getByTestId("agent-status-badge")).toHaveTextContent(
-      "active",
+      "Running",
     );
   });
 

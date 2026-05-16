@@ -8,9 +8,10 @@
 // only sees the verbs that apply to the unit's current lifecycle state;
 // Delete is always available and goes through a confirmation dialog.
 //
-// Agent lifecycle: only `Delete` ships on this surface today. `start` /
-// `stop` have no CLI equivalent for agents — follow-ups are filed as
-// separate issues rather than silently expanding scope.
+// Agent lifecycle (#2372): mirrors the unit surface 1:1 — Run / Stop /
+// Revalidate / Delete, status-gated against the live `LifecycleStatus`
+// read from `useAgent(id)`. The backend exposes the same verbs under
+// `/api/v1/tenant/agents/{id}/{start,stop,revalidate}` (#2371).
 //
 // The component reads live unit status via `useUnit(id)` because the
 // tenant-tree endpoint pins every node to `"running"` (see
@@ -45,8 +46,8 @@ import { useToast } from "@/components/ui/toast";
 import { api, ApiError } from "@/lib/api/client";
 import { formatTranslatedError } from "@/lib/api/translate-error";
 import { queryKeys } from "@/lib/api/query-keys";
-import { useUnit } from "@/lib/api/queries";
-import type { UnitStatus } from "@/lib/api/types";
+import { useAgent, useUnit } from "@/lib/api/queries";
+import type { LifecycleStatus } from "@/lib/api/types";
 
 // #1137: shape of the API's 409 conflict body for DELETE /units/{id}.
 // Only `forceHint` is consumed by the recovery flow — its presence is the
@@ -96,7 +97,7 @@ function UnitActions({ node }: { node: TreeNode }) {
   // today — read the real status from the per-unit endpoint so the
   // gate matches what `spring unit start|stop|…` would accept.
   const unitQuery = useUnit(node.id);
-  const status: UnitStatus | null = unitQuery.data?.status ?? null;
+  const status: LifecycleStatus | null = unitQuery.data?.status ?? null;
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   // #1137: when the lifecycle-status gate refuses the delete with 409 +
@@ -113,7 +114,7 @@ function UnitActions({ node }: { node: TreeNode }) {
   // change — the operator explicitly asked to hide it.
   const STUCK_STATUSES = ["Starting", "Stopping"] as const;
   type StuckStatus = (typeof STUCK_STATUSES)[number];
-  const isStuck = (s: UnitStatus | null): s is StuckStatus =>
+  const isStuck = (s: LifecycleStatus | null): s is StuckStatus =>
     s === "Starting" || s === "Stopping";
 
   const [stuckStartedAt, setStuckStartedAt] = useState<number | null>(null);
@@ -253,7 +254,7 @@ function UnitActions({ node }: { node: TreeNode }) {
   // allowing a click that is guaranteed to 409. The forceHint recovery
   // flow remains available for units stuck in intermediate states via
   // the existing 409 path, but the happy path is: stop the unit first.
-  const NON_DELETABLE_STATUSES: readonly (UnitStatus | null)[] = [
+  const NON_DELETABLE_STATUSES: readonly (LifecycleStatus | null)[] = [
     "Running",
     "Starting",
     "Stopping",
@@ -463,29 +464,76 @@ function AgentActions({ id, name }: { id: string; name: string }) {
   const { toast } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
+  // #2372: read the live LifecycleStatus from the per-agent endpoint —
+  // the tenant-tree wire status for agents is the legacy "running"
+  // pin until BuildAgentNode plumbs the real lifecycle through. Hitting
+  // the detail endpoint matches what `spring agent start|stop|revalidate`
+  // would accept.
+  const agentQuery = useAgent(id);
+  const status: LifecycleStatus | null =
+    (agentQuery.data?.agent.lifecycleStatus as LifecycleStatus | null) ?? null;
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(id) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.activity.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+  };
+
+  const onError = (verb: string) => (err: unknown) => {
+    toast({
+      title: `${verb} failed`,
+      description: formatTranslatedError(err),
+      variant: "destructive",
+    });
+  };
+
+  const validateMutation = useMutation({
+    mutationFn: () => api.revalidateAgent(id),
+    onSuccess: invalidate,
+    onError: onError("Validate"),
+  });
+
+  const revalidateMutation = useMutation({
+    mutationFn: () => api.revalidateAgent(id),
+    onSuccess: invalidate,
+    onError: onError("Revalidate"),
+  });
+
+  const startMutation = useMutation({
+    mutationFn: () => api.startAgent(id),
+    onSuccess: invalidate,
+    onError: onError("Start"),
+  });
+
+  const stopMutation = useMutation({
+    mutationFn: () => api.stopAgent(id),
+    onSuccess: invalidate,
+    onError: onError("Stop"),
+  });
 
   const deleteMutation = useMutation({
     mutationFn: () => api.deleteAgent(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(id) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.activity.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      invalidate();
       toast({ title: "Agent deleted", description: name });
       setConfirmOpen(false);
       router.replace("/units");
     },
     onError: (err) => {
-      toast({
-        title: "Delete failed",
-        description: formatTranslatedError(err),
-        variant: "destructive",
-      });
+      onError("Delete")(err);
       setConfirmOpen(false);
     },
   });
+
+  const pending =
+    validateMutation.isPending ||
+    revalidateMutation.isPending ||
+    startMutation.isPending ||
+    stopMutation.isPending ||
+    deleteMutation.isPending;
 
   return (
     <div
@@ -506,10 +554,58 @@ function AgentActions({ id, name }: { id: string; name: string }) {
         <MessagesSquare className="mr-1 h-4 w-4" aria-hidden="true" />
         Engagement
       </Button>
+      {status === "Draft" && (
+        <Button
+          variant="default"
+          size="sm"
+          disabled={pending}
+          onClick={() => validateMutation.mutate()}
+          data-testid="agent-action-validate"
+        >
+          <CheckCircle2 className="mr-1 h-4 w-4" aria-hidden="true" />
+          {validateMutation.isPending ? "Validating…" : "Validate"}
+        </Button>
+      )}
+      {(status === "Error" || status === "Stopped") && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={pending}
+          onClick={() => revalidateMutation.mutate()}
+          data-testid="agent-action-revalidate"
+        >
+          <RefreshCw className="mr-1 h-4 w-4" aria-hidden="true" />
+          {revalidateMutation.isPending ? "Revalidating…" : "Revalidate"}
+        </Button>
+      )}
+      {status === "Stopped" && (
+        <Button
+          variant="default"
+          size="sm"
+          disabled={pending}
+          onClick={() => startMutation.mutate()}
+          data-testid="agent-action-start"
+        >
+          <Play className="mr-1 h-4 w-4" aria-hidden="true" />
+          {startMutation.isPending ? "Starting…" : "Run"}
+        </Button>
+      )}
+      {status === "Running" && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={pending}
+          onClick={() => stopMutation.mutate()}
+          data-testid="agent-action-stop"
+        >
+          <Square className="mr-1 h-4 w-4" aria-hidden="true" />
+          {stopMutation.isPending ? "Stopping…" : "Stop"}
+        </Button>
+      )}
       <Button
         variant="destructive"
         size="sm"
-        disabled={deleteMutation.isPending}
+        disabled={pending}
         onClick={() => setConfirmOpen(true)}
         data-testid="agent-action-delete"
       >

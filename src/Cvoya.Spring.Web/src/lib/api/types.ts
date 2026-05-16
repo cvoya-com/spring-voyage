@@ -164,15 +164,11 @@ export type EquipSkillRequest = Schemas["EquipSkillRequest"];
 export type SkillSummary = Schemas["SkillSummary"];
 
 /**
- * Shared lifecycle status for both units and agents (#2364). Replaces the
- * historical `UnitStatus` schema. The portal continues to import this under
- * the `UnitStatus` alias today; the proper rename happens in the agent-side
- * portal UX work (#2372).
+ * Shared lifecycle status for both units and agents (#2364, #2372). Replaces
+ * the historical UnitStatus schema. Use {@link LifecycleStatus} directly;
+ * the temporary alias retired in #2372.
  */
 export type LifecycleStatus = Schemas["LifecycleStatus"];
-
-/** @deprecated Use {@link LifecycleStatus}. Alias retained for the portal pending #2372. */
-export type UnitStatus = LifecycleStatus;
 
 /**
  * Structured error surfaced on `UnitResponse.lastValidationError` after the
@@ -184,18 +180,12 @@ export type UnitStatus = LifecycleStatus;
  */
 export type ArtefactValidationError = Schemas["ArtefactValidationError"];
 
-/** @deprecated Use {@link ArtefactValidationError}. Alias retained pending #2372. */
-export type UnitValidationError = ArtefactValidationError;
-
 /**
  * One of four probe steps emitted by the backend ArtefactValidationWorkflow
  * (T-04). Order mirrors the workflow: `PullingImage → VerifyingTool →
  * ValidatingCredential → ResolvingModel`.
  */
 export type ArtefactValidationStep = Schemas["ArtefactValidationStep"];
-
-/** @deprecated Use {@link ArtefactValidationStep}. Alias retained pending #2372. */
-export type UnitValidationStep = ArtefactValidationStep;
 
 /** GET /api/v1/units/{id} response envelope. */
 export type UnitResponse = Schemas["UnitResponse"];
@@ -752,9 +742,9 @@ export type ActivityEventType =
   | "CostIncurred"
   | "TokenDelta"
   // T-04 (#946): per-step lifecycle updates from the backend
-  // UnitValidationWorkflow. `source` is the unit's `unit://<name>`
+  // ArtefactValidationWorkflow. `source` is the unit's `unit://<name>`
   // address; `details` carries `{ step, status, code? }` where `step`
-  // is one of `UnitValidationStep` and `status` is "Running" |
+  // is one of `ArtefactValidationStep` and `status` is "Running" |
   // "Succeeded" | "Failed". The T-07 Validation panel reads this live
   // to animate the step checklist.
   | "ValidationProgress";

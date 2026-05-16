@@ -3,12 +3,13 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  LifecycleStatusBadge,
+  LifecycleStatusDot,
+  type LifecycleStatusInput,
+} from "@/components/lifecycle-status-badge";
 import { RuntimeStatusBadge } from "@/components/runtime-status-badge";
-import type { UnitDashboardSummary, UnitStatus } from "@/lib/api/types";
-// Some dashboard payloads (see DashboardUnit) ship status as a raw
-// string until the OpenAPI regeneration lands; accept either form so
-// callers don't have to narrow.
-type UnitStatusInput = UnitStatus | string | null | undefined;
+import type { LifecycleStatus, UnitDashboardSummary } from "@/lib/api/types";
 import { cn, formatCost, timeAgo } from "@/lib/utils";
 import {
   Activity,
@@ -32,7 +33,7 @@ export interface UnitCardUnit {
   name: string;
   displayName: string;
   registeredAt: string;
-  status?: UnitStatusInput;
+  status?: LifecycleStatusInput;
   /**
    * Optional cost-to-date for this unit in USD. Rendered as a small badge
    * beside the status when present.
@@ -56,7 +57,7 @@ interface UnitCardInput {
   name: string;
   displayName: string;
   registeredAt: string;
-  status?: UnitStatusInput;
+  status?: LifecycleStatusInput;
   cost?: number | null;
   activitySeries?: number[];
   id?: string | null;
@@ -100,27 +101,6 @@ interface UnitCardProps {
   className?: string;
 }
 
-const statusVariant: Record<
-  string,
-  "default" | "success" | "warning" | "destructive" | "secondary" | "outline"
-> = {
-  Draft: "outline",
-  Stopped: "secondary",
-  Starting: "default",
-  Running: "success",
-  Stopping: "warning",
-  Error: "destructive",
-};
-
-const statusDot: Record<string, string> = {
-  Draft: "bg-muted-foreground",
-  Stopped: "bg-muted-foreground",
-  Starting: "bg-yellow-500",
-  Running: "bg-green-500",
-  Stopping: "bg-yellow-500",
-  Error: "bg-red-500",
-};
-
 /**
  * Reusable unit card primitive. See plan §7 of the v2 design-system
  * rollout (#815): each unit card ends in a `<CardTabRow>` of icon-only
@@ -163,7 +143,7 @@ export function UnitCard({
       name: unit.name,
       displayName: unit.displayName,
       registeredAt: unit.registeredAt,
-      status: unit.status as UnitStatus | null | undefined,
+      status: unit.status as LifecycleStatus | null | undefined,
       cost,
       activitySeries,
     });
@@ -196,20 +176,16 @@ export function UnitCard({
         >
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "inline-block h-2.5 w-2.5 shrink-0 rounded-full",
-                  statusDot[status] ?? "bg-muted-foreground",
-                )}
-                data-testid={`unit-status-dot-${unit.name}`}
+              <LifecycleStatusDot
+                status={status}
+                testId={`unit-status-dot-${unit.name}`}
               />
               <h3 className="truncate font-semibold">{unit.displayName}</h3>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">{unit.name}</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Badge variant={statusVariant[status] ?? "outline"}>{status}</Badge>
+            <LifecycleStatusBadge status={status} showDot={false} />
             {cost !== null && (
               <Badge
                 variant="outline"

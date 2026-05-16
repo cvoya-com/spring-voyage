@@ -79,7 +79,7 @@ import type {
   PackageConnectorBindings,
   PackageInputSummary,
   UnitConnectorBindingRequest,
-  UnitStatus,
+  LifecycleStatus,
 } from "@/lib/api/types";
 import {
   DEFAULT_HOSTING_MODE,
@@ -1555,7 +1555,7 @@ export default function CreateUnitPage() {
   const createdUnitExecution = useUnitExecution(createdUnitName ?? "", {
     enabled: createdUnitName !== null,
   });
-  const createdStatus: UnitStatus | null = createdUnit?.status ?? null;
+  const createdStatus: LifecycleStatus | null = createdUnit?.status ?? null;
   const isTerminalSuccess =
     createdStatus === "Running" || createdStatus === "Stopped";
   const isTerminalError = createdStatus === "Error";

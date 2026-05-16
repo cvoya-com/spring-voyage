@@ -12,11 +12,16 @@ import {
 } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  LifecycleStatusBadge,
+  LifecycleStatusDot,
+  type LifecycleStatusInput,
+} from "@/components/lifecycle-status-badge";
+import { useAgent, useUnit } from "@/lib/api/queries";
 import { cn } from "@/lib/utils";
 
 import {
   type NodeKind,
-  type NodeStatus,
   overflowTabsFor,
   type TabName,
   tabsFor,
@@ -147,15 +152,7 @@ export function DetailPane({
           <CopyAddressButton address={addressFor(node, path)} />
         </div>
         <div className="mt-2 flex items-center gap-3">
-          <span
-            aria-hidden="true"
-            className={cn(
-              "h-2.5 w-2.5 shrink-0 rounded-full",
-              statusDotClass(node.status),
-            )}
-            data-testid="detail-status-dot"
-            data-status={node.status}
-          />
+          <DetailHeaderStatus node={node} />
           <KindIcon
             kind={node.kind}
             className="h-5 w-5 shrink-0 text-muted-foreground"
@@ -184,9 +181,6 @@ export function DetailPane({
               {node.name}
             </h1>
           )}
-          <Badge variant="outline" className="capitalize">
-            {node.status}
-          </Badge>
           {node.kind === "Agent" && node.role ? (
             <Badge variant="secondary">{node.role}</Badge>
           ) : null}
@@ -492,21 +486,37 @@ function KindIcon({
   }
 }
 
-function statusDotClass(status: NodeStatus): string {
-  switch (status) {
-    case "running":
-      return "bg-success";
-    case "starting":
-    case "stopping":
-    case "validating":
-      return "bg-warning";
-    case "error":
-      return "bg-destructive";
-    case "paused":
-      return "bg-warning/70";
-    case "draft":
-    case "stopped":
-    default:
-      return "bg-debug";
-  }
+/**
+ * Header status cluster — the coloured dot + 7-state lifecycle badge.
+ * Reads the live `LifecycleStatus` from the per-kind detail endpoint so
+ * the badge stays in sync with API mutations (start/stop/revalidate)
+ * without waiting for the tenant-tree cache to refetch. The tree-side
+ * `node.status` is used as the optimistic placeholder until the query
+ * resolves, so the header never flashes empty.
+ */
+function DetailHeaderStatus({ node }: { node: TreeNode }) {
+  const isUnit = node.kind === "Unit";
+  const isAgent = node.kind === "Agent";
+  const unitQuery = useUnit(isUnit ? node.id : "", { enabled: isUnit });
+  const agentQuery = useAgent(isAgent ? node.id : "", { enabled: isAgent });
+
+  const liveStatus: LifecycleStatusInput = isUnit
+    ? unitQuery.data?.status ?? node.status
+    : isAgent
+      ? agentQuery.data?.agent.lifecycleStatus ?? node.status
+      : node.status;
+
+  return (
+    <>
+      <LifecycleStatusDot
+        status={liveStatus}
+        testId="detail-status-dot"
+      />
+      <LifecycleStatusBadge
+        status={liveStatus}
+        showDot={false}
+        testId="detail-status-badge"
+      />
+    </>
+  );
 }

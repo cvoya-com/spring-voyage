@@ -54,8 +54,8 @@ import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import type {
   ActivityEvent,
   UnitResponse,
-  UnitValidationError,
-  UnitValidationStep,
+  ArtefactValidationError,
+  ArtefactValidationStep,
 } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
@@ -90,14 +90,14 @@ interface Props {
  * the four probe steps; the host-side step only appears as the `step`
  * value on a terminal `Error` panel.
  */
-const STEP_ORDER: readonly UnitValidationStep[] = [
+const STEP_ORDER: readonly ArtefactValidationStep[] = [
   "PullingImage",
   "VerifyingTool",
   "ValidatingCredential",
   "ResolvingModel",
 ] as const;
 
-const STEP_LABEL: Record<UnitValidationStep, string> = {
+const STEP_LABEL: Record<ArtefactValidationStep, string> = {
   PullingImage: "Pulling image",
   VerifyingTool: "Verifying tool",
   ValidatingCredential: "Validating credential",
@@ -123,7 +123,7 @@ interface CopyContext {
 
 const VALIDATION_COPY: Record<
   string,
-  (ctx: CopyContext, err?: UnitValidationError) => string
+  (ctx: CopyContext, err?: ArtefactValidationError) => string
 > = {
   ImagePullFailed: (ctx) =>
     `Could not pull image \`${ctx.image ?? "(unset)"}\`. Check that the registry is reachable and the tag exists.`,
@@ -182,7 +182,7 @@ const VALIDATION_COPY: Record<
 };
 
 function formatValidationCopy(
-  err: UnitValidationError,
+  err: ArtefactValidationError,
   ctx: CopyContext,
 ): string {
   const mapped = VALIDATION_COPY[err.code];
@@ -198,7 +198,7 @@ function formatValidationCopy(
  * lower-case strings (see `EmitValidationProgressActivity`), so we
  * validate the shape here rather than trusting `unknown`.
  */
-function extractProgressStep(event: ActivityEvent): UnitValidationStep | null {
+function extractProgressStep(event: ActivityEvent): ArtefactValidationStep | null {
   const details = event.details;
   if (!details || typeof details !== "object") return null;
   const step = (details as { step?: unknown }).step;
@@ -230,7 +230,7 @@ export default function ValidationPanel({
   // predicate — drops the event from the hook's local list (we don't
   // need it; `UnitDetailClient` owns the outer subscription that
   // handles cache invalidation).
-  const [liveStep, setLiveStep] = useState<UnitValidationStep | null>(null);
+  const [liveStep, setLiveStep] = useState<ArtefactValidationStep | null>(null);
 
   useActivityStream({
     filter: (event) => {
@@ -248,7 +248,7 @@ export default function ValidationPanel({
     },
   });
 
-  const activeStep: UnitValidationStep | null = useMemo(() => {
+  const activeStep: ArtefactValidationStep | null = useMemo(() => {
     if (status !== "Validating") return null;
     return liveStep;
   }, [status, liveStep]);
@@ -426,13 +426,13 @@ function StepChecklist({
   activeStep,
   failedStep = null,
 }: {
-  activeStep: UnitValidationStep | null;
+  activeStep: ArtefactValidationStep | null;
   // When set, the checklist renders in a "post-mortem" mode: every
   // step before `failedStep` shows as completed, the failed step
   // shows with a destructive marker, and steps after it are muted
   // ("never reached"). Used by the Error state so the error block
   // below visually attaches to the step that produced it.
-  failedStep?: UnitValidationStep | null;
+  failedStep?: ArtefactValidationStep | null;
 }) {
   // Map each step's position to the visual state. When `activeStep` is
   // null and there's no `failedStep` the server hasn't yet emitted
