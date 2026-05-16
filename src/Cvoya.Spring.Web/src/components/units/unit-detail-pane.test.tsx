@@ -8,6 +8,14 @@ vi.mock("./unit-pane-actions", () => ({
   UnitPaneActions: () => null,
 }));
 
+// #2372: the header status cluster reads live LifecycleStatus through
+// `useUnit` / `useAgent`. Stub them so chrome-only tests don't need a
+// TanStack QueryClient — same posture as the pane-actions stub above.
+vi.mock("@/lib/api/queries", () => ({
+  useUnit: () => ({ data: undefined }),
+  useAgent: () => ({ data: undefined }),
+}));
+
 import type { TreeNode } from "./aggregate";
 import { __resetTabRegistryForTesting } from "./tabs";
 import { addressFor, DetailPane } from "./unit-detail-pane";

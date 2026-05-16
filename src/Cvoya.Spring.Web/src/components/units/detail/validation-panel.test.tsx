@@ -26,7 +26,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ActivityEvent,
   UnitResponse,
-  UnitValidationError,
+  ArtefactValidationError,
 } from "@/lib/api/types";
 
 // --- Mocks ------------------------------------------------------------
@@ -184,7 +184,7 @@ describe("ValidationPanel — Validating status", () => {
 
 describe("ValidationPanel — Error status", () => {
   it("renders CredentialInvalid with the friendly copy and run id", () => {
-    const err: UnitValidationError = {
+    const err: ArtefactValidationError = {
       step: "ValidatingCredential",
       code: "CredentialInvalid",
       message: "Server-supplied raw message (hidden).",
@@ -213,7 +213,7 @@ describe("ValidationPanel — Error status", () => {
   });
 
   it("Retry validation triggers revalidate once", async () => {
-    const err: UnitValidationError = {
+    const err: ArtefactValidationError = {
       step: "ValidatingCredential",
       code: "CredentialInvalid",
       message: "rejected",
@@ -239,7 +239,7 @@ describe("ValidationPanel — Error status", () => {
   });
 
   it("Edit credential → Save fires createUnitSecret then revalidate in order", async () => {
-    const err: UnitValidationError = {
+    const err: ArtefactValidationError = {
       step: "ValidatingCredential",
       code: "CredentialInvalid",
       message: "rejected",
@@ -307,7 +307,7 @@ describe("ValidationPanel — Error status", () => {
   });
 
   it("writes anthropic-api-key for the (spring-voyage, anthropic) edge (#2161)", async () => {
-    const err: UnitValidationError = {
+    const err: ArtefactValidationError = {
       step: "ValidatingCredential",
       code: "CredentialInvalid",
       message: "rejected",

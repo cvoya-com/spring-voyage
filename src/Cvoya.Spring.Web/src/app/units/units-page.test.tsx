@@ -76,6 +76,10 @@ vi.mock("@/lib/api/queries", () => ({
   // stub the hook with "no data" — the Delete button is the only one
   // that always renders and the test suite doesn't click it.
   useUnit: () => ({ data: null }),
+  // #2372: the detail-pane header now reads agent lifecycle through
+  // `useAgent(id)`. Stub with "no data" so Explorer page tests don't
+  // need to model the agent detail endpoint.
+  useAgent: () => ({ data: null }),
   // Unit Overview tab (#1363) — cost timeseries sparkline. Stub with "no
   // data" so Explorer page tests don't need to model analytics.
   useUnitCostTimeseries: () => ({ data: null, isLoading: false }),

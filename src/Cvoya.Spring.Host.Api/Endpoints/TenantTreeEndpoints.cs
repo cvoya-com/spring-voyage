@@ -179,7 +179,18 @@ public static class TenantTreeEndpoints
         foreach (var unit in unitEntries)
         {
             unitStatuses[unit.Address.Path] =
-                await TryGetLifecycleStatusAsync(actorProxyFactory, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.ActorId), logger, unit.Address.Path, cancellationToken);
+                await TryGetUnitLifecycleStatusAsync(actorProxyFactory, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.ActorId), logger, unit.Address.Path, cancellationToken);
+        }
+
+        // #2372: same fan-out for agents — the shared LifecycleStatus
+        // state machine (#2364) means agent rows in the tree need real
+        // per-agent status too, not the legacy "running" pin. Driven by
+        // the same actor round-trip the dashboard already pays.
+        var agentStatuses = new Dictionary<string, LifecycleStatus>(StringComparer.Ordinal);
+        foreach (var (agentPath, agentEntry) in agentEntries)
+        {
+            agentStatuses[agentPath] =
+                await TryGetAgentLifecycleStatusAsync(actorProxyFactory, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(agentEntry.ActorId), logger, agentPath, cancellationToken);
         }
 
         // Walk the tree top-down from the units that render under the
@@ -197,6 +208,7 @@ public static class TenantTreeEndpoints
                 u,
                 unitEntriesById,
                 unitStatuses,
+                agentStatuses,
                 membershipsByUnit,
                 childUnitsByParent,
                 agentEntries,
@@ -226,6 +238,7 @@ public static class TenantTreeEndpoints
         DirectoryEntry unit,
         IReadOnlyDictionary<string, DirectoryEntry> unitEntriesById,
         IReadOnlyDictionary<string, LifecycleStatus> unitStatuses,
+        IReadOnlyDictionary<string, LifecycleStatus> agentStatuses,
         IReadOnlyDictionary<string, List<UnitMembership>> membershipsByUnit,
         IReadOnlyDictionary<string, IReadOnlyList<string>> childUnitsByParent,
         IReadOnlyDictionary<string, DirectoryEntry> agentEntries,
@@ -267,7 +280,7 @@ public static class TenantTreeEndpoints
 
         var agentNodes = rows
             .Where(m => m.Enabled)
-            .Select(m => BuildAgentNode(m, agentEntries, primaryByAgent, agentSlugByGuid))
+            .Select(m => BuildAgentNode(m, agentEntries, primaryByAgent, agentSlugByGuid, agentStatuses))
             .Where(n => n is not null)
             .Cast<TenantTreeNode>()
             .ToList();
@@ -284,6 +297,7 @@ public static class TenantTreeEndpoints
                     unitEntriesById[id],
                     unitEntriesById,
                     unitStatuses,
+                    agentStatuses,
                     membershipsByUnit,
                     childUnitsByParent,
                     agentEntries,
@@ -314,7 +328,7 @@ public static class TenantTreeEndpoints
     /// missing or unreachable actor collapses to <see cref="LifecycleStatus.Draft"/>
     /// so the tree still renders rather than failing the whole fetch.
     /// </summary>
-    private static async Task<LifecycleStatus> TryGetLifecycleStatusAsync(
+    private static async Task<LifecycleStatus> TryGetUnitLifecycleStatusAsync(
         IActorProxyFactory actorProxyFactory,
         string actorId,
         ILogger logger,
@@ -332,6 +346,34 @@ public static class TenantTreeEndpoints
             logger.LogWarning(ex,
                 "Failed to read persisted status for unit {UnitPath}; reporting Draft in tenant tree.",
                 unitPath);
+            return LifecycleStatus.Draft;
+        }
+    }
+
+    /// <summary>
+    /// Agent twin of <see cref="TryGetUnitLifecycleStatusAsync"/> — reads the
+    /// agent's persisted lifecycle status via the agent actor (#2371 / #2372).
+    /// Falls back to <see cref="LifecycleStatus.Draft"/> on actor outage so
+    /// the tree still renders.
+    /// </summary>
+    private static async Task<LifecycleStatus> TryGetAgentLifecycleStatusAsync(
+        IActorProxyFactory actorProxyFactory,
+        string actorId,
+        ILogger logger,
+        string agentPath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+                new ActorId(actorId), nameof(AgentActor));
+            return await proxy.GetStatusAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Failed to read persisted status for agent {AgentPath}; reporting Draft in tenant tree.",
+                agentPath);
             return LifecycleStatus.Draft;
         }
     }
@@ -359,7 +401,8 @@ public static class TenantTreeEndpoints
         UnitMembership membership,
         IReadOnlyDictionary<string, DirectoryEntry> agentEntries,
         IReadOnlyDictionary<string, string> primaryByAgent,
-        IReadOnlyDictionary<Guid, string> agentSlugByGuid)
+        IReadOnlyDictionary<Guid, string> agentSlugByGuid,
+        IReadOnlyDictionary<string, LifecycleStatus> agentStatuses)
     {
         // Resolve the agent Guid to its slug so we can look up the directory
         // entry. An agent might have a membership row but no directory entry
@@ -377,11 +420,19 @@ public static class TenantTreeEndpoints
 
         primaryByAgent.TryGetValue(agentSlug, out var primary);
 
+        // #2372: emit the real LifecycleStatus rather than the legacy
+        // "running" pin so the portal tree dot + worst-status rollup
+        // see agents accurately. Falls back to Draft on actor outage —
+        // same policy as the unit side.
+        var status = agentStatuses.TryGetValue(agentSlug, out var persisted)
+            ? persisted
+            : LifecycleStatus.Draft;
+
         return new TenantTreeNode(
             Id: agent.Address.Path,
             Name: string.IsNullOrWhiteSpace(agent.DisplayName) ? agent.Address.Path : agent.DisplayName,
             Kind: "Agent",
-            Status: "running",
+            Status: ToWireStatus(status),
             Desc: string.IsNullOrWhiteSpace(agent.Description) ? null : agent.Description,
             Role: agent.Role,
             PrimaryParentId: primary,

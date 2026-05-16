@@ -2,6 +2,10 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  LifecycleStatusBadge,
+  type LifecycleStatusInput,
+} from "@/components/lifecycle-status-badge";
 import { RuntimeStatusBadge } from "@/components/runtime-status-badge";
 import type {
   AgentDashboardSummary,
@@ -31,7 +35,15 @@ export interface AgentCardAgent {
   role?: string | null;
   registeredAt: string;
   parentUnit?: string | null;
-  status?: string | null;
+  /**
+   * Full 7-state lifecycle status (#2372). Mirrors
+   * {@link import("@/lib/api/types").LifecycleStatus} — `Draft`,
+   * `Validating`, `Stopped`, `Starting`, `Running`, `Stopping`, `Error`.
+   * Lowercase tree-side values (`"running"` / `"draft"`) are also
+   * accepted by the badge so callers reading from the tenant tree don't
+   * need to re-normalise.
+   */
+  status?: LifecycleStatusInput;
   executionMode?: AgentExecutionMode | null;
   /** Short one-line summary of the most recent activity, if known. */
   lastActivity?: string | null;
@@ -86,16 +98,6 @@ interface AgentCardProps {
   className?: string;
 }
 
-const statusVariant: Record<
-  string,
-  "default" | "success" | "warning" | "destructive" | "secondary" | "outline"
-> = {
-  idle: "secondary",
-  active: "success",
-  busy: "warning",
-  error: "destructive",
-};
-
 /**
  * Reusable agent card primitive. See plan §7 of the v2 design-system
  * rollout (#815): each agent card ends in a `<CardTabRow>` of icon-only
@@ -128,7 +130,8 @@ export function AgentCard({
     parentUnit ?? ("parentUnit" in agent ? agent.parentUnit : undefined);
   const lastActivityText =
     lastActivity ?? ("lastActivity" in agent ? agent.lastActivity : undefined);
-  const status = "status" in agent ? agent.status ?? null : null;
+  const status: LifecycleStatusInput =
+    "status" in agent ? agent.status ?? null : null;
   const execMode =
     "executionMode" in agent ? agent.executionMode ?? null : null;
   // #2100: render the runtime-status indicator next to the role/status
@@ -172,12 +175,11 @@ export function AgentCard({
               </Badge>
             )}
             {status && (
-              <Badge
-                variant={statusVariant[status.toLowerCase()] ?? "outline"}
-                data-testid="agent-status-badge"
-              >
-                {status}
-              </Badge>
+              <LifecycleStatusBadge
+                status={status}
+                showDot={false}
+                testId="agent-status-badge"
+              />
             )}
             {execMode && (
               <Badge variant="outline" data-testid="agent-execution-mode-badge">
