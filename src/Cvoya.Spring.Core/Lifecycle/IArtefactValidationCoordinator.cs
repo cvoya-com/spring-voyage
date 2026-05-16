@@ -3,12 +3,12 @@
 
 namespace Cvoya.Spring.Core.Lifecycle;
 
-using Cvoya.Spring.Core.Lifecycle;
+using Cvoya.Spring.Core.Artefacts;
 
 /// <summary>
 /// Seam that encapsulates the validation-scheduling concern extracted from
-/// <c>UnitActor</c>: receiving the trigger to enter
-/// <see cref="LifecycleStatus.Validating"/>, scheduling the
+/// <c>UnitActor</c> and shared with <c>AgentActor</c> (#2364): receiving the
+/// trigger to enter <see cref="LifecycleStatus.Validating"/>, scheduling the
 /// <c>ArtefactValidationWorkflow</c> via
 /// <see cref="IArtefactValidationWorkflowScheduler"/>, persisting the run id
 /// through <see cref="IArtefactValidationTracker"/>, and driving the terminal
@@ -26,9 +26,11 @@ using Cvoya.Spring.Core.Lifecycle;
 /// </para>
 /// <para>
 /// The coordinator does not hold a reference to the actor. Instead, both
-/// methods receive a <see cref="PersistTransitionAsync"/> delegate so the
-/// actor can inject its own state-write + activity-event implementation
-/// without the coordinator depending on Dapr actor types.
+/// methods receive a <c>persistTransition</c> delegate so the actor can
+/// inject its own state-write + activity-event implementation without the
+/// coordinator depending on Dapr actor types. The
+/// <see cref="ArtefactKind"/> parameter routes the workflow input + tracker
+/// write to the right per-kind store.
 /// </para>
 /// </remarks>
 public interface IArtefactValidationCoordinator
@@ -46,14 +48,15 @@ public interface IArtefactValidationCoordinator
     ///   <item><description>
     ///     A non-null <see cref="TransitionResult"/> when the scheduler threw
     ///     and the coordinator recovered by calling
-    ///     <paramref name="persistTransition"/> to flip the unit to
+    ///     <paramref name="persistTransition"/> to flip the artefact to
     ///     <see cref="LifecycleStatus.Error"/> — the caller should return this
     ///     result so observers see the final state without a separate status
     ///     read (#1136).
     ///   </description></item>
     /// </list>
     /// </summary>
-    /// <param name="unitActorId">The unit's Dapr actor id.</param>
+    /// <param name="kind">Whether the artefact is a Unit or an Agent.</param>
+    /// <param name="artefactActorId">The artefact's Dapr actor id.</param>
     /// <param name="persistTransition">
     /// Delegate that writes the status to actor state and emits the
     /// <c>StateChanged</c> activity event. Called by the coordinator when
@@ -67,7 +70,8 @@ public interface IArtefactValidationCoordinator
     /// </param>
     /// <param name="cancellationToken">Cancels the schedule.</param>
     Task<TransitionResult?> TryStartWorkflowAsync(
-        string unitActorId,
+        ArtefactKind kind,
+        string artefactActorId,
         Func<LifecycleStatus, LifecycleStatus, ArtefactValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
         CancellationToken cancellationToken = default);
 
@@ -80,7 +84,8 @@ public interface IArtefactValidationCoordinator
     /// <see cref="LifecycleStatus.Validating"/>→<see cref="LifecycleStatus.Error"/>
     /// transition through <paramref name="persistTransition"/>.
     /// </summary>
-    /// <param name="unitActorId">The unit's Dapr actor id.</param>
+    /// <param name="kind">Whether the artefact is a Unit or an Agent — drives the per-kind tracker store.</param>
+    /// <param name="artefactActorId">The artefact's Dapr actor id.</param>
     /// <param name="completion">The workflow's completion payload.</param>
     /// <param name="getCurrentStatus">
     /// Delegate that reads the current <see cref="LifecycleStatus"/> from actor
@@ -98,7 +103,8 @@ public interface IArtefactValidationCoordinator
     /// </param>
     /// <param name="cancellationToken">Cancels the completion handling.</param>
     Task<TransitionResult> CompleteValidationAsync(
-        string unitActorId,
+        ArtefactKind kind,
+        string artefactActorId,
         ArtefactValidationCompletion completion,
         Func<CancellationToken, Task<LifecycleStatus>> getCurrentStatus,
         Func<LifecycleStatus, LifecycleStatus, ArtefactValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,

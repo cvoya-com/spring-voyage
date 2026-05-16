@@ -3,13 +3,13 @@
 
 namespace Cvoya.Spring.Dapr.DependencyInjection;
 
-using Cvoya.Spring.Dapr.Lifecycle;
-using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.Dapr.Lifecycle;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Prompts;
 using Cvoya.Spring.Dapr.Units;

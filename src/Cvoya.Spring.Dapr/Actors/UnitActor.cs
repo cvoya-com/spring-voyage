@@ -3,10 +3,10 @@
 
 namespace Cvoya.Spring.Dapr.Actors;
 
-using Cvoya.Spring.Dapr.Lifecycle;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
@@ -15,6 +15,7 @@ using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Lifecycle;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Units;
 
@@ -575,7 +576,7 @@ public class UnitActor : Actor, IUnitActor
         if (result.Success && target == LifecycleStatus.Validating && _validationCoordinator is not null)
         {
             var recoveryResult = await _validationCoordinator.TryStartWorkflowAsync(
-                Id.GetId(), PersistTransitionAsync, ct);
+                ArtefactKind.Unit, Id.GetId(), PersistTransitionAsync, ct);
             if (recoveryResult is not null)
             {
                 return recoveryResult;
@@ -600,6 +601,7 @@ public class UnitActor : Actor, IUnitActor
         if (_validationCoordinator is not null)
         {
             result = await _validationCoordinator.CompleteValidationAsync(
+                ArtefactKind.Unit,
                 Id.GetId(),
                 completion,
                 GetStatusInternalAsync,
@@ -718,7 +720,7 @@ public class UnitActor : Actor, IUnitActor
         // Idempotent — overwriting with the same value is fine; subsequent
         // SaveStateAsync persists the flag so the next CompleteValidationAsync
         // turn observes it.
-        await StateManager.SetStateAsync(StateKeys.PendingAutoStart, true, ct);
+        await StateManager.SetStateAsync(StateKeys.UnitPendingAutoStart, true, ct);
         await StateManager.SaveStateAsync(ct);
     }
 
@@ -731,7 +733,7 @@ public class UnitActor : Actor, IUnitActor
     /// </summary>
     private async Task TryAutoStartAsync(CancellationToken ct)
     {
-        var pending = await StateManager.TryGetStateAsync<bool>(StateKeys.PendingAutoStart, ct);
+        var pending = await StateManager.TryGetStateAsync<bool>(StateKeys.UnitPendingAutoStart, ct);
         if (!pending.HasValue || !pending.Value)
         {
             return;
@@ -740,7 +742,7 @@ public class UnitActor : Actor, IUnitActor
         // Clear the marker FIRST so a connector hook that throws or a
         // partial Running transition doesn't leave a permanent
         // auto-start flag re-firing on every revalidation.
-        await StateManager.TryRemoveStateAsync(StateKeys.PendingAutoStart, ct);
+        await StateManager.TryRemoveStateAsync(StateKeys.UnitPendingAutoStart, ct);
         await StateManager.SaveStateAsync(ct);
 
         if (_connectorStartDispatcher is null)

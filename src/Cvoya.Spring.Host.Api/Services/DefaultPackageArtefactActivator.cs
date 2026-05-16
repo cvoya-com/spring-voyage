@@ -474,10 +474,12 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             }
         }
 
-        // Directory registration + definition write both succeeded — mark
-        // the agent Active so the GET endpoint reports a clean install.
-        await actorProxy.SetLifecycleStatusAsync(LifecycleStatus.Running, null, ct);
-
+        // #2364: agents now go through the same lifecycle as units —
+        // Draft → Validating → Stopped → Starting → Running. Phase 4
+        // wires the activator's auto-start gate that schedules the
+        // validation workflow and sets PendingAutoStart. For now the
+        // agent lands in Draft after install; Phase 4 will drive it
+        // through to Running.
         _logger.LogInformation(
             "Agent artefact '{Name}' registered (actorId={ActorId}, role={Role}).",
             slug, actorId, fields.Role ?? "(none)");
@@ -490,23 +492,26 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
     /// inside this method is swallowed so the original exception is the
     /// one that surfaces to the install pipeline.
     /// </summary>
-    private async Task TrySetLifecycleErrorAsync(
+    private Task TrySetLifecycleErrorAsync(
         IAgentActor actorProxy,
         string slug,
         Exception ex,
         CancellationToken ct)
     {
-        try
-        {
-            await actorProxy.SetLifecycleStatusAsync(
-                LifecycleStatus.Error, ex.Message, ct);
-        }
-        catch (Exception lifecycleEx)
-        {
-            _logger.LogWarning(lifecycleEx,
-                "Agent artefact '{Name}': failed to record lifecycle Error after install fault; original error: {OriginalError}",
-                slug, ex.Message);
-        }
+        // #2364: the old AgentLifecycleStatus.Error sentinel is gone.
+        // The new state machine has no Draft → Error edge (an agent
+        // that fails activation never entered Validating), so we just
+        // log the install failure here. The activator's caller rethrows
+        // the original exception so the install pipeline still surfaces
+        // it to the operator. Phase 4 may add a richer error path once
+        // the auto-start gate is wired.
+        _logger.LogWarning(
+            ex,
+            "Agent artefact '{Name}': activation failed; agent left unregistered. Operator-visible message: {Message}",
+            slug, ex.Message);
+        _ = actorProxy; // parameter retained for future Phase 4 wiring
+        _ = ct;
+        return Task.CompletedTask;
     }
 
     /// <summary>Minimal projection of the agent YAML fields the activator needs.</summary>

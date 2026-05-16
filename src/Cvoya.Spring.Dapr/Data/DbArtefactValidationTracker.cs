@@ -3,22 +3,27 @@
 
 namespace Cvoya.Spring.Dapr.Data;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Lifecycle;
-using Cvoya.Spring.Core.Units;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Default <see cref="IArtefactValidationTracker"/>. Writes the
-/// <c>LastValidationRunId</c> and <c>LastValidationErrorJson</c> columns
-/// on the <c>UnitDefinitionEntity</c> row matching the supplied actor id.
+/// Default <see cref="IArtefactValidationTracker"/>. For
+/// <see cref="ArtefactKind.Unit"/>, writes the <c>LastValidationRunId</c> and
+/// <c>LastValidationErrorJson</c> columns on the <c>UnitDefinitionEntity</c>
+/// row matching the supplied actor id. For <see cref="ArtefactKind.Agent"/>,
+/// all methods no-op — the agent_definitions table does not yet carry the
+/// per-run tracking columns, so the agent path runs without the stale-run
+/// guard for v0.1. Filed as a follow-up to add the columns + migration.
 /// </summary>
 /// <remarks>
-/// Every call opens its own <see cref="IServiceScope"/> (matching the
-/// pattern used by <c>DbUnitExecutionStore</c>) because <c>UnitActor</c> is instantiated
-/// through the Dapr actor runtime, which does not own a request scope.
+/// Every unit-side call opens its own <see cref="IServiceScope"/> (matching
+/// the pattern used by <c>DbUnitExecutionStore</c>) because the actors are
+/// instantiated through the Dapr actor runtime, which does not own a
+/// request scope.
 /// </remarks>
 public class DbArtefactValidationTracker(
     IServiceScopeFactory scopeFactory,
@@ -28,11 +33,20 @@ public class DbArtefactValidationTracker(
 
     /// <inheritdoc />
     public async Task<string?> GetLastValidationRunIdAsync(
-        string unitActorId,
+        ArtefactKind kind,
+        string artefactActorId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(unitActorId)
-            || !Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitActorId, out var unitActorUuid))
+        if (kind != ArtefactKind.Unit)
+        {
+            // Agent / Skill / Workflow have no tracking row today. Return
+            // null so the coordinator's stale-run guard treats every
+            // completion as fresh — acceptable v0.1 limitation.
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(artefactActorId)
+            || !Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(artefactActorId, out var artefactActorUuid))
         {
             return null;
         }
@@ -42,7 +56,7 @@ public class DbArtefactValidationTracker(
 
         var row = await db.UnitDefinitions
             .AsNoTracking()
-            .Where(u => u.Id == unitActorUuid && u.DeletedAt == null)
+            .Where(u => u.Id == artefactActorUuid && u.DeletedAt == null)
             .Select(u => new { u.LastValidationRunId })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -51,23 +65,30 @@ public class DbArtefactValidationTracker(
 
     /// <inheritdoc />
     public async Task BeginRunAsync(
-        string unitActorId,
+        ArtefactKind kind,
+        string artefactActorId,
         string runId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(unitActorId))
+        if (kind != ArtefactKind.Unit)
         {
-            throw new ArgumentException("Unit actor id must be supplied.", nameof(unitActorId));
+            // Agent path: no tracking row yet. No-op.
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(artefactActorId))
+        {
+            throw new ArgumentException("Artefact actor id must be supplied.", nameof(artefactActorId));
         }
         if (string.IsNullOrWhiteSpace(runId))
         {
             throw new ArgumentException("Run id must be supplied.", nameof(runId));
         }
-        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitActorId, out var unitActorUuid))
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(artefactActorId, out var artefactActorUuid))
         {
             throw new ArgumentException(
-                $"Unit actor id '{unitActorId}' is not a valid Guid.",
-                nameof(unitActorId));
+                $"Artefact actor id '{artefactActorId}' is not a valid Guid.",
+                nameof(artefactActorId));
         }
 
         await using var scope = scopeFactory.CreateAsyncScope();
@@ -75,14 +96,14 @@ public class DbArtefactValidationTracker(
 
         var entity = await db.UnitDefinitions
             .FirstOrDefaultAsync(
-                u => u.Id == unitActorUuid && u.DeletedAt == null,
+                u => u.Id == artefactActorUuid && u.DeletedAt == null,
                 cancellationToken);
 
         if (entity is null)
         {
             _logger.LogWarning(
                 "No UnitDefinition row for actor id {ActorId}; validation run id not persisted.",
-                unitActorId);
+                artefactActorId);
             return;
         }
 
@@ -98,19 +119,26 @@ public class DbArtefactValidationTracker(
 
     /// <inheritdoc />
     public async Task SetFailureAsync(
-        string unitActorId,
+        ArtefactKind kind,
+        string artefactActorId,
         string? errorJson,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(unitActorId))
+        if (kind != ArtefactKind.Unit)
         {
-            throw new ArgumentException("Unit actor id must be supplied.", nameof(unitActorId));
+            // Agent path: no tracking row yet. No-op.
+            return;
         }
-        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitActorId, out var unitActorUuid))
+
+        if (string.IsNullOrWhiteSpace(artefactActorId))
+        {
+            throw new ArgumentException("Artefact actor id must be supplied.", nameof(artefactActorId));
+        }
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(artefactActorId, out var artefactActorUuid))
         {
             throw new ArgumentException(
-                $"Unit actor id '{unitActorId}' is not a valid Guid.",
-                nameof(unitActorId));
+                $"Artefact actor id '{artefactActorId}' is not a valid Guid.",
+                nameof(artefactActorId));
         }
 
         await using var scope = scopeFactory.CreateAsyncScope();
@@ -118,14 +146,14 @@ public class DbArtefactValidationTracker(
 
         var entity = await db.UnitDefinitions
             .FirstOrDefaultAsync(
-                u => u.Id == unitActorUuid && u.DeletedAt == null,
+                u => u.Id == artefactActorUuid && u.DeletedAt == null,
                 cancellationToken);
 
         if (entity is null)
         {
             _logger.LogWarning(
                 "No UnitDefinition row for actor id {ActorId}; validation failure not persisted.",
-                unitActorId);
+                artefactActorId);
             return;
         }
 

@@ -3,8 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Lifecycle;
-using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 
 using global::Dapr.Actors;
@@ -15,16 +15,17 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Terminal activity the <see cref="ArtefactValidationWorkflow"/> appends to
-/// both success and failure exit paths. Builds an <see cref="IUnitActor"/>
-/// proxy for the unit under validation and invokes
-/// <see cref="IUnitActor.CompleteValidationAsync"/> so the actor can drive
-/// the <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Stopped"/>
+/// both success and failure exit paths. Builds the right actor proxy for the
+/// artefact under validation (<see cref="IUnitActor"/> for
+/// <see cref="ArtefactKind.Unit"/>, <see cref="IAgentActor"/> for
+/// <see cref="ArtefactKind.Agent"/>) and invokes its
+/// <c>CompleteValidationAsync</c> so the actor can drive the
+/// <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Stopped"/>
 /// (success) or <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Error"/>
-/// (failure) transition, persist the redacted failure payload, and emit
-/// the <c>StateChanged</c> activity event the UI already consumes.
+/// (failure) transition, persist the redacted failure payload, and emit the
+/// <c>StateChanged</c> activity event the UI already consumes.
 /// </summary>
 /// <remarks>
-/// <para>
 /// The workflow body is deterministic and service-free; the side-effectful
 /// actor round-trip has to live inside an activity. The activity returns
 /// <c>true</c> when the callback completed (regardless of whether the
@@ -32,7 +33,6 @@ using Microsoft.Extensions.Logging;
 /// terminal-status guards) and <c>false</c> on a transport-level failure —
 /// workflow behaviour is fire-and-forget, so the return value is
 /// informational only.
-/// </para>
 /// </remarks>
 public class CompleteArtefactValidationActivity(
     IActorProxyFactory actorProxyFactory,
@@ -47,22 +47,30 @@ public class CompleteArtefactValidationActivity(
     {
         ArgumentNullException.ThrowIfNull(input);
 
+        var completion = new ArtefactValidationCompletion(
+            Success: input.Success,
+            Failure: input.Failure,
+            WorkflowInstanceId: input.WorkflowInstanceId);
+
         try
         {
-            var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(input.UnitId), nameof(UnitActor));
-
-            var completion = new ArtefactValidationCompletion(
-                Success: input.Success,
-                Failure: input.Failure,
-                WorkflowInstanceId: input.WorkflowInstanceId);
-
-            var result = await proxy.CompleteValidationAsync(completion);
+            var result = input.Kind switch
+            {
+                ArtefactKind.Unit => await actorProxyFactory
+                    .CreateActorProxy<IUnitActor>(new ActorId(input.ArtefactId), nameof(UnitActor))
+                    .CompleteValidationAsync(completion),
+                ArtefactKind.Agent => await actorProxyFactory
+                    .CreateActorProxy<IAgentActor>(new ActorId(input.ArtefactId), nameof(AgentActor))
+                    .CompleteValidationAsync(completion),
+                _ => throw new InvalidOperationException(
+                    $"ArtefactKind '{input.Kind}' has no container lifecycle — " +
+                    "Skill and Workflow kinds must be rejected by the scheduler before reaching this activity."),
+            };
 
             _logger.LogInformation(
-                "ArtefactValidationWorkflow {InstanceId} posted completion to unit {UnitId}. " +
+                "ArtefactValidationWorkflow {InstanceId} posted completion to {Kind} {ArtefactId}. " +
                 "Applied={Applied}, CurrentStatus={Status}, Reason={Reason}.",
-                input.WorkflowInstanceId, input.UnitId,
+                input.WorkflowInstanceId, input.Kind, input.ArtefactId,
                 result.Success, result.CurrentStatus, result.RejectionReason ?? "<none>");
 
             return true;
@@ -70,13 +78,13 @@ public class CompleteArtefactValidationActivity(
         catch (Exception ex)
         {
             // Never let a callback failure derail the workflow. The
-            // unit's transition will have to be recovered manually
+            // artefact's transition will have to be recovered manually
             // (e.g. via /revalidate) if this path fails, but we cannot
             // mask the workflow's own outcome by throwing here.
             _logger.LogError(
                 ex,
-                "ArtefactValidationWorkflow {InstanceId} failed to post completion to unit {UnitId}.",
-                input.WorkflowInstanceId, input.UnitId);
+                "ArtefactValidationWorkflow {InstanceId} failed to post completion to {Kind} {ArtefactId}.",
+                input.WorkflowInstanceId, input.Kind, input.ArtefactId);
             return false;
         }
     }

@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Workflows;
 
@@ -27,7 +28,7 @@ public class ArtefactValidationWorkflowSchedulerTests
             Provider: "openai",
             Agent: "claude");
 
-        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults);
+        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults.Agent, defaults.Provider);
 
         runtimeId.ShouldBe("claude");
     }
@@ -41,7 +42,7 @@ public class ArtefactValidationWorkflowSchedulerTests
         var defaults = new UnitExecutionDefaults(
             Provider: "openai");
 
-        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults);
+        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults.Agent, defaults.Provider);
 
         runtimeId.ShouldBe("openai");
     }
@@ -51,7 +52,7 @@ public class ArtefactValidationWorkflowSchedulerTests
     {
         var defaults = new UnitExecutionDefaults();
 
-        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults);
+        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults.Agent, defaults.Provider);
 
         runtimeId.ShouldBeNull();
     }
@@ -65,7 +66,7 @@ public class ArtefactValidationWorkflowSchedulerTests
             Provider: "ollama",
             Agent: "   ");
 
-        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults);
+        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults.Agent, defaults.Provider);
 
         runtimeId.ShouldBe("ollama");
     }

@@ -167,7 +167,18 @@ public static class StateKeys
     /// Stopped after validation" — the original behaviour preserved for the
     /// manual <c>/revalidate</c> path.
     /// </summary>
-    public const string PendingAutoStart = "Unit:PendingAutoStart";
+    public const string UnitPendingAutoStart = "Unit:PendingAutoStart";
+
+    /// <summary>
+    /// State key (boolean) marking an agent as awaiting an automatic transition
+    /// to <c>Running</c> as soon as validation succeeds (#2364). Set by the
+    /// activator / direct-create path after the agent transitions into
+    /// <c>Validating</c>; consumed and cleared by
+    /// <c>AgentActor.CompleteValidationAsync</c> when the workflow reports
+    /// success. Mirrors the unit-side <see cref="UnitPendingAutoStart"/>
+    /// marker.
+    /// </summary>
+    public const string AgentPendingAutoStart = "Agent:PendingAutoStart";
 
     // ADR-0040 / #2049: the unit live-config keys (Unit:Model,
     // Unit:Color, Unit:Provider, Unit:Hosting, Unit:Boundary,

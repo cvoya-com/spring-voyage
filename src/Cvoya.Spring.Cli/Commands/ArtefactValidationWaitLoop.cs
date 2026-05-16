@@ -3,12 +3,13 @@
 
 namespace Cvoya.Spring.Cli.Commands;
 
-using Cvoya.Spring.Core.Lifecycle;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+
+using Cvoya.Spring.Core.Lifecycle;
 
 /// <summary>
 /// Snapshot of the server-observable unit-validation state polled by the

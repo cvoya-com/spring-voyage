@@ -3,8 +3,9 @@
 
 namespace Cvoya.Spring.Core.Issues;
 
-using Cvoya.Spring.Core.Lifecycle;
 using System;
+
+using Cvoya.Spring.Core.Lifecycle;
 
 /// <summary>
 /// One operationally-significant condition observed about a unit or an

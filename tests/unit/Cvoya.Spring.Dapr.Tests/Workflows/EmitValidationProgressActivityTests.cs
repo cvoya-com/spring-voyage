@@ -3,8 +3,9 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
-using Cvoya.Spring.Core.Lifecycle;
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Workflows.Activities;
 
@@ -40,8 +41,7 @@ public class EmitValidationProgressActivityTests
     [Fact]
     public async Task RunAsync_PublishesValidationProgressEvent_WithUnitAddress()
     {
-        var input = new EmitValidationProgressActivityInput(
-            UnitId: UnitId,
+        var input = new EmitValidationProgressActivityInput(Kind: ArtefactKind.Unit, ArtefactId: UnitId,
             Step: ArtefactValidationStep.VerifyingTool,
             Status: "Running",
             Code: null);
@@ -61,8 +61,7 @@ public class EmitValidationProgressActivityTests
     [Fact]
     public async Task RunAsync_RunningStatus_UsesInfoSeverity()
     {
-        var input = new EmitValidationProgressActivityInput(
-            UnitId, ArtefactValidationStep.VerifyingTool, "Running", null);
+        var input = new EmitValidationProgressActivityInput(ArtefactKind.Unit, UnitId, ArtefactValidationStep.VerifyingTool, "Running", null);
         var context = Substitute.For<WorkflowActivityContext>();
 
         await _activity.RunAsync(context, input);
@@ -75,8 +74,7 @@ public class EmitValidationProgressActivityTests
     [Fact]
     public async Task RunAsync_FailedStatus_UsesWarningSeverity()
     {
-        var input = new EmitValidationProgressActivityInput(
-            UnitId, ArtefactValidationStep.VerifyingTool, "Failed", ArtefactValidationCodes.ToolMissing);
+        var input = new EmitValidationProgressActivityInput(ArtefactKind.Unit, UnitId, ArtefactValidationStep.VerifyingTool, "Failed", ArtefactValidationCodes.ToolMissing);
         var context = Substitute.For<WorkflowActivityContext>();
 
         await _activity.RunAsync(context, input);
@@ -89,8 +87,7 @@ public class EmitValidationProgressActivityTests
     [Fact]
     public async Task RunAsync_DetailsCarryStepAndStatus()
     {
-        var input = new EmitValidationProgressActivityInput(
-            UnitId, ArtefactValidationStep.ResolvingModel, "Succeeded", null);
+        var input = new EmitValidationProgressActivityInput(ArtefactKind.Unit, UnitId, ArtefactValidationStep.ResolvingModel, "Succeeded", null);
         var context = Substitute.For<WorkflowActivityContext>();
 
         ActivityEvent? captured = null;
@@ -112,8 +109,7 @@ public class EmitValidationProgressActivityTests
     [Fact]
     public async Task RunAsync_FailureDetailsIncludeCode()
     {
-        var input = new EmitValidationProgressActivityInput(
-            UnitId,
+        var input = new EmitValidationProgressActivityInput(ArtefactKind.Unit, UnitId,
             ArtefactValidationStep.ValidatingCredential,
             "Failed",
             ArtefactValidationCodes.CredentialInvalid);
@@ -136,8 +132,7 @@ public class EmitValidationProgressActivityTests
     {
         _bus.PublishAsync(Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("bus down")));
-        var input = new EmitValidationProgressActivityInput(
-            UnitId, ArtefactValidationStep.VerifyingTool, "Running", null);
+        var input = new EmitValidationProgressActivityInput(ArtefactKind.Unit, UnitId, ArtefactValidationStep.VerifyingTool, "Running", null);
         var context = Substitute.For<WorkflowActivityContext>();
 
         var result = await _activity.RunAsync(context, input);

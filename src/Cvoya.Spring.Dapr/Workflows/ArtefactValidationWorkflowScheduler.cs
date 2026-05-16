@@ -3,10 +3,11 @@
 
 namespace Cvoya.Spring.Dapr.Workflows;
 
-using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
@@ -19,10 +20,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Default <see cref="IArtefactValidationWorkflowScheduler"/>. Resolves the
-/// unit's persisted execution defaults (<c>image</c>, <c>agent</c>,
-/// <c>model</c>) and its tenant-scoped LLM credential, then schedules a
-/// new <c>ArtefactValidationWorkflow</c> run via <see cref="DaprWorkflowClient"/>.
+/// Default <see cref="IArtefactValidationWorkflowScheduler"/>. For both
+/// <see cref="ArtefactKind.Unit"/> and <see cref="ArtefactKind.Agent"/>
+/// resolves the artefact's persisted execution defaults (<c>image</c>,
+/// <c>agent</c>, <c>model</c>) and the LLM credential the chosen runtime
+/// edge declares, then schedules a new <c>ArtefactValidationWorkflow</c> run
+/// via <see cref="DaprWorkflowClient"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -33,9 +36,9 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// The scheduler runs inside the Worker / API host and is the one place
 /// that knows how to compose a <see cref="ArtefactValidationWorkflowInput"/>
-/// from actor-side state. Keeping this resolution out of the actor lets
-/// <c>UnitActor</c> stay pure Dapr-actor code: the actor emits an intent
-/// ("please schedule validation for unit id X") and the scheduler does the
+/// from actor-side state. Keeping this resolution out of the actor lets the
+/// actors stay pure Dapr-actor code: each actor emits an intent ("please
+/// schedule validation for kind X actor id Y") and the scheduler does the
 /// side-effectful plumbing on top of the shared DB and credential resolver.
 /// </para>
 /// </remarks>
@@ -50,18 +53,25 @@ public class ArtefactValidationWorkflowScheduler(
 
     /// <inheritdoc />
     public async Task<ArtefactValidationSchedule> ScheduleAsync(
-        string unitActorId,
+        ArtefactKind kind,
+        string artefactActorId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(unitActorId))
+        if (kind is not (ArtefactKind.Unit or ArtefactKind.Agent))
         {
-            throw new ArgumentException("Unit actor id must be supplied.", nameof(unitActorId));
+            throw new InvalidOperationException(
+                $"ArtefactKind '{kind}' has no container lifecycle — only Unit and Agent are schedulable.");
         }
-        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitActorId, out var unitActorUuid))
+
+        if (string.IsNullOrWhiteSpace(artefactActorId))
+        {
+            throw new ArgumentException("Artefact actor id must be supplied.", nameof(artefactActorId));
+        }
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(artefactActorId, out var artefactActorUuid))
         {
             throw new ArgumentException(
-                $"Unit actor id '{unitActorId}' is not a valid Guid.",
-                nameof(unitActorId));
+                $"Artefact actor id '{artefactActorId}' is not a valid Guid.",
+                nameof(artefactActorId));
         }
 
         // Both the SpringDbContext (per-request) and the
@@ -73,68 +83,90 @@ public class ArtefactValidationWorkflowScheduler(
         var credentialResolver = scope.ServiceProvider
             .GetRequiredService<ILlmCredentialResolver>();
 
-        // Look up the unit's user-facing name and persisted Definition
-        // document by actor id. The actor keyed by Dapr actor Guid does
-        // not know its name; this query is the cheapest join back to the
-        // directory row that carries it. AsNoTracking: read path only.
-        var entity = await db.UnitDefinitions
-            .AsNoTracking()
-            .FirstOrDefaultAsync(
-                u => u.Id == unitActorUuid && u.DeletedAt == null,
-                cancellationToken);
-
-        if (entity is null)
+        // Resolve the artefact's display name + execution defaults from the
+        // right entity. The actor only knows its Dapr actor Guid; this query
+        // is the cheapest join back to the user-facing label.
+        string displayName;
+        string? image;
+        string? runtimeId;
+        string? provider;
+        string? model;
+        switch (kind)
         {
-            // The directory has the actor id but the canonical row is gone
-            // — almost certainly a tear-down race. Surface as a structured
-            // configuration failure so the actor doesn't get stuck.
-            throw new ArtefactValidationSchedulingException(new ArtefactValidationError(
-                Step: ArtefactValidationStep.PullingImage,
-                Code: ArtefactValidationCodes.ConfigurationIncomplete,
-                Message: $"No unit definition row exists for actor id '{unitActorId}'. " +
-                    "The unit may have been deleted; recreate it before validating.",
-                Details: null));
-        }
-
-        var defaults = DbUnitExecutionStore.Extract(entity.Definition);
-        if (defaults is null)
-        {
-            // No execution defaults at all — closest semantic step is the
-            // first one the workflow would have run (image pull). The
-            // operator can fix this from the unit's Execution tab and
-            // call /revalidate.
-            throw new ArtefactValidationSchedulingException(new ArtefactValidationError(
-                Step: ArtefactValidationStep.PullingImage,
-                Code: ArtefactValidationCodes.ConfigurationIncomplete,
-                Message: "No execution defaults are configured on this unit. " +
-                    "Set a container image (and optionally a runtime) before validation can run.",
-                Details: new Dictionary<string, string>
+            case ArtefactKind.Unit:
                 {
-                    ["missing"] = "image,runtime",
-                }));
+                    var entity = await db.UnitDefinitions
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(
+                            u => u.Id == artefactActorUuid && u.DeletedAt == null,
+                            cancellationToken);
+                    if (entity is null)
+                    {
+                        throw NotFoundException(kind, artefactActorId);
+                    }
+
+                    var defaults = DbUnitExecutionStore.Extract(entity.Definition);
+                    if (defaults is null)
+                    {
+                        throw NoDefaultsException();
+                    }
+
+                    displayName = entity.DisplayName;
+                    image = defaults.Image;
+                    provider = defaults.Provider;
+                    model = defaults.Model;
+                    runtimeId = ResolveAgentRuntimeId(defaults.Agent, defaults.Provider);
+                    break;
+                }
+            case ArtefactKind.Agent:
+                {
+                    var entity = await db.AgentDefinitions
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(
+                            a => a.Id == artefactActorUuid && a.DeletedAt == null,
+                            cancellationToken);
+                    if (entity is null)
+                    {
+                        throw NotFoundException(kind, artefactActorId);
+                    }
+
+                    var shape = DbAgentExecutionStore.Extract(entity.Definition);
+                    if (shape is null)
+                    {
+                        throw NoDefaultsException();
+                    }
+
+                    displayName = entity.DisplayName;
+                    image = shape.Image;
+                    provider = shape.Provider;
+                    model = shape.Model;
+                    runtimeId = ResolveAgentRuntimeId(shape.Agent, shape.Provider);
+                    break;
+                }
+            default:
+                throw new InvalidOperationException($"Unsupported kind {kind}.");
         }
 
-        if (string.IsNullOrWhiteSpace(defaults.Image))
+        if (string.IsNullOrWhiteSpace(image))
         {
             throw new ArtefactValidationSchedulingException(new ArtefactValidationError(
                 Step: ArtefactValidationStep.PullingImage,
                 Code: ArtefactValidationCodes.ConfigurationIncomplete,
-                Message: "This unit has no container image configured. " +
-                    "Set the image on the unit's Execution tab and retry validation.",
+                Message: $"This {kind.ToString().ToLowerInvariant()} has no container image configured. " +
+                    $"Set the image on the {kind} Execution tab and retry validation.",
                 Details: new Dictionary<string, string>
                 {
                     ["missing"] = "image",
                 }));
         }
 
-        var runtimeId = ResolveAgentRuntimeId(defaults);
         if (string.IsNullOrWhiteSpace(runtimeId))
         {
             throw new ArtefactValidationSchedulingException(new ArtefactValidationError(
                 Step: ArtefactValidationStep.VerifyingTool,
                 Code: ArtefactValidationCodes.ConfigurationIncomplete,
-                Message: "This unit has no runtime or provider configured. " +
-                    "Pick a runtime (or provider) on the unit's Execution tab and retry validation.",
+                Message: $"This {kind.ToString().ToLowerInvariant()} has no runtime or provider configured. " +
+                    "Pick a runtime (or provider) on the Execution tab and retry validation.",
                 Details: new Dictionary<string, string>
                 {
                     ["missing"] = "runtime",
@@ -146,12 +178,10 @@ public class ArtefactValidationWorkflowScheduler(
         // catalogue runtime entry's first edge — that's the auth method
         // the chosen launcher consumes. When the runtime declares no
         // credential (e.g. Ollama) the resolver returns NotFound and we
-        // pass the empty string through — the workflow's RunContainerProbe
-        // layer pre-filters "no credential" steps for runtimes that do not
-        // authenticate.
-        var providerForCredential = defaults.Provider ?? runtimeId;
+        // pass the empty string through.
+        var providerForCredential = provider ?? runtimeId!;
         var authForCredential = AuthMethod.ApiKey;
-        var catalogRuntime = runtimeCatalog.GetAgentRuntime(runtimeId);
+        var catalogRuntime = runtimeCatalog.GetAgentRuntime(runtimeId!);
         if (catalogRuntime is { ModelProviders.Count: > 0 })
         {
             var edge = catalogRuntime.ModelProviders[0];
@@ -159,29 +189,36 @@ public class ArtefactValidationWorkflowScheduler(
             authForCredential = edge.AuthMethod ?? AuthMethod.ApiKey;
         }
 
+        // Per-kind credential routing:
+        //  Unit:  agentId=null,         unitId=artefactUuid (walks the parent-unit chain on miss)
+        //  Agent: agentId=artefactUuid, unitId=null          (agent-scope first, then tenant fall-through)
+        //
+        // The agent path skips the parent-unit chain for v0.1 — most agents
+        // inherit the tenant default and that path resolves cleanly. Agents
+        // that need a unit-scoped override are a future enhancement (would
+        // require resolving the agent's parent unit through
+        // IUnitMembershipRepository before calling the resolver).
         var credentialResolution = await credentialResolver
             .ResolveAsync(
                 providerId: providerForCredential,
                 authMethod: authForCredential,
-                agentId: null,
-                unitId: entity.Id,
+                agentId: kind == ArtefactKind.Agent ? artefactActorUuid : null,
+                unitId: kind == ArtefactKind.Unit ? artefactActorUuid : null,
                 cancellationToken);
 
         var credential = credentialResolution.Value ?? string.Empty;
-        var requestedModel = defaults.Model ?? string.Empty;
+        var requestedModel = model ?? string.Empty;
 
         // Determine which post-pull steps the runtime does not declare so
         // the workflow can skip them (emitting no events → UI shows "skipped").
-        // GetProbeSteps is a synchronous, non-allocating call; a minimal
-        // config is sufficient — BaseUrl and models don't affect which steps
-        // are declared, only the command strings within them.
-        var skipSteps = ComputeSkipSteps(runtimeId, requestedModel);
+        var skipSteps = ComputeSkipSteps(runtimeId!, requestedModel);
 
         var input = new ArtefactValidationWorkflowInput(
-            UnitId: unitActorId,
-            UnitName: entity.DisplayName,
-            Image: defaults.Image,
-            RuntimeId: runtimeId,
+            Kind: kind,
+            ArtefactId: artefactActorId,
+            ArtefactName: displayName,
+            Image: image!,
+            RuntimeId: runtimeId!,
             Credential: credential,
             RequestedModel: requestedModel,
             SkipSteps: skipSteps);
@@ -191,35 +228,43 @@ public class ArtefactValidationWorkflowScheduler(
             input: input);
 
         _logger.LogInformation(
-            "Scheduled ArtefactValidationWorkflow {InstanceId} for unit {UnitName} (actor {ActorId}) image={Image} runtime={Runtime} model={Model}.",
-            instanceId, entity.DisplayName, unitActorId, defaults.Image, runtimeId, requestedModel);
+            "Scheduled ArtefactValidationWorkflow {InstanceId} for {Kind} {Name} (actor {ActorId}) image={Image} runtime={Runtime} model={Model}.",
+            instanceId, kind, displayName, artefactActorId, image, runtimeId, requestedModel);
 
-        return new ArtefactValidationSchedule(instanceId, entity.DisplayName);
+        return new ArtefactValidationSchedule(instanceId, displayName);
     }
 
+    private static ArtefactValidationSchedulingException NotFoundException(ArtefactKind kind, string actorId)
+        => new(new ArtefactValidationError(
+            Step: ArtefactValidationStep.PullingImage,
+            Code: ArtefactValidationCodes.ConfigurationIncomplete,
+            Message: $"No {kind.ToString().ToLowerInvariant()} definition row exists for actor id '{actorId}'. " +
+                $"The {kind.ToString().ToLowerInvariant()} may have been deleted; recreate it before validating.",
+            Details: null));
+
+    private static ArtefactValidationSchedulingException NoDefaultsException()
+        => new(new ArtefactValidationError(
+            Step: ArtefactValidationStep.PullingImage,
+            Code: ArtefactValidationCodes.ConfigurationIncomplete,
+            Message: "No execution defaults are configured. " +
+                "Set a container image (and optionally a runtime) before validation can run.",
+            Details: new Dictionary<string, string>
+            {
+                ["missing"] = "image,runtime",
+            }));
+
     /// <summary>
-    /// Resolves the agent-runtime registry id used by
-    /// <see cref="ArtefactValidationWorkflowInput.RuntimeId"/> from the unit's
-    /// persisted <see cref="UnitExecutionDefaults"/> (#1683).
+    /// Resolves the agent-runtime registry id from the artefact's persisted
+    /// execution defaults. Precedence — <c>agent</c> wins, then
+    /// <c>provider</c>. <c>agent</c> is the source of truth (sourced from the
+    /// manifest's <c>ai.runtime</c> field). <c>provider</c> is a last-ditch
+    /// fallback because spring-voyage-style runtimes carry the same string in
+    /// both their <c>provider</c> and <c>id</c> slots.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Precedence — <see cref="UnitExecutionDefaults.Agent"/> wins, then
-    /// <see cref="UnitExecutionDefaults.Provider"/>. <c>Agent</c> is the
-    /// source of truth (sourced from the manifest's <c>ai.agent</c>
-    /// field by <c>UnitCreationService</c>, or set via the execution PUT endpoint).
-    /// <c>Provider</c> is a last-ditch fallback because spring-voyage-style runtimes
-    /// carry the same string in both their <c>provider</c> and <c>id</c> slots.
-    /// </para>
-    /// <para>
-    /// Returns <c>null</c> when none of the slots are populated; the
-    /// caller surfaces that as <c>ConfigurationIncomplete</c>.
-    /// </para>
-    /// </remarks>
-    internal static string? ResolveAgentRuntimeId(UnitExecutionDefaults defaults)
+    internal static string? ResolveAgentRuntimeId(string? agent, string? provider)
     {
-        if (!string.IsNullOrWhiteSpace(defaults.Agent)) return defaults.Agent;
-        if (!string.IsNullOrWhiteSpace(defaults.Provider)) return defaults.Provider;
+        if (!string.IsNullOrWhiteSpace(agent)) return agent;
+        if (!string.IsNullOrWhiteSpace(provider)) return provider;
         return null;
     }
 

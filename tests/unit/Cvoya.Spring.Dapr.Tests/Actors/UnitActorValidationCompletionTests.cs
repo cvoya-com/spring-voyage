@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Tests.Actors;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Lifecycle;
@@ -73,7 +74,7 @@ public class UnitActorValidationCompletionTests
         _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Validating));
         _validationTracker
-            .GetLastValidationRunIdAsync(TestUnitActorId, Arg.Any<CancellationToken>())
+            .GetLastValidationRunIdAsync(ArtefactKind.Unit, TestUnitActorId, Arg.Any<CancellationToken>())
             .Returns(CurrentRunId);
     }
 
@@ -118,8 +119,7 @@ public class UnitActorValidationCompletionTests
         result.Success.ShouldBeTrue();
         result.CurrentStatus.ShouldBe(LifecycleStatus.Stopped);
 
-        await _validationTracker.Received(1).SetFailureAsync(
-            TestUnitActorId, null, Arg.Any<CancellationToken>());
+        await _validationTracker.Received(1).SetFailureAsync(ArtefactKind.Unit, TestUnitActorId, null, Arg.Any<CancellationToken>());
         await _stateManager.Received(1).SetStateAsync(
             StateKeys.UnitLifecycleStatus, LifecycleStatus.Stopped, Arg.Any<CancellationToken>());
     }
@@ -129,9 +129,19 @@ public class UnitActorValidationCompletionTests
     {
         string? capturedJson = null;
         _validationTracker
-            .When(t => t.SetFailureAsync(
-                Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()))
-            .Do(ci => capturedJson = ci.ArgAt<string?>(1));
+            .When(t => t.SetFailureAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()))
+            .Do(ci =>
+            {
+                // SetFailureAsync(kind, actorId, errorJson, ct) — capture the
+                // errorJson only when it's non-null (the coordinator may
+                // also call this with null on success-clear paths that share
+                // the same test setup).
+                var maybeJson = ci.Args()[2] as string;
+                if (maybeJson is not null)
+                {
+                    capturedJson = maybeJson;
+                }
+            });
 
         var result = await _actor.CompleteValidationAsync(
             Failure(), TestContext.Current.CancellationToken);
@@ -220,7 +230,7 @@ public class UnitActorValidationCompletionTests
     public async Task StaleRun_NoOp_NoTransition_NoWrite()
     {
         _validationTracker
-            .GetLastValidationRunIdAsync(TestUnitActorId, Arg.Any<CancellationToken>())
+            .GetLastValidationRunIdAsync(ArtefactKind.Unit, TestUnitActorId, Arg.Any<CancellationToken>())
             .Returns("run-99"); // current differs from completion's WorkflowInstanceId
 
         var result = await _actor.CompleteValidationAsync(
@@ -231,8 +241,7 @@ public class UnitActorValidationCompletionTests
 
         await _stateManager.DidNotReceive().SetStateAsync(
             StateKeys.UnitLifecycleStatus, Arg.Any<LifecycleStatus>(), Arg.Any<CancellationToken>());
-        await _validationTracker.DidNotReceive().SetFailureAsync(
-            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _validationTracker.DidNotReceive().SetFailureAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -249,8 +258,7 @@ public class UnitActorValidationCompletionTests
 
         await _stateManager.DidNotReceive().SetStateAsync(
             StateKeys.UnitLifecycleStatus, Arg.Any<LifecycleStatus>(), Arg.Any<CancellationToken>());
-        await _validationTracker.DidNotReceive().SetFailureAsync(
-            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _validationTracker.DidNotReceive().SetFailureAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

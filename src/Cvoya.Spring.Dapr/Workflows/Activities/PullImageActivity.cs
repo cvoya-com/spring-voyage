@@ -3,8 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
-using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 using global::Dapr.Workflow;

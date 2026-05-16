@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Actors;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Lifecycle;
@@ -38,7 +39,7 @@ using Xunit;
 public class UnitActorValidationSchedulingTests
 {
     private static readonly string TestUnitActorId = TestSlugIds.HexFor("test-unit");
-    private const string UnitName = "eng-team";
+    private const string ArtefactName = "eng-team";
 
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
@@ -72,8 +73,8 @@ public class UnitActorValidationSchedulingTests
         SetStateManager(_actor, _stateManager);
 
         _scheduler
-            .ScheduleAsync(TestUnitActorId, Arg.Any<CancellationToken>())
-            .Returns(new ArtefactValidationSchedule("run-42", UnitName));
+            .ScheduleAsync(ArtefactKind.Unit, TestUnitActorId, Arg.Any<CancellationToken>())
+            .Returns(new ArtefactValidationSchedule("run-42", ArtefactName));
     }
 
     private static void SetStateManager(Actor actor, IActorStateManager stateManager)
@@ -108,10 +109,8 @@ public class UnitActorValidationSchedulingTests
         result.Success.ShouldBeTrue();
         result.CurrentStatus.ShouldBe(LifecycleStatus.Validating);
 
-        await _scheduler.Received(1).ScheduleAsync(
-            TestUnitActorId, Arg.Any<CancellationToken>());
-        await _validationTracker.Received(1).BeginRunAsync(
-            TestUnitActorId, "run-42", Arg.Any<CancellationToken>());
+        await _scheduler.Received(1).ScheduleAsync(ArtefactKind.Unit, TestUnitActorId, Arg.Any<CancellationToken>());
+        await _validationTracker.Received(1).BeginRunAsync(ArtefactKind.Unit, TestUnitActorId, "run-42", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -127,10 +126,8 @@ public class UnitActorValidationSchedulingTests
         // atomically with writing the new run id — we verify the call
         // order (scheduler first, tracker second on the same actor-side
         // turn) and that both happened.
-        await _scheduler.Received(1).ScheduleAsync(
-            TestUnitActorId, Arg.Any<CancellationToken>());
-        await _validationTracker.Received(1).BeginRunAsync(
-            TestUnitActorId, "run-42", Arg.Any<CancellationToken>());
+        await _scheduler.Received(1).ScheduleAsync(ArtefactKind.Unit, TestUnitActorId, Arg.Any<CancellationToken>());
+        await _validationTracker.Received(1).BeginRunAsync(ArtefactKind.Unit, TestUnitActorId, "run-42", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -142,10 +139,8 @@ public class UnitActorValidationSchedulingTests
             LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        await _scheduler.Received(1).ScheduleAsync(
-            TestUnitActorId, Arg.Any<CancellationToken>());
-        await _validationTracker.Received(1).BeginRunAsync(
-            TestUnitActorId, "run-42", Arg.Any<CancellationToken>());
+        await _scheduler.Received(1).ScheduleAsync(ArtefactKind.Unit, TestUnitActorId, Arg.Any<CancellationToken>());
+        await _validationTracker.Received(1).BeginRunAsync(ArtefactKind.Unit, TestUnitActorId, "run-42", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -157,10 +152,8 @@ public class UnitActorValidationSchedulingTests
             LifecycleStatus.Stopping, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        await _scheduler.DidNotReceive().ScheduleAsync(
-            Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _validationTracker.DidNotReceive().BeginRunAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _scheduler.DidNotReceive().ScheduleAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _validationTracker.DidNotReceive().BeginRunAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -173,8 +166,7 @@ public class UnitActorValidationSchedulingTests
             LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
-        await _scheduler.DidNotReceive().ScheduleAsync(
-            Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _scheduler.DidNotReceive().ScheduleAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     /// <summary>
@@ -200,7 +192,7 @@ public class UnitActorValidationSchedulingTests
         // Retry.
         WithCurrentStatus(LifecycleStatus.Draft);
         _scheduler
-            .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ScheduleAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<ArtefactValidationSchedule>(
                 new InvalidOperationException("dapr down")));
 
@@ -214,14 +206,12 @@ public class UnitActorValidationSchedulingTests
         result.CurrentStatus.ShouldBe(LifecycleStatus.Error);
 
         // BeginRunAsync must NOT have been called — the run never started.
-        await _validationTracker.DidNotReceive().BeginRunAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _validationTracker.DidNotReceive().BeginRunAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
 
         // SetFailureAsync must have been called with a ScheduleFailed
         // payload that round-trips through JSON to a ArtefactValidationError
         // whose Code + Step match the merged contract.
-        await _validationTracker.Received(1).SetFailureAsync(
-            TestUnitActorId,
+        await _validationTracker.Received(1).SetFailureAsync(ArtefactKind.Unit, TestUnitActorId,
             Arg.Is<string>(payload => PayloadHasScheduleFailedCode(payload)),
             Arg.Any<CancellationToken>());
 
@@ -244,11 +234,11 @@ public class UnitActorValidationSchedulingTests
     {
         WithCurrentStatus(LifecycleStatus.Draft);
         _scheduler
-            .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ScheduleAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<ArtefactValidationSchedule>(
                 new InvalidOperationException("dapr down")));
         _validationTracker
-            .SetFailureAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .SetFailureAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("db down")));
 
         var result = await _actor.TransitionAsync(
@@ -282,7 +272,7 @@ public class UnitActorValidationSchedulingTests
             Message: "This unit has no container image configured.",
             Details: new Dictionary<string, string> { ["missing"] = "image" });
         _scheduler
-            .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ScheduleAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<ArtefactValidationSchedule>(
                 new ArtefactValidationSchedulingException(error)));
 
@@ -298,8 +288,7 @@ public class UnitActorValidationSchedulingTests
         // JsonStringEnumConverter on read, so the wire format the UI
         // sees is still the symbolic name. Assert on the stable bits:
         // code + missing-field detail.
-        await _validationTracker.Received(1).SetFailureAsync(
-            TestUnitActorId,
+        await _validationTracker.Received(1).SetFailureAsync(ArtefactKind.Unit, TestUnitActorId,
             Arg.Is<string>(payload =>
                 payload != null
                 && payload.Contains(ArtefactValidationCodes.ConfigurationIncomplete)
@@ -309,8 +298,7 @@ public class UnitActorValidationSchedulingTests
 
         // The generic ScheduleFailed catch must NOT have fired — the typed
         // catch's payload should be the only one persisted.
-        await _validationTracker.DidNotReceive().SetFailureAsync(
-            TestUnitActorId,
+        await _validationTracker.DidNotReceive().SetFailureAsync(ArtefactKind.Unit, TestUnitActorId,
             Arg.Is<string>(payload =>
                 payload != null
                 && payload.Contains(ArtefactValidationCodes.ScheduleFailed)),

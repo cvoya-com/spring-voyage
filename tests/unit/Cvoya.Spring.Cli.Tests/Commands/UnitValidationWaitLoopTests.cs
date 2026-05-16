@@ -3,12 +3,12 @@
 
 namespace Cvoya.Spring.Cli.Tests.Commands;
 
-using Cvoya.Spring.Core.Lifecycle;
 using System.Collections.Generic;
 using System.IO;
 
 using Cvoya.Spring.Cli;
 using Cvoya.Spring.Cli.Commands;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 using Shouldly;

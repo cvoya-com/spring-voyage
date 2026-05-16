@@ -3,9 +3,9 @@
 
 namespace Cvoya.Spring.Core.ModelProviders;
 
-using Cvoya.Spring.Core.Lifecycle;
 using System.Collections.Generic;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 /// <summary>

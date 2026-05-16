@@ -3,8 +3,8 @@
 
 namespace Cvoya.Spring.Cli.Tests;
 
-using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Cli;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 using Shouldly;

@@ -167,7 +167,8 @@ public class ArtefactValidationWorkflow : Workflow<ArtefactValidationWorkflowInp
         context.CallActivityAsync<bool>(
             nameof(CompleteArtefactValidationActivity),
             new CompleteArtefactValidationActivityInput(
-                UnitId: input.UnitId,
+                Kind: input.Kind,
+                ArtefactId: input.ArtefactId,
                 Success: output.Success,
                 Failure: output.Failure,
                 WorkflowInstanceId: context.InstanceId));
@@ -181,8 +182,9 @@ public class ArtefactValidationWorkflow : Workflow<ArtefactValidationWorkflowInp
         context.CallActivityAsync<bool>(
             nameof(EmitValidationProgressActivity),
             new EmitValidationProgressActivityInput(
-                UnitId: Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(input.UnitId, out var unitGuid)
-                    ? unitGuid
+                Kind: input.Kind,
+                ArtefactId: Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(input.ArtefactId, out var artefactGuid)
+                    ? artefactGuid
                     : Guid.Empty,
                 Step: step,
                 Status: status,

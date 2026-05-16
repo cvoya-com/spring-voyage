@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Workflows;
@@ -48,9 +49,8 @@ public class ArtefactValidationWorkflowTests
     }
 
     private static ArtefactValidationWorkflowInput Input(string model = "gpt-4o") =>
-        new(
-            UnitId: "unit-1",
-            UnitName: "unit-1",
+        new(Kind: ArtefactKind.Unit, ArtefactId: "unit-1",
+            ArtefactName: "unit-1",
             Image: "ghcr.io/cvoya/test:1",
             RuntimeId: "test-runtime",
             Credential: "sk-test",

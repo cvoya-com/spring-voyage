@@ -3,9 +3,9 @@
 
 namespace Cvoya.Spring.Dapr.Data.Entities;
 
-using Cvoya.Spring.Core.Lifecycle;
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Tenancy;
 
 /// <summary>

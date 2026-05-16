@@ -8,6 +8,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Cloning;
 using Cvoya.Spring.Core.Directory;
@@ -61,7 +62,8 @@ public class AgentActor(
     IDirectoryService? directoryService = null,
     IRuntimeInvocationPath? runtimeInvocationPath = null,
     IServiceScopeFactory? scopeFactory = null,
-    Cvoya.Spring.Core.Issues.IIssueWriter? issueWriter = null) : Actor(host), IAgentActor, IRemindable
+    Cvoya.Spring.Core.Issues.IIssueWriter? issueWriter = null,
+    IArtefactValidationCoordinator? validationCoordinator = null) : Actor(host), IAgentActor, IRemindable
 {
     /// <summary>
     /// Name of the Dapr reminder that drives periodic initiative checks.
@@ -1142,18 +1144,13 @@ public class AgentActor(
             ObservedAt: DateTimeOffset.UtcNow);
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // Lifecycle state machine (#2364) — mirrors UnitActor.
+    // ──────────────────────────────────────────────────────────────────────
+
     /// <inheritdoc />
-    public async Task<LifecycleStatus> GetLifecycleStatusAsync(
-        CancellationToken cancellationToken = default)
-    {
-        // Default to Active for pre-#2156 agents (those activated before the
-        // lifecycle row was written by the package activator). Their
-        // activation succeeded silently in the legacy path so reporting
-        // Active is the correct backwards-compatible answer.
-        var result = await StateManager
-            .TryGetStateAsync<LifecycleStatus>(StateKeys.AgentLifecycleStatus, cancellationToken);
-        return result.HasValue ? result.Value : LifecycleStatus.Running;
-    }
+    public Task<LifecycleStatus> GetStatusAsync(CancellationToken cancellationToken = default)
+        => GetStatusInternalAsync(cancellationToken);
 
     /// <inheritdoc />
     public async Task<string?> GetLifecycleErrorAsync(CancellationToken cancellationToken = default)
@@ -1164,36 +1161,233 @@ public class AgentActor(
     }
 
     /// <inheritdoc />
-    public async Task SetLifecycleStatusAsync(
-        LifecycleStatus status,
-        string? error,
+    public async Task<TransitionResult> TransitionAsync(
+        LifecycleStatus target,
         CancellationToken cancellationToken = default)
     {
-        await StateManager.SetStateAsync(StateKeys.AgentLifecycleStatus, status, cancellationToken);
-        if (status == LifecycleStatus.Error)
+        var current = await GetStatusInternalAsync(cancellationToken);
+
+        if (!LifecycleTransitions.IsValidTransition(current, target))
         {
-            // Persist the diagnostic alongside the status so the GET
-            // endpoint can surface "why" without forcing the operator to
-            // grep the worker logs. Empty / null messages still flip the
-            // status to Error so a "we don't know" outcome is at least
-            // visible.
-            if (!string.IsNullOrEmpty(error))
+            var reason = $"cannot transition from {current} to {target}";
+            _logger.LogWarning(
+                "Agent {ActorId} rejected transition from {Current} to {Target}: {Reason}",
+                Id.GetId(), current, target, reason);
+            return new TransitionResult(false, current, reason);
+        }
+
+        var result = await PersistTransitionAsync(current, target, failure: null, cancellationToken);
+
+        // #2364: on entry into Validating, schedule the shared
+        // ArtefactValidationWorkflow so the agent's image+credential+model
+        // get probed. Mirrors UnitActor.TransitionAsync; the coordinator
+        // routes by ArtefactKind.Agent so the per-kind execution-store
+        // lookup hits AgentDefinitions.
+        if (result.Success && target == LifecycleStatus.Validating && validationCoordinator is not null)
+        {
+            var recoveryResult = await validationCoordinator.TryStartWorkflowAsync(
+                ArtefactKind.Agent, Id.GetId(), PersistTransitionAsync, cancellationToken);
+            if (recoveryResult is not null)
             {
-                await StateManager.SetStateAsync(StateKeys.AgentLifecycleError, error, cancellationToken);
+                return recoveryResult;
             }
-            else
-            {
-                await StateManager.TryRemoveStateAsync(StateKeys.AgentLifecycleError, cancellationToken);
-            }
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<TransitionResult> CompleteValidationAsync(
+        ArtefactValidationCompletion completion,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(completion);
+
+        TransitionResult result;
+        if (validationCoordinator is not null)
+        {
+            result = await validationCoordinator.CompleteValidationAsync(
+                ArtefactKind.Agent,
+                Id.GetId(),
+                completion,
+                GetStatusInternalAsync,
+                PersistTransitionAsync,
+                cancellationToken);
         }
         else
         {
-            // Flipping back to Active clears any previous error so the
-            // status row is internally consistent.
-            await StateManager.TryRemoveStateAsync(StateKeys.AgentLifecycleError, cancellationToken);
+            // Legacy fallback (no coordinator wired — test harnesses):
+            // apply the appropriate transition inline.
+            var current = await GetStatusInternalAsync(cancellationToken);
+            if (current == LifecycleStatus.Stopped || current == LifecycleStatus.Error)
+            {
+                return new TransitionResult(false, current, $"validation completion ignored: agent already {current}");
+            }
+            if (current != LifecycleStatus.Validating)
+            {
+                return new TransitionResult(false, current, $"validation completion ignored: status is {current}, expected Validating");
+            }
+            result = await PersistTransitionAsync(
+                LifecycleStatus.Validating,
+                completion.Success ? LifecycleStatus.Stopped : LifecycleStatus.Error,
+                completion.Success ? null : completion.Failure,
+                cancellationToken);
         }
 
+        // #2364: auto-start the agent after a successful validation when
+        // the activator marked it as pending. Mirrors UnitActor's pattern
+        // but skips the connector-dispatcher hop — agents have no
+        // connector bindings in v0.1.
+        if (result.Success && result.CurrentStatus == LifecycleStatus.Stopped)
+        {
+            await TryAutoStartAsync(cancellationToken);
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async Task SetPendingAutoStartAsync(CancellationToken cancellationToken = default)
+    {
+        // Idempotent — overwriting with the same value is fine; subsequent
+        // SaveStateAsync persists the flag so the next CompleteValidationAsync
+        // turn observes it.
+        await StateManager.SetStateAsync(StateKeys.AgentPendingAutoStart, true, cancellationToken);
         await StateManager.SaveStateAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads the persisted lifecycle status, defaulting to
+    /// <see cref="LifecycleStatus.Draft"/> when unset.
+    /// </summary>
+    private async Task<LifecycleStatus> GetStatusInternalAsync(CancellationToken ct)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<LifecycleStatus>(StateKeys.AgentLifecycleStatus, ct);
+        return result.HasValue ? result.Value : LifecycleStatus.Draft;
+    }
+
+    /// <summary>
+    /// Persists the status transition and emits a <c>StateChanged</c>
+    /// activity event. Mirrors <c>UnitActor.PersistTransitionAsync</c> and
+    /// also clears <see cref="StateKeys.AgentLifecycleError"/> on any
+    /// non-Error transition so the row stays internally consistent.
+    /// </summary>
+    private async Task<TransitionResult> PersistTransitionAsync(
+        LifecycleStatus current,
+        LifecycleStatus target,
+        ArtefactValidationError? failure,
+        CancellationToken ct)
+    {
+        await StateManager.SetStateAsync(StateKeys.AgentLifecycleStatus, target, ct);
+
+        if (target == LifecycleStatus.Error)
+        {
+            if (failure is not null && !string.IsNullOrEmpty(failure.Message))
+            {
+                await StateManager.SetStateAsync(StateKeys.AgentLifecycleError, failure.Message, ct);
+            }
+            // else: leave whatever message was there, or absent
+        }
+        else
+        {
+            await StateManager.TryRemoveStateAsync(StateKeys.AgentLifecycleError, ct);
+        }
+
+        await StateManager.SaveStateAsync(ct);
+
+        _logger.LogInformation(
+            "Agent {ActorId} transitioned from {Current} to {Target}",
+            Id.GetId(), current, target);
+
+        // Activity-event emission. AgentActor's existing activity surface
+        // is owned by the dispatch coordinator; for the lifecycle path we
+        // emit a focused StateChanged event via the bus directly only when
+        // the bus is available — falls back to logging in test harnesses.
+        try
+        {
+            var summary = failure is not null
+                ? $"Agent transitioned from {current} to {target}: {failure.Code} — {failure.Message}"
+                : $"Agent transitioned from {current} to {target}";
+            object payload = failure is not null
+                ? new
+                {
+                    action = "StatusTransition",
+                    from = current.ToString(),
+                    to = target.ToString(),
+                    validationStep = failure.Step.ToString(),
+                    validationCode = failure.Code,
+                    validationMessage = failure.Message,
+                    error = failure,
+                }
+                : new
+                {
+                    action = "StatusTransition",
+                    from = current.ToString(),
+                    to = target.ToString(),
+                };
+            var details = JsonSerializer.SerializeToElement(payload);
+            var severity = failure is not null
+                ? Cvoya.Spring.Core.Capabilities.ActivitySeverity.Warning
+                : Cvoya.Spring.Core.Capabilities.ActivitySeverity.Info;
+            var ev = new Cvoya.Spring.Core.Capabilities.ActivityEvent(
+                Id: Guid.NewGuid(),
+                Timestamp: DateTimeOffset.UtcNow,
+                Source: Address,
+                EventType: Cvoya.Spring.Core.Capabilities.ActivityEventType.StateChanged,
+                Severity: severity,
+                Summary: summary,
+                Details: details,
+                CorrelationId: null,
+                Cost: null);
+            await activityEventBus.PublishAsync(ev);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(
+                ex,
+                "Agent {ActorId} StateChanged event publish failed (non-fatal).",
+                Id.GetId());
+        }
+
+        return new TransitionResult(true, target, null);
+    }
+
+    /// <summary>
+    /// Reads and clears the auto-start marker, then transitions the agent
+    /// through <c>Stopped → Starting → Running</c>. Unlike
+    /// <c>UnitActor.TryAutoStartAsync</c>, there is no connector-dispatcher
+    /// hop — agents have no connector bindings in v0.1.
+    /// </summary>
+    private async Task TryAutoStartAsync(CancellationToken ct)
+    {
+        var pending = await StateManager.TryGetStateAsync<bool>(StateKeys.AgentPendingAutoStart, ct);
+        if (!pending.HasValue || !pending.Value)
+        {
+            return;
+        }
+
+        // Clear the marker FIRST so a partial Running transition does not
+        // leave a permanent auto-start flag that fires on every revalidation.
+        await StateManager.TryRemoveStateAsync(StateKeys.AgentPendingAutoStart, ct);
+        await StateManager.SaveStateAsync(ct);
+
+        var startingResult = await TransitionAsync(LifecycleStatus.Starting, ct);
+        if (!startingResult.Success)
+        {
+            _logger.LogWarning(
+                "Agent {ActorId} auto-start skipped: Starting transition rejected: {Reason}",
+                Id.GetId(), startingResult.RejectionReason);
+            return;
+        }
+
+        var runningResult = await TransitionAsync(LifecycleStatus.Running, ct);
+        if (!runningResult.Success)
+        {
+            _logger.LogWarning(
+                "Agent {ActorId} auto-start: Running transition rejected: {Reason} (current status {Status})",
+                Id.GetId(), runningResult.RejectionReason, runningResult.CurrentStatus);
+        }
     }
 
     /// <summary>

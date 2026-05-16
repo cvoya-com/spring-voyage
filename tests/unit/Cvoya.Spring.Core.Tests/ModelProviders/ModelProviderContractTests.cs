@@ -3,10 +3,10 @@
 
 namespace Cvoya.Spring.Core.Tests.ModelProviders;
 
-using Cvoya.Spring.Core.Lifecycle;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.ModelProviders;
 
 using Shouldly;

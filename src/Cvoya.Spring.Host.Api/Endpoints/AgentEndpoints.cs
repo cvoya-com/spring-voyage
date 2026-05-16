@@ -1119,7 +1119,7 @@ public static class AgentEndpoints
         string? lifecycleError = null;
         try
         {
-            lifecycleStatus = await proxy.GetLifecycleStatusAsync(cancellationToken);
+            lifecycleStatus = await proxy.GetStatusAsync(cancellationToken);
             if (lifecycleStatus == LifecycleStatus.Error)
             {
                 lifecycleError = await proxy.GetLifecycleErrorAsync(cancellationToken);

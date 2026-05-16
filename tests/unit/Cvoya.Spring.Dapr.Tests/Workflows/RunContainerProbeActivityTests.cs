@@ -3,9 +3,9 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
-using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Workflows.Activities;
