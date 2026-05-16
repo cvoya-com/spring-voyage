@@ -7,6 +7,8 @@ import type {
   AgentExecutionResponse,
   AgentResponse,
   AgentRuntimeStatusResponse,
+  EquippedSkillsResponse,
+  EquipSkillRequest,
   ThreadListFilters,
   ThreadMessageRequest,
   CreateAgentRequest,
@@ -281,11 +283,40 @@ export const api = {
         body: patch,
       }),
     ),
-  // #2360 retired the legacy string-array `Skills` surface on
-  // /api/v1/tenant/agents/{id}/skills (it was the older MCP-tool grant
-  // surface). The new equipped-skill-bundle endpoints under the same
-  // path use a different shape and are wired through the Portal's
-  // Skills sub-tab (#2362).
+  // Equipped-skill-bundle endpoints (#2360). The Skills sub-tab on the
+  // Agent detail surface rides these — list / equip / unequip flow
+  // through the per-subject store and re-render the assembled prompt's
+  // Layer 4 on the next turn.
+  getAgentSkills: async (id: string): Promise<EquippedSkillsResponse> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/skills", {
+        params: { path: { id } },
+      }),
+    ) as EquippedSkillsResponse,
+  equipAgentSkill: async (
+    id: string,
+    body: EquipSkillRequest,
+  ): Promise<EquippedSkillsResponse> =>
+    unwrap(
+      await fetchClient.POST("/api/v1/tenant/agents/{id}/skills", {
+        params: { path: { id } },
+        body,
+      }),
+    ) as EquippedSkillsResponse,
+  unequipAgentSkill: async (
+    id: string,
+    packageName: string,
+    skillName: string,
+  ): Promise<EquippedSkillsResponse> =>
+    unwrap(
+      await fetchClient.DELETE(
+        "/api/v1/tenant/agents/{id}/skills/{packageName}/{skillName}",
+        {
+          params: { path: { id, packageName, skillName } },
+        },
+      ),
+    ) as EquippedSkillsResponse,
+
   deleteAgent: async (id: string): Promise<void> => {
     assertOk(
       await fetchClient.DELETE("/api/v1/tenant/agents/{id}", {
@@ -506,11 +537,40 @@ export const api = {
         params: { path: { id } },
       }),
     ),
-  // #2360 retired the legacy string-array `Skills` surface on
-  // /api/v1/tenant/units/{id}/skills (it was the older MCP-tool grant
-  // surface). The new equipped-skill-bundle endpoints under the same
-  // path use a different shape and are wired through the Portal's
-  // Skills sub-tab (#2362).
+  // Equipped-skill-bundle endpoints (#2360). The Skills sub-tab on the
+  // Unit detail surface rides these — list / equip / unequip flow
+  // through the per-subject store and re-render the assembled prompt's
+  // Layer 2 on the next turn.
+  getUnitSkills: async (id: string): Promise<EquippedSkillsResponse> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/units/{id}/skills", {
+        params: { path: { id } },
+      }),
+    ) as EquippedSkillsResponse,
+  equipUnitSkill: async (
+    id: string,
+    body: EquipSkillRequest,
+  ): Promise<EquippedSkillsResponse> =>
+    unwrap(
+      await fetchClient.POST("/api/v1/tenant/units/{id}/skills", {
+        params: { path: { id } },
+        body,
+      }),
+    ) as EquippedSkillsResponse,
+  unequipUnitSkill: async (
+    id: string,
+    packageName: string,
+    skillName: string,
+  ): Promise<EquippedSkillsResponse> =>
+    unwrap(
+      await fetchClient.DELETE(
+        "/api/v1/tenant/units/{id}/skills/{packageName}/{skillName}",
+        {
+          params: { path: { id, packageName, skillName } },
+        },
+      ),
+    ) as EquippedSkillsResponse,
+
   getUnitBudget: async (unitId: string) =>
     unwrap(
       await fetchClient.GET("/api/v1/tenant/units/{unitId}/budget", {

@@ -140,6 +140,29 @@ export type CreateTokenResponse = Schemas["CreateTokenResponse"];
 /** Entry in the platform-wide skill catalog (GET /api/v1/skills). */
 export type SkillCatalogEntry = Schemas["SkillCatalogEntry"];
 
+/**
+ * One equipped skill bundle as returned by
+ * `GET /api/v1/tenant/{units|agents}/{id}/skills` (#2360). Carries the
+ * package + skill coordinates, a prompt-body summary, and the bundle's
+ * required-tool list. Order mirrors the persisted declaration order;
+ * prompt assembly concatenates the bodies in this order so the Skills
+ * tab surfaces it 1:1.
+ */
+export type EquippedSkillEntry = Schemas["EquippedSkillEntry"];
+
+/** GET /api/v1/tenant/{units|agents}/{id}/skills response (#2360). */
+export type EquippedSkillsResponse = Schemas["EquippedSkillsResponse"];
+
+// `EquippedSkillToolRequirement` is reachable as
+// `EquippedSkillEntry["requiredTools"][number]`; not re-exported
+// standalone to keep the surface narrow (knip).
+
+/** Body for `POST /api/v1/tenant/{units|agents}/{id}/skills` (#2360). */
+export type EquipSkillRequest = Schemas["EquipSkillRequest"];
+
+/** Entry in `PackageDetail.skills` (`kind: Skill` bundles in a package). */
+export type SkillSummary = Schemas["SkillSummary"];
+
 /** Matches Cvoya.Spring.Core.Units.UnitStatus enum. */
 export type UnitStatus = Schemas["UnitStatus"];
 

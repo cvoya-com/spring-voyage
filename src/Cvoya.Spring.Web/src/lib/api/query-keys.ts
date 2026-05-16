@@ -172,6 +172,22 @@ export const queryKeys = {
     agent: (id: string) => ["memories", "agent", id] as const,
   },
 
+  /**
+   * Equipped skill bundles (#2360 / #2362). Per-subject slice keyed on
+   * (scope, id) so the same id can't collide between unit and agent
+   * caches. `available` covers the derived browse list — the union of
+   * `kind: Skill` entries across every installed package's
+   * {@link PackageDetail.skills} array. We don't have a dedicated
+   * "/api/v1/packages/skills" endpoint at v0.1, so the cache slice
+   * just memoises the client-side derivation.
+   */
+  skills: {
+    all: ["skills"] as const,
+    equipped: (scope: "unit" | "agent", id: string) =>
+      ["skills", "equipped", scope, id] as const,
+    available: () => ["skills", "available"] as const,
+  },
+
   issues: {
     all: ["issues"] as const,
     unit: (id: string) => ["issues", "unit", id] as const,
