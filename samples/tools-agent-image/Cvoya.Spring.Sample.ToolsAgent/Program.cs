@@ -5,64 +5,41 @@ namespace Cvoya.Spring.Sample.ToolsAgent;
 
 using Cvoya.Spring.AgentSdk;
 
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
 /// <summary>
 /// Minimal sample agent demonstrating the SDK tool-registration API
-/// (#2336 / Sub C of #2332).
+/// (#2336 / Sub C of #2332). Registers two <c>acme.*</c> tools and wires
+/// <c>GET /a2a/tools</c> onto the listener via the SDK's
+/// <see cref="ToolsEndpointExtensions.MapToolsEndpoint"/> extension.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Registers two <c>acme.*</c> tools and starts the SDK's tools-endpoint
-/// server on <c>http://localhost:&lt;port&gt;/</c>. The platform-side
-/// introspector hits <c>GET /a2a/tools</c> at deploy time and caches the
-/// array onto the <c>image_tools</c> column.
-/// </para>
-/// <para>
-/// The sample is intentionally minimal — it only hosts the
-/// tools-introspection endpoint. A full agent image co-locates this
-/// listener with the A2A bridge on the same port; the sample stands the
-/// listener up directly so the integration test can deploy it without
-/// the full bridge.
-/// </para>
+/// Wrapped in a named class (rather than top-level statements) so the
+/// auto-generated <c>Program</c> type doesn't collide with other
+/// <c>Program</c> classes in the integration-test load context — for
+/// example <c>WebApplicationFactory&lt;Program&gt;</c> resolution in the
+/// Host.Api integration tests.
 /// </remarks>
 public static class Program
 {
-    /// <summary>
-    /// Default port the listener binds when <c>AGENT_PORT</c> is unset.
-    /// Matches the platform's default A2A port (8999) so a local <c>curl
-    /// http://localhost:8999/a2a/tools</c> just works.
-    /// </summary>
-    public const int DefaultPort = 8999;
-
     /// <summary>Entry point.</summary>
     public static async Task Main(string[] args)
     {
         var port = ResolvePort(args);
-        var registry = BuildRegistry();
-        using var server = new ToolsEndpointServer(
-            registry,
-            $"http://localhost:{port}/");
-        server.Start();
-        Console.WriteLine($"acme tools agent listening on http://localhost:{port}{ToolsEndpointServer.ToolsPath}");
-
-        var stop = new TaskCompletionSource();
-        Console.CancelKeyPress += (_, eventArgs) =>
-        {
-            eventArgs.Cancel = true;
-            stop.TrySetResult();
-        };
-        await stop.Task;
-    }
-
-    /// <summary>
-    /// Constructs and populates a fresh registry. Exposed so the
-    /// integration test can build the same registry shape without
-    /// invoking <see cref="Main"/>.
-    /// </summary>
-    public static IToolRegistry BuildRegistry()
-    {
         var registry = new ToolRegistry();
         registry.RegisterAcmeTools();
-        return registry;
+
+        var builder = WebApplication.CreateBuilder(args);
+        builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+        builder.Services.AddSingleton<IToolRegistry>(registry);
+
+        var app = builder.Build();
+        app.MapToolsEndpoint(registry);
+        Console.WriteLine($"acme tools agent listening on http://localhost:{port}{ToolsEndpointExtensions.ToolsPath}");
+
+        await app.RunAsync();
     }
 
     private static int ResolvePort(string[] args)
@@ -76,6 +53,6 @@ public static class Program
         {
             return parsed;
         }
-        return DefaultPort;
+        return 8999;
     }
 }

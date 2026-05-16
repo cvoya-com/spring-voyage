@@ -240,12 +240,44 @@ public sealed class AgentToolsIntrospectionTests : IDisposable
     private IDisposable StartListener(out Uri endpoint, IToolRegistry registry)
     {
         var port = FreePort();
-        var prefix = $"http://localhost:{port}/";
-        var server = new ToolsEndpointServer(registry, prefix);
-        server.Start();
-        endpoint = new Uri(prefix);
-        _disposables.Add(server);
-        return server;
+        var prefix = $"http://localhost:{port}";
+
+        var builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder();
+        Microsoft.AspNetCore.Hosting.HostingAbstractionsWebHostBuilderExtensions.UseUrls(
+            builder.WebHost, prefix);
+        builder.Logging.ClearProviders();
+        var app = builder.Build();
+        app.MapToolsEndpoint(registry);
+        app.StartAsync().GetAwaiter().GetResult();
+
+        endpoint = new Uri(prefix + "/");
+        var wrapper = new WebApplicationDisposable(app);
+        _disposables.Add(wrapper);
+        return wrapper;
+    }
+
+    private sealed class WebApplicationDisposable : IDisposable
+    {
+        private readonly Microsoft.AspNetCore.Builder.WebApplication _app;
+
+        public WebApplicationDisposable(Microsoft.AspNetCore.Builder.WebApplication app)
+        {
+            _app = app;
+        }
+
+        public void Dispose()
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                _app.StopAsync(cts.Token).GetAwaiter().GetResult();
+            }
+            catch
+            {
+                // best-effort
+            }
+            _app.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
     }
 
     private IDisposable StartFailingListener(out Uri endpoint)
