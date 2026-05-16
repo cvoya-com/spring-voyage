@@ -37,6 +37,7 @@ Orchestration sits inside that stack. It answers "how should this unit route thi
 | [Initiative](initiative.md) | How agents autonomously decide to act |
 | [Observability](observability.md) | Real-time visibility into agent activity, cost, and decisions |
 | [Packages and Skills](packages.md) | Reusable bundles of domain knowledge and capabilities |
+| [Tools](tools.md) | The runtime-invocation surface agents call: `<namespace>.<tool_name>` ids, the three tiers (Platform / Connector / Image), and the grant model |
 | [Tenants and Permissions](tenants.md) | Multi-tenancy, access control, and organizational isolation |
 
 ## Core Principles

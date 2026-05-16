@@ -24,6 +24,18 @@ Read this package after `example-simple` to see how `from:` cloning, snapshot bi
 - Package README: [`packages/example-templated/README.md`](../../../packages/example-templated/README.md)
 - Step-by-step walkthrough: [Building `example-templated` step by step](declarative.md#building-example-templated-step-by-step)
 
+## Sample agent images
+
+The `samples/` directory holds runnable agent images that exercise specific SDK contracts. Each sample is small enough to read end-to-end and exists as the deploy target for an integration test elsewhere in the repo.
+
+### `tools-agent-image` — image-tier tool registration
+
+[`samples/tools-agent-image/`](../../../samples/tools-agent-image/) demonstrates registering custom tools from a .NET agent image via `IToolRegistry.Register` and exposing them at `GET /a2a/tools` with `app.MapToolsEndpoint(registry)`. The sample registers two `acme.*` tools on an in-process registry and serves them from a minimal-API host on the standard agent port; the platform's introspector hits the same endpoint at deploy time and caches the declared surface onto the agent's `image_tools` column.
+
+Pair this sample with the [agent-tools developer guide](../developer/agent-tools.md) for the authoring walkthrough.
+
+- Sample README: [`samples/tools-agent-image/README.md`](../../../samples/tools-agent-image/README.md)
+
 ## CLI scenario suite
 
 The CLI scenario suite under [`tests/e2e/cli/scenarios/`](../../../tests/e2e/cli/scenarios) is more than a regression safety net — each script is a self-contained usage example that drives the real `spring` CLI against a running stack. Reading them is the fastest way to see how a given feature is used today; executing them is the fastest way to validate a fresh environment.
