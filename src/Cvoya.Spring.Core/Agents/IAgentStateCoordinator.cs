@@ -23,7 +23,7 @@ using Cvoya.Spring.Core.Capabilities;
 /// </para>
 /// <para>
 /// Per ADR-0040 / #2048 every method is now backed by EF
-/// (<c>agent_live_config</c>, <c>agent_skill_grants</c>,
+/// (<c>agent_live_config</c>, <c>agent_tool_grants</c>,
 /// <c>agent_expertise</c>). The actor passes its actor id; the
 /// coordinator owns the EF read/write through an injected store. There
 /// are no actor-state delegates because there is no actor-state copy

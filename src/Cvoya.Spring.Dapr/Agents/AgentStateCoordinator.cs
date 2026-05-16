@@ -23,7 +23,7 @@ using Microsoft.Extensions.Logging;
 /// <remarks>
 /// Per ADR-0040 / #2048 every read and write goes through
 /// <see cref="IAgentLiveConfigStore"/>, which in turn drives the
-/// <c>agent_live_config</c>, <c>agent_skill_grants</c>, and
+/// <c>agent_live_config</c>, <c>agent_tool_grants</c>, and
 /// <c>agent_expertise</c> EF tables. There is no actor-state copy.
 /// </remarks>
 public class AgentStateCoordinator(

@@ -98,6 +98,15 @@ internal static class ServiceCollectionExtensionsRouting
         // repository — same pattern as IUnitLiveConfigStore.
         services.TryAddSingleton<IUnitConnectorBindingStore, UnitConnectorBindingStore>();
 
+        // #2335 Sub B: tool-grant resolver + image-tier seam. The
+        // resolver merges the four provenance tiers (platform / connector
+        // / image / explicit) into a single flat list with provenance
+        // metadata; the empty image reader is overwritten by Sub C
+        // (#2336) once the SDK introspection path ships. Both TryAdd so
+        // cloud overlays / Sub C take precedence cleanly.
+        services.TryAddSingleton<IImageToolsReader, EmptyImageToolsReader>();
+        services.TryAddSingleton<IToolGrantResolver, ToolGrantResolver>();
+
         // Register the base aggregator as a concrete singleton so the
         // boundary decorator can take a typed inner reference. Tests that
         // want the raw (unfiltered) aggregator can resolve the concrete

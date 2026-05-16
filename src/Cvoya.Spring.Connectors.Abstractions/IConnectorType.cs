@@ -69,6 +69,25 @@ public interface IConnectorType
     string Slug { get; }
 
     /// <summary>
+    /// Tool-name namespace owned by this connector (#2335). Every
+    /// <see cref="Cvoya.Spring.Core.Skills.ToolDefinition"/> a connector
+    /// exposes via its <see cref="Cvoya.Spring.Core.Skills.ISkillRegistry"/>
+    /// uses ids of the form <c>&lt;ToolNamespace&gt;.&lt;tool_name&gt;</c>.
+    /// The default implementation returns <see cref="Slug"/> so most
+    /// connectors do not have to set it explicitly; a connector that needs
+    /// a different namespace (e.g. a bundle of legacy tools imported under
+    /// a non-slug prefix) can override.
+    /// </summary>
+    /// <remarks>
+    /// Consumed by the auto-grant pipeline: when a unit binds this
+    /// connector, the binding write path injects one row per
+    /// <c>&lt;ToolNamespace&gt;.*</c> tool into <c>unit_tool_grants</c>
+    /// with <c>provenance = "connector:&lt;Slug&gt;"</c>. Unbinding
+    /// revokes those rows.
+    /// </remarks>
+    string ToolNamespace => Slug;
+
+    /// <summary>
     /// Human-facing display name.
     /// </summary>
     string DisplayName { get; }

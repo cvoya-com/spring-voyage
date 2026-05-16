@@ -138,7 +138,7 @@ public static class StateKeys
     // Agent:Expertise) and the legacy parent-unit pointer
     // (Agent:ParentUnit) were moved to EF. The first four live on the
     // agent_live_config row; skills and expertise live on
-    // agent_skill_grants and agent_expertise rows; ParentUnit is
+    // agent_tool_grants and agent_expertise rows; ParentUnit is
     // derived from unit_memberships and no longer mirrored on the
     // agent. AgentActor reads / writes via IAgentStateCoordinator,
     // which routes through IAgentLiveConfigStore.

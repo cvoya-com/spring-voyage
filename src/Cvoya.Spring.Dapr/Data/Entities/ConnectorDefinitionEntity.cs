@@ -33,6 +33,15 @@ public class ConnectorDefinitionEntity : ITenantScopedEntity
     /// </summary>
     public string Type { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Tool-name namespace owned by this connector (#2335). Mirrors
+    /// <c>IConnectorType.ToolNamespace</c>; persisted so the grant
+    /// pipeline can resolve the namespace from a row without re-resolving
+    /// the in-process connector type. Defaults to <see cref="Type"/> at
+    /// insert time when the caller does not supply a value.
+    /// </summary>
+    public string ToolNamespace { get; set; } = string.Empty;
+
     /// <summary>Gets or sets the connector configuration stored as JSON.</summary>
     public JsonElement? Config { get; set; }
 
