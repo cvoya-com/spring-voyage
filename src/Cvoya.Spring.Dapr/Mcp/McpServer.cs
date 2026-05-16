@@ -10,7 +10,9 @@ using System.Text;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 
@@ -41,6 +43,7 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     private readonly McpServerOptions _options;
     private readonly ILogger _logger;
     private readonly IServiceScopeFactory? _scopeFactory;
+    private readonly IActivityEventBus? _activityEventBus;
     private readonly ConcurrentDictionary<string, McpSession> _sessions = new(StringComparer.Ordinal);
 
     private HttpListener? _listener;
@@ -76,12 +79,14 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         IEnumerable<ISkillRegistry> registries,
         IOptions<McpServerOptions> options,
         ILoggerFactory loggerFactory,
-        IServiceScopeFactory? scopeFactory = null)
+        IServiceScopeFactory? scopeFactory = null,
+        IActivityEventBus? activityEventBus = null)
     {
         _registries = registries.ToList();
         _options = options.Value;
         _logger = loggerFactory.CreateLogger<McpServer>();
         _scopeFactory = scopeFactory;
+        _activityEventBus = activityEventBus;
 
         _toolToRegistry = new Dictionary<string, ISkillRegistry>(StringComparer.Ordinal);
         foreach (var registry in _registries)
@@ -435,6 +440,14 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
             _logger.LogWarning(
                 "MCP tools/call denied by unit policy: {Tool} (agent={AgentId} unit={UnitId}) — {Reason}",
                 toolName, session.AgentId, denial.Value.DenyingUnitId, denial.Value.Reason);
+            await EmitToolFailureActivityAsync(
+                session,
+                toolName,
+                ActivitySeverity.Warning,
+                $"Tool '{toolName}' denied by unit policy: {denial.Value.Reason ?? "no reason given"}",
+                reason: denial.Value.Reason,
+                deniedByUnitId: denial.Value.DenyingUnitId,
+                ct: ct);
             await WriteResultAsync(response, request.Id, new
             {
                 content = new[]
@@ -476,6 +489,13 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         }
         catch (SkillNotFoundException ex)
         {
+            await EmitToolFailureActivityAsync(
+                session,
+                toolName,
+                ActivitySeverity.Warning,
+                $"Tool '{toolName}' not found",
+                exception: ex,
+                ct: ct);
             await WriteErrorAsync(response, request.Id, McpRpcErrorCodes.MethodNotFound, ex.Message);
         }
         catch (ArgumentException ex)
@@ -486,6 +506,13 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
             _logger.LogWarning(ex,
                 "MCP tool {Tool} rejected malformed arguments (agent={AgentId} thread={ThreadId})",
                 toolName, session.AgentId, session.ThreadId);
+            await EmitToolFailureActivityAsync(
+                session,
+                toolName,
+                ActivitySeverity.Warning,
+                $"Tool '{toolName}' rejected arguments: {ex.Message}",
+                exception: ex,
+                ct: ct);
             await WriteResultAsync(response, request.Id, new
             {
                 content = new[]
@@ -507,6 +534,18 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
             _logger.LogError(ex,
                 "MCP tool {Tool} threw while executing (agent={AgentId} thread={ThreadId})",
                 toolName, session.AgentId, session.ThreadId);
+            // Surface the failure on the activity bus too — without this, operators see
+            // tool failures (e.g. unconfigured GitHub installation id) only in the worker
+            // ILogger sink and the activity feed stays silent. Severity is Error so
+            // `Severity >= Warning` filters still match and operators can distinguish
+            // unexpected exceptions from arg / policy denials (both Warning above).
+            await EmitToolFailureActivityAsync(
+                session,
+                toolName,
+                ActivitySeverity.Error,
+                $"Tool '{toolName}' failed: {ex.Message}",
+                exception: ex,
+                ct: ct);
             await WriteResultAsync(response, request.Id, new
             {
                 content = new[]
@@ -519,6 +558,80 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
                 },
                 isError = true
             });
+        }
+    }
+
+    /// <summary>
+    /// Publishes a <see cref="ActivityEventType.ToolResult"/> activity event when a tool
+    /// call fails — either because policy denied it, the registry rejected the call,
+    /// the arguments were malformed, or the underlying skill threw. The MCP layer was
+    /// previously logging these failures only to <see cref="ILogger"/>, which left the
+    /// portal's activity feed silent for the most common operator-visible failures
+    /// (e.g. an unconfigured GitHub installation id surfacing through every
+    /// <c>github.*</c> tool call). Wiring emission here means the operator sees the
+    /// failure with the exception message attached, paired with the matching
+    /// <see cref="ActivityEventType.ToolCall"/> via the agent-id source field.
+    /// </summary>
+    private async Task EmitToolFailureActivityAsync(
+        McpSession session,
+        string toolName,
+        ActivitySeverity severity,
+        string summary,
+        Exception? exception = null,
+        string? reason = null,
+        string? deniedByUnitId = null,
+        CancellationToken ct = default)
+    {
+        var bus = _activityEventBus;
+        if (bus is null)
+        {
+            return;
+        }
+
+        // Address.For requires a Guid-shaped id segment. Production sessions are always
+        // keyed by an agent Guid (UnitDispatchOrchestrator issues them after looking up
+        // the agent actor), but legacy tests use opaque strings like "agent-1" — skip
+        // emission for those rather than throwing inside the failure handler.
+        if (!Guid.TryParse(session.AgentId, out var agentGuid))
+        {
+            return;
+        }
+
+        try
+        {
+            var details = JsonSerializer.SerializeToElement(new
+            {
+                toolName,
+                threadId = session.ThreadId,
+                callerKind = session.CallerKind,
+                exceptionType = exception?.GetType().FullName,
+                exceptionMessage = exception?.Message,
+                reason,
+                deniedByUnitId,
+            });
+
+            var activityEvent = new ActivityEvent(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                new Address(Address.AgentScheme, agentGuid),
+                ActivityEventType.ToolResult,
+                severity,
+                summary,
+                details,
+                CorrelationId: session.ThreadId);
+
+            await bus.PublishAsync(activityEvent, ct);
+        }
+        catch (Exception emitEx)
+        {
+            // The bus is a fire-and-forget audit sink — failing to publish must never
+            // turn a tool error (already on its way back to the model) into a hard
+            // server fault. Log and swallow, matching the AgentActor.EmitActivityEventAsync
+            // pattern in src/Cvoya.Spring.Dapr/Actors/AgentActor.cs.
+            _logger.LogWarning(emitEx,
+                "Failed to publish ToolResult activity event for {Tool} (agent={AgentId}); " +
+                "the tool error is still being returned to the caller.",
+                toolName, session.AgentId);
         }
     }
 

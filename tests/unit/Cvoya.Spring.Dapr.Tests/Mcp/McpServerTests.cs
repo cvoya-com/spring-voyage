@@ -9,6 +9,8 @@ using System.Text;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Mcp;
 
@@ -198,6 +200,75 @@ public class McpServerTests : IAsyncLifetime
         server.Dispose();
     }
 
+    [Fact]
+    public async Task ToolsCall_WhenSkillThrows_PublishesToolResultActivityEvent()
+    {
+        // Regression for the silent-failure path: prior to the fix, a tool that threw
+        // (e.g. github.list_issues with an unconfigured installation id) was logged
+        // only via ILogger, leaving the portal activity feed empty even though the
+        // operator saw a transient toast. Now the McpServer publishes a
+        // ToolResult ActivityEvent (severity Error) onto IActivityEventBus so the
+        // failure persists in the feed alongside the matching ToolCall event.
+        var recordingBus = new RecordingActivityEventBus();
+        var throwingRegistry = new ThrowingSkillRegistry(
+            "fake.throws",
+            new InvalidOperationException("InstallationId must be configured to create an authenticated client."));
+
+        var agentGuid = Guid.NewGuid();
+        var threadGuid = Guid.NewGuid();
+
+        var server = new McpServer(
+            [throwingRegistry],
+            Options.Create(new McpServerOptions
+            {
+                BindAddress = "127.0.0.1",
+                ContainerHost = "127.0.0.1",
+            }),
+            _loggerFactory,
+            scopeFactory: null,
+            activityEventBus: recordingBus);
+        try
+        {
+            await server.StartAsync(CancellationToken.None);
+            using var client = new HttpClient { BaseAddress = new Uri(server.Endpoint!) };
+            var session = server.IssueSession(agentGuid.ToString("N"), threadGuid.ToString("N"));
+
+            var requestBody = JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                id = 1,
+                method = "tools/call",
+                @params = new { name = "fake.throws", arguments = new { } }
+            });
+            using var request = new HttpRequestMessage(HttpMethod.Post, string.Empty)
+            {
+                Content = new StringContent(requestBody, Encoding.UTF8, "application/json"),
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.Token);
+            using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            var json = JsonDocument.Parse(content).RootElement;
+
+            json.GetProperty("result").GetProperty("isError").GetBoolean().ShouldBeTrue();
+
+            recordingBus.Events.Count.ShouldBe(1);
+            var ev = recordingBus.Events[0];
+            ev.EventType.ShouldBe(ActivityEventType.ToolResult);
+            ev.Severity.ShouldBe(ActivitySeverity.Error);
+            ev.Source.Scheme.ShouldBe(Address.AgentScheme);
+            ev.Source.Id.ShouldBe(agentGuid);
+            ev.Summary.ShouldContain("fake.throws");
+            ev.Summary.ShouldContain("InstallationId must be configured");
+            ev.CorrelationId.ShouldBe(threadGuid.ToString("N"));
+        }
+        finally
+        {
+            await server.StopAsync(CancellationToken.None);
+            server.Dispose();
+        }
+    }
+
     private async Task<HttpResponseMessage> PostAsync(string? token, object body)
     {
         var json = JsonSerializer.Serialize(body);
@@ -218,6 +289,56 @@ public class McpServerTests : IAsyncLifetime
         response.EnsureSuccessStatusCode();
         var content = await response.Content.ReadAsStringAsync();
         return JsonDocument.Parse(content).RootElement.Clone();
+    }
+
+    private sealed class ThrowingSkillRegistry : ISkillRegistry
+    {
+        private readonly string _toolName;
+        private readonly Exception _toThrow;
+
+        public ThrowingSkillRegistry(string toolName, Exception toThrow)
+        {
+            _toolName = toolName;
+            _toThrow = toThrow;
+        }
+
+        public string Name => "fake";
+
+        public IReadOnlyList<ToolDefinition> GetToolDefinitions()
+        {
+            var schema = JsonSerializer.SerializeToElement(new { type = "object" });
+            return [new ToolDefinition(_toolName, "Always-throwing fake tool.", schema)];
+        }
+
+        public Task<JsonElement> InvokeAsync(string toolName, JsonElement arguments, CancellationToken cancellationToken = default)
+            => throw _toThrow;
+    }
+
+    private sealed class RecordingActivityEventBus : IActivityEventBus
+    {
+        public List<ActivityEvent> Events { get; } = new();
+
+        // The failure-path test never subscribes; an empty observable satisfies the
+        // IActivityObservable contract without pulling Rx into the test assembly.
+        public IObservable<ActivityEvent> ActivityStream { get; } = new EmptyActivityStream();
+
+        public Task PublishAsync(ActivityEvent activityEvent, CancellationToken cancellationToken = default)
+        {
+            Events.Add(activityEvent);
+            return Task.CompletedTask;
+        }
+
+        private sealed class EmptyActivityStream : IObservable<ActivityEvent>
+        {
+            public IDisposable Subscribe(IObserver<ActivityEvent> observer) => new NoOpDisposable();
+        }
+
+        private sealed class NoOpDisposable : IDisposable
+        {
+            public void Dispose()
+            {
+            }
+        }
     }
 
     private sealed class FakeSkillRegistry : ISkillRegistry
