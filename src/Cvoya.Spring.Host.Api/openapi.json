@@ -1878,7 +1878,7 @@
           "Units"
         ],
         "summary": "Re-run backend validation for a unit in Error or Stopped state",
-        "description": "Transitions the unit into Validating and kicks off a new UnitValidationWorkflow run. The handler returns immediately — progress is observable via SSE ValidationProgress events and the terminal state is written back by the workflow.",
+        "description": "Transitions the unit into Validating and kicks off a new ArtefactValidationWorkflow run. The handler returns immediately — progress is observable via SSE ValidationProgress events and the terminal state is written back by the workflow.",
         "operationId": "RevalidateUnit",
         "parameters": [
           {
@@ -9946,6 +9946,44 @@
           }
         }
       },
+      "ArtefactValidationError": {
+        "required": [
+          "step",
+          "code",
+          "message",
+          "details"
+        ],
+        "type": "object",
+        "properties": {
+          "step": {
+            "$ref": "#/components/schemas/ArtefactValidationStep"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "details": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ArtefactValidationStep": {
+        "enum": [
+          "PullingImage",
+          "VerifyingTool",
+          "ValidatingCredential",
+          "ResolvingModel",
+          "SchedulingWorkflow"
+        ]
+      },
       "AttachmentMode": {
         "enum": [
           "detached",
@@ -14286,7 +14324,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/UnitValidationError"
+                "$ref": "#/components/schemas/ArtefactValidationError"
               }
             ]
           },
@@ -14400,44 +14438,6 @@
             "type": "string"
           }
         }
-      },
-      "UnitValidationError": {
-        "required": [
-          "step",
-          "code",
-          "message",
-          "details"
-        ],
-        "type": "object",
-        "properties": {
-          "step": {
-            "$ref": "#/components/schemas/UnitValidationStep"
-          },
-          "code": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "details": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "additionalProperties": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "UnitValidationStep": {
-        "enum": [
-          "PullingImage",
-          "VerifyingTool",
-          "ValidatingCredential",
-          "ResolvingModel",
-          "SchedulingWorkflow"
-        ]
       },
       "UnitWebSearchConfigRequest": {
         "required": [

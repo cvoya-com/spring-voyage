@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.AgentRuntimes.Launchers;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
@@ -90,14 +91,14 @@ public class SpringVoyageAgentLauncher(
         return new[]
         {
             new ProbeStep(
-                Step: UnitValidationStep.VerifyingTool,
+                Step: ArtefactValidationStep.VerifyingTool,
                 Args: new[] { "python", "--version" },
                 Env: new Dictionary<string, string>(StringComparer.Ordinal),
                 Timeout: TimeSpan.FromSeconds(10),
                 InterpretOutput: (exit, _, stderr) => exit == 0
                     ? StepResult.Succeed()
                     : StepResult.Fail(
-                        UnitValidationCodes.ToolMissing,
+                        ArtefactValidationCodes.ToolMissing,
                         $"`python --version` exited with code {exit}. {stderr}".TrimEnd())),
         };
     }

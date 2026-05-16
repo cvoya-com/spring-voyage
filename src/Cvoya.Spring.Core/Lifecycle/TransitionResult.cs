@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.Units;
+namespace Cvoya.Spring.Core.Lifecycle;
 
 using System.Runtime.Serialization;
 

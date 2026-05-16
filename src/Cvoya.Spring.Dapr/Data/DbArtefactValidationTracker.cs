@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Data;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Default <see cref="IUnitValidationTracker"/>. Writes the
+/// Default <see cref="IArtefactValidationTracker"/>. Writes the
 /// <c>LastValidationRunId</c> and <c>LastValidationErrorJson</c> columns
 /// on the <c>UnitDefinitionEntity</c> row matching the supplied actor id.
 /// </summary>
@@ -19,11 +20,11 @@ using Microsoft.Extensions.Logging;
 /// pattern used by <c>DbUnitExecutionStore</c>) because <c>UnitActor</c> is instantiated
 /// through the Dapr actor runtime, which does not own a request scope.
 /// </remarks>
-public class DbUnitValidationTracker(
+public class DbArtefactValidationTracker(
     IServiceScopeFactory scopeFactory,
-    ILoggerFactory loggerFactory) : IUnitValidationTracker
+    ILoggerFactory loggerFactory) : IArtefactValidationTracker
 {
-    private readonly ILogger _logger = loggerFactory.CreateLogger<DbUnitValidationTracker>();
+    private readonly ILogger _logger = loggerFactory.CreateLogger<DbArtefactValidationTracker>();
 
     /// <inheritdoc />
     public async Task<string?> GetLastValidationRunIdAsync(

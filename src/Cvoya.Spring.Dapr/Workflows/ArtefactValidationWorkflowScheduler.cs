@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Workflows;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
@@ -18,10 +19,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Default <see cref="IUnitValidationWorkflowScheduler"/>. Resolves the
+/// Default <see cref="IArtefactValidationWorkflowScheduler"/>. Resolves the
 /// unit's persisted execution defaults (<c>image</c>, <c>agent</c>,
 /// <c>model</c>) and its tenant-scoped LLM credential, then schedules a
-/// new <c>UnitValidationWorkflow</c> run via <see cref="DaprWorkflowClient"/>.
+/// new <c>ArtefactValidationWorkflow</c> run via <see cref="DaprWorkflowClient"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -31,24 +32,24 @@ using Microsoft.Extensions.Logging;
 /// </para>
 /// <para>
 /// The scheduler runs inside the Worker / API host and is the one place
-/// that knows how to compose a <see cref="UnitValidationWorkflowInput"/>
+/// that knows how to compose a <see cref="ArtefactValidationWorkflowInput"/>
 /// from actor-side state. Keeping this resolution out of the actor lets
 /// <c>UnitActor</c> stay pure Dapr-actor code: the actor emits an intent
 /// ("please schedule validation for unit id X") and the scheduler does the
 /// side-effectful plumbing on top of the shared DB and credential resolver.
 /// </para>
 /// </remarks>
-public class UnitValidationWorkflowScheduler(
+public class ArtefactValidationWorkflowScheduler(
     DaprWorkflowClient workflowClient,
     IServiceScopeFactory scopeFactory,
     IRuntimeCatalog runtimeCatalog,
     IAgentRuntimeLauncherRegistry launcherRegistry,
-    ILoggerFactory loggerFactory) : IUnitValidationWorkflowScheduler
+    ILoggerFactory loggerFactory) : IArtefactValidationWorkflowScheduler
 {
-    private readonly ILogger _logger = loggerFactory.CreateLogger<UnitValidationWorkflowScheduler>();
+    private readonly ILogger _logger = loggerFactory.CreateLogger<ArtefactValidationWorkflowScheduler>();
 
     /// <inheritdoc />
-    public async Task<UnitValidationSchedule> ScheduleAsync(
+    public async Task<ArtefactValidationSchedule> ScheduleAsync(
         string unitActorId,
         CancellationToken cancellationToken = default)
     {
@@ -87,9 +88,9 @@ public class UnitValidationWorkflowScheduler(
             // The directory has the actor id but the canonical row is gone
             // — almost certainly a tear-down race. Surface as a structured
             // configuration failure so the actor doesn't get stuck.
-            throw new UnitValidationSchedulingException(new UnitValidationError(
-                Step: UnitValidationStep.PullingImage,
-                Code: UnitValidationCodes.ConfigurationIncomplete,
+            throw new ArtefactValidationSchedulingException(new ArtefactValidationError(
+                Step: ArtefactValidationStep.PullingImage,
+                Code: ArtefactValidationCodes.ConfigurationIncomplete,
                 Message: $"No unit definition row exists for actor id '{unitActorId}'. " +
                     "The unit may have been deleted; recreate it before validating.",
                 Details: null));
@@ -102,9 +103,9 @@ public class UnitValidationWorkflowScheduler(
             // first one the workflow would have run (image pull). The
             // operator can fix this from the unit's Execution tab and
             // call /revalidate.
-            throw new UnitValidationSchedulingException(new UnitValidationError(
-                Step: UnitValidationStep.PullingImage,
-                Code: UnitValidationCodes.ConfigurationIncomplete,
+            throw new ArtefactValidationSchedulingException(new ArtefactValidationError(
+                Step: ArtefactValidationStep.PullingImage,
+                Code: ArtefactValidationCodes.ConfigurationIncomplete,
                 Message: "No execution defaults are configured on this unit. " +
                     "Set a container image (and optionally a runtime) before validation can run.",
                 Details: new Dictionary<string, string>
@@ -115,9 +116,9 @@ public class UnitValidationWorkflowScheduler(
 
         if (string.IsNullOrWhiteSpace(defaults.Image))
         {
-            throw new UnitValidationSchedulingException(new UnitValidationError(
-                Step: UnitValidationStep.PullingImage,
-                Code: UnitValidationCodes.ConfigurationIncomplete,
+            throw new ArtefactValidationSchedulingException(new ArtefactValidationError(
+                Step: ArtefactValidationStep.PullingImage,
+                Code: ArtefactValidationCodes.ConfigurationIncomplete,
                 Message: "This unit has no container image configured. " +
                     "Set the image on the unit's Execution tab and retry validation.",
                 Details: new Dictionary<string, string>
@@ -129,9 +130,9 @@ public class UnitValidationWorkflowScheduler(
         var runtimeId = ResolveAgentRuntimeId(defaults);
         if (string.IsNullOrWhiteSpace(runtimeId))
         {
-            throw new UnitValidationSchedulingException(new UnitValidationError(
-                Step: UnitValidationStep.VerifyingTool,
-                Code: UnitValidationCodes.ConfigurationIncomplete,
+            throw new ArtefactValidationSchedulingException(new ArtefactValidationError(
+                Step: ArtefactValidationStep.VerifyingTool,
+                Code: ArtefactValidationCodes.ConfigurationIncomplete,
                 Message: "This unit has no runtime or provider configured. " +
                     "Pick a runtime (or provider) on the unit's Execution tab and retry validation.",
                 Details: new Dictionary<string, string>
@@ -176,7 +177,7 @@ public class UnitValidationWorkflowScheduler(
         // are declared, only the command strings within them.
         var skipSteps = ComputeSkipSteps(runtimeId, requestedModel);
 
-        var input = new UnitValidationWorkflowInput(
+        var input = new ArtefactValidationWorkflowInput(
             UnitId: unitActorId,
             UnitName: entity.DisplayName,
             Image: defaults.Image,
@@ -186,19 +187,19 @@ public class UnitValidationWorkflowScheduler(
             SkipSteps: skipSteps);
 
         var instanceId = await workflowClient.ScheduleNewWorkflowAsync(
-            nameof(UnitValidationWorkflow),
+            nameof(ArtefactValidationWorkflow),
             input: input);
 
         _logger.LogInformation(
-            "Scheduled UnitValidationWorkflow {InstanceId} for unit {UnitName} (actor {ActorId}) image={Image} runtime={Runtime} model={Model}.",
+            "Scheduled ArtefactValidationWorkflow {InstanceId} for unit {UnitName} (actor {ActorId}) image={Image} runtime={Runtime} model={Model}.",
             instanceId, entity.DisplayName, unitActorId, defaults.Image, runtimeId, requestedModel);
 
-        return new UnitValidationSchedule(instanceId, entity.DisplayName);
+        return new ArtefactValidationSchedule(instanceId, entity.DisplayName);
     }
 
     /// <summary>
     /// Resolves the agent-runtime registry id used by
-    /// <see cref="UnitValidationWorkflowInput.RuntimeId"/> from the unit's
+    /// <see cref="ArtefactValidationWorkflowInput.RuntimeId"/> from the unit's
     /// persisted <see cref="UnitExecutionDefaults"/> (#1683).
     /// </summary>
     /// <remarks>
@@ -247,7 +248,7 @@ public class UnitValidationWorkflowScheduler(
             DefaultModel: requestedModel,
             BaseUrl: null);
 
-        HashSet<UnitValidationStep> declared;
+        HashSet<ArtefactValidationStep> declared;
         try
         {
             declared = launcher.GetProbeSteps(config, string.Empty)
@@ -259,7 +260,7 @@ public class UnitValidationWorkflowScheduler(
             return null;
         }
 
-        var skipped = UnitValidationWorkflow.PostPullSteps
+        var skipped = ArtefactValidationWorkflow.PostPullSteps
             .Where(s => !declared.Contains(s))
             .Select(s => s.ToString())
             .ToArray();

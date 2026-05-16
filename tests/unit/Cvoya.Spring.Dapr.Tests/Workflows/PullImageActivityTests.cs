@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Workflows.Activities;
@@ -60,8 +61,8 @@ public class PullImageActivityTests
 
         result.Success.ShouldBeFalse();
         result.Failure.ShouldNotBeNull();
-        result.Failure!.Step.ShouldBe(UnitValidationStep.PullingImage);
-        result.Failure.Code.ShouldBe(UnitValidationCodes.ImagePullFailed);
+        result.Failure!.Step.ShouldBe(ArtefactValidationStep.PullingImage);
+        result.Failure.Code.ShouldBe(ArtefactValidationCodes.ImagePullFailed);
         result.Failure.Message.ShouldContain("auth failed");
     }
 
@@ -77,8 +78,8 @@ public class PullImageActivityTests
 
         result.Success.ShouldBeFalse();
         result.Failure.ShouldNotBeNull();
-        result.Failure!.Step.ShouldBe(UnitValidationStep.PullingImage);
-        result.Failure.Code.ShouldBe(UnitValidationCodes.ProbeTimeout);
+        result.Failure!.Step.ShouldBe(ArtefactValidationStep.PullingImage);
+        result.Failure.Code.ShouldBe(ArtefactValidationCodes.ProbeTimeout);
     }
 
     [Fact]

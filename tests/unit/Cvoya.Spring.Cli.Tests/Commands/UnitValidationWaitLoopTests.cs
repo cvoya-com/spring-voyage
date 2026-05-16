@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Cli.Tests.Commands;
 
+using Cvoya.Spring.Core.Lifecycle;
 using System.Collections.Generic;
 using System.IO;
 
@@ -20,7 +21,7 @@ using Xunit;
 /// is decoupled from the Kiota client via delegate seams so we can drive
 /// it entirely from in-memory fixtures — no <c>Task.Delay</c>, no HTTP.
 /// </summary>
-public class UnitValidationWaitLoopTests
+public class ArtefactValidationWaitLoopTests
 {
     /// <summary>
     /// No-op delay delegate: the tests rely on this so poll-interval sleeps
@@ -31,7 +32,7 @@ public class UnitValidationWaitLoopTests
     private static readonly Func<TimeSpan, CancellationToken, Task> NoDelay =
         (_, _) => Task.CompletedTask;
 
-    private static UnitValidationSnapshot Validating(string runId = "run-1") =>
+    private static ArtefactValidationSnapshot Validating(string runId = "run-1") =>
         new(
             Status: "Validating",
             ValidationRunId: runId,
@@ -40,7 +41,7 @@ public class UnitValidationWaitLoopTests
             ErrorMessage: null,
             ErrorDetails: null);
 
-    private static UnitValidationSnapshot Stopped() =>
+    private static ArtefactValidationSnapshot Stopped() =>
         new(
             Status: "Stopped",
             ValidationRunId: "run-1",
@@ -49,7 +50,7 @@ public class UnitValidationWaitLoopTests
             ErrorMessage: null,
             ErrorDetails: null);
 
-    private static UnitValidationSnapshot Draft() =>
+    private static ArtefactValidationSnapshot Draft() =>
         new(
             Status: "Draft",
             ValidationRunId: null,
@@ -58,7 +59,7 @@ public class UnitValidationWaitLoopTests
             ErrorMessage: null,
             ErrorDetails: null);
 
-    private static UnitValidationSnapshot Error(
+    private static ArtefactValidationSnapshot Error(
         string code,
         string step,
         string message = "boom",
@@ -71,10 +72,10 @@ public class UnitValidationWaitLoopTests
             ErrorMessage: message,
             ErrorDetails: details);
 
-    private static Func<CancellationToken, Task<UnitValidationSnapshot>> FetchSequence(
-        params UnitValidationSnapshot[] snapshots)
+    private static Func<CancellationToken, Task<ArtefactValidationSnapshot>> FetchSequence(
+        params ArtefactValidationSnapshot[] snapshots)
     {
-        var queue = new Queue<UnitValidationSnapshot>(snapshots);
+        var queue = new Queue<ArtefactValidationSnapshot>(snapshots);
         return _ => Task.FromResult(
             queue.Count > 0
                 ? queue.Dequeue()
@@ -92,7 +93,7 @@ public class UnitValidationWaitLoopTests
         // only prints terminal success once a terminal state is observed.
         var fetch = FetchSequence(Validating(), Validating(), Stopped());
 
-        var exit = await UnitValidationWaitLoop.RunAsync(
+        var exit = await ArtefactValidationWaitLoop.RunAsync(
             "eng-team",
             Validating(),
             fetch,
@@ -102,7 +103,7 @@ public class UnitValidationWaitLoopTests
             pollInterval: TimeSpan.FromMilliseconds(1),
             delay: NoDelay);
 
-        exit.ShouldBe(UnitValidationExitCodes.Success);
+        exit.ShouldBe(ArtefactValidationExitCodes.Success);
         stdout.ToString().ShouldContain("Validating...");
         stdout.ToString().ShouldContain("Validation passed");
         stdout.ToString().ShouldContain("eng-team");
@@ -120,7 +121,7 @@ public class UnitValidationWaitLoopTests
         var stderr = new StringWriter();
         var fetch = FetchSequence(Validating(), Validating(), Validating(), Stopped());
 
-        await UnitValidationWaitLoop.RunAsync(
+        await ArtefactValidationWaitLoop.RunAsync(
             "eng-team",
             Validating(),
             fetch,
@@ -137,14 +138,14 @@ public class UnitValidationWaitLoopTests
     }
 
     [Theory]
-    [InlineData(UnitValidationCodes.CredentialInvalid, 23)]
-    [InlineData(UnitValidationCodes.ModelNotFound, 25)]
-    [InlineData(UnitValidationCodes.ProbeTimeout, 26)]
-    [InlineData(UnitValidationCodes.ImagePullFailed, 20)]
-    [InlineData(UnitValidationCodes.ImageStartFailed, 21)]
-    [InlineData(UnitValidationCodes.ToolMissing, 22)]
-    [InlineData(UnitValidationCodes.CredentialFormatRejected, 24)]
-    [InlineData(UnitValidationCodes.ProbeInternalError, 27)]
+    [InlineData(ArtefactValidationCodes.CredentialInvalid, 23)]
+    [InlineData(ArtefactValidationCodes.ModelNotFound, 25)]
+    [InlineData(ArtefactValidationCodes.ProbeTimeout, 26)]
+    [InlineData(ArtefactValidationCodes.ImagePullFailed, 20)]
+    [InlineData(ArtefactValidationCodes.ImageStartFailed, 21)]
+    [InlineData(ArtefactValidationCodes.ToolMissing, 22)]
+    [InlineData(ArtefactValidationCodes.CredentialFormatRejected, 24)]
+    [InlineData(ArtefactValidationCodes.ProbeInternalError, 27)]
     public async Task RunAsync_ValidatingThenError_MapsCodeToExitAndPrintsStderr(
         string code,
         int expectedExit)
@@ -153,7 +154,7 @@ public class UnitValidationWaitLoopTests
         var stderr = new StringWriter();
         var fetch = FetchSequence(Validating(), Error(code, step: "ValidatingCredential"));
 
-        var exit = await UnitValidationWaitLoop.RunAsync(
+        var exit = await ArtefactValidationWaitLoop.RunAsync(
             "eng-team",
             Validating(),
             fetch,
@@ -183,9 +184,9 @@ public class UnitValidationWaitLoopTests
             ["exitCode"] = "125",
         };
         var fetch = FetchSequence(
-            Error(UnitValidationCodes.ImagePullFailed, step: "PullingImage", details: details));
+            Error(ArtefactValidationCodes.ImagePullFailed, step: "PullingImage", details: details));
 
-        var exit = await UnitValidationWaitLoop.RunAsync(
+        var exit = await ArtefactValidationWaitLoop.RunAsync(
             "eng-team",
             Validating(),
             fetch,
@@ -212,13 +213,13 @@ public class UnitValidationWaitLoopTests
         // never call the fetcher — poll-count pressure matters on
         // scripted runs that hammer create repeatedly.
         var callCount = 0;
-        Task<UnitValidationSnapshot> Fetch(CancellationToken _)
+        Task<ArtefactValidationSnapshot> Fetch(CancellationToken _)
         {
             callCount++;
             return Task.FromResult(Stopped());
         }
 
-        var exit = await UnitValidationWaitLoop.RunAsync(
+        var exit = await ArtefactValidationWaitLoop.RunAsync(
             "eng-team",
             Stopped(),
             Fetch,
@@ -228,7 +229,7 @@ public class UnitValidationWaitLoopTests
             pollInterval: TimeSpan.FromMilliseconds(1),
             delay: NoDelay);
 
-        exit.ShouldBe(UnitValidationExitCodes.Success);
+        exit.ShouldBe(ArtefactValidationExitCodes.Success);
         callCount.ShouldBe(0);
     }
 
@@ -242,13 +243,13 @@ public class UnitValidationWaitLoopTests
         var stderr = new StringWriter();
 
         var callCount = 0;
-        Task<UnitValidationSnapshot> Fetch(CancellationToken _)
+        Task<ArtefactValidationSnapshot> Fetch(CancellationToken _)
         {
             callCount++;
             return Task.FromResult(Draft());
         }
 
-        var exit = await UnitValidationWaitLoop.RunAsync(
+        var exit = await ArtefactValidationWaitLoop.RunAsync(
             "eng-team",
             Draft(),
             Fetch,
@@ -258,7 +259,7 @@ public class UnitValidationWaitLoopTests
             pollInterval: TimeSpan.FromMilliseconds(1),
             delay: NoDelay);
 
-        exit.ShouldBe(UnitValidationExitCodes.Success);
+        exit.ShouldBe(ArtefactValidationExitCodes.Success);
         callCount.ShouldBe(0);
         stdout.ToString().ShouldContain("Draft");
         stdout.ToString().ShouldContain("Add a model");
@@ -275,7 +276,7 @@ public class UnitValidationWaitLoopTests
         var stderr = new StringWriter();
         var fetch = FetchSequence(Validating(), Draft());
 
-        var exit = await UnitValidationWaitLoop.RunAsync(
+        var exit = await ArtefactValidationWaitLoop.RunAsync(
             "eng-team",
             Validating(),
             fetch,
@@ -285,7 +286,7 @@ public class UnitValidationWaitLoopTests
             pollInterval: TimeSpan.FromMilliseconds(1),
             delay: NoDelay);
 
-        exit.ShouldBe(UnitValidationExitCodes.Success);
+        exit.ShouldBe(ArtefactValidationExitCodes.Success);
         stdout.ToString().ShouldContain("Draft");
         stdout.ToString().ShouldContain("Add a model");
     }
@@ -297,7 +298,7 @@ public class UnitValidationWaitLoopTests
         var stderr = new StringWriter();
         using var cts = new CancellationTokenSource();
 
-        async Task<UnitValidationSnapshot> Fetch(CancellationToken token)
+        async Task<ArtefactValidationSnapshot> Fetch(CancellationToken token)
         {
             cts.Cancel();
             token.ThrowIfCancellationRequested();
@@ -305,7 +306,7 @@ public class UnitValidationWaitLoopTests
             return Validating();
         }
 
-        var exit = await UnitValidationWaitLoop.RunAsync(
+        var exit = await ArtefactValidationWaitLoop.RunAsync(
             "eng-team",
             Validating(),
             Fetch,
@@ -315,7 +316,7 @@ public class UnitValidationWaitLoopTests
             pollInterval: TimeSpan.FromMilliseconds(1),
             delay: NoDelay);
 
-        exit.ShouldBe(UnitValidationExitCodes.UnknownError);
+        exit.ShouldBe(ArtefactValidationExitCodes.UnknownError);
         stderr.ToString().ShouldContain("cancelled", Case.Insensitive);
     }
 }

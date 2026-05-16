@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Cli.Commands;
 
+using Cvoya.Spring.Core.Lifecycle;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -29,12 +30,12 @@ using System.Threading.Tasks;
 /// </param>
 /// <param name="ErrorCode">
 /// <c>LastValidationError.Code</c> when present (see
-/// <c>UnitValidationCodes</c> for the stable set). Null when the unit has
+/// <c>ArtefactValidationCodes</c> for the stable set). Null when the unit has
 /// no recorded error (e.g. still <c>Validating</c>, or <c>Stopped</c>).
 /// </param>
 /// <param name="ErrorStep">
 /// <c>LastValidationError.Step</c> when present (one of the
-/// <c>UnitValidationStep</c> enum values, as a string).
+/// <c>ArtefactValidationStep</c> enum values, as a string).
 /// </param>
 /// <param name="ErrorMessage">
 /// <c>LastValidationError.Message</c> when present — the human-readable
@@ -46,7 +47,7 @@ using System.Threading.Tasks;
 /// (e.g. probe exit code, last stderr line). Printed as an indented
 /// block below the main error fields.
 /// </param>
-public readonly record struct UnitValidationSnapshot(
+public readonly record struct ArtefactValidationSnapshot(
     string Status,
     string? ValidationRunId,
     string? ErrorCode,
@@ -73,7 +74,7 @@ public readonly record struct UnitValidationSnapshot(
 /// gate is the server-side workflow: if it never ran, there is nothing to
 /// wait for.
 /// </summary>
-public static class UnitValidationWaitLoop
+public static class ArtefactValidationWaitLoop
 {
     /// <summary>Default poll interval (1 second) — see T-00 design inputs on #942.</summary>
     public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(1);
@@ -88,7 +89,7 @@ public static class UnitValidationWaitLoop
     /// subsequent polls that observe the same state suppress re-emission so
     /// the terminal doesn't spam once per second. On terminal state, emits
     /// either the success line or the structured-error block and returns
-    /// the corresponding exit code via <see cref="UnitValidationExitCodes"/>.
+    /// the corresponding exit code via <see cref="ArtefactValidationExitCodes"/>.
     /// </summary>
     /// <param name="unitName">
     /// The unit name; rendered in output so the caller can identify which
@@ -116,14 +117,14 @@ public static class UnitValidationWaitLoop
     /// to keep the run instantaneous.
     /// </param>
     /// <returns>
-    /// A <see cref="UnitValidationExitCodes"/> value: <c>0</c> on success,
+    /// A <see cref="ArtefactValidationExitCodes"/> value: <c>0</c> on success,
     /// <c>1</c> on unknown / cancellation, or one of the <c>20..27</c>
     /// codes on a recognised validation failure.
     /// </returns>
     public static async Task<int> RunAsync(
         string unitName,
-        UnitValidationSnapshot initialSnapshot,
-        Func<CancellationToken, Task<UnitValidationSnapshot>> fetchSnapshot,
+        ArtefactValidationSnapshot initialSnapshot,
+        Func<CancellationToken, Task<ArtefactValidationSnapshot>> fetchSnapshot,
         TextWriter stdout,
         TextWriter stderr,
         CancellationToken ct,
@@ -170,7 +171,7 @@ public static class UnitValidationWaitLoop
             await stderr.WriteLineAsync(
                 $"Wait cancelled for unit '{unitName}'. The validation workflow continues on the server; " +
                 "re-check with 'spring unit get <name>'.").ConfigureAwait(false);
-            return UnitValidationExitCodes.UnknownError;
+            return ArtefactValidationExitCodes.UnknownError;
         }
     }
 
@@ -179,7 +180,7 @@ public static class UnitValidationWaitLoop
         || string.Equals(status, "Error", StringComparison.Ordinal)
         || string.Equals(status, "Draft", StringComparison.Ordinal);
 
-    private static void EmitProgressLine(UnitValidationSnapshot snapshot, TextWriter stdout)
+    private static void EmitProgressLine(ArtefactValidationSnapshot snapshot, TextWriter stdout)
     {
         if (string.Equals(snapshot.Status, "Validating", StringComparison.Ordinal))
         {
@@ -205,7 +206,7 @@ public static class UnitValidationWaitLoop
 
     private static async Task<int> FinaliseAsync(
         string unitName,
-        UnitValidationSnapshot snapshot,
+        ArtefactValidationSnapshot snapshot,
         TextWriter stdout,
         TextWriter stderr)
     {
@@ -213,7 +214,7 @@ public static class UnitValidationWaitLoop
         {
             await stdout.WriteLineAsync(
                 $"Validation passed. Unit '{unitName}' is ready to start.").ConfigureAwait(false);
-            return UnitValidationExitCodes.Success;
+            return ArtefactValidationExitCodes.Success;
         }
 
         if (string.Equals(snapshot.Status, "Draft", StringComparison.Ordinal))
@@ -226,7 +227,7 @@ public static class UnitValidationWaitLoop
             await stdout.WriteLineAsync(
                 $"Unit '{unitName}' is in Draft; validation has not started. " +
                 "Add a model to validate (e.g. 'spring unit update' with --model).").ConfigureAwait(false);
-            return UnitValidationExitCodes.Success;
+            return ArtefactValidationExitCodes.Success;
         }
 
         // Error path — print the structured error block on stderr.
@@ -243,6 +244,6 @@ public static class UnitValidationWaitLoop
                 await stderr.WriteLineAsync($"    {key}: {value}").ConfigureAwait(false);
             }
         }
-        return UnitValidationExitCodes.ForCode(snapshot.ErrorCode);
+        return ArtefactValidationExitCodes.ForCode(snapshot.ErrorCode);
     }
 }

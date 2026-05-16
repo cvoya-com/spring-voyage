@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.Units;
+namespace Cvoya.Spring.Core.Lifecycle;
 
 using Cvoya.Spring.Core.Lifecycle;
 
@@ -27,7 +27,7 @@ using Cvoya.Spring.Core.Lifecycle;
 /// missing row never throws.
 /// </para>
 /// </remarks>
-public interface IUnitValidationTracker
+public interface IArtefactValidationTracker
 {
     /// <summary>
     /// Reads the current <c>LastValidationRunId</c> for the unit, or
@@ -56,7 +56,7 @@ public interface IUnitValidationTracker
 
     /// <summary>
     /// Persists <paramref name="errorJson"/> (a System.Text.Json-serialized
-    /// <see cref="UnitValidationError"/>) to <c>LastValidationErrorJson</c>.
+    /// <see cref="ArtefactValidationError"/>) to <c>LastValidationErrorJson</c>.
     /// Called by <c>UnitActor.CompleteValidationAsync</c> when the workflow
     /// reports a failure.
     /// </summary>

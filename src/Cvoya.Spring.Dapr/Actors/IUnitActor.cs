@@ -135,7 +135,7 @@ public interface IUnitActor : IAgent
     Task<TransitionResult> TransitionAsync(LifecycleStatus target, CancellationToken ct = default);
 
     /// <summary>
-    /// Terminal callback the <c>UnitValidationWorkflow</c> invokes when its
+    /// Terminal callback the <c>ArtefactValidationWorkflow</c> invokes when its
     /// probe run finishes. Drives the <see cref="LifecycleStatus.Validating"/>
     /// → <see cref="LifecycleStatus.Stopped"/> or
     /// <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Error"/>
@@ -148,7 +148,7 @@ public interface IUnitActor : IAgent
     /// <list type="bullet">
     ///   <item>
     ///   <b>Stale-run guard.</b> If
-    ///   <see cref="UnitValidationCompletion.WorkflowInstanceId"/> does not
+    ///   <see cref="ArtefactValidationCompletion.WorkflowInstanceId"/> does not
     ///   match the unit's current <c>LastValidationRunId</c>, the callback is
     ///   a no-op: an older workflow arriving after a newer revalidation has
     ///   already been scheduled must not rewrite the current state.
@@ -177,7 +177,7 @@ public interface IUnitActor : IAgent
     /// (on a guard no-op, the result reports the unchanged current status
     /// and a diagnostic rejection reason).
     /// </returns>
-    Task<TransitionResult> CompleteValidationAsync(UnitValidationCompletion completion, CancellationToken ct = default);
+    Task<TransitionResult> CompleteValidationAsync(ArtefactValidationCompletion completion, CancellationToken ct = default);
 
     /// <summary>
     /// Marks this unit as awaiting an automatic transition into <c>Running</c>

@@ -988,7 +988,7 @@ public class UnitCreationService : IUnitCreationService
     /// Per ADR-0038 the unit does not carry a flat <c>provider</c> slot — the
     /// provider is intrinsic to <c>ai.model</c>. The gate therefore mirrors the
     /// resolution chain used by
-    /// <c>UnitValidationWorkflowScheduler.ScheduleAsync</c>: read
+    /// <c>ArtefactValidationWorkflowScheduler.ScheduleAsync</c>: read
     /// <see cref="UnitExecutionDefaults"/> from <see cref="IUnitExecutionStore"/>,
     /// resolve the agent-runtime registry id from
     /// <see cref="UnitExecutionDefaults.Agent"/> (Provider as a last-ditch
@@ -1048,7 +1048,7 @@ public class UnitCreationService : IUnitCreationService
             return LifecycleStatus.Draft;
         }
 
-        // Mirror UnitValidationWorkflowScheduler.cs: the catalogue runtime's
+        // Mirror ArtefactValidationWorkflowScheduler.cs: the catalogue runtime's
         // first provider edge carries the auth method the launcher consumes.
         // Without a runtime catalogue (legacy test harness) we cannot derive
         // the provider, so the gate stays closed — the same fail-safe shape
@@ -1126,7 +1126,7 @@ public class UnitCreationService : IUnitCreationService
     }
 
     /// <summary>
-    /// Mirrors <c>UnitValidationWorkflowScheduler.ResolveAgentRuntimeId</c>:
+    /// Mirrors <c>ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId</c>:
     /// the agent-runtime registry id is on <see cref="UnitExecutionDefaults.Agent"/>;
     /// <see cref="UnitExecutionDefaults.Provider"/> is a last-ditch fallback
     /// because spring-voyage-style runtimes carry the same string in both

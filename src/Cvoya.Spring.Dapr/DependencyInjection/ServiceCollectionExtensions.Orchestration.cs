@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.DependencyInjection;
 
+using Cvoya.Spring.Dapr.Lifecycle;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Units;
@@ -33,19 +35,19 @@ internal static class ServiceCollectionExtensionsOrchestration
         // tenant-scoped variant.
         services.TryAddSingleton<IUnitExecutionStore, DbUnitExecutionStore>();
 
-        // #947 / T-05: scheduler for UnitValidationWorkflow. Called by
+        // #947 / T-05: scheduler for ArtefactValidationWorkflow. Called by
         // UnitActor whenever it enters Validating so the workflow can run
         // the in-container probe. TryAdd so the private cloud repo can
         // override with a tenant-routing scheduler (e.g. per-tenant Dapr
         // app ids) without forking the OSS default.
-        services.TryAddSingleton<IUnitValidationWorkflowScheduler, UnitValidationWorkflowScheduler>();
+        services.TryAddSingleton<IArtefactValidationWorkflowScheduler, ArtefactValidationWorkflowScheduler>();
 
         // #947 / T-05: per-unit validation tracker — writes
         // LastValidationRunId / LastValidationErrorJson onto
         // UnitDefinitionEntity. Separate from the other Definition-JSON
         // stores because the columns are dedicated and writes are
         // single-field updates. TryAdd keeps the cloud-overlay hook open.
-        services.TryAddSingleton<IUnitValidationTracker, DbUnitValidationTracker>();
+        services.TryAddSingleton<IArtefactValidationTracker, DbArtefactValidationTracker>();
 
         // #1280: validation-scheduling collaborator extracted from UnitActor.
         // Owns the scheduling trigger, run-id persistence, and terminal-
@@ -53,7 +55,7 @@ internal static class ServiceCollectionExtensionsOrchestration
         // cloud overlay can substitute a tenant-aware coordinator (e.g. one
         // that routes workflows to per-tenant Dapr app ids or adds audit
         // logging) without touching the actor.
-        services.TryAddSingleton<IUnitValidationCoordinator, UnitValidationCoordinator>();
+        services.TryAddSingleton<IArtefactValidationCoordinator, ArtefactValidationCoordinator>();
         services.TryAddSingleton<IUnitMembershipCoordinator, UnitMembershipCoordinator>();
 
         // #2049 / ADR-0040: unit live-config (model, color, provider,

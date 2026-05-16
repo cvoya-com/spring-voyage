@@ -199,7 +199,7 @@ public class ApiExceptionRenderer : IApiExceptionRenderer
     /// Returns the process exit code for <paramref name="exception"/>. When
     /// the exception is a <see cref="ProblemDetails"/> that carries a
     /// <c>code</c> extension value matching a known validation code (see
-    /// <see cref="UnitValidationExitCodes.ForCode"/>), the mapped 20–27
+    /// <see cref="ArtefactValidationExitCodes.ForCode"/>), the mapped 20–27
     /// range is returned so operator scripts can branch on the specific
     /// validation failure. Falls back to <c>1</c> (UnknownError) for all
     /// other exceptions. (#990)
@@ -225,8 +225,8 @@ public class ApiExceptionRenderer : IApiExceptionRenderer
 
                 if (!string.IsNullOrEmpty(codeString))
                 {
-                    var mapped = UnitValidationExitCodes.ForCode(codeString);
-                    if (mapped != UnitValidationExitCodes.UnknownError)
+                    var mapped = ArtefactValidationExitCodes.ForCode(codeString);
+                    if (mapped != ArtefactValidationExitCodes.UnknownError)
                     {
                         return mapped;
                     }
@@ -234,7 +234,7 @@ public class ApiExceptionRenderer : IApiExceptionRenderer
             }
         }
 
-        return UnitValidationExitCodes.UnknownError;
+        return ArtefactValidationExitCodes.UnknownError;
     }
 
     /// <summary>

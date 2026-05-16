@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Actors;
 
+using Cvoya.Spring.Dapr.Lifecycle;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
@@ -37,7 +38,7 @@ public class UnitActor : Actor, IUnitActor
     private readonly IDirectoryService _directoryService;
     private readonly IActorProxyFactory _actorProxyFactory;
     private readonly IExpertiseSeedProvider? _expertiseSeedProvider;
-    private readonly IUnitValidationCoordinator? _validationCoordinator;
+    private readonly IArtefactValidationCoordinator? _validationCoordinator;
     private readonly IUnitMembershipCoordinator _membershipCoordinator;
     private readonly IUnitStateCoordinator _stateCoordinator;
     private readonly IUnitMemberGraphStore _memberGraphStore;
@@ -132,9 +133,9 @@ public class UnitActor : Actor, IUnitActor
         IUnitStateCoordinator stateCoordinator,
         IUnitMemberGraphStore memberGraphStore,
         IExpertiseSeedProvider? expertiseSeedProvider = null,
-        IUnitValidationWorkflowScheduler? validationWorkflowScheduler = null,
-        IUnitValidationTracker? validationTracker = null,
-        IUnitValidationCoordinator? validationCoordinator = null,
+        IArtefactValidationWorkflowScheduler? validationWorkflowScheduler = null,
+        IArtefactValidationTracker? validationTracker = null,
+        IArtefactValidationCoordinator? validationCoordinator = null,
         IUnitMembershipCoordinator? membershipCoordinator = null,
         IAgentExecutionStore? agentExecutionStore = null,
         IUnitExecutionStore? unitExecutionStore = null,
@@ -169,14 +170,14 @@ public class UnitActor : Actor, IUnitActor
         _issueWriter = issueWriter;
     }
 
-    private static IUnitValidationCoordinator BuildDefaultValidationCoordinator(
-        IUnitValidationWorkflowScheduler? scheduler,
-        IUnitValidationTracker? tracker,
+    private static IArtefactValidationCoordinator BuildDefaultValidationCoordinator(
+        IArtefactValidationWorkflowScheduler? scheduler,
+        IArtefactValidationTracker? tracker,
         ILoggerFactory loggerFactory)
-        => new UnitValidationCoordinator(
+        => new ArtefactValidationCoordinator(
             scheduler,
             tracker,
-            loggerFactory.CreateLogger<UnitValidationCoordinator>());
+            loggerFactory.CreateLogger<ArtefactValidationCoordinator>());
 
     /// <summary>
     /// Gets the address of this unit actor.
@@ -570,7 +571,7 @@ public class UnitActor : Actor, IUnitActor
         // Validating; the coordinator now flips to Error on failure and
         // returns the post-recovery TransitionResult so the caller sees
         // the actual final state (Error) instead of the intermediate
-        // Validating leg (#1280: this logic lives in UnitValidationCoordinator).
+        // Validating leg (#1280: this logic lives in ArtefactValidationCoordinator).
         if (result.Success && target == LifecycleStatus.Validating && _validationCoordinator is not null)
         {
             var recoveryResult = await _validationCoordinator.TryStartWorkflowAsync(
@@ -586,11 +587,11 @@ public class UnitActor : Actor, IUnitActor
 
     /// <inheritdoc />
     public async Task<TransitionResult> CompleteValidationAsync(
-        UnitValidationCompletion completion, CancellationToken ct = default)
+        ArtefactValidationCompletion completion, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(completion);
 
-        // #1280: validation-completion logic lives in UnitValidationCoordinator.
+        // #1280: validation-completion logic lives in ArtefactValidationCoordinator.
         // When no coordinator is wired (legacy test harnesses that construct the
         // actor without scheduler/tracker), fall back to the minimal inline path
         // so older tests keep passing: read current status, guard against terminal
@@ -659,7 +660,7 @@ public class UnitActor : Actor, IUnitActor
     /// </summary>
     private async Task TryPublishValidationIssueAsync(
         LifecycleStatus newStatus,
-        Cvoya.Spring.Core.Units.UnitValidationError? failure,
+        Cvoya.Spring.Core.Lifecycle.ArtefactValidationError? failure,
         CancellationToken ct)
     {
         try
@@ -914,12 +915,12 @@ public class UnitActor : Actor, IUnitActor
     /// <summary>
     /// Persists a single status transition and emits the corresponding
     /// activity event. Shared by <see cref="TransitionAsync"/> and the
-    /// <see cref="Cvoya.Spring.Dapr.Actors.UnitValidationCoordinator"/>.
+    /// <see cref="Cvoya.Spring.Dapr.Actors.ArtefactValidationCoordinator"/>.
     /// </summary>
     /// <remarks>
     /// #1665: when <paramref name="failure"/> is non-null (the
     /// Validating → Error case driven by
-    /// <see cref="IUnitValidationCoordinator"/>) the activity event's
+    /// <see cref="IArtefactValidationCoordinator"/>) the activity event's
     /// severity is elevated to <see cref="ActivitySeverity.Warning"/> and
     /// the validation <c>code</c>, <c>message</c>, and <c>step</c> are
     /// folded into the row's <c>summary</c> + <c>details</c>. Without
@@ -930,7 +931,7 @@ public class UnitActor : Actor, IUnitActor
     private async Task<TransitionResult> PersistTransitionAsync(
         LifecycleStatus current,
         LifecycleStatus target,
-        UnitValidationError? failure,
+        ArtefactValidationError? failure,
         CancellationToken ct)
     {
         await StateManager.SetStateAsync(StateKeys.UnitLifecycleStatus, target, ct);
@@ -1030,7 +1031,7 @@ public class UnitActor : Actor, IUnitActor
 
             // Backend-validation edges (#944, T-02 / #939). Units enter
             // Validating from Draft (on creation) or Stopped/Error (on
-            // /revalidate). The Dapr UnitValidationWorkflow drives the
+            // /revalidate). The Dapr ArtefactValidationWorkflow drives the
             // Validating -> Stopped | Error transition via CompleteValidationAsync.
             // Draft -> Starting is intentionally absent: units must pass through
             // Validating before they can be started (#939).

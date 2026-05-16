@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.AgentRuntimes.Launchers;
 
+using Cvoya.Spring.Core.Lifecycle;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
@@ -191,14 +192,14 @@ public class GeminiLauncher(
         return new[]
         {
             new ProbeStep(
-                Step: UnitValidationStep.VerifyingTool,
+                Step: ArtefactValidationStep.VerifyingTool,
                 Args: new[] { "gemini", "--version" },
                 Env: new Dictionary<string, string>(StringComparer.Ordinal),
                 Timeout: TimeSpan.FromSeconds(10),
                 InterpretOutput: (exit, _, stderr) => exit == 0
                     ? StepResult.Succeed()
                     : StepResult.Fail(
-                        UnitValidationCodes.ToolMissing,
+                        ArtefactValidationCodes.ToolMissing,
                         $"`gemini --version` exited with code {exit}. {stderr}".TrimEnd())),
         };
     }

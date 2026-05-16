@@ -38,7 +38,7 @@ using YamlDotNet.Serialization.NamingConventions;
 /// Pre-flight gap: <c>execution.image</c> is required for every unit
 /// at activation time (the validator already enforces this against
 /// the persisted state in
-/// <c>UnitValidationWorkflowScheduler</c>). The resolver fails fast
+/// <c>ArtefactValidationWorkflowScheduler</c>). The resolver fails fast
 /// with <see cref="ExecutionConfigurationMissing"/> entries when
 /// neither side declares an image for an inheriting member, so the
 /// install endpoint can return a single 400 listing every offending

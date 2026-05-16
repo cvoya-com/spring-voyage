@@ -197,9 +197,9 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         // Seed the UnitDefinitionEntity row with a validation failure so
         // the GET endpoint's TryGetValidationTrackingAsync helper picks up
         // both columns.
-        var error = new UnitValidationError(
-            UnitValidationStep.ValidatingCredential,
-            UnitValidationCodes.CredentialInvalid,
+        var error = new ArtefactValidationError(
+            ArtefactValidationStep.ValidatingCredential,
+            ArtefactValidationCodes.CredentialInvalid,
             Message: "credential rejected",
             Details: new Dictionary<string, string> { ["http_status"] = "401" });
 
@@ -231,7 +231,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
 
         var lastError = unit.GetProperty("lastValidationError");
         lastError.GetProperty("step").GetString().ShouldBe("ValidatingCredential");
-        lastError.GetProperty("code").GetString().ShouldBe(UnitValidationCodes.CredentialInvalid);
+        lastError.GetProperty("code").GetString().ShouldBe(ArtefactValidationCodes.CredentialInvalid);
         lastError.GetProperty("message").GetString().ShouldBe("credential rejected");
         lastError.GetProperty("details").GetProperty("http_status").GetString().ShouldBe("401");
 

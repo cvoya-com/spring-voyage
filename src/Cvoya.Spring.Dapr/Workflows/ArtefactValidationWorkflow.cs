@@ -27,15 +27,15 @@ using global::Dapr.Workflow;
 /// <b>Flow.</b>
 /// <list type="number">
 ///   <item>Emit <c>ValidationProgress { PullingImage, Running }</c>.</item>
-///   <item>Call <see cref="PullImageActivity"/>. Fail short-circuits with <see cref="UnitValidationCodes.ImagePullFailed"/> / <see cref="UnitValidationCodes.ProbeTimeout"/>.</item>
-///   <item>For each <see cref="UnitValidationStep"/> in <c>VerifyingTool, ValidatingCredential, ResolvingModel</c>: emit <c>Running</c>, call <see cref="RunContainerProbeActivity"/>, on failure emit <c>Failed</c> + code and return, on success emit <c>Succeeded</c>.</item>
-///   <item>After <see cref="UnitValidationStep.ResolvingModel"/> succeeds, extract any <c>"models"</c> extras key as the live model catalog.</item>
+///   <item>Call <see cref="PullImageActivity"/>. Fail short-circuits with <see cref="ArtefactValidationCodes.ImagePullFailed"/> / <see cref="ArtefactValidationCodes.ProbeTimeout"/>.</item>
+///   <item>For each <see cref="ArtefactValidationStep"/> in <c>VerifyingTool, ValidatingCredential, ResolvingModel</c>: emit <c>Running</c>, call <see cref="RunContainerProbeActivity"/>, on failure emit <c>Failed</c> + code and return, on success emit <c>Succeeded</c>.</item>
+///   <item>After <see cref="ArtefactValidationStep.ResolvingModel"/> succeeds, extract any <c>"models"</c> extras key as the live model catalog.</item>
 /// </list>
 /// </para>
 /// <para>
 /// <b>Skipped steps.</b> Providers whose credential schema is
 /// <see cref="Cvoya.Spring.Core.ModelProviders.ModelProviderCredentialKind.None"/>
-/// (Ollama) omit <see cref="UnitValidationStep.ValidatingCredential"/> from
+/// (Ollama) omit <see cref="ArtefactValidationStep.ValidatingCredential"/> from
 /// their step list; the activity layer returns a "no step declared" error
 /// for a request that references a skipped step, so the workflow
 /// pre-filters by driving the fixed ordinal sequence and asks the activity
@@ -43,7 +43,7 @@ using global::Dapr.Workflow;
 /// universal ordering; T-05+ may revisit.
 /// </para>
 /// </remarks>
-public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, UnitValidationWorkflowOutput>
+public class ArtefactValidationWorkflow : Workflow<ArtefactValidationWorkflowInput, ArtefactValidationWorkflowOutput>
 {
     private const string StatusRunning = "Running";
     private const string StatusSucceeded = "Succeeded";
@@ -55,22 +55,22 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
     /// Ordered probe-step sequence the workflow walks after the image pull.
     /// Matches the contract in
     /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher.GetProbeSteps(Cvoya.Spring.Core.ModelProviders.ModelProviderInstallConfig, string)"/>:
-    /// <see cref="UnitValidationStep.PullingImage"/> is the workflow's own
+    /// <see cref="ArtefactValidationStep.PullingImage"/> is the workflow's own
     /// first step and is not included here.
     /// </summary>
-    internal static readonly UnitValidationStep[] PostPullSteps =
+    internal static readonly ArtefactValidationStep[] PostPullSteps =
     {
-        UnitValidationStep.VerifyingTool,
-        UnitValidationStep.ValidatingCredential,
-        UnitValidationStep.ResolvingModel,
+        ArtefactValidationStep.VerifyingTool,
+        ArtefactValidationStep.ValidatingCredential,
+        ArtefactValidationStep.ResolvingModel,
     };
 
     /// <inheritdoc />
-    public override async Task<UnitValidationWorkflowOutput> RunAsync(
-        WorkflowContext context, UnitValidationWorkflowInput input)
+    public override async Task<ArtefactValidationWorkflowOutput> RunAsync(
+        WorkflowContext context, ArtefactValidationWorkflowInput input)
     {
         // Step 1: Pull the image.
-        await EmitProgressAsync(context, input, UnitValidationStep.PullingImage, StatusRunning, code: null);
+        await EmitProgressAsync(context, input, ArtefactValidationStep.PullingImage, StatusRunning, code: null);
 
         var pullOutput = await context.CallActivityAsync<PullImageActivityOutput>(
             nameof(PullImageActivity),
@@ -81,11 +81,11 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
             await EmitProgressAsync(
                 context,
                 input,
-                UnitValidationStep.PullingImage,
+                ArtefactValidationStep.PullingImage,
                 StatusFailed,
                 pullOutput.Failure?.Code);
 
-            var pullFailure = new UnitValidationWorkflowOutput(
+            var pullFailure = new ArtefactValidationWorkflowOutput(
                 Success: false,
                 Failure: pullOutput.Failure,
                 LiveModels: null);
@@ -94,7 +94,7 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
         }
 
         await EmitProgressAsync(
-            context, input, UnitValidationStep.PullingImage, StatusSucceeded, code: null);
+            context, input, ArtefactValidationStep.PullingImage, StatusSucceeded, code: null);
 
         // Steps 2..N: walk each post-pull probe step in order,
         // skipping any step the runtime did not declare (no events emitted
@@ -127,7 +127,7 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
             {
                 await EmitProgressAsync(context, input, step, StatusFailed, probeOutput.Failure?.Code);
 
-                var probeFailure = new UnitValidationWorkflowOutput(
+                var probeFailure = new ArtefactValidationWorkflowOutput(
                     Success: false,
                     Failure: probeOutput.Failure,
                     LiveModels: null);
@@ -137,13 +137,13 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
 
             await EmitProgressAsync(context, input, step, StatusSucceeded, code: null);
 
-            if (step == UnitValidationStep.ResolvingModel)
+            if (step == ArtefactValidationStep.ResolvingModel)
             {
                 liveModels = ExtractLiveModels(probeOutput.Extras);
             }
         }
 
-        var success = new UnitValidationWorkflowOutput(
+        var success = new ArtefactValidationWorkflowOutput(
             Success: true,
             Failure: null,
             LiveModels: liveModels);
@@ -153,7 +153,7 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
 
     /// <summary>
     /// Posts the workflow's terminal outcome to the unit actor via
-    /// <see cref="CompleteUnitValidationActivity"/> so the actor can drive
+    /// <see cref="CompleteArtefactValidationActivity"/> so the actor can drive
     /// the <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Stopped"/>
     /// or <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Error"/>
     /// transition and persist the redacted failure payload. The activity
@@ -162,11 +162,11 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
     /// </summary>
     private static Task PostCompletionAsync(
         WorkflowContext context,
-        UnitValidationWorkflowInput input,
-        UnitValidationWorkflowOutput output) =>
+        ArtefactValidationWorkflowInput input,
+        ArtefactValidationWorkflowOutput output) =>
         context.CallActivityAsync<bool>(
-            nameof(CompleteUnitValidationActivity),
-            new CompleteUnitValidationActivityInput(
+            nameof(CompleteArtefactValidationActivity),
+            new CompleteArtefactValidationActivityInput(
                 UnitId: input.UnitId,
                 Success: output.Success,
                 Failure: output.Failure,
@@ -174,8 +174,8 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
 
     private static Task EmitProgressAsync(
         WorkflowContext context,
-        UnitValidationWorkflowInput input,
-        UnitValidationStep step,
+        ArtefactValidationWorkflowInput input,
+        ArtefactValidationStep step,
         string status,
         string? code) =>
         context.CallActivityAsync<bool>(

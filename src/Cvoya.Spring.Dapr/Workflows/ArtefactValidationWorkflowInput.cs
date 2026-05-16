@@ -3,8 +3,10 @@
 
 namespace Cvoya.Spring.Dapr.Workflows;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
-/// Input for the <see cref="UnitValidationWorkflow"/> describing which unit
+/// Input for the <see cref="ArtefactValidationWorkflow"/> describing which unit
 /// to validate, the image to pull, the runtime plugin that owns the probe
 /// contract, and the credential + target model to exercise. All fields are
 /// JSON-serializable so the record can round-trip through the Dapr
@@ -12,7 +14,7 @@ namespace Cvoya.Spring.Dapr.Workflows;
 /// </summary>
 /// <param name="UnitId">
 /// Dapr actor id of the unit being validated. Used for log correlation and
-/// as the callback target when <c>CompleteUnitValidationActivity</c> invokes
+/// as the callback target when <c>CompleteArtefactValidationActivity</c> invokes
 /// the terminal <c>IUnitActor.CompleteValidationAsync</c> callback.
 /// </param>
 /// <param name="UnitName">
@@ -42,21 +44,21 @@ namespace Cvoya.Spring.Dapr.Workflows;
 /// </param>
 /// <param name="RequestedModel">
 /// Model id the unit's binding will target. Flows into the
-/// <see cref="Cvoya.Spring.Core.Units.UnitValidationStep.ResolvingModel"/>
+/// <see cref="Cvoya.Spring.Core.Lifecycle.ArtefactValidationStep.ResolvingModel"/>
 /// probe so the runtime's interpreter can classify 404s as
-/// <see cref="Cvoya.Spring.Core.Units.UnitValidationCodes.ModelNotFound"/>.
+/// <see cref="Cvoya.Spring.Core.Lifecycle.ArtefactValidationCodes.ModelNotFound"/>.
 /// </param>
 /// <param name="SkipSteps">
 /// Probe steps the launcher does not declare and the workflow should
 /// skip entirely (emitting no events for them so the UI shows them as
-/// "skipped"). Computed by <see cref="UnitValidationWorkflowScheduler"/>
+/// "skipped"). Computed by <see cref="ArtefactValidationWorkflowScheduler"/>
 /// from the launcher's
 /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher.GetProbeSteps"/>
 /// result and stored as string names (e.g. <c>"ValidatingCredential"</c>)
 /// so the record stays JSON-serializable across the Dapr Workflow boundary.
 /// <c>null</c> or empty means all post-pull steps are attempted.
 /// </param>
-public record UnitValidationWorkflowInput(
+public record ArtefactValidationWorkflowInput(
     string UnitId,
     string UnitName,
     string Image,

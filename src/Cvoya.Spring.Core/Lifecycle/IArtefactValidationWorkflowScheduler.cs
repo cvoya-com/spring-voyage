@@ -1,12 +1,12 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.Units;
+namespace Cvoya.Spring.Core.Lifecycle;
 
 using Cvoya.Spring.Core.Lifecycle;
 
 /// <summary>
-/// Seam for scheduling the Dapr <c>UnitValidationWorkflow</c> on behalf of
+/// Seam for scheduling the Dapr <c>ArtefactValidationWorkflow</c> on behalf of
 /// the unit actor. The actor calls this interface whenever it transitions
 /// into <see cref="LifecycleStatus.Validating"/>; the implementation in the
 /// <c>Cvoya.Spring.Dapr</c> package resolves the unit's execution defaults
@@ -32,24 +32,24 @@ using Cvoya.Spring.Core.Lifecycle;
 /// user-facing name, not its actor Guid) picks them up.
 /// </para>
 /// </remarks>
-public interface IUnitValidationWorkflowScheduler
+public interface IArtefactValidationWorkflowScheduler
 {
     /// <summary>
-    /// Schedules a new <c>UnitValidationWorkflow</c> run for the unit
+    /// Schedules a new <c>ArtefactValidationWorkflow</c> run for the unit
     /// identified by <paramref name="unitActorId"/>. Returns the workflow
     /// instance id plus the unit's user-facing name so the actor can
     /// persist both on the transition write.
     /// </summary>
     /// <param name="unitActorId">The unit's Dapr actor id — the same value surfaced by <c>Actor.Id.GetId()</c>.</param>
     /// <param name="cancellationToken">Cancels the schedule.</param>
-    /// <returns>A <see cref="UnitValidationSchedule"/> describing the scheduled run.</returns>
-    Task<UnitValidationSchedule> ScheduleAsync(
+    /// <returns>A <see cref="ArtefactValidationSchedule"/> describing the scheduled run.</returns>
+    Task<ArtefactValidationSchedule> ScheduleAsync(
         string unitActorId,
         CancellationToken cancellationToken = default);
 }
 
 /// <summary>
-/// Result of <see cref="IUnitValidationWorkflowScheduler.ScheduleAsync"/>.
+/// Result of <see cref="IArtefactValidationWorkflowScheduler.ScheduleAsync"/>.
 /// </summary>
 /// <param name="WorkflowInstanceId">
 /// Dapr workflow instance id returned by the workflow engine. Persisted on
@@ -62,6 +62,6 @@ public interface IUnitValidationWorkflowScheduler
 /// their <c>Address.Path</c> so the portal's SSE filter (which keys on the
 /// name, not the actor id) matches them.
 /// </param>
-public sealed record UnitValidationSchedule(
+public sealed record ArtefactValidationSchedule(
     string WorkflowInstanceId,
     string UnitName);

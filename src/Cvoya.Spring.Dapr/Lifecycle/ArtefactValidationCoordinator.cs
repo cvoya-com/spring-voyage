@@ -1,8 +1,9 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Units;
+namespace Cvoya.Spring.Dapr.Lifecycle;
 
+using Cvoya.Spring.Dapr.Lifecycle;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Lifecycle;
@@ -11,30 +12,30 @@ using Cvoya.Spring.Core.Units;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Default singleton implementation of <see cref="IUnitValidationCoordinator"/>.
+/// Default singleton implementation of <see cref="IArtefactValidationCoordinator"/>.
 /// Owns the validation-scheduling concern extracted from
-/// <c>UnitActor</c>: scheduling the <c>UnitValidationWorkflow</c>,
+/// <c>UnitActor</c>: scheduling the <c>ArtefactValidationWorkflow</c>,
 /// persisting run ids and error payloads through
-/// <see cref="IUnitValidationTracker"/>, and handling the workflow's
+/// <see cref="IArtefactValidationTracker"/>, and handling the workflow's
 /// terminal callback via <see cref="CompleteValidationAsync"/>.
 /// </summary>
 /// <remarks>
 /// The coordinator is stateless with respect to any individual unit — it
 /// operates entirely through the <paramref name="persistTransition"/> and
 /// <paramref name="getCurrentStatus"/> delegates passed per call, and
-/// through the injected <see cref="IUnitValidationWorkflowScheduler"/> /
-/// <see cref="IUnitValidationTracker"/> singletons. This makes it safe to
+/// through the injected <see cref="IArtefactValidationWorkflowScheduler"/> /
+/// <see cref="IArtefactValidationTracker"/> singletons. This makes it safe to
 /// register as a singleton and share across all <c>UnitActor</c> instances.
 /// </remarks>
-public class UnitValidationCoordinator(
-    IUnitValidationWorkflowScheduler? scheduler,
-    IUnitValidationTracker? tracker,
-    ILogger<UnitValidationCoordinator> logger) : IUnitValidationCoordinator
+public class ArtefactValidationCoordinator(
+    IArtefactValidationWorkflowScheduler? scheduler,
+    IArtefactValidationTracker? tracker,
+    ILogger<ArtefactValidationCoordinator> logger) : IArtefactValidationCoordinator
 {
     /// <inheritdoc />
     public async Task<TransitionResult?> TryStartWorkflowAsync(
         string unitActorId,
-        Func<LifecycleStatus, LifecycleStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
+        Func<LifecycleStatus, LifecycleStatus, ArtefactValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
         CancellationToken cancellationToken = default)
     {
         if (scheduler is null)
@@ -60,7 +61,7 @@ public class UnitValidationCoordinator(
 
             return null;
         }
-        catch (UnitValidationSchedulingException ex)
+        catch (ArtefactValidationSchedulingException ex)
         {
             // #1144: the scheduler determined — without running any
             // in-container probes — that the unit cannot validate (e.g. no
@@ -88,9 +89,9 @@ public class UnitValidationCoordinator(
                 "Unit {ActorId} failed to schedule validation workflow; flipping to Error.",
                 unitActorId);
 
-            var failure = new UnitValidationError(
-                Step: UnitValidationStep.SchedulingWorkflow,
-                Code: UnitValidationCodes.ScheduleFailed,
+            var failure = new ArtefactValidationError(
+                Step: ArtefactValidationStep.SchedulingWorkflow,
+                Code: ArtefactValidationCodes.ScheduleFailed,
                 Message: $"Failed to schedule validation workflow: {ex.GetType().Name}: {ex.Message}",
                 Details: null);
             return await PersistSchedulerFailureAsync(unitActorId, failure, persistTransition, cancellationToken);
@@ -100,9 +101,9 @@ public class UnitValidationCoordinator(
     /// <inheritdoc />
     public async Task<TransitionResult> CompleteValidationAsync(
         string unitActorId,
-        UnitValidationCompletion completion,
+        ArtefactValidationCompletion completion,
         Func<CancellationToken, Task<LifecycleStatus>> getCurrentStatus,
-        Func<LifecycleStatus, LifecycleStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
+        Func<LifecycleStatus, LifecycleStatus, ArtefactValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
         CancellationToken cancellationToken = default)
     {
         var current = await getCurrentStatus(cancellationToken);
@@ -185,8 +186,8 @@ public class UnitValidationCoordinator(
     /// </summary>
     private async Task<TransitionResult> PersistSchedulerFailureAsync(
         string unitActorId,
-        UnitValidationError error,
-        Func<LifecycleStatus, LifecycleStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
+        ArtefactValidationError error,
+        Func<LifecycleStatus, LifecycleStatus, ArtefactValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
         CancellationToken cancellationToken)
     {
         if (tracker is not null)

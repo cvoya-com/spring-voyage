@@ -14,7 +14,7 @@ using global::Dapr.Workflow;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Terminal activity the <see cref="UnitValidationWorkflow"/> appends to
+/// Terminal activity the <see cref="ArtefactValidationWorkflow"/> appends to
 /// both success and failure exit paths. Builds an <see cref="IUnitActor"/>
 /// proxy for the unit under validation and invokes
 /// <see cref="IUnitActor.CompleteValidationAsync"/> so the actor can drive
@@ -34,16 +34,16 @@ using Microsoft.Extensions.Logging;
 /// informational only.
 /// </para>
 /// </remarks>
-public class CompleteUnitValidationActivity(
+public class CompleteArtefactValidationActivity(
     IActorProxyFactory actorProxyFactory,
     ILoggerFactory loggerFactory)
-    : WorkflowActivity<CompleteUnitValidationActivityInput, bool>
+    : WorkflowActivity<CompleteArtefactValidationActivityInput, bool>
 {
-    private readonly ILogger _logger = loggerFactory.CreateLogger<CompleteUnitValidationActivity>();
+    private readonly ILogger _logger = loggerFactory.CreateLogger<CompleteArtefactValidationActivity>();
 
     /// <inheritdoc />
     public override async Task<bool> RunAsync(
-        WorkflowActivityContext context, CompleteUnitValidationActivityInput input)
+        WorkflowActivityContext context, CompleteArtefactValidationActivityInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
 
@@ -52,7 +52,7 @@ public class CompleteUnitValidationActivity(
             var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
                 new ActorId(input.UnitId), nameof(UnitActor));
 
-            var completion = new UnitValidationCompletion(
+            var completion = new ArtefactValidationCompletion(
                 Success: input.Success,
                 Failure: input.Failure,
                 WorkflowInstanceId: input.WorkflowInstanceId);
@@ -60,7 +60,7 @@ public class CompleteUnitValidationActivity(
             var result = await proxy.CompleteValidationAsync(completion);
 
             _logger.LogInformation(
-                "UnitValidationWorkflow {InstanceId} posted completion to unit {UnitId}. " +
+                "ArtefactValidationWorkflow {InstanceId} posted completion to unit {UnitId}. " +
                 "Applied={Applied}, CurrentStatus={Status}, Reason={Reason}.",
                 input.WorkflowInstanceId, input.UnitId,
                 result.Success, result.CurrentStatus, result.RejectionReason ?? "<none>");
@@ -75,7 +75,7 @@ public class CompleteUnitValidationActivity(
             // mask the workflow's own outcome by throwing here.
             _logger.LogError(
                 ex,
-                "UnitValidationWorkflow {InstanceId} failed to post completion to unit {UnitId}.",
+                "ArtefactValidationWorkflow {InstanceId} failed to post completion to unit {UnitId}.",
                 input.WorkflowInstanceId, input.UnitId);
             return false;
         }

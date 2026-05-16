@@ -76,7 +76,7 @@ public static class WorkerComposition
         // factory would end up with zero workflows — every
         // ScheduleNewWorkflowAsync call would appear to succeed (the sidecar
         // accepts the schedule) but the Worker would immediately fail the
-        // orchestration with "Workflow 'UnitValidationWorkflow' not found in
+        // orchestration with "Workflow 'ArtefactValidationWorkflow' not found in
         // registry" (IsNonRetriable = true), leaving the unit stuck in
         // Validating forever. This was the root cause of issue #1452.
         //
@@ -87,7 +87,7 @@ public static class WorkerComposition
         {
             options.RegisterWorkflow<AgentLifecycleWorkflow>();
             options.RegisterWorkflow<CloningLifecycleWorkflow>();
-            options.RegisterWorkflow<UnitValidationWorkflow>();
+            options.RegisterWorkflow<ArtefactValidationWorkflow>();
             options.RegisterActivity<ValidateAgentDefinitionActivity>();
             options.RegisterActivity<RegisterAgentActivity>();
             options.RegisterActivity<UnregisterAgentActivity>();
@@ -98,7 +98,7 @@ public static class WorkerComposition
             options.RegisterActivity<PullImageActivity>();
             options.RegisterActivity<RunContainerProbeActivity>();
             options.RegisterActivity<EmitValidationProgressActivity>();
-            options.RegisterActivity<CompleteUnitValidationActivity>();
+            options.RegisterActivity<CompleteArtefactValidationActivity>();
         });
 
         // Register Spring services.

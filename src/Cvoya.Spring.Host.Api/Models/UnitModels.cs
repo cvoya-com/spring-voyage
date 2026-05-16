@@ -149,7 +149,7 @@ public record UnitResponse(
     string? Model,
     string? Color,
     string? Hosting = null,
-    UnitValidationError? LastValidationError = null,
+    ArtefactValidationError? LastValidationError = null,
     string? LastValidationRunId = null,
     string? Instructions = null,
     string? Role = null,

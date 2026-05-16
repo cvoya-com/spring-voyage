@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Data.Entities;
 
+using Cvoya.Spring.Core.Lifecycle;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Tenancy;
@@ -68,7 +69,7 @@ public class UnitDefinitionEntity : ITenantScopedEntity
 
     /// <summary>
     /// Structured validation error from the last Validating → Error transition,
-    /// as JSON-serialized <see cref="Cvoya.Spring.Core.Units.UnitValidationError"/>.
+    /// as JSON-serialized <see cref="Cvoya.Spring.Core.Lifecycle.ArtefactValidationError"/>.
     /// Null if the most recent probe succeeded or the unit has never been validated.
     /// </summary>
     public string? LastValidationErrorJson { get; set; }

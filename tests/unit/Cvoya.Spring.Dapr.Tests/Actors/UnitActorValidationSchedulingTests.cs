@@ -27,7 +27,7 @@ using Xunit;
 /// Unit tests for <see cref="UnitActor.TransitionAsync"/> orchestration
 /// wiring introduced in T-05: every transition into
 /// <see cref="LifecycleStatus.Validating"/> must schedule the
-/// <c>UnitValidationWorkflow</c> and persist the returned instance id to
+/// <c>ArtefactValidationWorkflow</c> and persist the returned instance id to
 /// <c>LastValidationRunId</c>. On the revalidate paths
 /// (<see cref="LifecycleStatus.Error"/> → <see cref="LifecycleStatus.Validating"/>
 /// and <see cref="LifecycleStatus.Stopped"/> → <see cref="LifecycleStatus.Validating"/>)
@@ -46,8 +46,8 @@ public class UnitActorValidationSchedulingTests
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
-    private readonly IUnitValidationWorkflowScheduler _scheduler = Substitute.For<IUnitValidationWorkflowScheduler>();
-    private readonly IUnitValidationTracker _validationTracker = Substitute.For<IUnitValidationTracker>();
+    private readonly IArtefactValidationWorkflowScheduler _scheduler = Substitute.For<IArtefactValidationWorkflowScheduler>();
+    private readonly IArtefactValidationTracker _validationTracker = Substitute.For<IArtefactValidationTracker>();
     private readonly UnitActor _actor;
 
     public UnitActorValidationSchedulingTests()
@@ -73,7 +73,7 @@ public class UnitActorValidationSchedulingTests
 
         _scheduler
             .ScheduleAsync(TestUnitActorId, Arg.Any<CancellationToken>())
-            .Returns(new UnitValidationSchedule("run-42", UnitName));
+            .Returns(new ArtefactValidationSchedule("run-42", UnitName));
     }
 
     private static void SetStateManager(Actor actor, IActorStateManager stateManager)
@@ -201,7 +201,7 @@ public class UnitActorValidationSchedulingTests
         WithCurrentStatus(LifecycleStatus.Draft);
         _scheduler
             .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromException<UnitValidationSchedule>(
+            .Returns(Task.FromException<ArtefactValidationSchedule>(
                 new InvalidOperationException("dapr down")));
 
         var result = await _actor.TransitionAsync(
@@ -218,7 +218,7 @@ public class UnitActorValidationSchedulingTests
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
 
         // SetFailureAsync must have been called with a ScheduleFailed
-        // payload that round-trips through JSON to a UnitValidationError
+        // payload that round-trips through JSON to a ArtefactValidationError
         // whose Code + Step match the merged contract.
         await _validationTracker.Received(1).SetFailureAsync(
             TestUnitActorId,
@@ -245,7 +245,7 @@ public class UnitActorValidationSchedulingTests
         WithCurrentStatus(LifecycleStatus.Draft);
         _scheduler
             .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromException<UnitValidationSchedule>(
+            .Returns(Task.FromException<ArtefactValidationSchedule>(
                 new InvalidOperationException("dapr down")));
         _validationTracker
             .SetFailureAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -265,7 +265,7 @@ public class UnitActorValidationSchedulingTests
 
     /// <summary>
     /// #1144: when the scheduler throws the typed
-    /// <see cref="UnitValidationSchedulingException"/> (e.g. because the
+    /// <see cref="ArtefactValidationSchedulingException"/> (e.g. because the
     /// unit has no image), the actor persists the *structured* error
     /// verbatim — preserving the ConfigurationIncomplete code and the
     /// missing-field detail — instead of falling through to the generic
@@ -276,15 +276,15 @@ public class UnitActorValidationSchedulingTests
     public async Task SchedulerThrowsTyped_FlipsToError_AndPersistsConfigurationIncompleteBlob()
     {
         WithCurrentStatus(LifecycleStatus.Draft);
-        var error = new UnitValidationError(
-            Step: UnitValidationStep.PullingImage,
-            Code: UnitValidationCodes.ConfigurationIncomplete,
+        var error = new ArtefactValidationError(
+            Step: ArtefactValidationStep.PullingImage,
+            Code: ArtefactValidationCodes.ConfigurationIncomplete,
             Message: "This unit has no container image configured.",
             Details: new Dictionary<string, string> { ["missing"] = "image" });
         _scheduler
             .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromException<UnitValidationSchedule>(
-                new UnitValidationSchedulingException(error)));
+            .Returns(Task.FromException<ArtefactValidationSchedule>(
+                new ArtefactValidationSchedulingException(error)));
 
         var result = await _actor.TransitionAsync(
             LifecycleStatus.Validating, TestContext.Current.CancellationToken);
@@ -293,7 +293,7 @@ public class UnitActorValidationSchedulingTests
         result.CurrentStatus.ShouldBe(LifecycleStatus.Error);
 
         // Storage serialization uses default options, so the
-        // UnitValidationStep enum is written as its numeric value (0 ==
+        // ArtefactValidationStep enum is written as its numeric value (0 ==
         // PullingImage). The API endpoint re-serializes with
         // JsonStringEnumConverter on read, so the wire format the UI
         // sees is still the symbolic name. Assert on the stable bits:
@@ -302,7 +302,7 @@ public class UnitActorValidationSchedulingTests
             TestUnitActorId,
             Arg.Is<string>(payload =>
                 payload != null
-                && payload.Contains(UnitValidationCodes.ConfigurationIncomplete)
+                && payload.Contains(ArtefactValidationCodes.ConfigurationIncomplete)
                 && payload.Contains("missing")
                 && payload.Contains("image")),
             Arg.Any<CancellationToken>());
@@ -313,7 +313,7 @@ public class UnitActorValidationSchedulingTests
             TestUnitActorId,
             Arg.Is<string>(payload =>
                 payload != null
-                && payload.Contains(UnitValidationCodes.ScheduleFailed)),
+                && payload.Contains(ArtefactValidationCodes.ScheduleFailed)),
             Arg.Any<CancellationToken>());
 
         await _stateManager.Received().SetStateAsync(
@@ -322,9 +322,9 @@ public class UnitActorValidationSchedulingTests
 
     private static bool PayloadHasScheduleFailedCode(string payload)
     {
-        var error = System.Text.Json.JsonSerializer.Deserialize<UnitValidationError>(payload);
+        var error = System.Text.Json.JsonSerializer.Deserialize<ArtefactValidationError>(payload);
         return error is not null
-               && error.Code == UnitValidationCodes.ScheduleFailed
-               && error.Step == UnitValidationStep.SchedulingWorkflow;
+               && error.Code == ArtefactValidationCodes.ScheduleFailed
+               && error.Step == ArtefactValidationStep.SchedulingWorkflow;
     }
 }

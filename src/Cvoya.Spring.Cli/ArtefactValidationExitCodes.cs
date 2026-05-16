@@ -3,10 +3,11 @@
 
 namespace Cvoya.Spring.Cli;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 /// <summary>
-/// Maps <see cref="UnitValidationCodes"/> values to integer process exit codes
+/// Maps <see cref="ArtefactValidationCodes"/> values to integer process exit codes
 /// for the <c>spring unit create</c> / <c>spring unit revalidate</c> commands.
 /// Exposes the public CLI contract as data rather than scattering constants
 /// across command handlers.
@@ -16,7 +17,7 @@ using Cvoya.Spring.Core.Units;
 /// next unused number in the 20..29 range. Operators script against these
 /// numbers; renumbering silently breaks every pipeline that branches on them.
 /// </summary>
-public static class UnitValidationExitCodes
+public static class ArtefactValidationExitCodes
 {
     /// <summary>Success — unit reached a terminal passing state (typically <c>Stopped</c>).</summary>
     public const int Success = 0;
@@ -29,13 +30,13 @@ public static class UnitValidationExitCodes
 
     /// <summary>
     /// Returns the process exit code for a given
-    /// <see cref="UnitValidationCodes"/> string, or <see cref="UnknownError"/>
+    /// <see cref="ArtefactValidationCodes"/> string, or <see cref="UnknownError"/>
     /// (=<c>1</c>) when the code is null, unknown, or not yet registered in
     /// the table. The mapping is the canonical CLI contract — see the class
     /// remarks for the additive-only rule.
     /// </summary>
     /// <param name="code">
-    /// One of the <see cref="UnitValidationCodes"/> string constants. Case-
+    /// One of the <see cref="ArtefactValidationCodes"/> string constants. Case-
     /// sensitive; the server emits the constant names verbatim.
     /// </param>
     /// <returns>
@@ -46,14 +47,14 @@ public static class UnitValidationExitCodes
     {
         return code switch
         {
-            UnitValidationCodes.ImagePullFailed => 20,
-            UnitValidationCodes.ImageStartFailed => 21,
-            UnitValidationCodes.ToolMissing => 22,
-            UnitValidationCodes.CredentialInvalid => 23,
-            UnitValidationCodes.CredentialFormatRejected => 24,
-            UnitValidationCodes.ModelNotFound => 25,
-            UnitValidationCodes.ProbeTimeout => 26,
-            UnitValidationCodes.ProbeInternalError => 27,
+            ArtefactValidationCodes.ImagePullFailed => 20,
+            ArtefactValidationCodes.ImageStartFailed => 21,
+            ArtefactValidationCodes.ToolMissing => 22,
+            ArtefactValidationCodes.CredentialInvalid => 23,
+            ArtefactValidationCodes.CredentialFormatRejected => 24,
+            ArtefactValidationCodes.ModelNotFound => 25,
+            ArtefactValidationCodes.ProbeTimeout => 26,
+            ArtefactValidationCodes.ProbeInternalError => 27,
             _ => UnknownError,
         };
     }

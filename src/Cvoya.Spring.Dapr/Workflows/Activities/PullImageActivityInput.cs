@@ -3,15 +3,17 @@
 
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Input to the <c>PullImageActivity</c> that the
-/// <c>UnitValidationWorkflow</c> (T-04) invokes to pull a unit's container
+/// <c>ArtefactValidationWorkflow</c> (T-04) invokes to pull a unit's container
 /// image from its registry before probing it. The activity lives on the
 /// dispatcher; this record carries only value-typed, JSON-serializable
 /// fields so it can cross the workflow boundary.
 /// </summary>
 /// <param name="Image">The fully-qualified container image reference (e.g. <c>ghcr.io/cvoya/claude:1.2.3</c>).</param>
-/// <param name="Timeout">Maximum wall-clock time the dispatcher will allow the pull to run before it reports <see cref="Cvoya.Spring.Core.Units.UnitValidationCodes.ImagePullFailed"/>.</param>
+/// <param name="Timeout">Maximum wall-clock time the dispatcher will allow the pull to run before it reports <see cref="Cvoya.Spring.Core.Lifecycle.ArtefactValidationCodes.ImagePullFailed"/>.</param>
 public record PullImageActivityInput(
     string Image,
     TimeSpan Timeout);

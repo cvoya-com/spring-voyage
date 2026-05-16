@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Publishes a <see cref="ActivityEventType.ValidationProgress"/> activity
-/// event on behalf of the <see cref="Cvoya.Spring.Dapr.Workflows.UnitValidationWorkflow"/>.
+/// event on behalf of the <see cref="Cvoya.Spring.Dapr.Workflows.ArtefactValidationWorkflow"/>.
 /// </summary>
 /// <remarks>
 /// <para>

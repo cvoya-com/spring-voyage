@@ -1,14 +1,14 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.Units;
+namespace Cvoya.Spring.Core.Lifecycle;
 
 using System.Runtime.Serialization;
 
 using Cvoya.Spring.Core.Lifecycle;
 
 /// <summary>
-/// Terminal callback payload the <c>UnitValidationWorkflow</c> posts back to
+/// Terminal callback payload the <c>ArtefactValidationWorkflow</c> posts back to
 /// <c>IUnitActor.CompleteValidationAsync</c> at the end of a validation run.
 /// The actor uses it to drive the <see cref="LifecycleStatus.Validating"/> →
 /// <see cref="LifecycleStatus.Stopped"/> or <see cref="LifecycleStatus.Validating"/> →
@@ -29,7 +29,7 @@ using Cvoya.Spring.Core.Lifecycle;
 /// <param name="Failure">Structured failure payload — non-null iff <see cref="Success"/> is false.</param>
 /// <param name="WorkflowInstanceId">Workflow instance id the workflow was scheduled under. The actor uses it as a stale-run guard: a completion whose id does not match the unit's current <c>LastValidationRunId</c> is a no-op.</param>
 [DataContract]
-public sealed record UnitValidationCompletion(
+public sealed record ArtefactValidationCompletion(
     [property: DataMember(Order = 0)] bool Success,
-    [property: DataMember(Order = 1)] UnitValidationError? Failure,
+    [property: DataMember(Order = 1)] ArtefactValidationError? Failure,
     [property: DataMember(Order = 2)] string WorkflowInstanceId);

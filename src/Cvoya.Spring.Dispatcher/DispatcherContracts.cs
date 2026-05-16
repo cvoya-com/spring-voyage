@@ -182,7 +182,7 @@ public record RunContainerResponse
 /// Request body for <c>POST /v1/images/pull</c>. Splits image-pull semantics
 /// out from <c>POST /v1/containers</c> because pulls have distinct timeout
 /// and failure shapes (slow registry, auth failure, tag-not-found) that
-/// <c>UnitValidationWorkflow</c> surfaces differently from a run-time
+/// <c>ArtefactValidationWorkflow</c> surfaces differently from a run-time
 /// failure. See <c>IContainerRuntime.PullImageAsync</c>.
 /// </summary>
 public record PullImageRequest

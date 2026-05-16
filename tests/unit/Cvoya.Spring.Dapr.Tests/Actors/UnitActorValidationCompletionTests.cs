@@ -27,7 +27,7 @@ using Xunit;
 
 /// <summary>
 /// Unit tests for <see cref="UnitActor.CompleteValidationAsync"/> — the
-/// terminal callback the Dapr <c>UnitValidationWorkflow</c> posts back to
+/// terminal callback the Dapr <c>ArtefactValidationWorkflow</c> posts back to
 /// the actor so it can drive <see cref="LifecycleStatus.Validating"/> →
 /// <see cref="LifecycleStatus.Stopped"/> (success) or
 /// <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Error"/>
@@ -47,7 +47,7 @@ public class UnitActorValidationCompletionTests
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
-    private readonly IUnitValidationTracker _validationTracker = Substitute.For<IUnitValidationTracker>();
+    private readonly IArtefactValidationTracker _validationTracker = Substitute.For<IArtefactValidationTracker>();
     private readonly UnitActor _actor;
 
     public UnitActorValidationCompletionTests()
@@ -92,16 +92,16 @@ public class UnitActorValidationCompletionTests
         }
     }
 
-    private static UnitValidationCompletion Success(string runId = CurrentRunId) =>
+    private static ArtefactValidationCompletion Success(string runId = CurrentRunId) =>
         new(true, null, runId);
 
-    private static UnitValidationCompletion Failure(
+    private static ArtefactValidationCompletion Failure(
         string runId = CurrentRunId,
-        string code = UnitValidationCodes.CredentialInvalid) =>
+        string code = ArtefactValidationCodes.CredentialInvalid) =>
         new(
             false,
-            new UnitValidationError(
-                UnitValidationStep.ValidatingCredential,
+            new ArtefactValidationError(
+                ArtefactValidationStep.ValidatingCredential,
                 code,
                 Message: "credential rejected",
                 Details: new Dictionary<string, string> { ["status"] = "401" }),
@@ -145,9 +145,9 @@ public class UnitActorValidationCompletionTests
         capturedJson.ShouldNotBeNull();
         // Round-trip the JSON through System.Text.Json to confirm the
         // failure payload is serialized correctly (no Newtonsoft in scope).
-        var roundTripped = JsonSerializer.Deserialize<UnitValidationError>(capturedJson!);
-        roundTripped!.Step.ShouldBe(UnitValidationStep.ValidatingCredential);
-        roundTripped.Code.ShouldBe(UnitValidationCodes.CredentialInvalid);
+        var roundTripped = JsonSerializer.Deserialize<ArtefactValidationError>(capturedJson!);
+        roundTripped!.Step.ShouldBe(ArtefactValidationStep.ValidatingCredential);
+        roundTripped.Code.ShouldBe(ArtefactValidationCodes.CredentialInvalid);
         roundTripped.Message.ShouldBe("credential rejected");
         roundTripped.Details!["status"].ShouldBe("401");
     }
@@ -171,7 +171,7 @@ public class UnitActorValidationCompletionTests
         capturedEvent.ShouldNotBeNull();
         capturedEvent!.EventType.ShouldBe(ActivityEventType.StateChanged);
         capturedEvent.Severity.ShouldBe(ActivitySeverity.Warning);
-        capturedEvent.Summary.ShouldContain(UnitValidationCodes.CredentialInvalid);
+        capturedEvent.Summary.ShouldContain(ArtefactValidationCodes.CredentialInvalid);
         capturedEvent.Summary.ShouldContain("credential rejected");
 
         capturedEvent.Details.ShouldNotBeNull();
@@ -179,13 +179,13 @@ public class UnitActorValidationCompletionTests
         details.GetProperty("action").GetString().ShouldBe("StatusTransition");
         details.GetProperty("from").GetString().ShouldBe(LifecycleStatus.Validating.ToString());
         details.GetProperty("to").GetString().ShouldBe(LifecycleStatus.Error.ToString());
-        details.GetProperty("validationCode").GetString().ShouldBe(UnitValidationCodes.CredentialInvalid);
+        details.GetProperty("validationCode").GetString().ShouldBe(ArtefactValidationCodes.CredentialInvalid);
         details.GetProperty("validationMessage").GetString().ShouldBe("credential rejected");
-        details.GetProperty("validationStep").GetString().ShouldBe(UnitValidationStep.ValidatingCredential.ToString());
+        details.GetProperty("validationStep").GetString().ShouldBe(ArtefactValidationStep.ValidatingCredential.ToString());
         // The full structured error blob is also present so the portal can
         // expand the row to show every field (including validation Details).
         details.GetProperty("error").GetProperty("Code").GetString()
-            .ShouldBe(UnitValidationCodes.CredentialInvalid);
+            .ShouldBe(ArtefactValidationCodes.CredentialInvalid);
     }
 
     [Fact]
@@ -272,7 +272,7 @@ public class UnitActorValidationCompletionTests
     // --- Round-trip safety ---
 
     [Fact]
-    public void UnitValidationError_RoundTripsThroughSystemTextJson()
+    public void ArtefactValidationError_RoundTripsThroughSystemTextJson()
     {
         // Defensive: if System.Text.Json can't round-trip the failure shape
         // (e.g. the Details dictionary), CompleteValidationAsync's persistence
@@ -282,9 +282,9 @@ public class UnitActorValidationCompletionTests
         // API-layer response converts to a string via JsonStringEnumConverter
         // configured in Program.cs, so operator-facing output reads
         // "ResolvingModel" even though the on-disk JSON holds 3.
-        var error = new UnitValidationError(
-            UnitValidationStep.ResolvingModel,
-            UnitValidationCodes.ModelNotFound,
+        var error = new ArtefactValidationError(
+            ArtefactValidationStep.ResolvingModel,
+            ArtefactValidationCodes.ModelNotFound,
             Message: "model foo not found",
             Details: new Dictionary<string, string>
             {
@@ -295,10 +295,10 @@ public class UnitActorValidationCompletionTests
         var json = JsonSerializer.Serialize(error);
         json.ShouldContain("ModelNotFound");
 
-        var restored = JsonSerializer.Deserialize<UnitValidationError>(json);
+        var restored = JsonSerializer.Deserialize<ArtefactValidationError>(json);
         restored.ShouldNotBeNull();
-        restored!.Step.ShouldBe(UnitValidationStep.ResolvingModel);
-        restored.Code.ShouldBe(UnitValidationCodes.ModelNotFound);
+        restored!.Step.ShouldBe(ArtefactValidationStep.ResolvingModel);
+        restored.Code.ShouldBe(ArtefactValidationCodes.ModelNotFound);
         restored.Message.ShouldBe("model foo not found");
         restored.Details!["model"].ShouldBe("foo");
         restored.Details!["http_status"].ShouldBe("404");

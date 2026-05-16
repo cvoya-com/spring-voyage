@@ -3,11 +3,12 @@
 
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 /// <summary>
 /// Input to <c>EmitValidationProgressActivity</c>. The
-/// <see cref="UnitValidationWorkflow"/> can't directly inject
+/// <see cref="ArtefactValidationWorkflow"/> can't directly inject
 /// <see cref="Cvoya.Spring.Core.Capabilities.IActivityEventBus"/> (Dapr
 /// workflow bodies must stay deterministic + service-free), so it emits
 /// every progress event via this tiny activity.
@@ -15,9 +16,9 @@ using Cvoya.Spring.Core.Units;
 /// <param name="UnitId">The unit's stable Guid identity; travels as the <see cref="Cvoya.Spring.Core.Messaging.Address.Id"/> on the emitted event (scheme <c>unit</c>) so subscribers see the canonical post-#1629 wire shape.</param>
 /// <param name="Step">The probe step this event is reporting on.</param>
 /// <param name="Status">Transition of the step — typically <c>Running</c>, <c>Succeeded</c>, or <c>Failed</c>. Strings (not an enum) so the set can grow without re-deploying the web filter, matching the T-06 front-end note.</param>
-/// <param name="Code">Stable <see cref="UnitValidationCodes"/> code — populated only when <paramref name="Status"/> is <c>Failed</c>; <c>null</c> on <c>Running</c> / <c>Succeeded</c>.</param>
+/// <param name="Code">Stable <see cref="ArtefactValidationCodes"/> code — populated only when <paramref name="Status"/> is <c>Failed</c>; <c>null</c> on <c>Running</c> / <c>Succeeded</c>.</param>
 public record EmitValidationProgressActivityInput(
     Guid UnitId,
-    UnitValidationStep Step,
+    ArtefactValidationStep Step,
     string Status,
     string? Code);

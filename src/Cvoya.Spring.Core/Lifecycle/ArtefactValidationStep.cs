@@ -1,17 +1,17 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.Units;
+namespace Cvoya.Spring.Core.Lifecycle;
 
 using Cvoya.Spring.Core.Lifecycle;
 
 /// <summary>
 /// Identifies the probe step a unit-validation run is executing — or the step
-/// that failed, when persisted on a <see cref="UnitValidationError"/>. Probes run
+/// that failed, when persisted on a <see cref="ArtefactValidationError"/>. Probes run
 /// inside the unit's chosen container image and are orchestrated by a Dapr workflow.
 /// The set is intentionally closed: adding a step means extending the workflow.
 /// </summary>
-public enum UnitValidationStep
+public enum ArtefactValidationStep
 {
     /// <summary>
     /// Pulling the unit's container image and verifying it can start. Catches missing
@@ -45,7 +45,7 @@ public enum UnitValidationStep
     /// Scheduling the unit-validation workflow itself — the host-side step that
     /// runs in <see cref="UnitActor"/> *before* any in-container probe. Reported
     /// when the actor accepts a transition into <see cref="LifecycleStatus.Validating"/>
-    /// but the call into <c>IUnitValidationWorkflowScheduler.ScheduleAsync</c>
+    /// but the call into <c>IArtefactValidationWorkflowScheduler.ScheduleAsync</c>
     /// throws (Dapr workflow runtime unavailable, scheduler dependency
     /// unresolved, etc.). The failure is host-side: no probe step ever ran.
     /// </summary>

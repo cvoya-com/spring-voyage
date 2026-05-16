@@ -135,17 +135,17 @@ public class WorkerCompositionTests
     /// Worker's full-registration call, the factory ends up with zero
     /// workflows: every <c>ScheduleNewWorkflowAsync</c> succeeds (the sidecar
     /// accepts the schedule) but the Worker immediately fails the orchestration
-    /// with "Workflow 'UnitValidationWorkflow' not found in registry"
+    /// with "Workflow 'ArtefactValidationWorkflow' not found in registry"
     /// (IsNonRetriable = true), leaving units stuck in Validating forever.
     ///
     /// The fix: <c>AddWorkerServices</c> calls <c>AddDaprWorkflow</c> with the
     /// full registration list BEFORE calling <c>AddCvoyaSpringDapr</c>.
-    /// This test verifies the factory knows about <c>UnitValidationWorkflow</c>
+    /// This test verifies the factory knows about <c>ArtefactValidationWorkflow</c>
     /// after composition, using reflection to inspect the internal factory
     /// dictionary because <c>IWorkflowsFactory</c> is internal to the SDK.
     /// </summary>
     [Fact]
-    public void AddWorkerServices_WorkflowsFactory_ContainsUnitValidationWorkflow()
+    public void AddWorkerServices_WorkflowsFactory_ContainsArtefactValidationWorkflow()
     {
         using var provider = BuildWorkerServiceProvider();
 
@@ -163,7 +163,7 @@ public class WorkerCompositionTests
             "IWorkflowsFactory must be resolvable from the Worker's DI container");
 
         // Inspect the internal _workflowFactories dictionary via reflection
-        // to confirm UnitValidationWorkflow is registered. The field name is
+        // to confirm ArtefactValidationWorkflow is registered. The field name is
         // stable across the SDK versions we depend on (1.17.x).
         var factoryField = factory.GetType().GetField(
             "_workflowFactories",
@@ -188,8 +188,8 @@ public class WorkerCompositionTests
 
         var keyList = keys!.Cast<object>().Select(k => k.ToString()!).ToList();
         keyList.ShouldContain(
-            nameof(UnitValidationWorkflow),
-            $"UnitValidationWorkflow must be registered in the workflow factory. " +
+            nameof(ArtefactValidationWorkflow),
+            $"ArtefactValidationWorkflow must be registered in the workflow factory. " +
             $"Registered workflows: [{string.Join(", ", keyList)}]. " +
             $"This is a regression of issue #1452: AddDaprWorkflow with the full " +
             $"registration list must run before AddCvoyaSpringDapr.");

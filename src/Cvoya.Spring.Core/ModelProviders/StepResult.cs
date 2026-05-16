@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Core.ModelProviders;
 
+using Cvoya.Spring.Core.Lifecycle;
 using System.Collections.Generic;
 
 using Cvoya.Spring.Core.Units;
@@ -12,7 +13,7 @@ using Cvoya.Spring.Core.Units;
 /// container-side probe step runs. Carries either a successful verdict
 /// (with optional extras the workflow may forward to the next step) or a
 /// structured failure with a stable <see cref="Code"/> from
-/// <see cref="UnitValidationCodes"/>.
+/// <see cref="ArtefactValidationCodes"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -27,7 +28,7 @@ using Cvoya.Spring.Core.Units;
 /// <b>Extras channel.</b> The <see cref="Extras"/> dictionary lets a
 /// successful step pass structured data to a later step without a second
 /// trip to the container. The canonical example is the
-/// <see cref="UnitValidationStep.ResolvingModel"/> step: when the probe
+/// <see cref="ArtefactValidationStep.ResolvingModel"/> step: when the probe
 /// succeeds, <see cref="Extras"/> carries the live model list (for
 /// example, <c>{"models": "claude-sonnet-4,claude-haiku-4"}</c>) so
 /// downstream code can render or persist the catalog without reissuing
@@ -39,7 +40,7 @@ using Cvoya.Spring.Core.Units;
 /// before reading <see cref="Code"/> / <see cref="Message"/>.
 /// </param>
 /// <param name="Code">
-/// A stable identifier from <see cref="UnitValidationCodes"/> when
+/// A stable identifier from <see cref="ArtefactValidationCodes"/> when
 /// <see cref="Outcome"/> is <see cref="StepOutcome.Failed"/>; <c>null</c>
 /// on success.
 /// </param>
@@ -71,7 +72,7 @@ public sealed record StepResult(
     /// <summary>
     /// Factory for a successful step result. Pass <paramref name="extras"/>
     /// to forward structured data to a later step (the canonical consumer
-    /// is <see cref="UnitValidationStep.ResolvingModel"/>, which emits the
+    /// is <see cref="ArtefactValidationStep.ResolvingModel"/>, which emits the
     /// live model list under the key <c>"models"</c>).
     /// </summary>
     /// <param name="extras">Optional structured payload to forward; <c>null</c> when the step has nothing to emit.</param>
@@ -80,10 +81,10 @@ public sealed record StepResult(
 
     /// <summary>
     /// Factory for a failed step result. <paramref name="code"/> should be
-    /// one of the constants on <see cref="UnitValidationCodes"/> so UI /
+    /// one of the constants on <see cref="ArtefactValidationCodes"/> so UI /
     /// CLI consumers can branch on it stably.
     /// </summary>
-    /// <param name="code">Stable failure identifier from <see cref="UnitValidationCodes"/>.</param>
+    /// <param name="code">Stable failure identifier from <see cref="ArtefactValidationCodes"/>.</param>
     /// <param name="message">Operator-facing summary. MUST NOT contain the raw credential value.</param>
     /// <param name="details">Optional structured detail (for example, <c>{"http_status": "401"}</c>).</param>
     public static StepResult Fail(

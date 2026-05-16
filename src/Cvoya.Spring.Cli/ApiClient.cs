@@ -557,7 +557,7 @@ public class SpringApiClient
     /// in a Kiota <see cref="Microsoft.Kiota.Abstractions.ApiException"/>
     /// with <c>ResponseStatusCode == 409</c>) when the unit is in any other
     /// state. Callers surface the conflict through
-    /// <c>UnitValidationExitCodes.UsageError</c> (exit 2) per the CLI
+    /// <c>ArtefactValidationExitCodes.UsageError</c> (exit 2) per the CLI
     /// contract on T-08.
     /// </summary>
     public async Task<UnitResponse> RevalidateUnitAsync(string id, CancellationToken ct = default)

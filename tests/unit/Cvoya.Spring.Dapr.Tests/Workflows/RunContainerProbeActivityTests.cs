@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.ModelProviders;
@@ -67,7 +68,7 @@ public class RunContainerProbeActivityTests
         (_, _, _) => StepResult.Fail(code, message, details);
 
     private void RegisterStep(
-        UnitValidationStep step,
+        ArtefactValidationStep step,
         Func<int, string, string, StepResult> interpreter)
     {
         var launcher = Substitute.For<IAgentRuntimeLauncher>();
@@ -86,7 +87,7 @@ public class RunContainerProbeActivityTests
     }
 
     private static RunContainerProbeActivityInput Input(
-        UnitValidationStep step = UnitValidationStep.VerifyingTool,
+        ArtefactValidationStep step = ArtefactValidationStep.VerifyingTool,
         string credential = "test-credential") =>
         new(TestRuntimeId, step, TestImage, credential, TestModel);
 
@@ -97,13 +98,13 @@ public class RunContainerProbeActivityTests
         {
             ["models"] = "gpt-4o,gpt-4o-mini",
         };
-        RegisterStep(UnitValidationStep.ResolvingModel, SuccessInterpreter(extras));
+        RegisterStep(ArtefactValidationStep.ResolvingModel, SuccessInterpreter(extras));
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Returns(new ContainerResult("c1", 0, "ok", string.Empty));
         var context = Substitute.For<WorkflowActivityContext>();
 
         var result = await _activity.RunAsync(
-            context, Input(UnitValidationStep.ResolvingModel));
+            context, Input(ArtefactValidationStep.ResolvingModel));
 
         result.Success.ShouldBeTrue();
         result.Failure.ShouldBeNull();
@@ -115,9 +116,9 @@ public class RunContainerProbeActivityTests
     public async Task RunAsync_InterpreterFails_PropagatesCodeAndMessage()
     {
         RegisterStep(
-            UnitValidationStep.ValidatingCredential,
+            ArtefactValidationStep.ValidatingCredential,
             FailureInterpreter(
-                UnitValidationCodes.CredentialInvalid,
+                ArtefactValidationCodes.CredentialInvalid,
                 "rejected (HTTP 401)",
                 new Dictionary<string, string>(StringComparer.Ordinal) { ["http_status"] = "401" }));
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
@@ -125,19 +126,19 @@ public class RunContainerProbeActivityTests
         var context = Substitute.For<WorkflowActivityContext>();
 
         var result = await _activity.RunAsync(
-            context, Input(UnitValidationStep.ValidatingCredential));
+            context, Input(ArtefactValidationStep.ValidatingCredential));
 
         result.Success.ShouldBeFalse();
         result.Failure.ShouldNotBeNull();
-        result.Failure!.Code.ShouldBe(UnitValidationCodes.CredentialInvalid);
+        result.Failure!.Code.ShouldBe(ArtefactValidationCodes.CredentialInvalid);
         result.Failure.Message.ShouldContain("401");
-        result.Failure.Step.ShouldBe(UnitValidationStep.ValidatingCredential);
+        result.Failure.Step.ShouldBe(ArtefactValidationStep.ValidatingCredential);
     }
 
     [Fact]
     public async Task RunAsync_ContainerStartFails_ReturnsImageStartFailed()
     {
-        RegisterStep(UnitValidationStep.VerifyingTool, SuccessInterpreter());
+        RegisterStep(ArtefactValidationStep.VerifyingTool, SuccessInterpreter());
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("bad entrypoint"));
         var context = Substitute.For<WorkflowActivityContext>();
@@ -145,14 +146,14 @@ public class RunContainerProbeActivityTests
         var result = await _activity.RunAsync(context, Input());
 
         result.Success.ShouldBeFalse();
-        result.Failure!.Code.ShouldBe(UnitValidationCodes.ImageStartFailed);
+        result.Failure!.Code.ShouldBe(ArtefactValidationCodes.ImageStartFailed);
         result.Failure.Message.ShouldContain("bad entrypoint");
     }
 
     [Fact]
     public async Task RunAsync_ContainerTimesOut_ReturnsProbeTimeout()
     {
-        RegisterStep(UnitValidationStep.VerifyingTool, SuccessInterpreter());
+        RegisterStep(ArtefactValidationStep.VerifyingTool, SuccessInterpreter());
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Throws(new TimeoutException("container hung"));
         var context = Substitute.For<WorkflowActivityContext>();
@@ -160,14 +161,14 @@ public class RunContainerProbeActivityTests
         var result = await _activity.RunAsync(context, Input());
 
         result.Success.ShouldBeFalse();
-        result.Failure!.Code.ShouldBe(UnitValidationCodes.ProbeTimeout);
+        result.Failure!.Code.ShouldBe(ArtefactValidationCodes.ProbeTimeout);
     }
 
     [Fact]
     public async Task RunAsync_InterpreterThrows_ReturnsProbeInternalError()
     {
         RegisterStep(
-            UnitValidationStep.VerifyingTool,
+            ArtefactValidationStep.VerifyingTool,
             (_, _, _) => throw new InvalidOperationException("boom"));
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Returns(new ContainerResult("c1", 0, "ok", string.Empty));
@@ -176,7 +177,7 @@ public class RunContainerProbeActivityTests
         var result = await _activity.RunAsync(context, Input());
 
         result.Success.ShouldBeFalse();
-        result.Failure!.Code.ShouldBe(UnitValidationCodes.ProbeInternalError);
+        result.Failure!.Code.ShouldBe(ArtefactValidationCodes.ProbeInternalError);
         result.Failure.Message.ShouldContain("boom");
     }
 
@@ -189,7 +190,7 @@ public class RunContainerProbeActivityTests
         var result = await _activity.RunAsync(context, Input());
 
         result.Success.ShouldBeFalse();
-        result.Failure!.Code.ShouldBe(UnitValidationCodes.ProbeInternalError);
+        result.Failure!.Code.ShouldBe(ArtefactValidationCodes.ProbeInternalError);
         result.Failure.Message.ShouldContain(TestRuntimeId);
     }
 
@@ -197,14 +198,14 @@ public class RunContainerProbeActivityTests
     public async Task RunAsync_StepNotDeclared_ReturnsProbeInternalError()
     {
         // Runtime declares only VerifyingTool but we ask for ResolvingModel.
-        RegisterStep(UnitValidationStep.VerifyingTool, SuccessInterpreter());
+        RegisterStep(ArtefactValidationStep.VerifyingTool, SuccessInterpreter());
         var context = Substitute.For<WorkflowActivityContext>();
 
         var result = await _activity.RunAsync(
-            context, Input(UnitValidationStep.ResolvingModel));
+            context, Input(ArtefactValidationStep.ResolvingModel));
 
         result.Success.ShouldBeFalse();
-        result.Failure!.Code.ShouldBe(UnitValidationCodes.ProbeInternalError);
+        result.Failure!.Code.ShouldBe(ArtefactValidationCodes.ProbeInternalError);
         result.Failure.Message.ShouldContain("ResolvingModel");
     }
 
@@ -225,9 +226,9 @@ public class RunContainerProbeActivityTests
         // Interpreter deliberately stuffs the canary back into Message +
         // Details so we can verify the activity's belt-and-braces redaction.
         RegisterStep(
-            UnitValidationStep.ValidatingCredential,
+            ArtefactValidationStep.ValidatingCredential,
             (_, stdout, stderr) => StepResult.Fail(
-                UnitValidationCodes.CredentialInvalid,
+                ArtefactValidationCodes.CredentialInvalid,
                 $"stdout was '{stdout}', stderr was '{stderr}', raw: {canary}",
                 new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -245,7 +246,7 @@ public class RunContainerProbeActivityTests
         var context = Substitute.For<WorkflowActivityContext>();
 
         var result = await _activity.RunAsync(
-            context, Input(UnitValidationStep.ValidatingCredential, credential: canary));
+            context, Input(ArtefactValidationStep.ValidatingCredential, credential: canary));
 
         // stdout/stderr surfaced on the output record must be scrubbed.
         result.RedactedStdOut.ShouldNotContain(canary);

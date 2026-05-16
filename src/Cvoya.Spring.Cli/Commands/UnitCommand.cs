@@ -291,7 +291,7 @@ public static class UnitCommand
             + "for claude-code, and --api-key / --api-key-from-file for API-key edges such as codex, "
             + "gemini, and spring-voyage with anthropic/openai/google. spring-voyage with ollama accepts "
             + "no credential flags.\n\n"
-            + UnitValidationExitCodes.HelpTable);
+            + ArtefactValidationExitCodes.HelpTable);
         command.Arguments.Add(nameArg);
         command.Options.Add(displayNameOption);
         command.Options.Add(descriptionOption);
@@ -496,7 +496,7 @@ public static class UnitCommand
                 return;
             }
 
-            var waitExitCode = await RunUnitValidationWaitAsync(directClient, createdName!, result, ct);
+            var waitExitCode = await RunArtefactValidationWaitAsync(directClient, createdName!, result, ct);
             if (waitExitCode != 0)
             {
                 Environment.Exit(waitExitCode);
@@ -731,7 +731,7 @@ public static class UnitCommand
             + "after the 202 Accepted. Progress in the CLI is coarse — a single \"Validating...\" "
             + "indicator until terminal; the web portal renders per-step progress via the SSE channel. "
             + "Rejected with exit code 2 when the unit is in any other state (Running, Starting, ...).\n\n"
-            + UnitValidationExitCodes.HelpTable);
+            + ArtefactValidationExitCodes.HelpTable);
         command.Arguments.Add(idArg);
         command.Options.Add(noWaitOption);
 
@@ -754,7 +754,7 @@ public static class UnitCommand
                 // the T-08 code table.
                 await Console.Error.WriteLineAsync(
                     $"Cannot revalidate unit '{id}': {ExtractServerDetail(ex)}");
-                Environment.Exit(UnitValidationExitCodes.UsageError);
+                Environment.Exit(ArtefactValidationExitCodes.UsageError);
                 return;
             }
             catch (ApiException ex)
@@ -777,7 +777,7 @@ public static class UnitCommand
                 return;
             }
 
-            var exitCode = await RunUnitValidationWaitAsync(client, id, accepted, ct);
+            var exitCode = await RunArtefactValidationWaitAsync(client, id, accepted, ct);
             if (exitCode != 0)
             {
                 Environment.Exit(exitCode);
@@ -790,25 +790,25 @@ public static class UnitCommand
     /// <summary>
     /// Shared wait-loop wiring for <c>create</c> and <c>revalidate</c>.
     /// Converts the initial Kiota <see cref="UnitResponse"/> into a
-    /// <see cref="UnitValidationSnapshot"/>, then pumps the loop via
+    /// <see cref="ArtefactValidationSnapshot"/>, then pumps the loop via
     /// <c>SpringApiClient.GetUnitAsync</c> with the default 1-second poll
     /// interval. The actual loop logic lives in
-    /// <see cref="UnitValidationWaitLoop"/>, which is testable in isolation
+    /// <see cref="ArtefactValidationWaitLoop"/>, which is testable in isolation
     /// from the HTTP plumbing.
     /// </summary>
-    private static Task<int> RunUnitValidationWaitAsync(
+    private static Task<int> RunArtefactValidationWaitAsync(
         SpringApiClient client,
         string unitName,
         UnitResponse initial,
         CancellationToken ct)
     {
-        async Task<UnitValidationSnapshot> Fetch(CancellationToken token)
+        async Task<ArtefactValidationSnapshot> Fetch(CancellationToken token)
         {
             var detail = await client.GetUnitAsync(unitName, token);
             return ToSnapshot(detail.Unit);
         }
 
-        return UnitValidationWaitLoop.RunAsync(
+        return ArtefactValidationWaitLoop.RunAsync(
             unitName,
             ToSnapshot(initial),
             Fetch,
@@ -818,16 +818,16 @@ public static class UnitCommand
     }
 
     /// <summary>
-    /// Produces a <see cref="UnitValidationSnapshot"/> from a Kiota
+    /// Produces a <see cref="ArtefactValidationSnapshot"/> from a Kiota
     /// <see cref="UnitResponse"/>, unwrapping the composed-type wrapper
     /// around <c>lastValidationError</c>. Safe against null / partial
     /// payloads — missing fields surface as null on the snapshot.
     /// </summary>
-    internal static UnitValidationSnapshot ToSnapshot(UnitResponse? response)
+    internal static ArtefactValidationSnapshot ToSnapshot(UnitResponse? response)
     {
         if (response is null)
         {
-            return new UnitValidationSnapshot(
+            return new ArtefactValidationSnapshot(
                 Status: "Unknown",
                 ValidationRunId: null,
                 ErrorCode: null,
@@ -837,7 +837,7 @@ public static class UnitCommand
         }
 
         var status = response.Status?.ToString() ?? "Unknown";
-        var inner = response.LastValidationError?.UnitValidationError;
+        var inner = response.LastValidationError?.ArtefactValidationError;
         IReadOnlyDictionary<string, string>? details = null;
         if (inner?.Details?.AdditionalData is { Count: > 0 } data)
         {
@@ -849,7 +849,7 @@ public static class UnitCommand
             details = map;
         }
 
-        return new UnitValidationSnapshot(
+        return new ArtefactValidationSnapshot(
             Status: status,
             ValidationRunId: response.LastValidationRunId,
             ErrorCode: inner?.Code,
@@ -894,7 +894,7 @@ public static class UnitCommand
     /// #990: Extracts the <c>code</c> extension from a
     /// <see cref="ProblemDetails"/> response and returns the documented
     /// 20–27 exit code for the recognised validation failures, or
-    /// <see cref="UnitValidationExitCodes.UnknownError"/> (1) for anything
+    /// <see cref="ArtefactValidationExitCodes.UnknownError"/> (1) for anything
     /// else. The message output is unchanged — this only affects the exit code.
     /// </summary>
     internal static int ExtractValidationExitCode(ApiException ex)
@@ -912,15 +912,15 @@ public static class UnitCommand
 
             if (!string.IsNullOrEmpty(codeString))
             {
-                var mapped = UnitValidationExitCodes.ForCode(codeString);
-                if (mapped != UnitValidationExitCodes.UnknownError)
+                var mapped = ArtefactValidationExitCodes.ForCode(codeString);
+                if (mapped != ArtefactValidationExitCodes.UnknownError)
                 {
                     return mapped;
                 }
             }
         }
 
-        return UnitValidationExitCodes.UnknownError;
+        return ArtefactValidationExitCodes.UnknownError;
     }
 
     /// <summary>

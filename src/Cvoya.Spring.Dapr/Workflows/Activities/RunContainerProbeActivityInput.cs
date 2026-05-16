@@ -3,11 +3,12 @@
 
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 /// <summary>
 /// Input to the <c>RunContainerProbeActivity</c> that the
-/// <c>UnitValidationWorkflow</c> (T-04) invokes to run one probe step inside
+/// <c>ArtefactValidationWorkflow</c> (T-04) invokes to run one probe step inside
 /// an already-pulled container image.
 /// </summary>
 /// <remarks>
@@ -33,13 +34,13 @@ using Cvoya.Spring.Core.Units;
 /// </para>
 /// </remarks>
 /// <param name="RuntimeId">Stable id of the catalogue agent runtime whose probe step this is; resolved via <see cref="Cvoya.Spring.Core.Catalog.IRuntimeCatalog.GetAgentRuntime"/>.</param>
-/// <param name="Step">Which step to run from the launcher's <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher.GetProbeSteps(Cvoya.Spring.Core.ModelProviders.ModelProviderInstallConfig, string)"/> list — one of <see cref="UnitValidationStep.VerifyingTool"/>, <see cref="UnitValidationStep.ValidatingCredential"/>, or <see cref="UnitValidationStep.ResolvingModel"/>.</param>
+/// <param name="Step">Which step to run from the launcher's <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher.GetProbeSteps(Cvoya.Spring.Core.ModelProviders.ModelProviderInstallConfig, string)"/> list — one of <see cref="ArtefactValidationStep.VerifyingTool"/>, <see cref="ArtefactValidationStep.ValidatingCredential"/>, or <see cref="ArtefactValidationStep.ResolvingModel"/>.</param>
 /// <param name="Image">The container image reference; the image MUST have been pulled by <c>PullImageActivity</c> first.</param>
 /// <param name="Credential">The raw credential to inject into the probe environment and use as the redaction key. Empty when the provider requires no credential — <see cref="Cvoya.Spring.Core.Security.CredentialRedactor"/> short-circuits on empty input.</param>
-/// <param name="RequestedModel">The model id the unit's install targets; used by the launcher to build the <see cref="UnitValidationStep.ResolvingModel"/> probe and by its interpreter to classify 404s as <see cref="UnitValidationCodes.ModelNotFound"/>.</param>
+/// <param name="RequestedModel">The model id the unit's install targets; used by the launcher to build the <see cref="ArtefactValidationStep.ResolvingModel"/> probe and by its interpreter to classify 404s as <see cref="ArtefactValidationCodes.ModelNotFound"/>.</param>
 public record RunContainerProbeActivityInput(
     string RuntimeId,
-    UnitValidationStep Step,
+    ArtefactValidationStep Step,
     string Image,
     string Credential,
     string RequestedModel);

@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.ModelProviders;
@@ -62,7 +63,7 @@ public class RunContainerProbeActivity(
             return FailureOutput(
                 input,
                 input.Step,
-                UnitValidationCodes.ProbeInternalError,
+                ArtefactValidationCodes.ProbeInternalError,
                 $"No agent runtime is registered with id '{input.RuntimeId}'.",
                 details: null,
                 redactedStdOut: string.Empty,
@@ -78,7 +79,7 @@ public class RunContainerProbeActivity(
             return FailureOutput(
                 input,
                 input.Step,
-                UnitValidationCodes.ProbeInternalError,
+                ArtefactValidationCodes.ProbeInternalError,
                 $"Runtime '{input.RuntimeId}' references unknown launcher '{runtime.Launcher}'.",
                 details: null,
                 redactedStdOut: string.Empty,
@@ -108,7 +109,7 @@ public class RunContainerProbeActivity(
             return FailureOutput(
                 input,
                 input.Step,
-                UnitValidationCodes.ProbeInternalError,
+                ArtefactValidationCodes.ProbeInternalError,
                 $"Runtime '{input.RuntimeId}' failed to produce probe steps: {ex.Message}",
                 details: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -124,7 +125,7 @@ public class RunContainerProbeActivity(
             return FailureOutput(
                 input,
                 input.Step,
-                UnitValidationCodes.ProbeInternalError,
+                ArtefactValidationCodes.ProbeInternalError,
                 $"Runtime '{input.RuntimeId}' did not declare a probe step for '{input.Step}'.",
                 details: null,
                 redactedStdOut: string.Empty,
@@ -171,7 +172,7 @@ public class RunContainerProbeActivity(
             return FailureOutput(
                 input,
                 input.Step,
-                UnitValidationCodes.ProbeTimeout,
+                ArtefactValidationCodes.ProbeTimeout,
                 $"Probe step '{input.Step}' exceeded the configured timeout of {step.Timeout}.",
                 details: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -189,7 +190,7 @@ public class RunContainerProbeActivity(
             return FailureOutput(
                 input,
                 input.Step,
-                UnitValidationCodes.ProbeTimeout,
+                ArtefactValidationCodes.ProbeTimeout,
                 $"Probe step '{input.Step}' was cancelled after {step.Timeout}.",
                 details: null,
                 redactedStdOut: string.Empty,
@@ -209,7 +210,7 @@ public class RunContainerProbeActivity(
             return FailureOutput(
                 input,
                 input.Step,
-                UnitValidationCodes.ImageStartFailed,
+                ArtefactValidationCodes.ImageStartFailed,
                 $"Container failed to start for probe step '{input.Step}': {ex.Message}",
                 details: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -227,7 +228,7 @@ public class RunContainerProbeActivity(
             return FailureOutput(
                 input,
                 input.Step,
-                UnitValidationCodes.ProbeInternalError,
+                ArtefactValidationCodes.ProbeInternalError,
                 $"Probe step '{input.Step}' threw {ex.GetType().Name}: {ex.Message}",
                 details: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -260,7 +261,7 @@ public class RunContainerProbeActivity(
             return FailureOutput(
                 input,
                 input.Step,
-                UnitValidationCodes.ProbeInternalError,
+                ArtefactValidationCodes.ProbeInternalError,
                 $"Runtime '{input.RuntimeId}' interpreter threw {ex.GetType().Name}: {ex.Message}",
                 details: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -282,7 +283,7 @@ public class RunContainerProbeActivity(
 
         // Interpreter-reported failure: pass through its Code/Message/Details,
         // belt-and-braces redact the Message + Details values.
-        var failureCode = result.Code ?? UnitValidationCodes.ProbeInternalError;
+        var failureCode = result.Code ?? ArtefactValidationCodes.ProbeInternalError;
         var failureMessage = CredentialRedactor.Redact(result.Message ?? string.Empty, credential);
         var failureDetails = RedactValues(result.Details, credential);
 
@@ -298,7 +299,7 @@ public class RunContainerProbeActivity(
 
     private static RunContainerProbeActivityOutput FailureOutput(
         RunContainerProbeActivityInput input,
-        UnitValidationStep step,
+        ArtefactValidationStep step,
         string code,
         string message,
         IReadOnlyDictionary<string, string>? details,
@@ -311,7 +312,7 @@ public class RunContainerProbeActivity(
 
         return new RunContainerProbeActivityOutput(
             Success: false,
-            Failure: new UnitValidationError(step, code, redactedMessage, redactedDetails),
+            Failure: new ArtefactValidationError(step, code, redactedMessage, redactedDetails),
             Extras: null,
             RedactedStdOut: redactedStdOut,
             RedactedStdErr: redactedStdErr);

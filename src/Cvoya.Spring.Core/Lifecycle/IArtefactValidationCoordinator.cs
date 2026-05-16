@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.Units;
+namespace Cvoya.Spring.Core.Lifecycle;
 
 using Cvoya.Spring.Core.Lifecycle;
 
@@ -9,9 +9,9 @@ using Cvoya.Spring.Core.Lifecycle;
 /// Seam that encapsulates the validation-scheduling concern extracted from
 /// <c>UnitActor</c>: receiving the trigger to enter
 /// <see cref="LifecycleStatus.Validating"/>, scheduling the
-/// <c>UnitValidationWorkflow</c> via
-/// <see cref="IUnitValidationWorkflowScheduler"/>, persisting the run id
-/// through <see cref="IUnitValidationTracker"/>, and driving the terminal
+/// <c>ArtefactValidationWorkflow</c> via
+/// <see cref="IArtefactValidationWorkflowScheduler"/>, persisting the run id
+/// through <see cref="IArtefactValidationTracker"/>, and driving the terminal
 /// callbacks when the workflow completes.
 /// </summary>
 /// <remarks>
@@ -31,12 +31,12 @@ using Cvoya.Spring.Core.Lifecycle;
 /// without the coordinator depending on Dapr actor types.
 /// </para>
 /// </remarks>
-public interface IUnitValidationCoordinator
+public interface IArtefactValidationCoordinator
 {
     /// <summary>
     /// Called by the actor immediately after it has successfully persisted
     /// the transition into <see cref="LifecycleStatus.Validating"/>. Schedules
-    /// the <c>UnitValidationWorkflow</c>, persists the returned instance id,
+    /// the <c>ArtefactValidationWorkflow</c>, persists the returned instance id,
     /// and returns:
     /// <list type="bullet">
     ///   <item><description>
@@ -59,7 +59,7 @@ public interface IUnitValidationCoordinator
     /// <c>StateChanged</c> activity event. Called by the coordinator when
     /// scheduler failure forces a recovery transition into
     /// <see cref="LifecycleStatus.Error"/>. The optional
-    /// <see cref="UnitValidationError"/> argument carries the structured
+    /// <see cref="ArtefactValidationError"/> argument carries the structured
     /// failure context (#1665) so the activity event can elevate severity
     /// and inject the validation <c>code</c>/<c>message</c> into
     /// <c>summary</c> + <c>details</c>; passed as <c>null</c> for non-failure
@@ -68,12 +68,12 @@ public interface IUnitValidationCoordinator
     /// <param name="cancellationToken">Cancels the schedule.</param>
     Task<TransitionResult?> TryStartWorkflowAsync(
         string unitActorId,
-        Func<LifecycleStatus, LifecycleStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
+        Func<LifecycleStatus, LifecycleStatus, ArtefactValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Handles the terminal callback posted by the
-    /// <c>UnitValidationWorkflow</c>. Applies the stale-run and
+    /// <c>ArtefactValidationWorkflow</c>. Applies the stale-run and
     /// terminal-status guards, persists the failure payload (on failure),
     /// and drives the appropriate
     /// <see cref="LifecycleStatus.Validating"/>→<see cref="LifecycleStatus.Stopped"/> or
@@ -90,7 +90,7 @@ public interface IUnitValidationCoordinator
     /// <param name="persistTransition">
     /// Delegate that writes the status to actor state and emits the
     /// <c>StateChanged</c> activity event. The optional
-    /// <see cref="UnitValidationError"/> argument carries the structured
+    /// <see cref="ArtefactValidationError"/> argument carries the structured
     /// failure context (#1665) so the activity event can elevate severity
     /// and inject the validation <c>code</c>/<c>message</c> into
     /// <c>summary</c> + <c>details</c>; passed as <c>null</c> on the
@@ -99,8 +99,8 @@ public interface IUnitValidationCoordinator
     /// <param name="cancellationToken">Cancels the completion handling.</param>
     Task<TransitionResult> CompleteValidationAsync(
         string unitActorId,
-        UnitValidationCompletion completion,
+        ArtefactValidationCompletion completion,
         Func<CancellationToken, Task<LifecycleStatus>> getCurrentStatus,
-        Func<LifecycleStatus, LifecycleStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
+        Func<LifecycleStatus, LifecycleStatus, ArtefactValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
         CancellationToken cancellationToken = default);
 }

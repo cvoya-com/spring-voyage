@@ -143,7 +143,7 @@ public static class UnitEndpoints
         group.MapPost("/{id}/revalidate", RevalidateUnitAsync)
             .WithName("RevalidateUnit")
             .WithSummary("Re-run backend validation for a unit in Error or Stopped state")
-            .WithDescription("Transitions the unit into Validating and kicks off a new UnitValidationWorkflow run. The handler returns immediately — progress is observable via SSE ValidationProgress events and the terminal state is written back by the workflow.")
+            .WithDescription("Transitions the unit into Validating and kicks off a new ArtefactValidationWorkflow run. The handler returns immediately — progress is observable via SSE ValidationProgress events and the terminal state is written back by the workflow.")
             .Produces<UnitResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
@@ -1673,7 +1673,7 @@ public static class UnitEndpoints
         DirectoryEntry entry,
         LifecycleStatus status = LifecycleStatus.Draft,
         UnitMetadata? metadata = null,
-        UnitValidationTracking? validationTracking = null,
+        ArtefactValidationTracking? validationTracking = null,
         string? instructions = null,
         IReadOnlyList<EffectiveToolResponse>? effectiveTools = null,
         string? executionImage = null) =>
@@ -1714,8 +1714,8 @@ public static class UnitEndpoints
     /// <see cref="TryGetValidationTrackingAsync"/> so the endpoint does not
     /// repeat the JSON parse in multiple code paths.
     /// </summary>
-    private sealed record UnitValidationTracking(
-        UnitValidationError? LastValidationError,
+    private sealed record ArtefactValidationTracking(
+        ArtefactValidationError? LastValidationError,
         string? LastValidationRunId);
 
     /// <summary>
@@ -1726,7 +1726,7 @@ public static class UnitEndpoints
     /// registered (design-time / doc-gen path) so the DTO's null values
     /// surface naturally.
     /// </summary>
-    private static async Task<UnitValidationTracking?> TryGetValidationTrackingAsync(
+    private static async Task<ArtefactValidationTracking?> TryGetValidationTrackingAsync(
         IServiceScopeFactory scopeFactory,
         Guid actorId,
         ILogger logger,
@@ -1753,12 +1753,12 @@ public static class UnitEndpoints
                 return null;
             }
 
-            UnitValidationError? error = null;
+            ArtefactValidationError? error = null;
             if (!string.IsNullOrWhiteSpace(row.LastValidationErrorJson))
             {
                 try
                 {
-                    error = JsonSerializer.Deserialize<UnitValidationError>(
+                    error = JsonSerializer.Deserialize<ArtefactValidationError>(
                         row.LastValidationErrorJson);
                 }
                 catch (Exception ex)
@@ -1769,7 +1769,7 @@ public static class UnitEndpoints
                 }
             }
 
-            return new UnitValidationTracking(error, row.LastValidationRunId);
+            return new ArtefactValidationTracking(error, row.LastValidationRunId);
         }
         catch (Exception ex)
         {
