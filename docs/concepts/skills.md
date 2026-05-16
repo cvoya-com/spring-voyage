@@ -90,6 +90,10 @@ Each response entry is an `EquippedSkillEntry`:
 
 `promptSummary` is the first non-empty line of the resolved prompt (capped at 200 characters) — informative without dragging the full body through a listing surface. Callers that need the full body fetch the bundle directly.
 
+## CLI
+
+Each Web API verb has a CLI counterpart under `spring agent skills …` and `spring unit skills …` ([#2361](https://github.com/cvoya-com/spring-voyage/issues/2361)) — `list`, `add`, `remove`, `set`. The CLI never touches `HttpClient` directly; the verbs flow through the same generated Kiota client that powers the rest of the `spring` surface. See [`docs/cli-reference.md`](../cli-reference.md#spring-agentunit-skills-operator-equip-surface) for flag-level detail and the operator-equip flow in [`docs/guide/user/declarative.md`](../guide/user/declarative.md#equipping-skills-on-units-and-agents-2361).
+
 ## Addressing and versioning
 
 Skill addressing is `<package>/<skill>`. No `@<version>` qualifier, no aliases. The package install pipeline does not persist a version column today, so versioned addressing without persistence would be performative. When the tenant reinstalls a package with new content, every equipped subject's next prompt assembly picks up the new body — there is no operator-side pinning. The tradeoff is deliberate; revisiting it requires persisting versions on the binding rows.
