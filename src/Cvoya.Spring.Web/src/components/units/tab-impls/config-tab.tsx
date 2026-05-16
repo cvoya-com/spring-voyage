@@ -19,17 +19,21 @@
 //   tenant-operator Config surface.
 //
 //   Unit — General, Boundary, Execution, Instructions, Connector,
-//   Skills, Secrets, Budget, Debug. #2331 added General as the first
+//   Tools, Secrets, Budget, Debug. #2331 added General as the first
 //   tab (display name / description / model hint / color, plus the
 //   expertise editor folded in) and retired the standalone Expertise
-//   sub-tab.
+//   sub-tab. #2337 Sub D renamed the legacy Skills sub-tab to Tools
+//   and replaced its body with the new three-tier `<ToolsPanel>`
+//   (platform / connector / image).
 //
 //   Agent — General, Execution, Instructions, Budget, Connector,
-//   Skills, Secrets, Debug. Same #2331 promotion (General first,
+//   Tools, Secrets, Debug. Same #2331 promotion (General first,
 //   Expertise folded in) for the agent surface. The agent General
 //   tab additionally exposes role, specialty, the enabled toggle, and
 //   the execution-mode selector — none of which were previously
-//   editable post-creation in the portal.
+//   editable post-creation in the portal. #2337 Sub D renamed the
+//   legacy Skills sub-tab to Tools — the top-level subject-view
+//   Skills tab is a different concept and is unchanged.
 //
 // URL contract — `?tab=Config&subtab=<name>` on every subject. Writes
 // go through `window.history.replaceState` + the Explorer URL-change
@@ -52,11 +56,10 @@ import { TenantDefaultsPanel } from "@/components/settings/tenant-defaults-panel
 import { AgentGeneralPanel } from "@/components/units/tab-impls/agent-general-panel";
 import { BoundaryTab } from "@/components/units/tab-impls/boundary-tab";
 import { ConnectorTab } from "@/components/units/tab-impls/connector-tab";
-import { EquippedSkillsTab } from "@/components/units/tab-impls/equipped-skills-tab";
 import { ExecutionTab } from "@/components/units/tab-impls/execution-tab";
 import { InstructionsPanel } from "@/components/units/tab-impls/instructions-panel";
 import { SecretsTab } from "@/components/units/tab-impls/secrets-tab";
-import { SkillsTab } from "@/components/units/tab-impls/skills-tab";
+import { ToolsPanel } from "@/components/units/tab-impls/tools-panel";
 import { UnitGeneralPanel } from "@/components/units/tab-impls/unit-general-panel";
 import {
   Tabs,
@@ -113,7 +116,7 @@ const UNIT_SUBTABS = [
   "Execution",
   "Instructions",
   "Connector",
-  "Skills",
+  "Tools",
   "Secrets",
   "Budget",
   "Debug",
@@ -124,7 +127,7 @@ const AGENT_SUBTABS = [
   "Instructions",
   "Budget",
   "Connector",
-  "Skills",
+  "Tools",
   "Secrets",
   "Debug",
 ] as const;
@@ -257,8 +260,8 @@ export function ConfigTab({
             <TabsContent value="Connector" className="space-y-2">
               <ConnectorTab unitId={id} />
             </TabsContent>
-            <TabsContent value="Skills" className="space-y-2">
-              <SkillsTab unitId={id} />
+            <TabsContent value="Tools" className="space-y-2">
+              <ToolsPanel kind="Unit" id={id} />
             </TabsContent>
             <TabsContent value="Secrets" className="space-y-2">
               <SecretsTab unitId={id} />
@@ -298,8 +301,8 @@ export function ConfigTab({
             <TabsContent value="Connector" className="space-y-2">
               <AgentConnectorInheritedView parentUnitId={parentUnitId} />
             </TabsContent>
-            <TabsContent value="Skills" className="space-y-2">
-              <EquippedSkillsTab kind="Agent" id={id} name={name} />
+            <TabsContent value="Tools" className="space-y-2">
+              <ToolsPanel kind="Agent" id={id} parentUnitId={parentUnitId} />
             </TabsContent>
             <TabsContent value="Secrets" className="space-y-2">
               <AgentOverridesPanel
@@ -327,15 +330,15 @@ function describeSubject(kind: ConfigSubjectKind): string {
     case "Unit":
       return (
         "General metadata (display name, description, color, expertise) and the " +
-        "boundary, execution defaults, instructions, connector, skills, secrets, " +
+        "boundary, execution defaults, instructions, connector, tools, secrets, " +
         "and budget for this unit. Each section mirrors the matching " +
         "`spring unit …` CLI subcommand."
       );
     case "Agent":
       return (
         "General metadata (display name, description, role, specialty, expertise) " +
-        "plus execution defaults, instructions, daily budget, connector, equipped " +
-        "skills, and secret overrides for this agent. Mirrors the matching " +
+        "plus execution defaults, instructions, daily budget, connector, tools, " +
+        "and secret overrides for this agent. Mirrors the matching " +
         "`spring agent …` CLI subcommands. Initiative lives on the Policies tab."
       );
   }

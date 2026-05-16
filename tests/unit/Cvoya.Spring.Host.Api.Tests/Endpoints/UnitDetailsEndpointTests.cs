@@ -250,6 +250,76 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         }
     }
 
+    // -------------------------------------------------------------------
+    // GET /api/v1/tenant/units/{id} — effective-tools projection (#2337 Sub D).
+    //
+    // The Show endpoint projects IToolGrantResolver.ResolveAsync into the
+    // wire response so the portal's Tools sub-tab can render the three-
+    // tier layout (platform / connector / image) without re-deriving the
+    // grant set. The factory's substitute resolver returns an empty list
+    // by default; this test arranges a populated list and asserts the
+    // projection lands on UnitDetailResponse.Unit.EffectiveTools.
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task GetUnit_EffectiveTools_PopulatedFromResolver()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Running);
+        proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
+            .Returns(new UnitMetadata(null, null, null, null));
+        proxy.GetMembersAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<Address>());
+
+        ArrangeResolved(proxy);
+
+        _factory.ToolGrantResolver
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == Address.UnitScheme && a.Id == ActorEngineering_Id),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Cvoya.Spring.Core.Skills.EffectiveTool>>(
+                new[]
+                {
+                    new Cvoya.Spring.Core.Skills.EffectiveTool(
+                        Name: "sv.expertise.lookup",
+                        Namespace: "sv",
+                        Description: "Look up a unit's expertise.",
+                        Provenance: Cvoya.Spring.Core.Skills.ToolProvenance.Platform,
+                        InheritedFromUnitName: null),
+                    new Cvoya.Spring.Core.Skills.EffectiveTool(
+                        Name: "github.create_issue",
+                        Namespace: "github",
+                        Description: "Open a new GitHub issue.",
+                        Provenance: Cvoya.Spring.Core.Skills.ToolProvenance.ConnectorPrefix + "github",
+                        InheritedFromUnitName: null),
+                }));
+
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitName}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(body);
+
+        var unit = doc.RootElement.GetProperty("unit");
+        var effectiveTools = unit.GetProperty("effectiveTools");
+        effectiveTools.ValueKind.ShouldBe(JsonValueKind.Array);
+        effectiveTools.GetArrayLength().ShouldBe(2);
+
+        var first = effectiveTools[0];
+        first.GetProperty("name").GetString().ShouldBe("sv.expertise.lookup");
+        first.GetProperty("namespace").GetString().ShouldBe("sv");
+        first.GetProperty("provenance").GetString().ShouldBe("platform");
+        first.GetProperty("inheritedFromUnitName").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        var second = effectiveTools[1];
+        second.GetProperty("name").GetString().ShouldBe("github.create_issue");
+        second.GetProperty("namespace").GetString().ShouldBe("github");
+        second.GetProperty("provenance").GetString().ShouldBe("connector:github");
+    }
+
     [Fact]
     public async Task GetUnit_NoValidationTracking_DtoFieldsAreNull()
     {

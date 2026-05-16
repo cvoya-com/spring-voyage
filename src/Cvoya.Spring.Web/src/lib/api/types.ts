@@ -34,6 +34,15 @@ export type CostDashboardSummary = Schemas["CostDashboardSummary"];
 /** GET /api/v1/agents/{id} response envelope. */
 export type AgentResponse = Schemas["AgentResponse"];
 
+/**
+ * Single entry in the `effectiveTools` array attached to
+ * {@link AgentResponse} / {@link UnitResponse}. Mirrors the resolver row
+ * from Sub B (#2335) — see `Cvoya.Spring.Core.Skills.EffectiveTool`.
+ * Consumed by the Tools sub-tab (#2337 Sub D) to render the three-tier
+ * layout (platform / connector / image).
+ */
+export type EffectiveToolResponse = Schemas["EffectiveToolResponse"];
+
 /** GET /api/v1/agents/{id} full response with status. */
 export type AgentDetailResponse = Schemas["AgentDetailResponse"];
 

@@ -1019,6 +1019,7 @@ public static class AgentEndpoints
         [FromServices] PersistentAgentRegistry persistentAgentRegistry,
         [FromServices] IAgentExecutionStore executionStore,
         [FromServices] IInitiativeEngine initiativeEngine,
+        [FromServices] IToolGrantResolver toolGrantResolver,
         [FromServices] IServiceScopeFactory scopeFactory,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -1123,6 +1124,17 @@ public static class AgentEndpoints
             id,
             cancellationToken);
 
+        // #2337 Sub D: resolve effective tools so the portal's Tools
+        // sub-tab can render the three-tier layout. Fail-open (empty
+        // list) — a transient resolver outage shouldn't blank the
+        // otherwise-complete response.
+        var effectiveTools = await TryResolveEffectiveToolsAsync(
+            toolGrantResolver,
+            new Address(Address.AgentScheme, entry.ActorId),
+            loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.AgentEndpoints"),
+            id,
+            cancellationToken);
+
         var agentResponse = ToAgentResponse(
             entry,
             metadata,
@@ -1131,7 +1143,8 @@ public static class AgentEndpoints
             lifecycleStatus: lifecycleStatus,
             lifecycleError: lifecycleError,
             parentUnitId: parentUnitGuid,
-            instructions: instructions);
+            instructions: instructions,
+            effectiveTools: effectiveTools);
         if (!result.IsSuccess)
         {
             return Results.Ok(new AgentDetailResponse(agentResponse, null, deployment));
@@ -1755,7 +1768,8 @@ public static class AgentEndpoints
         AgentLifecycleStatus? lifecycleStatus = null,
         string? lifecycleError = null,
         Guid? parentUnitId = null,
-        string? instructions = null) =>
+        string? instructions = null,
+        IReadOnlyList<EffectiveToolResponse>? effectiveTools = null) =>
         new(
             entry.ActorId,
             // #2114: Name carries the canonical 32-char no-dash hex form
@@ -1792,7 +1806,58 @@ public static class AgentEndpoints
                 ? lifecycleStatus.Value.ToString().ToLowerInvariant()
                 : null,
             LifecycleError: lifecycleError,
-            Instructions: instructions);
+            Instructions: instructions,
+            // #2337 Sub D: effective-tools projection used by the portal's
+            // Tools sub-tab. Only the single-subject GET path populates
+            // this; list paths leave it as an empty list to keep the
+            // OpenAPI shape branchless. Empty list when the resolver was
+            // not invoked.
+            EffectiveTools: effectiveTools ?? Array.Empty<EffectiveToolResponse>());
+
+    /// <summary>
+    /// Best-effort resolution of the subject's effective tool set via
+    /// <see cref="IToolGrantResolver"/>. Returns an empty list (never
+    /// <c>null</c>) on failure so the response shape stays branchless.
+    /// Used by both <see cref="GetAgentAsync"/> and the unit-detail
+    /// endpoint (via the shared wire DTO).
+    /// </summary>
+    internal static async Task<IReadOnlyList<EffectiveToolResponse>> TryResolveEffectiveToolsAsync(
+        IToolGrantResolver resolver,
+        Address subject,
+        ILogger logger,
+        string subjectId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var tools = await resolver.ResolveAsync(subject, cancellationToken);
+            if (tools.Count == 0)
+            {
+                return Array.Empty<EffectiveToolResponse>();
+            }
+
+            var projected = new List<EffectiveToolResponse>(tools.Count);
+            foreach (var tool in tools)
+            {
+                projected.Add(new EffectiveToolResponse(
+                    tool.Name,
+                    tool.Namespace,
+                    tool.Description,
+                    tool.Provenance,
+                    tool.InheritedFromUnitName));
+            }
+
+            return projected;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Failed to resolve effective tools for {Scheme} {SubjectId}; returning empty list.",
+                subject.Scheme,
+                subjectId);
+            return Array.Empty<EffectiveToolResponse>();
+        }
+    }
 
     /// <summary>
     /// Best-effort read of the agent actor's metadata. A failure here is

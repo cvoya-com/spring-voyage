@@ -102,6 +102,15 @@ public record CreateAgentRequest(
 /// is persisted on the agent row so the portal can render the
 /// inherited overlay separately. Added by #2293.
 /// </param>
+/// <param name="EffectiveTools">
+/// Flat list of tools effectively granted to this agent, sourced from
+/// <see cref="Cvoya.Spring.Core.Skills.IToolGrantResolver"/> and merged
+/// across the four provenance tiers (platform / connector / image /
+/// explicit). Surfaced on the wire so the portal's Tools sub-tab
+/// (#2337) can render the three-tier layout without re-deriving the
+/// grant set. Empty list when the resolver returns nothing — the field
+/// is non-null on the wire to keep client code branchless.
+/// </param>
 public record AgentResponse(
     Guid Id,
     string Name,
@@ -119,7 +128,8 @@ public record AgentResponse(
     string? InitiativeLevel = null,
     string? LifecycleStatus = null,
     string? LifecycleError = null,
-    string? Instructions = null);
+    string? Instructions = null,
+    IReadOnlyList<EffectiveToolResponse>? EffectiveTools = null);
 
 /// <summary>
 /// Request body for <c>PATCH /api/v1/agents/{id}</c>. All fields optional;

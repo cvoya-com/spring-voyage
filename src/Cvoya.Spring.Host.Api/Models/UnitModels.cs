@@ -120,6 +120,15 @@ public record UpdateUnitRequest(
 /// Use <c>GET /api/v1/tenant/units/{id}/execution</c> for the structured
 /// view.
 /// </remarks>
+/// <param name="EffectiveTools">
+/// Flat list of tools effectively granted to this unit, sourced from
+/// <see cref="Cvoya.Spring.Core.Skills.IToolGrantResolver"/> and merged
+/// across the four provenance tiers (platform / connector / image /
+/// explicit). Surfaced on the wire so the portal's Tools sub-tab
+/// (#2337) can render the three-tier layout without re-deriving the
+/// grant set. Empty list when the resolver returns nothing — the field
+/// is non-null on the wire to keep client code branchless.
+/// </param>
 public record UnitResponse(
     Guid Id,
     string Name,
@@ -136,7 +145,8 @@ public record UnitResponse(
     string? Role = null,
     string? Specialty = null,
     bool Enabled = true,
-    AgentExecutionMode ExecutionMode = AgentExecutionMode.Auto);
+    AgentExecutionMode ExecutionMode = AgentExecutionMode.Auto,
+    IReadOnlyList<EffectiveToolResponse>? EffectiveTools = null);
 
 /// <summary>
 /// Request body for adding a member to a unit.
