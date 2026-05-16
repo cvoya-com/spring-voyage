@@ -567,6 +567,40 @@ public class SpringApiClient
             $"Server returned an empty revalidate response for unit '{id}'.");
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // #2364: agent lifecycle transitions (parallel to the unit endpoints
+    // above). Agents share the same Draft → Validating → Stopped →
+    // Starting → Running state machine.
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>Starts an agent (Stopped → Starting → Running).</summary>
+    public async Task<AgentLifecycleResponse> StartAgentAsync(string id, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Agents[id].Start.PostAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException($"Server returned an empty start response for agent '{id}'.");
+    }
+
+    /// <summary>Stops a running agent (Running → Stopping → Stopped).</summary>
+    public async Task<AgentLifecycleResponse> StopAgentAsync(string id, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Agents[id].Stop.PostAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException($"Server returned an empty stop response for agent '{id}'.");
+    }
+
+    /// <summary>
+    /// Re-runs the validation workflow for an agent (Draft / Error / Stopped
+    /// → Validating). The server returns <c>202 Accepted</c>; the workflow's
+    /// terminal callback drives the agent to <c>Stopped</c> on success or
+    /// <c>Error</c> on failure. <c>409 Conflict</c> when the agent is in any
+    /// other state.
+    /// </summary>
+    public async Task<AgentLifecycleResponse> RevalidateAgentAsync(string id, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Agents[id].Revalidate.PostAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty revalidate response for agent '{id}'.");
+    }
+
     /// <summary>Gets the readiness status of a unit.</summary>
     public async Task<UnitReadinessResponse> GetUnitReadinessAsync(string id, CancellationToken ct = default)
     {

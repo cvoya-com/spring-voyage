@@ -111,6 +111,16 @@ public static class AgentCommand
         agentCommand.Subcommands.Add(CreateCloneCommand(outputOption));
         agentCommand.Subcommands.Add(ExpertiseCommand.CreateAgentSubcommand(outputOption));
 
+        // #2364: lifecycle-state transition verbs mirroring `spring unit
+        // start/stop/revalidate`. Agents now share the same Draft →
+        // Validating → Stopped → Starting → Running state machine.
+        // Note: `spring agent validate` (AgentValidateCommand, #2096)
+        // stays as a separate static-warnings concept and is NOT replaced
+        // by `revalidate` here.
+        agentCommand.Subcommands.Add(CreateStartCommand());
+        agentCommand.Subcommands.Add(CreateStopCommand());
+        agentCommand.Subcommands.Add(CreateRevalidateCommand());
+
         // Persistent-agent lifecycle verbs (#396). Together with the extended
         // `status` verb above, these close the CLI gap for operators managing
         // long-lived agent services. Ephemeral agents are unaffected — the
@@ -1600,4 +1610,97 @@ public static class AgentCommand
                 ? dto.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
                 : string.Empty,
             alias);
+
+    // ──────────────────────────────────────────────────────────────────────
+    // #2364: lifecycle-state transition subcommands.
+    // ──────────────────────────────────────────────────────────────────────
+
+    private static Command CreateStartCommand()
+    {
+        var idArg = new Argument<string>("id") { Description = "The agent identifier (Guid)." };
+        var command = new Command("start", "Start an agent (transitions Stopped → Starting → Running).");
+        command.Arguments.Add(idArg);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var id = parseResult.GetValue(idArg)!;
+            var client = ClientFactory.Create();
+            try
+            {
+                var result = await client.StartAgentAsync(id, ct);
+                Console.WriteLine($"Agent '{id}' is now {result.Status}.");
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to start agent '{id}': {ExtractServerDetail(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    private static Command CreateStopCommand()
+    {
+        var idArg = new Argument<string>("id") { Description = "The agent identifier (Guid)." };
+        var command = new Command("stop", "Stop a running agent (transitions Running → Stopping → Stopped).");
+        command.Arguments.Add(idArg);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var id = parseResult.GetValue(idArg)!;
+            var client = ClientFactory.Create();
+            try
+            {
+                var result = await client.StopAgentAsync(id, ct);
+                Console.WriteLine($"Agent '{id}' is now {result.Status}.");
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to stop agent '{id}': {ExtractServerDetail(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    private static Command CreateRevalidateCommand()
+    {
+        var idArg = new Argument<string>("id") { Description = "The agent identifier (Guid)." };
+        var command = new Command(
+            "revalidate",
+            "Re-run the validation workflow for an agent (Draft / Error / Stopped → Validating). " +
+            "Settles in Stopped on success — use `spring agent start` afterwards to drive it to Running.");
+        command.Arguments.Add(idArg);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var id = parseResult.GetValue(idArg)!;
+            var client = ClientFactory.Create();
+            try
+            {
+                var result = await client.RevalidateAgentAsync(id, ct);
+                Console.WriteLine($"Agent '{id}' revalidation accepted; status now {result.Status}.");
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to revalidate agent '{id}': {ExtractServerDetail(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    private static string ExtractServerDetail(Microsoft.Kiota.Abstractions.ApiException ex)
+    {
+        var message = Utilities.ProblemDetailsTranslator.Format(ex);
+        return string.IsNullOrWhiteSpace(message)
+            ? "server rejected the request."
+            : message!;
+    }
 }
