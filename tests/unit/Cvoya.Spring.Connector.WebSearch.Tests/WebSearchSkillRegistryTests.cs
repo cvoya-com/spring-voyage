@@ -29,7 +29,7 @@ public class WebSearchSkillRegistryTests
 
         registry.Name.ShouldBe("web-search");
         var names = registry.GetToolDefinitions().Select(t => t.Name).ToArray();
-        names.ShouldContain("webSearch");
+        names.ShouldContain("websearch.search");
     }
 
     [Fact]

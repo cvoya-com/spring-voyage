@@ -16,7 +16,7 @@ using Cvoya.Spring.Core.Policies;
 /// * <see cref="SkillBundleValidationProblemReason.ToolNotAvailable"/> →
 ///   non-blocking warning returned in <see cref="SkillBundleValidationReport.Warnings"/>.
 ///   Skill bundles often declare aspirational unit-orchestration tools that no
-///   connector surfaces yet (e.g. the `assignToAgent` / `requestReview`
+///   connector surfaces yet (e.g. the `platform.assign_to_agent` / `eng.request_review`
 ///   primitives in the shipped `packages/software-engineering/` bundles);
 ///   rejecting those would block users from creating units from the shipped
 ///   templates. The agent will get a runtime "tool not found" error from the

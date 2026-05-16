@@ -38,9 +38,9 @@ public class DefaultSkillBundleValidatorTests
     [Fact]
     public async Task Validate_ToolAvailable_NoPolicy_ReturnsEmptyReport()
     {
-        var bundle = BundleWith("triage-and-assign", "assignToAgent");
+        var bundle = BundleWith("triage-and-assign", "platform.assign_to_agent");
         var validator = new DefaultSkillBundleValidator(
-            new[] { new FakeRegistry("platform", "assignToAgent") },
+            new[] { new FakeRegistry("platform", "platform.assign_to_agent") },
             new FakePolicyRepository());
 
         var report = await validator.ValidateAsync(
@@ -53,10 +53,10 @@ public class DefaultSkillBundleValidatorTests
     public async Task Validate_MissingRequiredTool_ReturnsWarning_DoesNotThrow()
     {
         // #261 regression: the shipped software-engineering templates declare
-        // unit-orchestration tools (`assignToAgent`, `requestReview`, ...) that
+        // unit-orchestration tools (`platform.assign_to_agent`, `eng.request_review`, ...) that
         // no connector surfaces. Unit creation must proceed with an advisory
         // warning rather than a 400.
-        var bundle = BundleWith("triage-and-assign", "assignToAgent");
+        var bundle = BundleWith("triage-and-assign", "platform.assign_to_agent");
         var validator = new DefaultSkillBundleValidator(
             Array.Empty<ISkillRegistry>(),
             new FakePolicyRepository());
@@ -66,14 +66,14 @@ public class DefaultSkillBundleValidatorTests
 
         report.Warnings.ShouldHaveSingleItem();
         report.Warnings[0].ShouldContain("spring-voyage/software-engineering/triage-and-assign");
-        report.Warnings[0].ShouldContain("assignToAgent");
+        report.Warnings[0].ShouldContain("platform.assign_to_agent");
         report.Warnings[0].ShouldContain("not surfaced by any registered connector");
     }
 
     [Fact]
     public async Task Validate_MultipleMissingTools_AggregatesAllWarnings()
     {
-        var bundle = BundleWith("pr-review-cycle", "requestReview", "submitReview");
+        var bundle = BundleWith("pr-review-cycle", "platform.request_review", "platform.submit_review");
         var validator = new DefaultSkillBundleValidator(
             Array.Empty<ISkillRegistry>(),
             new FakePolicyRepository());
@@ -82,8 +82,8 @@ public class DefaultSkillBundleValidatorTests
             TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken);
 
         report.Warnings.Count.ShouldBe(2);
-        report.Warnings.ShouldContain(w => w.Contains("requestReview"));
-        report.Warnings.ShouldContain(w => w.Contains("submitReview"));
+        report.Warnings.ShouldContain(w => w.Contains("platform.request_review"));
+        report.Warnings.ShouldContain(w => w.Contains("platform.submit_review"));
     }
 
     [Fact]
@@ -93,12 +93,12 @@ public class DefaultSkillBundleValidatorTests
             PackageName: "p", SkillName: "s", Prompt: "",
             RequiredTools: new[]
             {
-                new SkillToolRequirement("mustHave", "", EmptySchema, Optional: false),
-                new SkillToolRequirement("niceToHave", "", EmptySchema, Optional: true),
+                new SkillToolRequirement("platform.must_have", "", EmptySchema, Optional: false),
+                new SkillToolRequirement("platform.nice_to_have", "", EmptySchema, Optional: true),
             });
 
         var validator = new DefaultSkillBundleValidator(
-            new[] { new FakeRegistry("platform", "mustHave") },
+            new[] { new FakeRegistry("platform", "platform.must_have") },
             new FakePolicyRepository());
 
         var report = await validator.ValidateAsync(
@@ -113,10 +113,10 @@ public class DefaultSkillBundleValidatorTests
         // C3 security invariant: a unit's SkillPolicy must still be enforced
         // at create time. Softening missing-tools to warnings (#261) does not
         // relax this — policy violations remain blocking.
-        var bundle = BundleWith("triage-and-assign", "assignToAgent");
-        var policy = new UnitPolicy(new SkillPolicy(Blocked: new[] { "assignToAgent" }));
+        var bundle = BundleWith("triage-and-assign", "platform.assign_to_agent");
+        var policy = new UnitPolicy(new SkillPolicy(Blocked: new[] { "platform.assign_to_agent" }));
         var validator = new DefaultSkillBundleValidator(
-            new[] { new FakeRegistry("platform", "assignToAgent") },
+            new[] { new FakeRegistry("platform", "platform.assign_to_agent") },
             FakePolicyRepository.With(("engineering", policy)));
 
         var ex = await Should.ThrowAsync<SkillBundleValidationException>(
@@ -130,10 +130,10 @@ public class DefaultSkillBundleValidatorTests
     [Fact]
     public async Task Validate_ToolNotInWhitelist_Throws()
     {
-        var bundle = BundleWith("triage-and-assign", "assignToAgent");
-        var policy = new UnitPolicy(new SkillPolicy(Allowed: new[] { "search" }));
+        var bundle = BundleWith("triage-and-assign", "platform.assign_to_agent");
+        var policy = new UnitPolicy(new SkillPolicy(Allowed: new[] { "platform.search" }));
         var validator = new DefaultSkillBundleValidator(
-            new[] { new FakeRegistry("platform", "assignToAgent") },
+            new[] { new FakeRegistry("platform", "platform.assign_to_agent") },
             FakePolicyRepository.With(("engineering", policy)));
 
         var ex = await Should.ThrowAsync<SkillBundleValidationException>(
@@ -154,13 +154,13 @@ public class DefaultSkillBundleValidatorTests
             RequiredTools: new[]
             {
                 // available, but blocked by policy → blocking
-                new SkillToolRequirement("search", "", EmptySchema, Optional: false),
+                new SkillToolRequirement("platform.search", "", EmptySchema, Optional: false),
                 // not available → would be a warning, dropped on throw
-                new SkillToolRequirement("missing", "", EmptySchema, Optional: false),
+                new SkillToolRequirement("platform.missing", "", EmptySchema, Optional: false),
             });
-        var policy = new UnitPolicy(new SkillPolicy(Blocked: new[] { "search" }));
+        var policy = new UnitPolicy(new SkillPolicy(Blocked: new[] { "platform.search" }));
         var validator = new DefaultSkillBundleValidator(
-            new[] { new FakeRegistry("platform", "search") },
+            new[] { new FakeRegistry("platform", "platform.search") },
             FakePolicyRepository.With(("u", policy)));
 
         var ex = await Should.ThrowAsync<SkillBundleValidationException>(
@@ -168,15 +168,15 @@ public class DefaultSkillBundleValidatorTests
 
         ex.Problems.ShouldHaveSingleItem();
         ex.Problems[0].Reason.ShouldBe(SkillBundleValidationProblemReason.BlockedByUnitPolicy);
-        ex.Problems[0].ToolName.ShouldBe("search");
+        ex.Problems[0].ToolName.ShouldBe("platform.search");
     }
 
     [Fact]
     public async Task Validate_CaseInsensitiveToolMatch()
     {
-        var bundle = BundleWith("triage-and-assign", "AssignToAgent");
+        var bundle = BundleWith("triage-and-assign", "Platform.Assign_To_Agent");
         var validator = new DefaultSkillBundleValidator(
-            new[] { new FakeRegistry("platform", "assignToAgent") },
+            new[] { new FakeRegistry("platform", "platform.assign_to_agent") },
             new FakePolicyRepository());
 
         var report = await validator.ValidateAsync(

@@ -96,7 +96,7 @@ public class McpServerTests : IAsyncLifetime
 
         var tools = json.GetProperty("result").GetProperty("tools").EnumerateArray().ToList();
         tools.Count().ShouldBe(1);
-        tools[0].GetProperty("name").GetString().ShouldBe("fake_tool");
+        tools[0].GetProperty("name").GetString().ShouldBe("fake.tool");
     }
 
     [Fact]
@@ -111,12 +111,12 @@ public class McpServerTests : IAsyncLifetime
             method = "tools/call",
             @params = new
             {
-                name = "fake_tool",
+                name = "fake.tool",
                 arguments = new { echo = "hello" }
             }
         });
 
-        _registry.LastInvokedName.ShouldBe("fake_tool");
+        _registry.LastInvokedName.ShouldBe("fake.tool");
         var content = json.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
         JsonDocument.Parse(content).RootElement.GetProperty("echo").GetString().ShouldBe("hello");
     }
@@ -153,8 +153,8 @@ public class McpServerTests : IAsyncLifetime
     [Fact]
     public void DuplicateToolRegistration_ThrowsAtConstruction()
     {
-        var dup1 = new FakeSkillRegistry("dup");
-        var dup2 = new FakeSkillRegistry("dup");
+        var dup1 = new FakeSkillRegistry("fake.dup");
+        var dup2 = new FakeSkillRegistry("fake.dup");
 
         var act = () => new McpServer(
             [dup1, dup2],
@@ -174,7 +174,7 @@ public class McpServerTests : IAsyncLifetime
         // fix the StopAsync await observed the exception and bubbled it out
         // of the fixture DisposeAsync, which is how CI saw it surface on
         // `DuplicateToolRegistration_ThrowsAtConstruction` under parallel load.
-        var registry = new FakeSkillRegistry("race");
+        var registry = new FakeSkillRegistry("fake.race");
         var server = new McpServer(
             [registry],
             Options.Create(new McpServerOptions
@@ -224,7 +224,7 @@ public class McpServerTests : IAsyncLifetime
     {
         private readonly string _toolName;
 
-        public FakeSkillRegistry(string toolName = "fake_tool")
+        public FakeSkillRegistry(string toolName = "fake.tool")
         {
             _toolName = toolName;
         }

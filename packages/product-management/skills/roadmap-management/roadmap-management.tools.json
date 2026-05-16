@@ -1,6 +1,6 @@
 [
   {
-    "name": "upsertRoadmapItem",
+    "name": "pm.upsert_roadmap_item",
     "description": "Create or update a roadmap theme or milestone",
     "parameters": {
       "type": "object",
@@ -31,7 +31,7 @@
     }
   },
   {
-    "name": "reprioritizeRoadmap",
+    "name": "pm.reprioritize_roadmap",
     "description": "Change the priority ordering of roadmap items",
     "parameters": {
       "type": "object",
@@ -50,7 +50,7 @@
     }
   },
   {
-    "name": "publishRoadmapSnapshot",
+    "name": "pm.publish_roadmap_snapshot",
     "description": "Publish a snapshot of the current roadmap for stakeholders",
     "parameters": {
       "type": "object",

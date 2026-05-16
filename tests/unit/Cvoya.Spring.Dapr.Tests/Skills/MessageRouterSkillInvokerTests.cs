@@ -126,7 +126,7 @@ public class MessageRouterSkillInvokerTests
             .Returns((ExpertiseSkill?)null);
 
         using var args = JsonDocument.Parse("{}");
-        var invocation = new SkillInvocation("expertise/unknown", args.RootElement.Clone());
+        var invocation = new SkillInvocation("sv.expertise.unknown", args.RootElement.Clone());
 
         var result = await invoker.InvokeAsync(invocation, TestContext.Current.CancellationToken);
 

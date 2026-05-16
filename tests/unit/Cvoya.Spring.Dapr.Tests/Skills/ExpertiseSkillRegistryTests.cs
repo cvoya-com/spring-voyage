@@ -55,10 +55,10 @@ public class ExpertiseSkillRegistryTests
         var registry = new ExpertiseSkillRegistry(catalog, swappedInvoker, NullLoggerFactory.Instance);
 
         using var args = JsonDocument.Parse("{\"x\":1}");
-        var result = await registry.InvokeAsync("expertise/python", args.RootElement.Clone(), TestContext.Current.CancellationToken);
+        var result = await registry.InvokeAsync("sv.expertise.python", args.RootElement.Clone(), TestContext.Current.CancellationToken);
 
         swappedInvoker.ObservedCalls.ShouldHaveSingleItem();
-        swappedInvoker.ObservedCalls[0].SkillName.ShouldBe("expertise/python");
+        swappedInvoker.ObservedCalls[0].SkillName.ShouldBe("sv.expertise.python");
         result.GetProperty("stub").GetBoolean().ShouldBeTrue();
     }
 
@@ -74,7 +74,7 @@ public class ExpertiseSkillRegistryTests
 
         using var args = JsonDocument.Parse("{}");
         await Should.ThrowAsync<SkillNotFoundException>(
-            () => registry.InvokeAsync("expertise/unknown", args.RootElement.Clone(), TestContext.Current.CancellationToken));
+            () => registry.InvokeAsync("sv.expertise.unknown", args.RootElement.Clone(), TestContext.Current.CancellationToken));
     }
 
     [Fact]

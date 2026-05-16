@@ -21,7 +21,7 @@ using Xunit;
 
 /// <summary>
 /// Tests for <see cref="DirectorySearchSkillRegistry"/> — the meta-skill
-/// adapter that exposes <c>directory/search</c> on the same surface the
+/// adapter that exposes <c>sv.search_expertise</c> on the same surface the
 /// expertise-directory-driven skills use (#542). Covers tool-definition
 /// advertising, argument parsing, and payload shaping.
 /// </summary>
@@ -44,7 +44,7 @@ public class DirectorySearchSkillRegistryTests
         var tools = registry.GetToolDefinitions();
 
         tools.ShouldHaveSingleItem();
-        tools[0].Name.ShouldBe("directory/search");
+        tools[0].Name.ShouldBe("sv.search_expertise");
         tools[0].Description.ShouldNotBeNullOrWhiteSpace();
         // Input schema is a typed object — planners can validate arguments
         // against it before calling.
@@ -58,7 +58,7 @@ public class DirectorySearchSkillRegistryTests
         var args = JsonDocument.Parse("{}").RootElement;
 
         await Should.ThrowAsync<SkillNotFoundException>(
-            async () => await registry.InvokeAsync("expertise/python", args, TestContext.Current.CancellationToken));
+            async () => await registry.InvokeAsync("sv.expertise.python", args, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -84,13 +84,13 @@ public class DirectorySearchSkillRegistryTests
                 Offset: 0));
 
         var args = JsonDocument.Parse("""{ "text": "python", "typedOnly": true }""").RootElement;
-        var payload = await registry.InvokeAsync("directory/search", args, TestContext.Current.CancellationToken);
+        var payload = await registry.InvokeAsync("sv.search_expertise", args, TestContext.Current.CancellationToken);
 
         payload.GetProperty("totalCount").GetInt32().ShouldBe(1);
         payload.GetProperty("limit").GetInt32().ShouldBe(50);
         var hit = payload.GetProperty("hits").EnumerateArray().First();
         hit.GetProperty("slug").GetString().ShouldBe("python");
-        hit.GetProperty("skill").GetString().ShouldBe("expertise/python");
+        hit.GetProperty("skill").GetString().ShouldBe("sv.expertise.python");
         hit.GetProperty("owner").GetString().ShouldBe($"unit://{TestSlugIds.HexFor("eng")}");
         hit.GetProperty("typedContract").GetBoolean().ShouldBeTrue();
     }

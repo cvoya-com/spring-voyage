@@ -84,12 +84,12 @@ public class McpServerPolicyEnforcementTests : IAsyncLifetime
             jsonrpc = "2.0",
             id = 1,
             method = "tools/call",
-            @params = new { name = "fake_tool", arguments = new { echo = "hi" } },
+            @params = new { name = "fake.tool", arguments = new { echo = "hi" } },
         });
 
-        _registry.LastInvokedName.ShouldBe("fake_tool");
+        _registry.LastInvokedName.ShouldBe("fake.tool");
         _enforcer.LastAgentId.ShouldBe("ada");
-        _enforcer.LastToolName.ShouldBe("fake_tool");
+        _enforcer.LastToolName.ShouldBe("fake.tool");
         var result = json.GetProperty("result");
         result.TryGetProperty("isError", out var isError).ShouldBeTrue();
         isError.GetBoolean().ShouldBeFalse();
@@ -100,7 +100,7 @@ public class McpServerPolicyEnforcementTests : IAsyncLifetime
     {
         var session = _server!.IssueSession("ada", "conv-1");
         _enforcer.NextDecision = PolicyDecision.Deny(
-            "Tool 'fake_tool' is blocked by unit 'engineering' skill policy.",
+            "Tool 'fake.tool' is blocked by unit 'engineering' skill policy.",
             "engineering");
 
         var json = await PostJsonAsync(session.Token, new
@@ -108,7 +108,7 @@ public class McpServerPolicyEnforcementTests : IAsyncLifetime
             jsonrpc = "2.0",
             id = 1,
             method = "tools/call",
-            @params = new { name = "fake_tool", arguments = new { echo = "hi" } },
+            @params = new { name = "fake.tool", arguments = new { echo = "hi" } },
         });
 
         _registry.LastInvokedName.ShouldBeNull();
@@ -184,7 +184,7 @@ public class McpServerPolicyEnforcementTests : IAsyncLifetime
                 type = "object",
                 properties = new { echo = new { type = "string" } },
             });
-            return [new ToolDefinition("fake_tool", "Fake echo tool.", schema)];
+            return [new ToolDefinition("fake.tool", "Fake echo tool.", schema)];
         }
 
         public Task<JsonElement> InvokeAsync(

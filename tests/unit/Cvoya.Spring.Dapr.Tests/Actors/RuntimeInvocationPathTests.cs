@@ -153,7 +153,7 @@ public class RuntimeInvocationPathTests
         var registry = Substitute.For<ISkillRegistry>();
         registry.Name.Returns("github");
         registry.GetToolDefinitions().Returns([
-            new ToolDefinition("github_comment", "Comment", JsonSerializer.SerializeToElement(new { }))
+            new ToolDefinition("github.comment", "Comment", JsonSerializer.SerializeToElement(new { }))
         ]);
         var path = MakePath([registry]);
 

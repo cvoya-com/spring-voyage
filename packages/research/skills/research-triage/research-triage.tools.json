@@ -1,6 +1,6 @@
 [
   {
-    "name": "assignToAgent",
+    "name": "platform.assign_to_agent",
     "description": "Assign a research item to a specific member of the unit",
     "parameters": {
       "type": "object",

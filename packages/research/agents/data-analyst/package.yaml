@@ -24,7 +24,7 @@ instructions: |
   2. Propose the analysis plan (metrics, slicing, statistical tests,
      plots) before running anything; revise after feedback
   3. Execute the analysis end-to-end, recording parameters and any
-     deviations from the plan. Use `recordExperiment` to log the run
+     deviations from the plan. Use `research.record_experiment` to log the run
      so future agents can reproduce it
   4. Report the findings with effect sizes, confidence bounds, and a
      clear statement of what the analysis can and cannot conclude

@@ -19,7 +19,7 @@ using Microsoft.Extensions.Logging;
 /// arxiv concrete implementation of <see cref="IConnectorType"/>. The arxiv
 /// API is read-only and unauthenticated; this connector therefore only exposes
 /// a typed per-unit config (default categories + max results) and two
-/// read-only skills (<c>searchLiterature</c>, <c>fetchAbstract</c>). There are
+/// read-only skills (<c>arxiv.search_literature</c>, <c>arxiv.fetch_abstract</c>). There are
 /// no webhooks, no secrets, and no unit lifecycle side-effects — the
 /// lifecycle hooks are intentional no-ops.
 /// </summary>
@@ -209,7 +209,7 @@ public class ArxivConnectorType : IConnectorType
               "type": ["integer", "null"],
               "minimum": 1,
               "maximum": 100,
-              "description": "Default result cap for searchLiterature calls. Null falls back to the connector default (20)."
+              "description": "Default result cap for arxiv.search_literature calls. Null falls back to the connector default (20)."
             }
           }
         }

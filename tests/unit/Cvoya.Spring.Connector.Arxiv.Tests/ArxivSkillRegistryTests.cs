@@ -26,7 +26,7 @@ public class ArxivSkillRegistryTests
 
         var tools = registry.GetToolDefinitions();
 
-        tools.Select(t => t.Name).ShouldBe(new[] { "searchLiterature", "fetchAbstract" });
+        tools.Select(t => t.Name).ShouldBe(new[] { "arxiv.search_literature", "arxiv.fetch_abstract" });
         registry.Name.ShouldBe("arxiv");
     }
 
@@ -53,7 +53,7 @@ public class ArxivSkillRegistryTests
             limit = 5,
         });
 
-        var result = await registry.InvokeAsync("searchLiterature", args, TestContext.Current.CancellationToken);
+        var result = await registry.InvokeAsync("arxiv.search_literature", args, TestContext.Current.CancellationToken);
 
         result.GetProperty("count").GetInt32().ShouldBe(1);
         var first = result.GetProperty("results")[0];
@@ -70,7 +70,7 @@ public class ArxivSkillRegistryTests
         var registry = BuildRegistry(client);
         var args = JsonSerializer.SerializeToElement(new { arxivId = "1234.5678" });
 
-        var result = await registry.InvokeAsync("fetchAbstract", args, TestContext.Current.CancellationToken);
+        var result = await registry.InvokeAsync("arxiv.fetch_abstract", args, TestContext.Current.CancellationToken);
 
         result.GetProperty("found").GetBoolean().ShouldBeFalse();
     }

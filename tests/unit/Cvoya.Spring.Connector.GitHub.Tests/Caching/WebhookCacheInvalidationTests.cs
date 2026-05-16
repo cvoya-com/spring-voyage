@@ -125,11 +125,11 @@ public class WebhookCacheInvalidationTests
         var args = JsonSerializer.SerializeToElement(new { owner = "cvoya", repo = "spring", number = 7 });
 
         // Prime the cache.
-        await registry.InvokeAsync("github_get_pull_request", args, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_pull_request", args, TestContext.Current.CancellationToken);
         await client.PullRequest.Received(1).Get("cvoya", "spring", 7);
 
         // Second call hits cache — no new Octokit call.
-        await registry.InvokeAsync("github_get_pull_request", args, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_pull_request", args, TestContext.Current.CancellationToken);
         await client.PullRequest.Received(1).Get("cvoya", "spring", 7);
 
         // Simulate GitHub delivering a pull_request.edited webhook.
@@ -155,7 +155,7 @@ public class WebhookCacheInvalidationTests
         await WaitForCacheMissAsync(cache, prKey, TimeSpan.FromSeconds(2));
 
         // Third call after webhook: cache is gone, must re-query Octokit.
-        await registry.InvokeAsync("github_get_pull_request", args, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_pull_request", args, TestContext.Current.CancellationToken);
         await client.PullRequest.Received(2).Get("cvoya", "spring", 7);
     }
 

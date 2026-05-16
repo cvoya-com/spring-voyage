@@ -220,8 +220,8 @@ public class ProjectsV2CacheTests
         var (registry, _, _, _, _, posts) = Build();
         var args = JsonSerializer.SerializeToElement(new { owner = "acme", number = 7 });
 
-        var first = await registry.InvokeAsync("github_get_project_v2", args, TestContext.Current.CancellationToken);
-        var second = await registry.InvokeAsync("github_get_project_v2", args, TestContext.Current.CancellationToken);
+        var first = await registry.InvokeAsync("github.get_project_v2", args, TestContext.Current.CancellationToken);
+        var second = await registry.InvokeAsync("github.get_project_v2", args, TestContext.Current.CancellationToken);
 
         first.GetProperty("found").GetBoolean().ShouldBeTrue();
         second.GetProperty("found").GetBoolean().ShouldBeTrue();
@@ -238,8 +238,8 @@ public class ProjectsV2CacheTests
         var (registry, _, _, _, _, posts) = Build();
         var args = JsonSerializer.SerializeToElement(new { itemId = "PVTI_1" });
 
-        await registry.InvokeAsync("github_get_project_v2_item", args, TestContext.Current.CancellationToken);
-        await registry.InvokeAsync("github_get_project_v2_item", args, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_project_v2_item", args, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_project_v2_item", args, TestContext.Current.CancellationToken);
 
         posts[0].ShouldBe(1);
     }
@@ -251,9 +251,9 @@ public class ProjectsV2CacheTests
         var argsLimit50 = JsonSerializer.SerializeToElement(new { owner = "acme", number = 7, limit = 50 });
         var argsLimit10 = JsonSerializer.SerializeToElement(new { owner = "acme", number = 7, limit = 10 });
 
-        await registry.InvokeAsync("github_list_project_v2_items", argsLimit50, TestContext.Current.CancellationToken);
-        await registry.InvokeAsync("github_list_project_v2_items", argsLimit50, TestContext.Current.CancellationToken);
-        await registry.InvokeAsync("github_list_project_v2_items", argsLimit10, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.list_project_v2_items", argsLimit50, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.list_project_v2_items", argsLimit50, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.list_project_v2_items", argsLimit10, TestContext.Current.CancellationToken);
 
         // The two limits are different discriminators → one POST each; the
         // second limit=50 call hits the cache.
@@ -267,11 +267,11 @@ public class ProjectsV2CacheTests
         var args = JsonSerializer.SerializeToElement(new { itemId = "PVTI_1" });
 
         // Prime the cache.
-        await registry.InvokeAsync("github_get_project_v2_item", args, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_project_v2_item", args, TestContext.Current.CancellationToken);
         posts[0].ShouldBe(1);
 
         // Second call hits cache — no new POST.
-        await registry.InvokeAsync("github_get_project_v2_item", args, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_project_v2_item", args, TestContext.Current.CancellationToken);
         posts[0].ShouldBe(1);
 
         // Deliver a projects_v2_item.edited event whose node_id matches.
@@ -303,7 +303,7 @@ public class ProjectsV2CacheTests
         await WaitForCacheMissAsync(cache, key, TimeSpan.FromSeconds(2));
 
         // Next read must re-query.
-        await registry.InvokeAsync("github_get_project_v2_item", args, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_project_v2_item", args, TestContext.Current.CancellationToken);
         posts[0].ShouldBe(2);
     }
 
@@ -317,7 +317,7 @@ public class ProjectsV2CacheTests
         var (registry, connector, _, _, cache, posts) = Build();
         var listArgs = JsonSerializer.SerializeToElement(new { owner = "acme", number = 7, limit = 50 });
 
-        await registry.InvokeAsync("github_list_project_v2_items", listArgs, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.list_project_v2_items", listArgs, TestContext.Current.CancellationToken);
         posts[0].ShouldBe(1);
 
         var payload = """
@@ -339,7 +339,7 @@ public class ProjectsV2CacheTests
         // briefly just in case the background invalidator fires spuriously.
         await Task.Delay(100, TestContext.Current.CancellationToken);
 
-        await registry.InvokeAsync("github_list_project_v2_items", listArgs, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.list_project_v2_items", listArgs, TestContext.Current.CancellationToken);
         // Still served from cache — no second POST.
         posts[0].ShouldBe(1);
     }
@@ -351,13 +351,13 @@ public class ProjectsV2CacheTests
         var projectArgs = JsonSerializer.SerializeToElement(new { owner = "acme", number = 7 });
         var listArgs = JsonSerializer.SerializeToElement(new { owner = "acme", first = 30 });
 
-        await registry.InvokeAsync("github_get_project_v2", projectArgs, TestContext.Current.CancellationToken);
-        await registry.InvokeAsync("github_list_projects_v2", listArgs, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_project_v2", projectArgs, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.list_projects_v2", listArgs, TestContext.Current.CancellationToken);
         posts[0].ShouldBe(2);
 
         // Cached: both reads should skip the POST on repeat.
-        await registry.InvokeAsync("github_get_project_v2", projectArgs, TestContext.Current.CancellationToken);
-        await registry.InvokeAsync("github_list_projects_v2", listArgs, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_project_v2", projectArgs, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.list_projects_v2", listArgs, TestContext.Current.CancellationToken);
         posts[0].ShouldBe(2);
 
         var payload = """
@@ -377,8 +377,8 @@ public class ProjectsV2CacheTests
         await WaitForCacheMissAsync(cache, projectKey, TimeSpan.FromSeconds(2));
         await WaitForCacheMissAsync(cache, listKey, TimeSpan.FromSeconds(2));
 
-        await registry.InvokeAsync("github_get_project_v2", projectArgs, TestContext.Current.CancellationToken);
-        await registry.InvokeAsync("github_list_projects_v2", listArgs, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_project_v2", projectArgs, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.list_projects_v2", listArgs, TestContext.Current.CancellationToken);
         // Both reads missed — two new POSTs.
         posts[0].ShouldBe(4);
     }

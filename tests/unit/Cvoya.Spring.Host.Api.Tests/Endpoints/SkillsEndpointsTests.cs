@@ -85,14 +85,14 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = ArrangeAgent("ada", ActorAda_Id,
-            skills: ["github_read_file", "github_write_file"]);
+            skills: ["github.read_file", "github.write_file"]);
 
         var response = await _client.GetAsync($"/api/v1/tenant/agents/{ActorAda_Id:N}/skills", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<AgentSkillsResponse>(JsonOptions, ct);
         body.ShouldNotBeNull();
-        body!.Skills.ShouldBe(new[] { "github_read_file", "github_write_file" });
+        body!.Skills.ShouldBe(new[] { "github.read_file", "github.write_file" });
 
         await proxy.Received(1).GetSkillsAsync(Arg.Any<CancellationToken>());
     }
@@ -102,10 +102,10 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = ArrangeAgent("ada", ActorAda_Id,
-            skills: ["github_read_file", "github_write_file"]);
+            skills: ["github.read_file", "github.write_file"]);
 
         var body = new SetAgentSkillsRequest(
-            new[] { "github_list_files", "github_create_branch" });
+            new[] { "github.list_files", "github.create_branch" });
 
         var response = await _client.PutAsync(
             $"/api/v1/tenant/agents/{ActorAda_Id:N}/skills",
@@ -117,8 +117,8 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         await proxy.Received(1).SetSkillsAsync(
             Arg.Is<string[]>(l =>
                 l.Length == 2 &&
-                l.Contains("github_list_files") &&
-                l.Contains("github_create_branch")),
+                l.Contains("github.list_files") &&
+                l.Contains("github.create_branch")),
             Arg.Any<CancellationToken>());
     }
 
@@ -126,7 +126,7 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task SetAgentSkills_EmptyList_ClearsSkills()
     {
         var ct = TestContext.Current.CancellationToken;
-        var proxy = ArrangeAgent("ada", ActorAda_Id, skills: ["github_read_file"]);
+        var proxy = ArrangeAgent("ada", ActorAda_Id, skills: ["github.read_file"]);
 
         var body = new SetAgentSkillsRequest(Array.Empty<string>());
 
@@ -150,7 +150,7 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var body = new SetAgentSkillsRequest(new[] { "github_read_file" });
+        var body = new SetAgentSkillsRequest(new[] { "github.read_file" });
         var response = await _client.PutAsync(
             $"/api/v1/tenant/agents/{Guid.NewGuid():N}/skills",
             JsonContent.Create(body, options: JsonOptions),

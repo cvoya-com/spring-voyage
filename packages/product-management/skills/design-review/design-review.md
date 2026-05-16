@@ -10,7 +10,7 @@ When reviewing a design proposal:
    - Implementability: the proposal can be built within the team's technical
      constraints
 3. Leave specific, actionable feedback tied to parts of the design
-4. Use `submitDesignReview` to record the decision (approve, request-changes,
+4. Use `pm.submit_design_review` to record the decision (approve, request-changes,
    or comment) with a summary of the key points
 5. If changes are requested, route feedback back to the designer and track
    the follow-up until the design is ready for handoff
