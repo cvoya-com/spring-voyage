@@ -1450,29 +1450,51 @@ export function useTenantTree(
 }
 
 // ---------------------------------------------------------------------------
-// Memories inspector (SVR-memories, umbrella #815).
+// Memories inspector (#2342).
 // ---------------------------------------------------------------------------
 
 /**
- * Read the short-term + long-term memory entries for a unit or agent.
- *
- * In v2.0 both lists always come back empty — the real backing store
- * ships in `V21-memory-write`. The hook exists now so the Explorer's
- * Memory tab can wire the empty-state render during the foundation
- * rollout.
+ * Options accepted by {@link useMemories}. `limit` / `offset` drive
+ * offset paging on the list path; `query` flips the underlying GET
+ * call to the FTS path (relevance-ordered, offset is ignored when
+ * `query` is set).
+ */
+export interface UseMemoriesOptions extends SliceOptions<MemoriesResponse> {
+  kind?: "long_term" | "short_term";
+  limit?: number;
+  offset?: number;
+  query?: string;
+}
+
+/**
+ * Read (or search) the short-term + long-term memory entries for a
+ * unit or agent (#2342). When `options.query` is set the GET endpoint
+ * runs Postgres FTS and orders by relevance; otherwise the entries
+ * come back most-recent first.
  */
 export function useMemories(
   scope: "unit" | "agent",
   id: string,
-  opts?: SliceOptions<MemoriesResponse>,
+  opts?: UseMemoriesOptions,
 ): UseQueryResult<MemoriesResponse, Error> {
+  // Encode the request shape in the query key so distinct filter /
+  // page / search combinations cache separately and bookmarks via
+  // back-button stay correct.
+  const queryParams = {
+    kind: opts?.kind,
+    limit: opts?.limit,
+    offset: opts?.offset,
+    query: opts?.query,
+  };
   return useQuery({
     queryKey:
       scope === "unit"
-        ? queryKeys.memories.unit(id)
-        : queryKeys.memories.agent(id),
+        ? [...queryKeys.memories.unit(id), queryParams]
+        : [...queryKeys.memories.agent(id), queryParams],
     queryFn: () =>
-      scope === "unit" ? api.getUnitMemories(id) : api.getAgentMemories(id),
+      scope === "unit"
+        ? api.getUnitMemories(id, queryParams)
+        : api.getAgentMemories(id, queryParams),
     enabled: opts?.enabled ?? Boolean(id),
     staleTime: opts?.staleTime,
     refetchInterval: opts?.refetchInterval,

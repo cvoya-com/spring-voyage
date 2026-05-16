@@ -5,7 +5,11 @@ import type { AgentNode, UnitNode } from "../aggregate";
 
 const useMemoriesMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
-  useMemories: (scope: string, id: string) => useMemoriesMock(scope, id),
+  useMemories: (
+    scope: string,
+    id: string,
+    options?: Record<string, unknown>,
+  ) => useMemoriesMock(scope, id, options),
 }));
 
 import AgentMemoryTab from "./agent-memory";
@@ -16,7 +20,7 @@ describe("AgentMemoryTab (wrapper)", () => {
   });
 
   it("delegates to the unified MemoryTab with scope=agent", () => {
-    useMemoriesMock.mockReturnValueOnce({
+    useMemoriesMock.mockReturnValue({
       data: { shortTerm: [], longTerm: [] },
       isLoading: false,
       error: null,
@@ -28,10 +32,12 @@ describe("AgentMemoryTab (wrapper)", () => {
       status: "running",
     };
     render(<AgentMemoryTab node={node} path={[node]} />);
-    expect(useMemoriesMock).toHaveBeenCalledWith("agent", "ada");
-    expect(screen.getByTestId("tab-agent-memory-empty")).toHaveTextContent(
-      "v2.1",
+    expect(useMemoriesMock).toHaveBeenCalledWith(
+      "agent",
+      "ada",
+      expect.objectContaining({}),
     );
+    expect(screen.getByTestId("tab-agent-memory-empty")).toBeInTheDocument();
   });
 
   it("renders nothing for a non-Agent node (registry-guard)", () => {

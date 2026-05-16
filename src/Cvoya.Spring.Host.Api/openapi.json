@@ -5634,7 +5634,7 @@
         "tags": [
           "Units"
         ],
-        "summary": "Read the unit's short-term and long-term memory entries (stub; full contract deferred to ADR-0029 Stage 4)",
+        "summary": "Read the unit's short-term and long-term memory entries (#2342)",
         "operationId": "GetUnitMemories",
         "parameters": [
           {
@@ -5643,6 +5643,42 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
             }
           }
         ],
@@ -5675,7 +5711,7 @@
         "tags": [
           "Agents"
         ],
-        "summary": "Read the agent's short-term and long-term memory entries (stub; full contract deferred to ADR-0029 Stage 4)",
+        "summary": "Read the agent's short-term and long-term memory entries (#2342)",
         "operationId": "GetAgentMemories",
         "parameters": [
           {
@@ -5684,6 +5720,42 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
             }
           }
         ],
@@ -5694,6 +5766,106 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MemoriesResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/units/{id}/memories/{memoryId}": {
+      "get": {
+        "tags": [
+          "Units"
+        ],
+        "summary": "Read a single memory entry by id, scoped to the unit (#2342)",
+        "operationId": "GetUnitMemory",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "memoryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryEntry"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/agents/{id}/memories/{memoryId}": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Read a single memory entry by id, scoped to the agent (#2342)",
+        "operationId": "GetAgentMemory",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "memoryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryEntry"
                 }
               }
             }
@@ -11525,7 +11697,10 @@
         "required": [
           "id",
           "content",
-          "createdAt"
+          "createdAt",
+          "source",
+          "kind",
+          "updatedAt"
         ],
         "type": "object",
         "properties": {
@@ -11540,6 +11715,19 @@
             "format": "date-time"
           },
           "source": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "threadId": {
             "type": [
               "null",
               "string"

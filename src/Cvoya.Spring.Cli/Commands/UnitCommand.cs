@@ -140,6 +140,11 @@ public static class UnitCommand
         // #2160: open operational issues against this unit + descendant rollup.
         unitCommand.Subcommands.Add(IssuesCommand.CreateUnitSubcommand(outputOption));
 
+        // #2342: read-only memory inspector. `spring unit memory list|get|search`
+        // calls the GET endpoints introduced under #2342. Operator write
+        // affordances ship in v0.2 (#2357).
+        unitCommand.Subcommands.Add(MemoryCommand.CreateUnitSubcommand(outputOption));
+
         return unitCommand;
     }
 

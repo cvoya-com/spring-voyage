@@ -7,11 +7,13 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Memory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Capabilities;
 using Cvoya.Spring.Dapr.Connectors;
+using Cvoya.Spring.Dapr.Memory;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Skills;
 
@@ -65,6 +67,20 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddSingleton<SvDirectorySkillRegistry>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvDirectorySkillRegistry>(
             sp => sp.GetRequiredService<SvDirectorySkillRegistry>()));
+
+        // Spring Voyage memory tools (#2342). EF-backed memory store
+        // powers the sv.memory_* tool surface that lets agents and
+        // units write, recall, and organise their own memory at
+        // runtime. The store is owner- and tenant-scoped singleton
+        // that creates a fresh DI scope per call (matches
+        // UnitConnectorBindingStore's pattern). The skill registry is
+        // also a singleton and depends only on the store — no
+        // IEnumerable<ISkillRegistry> closure, so the DI cycle warning
+        // documented on the connector binding store does not apply.
+        services.TryAddSingleton<IMemoryStore, EfMemoryStore>();
+        services.TryAddSingleton<SvMemorySkillRegistry>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvMemorySkillRegistry>(
+            sp => sp.GetRequiredService<SvMemorySkillRegistry>()));
 
         // Routing
         services.AddSingleton<DirectoryCache>();

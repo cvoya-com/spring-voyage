@@ -197,6 +197,28 @@ function assertOk(result: FetchResult<unknown>): void {
  * existing wizard path keeps working while the parent-unit picker UI
  * lands later.
  */
+/**
+ * Builds the query-string params for the memories list / search
+ * endpoint (#2342). Returns `undefined` when no options are supplied
+ * so the underlying fetchClient skips the `?` altogether.
+ */
+function buildMemoriesQuery(options?: {
+  kind?: "long_term" | "short_term";
+  limit?: number;
+  offset?: number;
+  query?: string;
+}):
+  | { kind?: string; limit?: number; offset?: number; query?: string }
+  | undefined {
+  if (!options) return undefined;
+  const q: { kind?: string; limit?: number; offset?: number; query?: string } = {};
+  if (options.kind) q.kind = options.kind;
+  if (typeof options.limit === "number") q.limit = options.limit;
+  if (typeof options.offset === "number") q.offset = options.offset;
+  if (options.query) q.query = options.query;
+  return Object.keys(q).length > 0 ? q : undefined;
+}
+
 function withDefaultParentParent<T>(body: T): T {
   const shaped = body as {
     parentUnitIds?: string[] | null;
@@ -1698,18 +1720,43 @@ export const api = {
   getTenantTree: async () =>
     unwrap(await fetchClient.GET("/api/v1/tenant/tree", {})),
 
-  // Memories inspector (SVR-memories, umbrella #815). v2.0 stub —
-  // always returns empty short-term + long-term lists.
-  getUnitMemories: async (id: string) =>
+  // Memories inspector (#2342). Read-only — operator write parity
+  // ships in v0.2 (#2357). Optional query params:
+  //   kind=long_term|short_term — narrow to a single axis
+  //   limit, offset — offset paging (server caps limit at 500)
+  //   query — Postgres FTS over the entry content (relevance-ordered)
+  getUnitMemories: async (
+    id: string,
+    options?: {
+      kind?: "long_term" | "short_term";
+      limit?: number;
+      offset?: number;
+      query?: string;
+    },
+  ) =>
     unwrap(
       await fetchClient.GET("/api/v1/tenant/units/{id}/memories", {
-        params: { path: { id } },
+        params: {
+          path: { id },
+          query: buildMemoriesQuery(options),
+        },
       }),
     ),
-  getAgentMemories: async (id: string) =>
+  getAgentMemories: async (
+    id: string,
+    options?: {
+      kind?: "long_term" | "short_term";
+      limit?: number;
+      offset?: number;
+      query?: string;
+    },
+  ) =>
     unwrap(
       await fetchClient.GET("/api/v1/tenant/agents/{id}/memories", {
-        params: { path: { id } },
+        params: {
+          path: { id },
+          query: buildMemoriesQuery(options),
+        },
       }),
     ),
 

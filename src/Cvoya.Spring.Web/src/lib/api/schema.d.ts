@@ -1597,7 +1597,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read the unit's short-term and long-term memory entries (stub; full contract deferred to ADR-0029 Stage 4) */
+        /** Read the unit's short-term and long-term memory entries (#2342) */
         get: operations["GetUnitMemories"];
         put?: never;
         post?: never;
@@ -1614,8 +1614,42 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read the agent's short-term and long-term memory entries (stub; full contract deferred to ADR-0029 Stage 4) */
+        /** Read the agent's short-term and long-term memory entries (#2342) */
         get: operations["GetAgentMemories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/units/{id}/memories/{memoryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a single memory entry by id, scoped to the unit (#2342) */
+        get: operations["GetUnitMemory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/agents/{id}/memories/{memoryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a single memory entry by id, scoped to the agent (#2342) */
+        get: operations["GetAgentMemory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3194,7 +3228,11 @@ export interface components {
             content: string;
             /** Format: date-time */
             createdAt: string;
-            source?: null | string;
+            source: null | string;
+            kind: string;
+            /** Format: date-time */
+            updatedAt: string;
+            threadId?: null | string;
         };
         MessageDetail: {
             /** Format: uuid */
@@ -8073,7 +8111,12 @@ export interface operations {
     };
     GetUnitMemories: {
         parameters: {
-            query?: never;
+            query?: {
+                kind?: string;
+                query?: string;
+                limit?: null | number;
+                offset?: null | number;
+            };
             header?: never;
             path: {
                 id: string;
@@ -8104,7 +8147,12 @@ export interface operations {
     };
     GetAgentMemories: {
         parameters: {
-            query?: never;
+            query?: {
+                kind?: string;
+                query?: string;
+                limit?: null | number;
+                offset?: null | number;
+            };
             header?: never;
             path: {
                 id: string;
@@ -8120,6 +8168,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemoriesResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetUnitMemory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                memoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryEntry"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetAgentMemory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                memoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryEntry"];
                 };
             };
             /** @description Not Found */

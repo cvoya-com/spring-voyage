@@ -128,6 +128,11 @@ public static class AgentCommand
         // #2160: open operational issues against this agent.
         agentCommand.Subcommands.Add(IssuesCommand.CreateAgentSubcommand(outputOption));
 
+        // #2342: read-only memory inspector. `spring agent memory list|get|search`
+        // calls the GET endpoints introduced under #2342. Operator write
+        // affordances ship in v0.2 (#2357).
+        agentCommand.Subcommands.Add(MemoryCommand.CreateAgentSubcommand(outputOption));
+
         // #1377: `spring agent health <id>` — read the health status of a
         // persistent agent's backing container from the deployment endpoint.
         agentCommand.Subcommands.Add(CreateHealthCommand(outputOption));

@@ -224,6 +224,15 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<CloningPolicyEntity> CloningPolicies => Set<CloningPolicyEntity>();
 
+    /// <summary>
+    /// Gets the set of memory entries (#2342). One row per memory
+    /// (long-term or short-term); owner-scoped on
+    /// <c>(tenant_id, owner_scheme, owner_id)</c> per ADR-0036, with a
+    /// Postgres <c>GIN(to_tsvector('english', content))</c> index that
+    /// backs the <c>sv.memory_search</c> tool.
+    /// </summary>
+    public DbSet<MemoryEntity> Memories => Set<MemoryEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -266,6 +275,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new UnitExpertiseEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitConnectorBindingEntityConfiguration());
         modelBuilder.ApplyConfiguration(new CloningPolicyEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new MemoryEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -377,6 +387,12 @@ public class SpringDbContext : DbContext
         // scope rows carry NULL scope_id (uniqueness enforced by partial
         // index in the entity configuration).
         modelBuilder.Entity<CloningPolicyEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Memory entries: tenant-scoped, no soft-delete (#2342). Owner
+        // scope is enforced inside the store implementation on top of
+        // the tenant filter.
+        modelBuilder.Entity<MemoryEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 
