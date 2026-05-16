@@ -18,6 +18,7 @@ using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
+using Cvoya.Spring.Dapr.Skills;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -641,17 +642,16 @@ public class AgentActor(
             priorMessages,
             cancellationToken);
 
-        // Skill-bundle equipage (#2360). Both stores are scoped (they depend
-        // on the scoped tenant-filtering bundle resolver) so the actor opens
-        // a short-lived scope per turn to read them. The unit store is
-        // keyed by actor id — for a unit-as-agent (ADR-0039) this returns
-        // the unit's equipped bundles; for a leaf agent the result is
-        // empty and Layer 2 omits the section. The agent store is keyed
-        // by this actor's id and feeds Layer 4.
-        //
-        // Member-agent → unit Layer-2 inheritance (so a member agent sees
-        // its owning unit's bundles in Layer 2) is tracked separately —
-        // the leaf-agent path here only surfaces this agent's own bundles.
+        // Skill-bundle equipage (#2360 + #2363). The agent store feeds
+        // Layer 4 keyed by this actor's id. The unit store feeds Layer 2
+        // and is read twice — once keyed by the actor's own id (the
+        // unit-as-agent case from ADR-0039) and once per parent unit
+        // resolved from IUnitMembershipRepository (the leaf-agent → unit
+        // inheritance hop). Helper dedups on (package, skill) and orders
+        // multi-parent contributions alphabetically by parent display
+        // name. Both stores are scoped DI services so the helper opens
+        // its own scope; v0.1 keeps inheritance one hop deep — sub-unit
+        // nesting is out of scope and not consulted.
         var (unitBundles, agentBundles) = await LoadEquippedBundlesAsync(cancellationToken);
 
         return new PromptAssemblyContext(
@@ -668,37 +668,18 @@ public class AgentActor(
     }
 
     /// <summary>
-    /// Resolves the unit-scoped and agent-scoped skill bundles for this
-    /// actor (#2360). Both stores are scoped DI services so the read goes
-    /// through a child scope from the root <see cref="IServiceScopeFactory"/>.
-    /// When the scope factory is unavailable (legacy test compositions
-    /// without DI), the call returns two empty lists so the prompt-
-    /// assembly path degrades to the no-bundle render.
+    /// Resolves the unit-scoped (Layer 2) and agent-scoped (Layer 4)
+    /// skill bundles for this actor. Delegates to
+    /// <see cref="EquippedBundleLoader"/> so the inheritance logic — the
+    /// leaf-agent → parent-unit Layer-2 hop wired in #2363 — is unit-
+    /// testable in isolation. When the scope factory is unavailable
+    /// (legacy test compositions without DI) the call returns
+    /// <c>(null, null)</c> so the prompt-assembly path degrades to the
+    /// no-bundle render.
     /// </summary>
-    private async Task<(IReadOnlyList<SkillBundle>? Unit, IReadOnlyList<SkillBundle>? Agent)> LoadEquippedBundlesAsync(
-        CancellationToken cancellationToken)
-    {
-        if (scopeFactory is null)
-        {
-            return (null, null);
-        }
-
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var unitStore = scope.ServiceProvider.GetService<IUnitSkillBundleStore>();
-        var agentStore = scope.ServiceProvider.GetService<IAgentSkillBundleStore>();
-
-        var actorId = Id.GetId();
-        var unitBundles = unitStore is null
-            ? null
-            : await unitStore.GetAsync(actorId, cancellationToken).ConfigureAwait(false);
-        var agentBundles = agentStore is null
-            ? null
-            : await agentStore.GetAsync(actorId, cancellationToken).ConfigureAwait(false);
-
-        return (
-            unitBundles is { Count: > 0 } ? unitBundles : null,
-            agentBundles is { Count: > 0 } ? agentBundles : null);
-    }
+    private Task<(IReadOnlyList<SkillBundle>? Unit, IReadOnlyList<SkillBundle>? Agent)> LoadEquippedBundlesAsync(
+        CancellationToken cancellationToken) =>
+        EquippedBundleLoader.LoadAsync(scopeFactory, Id.GetId(), cancellationToken);
 
     /// <summary>
     /// Builds an <see cref="Address"/> → display-name map for the distinct
