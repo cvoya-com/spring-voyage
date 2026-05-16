@@ -759,6 +759,91 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body.Status.ShouldBe("idle");
     }
 
+    // -------------------------------------------------------------------
+    // GET /api/v1/tenant/agents/{id} — effective-tools projection (#2337 Sub D).
+    //
+    // The Show endpoint projects IToolGrantResolver.ResolveAsync into the
+    // wire response so the portal's Tools sub-tab can render the three-tier
+    // layout (platform / connector / image) without re-deriving the grant
+    // set. The factory's substitute resolver returns an empty list by
+    // default; this test arranges a populated list and asserts the
+    // projection lands on AgentDetailResponse.Agent.EffectiveTools.
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task GetAgent_EffectiveTools_PopulatedFromResolver()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Tools Agent");
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 0, channels: 0);
+
+        _factory.ToolGrantResolver
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agentId),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Cvoya.Spring.Core.Skills.EffectiveTool>>(
+                new[]
+                {
+                    new Cvoya.Spring.Core.Skills.EffectiveTool(
+                        Name: "sv.expertise.lookup",
+                        Namespace: "sv",
+                        Description: "Look up a unit's expertise.",
+                        Provenance: Cvoya.Spring.Core.Skills.ToolProvenance.Platform,
+                        InheritedFromUnitName: null),
+                    new Cvoya.Spring.Core.Skills.EffectiveTool(
+                        Name: "github.create_issue",
+                        Namespace: "github",
+                        Description: "Open a new GitHub issue.",
+                        Provenance: Cvoya.Spring.Core.Skills.ToolProvenance.ConnectorPrefix + "github",
+                        InheritedFromUnitName: "engineering"),
+                }));
+
+        var response = await _client.GetAsync($"/api/v1/tenant/agents/{agentId:N}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content
+            .ReadFromJsonAsync<AgentDetailResponse>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+        body.Agent.EffectiveTools.ShouldNotBeNull();
+        body.Agent.EffectiveTools!.Count.ShouldBe(2);
+
+        var platform = body.Agent.EffectiveTools!.Single(t => t.Provenance == "platform");
+        platform.Name.ShouldBe("sv.expertise.lookup");
+        platform.Namespace.ShouldBe("sv");
+        platform.InheritedFromUnitName.ShouldBeNull();
+
+        var connector = body.Agent.EffectiveTools!.Single(t => t.Provenance == "connector:github");
+        connector.Name.ShouldBe("github.create_issue");
+        connector.Namespace.ShouldBe("github");
+        connector.InheritedFromUnitName.ShouldBe("engineering");
+    }
+
+    [Fact]
+    public async Task GetAgent_EffectiveTools_ResolverFailure_FailsOpenWithEmptyList()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Tools Agent");
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 0, channels: 0);
+
+        _factory.ToolGrantResolver
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agentId),
+                Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<Cvoya.Spring.Core.Skills.EffectiveTool>>(
+                _ => throw new InvalidOperationException("resolver down"));
+
+        var response = await _client.GetAsync($"/api/v1/tenant/agents/{agentId:N}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content
+            .ReadFromJsonAsync<AgentDetailResponse>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+        body.Agent.EffectiveTools.ShouldNotBeNull();
+        body.Agent.EffectiveTools!.ShouldBeEmpty();
+    }
+
     private void ArrangeAgentDirectoryEntry(Guid agentId, string displayName)
     {
         var entry = new DirectoryEntry(

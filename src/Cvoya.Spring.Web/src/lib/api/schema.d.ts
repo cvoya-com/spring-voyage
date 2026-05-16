@@ -2644,6 +2644,7 @@ export interface components {
             lifecycleStatus?: null | string;
             lifecycleError?: null | string;
             instructions?: null | string;
+            effectiveTools?: null | components["schemas"]["EffectiveToolResponse"][];
         };
         AgentRuntimeStatusResponse: {
             status: string;
@@ -2989,6 +2990,13 @@ export interface components {
             /** Format: int32 */
             offset: number;
         };
+        EffectiveToolResponse: {
+            name: string;
+            namespace: string;
+            description: string;
+            provenance: string;
+            inheritedFromUnitName: null | string;
+        };
         ExecutionModePolicy: {
             forced?: components["schemas"]["AgentExecutionMode"];
             allowed?: null | components["schemas"]["AgentExecutionMode"][];
@@ -3077,6 +3085,7 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             config: components["schemas"]["JsonElement"];
+            toolNamespace: string;
         };
         InstalledModelProviderResponse: {
             id: string;
@@ -3774,6 +3783,7 @@ export interface components {
             /** @default true */
             enabled: boolean;
             executionMode?: components["schemas"]["AgentExecutionMode"];
+            effectiveTools?: null | components["schemas"]["EffectiveToolResponse"][];
         };
         UnitSecretsListResponse: {
             secrets: components["schemas"]["SecretMetadata"][];

@@ -46,20 +46,23 @@ vi.mock("@/components/units/tab-impls/secrets-tab", () => ({
     <div data-testid="legacy-secrets" data-unit-id={unitId}>Secrets</div>
   ),
 }));
-vi.mock("@/components/units/tab-impls/skills-tab", () => ({
-  SkillsTab: ({ unitId }: { unitId: string }) => (
-    <div data-testid="legacy-skills" data-unit-id={unitId}>Skills</div>
-  ),
-}));
-vi.mock("@/components/units/tab-impls/equipped-skills-tab", () => ({
-  EquippedSkillsTab: ({ kind, id, name }: { kind: string; id: string; name: string }) => (
+vi.mock("@/components/units/tab-impls/tools-panel", () => ({
+  ToolsPanel: ({
+    kind,
+    id,
+    parentUnitId,
+  }: {
+    kind: string;
+    id: string;
+    parentUnitId?: string | null;
+  }) => (
     <div
-      data-testid="legacy-equipped-skills"
+      data-testid="legacy-tools-panel"
       data-kind={kind}
       data-id={id}
-      data-name={name}
+      data-parent-unit-id={parentUnitId ?? ""}
     >
-      Equipped skills
+      Tools panel
     </div>
   ),
 }));
@@ -190,7 +193,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
   });
 
   describe("Unit", () => {
-    it("renders nine sub-tabs — General first, then existing six plus Budget + Debug", () => {
+    it("renders nine sub-tabs — General first, then existing six plus Budget + Debug (#2337 renames Skills→Tools)", () => {
       render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
 
       expect(screen.getByTestId("tab-unit-config")).toBeInTheDocument();
@@ -201,11 +204,19 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
         "Execution",
         "Instructions",
         "Connector",
-        "Skills",
+        "Tools",
         "Secrets",
         "Budget",
         "Debug",
       ]);
+    });
+
+    it("renders the Tools sub-tab via <ToolsPanel kind='Unit' …> (#2337)", () => {
+      render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
+      fireEvent.click(screen.getByRole("tab", { name: "Tools" }));
+      const panel = screen.getByTestId("legacy-tools-panel");
+      expect(panel.dataset.kind).toBe("Unit");
+      expect(panel.dataset.id).toBe("engineering");
     });
 
     it("defaults to the General sub-tab", () => {
@@ -246,7 +257,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
   });
 
   describe("Agent", () => {
-    it("renders eight sub-tabs — General / Execution / Instructions / Budget / Connector / Skills / Secrets / Debug", () => {
+    it("renders eight sub-tabs — General / Execution / Instructions / Budget / Connector / Tools / Secrets / Debug (#2337 renames Skills→Tools)", () => {
       render(<ConfigTab kind="Agent" id="ada" name="Ada" />);
 
       expect(screen.getByTestId("tab-agent-config")).toBeInTheDocument();
@@ -257,7 +268,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
         "Instructions",
         "Budget",
         "Connector",
-        "Skills",
+        "Tools",
         "Secrets",
         "Debug",
       ]);
@@ -322,13 +333,20 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
       ).toBe("?node=engineering&tab=Config&subtab=Connector");
     });
 
-    it("renders the Skills sub-tab via <EquippedSkillsTab kind='Agent' …>", () => {
-      render(<ConfigTab kind="Agent" id="ada" name="Ada" />);
-      fireEvent.click(screen.getByRole("tab", { name: "Skills" }));
-      const skills = screen.getByTestId("legacy-equipped-skills");
-      expect(skills.dataset.kind).toBe("Agent");
-      expect(skills.dataset.id).toBe("ada");
-      expect(skills.dataset.name).toBe("Ada");
+    it("renders the Tools sub-tab via <ToolsPanel kind='Agent' …> (#2337)", () => {
+      render(
+        <ConfigTab
+          kind="Agent"
+          id="ada"
+          name="Ada"
+          parentUnitId="engineering"
+        />,
+      );
+      fireEvent.click(screen.getByRole("tab", { name: "Tools" }));
+      const panel = screen.getByTestId("legacy-tools-panel");
+      expect(panel.dataset.kind).toBe("Agent");
+      expect(panel.dataset.id).toBe("ada");
+      expect(panel.dataset.parentUnitId).toBe("engineering");
     });
 
     it("renders the Secrets sub-tab via <AgentOverridesPanel agentId=…>", () => {

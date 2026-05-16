@@ -9454,6 +9454,15 @@
               "null",
               "string"
             ]
+          },
+          "effectiveTools": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EffectiveToolResponse"
+            }
           }
         }
       },
@@ -10767,6 +10776,36 @@
           "offset": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "EffectiveToolResponse": {
+        "required": [
+          "name",
+          "namespace",
+          "description",
+          "provenance",
+          "inheritedFromUnitName"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "inheritedFromUnitName": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -13912,6 +13951,15 @@
           },
           "executionMode": {
             "$ref": "#/components/schemas/AgentExecutionMode"
+          },
+          "effectiveTools": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EffectiveToolResponse"
+            }
           }
         }
       },

@@ -208,6 +208,17 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IAgentStateCoordinator AgentStateCoordinator { get; } = CreateDefaultAgentStateCoordinator();
 
+    /// <summary>
+    /// Gets the substitute <see cref="IToolGrantResolver"/> wired into the
+    /// test DI container (#2337 Sub D). The agent + unit Show endpoints
+    /// project the resolver's output into the response's
+    /// <c>effectiveTools</c> field; tests that need to observe the
+    /// projection arrange return values on this stub. Defaults to an
+    /// empty list so endpoint tests that do not care about tools keep
+    /// passing.
+    /// </summary>
+    public IToolGrantResolver ToolGrantResolver { get; } = CreateDefaultToolGrantResolver();
+
     private static IAgentExecutionStore CreateDefaultAgentExecutionStore()
     {
         // Default: every agent has no execution shape (hosting mode = null).
@@ -248,6 +259,16 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         var stub = Substitute.For<IInitiativeEngine>();
         stub.GetCurrentLevelAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(InitiativeLevel.Passive));
+        return stub;
+    }
+
+    private static IToolGrantResolver CreateDefaultToolGrantResolver()
+    {
+        // Default: every subject has no effective tools so endpoint tests
+        // that don't exercise the projection see an empty list.
+        var stub = Substitute.For<IToolGrantResolver>();
+        stub.ResolveAsync(Arg.Any<Cvoya.Spring.Core.Messaging.Address>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<EffectiveTool>>(Array.Empty<EffectiveTool>()));
         return stub;
     }
 
@@ -418,6 +439,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 // skills endpoint tests can stub skill reads / writes
                 // without touching the EF live-config repository.
                 typeof(IAgentStateCoordinator),
+                // #2337 Sub D: replace the tool-grant resolver so the
+                // agent + unit Show endpoint tests can stub the
+                // effective-tools projection without exercising the EF
+                // connector-binding + grants tables.
+                typeof(IToolGrantResolver),
             };
 
             var descriptors = services
@@ -453,6 +479,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(UnitExecutionStore);
             services.AddSingleton(InitiativeEngine);
             services.AddSingleton(AgentStateCoordinator);
+            services.AddSingleton(ToolGrantResolver);
             services.AddSingleton(new DirectoryCache());
 
             // #687: the skill-bundle resolver is now wrapped in a

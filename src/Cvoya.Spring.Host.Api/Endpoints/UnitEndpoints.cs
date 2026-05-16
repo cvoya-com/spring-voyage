@@ -12,6 +12,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -363,6 +364,7 @@ public static class UnitEndpoints
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] IToolGrantResolver toolGrantResolver,
         [FromServices] IServiceScopeFactory scopeFactory,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -403,7 +405,18 @@ public static class UnitEndpoints
         var details = await TryGetUnitStatusPayloadAsync(
             actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
 
-        var unitResponse = ToUnitResponse(entry, status, metadata, validationTracking, instructions);
+        // #2337 Sub D: resolve effective tools so the portal's Tools
+        // sub-tab can render the three-tier layout without re-deriving
+        // the grant set. Fail-open (empty list) — the helper logs and
+        // swallows transient resolver failures.
+        var effectiveTools = await AgentEndpoints.TryResolveEffectiveToolsAsync(
+            toolGrantResolver,
+            new Address(Address.UnitScheme, entry.ActorId),
+            logger,
+            id,
+            cancellationToken);
+
+        var unitResponse = ToUnitResponse(entry, status, metadata, validationTracking, instructions, effectiveTools);
         return Results.Ok(new UnitDetailResponse(unitResponse, details));
     }
 
@@ -1633,7 +1646,8 @@ public static class UnitEndpoints
         UnitStatus status = UnitStatus.Draft,
         UnitMetadata? metadata = null,
         UnitValidationTracking? validationTracking = null,
-        string? instructions = null) =>
+        string? instructions = null,
+        IReadOnlyList<EffectiveToolResponse>? effectiveTools = null) =>
         new(
             entry.ActorId,
             entry.Address.Path,
@@ -1654,7 +1668,11 @@ public static class UnitEndpoints
             // UI callers can read them without null checks; the unit defaults
             // are Enabled=true and ExecutionMode=Auto, matching the agent contract.
             Enabled: metadata?.Enabled ?? true,
-            ExecutionMode: metadata?.ExecutionMode ?? Cvoya.Spring.Core.Agents.AgentExecutionMode.Auto);
+            ExecutionMode: metadata?.ExecutionMode ?? Cvoya.Spring.Core.Agents.AgentExecutionMode.Auto,
+            // #2337 Sub D: effective-tools projection used by the portal's
+            // Tools sub-tab. Only the single-subject GET path populates
+            // this; list / other paths leave it as an empty list.
+            EffectiveTools: effectiveTools ?? Array.Empty<EffectiveToolResponse>());
 
     /// <summary>
     /// View of the per-unit validation-tracking columns projected into the
