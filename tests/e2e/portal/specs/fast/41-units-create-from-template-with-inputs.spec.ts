@@ -28,11 +28,9 @@ test.describe("units — create from package with inputs (catalog wizard)", () =
   }) => {
     // The OSS package's root unit is `spring-voyage-oss`; deleting it
     // with `?recursive=true` (the tracker's default) cascades through
-    // the four sub-units the manifest declares.
+    // the two sub-units the manifest declares.
     tracker.unit("spring-voyage-oss");
     tracker.unit("sv-oss-software-engineering");
-    tracker.unit("sv-oss-design");
-    tracker.unit("sv-oss-product-management");
     tracker.unit("sv-oss-program-management");
 
     await page.goto("/units/create");

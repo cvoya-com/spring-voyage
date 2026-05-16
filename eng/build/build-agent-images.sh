@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # eng/build/build-agent-images.sh — single entry point for building every
 # agent image the Spring Voyage dispatcher launches today (PR 3b of #1087,
-# #1096; OSS role images added in #1536; gemini-base added in #2108).
+# #1096; OSS role images added in #1536; gemini-base added in #2108; OSS
+# role set collapsed from four to two in #1530-amend-2026-05-16).
 #
-# Builds eight images, in dependency order:
+# Builds six images, in dependency order:
 #   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>  (path-1 BYOI base)
 #   2. ghcr.io/cvoya-com/spring-voyage-claude-code-base:<tag>           (path-1 reference, FROMs #1)
 #   3. ghcr.io/cvoya-com/spring-voyage-gemini-base:<tag>                (path-1 reference, FROMs #1)
 #   4. ghcr.io/cvoya-com/spring-voyage-agent:<tag>        (path-3 native A2A)
 #   5. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #1)
-#   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<tag>                (FROMs #1)
-#   7. ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:<tag>    (FROMs #1)
-#   8. ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:<tag>    (FROMs #1)
+#   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:<tag>    (FROMs #1)
 #
 # Conformance paths are documented in
 # `docs/architecture/agent-runtime.md` § 7. The ghcr-namespaced images are
@@ -59,17 +58,15 @@ Builds, in order:
   3. ghcr.io/cvoya-com/spring-voyage-gemini-base:<tag>
   4. ghcr.io/cvoya-com/spring-voyage-agent:<tag>
   5. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #1)
-  6. ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<tag>                (FROMs #1)
-  7. ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:<tag>    (FROMs #1)
-  8. ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:<tag>    (FROMs #1)
+  6. ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:<tag>    (FROMs #1)
 
 Options:
   --tag <value>                Tag suffix for all images (default: dev).
   --skip-agent-base            Skip building spring-voyage-agent-base:<tag>.
                                Useful when --agent-base-image points at an
                                already-pulled / already-built reference.
-  --skip-oss                   Skip building the four OSS role images (steps
-                               5-8). Still builds the base four (steps 1-4).
+  --skip-oss                   Skip building the two OSS role images (steps
+                               5-6). Still builds the base four (steps 1-4).
   --ghcr-only                  Tag only canonical ghcr.io/... image refs.
                                By default the script also writes localhost/...
                                aliases for older local dev workflows.
@@ -90,14 +87,14 @@ Environment:
   AGENT_BASE_IMAGE             Pre-seeds --agent-base-image.
 
 Examples:
-  # Local dev, all eight images at :dev:
+  # Local dev, all six images at :dev:
   eng/build/build-agent-images.sh
 
   # Verify the published agent-base image works:
   eng/build/build-agent-images.sh --skip-agent-base \\
                                    --agent-base-image ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0
 
-  # Build and push all eight images to GHCR:
+  # Build and push all six images to GHCR:
   eng/build/build-agent-images.sh --tag 1.2.3 --push
 
   # Skip the OSS role images and only build the base four:
@@ -181,8 +178,6 @@ GEMINI_LOCAL_ALIAS="localhost/spring-voyage-agent-gemini"
 SV_AGENT_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent"
 SV_AGENT_LOCAL_ALIAS="localhost/spring-voyage-agent"
 OSS_SE_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering"
-OSS_DESIGN_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-design"
-OSS_PM_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management"
 OSS_PGMGMT_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management"
 
 # Helper: push a ghcr.io image if --push was requested.
@@ -271,25 +266,7 @@ else
         "${REPO_ROOT}"
     maybe_push "${OSS_SE_IMAGE}:${TAG}"
 
-    # ---- 6. OSS design agent ---------------------------------------------
-    log "building ${OSS_DESIGN_IMAGE}:${TAG} (FROM ${AGENT_BASE_OVERRIDE})"
-    "${DOCKER}" build \
-        --file "${SCRIPT_DIR}/Dockerfile.agent.oss-design" \
-        --build-arg "AGENT_BASE_IMAGE=${AGENT_BASE_OVERRIDE}" \
-        --tag "${OSS_DESIGN_IMAGE}:${TAG}" \
-        "${REPO_ROOT}"
-    maybe_push "${OSS_DESIGN_IMAGE}:${TAG}"
-
-    # ---- 7. OSS product-management agent ---------------------------------
-    log "building ${OSS_PM_IMAGE}:${TAG} (FROM ${AGENT_BASE_OVERRIDE})"
-    "${DOCKER}" build \
-        --file "${SCRIPT_DIR}/Dockerfile.agent.oss-product-management" \
-        --build-arg "AGENT_BASE_IMAGE=${AGENT_BASE_OVERRIDE}" \
-        --tag "${OSS_PM_IMAGE}:${TAG}" \
-        "${REPO_ROOT}"
-    maybe_push "${OSS_PM_IMAGE}:${TAG}"
-
-    # ---- 8. OSS program-management agent ---------------------------------
+    # ---- 6. OSS program-management agent ---------------------------------
     log "building ${OSS_PGMGMT_IMAGE}:${TAG} (FROM ${AGENT_BASE_OVERRIDE})"
     "${DOCKER}" build \
         --file "${SCRIPT_DIR}/Dockerfile.agent.oss-program-management" \
@@ -311,7 +288,5 @@ if [[ "${TAG_LOCAL_ALIASES}" -eq 1 ]]; then
 fi
 if [[ "${SKIP_OSS}" -eq 0 ]]; then
     log "  ${OSS_SE_IMAGE}:${TAG}"
-    log "  ${OSS_DESIGN_IMAGE}:${TAG}"
-    log "  ${OSS_PM_IMAGE}:${TAG}"
     log "  ${OSS_PGMGMT_IMAGE}:${TAG}"
 fi

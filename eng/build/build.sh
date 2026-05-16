@@ -80,8 +80,6 @@ local_image_refs() {
         "localhost/spring-voyage-agent-gemini:${agent_tag}" \
         "localhost/spring-voyage-agent:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:${agent_tag}" \
-        "ghcr.io/cvoya-com/spring-voyage-agent-oss-design:${agent_tag}" \
-        "ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-claude-code-base:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-gemini-base:${agent_tag}" \

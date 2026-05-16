@@ -817,11 +817,12 @@ jobs:
 
   # ── 8. Publish OSS role agent images ───────────────────────────────────────
   #
-  # Multi-arch (linux/amd64 + linux/arm64) build matrix for the four OSS
+  # Multi-arch (linux/amd64 + linux/arm64) build matrix for the two OSS
   # role agent images. Each FROMs spring-voyage-agent-base:<version> (just
   # published multi-arch by publish-agent-base-image). Sourced from the
   # standalone OSS-agent-images release workflow's build-and-publish job
-  # (#2229 — Path B).
+  # (#2229 — Path B). The matrix was collapsed from four to two role
+  # images alongside the package simplification (#1530-amend-2026-05-16).
   publish-oss-agent-images:
     name: Build and push ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -833,10 +834,6 @@ jobs:
         include:
           - name: spring-voyage-agent-oss-software-engineering
             dockerfile: eng/build/Dockerfile.agent.oss-software-engineering
-          - name: spring-voyage-agent-oss-design
-            dockerfile: eng/build/Dockerfile.agent.oss-design
-          - name: spring-voyage-agent-oss-product-management
-            dockerfile: eng/build/Dockerfile.agent.oss-product-management
           - name: spring-voyage-agent-oss-program-management
             dockerfile: eng/build/Dockerfile.agent.oss-program-management
     env:

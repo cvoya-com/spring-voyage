@@ -34,8 +34,6 @@ export const BUILTIN_AGENT_IMAGES: readonly string[] = [
   "ghcr.io/cvoya-com/spring-voyage-agent:latest",
   "ghcr.io/cvoya-com/spring-voyage-agent-base:latest",
   "ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest",
-  "ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest",
-  "ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:latest",
   "ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest",
 ];
 
