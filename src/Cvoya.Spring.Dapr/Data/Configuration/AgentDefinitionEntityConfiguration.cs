@@ -29,6 +29,7 @@ internal class AgentDefinitionEntityConfiguration : IEntityTypeConfiguration<Age
         builder.Property(e => e.Description).HasColumnName("description").HasMaxLength(1024);
         builder.Property(e => e.Role).HasColumnName("role").HasMaxLength(512);
         builder.Property(e => e.Definition).HasColumnName("definition").HasColumnType("jsonb");
+        builder.Property(e => e.ImageTools).HasColumnName("image_tools").HasColumnType("jsonb");
         builder.Property(e => e.CreatedBy).HasColumnName("created_by").HasColumnType("uuid");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();

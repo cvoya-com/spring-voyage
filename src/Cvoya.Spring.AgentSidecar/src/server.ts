@@ -6,10 +6,12 @@
 //
 //   GET  /.well-known/agent.json   → Agent Card
 //   GET  /healthz                  → readiness probe
+//   GET  /a2a/tools                → tool introspection (#2336 / Sub C)
 //   POST /                         → A2A JSON-RPC 2.0 entry point
 //
 // All write paths are JSON-only and reject anything else with 4xx.
 
+import fs from "node:fs";
 import http, { type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 import { A2AHandler, type JsonRpcRequest } from "./a2a.js";
@@ -18,6 +20,18 @@ import { ThreadIdRegistry } from "./threads.js";
 import { BRIDGE_VERSION } from "./version.js";
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
+
+// #2336 / Sub C of #2332: env var pointing at a JSON file containing
+// the agent's image-tier tool surface. The platform-side introspector
+// reads `GET /a2a/tools` at deploy / image-rotation time and caches
+// the result onto the agent's `image_tools` column.
+//
+// The sidecar wraps an opaque CLI runtime — it has no in-process
+// registry — so the agent author bakes the tool array into the image
+// at this path. When the env var is unset or the file is missing,
+// `/a2a/tools` returns `[]` so deploys of agents-without-tools succeed
+// without per-image configuration.
+const TOOLS_MANIFEST_ENV_VAR = "SPRING_TOOLS_MANIFEST";
 
 // Env var the launcher sets to point at the per-agent workspace volume
 // (D1 spec § 2.2.1, ADR-0029). The bridge persists its thread-id marker
@@ -43,8 +57,10 @@ export function createServer(config: BridgeConfig, env: NodeJS.ProcessEnv = proc
     threadIdRegistry,
   });
 
+  const toolsManifestPath = env[TOOLS_MANIFEST_ENV_VAR];
+
   const server = http.createServer((req, res) => {
-    void route(handler, req, res).catch((err) => {
+    void route(handler, req, res, toolsManifestPath).catch((err) => {
       writeJson(res, 500, {
         jsonrpc: "2.0",
         id: null,
@@ -63,7 +79,12 @@ export function createServer(config: BridgeConfig, env: NodeJS.ProcessEnv = proc
   };
 }
 
-async function route(handler: A2AHandler, req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function route(
+  handler: A2AHandler,
+  req: IncomingMessage,
+  res: ServerResponse,
+  toolsManifestPath: string | undefined,
+): Promise<void> {
   res.setHeader("x-spring-voyage-bridge-version", BRIDGE_VERSION);
 
   const url = req.url ?? "/";
@@ -76,6 +97,11 @@ async function route(handler: A2AHandler, req: IncomingMessage, res: ServerRespo
 
   if (method === "GET" && url === "/healthz") {
     writeJson(res, 200, { status: "ok", bridgeVersion: BRIDGE_VERSION });
+    return;
+  }
+
+  if (method === "GET" && url === "/a2a/tools") {
+    writeJson(res, 200, readToolsManifest(toolsManifestPath));
     return;
   }
 
@@ -136,4 +162,36 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
+}
+
+// #2336 / Sub C: reads the JSON tools manifest from disk on every
+// request. Reading on every call (vs. caching at startup) lets an
+// operator hot-swap the file inside a running container without
+// restarting the sidecar — useful in tests and during incremental
+// image authoring. The file is small (a few KB) and `/a2a/tools` is
+// dispatched at most once per deploy / image rotation, so the I/O is
+// not load-bearing.
+function readToolsManifest(manifestPath: string | undefined): unknown[] {
+  if (!manifestPath || manifestPath.length === 0) {
+    return [];
+  }
+  let raw: string;
+  try {
+    raw = fs.readFileSync(manifestPath, "utf8");
+  } catch {
+    // Missing file or unreadable — treat as "no image-tier tools".
+    // The dispatcher's introspector treats any failure as "no tools"
+    // anyway; matching the same fail-quiet semantics here keeps the
+    // two sides aligned.
+    return [];
+  }
+  if (raw.trim().length === 0) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }

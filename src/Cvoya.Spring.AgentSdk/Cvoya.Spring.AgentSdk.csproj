@@ -6,4 +6,9 @@
     <PackageId>Cvoya.Spring.AgentSdk</PackageId>
   </PropertyGroup>
 
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
+  </ItemGroup>
+
 </Project>

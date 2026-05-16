@@ -6,9 +6,11 @@ namespace Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Skills;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -44,10 +46,17 @@ public class PersistentAgentLifecycle(
     ContainerLifecycleManager containerLifecycleManager,
     AgentVolumeManager volumeManager,
     IOptions<DaprSidecarOptions> daprSidecarOptions,
-    ILoggerFactory loggerFactory)
+    ILoggerFactory loggerFactory,
+    // ADR-0039 / #2336: tool-introspection seam. The deploy path invokes
+    // the introspector after readiness to populate image_tools (#2336 /
+    // Sub C of #2332). Optional so existing test fixtures that don't
+    // register an introspector still compose — when null, no cache update
+    // is attempted.
+    IAgentToolsIntrospector? toolsIntrospector = null)
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<PersistentAgentLifecycle>();
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
+    private readonly IAgentToolsIntrospector? _toolsIntrospector = toolsIntrospector;
     // ADR-0038: launchers are keyed on the catalogue runtime entry's
     // launcher strategy id; the lifecycle service derives that id from
     // the agent's persisted execution.agent slot (= ai.runtime) via the
@@ -270,10 +279,62 @@ public class PersistentAgentLifecycle(
         persistentAgentRegistry.Register(
             agentId, endpoint, containerId, effectiveDefinition, sidecarId, lifecycleNetworkName);
 
+        // #2336 / Sub C: refresh the cached image_tools surface against the
+        // newly-readied listener. The introspector is forgiving — failures
+        // log a warning and persist an empty array; the deploy still
+        // succeeds. The call is best-effort and runs synchronously here so
+        // the column reflects the new image before the deploy returns;
+        // operators reading `image_tools` immediately after deploy see the
+        // post-rotation value rather than the previous deployment's stale
+        // entries.
+        await TryRefreshImageToolsAsync(agentId, containerId, endpoint, cancellationToken);
+
         // TryGet immediately after Register so we return the canonical entry
         // rather than a locally-constructed copy.
         persistentAgentRegistry.TryGet(agentId, out var registered);
         return registered!;
+    }
+
+    /// <summary>
+    /// Calls the agent's <c>/a2a/tools</c> endpoint and persists the result
+    /// on the matching <c>agent_definitions</c> / <c>unit_definitions</c>
+    /// row's <c>image_tools</c> column. Best-effort: any failure on the
+    /// introspector logs a warning and does not abort the deploy.
+    /// </summary>
+    private async Task TryRefreshImageToolsAsync(
+        string agentId,
+        string containerId,
+        Uri endpoint,
+        CancellationToken cancellationToken)
+    {
+        if (_toolsIntrospector is null)
+        {
+            return;
+        }
+
+        if (!GuidFormatter.TryParse(agentId, out var agentGuid))
+        {
+            _logger.LogDebug(
+                "Skipping image_tools refresh for {AgentId}: id does not parse as Guid.",
+                agentId);
+            return;
+        }
+
+        try
+        {
+            await _toolsIntrospector.IntrospectAndPersistAsync(
+                agentGuid, containerId, endpoint, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // The introspector contract is supposed to swallow its own
+            // errors; if one leaks through, log + move on rather than fail
+            // the deploy.
+            _logger.LogWarning(
+                ex,
+                "image_tools refresh for {AgentId} threw {Type}: {Message}; deploy continues.",
+                agentId, ex.GetType().Name, ex.Message);
+        }
     }
 
     /// <summary>

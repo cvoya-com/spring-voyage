@@ -2,6 +2,9 @@
 // See LICENSE.md in the project root for full license terms.
 
 import { strict as assert } from "node:assert";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
 
 import { createServer } from "../src/server.ts";
@@ -12,13 +15,14 @@ const PROCESS_NODE = process.execPath;
 async function withServer<T>(
   argv: string[],
   fn: (baseUrl: string) => Promise<T>,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<T> {
   const sidecar = createServer({
     port: 0, // ephemeral
     agentArgv: argv,
     agentName: "test-agent",
     cancelGraceMs: 200,
-  });
+  }, env);
   await new Promise<void>((resolve) => sidecar.server.listen(0, "127.0.0.1", resolve));
   const addr = sidecar.server.address();
   if (!addr || typeof addr === "string") {
@@ -114,6 +118,85 @@ describe("createServer", () => {
       const body = (await res.json()) as Record<string, unknown>;
       const error = body.error as { code: number };
       assert.equal(error.code, -32700);
+    });
+  });
+
+  describe("GET /a2a/tools (#2336)", () => {
+    it("returns [] when no manifest env var is set", async () => {
+      await withServer([PROCESS_NODE], async (baseUrl) => {
+        const res = await fetch(`${baseUrl}/a2a/tools`);
+        assert.equal(res.status, 200);
+        const body = (await res.json()) as unknown[];
+        assert.deepEqual(body, []);
+      });
+    });
+
+    it("returns [] when the manifest file is missing", async () => {
+      const missingPath = path.join(os.tmpdir(), `missing-${Date.now()}.json`);
+      const env: NodeJS.ProcessEnv = { ...process.env, SPRING_TOOLS_MANIFEST: missingPath };
+      await withServer(
+        [PROCESS_NODE],
+        async (baseUrl) => {
+          const res = await fetch(`${baseUrl}/a2a/tools`);
+          assert.equal(res.status, 200);
+          const body = (await res.json()) as unknown[];
+          assert.deepEqual(body, []);
+        },
+        env,
+      );
+    });
+
+    it("returns the manifest contents when the file is present", async () => {
+      const manifestPath = path.join(
+        fs.mkdtempSync(path.join(os.tmpdir(), "sv-tools-")),
+        "tools.json",
+      );
+      const tools = [
+        {
+          name: "acme.echo",
+          description: "echoes",
+          inputSchema: { type: "object" },
+        },
+      ];
+      fs.writeFileSync(manifestPath, JSON.stringify(tools), "utf8");
+      try {
+        const env: NodeJS.ProcessEnv = { ...process.env, SPRING_TOOLS_MANIFEST: manifestPath };
+        await withServer(
+          [PROCESS_NODE],
+          async (baseUrl) => {
+            const res = await fetch(`${baseUrl}/a2a/tools`);
+            assert.equal(res.status, 200);
+            const body = (await res.json()) as unknown[];
+            assert.deepEqual(body, tools);
+          },
+          env,
+        );
+      } finally {
+        fs.rmSync(path.dirname(manifestPath), { recursive: true, force: true });
+      }
+    });
+
+    it("returns [] when the manifest file is unparseable", async () => {
+      const manifestPath = path.join(
+        fs.mkdtempSync(path.join(os.tmpdir(), "sv-tools-")),
+        "tools.json",
+      );
+      fs.writeFileSync(manifestPath, "not json", "utf8");
+      try {
+        const env: NodeJS.ProcessEnv = { ...process.env, SPRING_TOOLS_MANIFEST: manifestPath };
+        await withServer(
+          [PROCESS_NODE],
+          async (baseUrl) => {
+            const res = await fetch(`${baseUrl}/a2a/tools`);
+            assert.equal(res.status, 200);
+            const body = (await res.json()) as unknown[];
+            assert.deepEqual(body, []);
+          },
+          env,
+        );
+      } finally {
+        fs.rmSync(path.dirname(manifestPath), { recursive: true, force: true });
+      }
     });
   });
 });

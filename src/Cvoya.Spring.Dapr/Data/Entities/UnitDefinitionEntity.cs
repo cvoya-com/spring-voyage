@@ -42,6 +42,21 @@ public class UnitDefinitionEntity : ITenantScopedEntity
     /// <summary>Gets or sets the full unit definition stored as JSON.</summary>
     public JsonElement? Definition { get; set; }
 
+    /// <summary>
+    /// Gets or sets the serialised array of <c>ToolDefinition</c> records
+    /// the unit's running image advertised on <c>GET /a2a/tools</c> at the
+    /// most recent deploy / image-rotation (#2336 / Sub C of #2332).
+    /// Units-are-agents per ADR-0039, so units carry the same image-tier
+    /// surface as agents.
+    /// </summary>
+    /// <remarks>
+    /// <c>null</c> until the first introspection call lands. <c>[]</c> when
+    /// the unit advertises no image-tier tools or the introspection call
+    /// failed (the deploy still succeeds — see
+    /// <c>IAgentToolsIntrospector</c>).
+    /// </remarks>
+    public JsonElement? ImageTools { get; set; }
+
     /// <summary>Gets or sets the timestamp when the unit definition was created.</summary>
     public DateTimeOffset CreatedAt { get; set; }
 

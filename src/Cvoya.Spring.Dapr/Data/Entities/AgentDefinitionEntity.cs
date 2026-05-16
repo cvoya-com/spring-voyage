@@ -38,6 +38,27 @@ public class AgentDefinitionEntity : ITenantScopedEntity
     /// <summary>Gets or sets the full agent definition stored as JSON.</summary>
     public JsonElement? Definition { get; set; }
 
+    /// <summary>
+    /// Gets or sets the serialised array of <c>ToolDefinition</c> records
+    /// the agent's running image advertised on <c>GET /a2a/tools</c> at the
+    /// most recent deploy / image-rotation (#2336 / Sub C of #2332).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>null</c> until the first introspection call lands. <c>[]</c> when
+    /// the agent advertises no image-tier tools or the introspection call
+    /// failed (the deploy still succeeds — see
+    /// <c>IAgentToolsIntrospector</c>).
+    /// </para>
+    /// <para>
+    /// The grant pipeline (Sub B #2335) reads this column defensively and
+    /// surfaces each entry with provenance <c>image:&lt;digest&gt;</c>;
+    /// removal of a registration plus a re-deploy clears the column at the
+    /// next introspection call so the grant set tracks the live image.
+    /// </para>
+    /// </remarks>
+    public JsonElement? ImageTools { get; set; }
+
     /// <summary>Gets or sets the FK to <see cref="HumanEntity.Id"/> for the human who created this agent definition.</summary>
     public Guid? CreatedBy { get; set; }
 
