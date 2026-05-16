@@ -1,6 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Agent
-name: deming
-displayName: Deming (PM)
-description: Concrete instance of the `program-manager` template. Deming is one of the two PM instances on the Spring Voyage OSS PgM team; they share the template's body and triage concurrently on disjoint issue sets.
-from: program-manager

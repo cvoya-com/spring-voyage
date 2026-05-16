@@ -90,12 +90,17 @@ instructions: |
   - **Identity.** All GitHub writes flow through this unit's binding
     to the Spring Voyage GitHub App. No other GitHub identity is
     referenced.
+# ADR-0043 §5g: inline member bodies fan five concrete `software-engineer`
+# instances out of the package's single template. Each entry declares a
+# fresh agent body inline; the install pipeline clones the named template
+# per §5d and the inline body's `displayName:` flows through to the
+# persisted agent.
 members:
-  - agent: ada
-  - agent: hopper
-  - agent: knuth
-  - agent: ritchie
-  - agent: turing
+  - agent: { name: ada,     from: software-engineer, displayName: "Ada (engineer)" }
+  - agent: { name: hopper,  from: software-engineer, displayName: "Hopper (engineer)" }
+  - agent: { name: knuth,   from: software-engineer, displayName: "Knuth (engineer)" }
+  - agent: { name: ritchie, from: software-engineer, displayName: "Ritchie (engineer)" }
+  - agent: { name: turing,  from: software-engineer, displayName: "Turing (engineer)" }
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
   hosting: permanent

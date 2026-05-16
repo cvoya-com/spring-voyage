@@ -1279,13 +1279,22 @@ public class UnitCreationService : IUnitCreationService
 
     private static (string Scheme, string Path)? ResolveMemberAddress(MemberManifest member)
     {
-        if (!string.IsNullOrWhiteSpace(member.Agent))
+        // ADR-0043 §5g: inline-body members are expanded into synthesised
+        // peer artefacts by PackageManifestParser before the activator
+        // rewrites references. By the time this service sees the member,
+        // both forms have collapsed to a name — the inline body's `name:`
+        // when the member was authored inline, or the bare scalar value
+        // when authored as a reference. Reading through AgentName / UnitName
+        // keeps this single resolution point honest.
+        var agentName = member.AgentName;
+        if (!string.IsNullOrWhiteSpace(agentName))
         {
-            return ("agent", member.Agent!);
+            return ("agent", agentName!);
         }
-        if (!string.IsNullOrWhiteSpace(member.Unit))
+        var unitName = member.UnitName;
+        if (!string.IsNullOrWhiteSpace(unitName))
         {
-            return ("unit", member.Unit!);
+            return ("unit", unitName!);
         }
         return null;
     }

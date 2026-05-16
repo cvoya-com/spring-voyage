@@ -90,8 +90,8 @@ public class Adr0043Tests
         manifest.Instructions!.ShouldContain("Coordinate the team");
         manifest.Members.ShouldNotBeNull();
         manifest.Members!.Count.ShouldBe(2);
-        manifest.Members[0].Agent.ShouldBe("team-lead");
-        manifest.Members[1].Agent.ShouldBe("senior-engineer");
+        manifest.Members[0].AgentName.ShouldBe("team-lead");
+        manifest.Members[1].AgentName.ShouldBe("senior-engineer");
         manifest.Requires.ShouldNotBeNull();
         manifest.Requires!.Count.ShouldBe(1);
         manifest.Requires[0].Type.ShouldBe(RequirementType.Connector);

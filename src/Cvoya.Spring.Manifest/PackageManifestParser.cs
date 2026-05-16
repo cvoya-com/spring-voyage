@@ -268,6 +268,14 @@ public static class PackageManifestParser
         // Materialise ResolvedArtefacts from the discovered list.
         var resolved = MaterialiseResolved(discovered, cancellationToken);
 
+        // ADR-0043 §5g: a unit's `members:` list may carry inline bodies
+        // (mappings under `agent:` / `unit:`) in addition to bare scalar
+        // references. Each inline body becomes a fresh concrete artefact
+        // peer in the package's resolved set so the rest of the install
+        // pipeline (template stamping, member resolution, activation)
+        // walks it identically to a disk-discovered artefact.
+        resolved = ExpandInlineMembers(resolved);
+
         // Detect cycles across `members:`, `requires:`, `from:`, and
         // containment edges (ADR-0043 §7).
         DetectCycles(resolved, discovered);
@@ -595,6 +603,188 @@ public static class PackageManifestParser
         return resolved.Value;
     }
 
+    /// <summary>
+    /// ADR-0043 §5g: walks every unit artefact's <c>members:</c> list and
+    /// synthesises a fresh <see cref="ResolvedArtefact"/> per inline-body
+    /// entry (an <c>agent:</c> / <c>unit:</c> mapping rather than a bare
+    /// scalar). Each synthesised artefact is wrapped under the kind's root
+    /// document shape (<c>apiVersion</c>, <c>kind</c>, plus the body fields)
+    /// so the rest of the install pipeline parses it identically to a
+    /// disk-discovered artefact. The synthesised artefact's
+    /// <see cref="ResolvedArtefact.ContainingArtefactName"/> records its
+    /// owning unit, mirroring the §3 nested-artefact containment edge.
+    /// </summary>
+    /// <remarks>
+    /// Inline bodies that declare <c>from:</c> ride through unchanged — the
+    /// <see cref="TemplateResolver"/> picks them up on the same pass it uses
+    /// for disk-discovered concrete artefacts and merges the template body
+    /// in per §5d. The local-symbol the owning unit references is the
+    /// inline body's <c>name:</c> field (the bare-scalar form's address).
+    /// </remarks>
+    private static IReadOnlyList<ResolvedArtefact> ExpandInlineMembers(
+        IReadOnlyList<ResolvedArtefact> resolved)
+    {
+        // Index discovered names by kind so synthesis can reject duplicates
+        // up-front rather than rely on the downstream uniqueness check
+        // ignoring the synthesised peers.
+        var existingNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var artefact in resolved)
+        {
+            existingNames.Add($"{artefact.Kind}|{artefact.Name}");
+        }
+
+        var synthesised = new List<ResolvedArtefact>();
+        foreach (var artefact in resolved)
+        {
+            if (artefact.Kind != ArtefactKind.Unit
+                || string.IsNullOrEmpty(artefact.Content))
+            {
+                continue;
+            }
+
+            UnitManifest? unit;
+            try
+            {
+                var deserializer = new DeserializerBuilder()
+                    .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                    .WithTypeConverter(new RequirementEntryYamlConverter())
+                    .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
+                    .IgnoreUnmatchedProperties()
+                    .Build();
+                unit = deserializer.Deserialize<UnitManifest>(artefact.Content);
+            }
+            catch
+            {
+                // The full per-kind parser will surface the same failure
+                // later in the pipeline; skip inline expansion for this
+                // unit so the cycle / uniqueness checks still see what
+                // they always saw.
+                continue;
+            }
+
+            if (unit?.Members is null || unit.Members.Count == 0)
+            {
+                continue;
+            }
+
+            foreach (var member in unit.Members)
+            {
+                var inline = member.Agent?.IsInline == true ? member.Agent
+                           : member.Unit?.IsInline == true ? member.Unit
+                           : null;
+                if (inline?.InlineBody is null)
+                {
+                    continue;
+                }
+
+                var kind = member.Agent?.IsInline == true
+                    ? ArtefactKind.Agent
+                    : ArtefactKind.Unit;
+                var name = inline.InlineName!;
+                if (string.IsNullOrWhiteSpace(name)
+                    || string.Equals(name, "<inline>", StringComparison.Ordinal))
+                {
+                    throw new PackageParseException(
+                        $"unit '{artefact.Name}': inline {kind.ToString().ToLowerInvariant()} member " +
+                        "(ADR-0043 §5g) is missing the required 'name:' field. The body's name is " +
+                        "the local symbol the rest of the unit references.");
+                }
+
+                var key = $"{kind}|{name}";
+                if (!existingNames.Add(key))
+                {
+                    // Either two inline members shadow each other or an
+                    // inline member shadows a disk-discovered artefact.
+                    // Treat both as the same name-uniqueness violation the
+                    // ADR-0043 §3 downstream check enforces.
+                    throw new PackageParseException(
+                        $"Duplicate artefact name '{kind}:{name}' introduced by an inline member of " +
+                        $"unit '{artefact.Name}' (ADR-0043 §3 + §5g). Inline members must use names " +
+                        "distinct from every other artefact in the package.");
+                }
+
+                synthesised.Add(new ResolvedArtefact
+                {
+                    Name = name,
+                    SourcePackage = null,
+                    Kind = kind,
+                    ResolvedPath = null,
+                    Content = WrapInlineBody(kind, inline.InlineBody),
+                    ContainingArtefactName = artefact.Name,
+                });
+            }
+        }
+
+        if (synthesised.Count == 0)
+        {
+            return resolved;
+        }
+
+        var combined = new List<ResolvedArtefact>(resolved.Count + synthesised.Count);
+        combined.AddRange(resolved);
+        combined.AddRange(synthesised);
+        return combined;
+    }
+
+    /// <summary>
+    /// Wraps an inline body (re-serialised mapping captured by
+    /// <see cref="InlineArtefactDefinitionYamlConverter"/>) with the
+    /// <c>apiVersion:</c> + <c>kind:</c> header expected by the per-kind
+    /// manifest parser so the downstream pipeline reads the synthesised
+    /// artefact identically to a disk-discovered one. The body's own
+    /// <c>kind:</c> (when present) is overwritten — inline members are
+    /// always concrete (<c>Agent</c> / <c>Unit</c>), not templates.
+    /// </summary>
+    private static string WrapInlineBody(ArtefactKind kind, string inlineBody)
+    {
+        var kindHeader = kind switch
+        {
+            ArtefactKind.Agent => "Agent",
+            ArtefactKind.Unit => "Unit",
+            _ => throw new InvalidOperationException(
+                $"Inline members are only supported for Agent / Unit, not {kind}."),
+        };
+
+        // Parse the inline body, then rewrite the kind-discriminator scalars
+        // to the wrapper's values so the per-kind manifest parser accepts the
+        // synthesised content. The body usually omits both apiVersion: and
+        // kind: (member bodies are sugar over the disk-discovered shape).
+        var stream = new YamlDotNet.RepresentationModel.YamlStream();
+        using (var reader = new StringReader(inlineBody))
+        {
+            stream.Load(reader);
+        }
+
+        var root = stream.Documents.Count > 0
+            ? stream.Documents[0].RootNode as YamlDotNet.RepresentationModel.YamlMappingNode
+            : null;
+        root ??= new YamlDotNet.RepresentationModel.YamlMappingNode();
+
+        SetScalarChild(root, "apiVersion", "spring.voyage/v1");
+        SetScalarChild(root, "kind", kindHeader);
+
+        using var writer = new StringWriter();
+        var output = new YamlDotNet.RepresentationModel.YamlStream(
+            new YamlDotNet.RepresentationModel.YamlDocument(root));
+        output.Save(writer, assignAnchors: false);
+        var text = writer.ToString();
+        var trimmedEnd = text.TrimEnd();
+        if (trimmedEnd.EndsWith("...", StringComparison.Ordinal))
+        {
+            trimmedEnd = trimmedEnd[..^3].TrimEnd();
+        }
+        return trimmedEnd + "\n";
+    }
+
+    private static void SetScalarChild(
+        YamlDotNet.RepresentationModel.YamlMappingNode parent,
+        string key,
+        string value)
+    {
+        var keyNode = new YamlDotNet.RepresentationModel.YamlScalarNode(key);
+        parent.Children[keyNode] = new YamlDotNet.RepresentationModel.YamlScalarNode(value);
+    }
+
     private static IReadOnlyList<ResolvedArtefact> MaterialiseResolved(
         IReadOnlyList<DiscoveredArtefact> discovered,
         CancellationToken cancellationToken)
@@ -770,6 +960,7 @@ public static class PackageManifestParser
             var deserializer = new DeserializerBuilder()
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
                 .WithTypeConverter(new RequirementEntryYamlConverter())
+                .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
                 .IgnoreUnmatchedProperties()
                 .Build();
             manifest = deserializer.Deserialize<TManifest>(artefact.Content);
@@ -964,6 +1155,7 @@ public static class PackageManifestParser
             var deserializer = new DeserializerBuilder()
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
                 .WithTypeConverter(new RequirementEntryYamlConverter())
+                .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
                 .IgnoreUnmatchedProperties()
                 .Build();
             manifest = deserializer.Deserialize<UnitManifest>(unitYaml);
@@ -978,17 +1170,25 @@ public static class PackageManifestParser
 
         foreach (var m in members)
         {
-            if (!string.IsNullOrWhiteSpace(m.Unit))
+            // Unit slot — bare reference or inline body (ADR-0043 §5g). The
+            // inline body's `name:` is the local symbol the cycle detector
+            // edge points at; the synthesised artefact lands in the package's
+            // resolved set just like a disk-discovered one.
+            var unitSymbol = m.UnitName;
+            if (!string.IsNullOrWhiteSpace(unitSymbol))
             {
-                var r = ArtefactReference.Parse(m.Unit!, ArtefactKind.Unit);
+                var r = ArtefactReference.Parse(unitSymbol!, ArtefactKind.Unit);
                 if (!r.IsCrossPackage)
                 {
                     yield return (ArtefactKind.Unit, r.ArtefactName);
                 }
+                continue;
             }
-            else if (!string.IsNullOrWhiteSpace(m.Agent))
+
+            var agentSymbol = m.AgentName;
+            if (!string.IsNullOrWhiteSpace(agentSymbol))
             {
-                var r = ArtefactReference.Parse(m.Agent!, ArtefactKind.Agent);
+                var r = ArtefactReference.Parse(agentSymbol!, ArtefactKind.Agent);
                 if (!r.IsCrossPackage)
                 {
                     yield return (ArtefactKind.Agent, r.ArtefactName);

@@ -291,32 +291,39 @@ public static class PackageValidator
             // catalog resolves them at install time). Per ADR-0043 §3 the
             // lookup is by name across the whole package tree — the
             // catalog walker has already discovered every nested artefact.
+            // ADR-0043 §5g: inline-body members synthesise a peer in the
+            // package's resolved set (handled by ExpandInlineMembers); the
+            // lookup below sees the synthesised name, so the inline form
+            // resolves through this branch identically to a bare scalar
+            // reference.
             if (unit.Members is { Count: > 0 })
             {
                 for (var i = 0; i < unit.Members.Count; i++)
                 {
                     var member = unit.Members[i];
-                    if (!string.IsNullOrWhiteSpace(member.Agent))
+                    var agentName = member.AgentName;
+                    var unitName = member.UnitName;
+                    if (!string.IsNullOrWhiteSpace(agentName))
                     {
-                        if (!IsCrossPackageGuid(member.Agent) && !agentNames.Contains(member.Agent))
+                        if (!IsCrossPackageGuid(agentName) && !agentNames.Contains(agentName))
                         {
                             diagnostics.Add(new PackageValidationDiagnostic(
                                 unitFile,
                                 PackageValidationSeverity.Error,
                                 "unit-member-agent-not-found",
-                                $"unit '{unit.Name ?? "<unnamed>"}': members[{i}].agent '{member.Agent}' " +
+                                $"unit '{unit.Name ?? "<unnamed>"}': members[{i}].agent '{agentName}' " +
                                 $"does not match any agent declared in the package."));
                         }
                     }
-                    else if (!string.IsNullOrWhiteSpace(member.Unit))
+                    else if (!string.IsNullOrWhiteSpace(unitName))
                     {
-                        if (!IsCrossPackageGuid(member.Unit) && !unitNames.Contains(member.Unit))
+                        if (!IsCrossPackageGuid(unitName) && !unitNames.Contains(unitName))
                         {
                             diagnostics.Add(new PackageValidationDiagnostic(
                                 unitFile,
                                 PackageValidationSeverity.Error,
                                 "unit-member-unit-not-found",
-                                $"unit '{unit.Name ?? "<unnamed>"}': members[{i}].unit '{member.Unit}' " +
+                                $"unit '{unit.Name ?? "<unnamed>"}': members[{i}].unit '{unitName}' " +
                                 $"does not match any unit declared in the package."));
                         }
                     }

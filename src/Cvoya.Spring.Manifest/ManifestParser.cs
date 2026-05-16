@@ -66,6 +66,7 @@ public static class ManifestParser
             var deserializer = new DeserializerBuilder()
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
                 .WithTypeConverter(new RequirementEntryYamlConverter())
+                .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
                 .IgnoreUnmatchedProperties()
                 .Build();
             manifest = deserializer.Deserialize<UnitManifest>(yamlText);
@@ -166,11 +167,42 @@ public static class ManifestParser
         {
             var member = unit.Members[i];
 
-            LocalSymbolValidator.RejectPathStyleReference(member.Agent, $"unit.members[{i}].agent");
-            LocalSymbolValidator.RejectPathStyleReference(member.Unit, $"unit.members[{i}].unit");
+            // Reject path-style references only on bare scalar forms; inline
+            // bodies (ADR-0043 §5g) carry a full mapping rather than a
+            // path-shaped scalar.
+            if (member.Agent is { Reference: { } agentRef })
+            {
+                LocalSymbolValidator.RejectPathStyleReference(agentRef, $"unit.members[{i}].agent");
+            }
+            if (member.Unit is { Reference: { } unitRef })
+            {
+                LocalSymbolValidator.RejectPathStyleReference(unitRef, $"unit.members[{i}].unit");
+            }
 
-            var hasAgent = !string.IsNullOrWhiteSpace(member.Agent);
-            var hasUnit = !string.IsNullOrWhiteSpace(member.Unit);
+            // Inline bodies (ADR-0043 §5g): require the body to declare a
+            // name BEFORE the "missing both" / "declares both" checks so the
+            // operator sees a precise diagnostic. The body's `name:` is the
+            // local symbol the rest of the unit references, so an anonymous
+            // inline body cannot be resolved by peers. This check runs first
+            // because an anonymous inline body would otherwise look like an
+            // empty slot to the "missing both" check below.
+            if (member.Agent is { IsInline: true } && IsBlankScalar(member.Agent))
+            {
+                throw new ManifestParseException(
+                    $"unit.members[{i}].agent inline body is missing the required " +
+                    "'name:' field (ADR-0043 §5g). The body's name is the local " +
+                    "symbol the unit and its peers reference.");
+            }
+            if (member.Unit is { IsInline: true } && IsBlankScalar(member.Unit))
+            {
+                throw new ManifestParseException(
+                    $"unit.members[{i}].unit inline body is missing the required " +
+                    "'name:' field (ADR-0043 §5g). The body's name is the local " +
+                    "symbol the unit and its peers reference.");
+            }
+
+            var hasAgent = member.Agent is not null && !IsBlankScalar(member.Agent);
+            var hasUnit = member.Unit is not null && !IsBlankScalar(member.Unit);
 
             if (hasAgent && hasUnit)
             {
@@ -184,10 +216,11 @@ public static class ManifestParser
                 throw new ManifestParseException(
                     $"unit.members[{i}] is missing both 'agent' and 'unit'; " +
                     "every member entry must reference exactly one peer artefact " +
-                    "by local symbol or 32-char no-dash hex Guid.");
+                    "by local symbol, 32-char no-dash hex Guid, or inline body " +
+                    "(ADR-0043 §5g).");
             }
 
-            var symbol = (member.Agent ?? member.Unit)!.Trim();
+            var symbol = (member.AgentName ?? member.UnitName)!.Trim();
             if (!seenSymbols.Add(symbol))
             {
                 throw new ManifestParseException(
@@ -195,6 +228,24 @@ public static class ManifestParser
                     "Each member symbol must be unique within a unit's member list.");
             }
         }
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when the inline-or-reference value carries no
+    /// meaningful symbol — a null/whitespace reference, or an inline body
+    /// whose <c>name:</c> field could not be derived (<see cref="InlineArtefactDefinition.InlineName"/>
+    /// returns the <c>&lt;inline&gt;</c> placeholder).
+    /// </summary>
+    private static bool IsBlankScalar(InlineArtefactDefinition def)
+    {
+        if (def.Reference is not null)
+        {
+            return string.IsNullOrWhiteSpace(def.Reference);
+        }
+        // Inline body — the converter falls back to "<inline>" when neither
+        // id nor name is set. Treat the placeholder as "no name declared".
+        return string.IsNullOrWhiteSpace(def.InlineName)
+            || string.Equals(def.InlineName, "<inline>", System.StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -282,6 +333,7 @@ public static class ManifestParser
             var deserializer = new DeserializerBuilder()
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
                 .WithTypeConverter(new RequirementEntryYamlConverter())
+                .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
                 .IgnoreUnmatchedProperties()
                 .Build();
             manifest = deserializer.Deserialize<UnitTemplateManifest>(yamlText);

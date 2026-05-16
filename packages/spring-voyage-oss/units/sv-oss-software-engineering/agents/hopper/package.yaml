@@ -1,6 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Agent
-name: hopper
-displayName: Hopper (engineer)
-description: Concrete instance of the `software-engineer` template. Hopper is one of the five engineer instances on the Spring Voyage OSS SE team; they share the template's body and run concurrently.
-from: software-engineer

@@ -128,9 +128,18 @@ public static class ExecutionDefaultsResolver
 
         try
         {
+            // ADR-0043 §5g: unit YAMLs may carry inline-mapping members
+            // under `members[].agent` / `members[].unit`. The standalone
+            // deserialiser must accept the same union shape MemberManifest
+            // exposes, otherwise YamlDotNet would throw and the silent
+            // catch below would discard the member's execution block too —
+            // the call site only reads `.Execution`, but the deserialiser
+            // walks every key on the document so it has to know how to
+            // bind the members slot.
             var deserializer = new DeserializerBuilder()
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
                 .WithTypeConverter(new RequirementEntryYamlConverter())
+                .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
                 .IgnoreUnmatchedProperties()
                 .Build();
             var manifest = deserializer.Deserialize<UnitManifest>(unitYaml);

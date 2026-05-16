@@ -107,9 +107,14 @@ instructions: |
 
   All GitHub writes flow through this unit's binding to the Spring
   Voyage GitHub App. No other GitHub identity is referenced.
+# ADR-0043 §5g: inline member bodies fan two concrete `program-manager`
+# instances out of the package's single template. Each entry declares a
+# fresh agent body inline; the install pipeline clones the named template
+# per §5d and the inline body's `displayName:` flows through to the
+# persisted agent.
 members:
-  - agent: drucker
-  - agent: deming
+  - agent: { name: drucker, from: program-manager, displayName: "Drucker (PM)" }
+  - agent: { name: deming,  from: program-manager, displayName: "Deming (PM)" }
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest
   hosting: permanent

@@ -51,6 +51,21 @@ public class UnitCreationServiceTests
     // hold an `out` declaration directly.
     private static bool IsGuidN(string id) => Guid.TryParseExact(id, "N", out _);
 
+    /// <summary>
+    /// ADR-0043 §5g: <see cref="MemberManifest"/>'s <c>Agent</c> / <c>Unit</c>
+    /// slots are <see cref="InlineArtefactDefinition"/> — a union of bare
+    /// scalar reference and inline body. These helpers wrap a bare reference
+    /// the way the prior <c>{ Agent = "name" }</c> initializer used to.
+    /// </summary>
+    private static class Member
+    {
+        public static MemberManifest AgentRef(string name) =>
+            new() { Agent = InlineArtefactDefinition.FromReference(name) };
+
+        public static MemberManifest UnitRef(string name) =>
+            new() { Unit = InlineArtefactDefinition.FromReference(name) };
+    }
+
     [Fact]
     public async Task CreateAsync_NoHttpContext_FallsBackToApiIdentity()
     {
@@ -290,9 +305,9 @@ public class UnitCreationServiceTests
 
         var members = new[]
         {
-            new MemberManifest { Agent = "tech-lead" },
-            new MemberManifest { Agent = "backend-engineer" },
-            new MemberManifest { Agent = "qa-engineer" },
+            Member.AgentRef("tech-lead"),
+            Member.AgentRef("backend-engineer"),
+            Member.AgentRef("qa-engineer"),
         };
 
         var result = await fixture.CreateFromManifestAsync("eng-team", members);
@@ -325,7 +340,7 @@ public class UnitCreationServiceTests
 
         var members = new[]
         {
-            new MemberManifest { Unit = "sub-team" },
+            Member.UnitRef("sub-team"),
         };
 
         var result = await fixture.CreateFromManifestAsync("parent-unit", members);
@@ -350,9 +365,9 @@ public class UnitCreationServiceTests
 
         var members = new[]
         {
-            new MemberManifest { Agent = "tech-lead" },
-            new MemberManifest { Agent = "backend-engineer" },
-            new MemberManifest { Agent = "qa-engineer" },
+            Member.AgentRef("tech-lead"),
+            Member.AgentRef("backend-engineer"),
+            Member.AgentRef("qa-engineer"),
         };
 
         var result = await fixture.CreateFromManifestAsync("eng-team", members);
@@ -371,7 +386,7 @@ public class UnitCreationServiceTests
             await fixture.Directory.Received().RegisterAsync(
                 Arg.Is<DirectoryEntry>(e =>
                     e.Address.Scheme == "agent"
-                    && e.DisplayName == m.Agent
+                    && e.DisplayName == m.AgentName
                     && e.Description == string.Empty),
                 Arg.Any<CancellationToken>());
         }
@@ -407,8 +422,8 @@ public class UnitCreationServiceTests
 
         var members = new[]
         {
-            new MemberManifest { Agent = "tech-lead" },
-            new MemberManifest { Agent = "backend-engineer" },
+            Member.AgentRef("tech-lead"),
+            Member.AgentRef("backend-engineer"),
         };
 
         var result = await fixture.CreateFromManifestAsync("eng-team-idem", members);
