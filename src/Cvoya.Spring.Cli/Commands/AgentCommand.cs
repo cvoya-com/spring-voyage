@@ -133,6 +133,12 @@ public static class AgentCommand
         // affordances ship in v0.2 (#2357).
         agentCommand.Subcommands.Add(MemoryCommand.CreateAgentSubcommand(outputOption));
 
+        // #2361: per-subject skill-bundle equip. `spring agent skills list|add|remove|set`
+        // talks to the equip endpoints under /api/v1/tenant/agents/{id}/skills
+        // introduced under #2360. Layer 4 of the assembled prompt picks the
+        // result up via IAgentSkillBundleStore on the next dispatch.
+        agentCommand.Subcommands.Add(SkillsCommand.CreateAgentSubcommand(outputOption));
+
         // #1377: `spring agent health <id>` — read the health status of a
         // persistent agent's backing container from the deployment endpoint.
         agentCommand.Subcommands.Add(CreateHealthCommand(outputOption));

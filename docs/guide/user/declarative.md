@@ -216,6 +216,34 @@ The resolver walks the recursive layout, topo-sorts the artefacts, runs the two-
 
 The package ships connector-free, so no `--connector` flag is required.
 
+## Equipping skills on units and agents (#2361)
+
+The declarative path above plants skills inside an agent folder so the package installer grants them at install time. After install, operators can also equip already-installed skill bundles onto units and agents from the CLI — useful for trying a bundle without re-publishing the package, or for assembling a working configuration before committing it back to YAML. The bundles still come from installed packages; equipping just attaches them to a subject and feeds the bundle prompt into Layer 2 (unit) or Layer 4 (agent) of the next dispatched prompt.
+
+Addressing is `<pkg>/<skill>`. No `@<version>`, no aliases — skills track the currently installed package version, so reinstalling the package picks up the new body on the next dispatch.
+
+```bash
+# Inspect what is equipped on an agent or unit
+spring agent skills list ada
+spring unit skills list engineering
+
+# Equip / unequip a single bundle (idempotent on both ends)
+spring agent skills add ada    --skill spring-voyage/software-engineering/code-review
+spring agent skills remove ada --skill spring-voyage/software-engineering/code-review
+
+# Bulk-replace the persisted list (comma-separated, declaration-order)
+spring agent skills set ada --skills \
+  spring-voyage/software-engineering/code-review,\
+  spring-voyage/product-management/prd-review
+
+# Clear all equipped bundles on a subject
+spring agent skills set ada --skills ""
+```
+
+`set` composes its diff client-side (remove dropped, equip new) — the API has no atomic bulk write, so a mid-flight failure leaves the subject partially applied. Run `list` after a failed `set` and replay the missing rows. Exit codes match the rest of the CLI: `0` on success, `1` for API errors (404 subject-not-found, 400 package-or-skill-not-installed), `2` for argument errors.
+
+The same verbs apply to units (`spring unit skills …`) with identical semantics; bundles equipped at the unit level feed Layer 2 of the unit's own prompt assembly.
+
 ## When to use templates — sidebar
 
 Templates ([ADR-0043 §5](../../decisions/0043-recursive-package-format.md#5-type-and-instance-templates-are-non-activating-artefact-folders-cloned-by-from)) are an **optional** mechanism. The grammar is exactly the same as for concrete artefacts; the only delta is non-activation plus the `from:` operator. Reach for templates when:

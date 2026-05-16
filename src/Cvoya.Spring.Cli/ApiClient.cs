@@ -737,6 +737,88 @@ public class SpringApiClient
         string agentId, Guid memoryId, CancellationToken ct = default)
         => _client.Api.V1.Tenant.Agents[agentId].Memories[memoryId].GetAsync(cancellationToken: ct);
 
+    // ---- Skills (per-subject equip) (#2360 / #2361) ----
+
+    /// <summary>
+    /// Lists the skill bundles equipped on an agent (#2360). The list is
+    /// returned in declaration order — the first entry renders first in
+    /// Layer 4 of the assembled prompt.
+    /// </summary>
+    public async Task<EquippedSkillsResponse> GetAgentSkillsAsync(
+        string agentId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Skills.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty skills response for agent '{agentId}'.");
+    }
+
+    /// <summary>
+    /// Lists the skill bundles equipped on a unit (#2360). The list is
+    /// returned in declaration order — the first entry renders first in
+    /// Layer 2 of the assembled prompt.
+    /// </summary>
+    public async Task<EquippedSkillsResponse> GetUnitSkillsAsync(
+        string unitId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Units[unitId].Skills.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty skills response for unit '{unitId}'.");
+    }
+
+    /// <summary>
+    /// Equips a skill bundle on an agent (#2360). Idempotent on
+    /// <c>(packageName, skillName)</c> — re-posting an already-equipped pair
+    /// refreshes the persisted prompt + required-tools snapshot without
+    /// reordering. Returns the new effective list.
+    /// </summary>
+    public async Task<EquippedSkillsResponse> EquipAgentSkillAsync(
+        string agentId, string packageName, string skillName, CancellationToken ct = default)
+    {
+        var body = new EquipSkillRequest { PackageName = packageName, SkillName = skillName };
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Skills.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty skills response after equipping '{packageName}/{skillName}' on agent '{agentId}'.");
+    }
+
+    /// <summary>
+    /// Equips a skill bundle on a unit (#2360). See
+    /// <see cref="EquipAgentSkillAsync"/> for the per-subject semantics.
+    /// </summary>
+    public async Task<EquippedSkillsResponse> EquipUnitSkillAsync(
+        string unitId, string packageName, string skillName, CancellationToken ct = default)
+    {
+        var body = new EquipSkillRequest { PackageName = packageName, SkillName = skillName };
+        var result = await _client.Api.V1.Tenant.Units[unitId].Skills.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty skills response after equipping '{packageName}/{skillName}' on unit '{unitId}'.");
+    }
+
+    /// <summary>
+    /// Unequips a skill bundle from an agent (#2360). No-op when the
+    /// bundle is not currently equipped. Returns the new effective list.
+    /// </summary>
+    public async Task<EquippedSkillsResponse> UnequipAgentSkillAsync(
+        string agentId, string packageName, string skillName, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Skills[packageName][skillName]
+            .DeleteAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty skills response after unequipping '{packageName}/{skillName}' from agent '{agentId}'.");
+    }
+
+    /// <summary>
+    /// Unequips a skill bundle from a unit (#2360). See
+    /// <see cref="UnequipAgentSkillAsync"/> for the per-subject semantics.
+    /// </summary>
+    public async Task<EquippedSkillsResponse> UnequipUnitSkillAsync(
+        string unitId, string packageName, string skillName, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Units[unitId].Skills[packageName][skillName]
+            .DeleteAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty skills response after unequipping '{packageName}/{skillName}' from unit '{unitId}'.");
+    }
+
     /// <summary>Gets a unit's details.</summary>
     public async Task<UnitDetailResponse> GetUnitAsync(string id, CancellationToken ct = default)
     {

@@ -145,6 +145,12 @@ public static class UnitCommand
         // affordances ship in v0.2 (#2357).
         unitCommand.Subcommands.Add(MemoryCommand.CreateUnitSubcommand(outputOption));
 
+        // #2361: per-subject skill-bundle equip. `spring unit skills list|add|remove|set`
+        // talks to the equip endpoints under /api/v1/tenant/units/{id}/skills
+        // introduced under #2360. Layer 2 of the assembled prompt picks the
+        // result up via IUnitSkillBundleStore on the next dispatch.
+        unitCommand.Subcommands.Add(SkillsCommand.CreateUnitSubcommand(outputOption));
+
         return unitCommand;
     }
 

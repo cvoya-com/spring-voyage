@@ -1700,6 +1700,147 @@ public class SpringApiClientTests
 
         handler.WasCalled.ShouldBeTrue();
     }
+
+    // ---- #2361: Skills (per-subject equip) -------------------------------
+
+    private const string EmptySkillsBody = """{"skills":[]}""";
+
+    [Fact]
+    public async Task GetAgentSkillsAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents/ada/skills",
+            expectedMethod: HttpMethod.Get,
+            responseBody: EmptySkillsBody);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.GetAgentSkillsAsync(
+            "ada", TestContext.Current.CancellationToken);
+
+        result.Skills.ShouldNotBeNull();
+        result.Skills!.Count.ShouldBe(0);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetUnitSkillsAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/units/engineering/skills",
+            expectedMethod: HttpMethod.Get,
+            responseBody: EmptySkillsBody);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.GetUnitSkillsAsync(
+            "engineering", TestContext.Current.CancellationToken);
+
+        result.Skills.ShouldNotBeNull();
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task EquipAgentSkillAsync_PostsCoordinateBody()
+    {
+        // The wire-shape body must carry packageName + skillName at the
+        // root — the server's binder maps directly onto
+        // EquipSkillRequest(string PackageName, string SkillName).
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents/ada/skills",
+            expectedMethod: HttpMethod.Post,
+            responseBody: EmptySkillsBody,
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("packageName").GetString().ShouldBe("spring-voyage/software-engineering");
+                json.GetProperty("skillName").GetString().ShouldBe("code-review");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.EquipAgentSkillAsync(
+            "ada",
+            "spring-voyage/software-engineering",
+            "code-review",
+            TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task EquipUnitSkillAsync_PostsCoordinateBody()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/units/engineering/skills",
+            expectedMethod: HttpMethod.Post,
+            responseBody: EmptySkillsBody,
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("packageName").GetString().ShouldBe("spring-voyage/software-engineering");
+                json.GetProperty("skillName").GetString().ShouldBe("code-review");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.EquipUnitSkillAsync(
+            "engineering",
+            "spring-voyage/software-engineering",
+            "code-review",
+            TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UnequipAgentSkillAsync_DeletesCoordinatePath()
+    {
+        // Note: the package name contains a '/' (e.g.
+        // "spring-voyage/software-engineering") so the wire path must carry
+        // url-encoded segments. The router parses {packageName}/{skillName}
+        // greedy-from-the-right; the CLI splits accordingly and Kiota
+        // url-encodes each path parameter.
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents/ada/skills/spring-voyage%2Fsoftware-engineering/code-review",
+            expectedMethod: HttpMethod.Delete,
+            responseBody: EmptySkillsBody);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.UnequipAgentSkillAsync(
+            "ada",
+            "spring-voyage/software-engineering",
+            "code-review",
+            TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UnequipUnitSkillAsync_DeletesCoordinatePath()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/units/engineering/skills/spring-voyage%2Fsoftware-engineering/code-review",
+            expectedMethod: HttpMethod.Delete,
+            responseBody: EmptySkillsBody);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.UnequipUnitSkillAsync(
+            "engineering",
+            "spring-voyage/software-engineering",
+            "code-review",
+            TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
 }
 
 /// <summary>

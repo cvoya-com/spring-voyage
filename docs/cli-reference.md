@@ -294,6 +294,30 @@ Orthogonal to the tenant-install surface:
 
 These predate the tenant-install surface and work for units whose tenant has the connector installed. (`spring connector catalog`, despite its historical name, also lives here only as a tenant-install listing — see `list` above.)
 
+## `spring {agent,unit} skills` (operator equip surface)
+
+Equip / unequip / list the skill bundles a unit or agent carries. The bundles themselves arrive on the tenant via `spring package install`; these verbs attach an already-installed bundle to a specific subject and feed its prompt body into the assembled prompt — Layer 2 (unit) or Layer 4 (agent). See [`docs/guide/user/declarative.md`](guide/user/declarative.md#equipping-skills-on-units-and-agents-2361) for the operator equip flow alongside the declarative `Skill` artefact path.
+
+Addressing is `<pkg>/<skill>`. No `@<version>`, no aliases — re-installing the package picks up new bundle content on the next dispatch.
+
+```bash
+# List
+spring agent skills list ada
+spring unit  skills list engineering
+
+# Add / Remove (idempotent)
+spring agent skills add    ada --skill spring-voyage/software-engineering/code-review
+spring agent skills remove ada --skill spring-voyage/software-engineering/code-review
+
+# Bulk replace; --skills "" clears
+spring agent skills set ada --skills spring-voyage/software-engineering/code-review,spring-voyage/product-management/prd-review
+spring unit  skills set engineering --skills ""
+```
+
+Output: `--output table` (default) renders columns `package_name`, `skill_name`, `description`, `source`. `source` is always `explicit` today; member-agent inheritance from the parent unit's bundle list ships in #2363 and starts emitting `inherited:<unit_name>` on the same column. `--output json` returns the API's wire shape verbatim.
+
+Exit codes: `0` on success, `1` for API errors (404 subject-not-found, 400 package-or-skill-not-installed), `2` for argument-shape errors (`--skill` missing or malformed). `set` composes its diff client-side; a mid-flight failure leaves the subject in a partially-applied state — run `list` after a failed `set` and replay the missing rows.
+
 ## Top scenarios
 
 1. **Fresh tenant, Anthropic auth check.** `spring model-provider credentials status anthropic` → if 404, prime via `spring model-provider validate-credential anthropic --credential sk-ant-...`.
