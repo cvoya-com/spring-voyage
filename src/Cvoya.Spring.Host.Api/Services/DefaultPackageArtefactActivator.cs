@@ -497,16 +497,12 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
     /// one that surfaces to the install pipeline.
     /// </summary>
     /// <summary>
-    /// Mirror of <c>UnitCreationService.TryAutoStartValidationAsync</c>
-    /// for the agent path (#2364). Reads the agent's persisted execution
-    /// defaults from <see cref="IAgentExecutionStore"/>, verifies the
-    /// runtime + credential preconditions, and — when satisfied —
-    /// transitions the agent to <see cref="LifecycleStatus.Validating"/>
-    /// + arms <see cref="IAgentActor.SetPendingAutoStartAsync"/> so the
-    /// post-validation auto-start chain reaches <see cref="LifecycleStatus.Running"/>.
-    /// Best-effort: any failure leaves the agent in <see cref="LifecycleStatus.Draft"/>
-    /// and the activator continues — the operator can recover via
-    /// <c>POST /api/v1/tenant/agents/{id}/revalidate</c>.
+    /// Drives a freshly-installed agent through the shared
+    /// <see cref="IArtefactAutoStartGate"/> (#2374). When DI has wired the
+    /// gate, this becomes a tiny shim; the previous inline implementation
+    /// lived here and on <c>UnitCreationService</c> — both now delegate to
+    /// the same service so the direct-create endpoint (<c>CreateAgentAsync</c>)
+    /// can use the same logic without duplication.
     /// </summary>
     private async Task TryAutoStartAgentAsync(
         Guid agentActorGuid,
@@ -514,97 +510,15 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         CancellationToken ct)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var executionStore = scope.ServiceProvider.GetService<IAgentExecutionStore>();
-        var runtimeCatalog = scope.ServiceProvider.GetService<IRuntimeCatalog>();
-        var credentialResolver = scope.ServiceProvider.GetService<ILlmCredentialResolver>();
-
-        if (executionStore is null || runtimeCatalog is null)
+        var gate = scope.ServiceProvider.GetService<IArtefactAutoStartGate>();
+        if (gate is null)
         {
+            // Legacy / test-harness fallback: no gate wired — leave the
+            // agent in Draft. Operators can still revalidate.
             return;
         }
 
-        var actorId = GuidFormatter.Format(agentActorGuid);
-        AgentExecutionShape? defaults;
-        try
-        {
-            defaults = await executionStore.GetAsync(actorId, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex,
-                "Agent '{AgentName}' auto-start gate: failed to read execution defaults; leaving agent in Draft.",
-                agentName);
-            return;
-        }
-
-        if (defaults is null
-            || string.IsNullOrWhiteSpace(defaults.Image)
-            || string.IsNullOrWhiteSpace(defaults.Model))
-        {
-            return;
-        }
-
-        var runtimeId = !string.IsNullOrWhiteSpace(defaults.Agent)
-            ? defaults.Agent
-            : defaults.Provider;
-        if (string.IsNullOrWhiteSpace(runtimeId))
-        {
-            return;
-        }
-
-        var catalogRuntime = runtimeCatalog.GetAgentRuntime(runtimeId);
-        if (catalogRuntime is null || catalogRuntime.ModelProviders.Count == 0)
-        {
-            return;
-        }
-
-        var edge = catalogRuntime.ModelProviders[0];
-        if (edge.AuthMethod is not null && credentialResolver is not null)
-        {
-            try
-            {
-                var resolution = await credentialResolver.ResolveAsync(
-                    providerId: edge.Id,
-                    authMethod: edge.AuthMethod.Value,
-                    agentId: agentActorGuid,
-                    unitId: null,
-                    ct);
-                if (string.IsNullOrEmpty(resolution.Value))
-                {
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "Agent '{AgentName}' auto-start gate: credential resolution threw; leaving agent in Draft.",
-                    agentName);
-                return;
-            }
-        }
-
-        try
-        {
-            var proxy = _actorProxyFactory.CreateActorProxy<IAgentActor>(
-                new ActorId(actorId), nameof(AgentActor));
-            var transition = await proxy.TransitionAsync(LifecycleStatus.Validating, ct);
-            if (transition is { Success: true })
-            {
-                await proxy.SetPendingAutoStartAsync(ct);
-            }
-            else
-            {
-                _logger.LogWarning(
-                    "Agent '{AgentName}' failed to transition to Validating on creation: {Reason}. Staying in Draft.",
-                    agentName, transition?.RejectionReason ?? "unknown");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Agent '{AgentName}' transition to Validating threw on creation. Staying in Draft.",
-                agentName);
-        }
+        _ = await gate.TryAutoStartAsync(ArtefactKind.Agent, agentActorGuid, agentName, ct);
     }
 
     private Task TrySetLifecycleErrorAsync(

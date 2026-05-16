@@ -33,6 +33,12 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IPackageInstallService, PackageInstallService>();
         services.TryAddScoped<IPackageExportService, PackageExportService>();
         services.TryAddScoped<IAuthenticatedCallerAccessor, AuthenticatedCallerAccessor>();
+        // #2374: shared auto-start gate consumed by UnitCreationService,
+        // DefaultPackageArtefactActivator (agent path), and
+        // AgentEndpoints.CreateAgentAsync. Singleton because it owns no
+        // per-artefact state — each call opens its own DI scope for
+        // execution-store / credential-resolver lookups.
+        services.TryAddSingleton<IArtefactAutoStartGate, ArtefactAutoStartGate>();
         // #2156 / #2359: IUnitConnectorStartDispatcher is registered by
         // AddCvoyaSpringDapr (see ServiceCollectionExtensions.Routing.cs).
         // The registration used to live here, but UnitActor.TryAutoStartAsync

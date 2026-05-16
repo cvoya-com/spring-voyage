@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Directory;
@@ -70,6 +71,7 @@ public class UnitCreationService : IUnitCreationService
     private readonly IUnitMembershipTenantGuard? _tenantGuard;
     private readonly ILlmCredentialResolver? _credentialResolver;
     private readonly IRuntimeCatalog? _runtimeCatalog;
+    private readonly IArtefactAutoStartGate? _autoStartGate;
     private readonly ILogger<UnitCreationService> _logger;
 
     /// <summary>
@@ -96,7 +98,8 @@ public class UnitCreationService : IUnitCreationService
         IUnitExecutionStore? executionStore = null,
         IUnitMembershipTenantGuard? tenantGuard = null,
         ILlmCredentialResolver? credentialResolver = null,
-        IRuntimeCatalog? runtimeCatalog = null)
+        IRuntimeCatalog? runtimeCatalog = null,
+        IArtefactAutoStartGate? autoStartGate = null)
     {
         ArgumentNullException.ThrowIfNull(memberGraphStore);
         ArgumentNullException.ThrowIfNull(tenantContext);
@@ -117,6 +120,7 @@ public class UnitCreationService : IUnitCreationService
         _tenantGuard = tenantGuard;
         _credentialResolver = credentialResolver;
         _runtimeCatalog = runtimeCatalog;
+        _autoStartGate = autoStartGate;
         _logger = loggerFactory.CreateLogger<UnitCreationService>();
     }
 
@@ -1016,6 +1020,19 @@ public class UnitCreationService : IUnitCreationService
         string unitName,
         CancellationToken cancellationToken)
     {
+        // #2374: delegate to the shared IArtefactAutoStartGate when DI has
+        // wired it (production). The legacy inline path below stays as a
+        // fallback so test fixtures that construct UnitCreationService with
+        // mock execution-store / credential-resolver / runtime-catalogue
+        // continue to exercise the same precondition checks without having
+        // to also mock the gate. Test refactor to use the gate directly is
+        // tracked under #2373.
+        if (_autoStartGate is not null)
+        {
+            return await _autoStartGate.TryAutoStartAsync(
+                ArtefactKind.Unit, unitActorGuid, unitName, cancellationToken);
+        }
+
         if (_executionStore is null)
         {
             return LifecycleStatus.Draft;
