@@ -634,15 +634,49 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         // The AgentDefinitionEntity.Definition shape is the same JSON the
         // CLI's `--definition` flag accepts.
         var defObj = new Dictionary<string, object?>();
+
+        // Capture the YAML's two declarative shapes:
+        //   • `execution:` — modern wire form, mirrors what
+        //     IAgentExecutionStore.SetAsync writes (image/model/agent/...).
+        //   • `ai:` — ADR-0038 authoring shape with nested `runtime`,
+        //     `model{provider,id}`, and `environment.image`.
+        // The dispatcher's IAgentDefinitionProvider already reads both shapes
+        // (DbAgentDefinitionProvider.ExtractExecution), but the auto-start
+        // gate (#2364 / #2374) reads through IAgentExecutionStore which only
+        // recognises the modern `execution:` block. Without the projection
+        // below, agents authored with the ADR-0038 shape land in Draft after
+        // install because the gate cannot read image/model/runtime out of
+        // `ai.environment.image` + `ai.runtime` + `ai.model.id`.
+        Dictionary<string, object?>? execBlock = null;
         if (agentNode.Children.TryGetValue(new YamlScalarNode("execution"), out var execRaw)
             && execRaw is YamlMappingNode execMap)
         {
-            defObj["execution"] = ToObject(execMap);
+            execBlock = ToObject(execMap) as Dictionary<string, object?>;
         }
+
+        Dictionary<string, object?>? aiBlock = null;
         if (agentNode.Children.TryGetValue(new YamlScalarNode("ai"), out var aiRaw)
             && aiRaw is YamlMappingNode aiMap)
         {
-            defObj["ai"] = ToObject(aiMap);
+            aiBlock = ToObject(aiMap) as Dictionary<string, object?>;
+            defObj["ai"] = aiBlock;
+        }
+
+        // Project (ai, execution) onto the canonical `execution:` block the
+        // gate + dispatcher read. Existing top-level execution slots win
+        // (the YAML author explicitly set them); missing slots are filled
+        // from the structured `ai:` block per the same mapping
+        // UnitCreationService.PersistUnitExecutionAsync uses for units.
+        //
+        // Mapping (closes #2388):
+        //   ai.runtime           → execution.agent     (runtime registry id)
+        //   ai.model.provider    → execution.provider  (LLM provider id)
+        //   ai.model.id          → execution.model     (provider-scoped model id)
+        //   ai.environment.image → execution.image     (only if execution.image absent)
+        var projected = ProjectExecutionBlock(execBlock, aiBlock);
+        if (projected is { Count: > 0 })
+        {
+            defObj["execution"] = projected;
         }
 
         JsonElement? defJson = null;
@@ -653,6 +687,88 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         }
 
         return new AgentManifestFields(id, displayName, role, description, defJson);
+    }
+
+    /// <summary>
+    /// Projects an agent YAML's <c>execution:</c> + <c>ai:</c> blocks onto the
+    /// canonical <c>execution: { image, agent, provider, model, hosting }</c>
+    /// shape consumed by <see cref="Cvoya.Spring.Core.Execution.IAgentExecutionStore"/>
+    /// and the auto-start gate. Existing slots on <paramref name="execBlock"/>
+    /// always win — the projection only fills gaps from the structured
+    /// <c>ai:</c> block. Returns an empty dictionary when neither input
+    /// contributes any field (leaves the Definition's <c>execution</c> key
+    /// unwritten — same shape as before the projection).
+    /// </summary>
+    /// <remarks>
+    /// Mirrors the field mapping
+    /// <see cref="UnitCreationService.PersistUnitExecutionAsync"/> uses to
+    /// land manifest fields on <see cref="Cvoya.Spring.Core.Execution.IUnitExecutionStore"/>:
+    /// <c>ai.runtime → Agent</c>, <c>ai.model.id → Model</c>,
+    /// <c>ai.model.provider → Provider</c>, manifest <c>execution.image →
+    /// Image</c>. The agent-side equivalent has to live in the activator
+    /// because the agent path writes <c>Definition</c> directly rather than
+    /// going through the store.
+    /// </remarks>
+    private static Dictionary<string, object?> ProjectExecutionBlock(
+        Dictionary<string, object?>? execBlock,
+        Dictionary<string, object?>? aiBlock)
+    {
+        var result = new Dictionary<string, object?>();
+
+        // Start from whatever the YAML's top-level `execution:` already
+        // declares — operator-supplied values are authoritative.
+        if (execBlock is not null)
+        {
+            foreach (var kvp in execBlock)
+            {
+                if (kvp.Value is string s && !string.IsNullOrWhiteSpace(s))
+                {
+                    result[kvp.Key] = s.Trim();
+                }
+            }
+        }
+
+        if (aiBlock is null)
+        {
+            return result;
+        }
+
+        // ai.runtime → execution.agent (the runtime registry id; gate reads
+        // this slot as defaults.Agent in ArtefactAutoStartGate).
+        if (!result.ContainsKey("agent") && aiBlock.TryGetValue("runtime", out var rt) && rt is string runtime && !string.IsNullOrWhiteSpace(runtime))
+        {
+            result["agent"] = runtime.Trim();
+        }
+
+        // ai.model.{provider,id} → execution.{provider,model}
+        if (aiBlock.TryGetValue("model", out var modelRaw) && modelRaw is Dictionary<string, object?> modelMap)
+        {
+            if (!result.ContainsKey("provider")
+                && modelMap.TryGetValue("provider", out var prov)
+                && prov is string p && !string.IsNullOrWhiteSpace(p))
+            {
+                result["provider"] = p.Trim();
+            }
+            if (!result.ContainsKey("model")
+                && modelMap.TryGetValue("id", out var mid)
+                && mid is string m && !string.IsNullOrWhiteSpace(m))
+            {
+                result["model"] = m.Trim();
+            }
+        }
+
+        // ai.environment.image → execution.image (fallback only — a top-level
+        // `execution.image` always wins).
+        if (!result.ContainsKey("image")
+            && aiBlock.TryGetValue("environment", out var envRaw)
+            && envRaw is Dictionary<string, object?> envMap
+            && envMap.TryGetValue("image", out var img)
+            && img is string i && !string.IsNullOrWhiteSpace(i))
+        {
+            result["image"] = i.Trim();
+        }
+
+        return result;
     }
 
     private static string? ScalarValue(YamlMappingNode node, string key)
