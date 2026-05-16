@@ -6,44 +6,58 @@ namespace Cvoya.Spring.Core.Skills;
 using System.Collections.Generic;
 using System.Linq;
 
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 
 /// <summary>
-/// Default OSS <see cref="ISkillBundleValidator"/>. Collects all tool names
-/// surfaced by the registered <see cref="ISkillRegistry"/> instances (case-
-/// insensitive) and classifies problems by severity:
+/// Default OSS <see cref="ISkillBundleValidator"/>. Validates each
+/// <see cref="SkillBundle.RequiredTools"/> entry against the four-tier tool
+/// surface assembled by the grant resolver (#2335):
 ///
-/// * <see cref="SkillBundleValidationProblemReason.ToolNotAvailable"/> →
-///   non-blocking warning returned in <see cref="SkillBundleValidationReport.Warnings"/>.
-///   Skill bundles often declare aspirational unit-orchestration tools that no
-///   connector surfaces yet (e.g. the `platform.assign_to_agent` / `eng.request_review`
-///   primitives in the shipped `packages/software-engineering/` bundles);
-///   rejecting those would block users from creating units from the shipped
-///   templates. The agent will get a runtime "tool not found" error from the
-///   LLM tooling layer if it actually tries to invoke the missing tool — see
-///   #306 for the platform-level follow-up.
-/// * <see cref="SkillBundleValidationProblemReason.BlockedByUnitPolicy"/> →
-///   blocking, throws <see cref="SkillBundleValidationException"/>. This is
-///   the C3 security invariant: a unit's <see cref="SkillPolicy"/> must be
-///   honoured at create time just as it is at call time.
+/// 1. Registry tier — any <see cref="ISkillRegistry"/> exposing tools in the
+///    declaration's namespace via <see cref="ISkillRegistry.GetToolsByNamespace"/>.
+///    Resolution is namespace-scoped: if a registry exposes any tool under the
+///    declaration's namespace, the requirement is considered satisfiable (the
+///    grant resolver lands the whole namespace on units that bind the matching
+///    connector).
+/// 2. Image tier — fallback to <see cref="IImageToolsReader.GetImageToolsAsync"/>
+///    for the unit being created when no registry exposes the namespace. An
+///    SDK-introspected image tool with the exact <see cref="SkillToolRequirement.Name"/>
+///    resolves the requirement.
 ///
-/// Future problem kinds default to throwing unless they are explicitly
-/// categorised as advisory in <see cref="IsWarning"/>.
+/// Failure modes:
+/// * <see cref="SkillBundleValidationProblemReason.ToolNotAvailable"/> — no
+///   registry exposes the namespace AND no image-tier source provides the
+///   tool name. **Strict (#2346)**: this is blocking. The OSS lenient
+///   "log warning, continue" path from Sub B (#2335) has been removed —
+///   operators see the misconfiguration at install time rather than as a
+///   runtime "tool not found" the agent stumbles into.
+/// * <see cref="SkillBundleValidationProblemReason.BlockedByUnitPolicy"/> —
+///   blocking (the C3 security invariant): a unit's <see cref="SkillPolicy"/>
+///   must be honoured at create time as it is at call time.
+///
+/// Optional requirements (<see cref="SkillToolRequirement.Optional"/> = true)
+/// remain advisory: a missing optional tool does not block install. Policy
+/// denies still apply — blocked-but-advertised remains a stronger signal
+/// than missing.
 /// </summary>
 public class DefaultSkillBundleValidator : ISkillBundleValidator
 {
     private readonly IReadOnlyList<ISkillRegistry> _registries;
     private readonly IUnitPolicyRepository _policyRepository;
+    private readonly IImageToolsReader _imageToolsReader;
 
     /// <summary>
     /// Creates a new <see cref="DefaultSkillBundleValidator"/>.
     /// </summary>
     public DefaultSkillBundleValidator(
         IEnumerable<ISkillRegistry> registries,
-        IUnitPolicyRepository policyRepository)
+        IUnitPolicyRepository policyRepository,
+        IImageToolsReader imageToolsReader)
     {
         _registries = registries.ToList();
         _policyRepository = policyRepository;
+        _imageToolsReader = imageToolsReader;
     }
 
     /// <inheritdoc />
@@ -57,54 +71,83 @@ public class DefaultSkillBundleValidator : ISkillBundleValidator
             return SkillBundleValidationReport.Empty;
         }
 
-        var available = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var registry in _registries)
-        {
-            foreach (var tool in registry.GetToolDefinitions())
-            {
-                available.Add(tool.Name);
-            }
-        }
-
         var policy = await _policyRepository.GetAsync(unitId, cancellationToken);
         var skillPolicy = policy.Skill;
 
+        // Lazy-evaluated namespace cache so we only ask each registry once per
+        // namespace per call (matches the grant-resolver lookup shape).
+        var namespaceCache = new Dictionary<string, bool>(StringComparer.Ordinal);
+
+        // Image-tier lookup is keyed by the subject Address; resolve lazily —
+        // most validations don't need it because the registry tier covers the
+        // declaration.
+        IReadOnlyList<ImageToolEntry>? imageTools = null;
+
         var blocking = new List<SkillBundleValidationProblem>();
-        var warnings = new List<string>();
 
         foreach (var bundle in bundles)
         {
             foreach (var requirement in bundle.RequiredTools)
             {
-                if (requirement.Optional && !available.Contains(requirement.Name))
+                var resolved = false;
+
+                // (1) Registry tier — namespace presence is sufficient. The
+                // grant resolver maps the connector binding onto the full
+                // namespace, so any tool under the declaration's namespace
+                // proves the surface is reachable when the matching binding
+                // is in place at runtime.
+                var ns = ToolNaming.GetNamespace(requirement.Name);
+                if (!string.IsNullOrEmpty(ns) && IsNamespaceRegistered(ns, namespaceCache))
                 {
-                    // Optional tools may be absent; skip missing-tool check but
-                    // still apply the policy check so a unit-blocked tool is
-                    // still flagged even when the requirement is optional
-                    // (blocked-but-advertised is a stronger signal than missing).
-                    continue;
+                    resolved = true;
                 }
 
-                if (!available.Contains(requirement.Name))
+                // (2) Image tier — SDK-introspected tools live on the
+                // subject's image_tools column. Only consulted when the
+                // registry tier didn't match; mirrors the grant-resolver
+                // additive-merge order.
+                if (!resolved)
                 {
-                    var problem = new SkillBundleValidationProblem(
+                    imageTools ??= await _imageToolsReader
+                        .GetImageToolsAsync(
+                            Address.ForIdentity(Address.UnitScheme, unitId),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (imageTools.Any(t =>
+                        string.Equals(t.Name, requirement.Name, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        resolved = true;
+                    }
+                }
+
+                if (!resolved)
+                {
+                    if (requirement.Optional)
+                    {
+                        // Optional requirements stay advisory — a missing
+                        // optional tool does not block install. Policy
+                        // checks below are skipped: there's nothing
+                        // registered to evaluate against.
+                        continue;
+                    }
+
+                    blocking.Add(new SkillBundleValidationProblem(
                         bundle.PackageName,
                         bundle.SkillName,
                         requirement.Name,
-                        SkillBundleValidationProblemReason.ToolNotAvailable);
-                    Classify(problem, blocking, warnings);
+                        SkillBundleValidationProblemReason.ToolNotAvailable));
                     continue;
                 }
 
                 if (skillPolicy is not null && IsBlocked(skillPolicy, requirement.Name))
                 {
-                    var problem = new SkillBundleValidationProblem(
+                    blocking.Add(new SkillBundleValidationProblem(
                         bundle.PackageName,
                         bundle.SkillName,
                         requirement.Name,
                         SkillBundleValidationProblemReason.BlockedByUnitPolicy,
-                        DenyingUnitId: unitId.ToString());
-                    Classify(problem, blocking, warnings);
+                        DenyingUnitId: unitId.ToString()));
                 }
             }
         }
@@ -114,55 +157,35 @@ public class DefaultSkillBundleValidator : ISkillBundleValidator
             throw new SkillBundleValidationException(blocking);
         }
 
-        return warnings.Count == 0
-            ? SkillBundleValidationReport.Empty
-            : new SkillBundleValidationReport(warnings);
+        return SkillBundleValidationReport.Empty;
     }
 
     /// <summary>
-    /// Routes a problem to the warnings list (advisory, non-blocking) or the
-    /// blocking list (will throw). Keeps the per-reason categorisation in a
-    /// single place so future problem kinds land in the blocking bucket by
-    /// default — a reviewer deciding to demote a reason to a warning has to
-    /// touch this method.
+    /// Returns true when at least one registered <see cref="ISkillRegistry"/>
+    /// exposes a tool under <paramref name="namespace"/>. Memoises results in
+    /// <paramref name="cache"/> so the per-call namespace lookup stays O(1)
+    /// when multiple requirements share a namespace.
     /// </summary>
-    private static void Classify(
-        SkillBundleValidationProblem problem,
-        List<SkillBundleValidationProblem> blocking,
-        List<string> warnings)
+    private bool IsNamespaceRegistered(string @namespace, Dictionary<string, bool> cache)
     {
-        if (IsWarning(problem.Reason))
+        if (cache.TryGetValue(@namespace, out var cached))
         {
-            warnings.Add(FormatWarning(problem));
+            return cached;
         }
-        else
+
+        var found = false;
+        foreach (var registry in _registries)
         {
-            blocking.Add(problem);
+            if (registry.GetToolsByNamespace(@namespace).Count > 0)
+            {
+                found = true;
+                break;
+            }
         }
+
+        cache[@namespace] = found;
+        return found;
     }
-
-    /// <summary>
-    /// True for reasons that surface as <see cref="SkillBundleValidationReport.Warnings"/>
-    /// rather than blocking the creation call. Keep this intentionally
-    /// allow-listed — new reasons default to blocking.
-    /// </summary>
-    private static bool IsWarning(SkillBundleValidationProblemReason reason) =>
-        reason == SkillBundleValidationProblemReason.ToolNotAvailable;
-
-    /// <summary>
-    /// Human-readable rendering of a warning, a little more actionable than
-    /// the exception-side formatting: explicitly tells the operator what
-    /// happens at runtime if the agent tries to call the missing tool.
-    /// </summary>
-    private static string FormatWarning(SkillBundleValidationProblem problem) =>
-        problem.Reason switch
-        {
-            SkillBundleValidationProblemReason.ToolNotAvailable =>
-                $"bundle '{problem.PackageName}/{problem.SkillName}' requires tool '{problem.ToolName}', "
-                + "which is not surfaced by any registered connector; "
-                + "the agent may get a 'tool not found' error if it tries to call it.",
-            _ => problem.ToString(),
-        };
 
     /// <summary>
     /// Mirrors the evaluation logic in <see cref="DefaultUnitPolicyEnforcer"/>:

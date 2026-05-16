@@ -25,6 +25,7 @@ using global::Dapr.Actors.Client;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using NSubstitute;
 
@@ -427,6 +428,124 @@ public class PackageInstallServiceIntegrationTests : IDisposable
                 TestContext.Current.CancellationToken));
     }
 
+    // ── (9) every in-repo bundle installs cleanly (#2346 gate) ───────────
+
+    /// <summary>
+    /// #2346 positive gate: after the bundle audit (Part 1) removed all
+    /// invented-namespace <see cref="Cvoya.Spring.Core.Skills.SkillToolRequirement"/>
+    /// entries from the in-repo OSS bundles, every package the existing
+    /// integration suite already exercises continues to install cleanly
+    /// under strict validation. The connector-free packages
+    /// (<c>hello-world</c>, <c>example-simple</c>, <c>example-templated</c>)
+    /// are the in-suite gate; the other in-repo packages
+    /// (<c>spring-voyage-oss</c>, <c>software-engineering</c>,
+    /// <c>product-management</c>, <c>research</c>) require connector
+    /// bindings and are out of scope for the install-pipeline integration
+    /// suite — their bundle decls were audited at the YAML/file level in
+    /// Part 1 and the resolver/validator unit suites cover the per-bundle
+    /// shape.
+    /// </summary>
+    [Theory]
+    [InlineData("hello-world")]
+    [InlineData("example-simple")]
+    [InlineData("example-templated")]
+    public async Task InstallConnectorFreeInRepoPackage_StrictValidation_Succeeds(string packageName)
+    {
+        using var fx = BuildFixture();
+
+        var result = await fx.Service.InstallAsync(
+            new[] { LoadTarget(packageName) },
+            TestContext.Current.CancellationToken);
+
+        result.PackageResults.Single().Status.ShouldBe(
+            PackageInstallOutcome.Active,
+            $"package '{packageName}' should install cleanly under strict RequiredTool validation");
+    }
+
+    // ── (10) strict RequiredTool validation — negative path (#2346) ──────
+
+    /// <summary>
+    /// #2346 negative gate: a synthetic package whose unit references a
+    /// skill bundle declaring <c>nonexistent.foo</c> — a namespace no
+    /// <see cref="Cvoya.Spring.Core.Skills.ISkillRegistry"/> exposes and
+    /// which the image-tier
+    /// <see cref="Cvoya.Spring.Core.Skills.IImageToolsReader"/> does not
+    /// surface either — fails install with a
+    /// <see cref="Cvoya.Spring.Core.Skills.SkillBundleValidationException"/>
+    /// carrying a
+    /// <see cref="Cvoya.Spring.Core.Skills.SkillBundleValidationProblemReason.ToolNotAvailable"/>
+    /// problem. The endpoint layer maps that exception to a 400 with
+    /// <c>code: "RequiredToolUnresolved"</c> (see
+    /// <c>PackageInstallEndpoints.ExecuteInstallAsync</c>'s catch
+    /// block).
+    /// </summary>
+    [Fact]
+    public async Task InstallBundleWithUnresolvedRequiredTool_FailsWithToolNotAvailable()
+    {
+        using var pkg = BuildPackageWithSkillBundle("nonexistent.foo");
+        using var fx = BuildFixtureForRoot(pkg.Root);
+        await SeedSkillBundleBindingAsync(fx, pkg.PackageName);
+
+        var target = new InstallTarget(
+            PackageName: pkg.PackageName,
+            Inputs: new Dictionary<string, string>(),
+            OriginalYaml: pkg.PackageYaml,
+            PackageRoot: pkg.PackageRoot);
+
+        var ex = await Should.ThrowAsync<Cvoya.Spring.Core.Skills.SkillBundleValidationException>(
+            () => fx.Service.InstallAsync(
+                new[] { target },
+                TestContext.Current.CancellationToken));
+
+        ex.Problems.ShouldContain(p =>
+            p.Reason == Cvoya.Spring.Core.Skills.SkillBundleValidationProblemReason.ToolNotAvailable
+            && p.ToolName == "nonexistent.foo");
+    }
+
+    /// <summary>
+    /// #2346 positive companion to the synthetic-package negative: a
+    /// bundle that declares a tool in the <c>sv.*</c> namespace — exposed
+    /// by the platform's
+    /// <see cref="Cvoya.Spring.Dapr.Skills.SvDirectorySkillRegistry"/> —
+    /// installs cleanly under strict validation.
+    /// </summary>
+    [Fact]
+    public async Task InstallBundleWithSvNamespaceRequiredTool_Succeeds()
+    {
+        using var pkg = BuildPackageWithSkillBundle("sv.get_self");
+        using var fx = BuildFixtureForRoot(pkg.Root);
+        await SeedSkillBundleBindingAsync(fx, pkg.PackageName);
+
+        var target = new InstallTarget(
+            PackageName: pkg.PackageName,
+            Inputs: new Dictionary<string, string>(),
+            OriginalYaml: pkg.PackageYaml,
+            PackageRoot: pkg.PackageRoot);
+
+        var result = await fx.Service.InstallAsync(
+            new[] { target },
+            TestContext.Current.CancellationToken);
+
+        var pkgResult = result.PackageResults.Single();
+        pkgResult.Status.ShouldBe(
+            PackageInstallOutcome.Active,
+            $"install failed with: {pkgResult.ErrorMessage}");
+    }
+
+    /// <summary>
+    /// Seeds an enabled <c>tenant_skill_bundle_bindings</c> row so the
+    /// tenant-filtering bundle resolver lets the synthetic package's
+    /// bundle through. Without this the resolver wrapper rejects the
+    /// lookup before the validator even runs.
+    /// </summary>
+    private static async Task SeedSkillBundleBindingAsync(Fixture fx, string packageName)
+    {
+        await using var scope = fx.ScopeFactory.CreateAsyncScope();
+        var bindingService = scope.ServiceProvider
+            .GetRequiredService<Cvoya.Spring.Core.Skills.ITenantSkillBundleBindingService>();
+        await bindingService.BindAsync(packageName, enabled: true, TestContext.Current.CancellationToken);
+    }
+
     // ── Fixture helpers ──────────────────────────────────────────────────
 
     private sealed class Fixture : IDisposable
@@ -438,7 +557,9 @@ public class PackageInstallServiceIntegrationTests : IDisposable
         public void Dispose() => Provider.Dispose();
     }
 
-    private Fixture BuildFixture()
+    private Fixture BuildFixture() => BuildFixtureForRoot(_packagesRoot);
+
+    private Fixture BuildFixtureForRoot(string packagesRoot)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -454,8 +575,8 @@ public class PackageInstallServiceIntegrationTests : IDisposable
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Tenancy:BootstrapDefaultTenant"] = "false",
-                ["Packages:Root"] = _packagesRoot,
-                ["Skills:PackagesRoot"] = _packagesRoot,
+                ["Packages:Root"] = packagesRoot,
+                ["Skills:PackagesRoot"] = packagesRoot,
             })
             .Build();
         services.AddSingleton<IConfiguration>(config);
@@ -482,13 +603,23 @@ public class PackageInstallServiceIntegrationTests : IDisposable
         // semantics mean ours wins.
         services.AddCvoyaSpringDapr(config);
 
+        // Replace the Dapr state store with an in-memory fake AFTER the
+        // Dapr DI graph wires its real DaprStateStore (Dapr uses
+        // AddSingleton, not TryAdd, so an earlier registration would lose
+        // the race). Install paths that write skill-bundle blobs through
+        // the state store (units with `ai.skills:` entries) need this — the
+        // real DaprStateStore needs a live sidecar the integration suite
+        // doesn't stand up.
+        services.RemoveAll<Cvoya.Spring.Core.State.IStateStore>();
+        services.AddSingleton<Cvoya.Spring.Core.State.IStateStore, FakeStateStore>();
+
         // Wire the Host.Api install pipeline + catalog. Pinning
         // PackageCatalogOptions before AddCvoyaSpringApiServices ensures
         // the catalog points at the in-repo packages/ root (the
         // extension's auto-discovery is best-effort).
         services.AddSingleton<PackageCatalogOptions>(_ => new PackageCatalogOptions
         {
-            Root = _packagesRoot,
+            Root = packagesRoot,
         });
         services.AddCvoyaSpringApiServices(config);
 
@@ -513,6 +644,155 @@ public class PackageInstallServiceIntegrationTests : IDisposable
             Inputs: new Dictionary<string, string>(),
             OriginalYaml: yaml,
             PackageRoot: packageRoot);
+    }
+
+    /// <summary>
+    /// Builds a synthetic single-unit package on temp disk whose unit
+    /// references one skill bundle declaring a single
+    /// <see cref="Cvoya.Spring.Core.Skills.SkillToolRequirement"/> with
+    /// the supplied <paramref name="toolName"/>. Layout follows the
+    /// ADR-0043 recursive shape (<c>skills/&lt;skill&gt;/&lt;skill&gt;.md</c>
+    /// + adjacent <c>&lt;skill&gt;.tools.json</c>) so the package walker
+    /// accepts it and the file-system bundle resolver finds the prompt.
+    /// </summary>
+    private static StrictValidationPackage BuildPackageWithSkillBundle(string toolName)
+    {
+        var stamp = Guid.NewGuid().ToString("N")[..8];
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "spring-voyage-tests",
+            $"strict-validation-{stamp}");
+        Directory.CreateDirectory(root);
+
+        var packageName = $"strict-validation-{stamp}";
+        var skillName = "synthetic-skill";
+        var unitName = $"unit-{stamp}";
+
+        // Package root.
+        var packageRoot = Path.Combine(root, packageName);
+        Directory.CreateDirectory(packageRoot);
+        var packageYaml = $"""
+            apiVersion: spring.voyage/v1
+            kind: Package
+            name: {packageName}
+            description: Synthetic single-unit package for the #2346 strict-validation tests.
+            version: 1.0.0
+            """;
+        File.WriteAllText(Path.Combine(packageRoot, "package.yaml"), packageYaml);
+
+        // Unit that references the skill bundle.
+        var unitDir = Path.Combine(packageRoot, "units", unitName);
+        Directory.CreateDirectory(unitDir);
+        File.WriteAllText(Path.Combine(unitDir, "package.yaml"), $"""
+            apiVersion: spring.voyage/v1
+            kind: Unit
+            name: {unitName}
+            description: Unit referencing a synthetic skill bundle.
+            ai:
+              runtime: claude-code
+              model:
+                provider: anthropic
+                id: claude-sonnet-4-6
+              skills:
+                - package: {packageName}
+                  skill: {skillName}
+            instructions: |
+              You exercise the strict skill-bundle validator.
+            execution:
+              image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+            """);
+
+        // Skill bundle: prompt + tools.json. ADR-0043 recursive layout —
+        // skills/<skill>/<skill>.md + skills/<skill>/<skill>.tools.json.
+        // A `package.yaml` next to the prompt makes the package walker
+        // treat the folder as a Skill artefact rather than rejecting it
+        // as the legacy flat layout.
+        var skillDir = Path.Combine(packageRoot, "skills", skillName);
+        Directory.CreateDirectory(skillDir);
+        File.WriteAllText(Path.Combine(skillDir, "package.yaml"), $"""
+            apiVersion: spring.voyage/v1
+            kind: Skill
+            name: {skillName}
+            description: Synthetic skill that exercises strict tool validation.
+            """);
+        File.WriteAllText(Path.Combine(skillDir, $"{skillName}.md"),
+            "## Synthetic skill prompt");
+        File.WriteAllText(Path.Combine(skillDir, $"{skillName}.tools.json"), $$"""
+            [
+              {
+                "name": "{{toolName}}",
+                "description": "Tool exercised by the #2346 strict-validation tests.",
+                "parameters": { "type": "object" }
+              }
+            ]
+            """);
+
+        return new StrictValidationPackage
+        {
+            Root = root,
+            PackageRoot = packageRoot,
+            PackageName = packageName,
+            PackageYaml = packageYaml,
+        };
+    }
+
+    /// <summary>
+    /// In-memory <see cref="Cvoya.Spring.Core.State.IStateStore"/>
+    /// substitute for the integration suite — the real
+    /// <see cref="Cvoya.Spring.Dapr.State.DaprStateStore"/> needs a live
+    /// Dapr sidecar, which the test host doesn't run. Persists JSON-
+    /// serialised values per-key so install paths that round-trip skill
+    /// bundles (<see cref="Cvoya.Spring.Dapr.Skills.StateStoreBackedUnitSkillBundleStore"/>)
+    /// stay green without standing up Dapr.
+    /// </summary>
+    private sealed class FakeStateStore : Cvoya.Spring.Core.State.IStateStore
+    {
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _values = new();
+
+        public Task<T?> GetAsync<T>(string key, CancellationToken ct = default)
+        {
+            if (!_values.TryGetValue(key, out var json))
+            {
+                return Task.FromResult<T?>(default);
+            }
+            var value = System.Text.Json.JsonSerializer.Deserialize<T>(json);
+            return Task.FromResult(value);
+        }
+
+        public Task SetAsync<T>(string key, T value, CancellationToken ct = default)
+        {
+            _values[key] = System.Text.Json.JsonSerializer.Serialize(value);
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteAsync(string key, CancellationToken ct = default)
+        {
+            _values.TryRemove(key, out _);
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> ContainsAsync(string key, CancellationToken ct = default) =>
+            Task.FromResult(_values.ContainsKey(key));
+    }
+
+    private sealed class StrictValidationPackage : IDisposable
+    {
+        public required string Root { get; init; }
+        public required string PackageRoot { get; init; }
+        public required string PackageName { get; init; }
+        public required string PackageYaml { get; init; }
+
+        public void Dispose()
+        {
+            try
+            {
+                if (Directory.Exists(Root))
+                {
+                    Directory.Delete(Root, recursive: true);
+                }
+            }
+            catch { /* best effort */ }
+        }
     }
 
     private sealed class MultiTopLevelPackage : IDisposable

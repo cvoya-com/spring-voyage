@@ -1314,6 +1314,15 @@ public class PackageInstallService : IPackageInstallService
             {
                 throw;
             }
+            catch (Cvoya.Spring.Core.Skills.SkillBundleValidationException)
+            {
+                // #2346: strict RequiredTool validation is a Phase-1 class of
+                // failure — operator-actionable manifest drift. Let it bubble
+                // up so PackageInstallEndpoints renders a 400 with
+                // `code: RequiredToolUnresolved` rather than swallowing it
+                // into a Phase-2 per-artefact outcome.
+                throw;
+            }
             catch (Exception ex)
             {
                 var msg = ex.Message;

@@ -79,15 +79,28 @@ public class FileSystemSkillBundleResolver : ISkillBundleResolver
 
         var (packageDir, packageRoot) = ResolvePackageDirectory(reference.Package);
         var skillsDir = Path.Combine(packageDir, "skills");
-        var promptPath = Path.Combine(skillsDir, reference.Skill + ".md");
+
+        // ADR-0043 recursive layout (the in-repo packages have used this
+        // since #2307): `skills/<skill>/<skill>.md` next to a
+        // sibling `<skill>.tools.json`. Prefer the recursive form; fall
+        // back to the legacy flat `skills/<skill>.md` so test fixtures
+        // and older bundles continue to resolve cleanly.
+        var recursiveDir = Path.Combine(skillsDir, reference.Skill);
+        var promptPath = Path.Combine(recursiveDir, reference.Skill + ".md");
+        var toolsPath = Path.Combine(recursiveDir, reference.Skill + ".tools.json");
+        if (!File.Exists(promptPath))
+        {
+            // Legacy flat fallback.
+            promptPath = Path.Combine(skillsDir, reference.Skill + ".md");
+            toolsPath = Path.Combine(skillsDir, reference.Skill + ".tools.json");
+        }
+
         if (!File.Exists(promptPath))
         {
             throw new SkillBundleNotFoundException(reference.Package, reference.Skill, promptPath);
         }
 
         var prompt = await File.ReadAllTextAsync(promptPath, cancellationToken).ConfigureAwait(false);
-
-        var toolsPath = Path.Combine(skillsDir, reference.Skill + ".tools.json");
         IReadOnlyList<SkillToolRequirement> requirements;
         if (File.Exists(toolsPath))
         {
