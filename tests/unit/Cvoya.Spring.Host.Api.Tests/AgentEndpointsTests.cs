@@ -14,10 +14,12 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Host.Api.Models;
 
 using global::Dapr.Actors;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 using NSubstitute;
@@ -842,6 +844,168 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body.ShouldNotBeNull();
         body.Agent.EffectiveTools.ShouldNotBeNull();
         body.Agent.EffectiveTools!.ShouldBeEmpty();
+    }
+
+    // -------------------------------------------------------------------
+    // GET /api/v1/tenant/agents/{id} — execution.image tag projection (#2348).
+    //
+    // The Show endpoint reads the agent's effective `execution.image`
+    // slot through IAgentDefinitionProvider — the same path the
+    // dispatcher uses. The merge with the parent unit's defaults (via
+    // IUnitExecutionStore in #601 / #603) flows through automatically,
+    // so the same resolution path covers both "agent declares image"
+    // and "agent inherits image from parent unit".
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task GetAgent_ExecutionImage_PopulatedFromAgentDefinition()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Image Agent");
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 0, channels: 0);
+
+        var definitionJson = JsonSerializer.SerializeToElement(new
+        {
+            execution = new
+            {
+                agent = "claude",
+                image = "acme/agent:v1.2",
+            },
+        });
+
+        await SeedAgentDefinitionAsync(agentId, "Image Agent", definitionJson, ct);
+
+        try
+        {
+            var response = await _client.GetAsync($"/api/v1/tenant/agents/{agentId:N}", ct);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+            var body = await response.Content
+                .ReadFromJsonAsync<AgentDetailResponse>(JsonOptions, ct);
+            body.ShouldNotBeNull();
+            body.Agent.ExecutionImage.ShouldBe("acme/agent:v1.2");
+        }
+        finally
+        {
+            await ClearAgentDefinitionAsync(agentId, ct);
+        }
+    }
+
+    [Fact]
+    public async Task GetAgent_ExecutionImage_InheritedFromParentUnit()
+    {
+        // The agent declares only the runtime id; the parent unit
+        // declares the image. The provider's #601/#603 merge fills the
+        // agent's image slot from the unit's defaults.
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        var unitId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Inheriting Agent");
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 0, channels: 0);
+
+        var agentDefinition = JsonSerializer.SerializeToElement(new
+        {
+            execution = new { agent = "claude" },
+        });
+        await SeedAgentDefinitionAsync(agentId, "Inheriting Agent", agentDefinition, ct);
+        await SeedAgentParentMembershipAsync(agentId, unitId, ct);
+
+        // The provider reads the parent unit's execution defaults via
+        // IUnitExecutionStore — the test factory's substitute returns
+        // null by default, so arrange the inherited image here.
+        _factory.UnitExecutionStore
+            .GetAsync(unitId.ToString("N"), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<UnitExecutionDefaults?>(
+                new UnitExecutionDefaults(Image: "acme/agent:v1.2")));
+
+        try
+        {
+            var response = await _client.GetAsync($"/api/v1/tenant/agents/{agentId:N}", ct);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+            var body = await response.Content
+                .ReadFromJsonAsync<AgentDetailResponse>(JsonOptions, ct);
+            body.ShouldNotBeNull();
+            body.Agent.ExecutionImage.ShouldBe("acme/agent:v1.2");
+        }
+        finally
+        {
+            await ClearAgentDefinitionAsync(agentId, ct);
+            await ClearMembershipsAsync(ct);
+        }
+    }
+
+    [Fact]
+    public async Task GetAgent_ExecutionImage_NullWhenNeitherAgentNorUnitDeclareImage()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "No Image Agent");
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 0, channels: 0);
+
+        // No AgentDefinitionEntity seeded → provider returns null → field
+        // collapses to JSON null. The envelope still renders so the Show
+        // endpoint stays usable while the operator finishes configuration.
+        var response = await _client.GetAsync($"/api/v1/tenant/agents/{agentId:N}", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content
+            .ReadFromJsonAsync<AgentDetailResponse>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+        body.Agent.ExecutionImage.ShouldBeNull();
+    }
+
+    private async Task SeedAgentDefinitionAsync(
+        Guid agentId,
+        string displayName,
+        JsonElement definition,
+        CancellationToken ct)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        db.AgentDefinitions.Add(new AgentDefinitionEntity
+        {
+            Id = agentId,
+            TenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+            DisplayName = displayName,
+            Definition = definition,
+            CreatedAt = now,
+            UpdatedAt = now,
+        });
+        await db.SaveChangesAsync(ct);
+    }
+
+    private async Task ClearAgentDefinitionAsync(Guid agentId, CancellationToken ct)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await db.AgentDefinitions
+            .FirstOrDefaultAsync(a => a.Id == agentId, ct);
+        if (row is not null)
+        {
+            db.AgentDefinitions.Remove(row);
+            await db.SaveChangesAsync(ct);
+        }
+    }
+
+    private async Task SeedAgentParentMembershipAsync(
+        Guid agentId,
+        Guid unitId,
+        CancellationToken ct)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var repo = scope.ServiceProvider
+            .GetRequiredService<Cvoya.Spring.Core.Units.IUnitMembershipRepository>();
+        await repo.UpsertAsync(
+            new Cvoya.Spring.Core.Units.UnitMembership(unitId, agentId, Enabled: true),
+            ct);
+    }
+
+    private async Task ClearMembershipsAsync(CancellationToken ct)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        db.UnitMemberships.RemoveRange(db.UnitMemberships.ToList());
+        await db.SaveChangesAsync(ct);
     }
 
     private void ArrangeAgentDirectoryEntry(Guid agentId, string displayName)

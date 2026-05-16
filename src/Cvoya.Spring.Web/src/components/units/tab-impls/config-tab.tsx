@@ -82,8 +82,6 @@ export interface ConfigTabProps {
   kind: ConfigSubjectKind;
   /** Stable id of the subject (tenant id, unit id, or agent id). */
   id: string;
-  /** Display name — used by sub-tab bodies that surface a header label. */
-  name: string;
   /**
    * For Agent only: the id of the agent's owning unit, when known. The
    * `<AgentExecutionPanel>` overlays inherited defaults from the owning
@@ -167,7 +165,6 @@ function parseSubTab(
 export function ConfigTab({
   kind,
   id,
-  name,
   parentUnitId = null,
   status,
 }: ConfigTabProps) {

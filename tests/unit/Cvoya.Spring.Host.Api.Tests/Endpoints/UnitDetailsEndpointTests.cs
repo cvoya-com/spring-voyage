@@ -320,6 +320,113 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         second.GetProperty("provenance").GetString().ShouldBe("connector:github");
     }
 
+    // -------------------------------------------------------------------
+    // GET /api/v1/tenant/units/{id} — execution.image tag projection (#2348).
+    //
+    // The Show endpoint reads the unit's `execution.image` slot through
+    // IAgentDefinitionProvider (the same path the dispatcher uses) and
+    // surfaces the tag on UnitResponse.ExecutionImage so the portal's
+    // Tools sub-tab Image section can render the tag rather than the
+    // digest-suffixed provenance string. Both populated + null paths are
+    // exercised; a malformed definition surfaces as null.
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task GetUnit_ExecutionImage_PopulatedFromDefinitionJson()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Running);
+        proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
+            .Returns(new UnitMetadata(null, null, null, null));
+        proxy.GetMembersAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<Address>());
+
+        ArrangeResolved(proxy);
+
+        // Seed the UnitDefinitionEntity with an execution block carrying
+        // both the runtime id and the image tag — IAgentDefinitionProvider
+        // requires `execution.agent` to project the block (see #1732 /
+        // DbAgentDefinitionProvider.ExtractExecution).
+        var definitionJson = JsonSerializer.SerializeToElement(new
+        {
+            execution = new
+            {
+                agent = "claude",
+                image = "acme/agent:v1.2",
+            },
+        });
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.UnitDefinitions.Add(new UnitDefinitionEntity
+            {
+                Id = ActorEngineering_Id,
+                TenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+                DisplayName = UnitDisplayName,
+                Description = "test",
+                Definition = definitionJson,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        try
+        {
+            var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitName}", ct);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+            var body = await response.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(body);
+
+            var unit = doc.RootElement.GetProperty("unit");
+            unit.GetProperty("executionImage").GetString().ShouldBe("acme/agent:v1.2");
+        }
+        finally
+        {
+            using var scope = _factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            var row = await db.UnitDefinitions
+                .FirstOrDefaultAsync(u => u.Id == ActorEngineering_Id, ct);
+            if (row is not null)
+            {
+                db.UnitDefinitions.Remove(row);
+                await db.SaveChangesAsync(ct);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GetUnit_ExecutionImage_NullWhenDefinitionMissing()
+    {
+        // No UnitDefinitionEntity seeded — the provider returns null and
+        // the wire field collapses to JSON null. The unit envelope still
+        // renders so the Show endpoint stays usable while the operator
+        // fills the missing execution block.
+        var ct = TestContext.Current.CancellationToken;
+
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
+            .Returns(new UnitMetadata(null, null, null, null));
+        proxy.GetMembersAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<Address>());
+
+        ArrangeResolved(proxy);
+
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitName}", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(body);
+
+        var unit = doc.RootElement.GetProperty("unit");
+        unit.GetProperty("executionImage").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
     [Fact]
     public async Task GetUnit_NoValidationTracking_DtoFieldsAreNull()
     {

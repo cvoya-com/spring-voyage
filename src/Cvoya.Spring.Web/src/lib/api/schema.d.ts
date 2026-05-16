@@ -2645,6 +2645,7 @@ export interface components {
             lifecycleError?: null | string;
             instructions?: null | string;
             effectiveTools?: null | components["schemas"]["EffectiveToolResponse"][];
+            executionImage?: null | string;
         };
         AgentRuntimeStatusResponse: {
             status: string;
@@ -3784,6 +3785,7 @@ export interface components {
             enabled: boolean;
             executionMode?: components["schemas"]["AgentExecutionMode"];
             effectiveTools?: null | components["schemas"]["EffectiveToolResponse"][];
+            executionImage?: null | string;
         };
         UnitSecretsListResponse: {
             secrets: components["schemas"]["SecretMetadata"][];

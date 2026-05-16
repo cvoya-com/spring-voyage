@@ -71,6 +71,7 @@ const IMAGE_TOOL: EffectiveToolResponse = {
 
 function buildAgentDetail(
   effectiveTools: EffectiveToolResponse[],
+  executionImage: string | null = null,
 ): AgentDetailResponse {
   return {
     agent: {
@@ -84,12 +85,16 @@ function buildAgentDetail(
       executionMode: "auto",
       parentUnit: "Engineering",
       effectiveTools,
+      executionImage,
     },
     status: null,
   } as unknown as AgentDetailResponse;
 }
 
-function buildUnit(effectiveTools: EffectiveToolResponse[]): UnitResponse {
+function buildUnit(
+  effectiveTools: EffectiveToolResponse[],
+  executionImage: string | null = null,
+): UnitResponse {
   return {
     id: "00000000000000000000000000000010",
     name: "00000000000000000000000000000010",
@@ -101,6 +106,7 @@ function buildUnit(effectiveTools: EffectiveToolResponse[]): UnitResponse {
     color: null,
     enabled: true,
     effectiveTools,
+    executionImage,
   } as unknown as UnitResponse;
 }
 
@@ -232,14 +238,61 @@ describe("ToolsPanel (#2337 Sub D)", () => {
     await screen.findByTestId("tab-unit-tools");
 
     const imageSection = screen.getByTestId("tab-unit-tools-image");
-    // The image label falls back to the digest portion of the image:
-    // provenance until the execution block is wired in.
-    expect(imageSection.textContent).toContain("sha256:abc123");
+    // #2348: when the unit's executionImage is null the header falls
+    // back to the literal "Image" string — the legacy digest-suffix
+    // derivation from the image:<digest> provenance has been removed.
+    expect(imageSection.textContent).toContain("Image");
+    expect(imageSection.textContent).not.toContain("sha256:abc123");
     // Tool count chip.
     expect(imageSection.textContent).toContain("1 tool");
     expect(
       screen.getByTestId("tab-unit-tools-image-tool-acme.transcode_audio"),
     ).toBeInTheDocument();
+  });
+
+  it("renders the executionImage tag in the Image header when the server populates it (#2348, Unit)", async () => {
+    getUnit.mockResolvedValue(
+      buildUnit([IMAGE_TOOL], "acme/agent:v1.2"),
+    );
+
+    render(<ToolsPanel kind="Unit" id="engineering" />, { wrapper: Wrapper });
+
+    await screen.findByTestId("tab-unit-tools");
+
+    const imageSection = screen.getByTestId("tab-unit-tools-image");
+    expect(imageSection.textContent).toContain("acme/agent:v1.2");
+    // The digest-suffix derivation is gone — the header must not surface
+    // the per-tool provenance digest any more.
+    expect(imageSection.textContent).not.toContain("sha256:abc123");
+  });
+
+  it("renders the executionImage tag in the Image header when the server populates it (#2348, Agent)", async () => {
+    getAgent.mockResolvedValue(
+      buildAgentDetail([IMAGE_TOOL], "acme/agent:v1.2"),
+    );
+
+    render(
+      <ToolsPanel kind="Agent" id="ada" parentUnitId="engineering" />,
+      { wrapper: Wrapper },
+    );
+
+    await screen.findByTestId("tab-agent-tools");
+
+    const imageSection = screen.getByTestId("tab-agent-tools-image");
+    expect(imageSection.textContent).toContain("acme/agent:v1.2");
+    expect(imageSection.textContent).not.toContain("sha256:abc123");
+  });
+
+  it("falls back to the literal 'Image' string when executionImage is null (#2348)", async () => {
+    getUnit.mockResolvedValue(buildUnit([IMAGE_TOOL], null));
+
+    render(<ToolsPanel kind="Unit" id="engineering" />, { wrapper: Wrapper });
+
+    await screen.findByTestId("tab-unit-tools");
+
+    const imageSection = screen.getByTestId("tab-unit-tools-image");
+    expect(imageSection.textContent).toContain("Image");
+    expect(imageSection.textContent).not.toContain("sha256:abc123");
   });
 
   it("renders the Image empty state when no image tools are declared", async () => {

@@ -11,8 +11,14 @@
 //                   an "Enabled" / "Inherited from <unit>" badge based
 //                   on whether the grant flowed in from a parent unit.
 //   3. Image      — read-only list of tools the running image declared
-//                   (image:<digest> provenance). Empty-state copy
-//                   makes it clear the image declares no custom tools.
+//                   (image:<digest> provenance). The section header
+//                   renders the image *tag* sourced from the server's
+//                   `executionImage` field (#2348); the legacy
+//                   digest-suffix derivation was dropped because the
+//                   digest is opaque to operators and provenance carries
+//                   per-tool noise that does not belong in a header.
+//                   Empty-state copy makes it clear the image declares
+//                   no custom tools.
 //
 // v0.1 ships at namespace granularity — there is no per-tool toggle.
 // Per-tool deny inside a granted namespace is tracked as #2333 (v0.2).
@@ -47,7 +53,12 @@ export interface ToolsPanelProps {
 interface ToolsView {
   /** Flat list of effective tools as projected by the server. */
   tools: readonly EffectiveToolResponse[];
-  /** Image tag / digest sourced from the subject's execution block. */
+  /**
+   * Image tag sourced from the server's `executionImage` field (#2348)
+   * — e.g. `acme/agent:v1.2`. `null` when neither the subject nor its
+   * primary parent unit declares an image; the section header falls
+   * back to the literal "Image" string in that case.
+   */
   imageLabel: string | null;
 }
 
@@ -91,7 +102,7 @@ function UnitToolsView({ id }: { id: string }) {
     <ToolsBody
       testId="tab-unit-tools"
       tools={unitQuery.data?.effectiveTools ?? []}
-      imageLabel={null}
+      imageLabel={unitQuery.data?.executionImage ?? null}
       parentUnitId={null}
     />
   );
@@ -131,7 +142,7 @@ function AgentToolsView({
     <ToolsBody
       testId="tab-agent-tools"
       tools={agentQuery.data?.agent.effectiveTools ?? []}
-      imageLabel={null}
+      imageLabel={agentQuery.data?.agent.executionImage ?? null}
       parentUnitId={parentUnitId}
     />
   );
@@ -152,11 +163,14 @@ function ToolsBody({ testId, tools, imageLabel, parentUnitId }: ToolsBodyProps) 
   const platform = tools.filter((t) => t.provenance === "platform");
   const connectorGroups = groupByConnector(tools);
   const image = tools.filter((t) => t.provenance.startsWith("image:"));
-  // The image label falls back to the digest segment of any image
-  // provenance entry until the execution block is wired in (#2336 Sub C
-  // landed the column; surfacing the tag on the response is follow-up
-  // work). When neither path produces a label we degrade to "Image".
-  const inferredImageLabel = imageLabel ?? inferImageLabel(image);
+  // #2348: the section header renders the server-projected
+  // `executionImage` tag (e.g. `acme/agent:v1.2`) when present and
+  // falls back to the literal "Image" string when null. The previous
+  // digest-suffix derivation that inferred a label from the
+  // `image:<digest>` provenance is dropped — digests are opaque to
+  // operators and provenance carries per-tool noise that does not
+  // belong in a section header.
+  const renderedImageLabel = imageLabel ?? "Image";
 
   return (
     <div className="space-y-4" data-testid={testId}>
@@ -174,7 +188,7 @@ function ToolsBody({ testId, tools, imageLabel, parentUnitId }: ToolsBodyProps) 
         parentUnitId={parentUnitId}
       />
 
-      <ImageSection testId={testId} label={inferredImageLabel} tools={image} />
+      <ImageSection testId={testId} label={renderedImageLabel} tools={image} />
     </div>
   );
 }
@@ -469,19 +483,3 @@ function groupByConnector(
   return result;
 }
 
-function inferImageLabel(
-  imageTools: readonly EffectiveToolResponse[],
-): string {
-  // Image provenance is "image:<digest>" — extract the digest portion
-  // of the first entry and surface it as a fallback label until the
-  // execution block's image tag is plumbed through.
-  for (const tool of imageTools) {
-    if (tool.provenance.startsWith("image:")) {
-      const digest = tool.provenance.slice("image:".length);
-      if (digest.length > 0) {
-        return digest;
-      }
-    }
-  }
-  return "Image";
-}

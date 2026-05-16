@@ -41,7 +41,6 @@ function AgentConfigTab({ node }: TabContentProps) {
     <ConfigTab
       kind="Agent"
       id={agent.id}
-      name={agent.name}
       parentUnitId={parentUnitId}
       status={status}
     />

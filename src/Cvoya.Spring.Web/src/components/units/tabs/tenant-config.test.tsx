@@ -11,13 +11,11 @@ vi.mock("@/components/units/tab-impls/config-tab", () => ({
   ConfigTab: (props: {
     kind: string;
     id: string;
-    name: string;
   }) => (
     <div
       data-testid="canonical-config-tab"
       data-kind={props.kind}
       data-id={props.id}
-      data-name={props.name}
     />
   ),
 }));
@@ -32,12 +30,11 @@ const tenant: TenantNode = {
 };
 
 describe("TenantConfigTab — new canonical surface (#2254)", () => {
-  it("wires the canonical ConfigTab with the tenant's id + name", () => {
+  it("wires the canonical ConfigTab with the tenant's id", () => {
     render(<TenantConfigTab node={tenant} path={[tenant]} />);
     const canonical = screen.getByTestId("canonical-config-tab");
     expect(canonical.dataset.kind).toBe("Tenant");
     expect(canonical.dataset.id).toBe("tenant");
-    expect(canonical.dataset.name).toBe("Tenant");
   });
 
   it("returns null when the node is not a Tenant (defensive — registry guards this)", () => {

@@ -1020,6 +1020,7 @@ public static class AgentEndpoints
         [FromServices] IAgentExecutionStore executionStore,
         [FromServices] IInitiativeEngine initiativeEngine,
         [FromServices] IToolGrantResolver toolGrantResolver,
+        [FromServices] IAgentDefinitionProvider agentDefinitionProvider,
         [FromServices] IServiceScopeFactory scopeFactory,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -1135,6 +1136,18 @@ public static class AgentEndpoints
             id,
             cancellationToken);
 
+        // #2348: surface the agent's effective execution.image tag through
+        // IAgentDefinitionProvider — the same path the dispatcher uses, so
+        // the agent→parent-unit merge (#601 / #603) flows through
+        // automatically. Fail-open (null) — a transient definition-store
+        // outage shouldn't blank the otherwise-complete response.
+        var executionImage = await TryResolveExecutionImageAsync(
+            agentDefinitionProvider,
+            actorId,
+            loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.AgentEndpoints"),
+            id,
+            cancellationToken);
+
         var agentResponse = ToAgentResponse(
             entry,
             metadata,
@@ -1144,7 +1157,8 @@ public static class AgentEndpoints
             lifecycleError: lifecycleError,
             parentUnitId: parentUnitGuid,
             instructions: instructions,
-            effectiveTools: effectiveTools);
+            effectiveTools: effectiveTools,
+            executionImage: executionImage);
         if (!result.IsSuccess)
         {
             return Results.Ok(new AgentDetailResponse(agentResponse, null, deployment));
@@ -1769,7 +1783,8 @@ public static class AgentEndpoints
         string? lifecycleError = null,
         Guid? parentUnitId = null,
         string? instructions = null,
-        IReadOnlyList<EffectiveToolResponse>? effectiveTools = null) =>
+        IReadOnlyList<EffectiveToolResponse>? effectiveTools = null,
+        string? executionImage = null) =>
         new(
             entry.ActorId,
             // #2114: Name carries the canonical 32-char no-dash hex form
@@ -1812,7 +1827,14 @@ public static class AgentEndpoints
             // this; list paths leave it as an empty list to keep the
             // OpenAPI shape branchless. Empty list when the resolver was
             // not invoked.
-            EffectiveTools: effectiveTools ?? Array.Empty<EffectiveToolResponse>());
+            EffectiveTools: effectiveTools ?? Array.Empty<EffectiveToolResponse>(),
+            // #2348: effective execution.image tag (parent-merged via
+            // IAgentDefinitionProvider) so the portal's Tools sub-tab Image
+            // section can render the tag rather than the digest-suffixed
+            // provenance string. Null when neither the agent nor its
+            // parent unit declares an image, or when the list-path caller
+            // did not resolve it.
+            ExecutionImage: executionImage);
 
     /// <summary>
     /// Best-effort resolution of the subject's effective tool set via
@@ -1856,6 +1878,44 @@ public static class AgentEndpoints
                 subject.Scheme,
                 subjectId);
             return Array.Empty<EffectiveToolResponse>();
+        }
+    }
+
+    /// <summary>
+    /// Best-effort read of the subject's effective <c>execution.image</c>
+    /// slot via <see cref="IAgentDefinitionProvider"/>. The provider is
+    /// the same path the dispatcher uses (#601 / #603), so for agents
+    /// the merge with the primary parent unit's defaults flows through
+    /// automatically — an agent that doesn't declare its own image
+    /// inherits the unit's. Returns <c>null</c> (never throws) on a
+    /// missing definition row or a transient provider failure. Used by
+    /// both <see cref="GetAgentAsync"/> and the unit-detail endpoint
+    /// (via the shared wire DTO) so #2348's tag-label rendering has a
+    /// single resolution path.
+    /// </summary>
+    internal static async Task<string?> TryResolveExecutionImageAsync(
+        IAgentDefinitionProvider provider,
+        string subjectActorId,
+        ILogger logger,
+        string subjectId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var definition = await provider.GetByIdAsync(subjectActorId, cancellationToken);
+            var image = definition?.Execution?.Image;
+            return string.IsNullOrWhiteSpace(image) ? null : image;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Failed to resolve execution.image for subject {SubjectId}; surfacing null on the response.",
+                subjectId);
+            return null;
         }
     }
 
