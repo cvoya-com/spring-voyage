@@ -4,38 +4,84 @@
 namespace Cvoya.Spring.Host.Api.Models;
 
 /// <summary>
-/// Response body for <c>GET /api/v1/units/{id}/memories</c> and
-/// <c>GET /api/v1/agents/{id}/memories</c>. Mirrors the two-axis shape
-/// the design kit's Memory tab expects: short-term (in-flight conversational
-/// context) and long-term (persisted recall across sessions).
-/// <para>
-/// v2.0 ships the endpoint <b>contract</b> only — both lists always return
-/// empty. The write API + real backing store ship in <c>V21-memory-write</c>
-/// per plan §13. The Memory tabs render an empty-state referencing v2.1
-/// so reviewers can verify the wiring.
-/// </para>
+/// Response body for <c>GET /api/v1/tenant/units/{id}/memories</c> and
+/// <c>GET /api/v1/tenant/agents/{id}/memories</c>. Mirrors the two-axis
+/// shape the design kit's Memory tab expects: short-term (in-flight
+/// conversational context) and long-term (persisted recall across
+/// sessions).
 /// </summary>
-/// <param name="ShortTerm">Short-term memory entries. Empty in v2.0.</param>
-/// <param name="LongTerm">Long-term memory entries. Empty in v2.0.</param>
+/// <remarks>
+/// <para>
+/// The endpoint is backed by the <c>IMemoryStore</c> (#2342) and
+/// returns entries owned by the addressed agent or unit. The route
+/// also accepts <c>kind</c> (<c>long_term</c> / <c>short_term</c>),
+/// <c>topicId</c>, <c>limit</c>, and <c>offset</c> query-string
+/// parameters; when <c>kind</c> is supplied the other side of the
+/// response surfaces as an empty array so the wire shape stays stable
+/// regardless of the filter.
+/// </para>
+/// </remarks>
+/// <param name="ShortTerm">Short-term memory entries (thread-scoped working notes).</param>
+/// <param name="LongTerm">Long-term memory entries (cross-thread recall).</param>
 public record MemoriesResponse(
     IReadOnlyList<MemoryEntry> ShortTerm,
     IReadOnlyList<MemoryEntry> LongTerm);
 
 /// <summary>
-/// One memory entry. Shape is intentionally minimal-but-extensible — fields
-/// added in the v2.1 write API should append to this record so existing
-/// v2.0 clients continue to deserialize the short-term/long-term arrays
-/// without touching the response.
+/// One memory entry. Wire form for both the read API and the operator
+/// tab. Mirrors <c>Cvoya.Spring.Core.Memory.MemoryEntry</c>; the wire
+/// uses string ids (32-char no-dash hex) so OpenAPI generators can
+/// emit ergonomic client types.
 /// </summary>
 /// <param name="Id">Stable identifier for the memory entry.</param>
 /// <param name="Content">Raw entry text surfaced in the inspector.</param>
-/// <param name="CreatedAt">UTC timestamp the entry was captured.</param>
+/// <param name="CreatedAt">UTC timestamp the entry was first captured.</param>
 /// <param name="Source">
-/// Optional origin of the entry (e.g. conversation id, message id). Omitted
-/// when the entry has no referenceable upstream.
+/// Optional origin of the entry (e.g. conversation id, message id).
+/// Omitted when the entry has no referenceable upstream.
+/// </param>
+/// <param name="Kind">
+/// Memory kind. Values: <c>"long_term"</c> or <c>"short_term"</c>.
+/// </param>
+/// <param name="UpdatedAt">UTC timestamp of the last mutation.</param>
+/// <param name="TopicIds">
+/// Stable identifiers of topics this entry is linked to. Empty list
+/// when the entry has no topic associations.
+/// </param>
+/// <param name="ThreadId">
+/// Thread the entry was captured in. Populated for short-term entries;
+/// null for long-term entries.
 /// </param>
 public record MemoryEntry(
     string Id,
     string Content,
     DateTimeOffset CreatedAt,
-    string? Source = null);
+    string? Source,
+    string Kind,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<string> TopicIds,
+    string? ThreadId = null);
+
+/// <summary>
+/// Response body for <c>GET /api/v1/tenant/units/{id}/topics</c> and
+/// <c>GET /api/v1/tenant/agents/{id}/topics</c>. Returns the topics
+/// owned by the addressed agent or unit.
+/// </summary>
+/// <param name="Topics">Owner-owned topics ordered by name.</param>
+public record TopicsResponse(IReadOnlyList<MemoryTopic> Topics);
+
+/// <summary>
+/// Wire form for one memory topic. Mirrors
+/// <c>Cvoya.Spring.Core.Memory.MemoryTopic</c>.
+/// </summary>
+/// <param name="Id">Stable identifier for the topic.</param>
+/// <param name="Name">Owner-unique topic name.</param>
+/// <param name="Description">Optional free-text description.</param>
+/// <param name="CreatedAt">UTC timestamp the topic was created.</param>
+/// <param name="UpdatedAt">UTC timestamp of the last mutation.</param>
+public record MemoryTopic(
+    string Id,
+    string Name,
+    string? Description,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);

@@ -5634,7 +5634,7 @@
         "tags": [
           "Units"
         ],
-        "summary": "Read the unit's short-term and long-term memory entries (stub; full contract deferred to ADR-0029 Stage 4)",
+        "summary": "Read the unit's short-term and long-term memory entries (#2342)",
         "operationId": "GetUnitMemories",
         "parameters": [
           {
@@ -5643,6 +5643,46 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topicId",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
             }
           }
         ],
@@ -5675,7 +5715,7 @@
         "tags": [
           "Agents"
         ],
-        "summary": "Read the agent's short-term and long-term memory entries (stub; full contract deferred to ADR-0029 Stage 4)",
+        "summary": "Read the agent's short-term and long-term memory entries (#2342)",
         "operationId": "GetAgentMemories",
         "parameters": [
           {
@@ -5684,6 +5724,46 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topicId",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
             }
           }
         ],
@@ -5694,6 +5774,132 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MemoriesResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/units/{id}/topics": {
+      "get": {
+        "tags": [
+          "Units"
+        ],
+        "summary": "Read the unit's memory topics (#2342)",
+        "operationId": "GetUnitTopics",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/agents/{id}/topics": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Read the agent's memory topics (#2342)",
+        "operationId": "GetAgentTopics",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicsResponse"
                 }
               }
             }
@@ -11525,7 +11731,11 @@
         "required": [
           "id",
           "content",
-          "createdAt"
+          "createdAt",
+          "source",
+          "kind",
+          "updatedAt",
+          "topicIds"
         ],
         "type": "object",
         "properties": {
@@ -11544,6 +11754,57 @@
               "null",
               "string"
             ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "topicIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "threadId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "MemoryTopic": {
+        "required": [
+          "id",
+          "name",
+          "description",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -13389,6 +13650,20 @@
             ],
             "items": {
               "type": "string"
+            }
+          }
+        }
+      },
+      "TopicsResponse": {
+        "required": [
+          "topics"
+        ],
+        "type": "object",
+        "properties": {
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryTopic"
             }
           }
         }
