@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Host.Api.Services;
+namespace Cvoya.Spring.Dapr.Units;
 
 using System.Collections.Generic;
 using System.Linq;
@@ -9,7 +9,6 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Connectors;
-using Cvoya.Spring.Dapr.Units;
 
 using Microsoft.Extensions.Logging;
 
@@ -19,12 +18,16 @@ using Microsoft.Extensions.Logging;
 /// <see cref="IUnitConnectorConfigStore"/> and routes to the matching
 /// <see cref="IConnectorType"/> instance, mirroring the body of the legacy
 /// private static <c>DispatchConnectorStartAsync</c> on <c>UnitEndpoints</c>.
-/// The interface lives in <c>Cvoya.Spring.Dapr</c> because the
-/// <see cref="Dapr.Actors.UnitActor"/> calls it from its post-validation
-/// auto-start hook; the implementation lives here because the
-/// connector-store / <see cref="IConnectorType"/> registrations are
-/// host-wired.
 /// </summary>
+/// <remarks>
+/// #2359: lives in the shared Dapr module so the Worker host (where
+/// <see cref="Actors.UnitActor"/> runs and calls this from its post-validation
+/// auto-start hook) resolves the same implementation the API host uses. Prior
+/// to #2359 this lived in <c>Cvoya.Spring.Host.Api</c> and was only registered
+/// in the API host's DI container — every actor-driven auto-start saw a null
+/// dispatcher and silently aborted the <c>Stopped → Starting → Running</c>
+/// sequence, leaving units stuck in <c>Stopped</c>.
+/// </remarks>
 public class UnitConnectorStartDispatcher : IUnitConnectorStartDispatcher
 {
     private readonly IUnitConnectorConfigStore _configStore;

@@ -8,10 +8,11 @@ namespace Cvoya.Spring.Dapr.Units;
 /// the API endpoint so the actor's auto-start path (post-validation) can run
 /// the same logic the <c>POST /units/{id}/start</c> endpoint runs, without
 /// duplicating the EF-store / <see cref="Cvoya.Spring.Connectors.IConnectorType"/>
-/// lookup. The interface lives in <c>Cvoya.Spring.Dapr</c> because the
-/// <see cref="Actors.UnitActor"/> depends on it; the default implementation
-/// lives in the API host (<c>Cvoya.Spring.Host.Api</c>) where the
-/// connector-store wiring already lives.
+/// lookup. Both the interface and the default <see cref="UnitConnectorStartDispatcher"/>
+/// implementation live in <c>Cvoya.Spring.Dapr</c> so the Worker host (where
+/// <see cref="Actors.UnitActor"/> runs and calls this dispatcher) resolves a
+/// real implementation — see #2359 for the production bug where this lived in
+/// the API host and the Worker silently saw a null dispatcher.
 /// </summary>
 public interface IUnitConnectorStartDispatcher
 {
