@@ -272,10 +272,10 @@ Subjects: Tenant, Unit, Agent.
 | Cost-over-time sparkline card | A (today on Budgets — variance) | A | — | this tab on Unit; this tab on Tenant variance — see § 4.1 / § 5.10. |
 | Cost summary card (totals) | — | — | A | this tab |
 | Top-level units grid | A (today's `<UnitCard>` grid) | — | — | this tab |
-| Expertise card (read-only) | — | A (`<UnitOverviewExpertiseCard>`) | — | **Config → Expertise** sub-tab; Overview embeds a summary with "Manage" deep-link. |
+| Expertise card (read-only) | — | A (`<UnitOverviewExpertiseCard>`) | — | **Config → General** sub-tab (expertise editor folded into General under #2331); Overview embeds a summary with "Manage" deep-link. |
 | Engagement-portal link | — | A | A | this tab |
 
-**Subject-unique:** the Lifecycle panel is canonically owned by Agent × Deployment; Agent × Overview embeds the compact variant so deploy/undeploy is one click from the landing tab. The expertise card is canonically owned by Unit × Config → Expertise; Unit × Overview embeds a read-only summary with a Manage link.
+**Subject-unique:** the Lifecycle panel is canonically owned by Agent × Deployment; Agent × Overview embeds the compact variant so deploy/undeploy is one click from the landing tab. The expertise editor is canonically owned by Unit × Config → General (post-#2331; previously a standalone Expertise sub-tab); Unit × Overview embeds a read-only summary with a Manage link.
 
 ### 5.2 Activity
 
@@ -410,28 +410,34 @@ URL: `?tab=Config&subtab=<name>`.
 
 #### Unit × Config
 
-URL: `?tab=Config&subtab=<name>`. Sub-tabs unchanged from today.
+URL: `?tab=Config&subtab=<name>`. #2331 added General as the first sub-tab and folded the standalone Expertise sub-tab into General; every other sub-tab is preserved from #2254.
 
 | Sub-tab | Content | Canonical home |
 |---|---|---|
+| General | `<UnitGeneralPanel>` (displayName / description / model hint / color, with `<UnitExpertisePanel>` folded in) | this sub-tab |
 | Boundary | `<BoundaryTab>` | this sub-tab |
 | Execution | `<ExecutionTab>` (image / runtime / model / hosting; surfaces member-agent rows) | this sub-tab |
+| Instructions | `<InstructionsPanel kind="Unit">` | this sub-tab |
 | Connector | `<ConnectorTab>` | this sub-tab |
 | Skills | `<SkillsTab>` (per-agent toggle of skills against the catalog) | this sub-tab |
 | Secrets | `<SecretsTab>` | this sub-tab |
-| Expertise | `<UnitExpertisePanel>` | this sub-tab |
+| Budget | `<UnitBudgetPanel>` | this sub-tab |
+| Debug | Collapsible raw-status JSON | this sub-tab |
 
 #### Agent × Config
 
-URL: `?tab=Config&subtab=<name>`. Today the Agent Config tab does not use sub-tabs — it stacks four sections in one body. Under alignment we **promote those sections to sub-tabs** matching Unit's pattern, so the sub-tab strip reads consistently across subjects.
+URL: `?tab=Config&subtab=<name>`. #2254 promoted the stacked Execution / Budget / Expertise / Debug sections into a sub-tab strip; #2331 added General first and folded Expertise into it.
 
 | Sub-tab | Content | Canonical home |
 |---|---|---|
+| General | `<AgentGeneralPanel>` (displayName / description / role / model hint / specialty / enabled toggle / executionMode, with `<AgentExpertisePanel>` folded in) | this sub-tab |
 | Execution | `<AgentExecutionPanel>` (image / runtime / model / hosting + inherited-from-unit overlay) | this sub-tab |
+| Instructions | `<InstructionsPanel kind="Agent">` | this sub-tab |
 | Budget | `<AgentBudgetPanel>` (daily-budget editor) | this sub-tab |
-| Secrets | `<AgentOverridesPanel>` body **scoped to this agent** — fold the agent picker away when the tab is opened from a specific Agent node | this sub-tab |
-| Expertise | `<AgentExpertisePanel>` | this sub-tab |
-| Debug | Collapsible raw-status JSON (today's `<DebugSection>`) | this sub-tab |
+| Connector | inherited-from-unit read-only view | this sub-tab |
+| Skills | `<EquippedSkillsTab kind="Agent">` | this sub-tab |
+| Secrets | `<AgentOverridesPanel>` body **scoped to this agent** | this sub-tab |
+| Debug | Collapsible raw-status JSON | this sub-tab |
 
 **Why Agent gains a Secrets sub-tab.** Today agent-scope secret overrides live exclusively on the `/settings` page (`<AgentOverridesPanel>`), which forces the operator to leave the agent's Detail Pane, pick the agent from a dropdown, then edit. Under alignment **the canonical home for agent-scope secret overrides is Agent × Config → Secrets**, mirroring Unit × Config → Secrets. The `/settings` panel becomes a convenience entry point: when opened standalone it keeps the agent picker; when reached via the Agent Detail Pane the picker is hidden and the panel scopes to the open agent. **No new agent-scope-secret editing capability is added** — the panel and the API are unchanged.
 

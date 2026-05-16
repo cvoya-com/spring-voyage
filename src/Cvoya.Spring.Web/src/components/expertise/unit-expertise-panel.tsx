@@ -12,7 +12,8 @@
  *      address (agent:// or unit://) and depth from this unit so
  *      operators can see where a capability is actually declared.
  *
- * Consumed from the Unit Config → Expertise sub-tab. The read-only
+ * Consumed from the Unit Config → General sub-tab — the standalone
+ * Expertise sub-tab was folded into General under #2331. The read-only
  * "Expertise" summary card on the Unit Overview tab uses only the
  * aggregated hook directly (see `unit-overview.tsx`).
  */

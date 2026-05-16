@@ -49,19 +49,22 @@ public interface IDirectoryService
     Task<IReadOnlyList<DirectoryEntry>> ListAllAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Updates the mutable, directory-owned metadata fields (<see cref="DirectoryEntry.DisplayName"/>
-    /// and <see cref="DirectoryEntry.Description"/>) for an existing entry. Passing
-    /// <c>null</c> for a field leaves the existing value untouched, making this method
-    /// safe for partial PATCH-style updates.
+    /// Updates the mutable, directory-owned metadata fields (<see cref="DirectoryEntry.DisplayName"/>,
+    /// <see cref="DirectoryEntry.Description"/>, and <see cref="DirectoryEntry.Role"/>) for an
+    /// existing entry. Passing <c>null</c> for a field leaves the existing value untouched, making
+    /// this method safe for partial PATCH-style updates. <see cref="DirectoryEntry.Role"/> is only
+    /// meaningful for agent entries; the field is ignored for non-agent schemes.
     /// </summary>
     /// <param name="address">The address of the entry to update.</param>
     /// <param name="displayName">The new display name, or <c>null</c> to leave unchanged.</param>
     /// <param name="description">The new description, or <c>null</c> to leave unchanged.</param>
+    /// <param name="role">The new role identifier (agent entries only), or <c>null</c> to leave unchanged.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The updated entry, or <c>null</c> if no entry existed for <paramref name="address"/>.</returns>
     Task<DirectoryEntry?> UpdateEntryAsync(
         Address address,
         string? displayName,
         string? description,
+        string? role = null,
         CancellationToken cancellationToken = default);
 }

@@ -646,7 +646,7 @@ public static class UnitEndpoints
         if (request.DisplayName is not null || request.Description is not null)
         {
             var updatedEntry = await directoryService.UpdateEntryAsync(
-                address, request.DisplayName, request.Description, cancellationToken);
+                address, request.DisplayName, request.Description, role: null, cancellationToken: cancellationToken);
 
             entry = updatedEntry ?? entry;
         }

@@ -70,7 +70,7 @@ describe("UnitOverviewExpertiseCard (issue #936)", () => {
       "unit-overview-expertise-manage",
     ) as HTMLAnchorElement;
     expect(manage.getAttribute("href")).toBe(
-      "/units?node=engineering&tab=Config&subtab=Expertise",
+      "/units?node=engineering&tab=Config&subtab=General",
     );
   });
 

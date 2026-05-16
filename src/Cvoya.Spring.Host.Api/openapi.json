@@ -14068,6 +14068,24 @@
       "UpdateAgentMetadataRequest": {
         "type": "object",
         "properties": {
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "role": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "model": {
             "type": [
               "null",

@@ -3813,6 +3813,9 @@ export interface components {
             safesearch: boolean;
         };
         UpdateAgentMetadataRequest: {
+            displayName?: null | string;
+            description?: null | string;
+            role?: null | string;
             model?: null | string;
             specialty?: null | string;
             enabled?: null | boolean;

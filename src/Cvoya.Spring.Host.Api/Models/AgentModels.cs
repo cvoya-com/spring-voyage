@@ -130,6 +130,14 @@ public record AgentResponse(
 /// </summary>
 /// <remarks>
 /// <para>
+/// <see cref="DisplayName"/>, <see cref="Description"/>, and <see cref="Role"/>
+/// live on the directory entity and are routed through
+/// <see cref="Cvoya.Spring.Core.Directory.IDirectoryService.UpdateEntryAsync"/> —
+/// mirrors the same split <see cref="UpdateUnitRequest"/> uses for unit metadata.
+/// <see cref="DisplayName"/> passes the same validation gate
+/// (<c>DisplayNameProblems</c>) the create flow uses.
+/// </para>
+/// <para>
 /// <see cref="Instructions"/> is a tri-state slot per ADR-0043: omitting the
 /// property leaves the agent's <c>instructions</c> unchanged; an explicit JSON
 /// <c>null</c> clears it; a string replaces it. The DTO collapses absent /
@@ -141,6 +149,9 @@ public record AgentResponse(
 /// </para>
 /// </remarks>
 public record UpdateAgentMetadataRequest(
+    string? DisplayName = null,
+    string? Description = null,
+    string? Role = null,
     string? Model = null,
     string? Specialty = null,
     bool? Enabled = null,

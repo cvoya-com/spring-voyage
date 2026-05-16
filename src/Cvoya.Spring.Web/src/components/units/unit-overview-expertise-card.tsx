@@ -7,8 +7,8 @@
  * Pulls both `useUnitOwnExpertise` (own declarations) and
  * `useUnitAggregatedExpertise` (rolled-up subtree view) and renders
  * two compact chip rows. The "Manage" link jumps to the Unit Config →
- * Expertise sub-tab where the full editor lives (user's explicit
- * choice of placement).
+ * General sub-tab — that's where the expertise editor lives after
+ * #2331 folded the standalone Expertise sub-tab into General.
  */
 
 import Link from "next/link";
@@ -43,7 +43,7 @@ export function UnitOverviewExpertiseCard({
 
   const own = ownQuery.data ?? [];
   const aggregated = aggregatedQuery.data?.entries ?? [];
-  const manageHref = `/units?node=${encodeURIComponent(unitId)}&tab=Config&subtab=Expertise`;
+  const manageHref = `/units?node=${encodeURIComponent(unitId)}&tab=Config&subtab=General`;
 
   const loading = ownQuery.isPending || aggregatedQuery.isPending;
   const empty = own.length === 0 && aggregated.length === 0;
