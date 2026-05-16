@@ -9,7 +9,7 @@ using Cvoya.Spring.Core.Capabilities;
 /// <summary>
 /// Persistence abstraction for the agent live-config tables introduced
 /// in #2048 / ADR-0040: <c>agent_live_config</c> (1:1),
-/// <c>agent_skill_grants</c> (N), and <c>agent_expertise</c> (N).
+/// <c>agent_tool_grants</c> (N, #2335 Sub B), and <c>agent_expertise</c> (N).
 /// Encapsulates the single-row-per-(tenant, agent, key) invariants so
 /// the actor write path and any read consumer agree on the schema
 /// without taking a direct dependency on <see cref="SpringDbContext"/>.

@@ -11042,7 +11042,8 @@
           "configSchemaUrl",
           "installedAt",
           "updatedAt",
-          "config"
+          "config",
+          "toolNamespace"
         ],
         "type": "object",
         "properties": {
@@ -11078,6 +11079,9 @@
           },
           "config": {
             "$ref": "#/components/schemas/JsonElement"
+          },
+          "toolNamespace": {
+            "type": "string"
           }
         }
       },

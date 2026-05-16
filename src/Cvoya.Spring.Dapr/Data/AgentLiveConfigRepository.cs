@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Data;
 
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Data.Entities;
 
 using Microsoft.EntityFrameworkCore;
@@ -12,7 +13,7 @@ using Microsoft.EntityFrameworkCore;
 /// <summary>
 /// EF-backed implementation of <see cref="IAgentLiveConfigRepository"/>.
 /// Reads and writes <see cref="AgentLiveConfigEntity"/>,
-/// <see cref="AgentSkillGrantEntity"/>, and
+/// <see cref="AgentToolGrantEntity"/>, and
 /// <see cref="AgentExpertiseEntity"/> rows; the <c>SpringDbContext</c>
 /// stamps <c>TenantId</c> from the ambient <c>ITenantContext</c> on
 /// insert and applies the per-entity tenant query filter on read.
@@ -85,11 +86,15 @@ public class AgentLiveConfigRepository(SpringDbContext context) : IAgentLiveConf
     /// <inheritdoc />
     public async Task<string[]> GetSkillsAsync(Guid agentId, CancellationToken cancellationToken = default)
     {
-        return await context.AgentSkillGrants
+        // #2335 Sub B: the persisted-skills surface continues to return the
+        // operator-explicit grants only (the legacy semantics of "what did
+        // the operator equip"). Connector / platform / image-tier tools
+        // are recovered through IToolGrantResolver, not through this read.
+        return await context.AgentToolGrants
             .AsNoTracking()
-            .Where(s => s.AgentId == agentId)
-            .OrderBy(s => s.SkillName)
-            .Select(s => s.SkillName)
+            .Where(s => s.AgentId == agentId && s.Provenance == ToolProvenance.Explicit)
+            .OrderBy(s => s.ToolName)
+            .Select(s => s.ToolName)
             .ToArrayAsync(cancellationToken);
     }
 
@@ -110,8 +115,12 @@ public class AgentLiveConfigRepository(SpringDbContext context) : IAgentLiveConf
             .OrderBy(s => s, StringComparer.Ordinal)
             .ToArray();
 
-        var existing = await context.AgentSkillGrants
-            .Where(s => s.AgentId == agentId)
+        // #2335 Sub B: only "explicit" rows are touched by the operator-
+        // facing write path. Connector / image rows are owned by the
+        // binding pipeline; clobbering them here would let an operator
+        // accidentally revoke the auto-grants that ride on a connector.
+        var existing = await context.AgentToolGrants
+            .Where(s => s.AgentId == agentId && s.Provenance == ToolProvenance.Explicit)
             .ToListAsync(cancellationToken);
 
         var keep = new HashSet<string>(normalised, StringComparer.OrdinalIgnoreCase);
@@ -119,27 +128,28 @@ public class AgentLiveConfigRepository(SpringDbContext context) : IAgentLiveConf
         // Remove rows that are no longer in the list.
         foreach (var row in existing)
         {
-            if (!keep.Contains(row.SkillName))
+            if (!keep.Contains(row.ToolName))
             {
-                context.AgentSkillGrants.Remove(row);
+                context.AgentToolGrants.Remove(row);
             }
         }
 
-        // Add rows for skills that aren't yet persisted.
+        // Add rows for tools that aren't yet persisted.
         var existingNames = new HashSet<string>(
-            existing.Select(s => s.SkillName), StringComparer.OrdinalIgnoreCase);
+            existing.Select(s => s.ToolName), StringComparer.OrdinalIgnoreCase);
 
         var now = DateTimeOffset.UtcNow;
-        foreach (var skill in normalised)
+        foreach (var tool in normalised)
         {
-            if (!existingNames.Contains(skill))
+            if (!existingNames.Contains(tool))
             {
-                context.AgentSkillGrants.Add(new AgentSkillGrantEntity
+                context.AgentToolGrants.Add(new AgentToolGrantEntity
                 {
-                    Id = Guid.NewGuid(),
                     AgentId = agentId,
-                    SkillName = skill,
-                    GrantedAt = now,
+                    Namespace = ToolNaming.GetNamespace(tool),
+                    ToolName = tool,
+                    Provenance = ToolProvenance.Explicit,
+                    CreatedAt = now,
                 });
             }
         }

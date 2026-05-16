@@ -4,6 +4,7 @@ using System.Text.Json;
 using Cvoya.Spring.Dapr.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Cvoya.Spring.Dapr.Data.Migrations
 {
     [DbContext(typeof(SpringDbContext))]
-    partial class SpringDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260516014625_ToolGrantsReshape")]
+    partial class ToolGrantsReshape
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -191,10 +194,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
                         .HasColumnName("display_name");
-
-                    b.Property<JsonElement?>("ImageTools")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("image_tools");
 
                     b.Property<string>("Role")
                         .HasMaxLength(512)
@@ -1191,10 +1190,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("display_name");
 
-                    b.Property<JsonElement?>("ImageTools")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("image_tools");
-
                     b.Property<Guid?>("InstallId")
                         .HasColumnType("uuid")
                         .HasColumnName("install_id");
@@ -1214,11 +1209,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.Property<string>("LastValidationRunId")
                         .HasColumnType("text")
                         .HasColumnName("last_validation_run_id");
-
-                    b.Property<string>("Role")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)")
-                        .HasColumnName("role");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
@@ -1348,16 +1338,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("color");
 
-                    b.Property<bool>("Enabled")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("enabled");
-
-                    b.Property<int>("ExecutionMode")
-                        .HasColumnType("integer")
-                        .HasColumnName("execution_mode");
-
                     b.Property<bool>("ExpertiseInitialised")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1382,11 +1362,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
                         .HasColumnName("provider");
-
-                    b.Property<string>("Specialty")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("specialty");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")

@@ -85,6 +85,13 @@ public record ConnectorUnitBindingResponse(
 /// Opaque per-tenant config payload. <c>null</c> for connectors with no
 /// tenant-level configuration.
 /// </param>
+/// <param name="ToolNamespace">
+/// Tool-name namespace owned by this connector (#2335 Sub B). Every tool
+/// the connector exposes uses ids of the form
+/// <c>&lt;ToolNamespace&gt;.&lt;tool_name&gt;</c>. Surfaced so the portal
+/// can render the "Enable all <c>&lt;namespace&gt;.*</c>" group without a
+/// second round-trip. Defaults to <see cref="TypeSlug"/>.
+/// </param>
 public record InstalledConnectorResponse(
     Guid TypeId,
     string TypeSlug,
@@ -95,7 +102,8 @@ public record InstalledConnectorResponse(
     string ConfigSchemaUrl,
     DateTimeOffset InstalledAt,
     DateTimeOffset UpdatedAt,
-    System.Text.Json.JsonElement? Config);
+    System.Text.Json.JsonElement? Config,
+    string ToolNamespace);
 
 /// <summary>
 /// Request body for <c>POST /api/v1/tenant/connectors/{slugOrId}/bind</c>.

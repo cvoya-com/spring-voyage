@@ -26,6 +26,11 @@ internal class ConnectorDefinitionEntityConfiguration : IEntityTypeConfiguration
         builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.DisplayName).HasColumnName("display_name").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Type).HasColumnName("type").IsRequired().HasMaxLength(64);
+        builder.Property(e => e.ToolNamespace)
+            .HasColumnName("tool_namespace")
+            .IsRequired()
+            .HasMaxLength(64)
+            .HasDefaultValue(string.Empty);
         builder.Property(e => e.Config).HasColumnName("config").HasColumnType("jsonb");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();

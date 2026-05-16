@@ -167,11 +167,21 @@ public class SpringDbContext : DbContext
     public DbSet<AgentLiveConfigEntity> AgentLiveConfigs => Set<AgentLiveConfigEntity>();
 
     /// <summary>
-    /// Gets the set of agent skill-grant rows (#2048 / ADR-0040). One row
-    /// per (agent, skill); replaces the actor-state <c>Agent:Skills</c>
-    /// list.
+    /// Gets the set of agent tool-grant rows (#2335 Sub B). One row per
+    /// <c>(tenant, agent, tool_name, provenance)</c>; replaces the
+    /// pre-#2335 <c>agent_skill_grants</c> table with a shape that
+    /// carries the provenance tier (platform / connector / image /
+    /// explicit) on every row.
     /// </summary>
-    public DbSet<AgentSkillGrantEntity> AgentSkillGrants => Set<AgentSkillGrantEntity>();
+    public DbSet<AgentToolGrantEntity> AgentToolGrants => Set<AgentToolGrantEntity>();
+
+    /// <summary>
+    /// Gets the set of unit tool-grant rows (#2335 Sub B). Symmetric to
+    /// <see cref="AgentToolGrants"/>; the auto-grant pipeline writes one
+    /// row per <c>&lt;ToolNamespace&gt;.*</c> tool on connector bind and
+    /// removes them on unbind.
+    /// </summary>
+    public DbSet<UnitToolGrantEntity> UnitToolGrants => Set<UnitToolGrantEntity>();
 
     /// <summary>
     /// Gets the set of agent expertise rows (#2048 / ADR-0040). One row
@@ -249,7 +259,8 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new UnitHumanPermissionEntityConfiguration());
         modelBuilder.ApplyConfiguration(new MessageEntityConfiguration());
         modelBuilder.ApplyConfiguration(new AgentLiveConfigEntityConfiguration());
-        modelBuilder.ApplyConfiguration(new AgentSkillGrantEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new AgentToolGrantEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new UnitToolGrantEntityConfiguration());
         modelBuilder.ApplyConfiguration(new AgentExpertiseEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitLiveConfigEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitExpertiseEntityConfiguration());
@@ -334,8 +345,12 @@ public class SpringDbContext : DbContext
         modelBuilder.Entity<AgentLiveConfigEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
 
-        // Agent skill grants: tenant-scoped, no soft-delete (#2048 / ADR-0040).
-        modelBuilder.Entity<AgentSkillGrantEntity>()
+        // Agent tool grants: tenant-scoped, no soft-delete (#2335 Sub B).
+        modelBuilder.Entity<AgentToolGrantEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Unit tool grants: tenant-scoped, no soft-delete (#2335 Sub B).
+        modelBuilder.Entity<UnitToolGrantEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
 
         // Agent expertise: tenant-scoped, no soft-delete (#2048 / ADR-0040).
@@ -411,6 +426,18 @@ public class SpringDbContext : DbContext
                     && entry.Properties.FirstOrDefault(p => p.Metadata.Name == nameof(ITenantScopedEntity.TenantId)) is { } tenantIdProperty)
                 {
                     tenantIdProperty.CurrentValue = _tenantContext.CurrentTenantId;
+                }
+
+                // #2335 Sub B: default ToolNamespace to Type on insert
+                // when the caller did not supply one. Mirrors
+                // IConnectorType.ToolNamespace's default-to-Slug
+                // behaviour at the row layer so a connector_definitions
+                // INSERT lands with a non-empty namespace even when the
+                // write site predates Sub B.
+                if (entry.Entity is ConnectorDefinitionEntity connectorDef
+                    && string.IsNullOrEmpty(connectorDef.ToolNamespace))
+                {
+                    connectorDef.ToolNamespace = connectorDef.Type;
                 }
 
                 if (entry.Properties.FirstOrDefault(p => p.Metadata.Name == "CreatedAt") is { } createdAt)

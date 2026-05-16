@@ -500,7 +500,11 @@ public static class ConnectorEndpoints
             ConfigSchemaUrl: $"/api/v1/tenant/connectors/{type.Slug}/config-schema",
             InstalledAt: install.InstalledAt,
             UpdatedAt: install.UpdatedAt,
-            Config: install.Config.Config);
+            Config: install.Config.Config,
+            // #2335 Sub B: surface the connector's tool namespace on the
+            // install response so the portal can render the namespace
+            // grant grouping without a second round-trip.
+            ToolNamespace: type.ToolNamespace);
 
     private static async Task<IResult> ValidateConnectorCredentialAsync(
         string slugOrId,
