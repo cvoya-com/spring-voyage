@@ -35,7 +35,6 @@ import type {
   AgentDetailResponse,
   AgentExecutionResponse,
   AgentResponse,
-  AgentSkillsResponse,
   AggregatedExpertiseResponse,
   AnalyticsCostTimeseriesResponse,
   BudgetResponse,
@@ -61,7 +60,6 @@ import type {
   PersistentAgentDeploymentResponse,
   PersistentAgentLogsResponse,
   PlatformInfoResponse,
-  SkillCatalogEntry,
   TenantCostTimeseriesResponse,
   ThroughputRollupResponse,
   TokenResponse,
@@ -435,37 +433,6 @@ export function useSetUnitBudget(
 }
 
 /**
- * Read a unit's equipped skills (#2276). Mirrors `spring agent skills get`
- * against the unit's actor id. Returns empty list on any error so the
- * Skills tab renders the empty state instead of an error boundary.
- */
-export function useUnitSkills(
-  id: string,
-  opts?: SliceOptions<AgentSkillsResponse>,
-): UseQueryResult<AgentSkillsResponse, Error> {
-  return useQuery({
-    queryKey: queryKeys.units.skills(id),
-    queryFn: () => api.getUnitSkills(id),
-    enabled: opts?.enabled ?? Boolean(id),
-    refetchInterval: opts?.refetchInterval,
-    staleTime: opts?.staleTime,
-  });
-}
-
-export function useSetUnitSkills(
-  id: string,
-): UseMutationResult<AgentSkillsResponse, Error, string[]> {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (skills: string[]) => api.setUnitSkills(id, skills),
-    onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.units.skills(id), data);
-      queryClient.invalidateQueries({ queryKey: queryKeys.units.skills(id) });
-    },
-  });
-}
-
-/**
  * Current deployment status for a unit (#2274). Returns `null` on 404
  * (unit removed) so the Deployment tab renders the empty state. Mirrors
  * the agent deployment hook but backed by the unit-keyed endpoint.
@@ -578,68 +545,6 @@ export function useAgentInitiativePolicy(
     enabled: opts?.enabled ?? Boolean(id),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,
-  });
-}
-
-/**
- * Read an agent's currently-equipped skills (QUALITY-agent-skills-write,
- * #900). The Explorer's Agent → Skills tab rides this hook; it mirrors
- * `spring agent skills get` on the wire.
- */
-export function useAgentSkills(
-  id: string,
-  opts?: SliceOptions<AgentSkillsResponse>,
-): UseQueryResult<AgentSkillsResponse, Error> {
-  return useQuery({
-    queryKey: queryKeys.agents.skills(id),
-    queryFn: () => api.getAgentSkills(id),
-    enabled: opts?.enabled ?? Boolean(id),
-    refetchInterval: opts?.refetchInterval,
-    staleTime: opts?.staleTime,
-  });
-}
-
-/**
- * Tenant skill catalog (QUALITY-agent-skills-write, #900). Feeds the
- * "Add skill" combobox on the Explorer Agent → Skills tab; matches
- * `spring skills list` on the wire. Catalog is low-churn (changes only
- * when a connector is installed or a registry updates) so the default
- * staleness is long enough to dedupe repeat opens of the tab without
- * trapping freshly-installed entries.
- */
-export function useSkillsCatalog(
-  opts?: SliceOptions<SkillCatalogEntry[]>,
-): UseQueryResult<SkillCatalogEntry[], Error> {
-  return useQuery({
-    queryKey: queryKeys.skills.catalog(),
-    queryFn: () => api.listSkills(),
-    staleTime: opts?.staleTime ?? 5 * 60 * 1000,
-    refetchInterval: opts?.refetchInterval,
-    enabled: opts?.enabled ?? true,
-  });
-}
-
-/**
- * Replace the agent's skill set (QUALITY-agent-skills-write, #900). The
- * server PUT is a full replacement, so callers pass the complete
- * post-mutation list (not a diff). Invalidates
- * `queryKeys.agents.skills(id)` on success so the tab list refreshes.
- *
- * Mirrors `spring agent skills set <agent> -- <skill>…` on the CLI.
- */
-export function useSetAgentSkills(
-  id: string,
-): UseMutationResult<AgentSkillsResponse, Error, string[]> {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (skills: string[]) => api.setAgentSkills(id, skills),
-    onSuccess: (data) => {
-      // Seed the cache with the server's authoritative list (PUT is a
-      // full replacement), then invalidate so any other observer
-      // refetches if needed.
-      queryClient.setQueryData(queryKeys.agents.skills(id), data);
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents.skills(id) });
-    },
   });
 }
 

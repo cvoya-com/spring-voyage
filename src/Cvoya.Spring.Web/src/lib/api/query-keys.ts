@@ -26,7 +26,6 @@ export const queryKeys = {
     all: ["agents"] as const,
     list: () => ["agents", "list"] as const,
     detail: (id: string) => ["agents", "detail", id] as const,
-    skills: (id: string) => ["agents", "skills", id] as const,
     memberships: (id: string) => ["agents", "memberships", id] as const,
     cost: (id: string) => ["agents", "cost", id] as const,
     budget: (id: string) => ["agents", "budget", id] as const,
@@ -78,7 +77,6 @@ export const queryKeys = {
       ["units", "costTimeseries", id, window, bucket] as const,
     /** Runtime-status indicator polled by `<RuntimeStatusBadge>` (#2100). */
     runtimeStatus: (id: string) => ["units", "runtimeStatus", id] as const,
-    skills: (id: string) => ["units", "skills", id] as const,
     budget: (id: string) => ["units", "budget", id] as const,
     deployment: (id: string) => ["units", "deployment", id] as const,
   },
@@ -214,10 +212,6 @@ export const queryKeys = {
   installs: {
     all: ["installs"] as const,
     detail: (id: string) => ["installs", "detail", id] as const,
-  },
-
-  skills: {
-    catalog: () => ["skills", "catalog"] as const,
   },
 
   ollama: {
