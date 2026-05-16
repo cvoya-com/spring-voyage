@@ -137,6 +137,54 @@ public class TemplateResolverTests
     }
 
     [Fact]
+    public async Task ResolveAsync_DisplayName_ScalarMerge_InstanceWinsAndTemplateFills()
+    {
+        // ADR-0043 §5d: `displayName:` is a scalar at the top level —
+        // instance wins when both declare it; template fills the gap when
+        // only the template declares it. This is the precedence the
+        // install pipeline relies on for template-stamped artefacts.
+        using var pkg = BuildPackage(
+            files: new[]
+            {
+                ("templates/engineer/package.yaml", """
+                    apiVersion: spring.voyage/v1
+                    kind: AgentTemplate
+                    name: engineer
+                    displayName: Engineer (template label)
+                    description: An engineering archetype.
+                    """),
+                // Instance declares its own displayName → wins.
+                ("agents/ada/package.yaml", """
+                    apiVersion: spring.voyage/v1
+                    kind: Agent
+                    name: ada
+                    displayName: Ada (engineer)
+                    description: x
+                    from: engineer
+                    """),
+                // Instance leaves displayName unset → template's value flows through.
+                ("agents/hopper/package.yaml", """
+                    apiVersion: spring.voyage/v1
+                    kind: Agent
+                    name: hopper
+                    description: x
+                    from: engineer
+                    """),
+            });
+
+        var resolved = await ParseAsync(pkg.Root);
+        var output = await new TemplateResolver().ResolveAsync(
+            resolved, pkg.Root, TestContext.Current.CancellationToken);
+
+        var ada = output.Agents.Single(a => a.Name == "ada");
+        ada.Content!.ShouldContain("displayName: Ada (engineer)");
+        ada.Content!.ShouldNotContain("Engineer (template label)");
+
+        var hopper = output.Agents.Single(a => a.Name == "hopper");
+        hopper.Content!.ShouldContain("Engineer (template label)");
+    }
+
+    [Fact]
     public async Task ResolveAsync_MapField_DeepMergesWithConsumerKeysWinning()
     {
         // ADR-0043 §5d: maps deep-merge. The template ships

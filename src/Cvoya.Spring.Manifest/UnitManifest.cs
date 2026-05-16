@@ -29,6 +29,17 @@ public class UnitManifest
     [YamlMember(Alias = "name")]
     public string? Name { get; set; }
 
+    /// <summary>
+    /// Optional human-friendly label for the unit. When set, surfaces as
+    /// the unit's <c>DisplayName</c> on the persisted definition and in
+    /// every read API / CLI / portal projection; when null or whitespace,
+    /// the persistence layer falls back to <see cref="Name"/>. An
+    /// install-time operator override (<c>--display-name</c>) still wins
+    /// over both fields for the package's top-level activatable.
+    /// </summary>
+    [YamlMember(Alias = "displayName")]
+    public string? DisplayName { get; set; }
+
     /// <summary>Human-readable single-line description of the unit's purpose.</summary>
     [YamlMember(Alias = "description")]
     public string? Description { get; set; }

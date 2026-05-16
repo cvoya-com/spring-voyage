@@ -10,11 +10,16 @@ This package ships as part of the platform and is **automatically visible in the
 
 ## What this package ships
 
-- **Umbrella unit** (`units/spring-voyage-oss/`) — routes incoming work between the two sub-units.
-  - `sv-oss-software-engineering` — generalist software engineer using Claude Code. Owns implementation, code review, and the build/test/lint loop. Dispatches focused work to repository-defined persona subagents (`.claude/agents/`).
-  - `sv-oss-program-management` — generalist program manager. Owns issue triage, milestone hygiene, and native sub-issue / blocked-by relationships against `docs/plan/v0.1/README.md`.
+- **Umbrella unit** (`units/spring-voyage-oss/`, display name *Spring Voyage OSS*) — routes incoming work between the two sub-units.
+  - `sv-oss-software-engineering` (*Software Engineering*) — five engineer instances (`ada`, `hopper`, `knuth`, `ritchie`, `turing`) all stamped from the package's `software-engineer` AgentTemplate. Owns implementation, code review, and the build/test/lint loop; dispatches focused work to repository-defined persona subagents under `.claude/agents/`. Five instances let the orchestrator parallelise genuinely independent work without one instance blocking another.
+  - `sv-oss-program-management` (*Program Management*) — two PM instances (`drucker`, `deming`) stamped from the package's `program-manager` AgentTemplate. Owns issue triage, milestone hygiene, and native sub-issue / blocked-by relationships against `docs/plan/v0.1/README.md`. Two instances let triage run concurrently on disjoint issue sets.
+- **AgentTemplates** (`templates/`):
+  - `software-engineer` — the shared instructions / model / image / capabilities every engineer instance inherits.
+  - `program-manager` — the shared instructions / model / image / capabilities every PM instance inherits.
 
-Each sub-unit binds the `github` connector. Both rely on the repository's checked-in instructions (`CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the `docs/architecture/` and `docs/decisions/` indexes, the v0.1 plan-of-record) and the canonical slash-command skills under `.agents/skills/` (`/build`, `/test`, `/lint`, `/triage`, `/adr-new`, `/openapi-diff`, `/web`). The package itself ships no agent prompts that duplicate those documents — when the project's rules change, the in-repo source of truth is the only thing to edit.
+Per ADR-0043 §5d, each engineer / PM is a concrete agent folder under its sub-unit (`units/<sub-unit>/agents/<instance>/package.yaml`) declaring `from: <template>` plus its own `displayName:`. Scalars on the instance win; the template fills the rest. Each instance gets a fresh Guid identity at install time and runs in its own container, so multiple instances can handle independent tasks concurrently.
+
+Each sub-unit binds the `github` connector. Both rely on the repository's checked-in instructions (`CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the `docs/architecture/` and `docs/decisions/` indexes, the v0.1 plan-of-record) and the canonical slash-command skills under `.agents/skills/` (`/build`, `/test`, `/lint`, `/triage`, `/areas`, `/adr-new`, `/openapi-diff`, `/web`). The package itself ships no agent prompts that duplicate those documents — when the project's rules change, the in-repo source of truth is the only thing to edit.
 
 ## Required inputs
 

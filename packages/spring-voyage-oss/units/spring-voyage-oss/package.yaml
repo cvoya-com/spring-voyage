@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Unit
 name: spring-voyage-oss
+displayName: Spring Voyage OSS
 description: Spring Voyage OSS dogfooding org — routes work between the software-engineering and program-management sub-units.
 ai:
   runtime: claude-code

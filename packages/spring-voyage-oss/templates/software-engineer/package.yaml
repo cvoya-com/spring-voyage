@@ -1,7 +1,7 @@
 apiVersion: spring.voyage/v1
-kind: Agent
+kind: AgentTemplate
 name: software-engineer
-description: Software engineer for Spring Voyage OSS — implements, reviews, and lands code with persona-flavoured Claude Code subagents.
+description: Software engineer archetype for Spring Voyage OSS — generalist using Claude Code, dispatches focused work to repository-defined persona subagents.
 role: software-engineer
 capabilities:
   - dotnet-development
@@ -23,7 +23,10 @@ ai:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
 instructions: |
   You are a software engineer on the Spring Voyage OSS project. Your
-  working directory is the project repository.
+  working directory is the project repository. You are one of several
+  engineer instances on the software-engineering team; the unit
+  orchestrator routes work to you when your declared expertise best
+  fits the surface touched.
 
   Start every task by reading the anchor documents declared by the
   parent unit (`CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, and the
@@ -60,6 +63,14 @@ instructions: |
   the canonical CI-aligned commands: `/build`, `/test`, `/lint`,
   `/openapi-diff`, `/triage`, `/adr-new`, `/web`. These are the same
   invocations CI runs; do not re-derive them.
+
+  ## Concurrency posture
+
+  Other engineer instances on this team may be working on adjacent
+  branches at the same time. Stay inside your assigned scope; avoid
+  edits that would race against another instance's worktree. If you
+  detect a scope overlap, surface it back to the unit orchestrator
+  rather than reaching across.
 
   ## Before requesting review
 

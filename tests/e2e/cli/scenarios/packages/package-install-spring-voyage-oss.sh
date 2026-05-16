@@ -14,19 +14,30 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${HERE}/../../_lib.sh"
 
-# The OSS package declares units by their slug `name:` field; the API
-# echoes that slug as `displayName` when no explicit display name is
-# set on the manifest. We clean them all up via the trap because the
-# package's umbrella unit cascades its sub-units on purge.
-parent_unit="spring-voyage-oss"
+# Friendly displayNames declared by the OSS package YAMLs via the
+# top-level `displayName:` manifest slot. The CLI's `unit list` table
+# column collapses to displayName-when-present (falling back to the
+# slug `name:`), so these are the strings the operator actually sees on
+# the API wire and at the table column.
+#
+# HAND-OFF (parallel restructure in flight): these strings mirror the
+# `displayName:` values declared in
+#   packages/spring-voyage-oss/units/<slug>/package.yaml
+# A separate restructure of the OSS package YAMLs is filling those in.
+# Keep this list and the YAMLs aligned: if the OSS package ships a
+# different friendly label, update both together. The platform install
+# pipeline carries each manifest's `displayName:` through to the unit's
+# persisted DisplayName when no per-target operator override is
+# supplied.
+parent_unit="Spring Voyage OSS"
 sub_units=(
-    "sv-oss-software-engineering"
-    "sv-oss-program-management"
+    "Software Engineering"
+    "Program Management"
 )
-# Slug used by the engineering sub-unit's members-list assertion below;
-# the CLI's CliResolver matches on display name when no Guid hit is
-# found.
-engineering_unit="sv-oss-software-engineering"
+# Friendly displayName used by the engineering sub-unit's members-list
+# assertion below; the CLI's CliResolver matches on display name when no
+# Guid hit is found.
+engineering_unit="Software Engineering"
 
 # Force-delete every unit whose displayName matches `target` (and the agents
 # attached to it) via direct HTTP. The CLI cascade `unit purge` cannot

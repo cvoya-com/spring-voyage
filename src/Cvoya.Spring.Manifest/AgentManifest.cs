@@ -41,6 +41,17 @@ public class AgentManifest
     [YamlMember(Alias = "name")]
     public string? Name { get; set; }
 
+    /// <summary>
+    /// Optional human-friendly label for the agent. When set, surfaces as
+    /// the agent's <c>DisplayName</c> on the persisted directory entry and
+    /// in every read API / CLI / portal projection; when null or
+    /// whitespace, the persistence layer falls back to <see cref="Name"/>.
+    /// An install-time operator override still wins for the package's
+    /// top-level activatable (AgentPackage shape).
+    /// </summary>
+    [YamlMember(Alias = "displayName")]
+    public string? DisplayName { get; set; }
+
     /// <summary>Human-readable single-line summary of the agent (required).</summary>
     [YamlMember(Alias = "description")]
     public string? Description { get; set; }

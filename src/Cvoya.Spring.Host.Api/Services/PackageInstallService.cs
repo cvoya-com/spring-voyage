@@ -328,9 +328,21 @@ public class PackageInstallService : IPackageInstallService
                 foreach (var unit in pkg.Units.Where(a => !a.IsCrossPackage))
                 {
                     var unitId = pkgMap.GetOrMint(ArtefactKind.Unit, unit.Name);
-                    var stagedDisplayName = unit.IsTopLevel && unitOverride is not null
+                    // Display-name precedence at staging:
+                    //   1. Operator's per-target override (top-level only).
+                    //   2. Manifest's `displayName:` slot from the resolved
+                    //      (post-template-stamp) artefact content.
+                    //   3. Manifest's canonical `name:` — preserves prior
+                    //      behaviour when the YAML omits `displayName:`.
+                    // Keeping the manifest-declared label on the staging row
+                    // means Phase-2 lookups by (installId, displayName)
+                    // continue to match the row the activator writes against.
+                    var manifestDisplayName = ReadDisplayNameFromContent(unit.Content);
+                    var stagedDisplayName = (unit.IsTopLevel && unitOverride is not null)
                         ? unitOverride
-                        : unit.Name;
+                        : (!string.IsNullOrWhiteSpace(manifestDisplayName)
+                            ? manifestDisplayName!
+                            : unit.Name);
                     var entity = new UnitDefinitionEntity
                     {
                         Id = unitId,
@@ -1031,16 +1043,24 @@ public class PackageInstallService : IPackageInstallService
         // against rows minted before #2310 (no override pathway).
         foreach (var unit in pkg.Units.Where(a => !a.IsCrossPackage))
         {
-            // Probe by name first — that's the only stable handle we
-            // have when the override is unknown. The staging row carries
-            // either the manifest name or the override; both forms are
-            // searched here.
+            // Probe by every candidate handle the row could carry:
+            //   • manifest's canonical name (pre-displayName behaviour),
+            //   • manifest's declarative `displayName:` slot,
+            //   • the lone top-level row when an operator override is in play.
+            var manifestDisplayName = ReadDisplayNameFromContent(unit.Content);
             var byName = await db.UnitDefinitions
                 .IgnoreQueryFilters()
                 .Where(u => u.InstallId == installId && u.DisplayName == unit.Name)
                 .FirstOrDefaultAsync(cancellationToken);
 
             UnitDefinitionEntity? row = byName;
+            if (row is null && !string.IsNullOrWhiteSpace(manifestDisplayName))
+            {
+                row = await db.UnitDefinitions
+                    .IgnoreQueryFilters()
+                    .Where(u => u.InstallId == installId && u.DisplayName == manifestDisplayName)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
             if (row is null && unit.IsTopLevel)
             {
                 // No name match — the staging row's DisplayName must have
@@ -1057,8 +1077,14 @@ public class PackageInstallService : IPackageInstallService
             if (row is not null)
             {
                 map.Bind(ArtefactKind.Unit, unit.Name, row.Id);
-                if (unit.IsTopLevel && !string.Equals(row.DisplayName, unit.Name, StringComparison.Ordinal))
+                if (unit.IsTopLevel
+                    && !string.Equals(row.DisplayName, unit.Name, StringComparison.Ordinal)
+                    && !string.Equals(row.DisplayName, manifestDisplayName, StringComparison.Ordinal))
                 {
+                    // The row's DisplayName diverges from BOTH the manifest's
+                    // `name:` and `displayName:` — that means the operator's
+                    // per-install --display-name override produced it, so
+                    // surface it back to the activator to re-apply.
                     topLevelDisplayName = row.DisplayName;
                 }
             }
@@ -1172,6 +1198,43 @@ public class PackageInstallService : IPackageInstallService
                 throw;
             }
         }
+    }
+
+    /// <summary>
+    /// Best-effort read of the top-level <c>displayName:</c> scalar from
+    /// an artefact's resolved (post-template-stamp) YAML content. Returns
+    /// <c>null</c> when the content is missing, malformed, or omits the
+    /// field — callers fall back to the artefact's canonical <c>name:</c>.
+    /// Kept local so Phase 1 staging can label rows without spinning up a
+    /// full <see cref="ManifestParser.Parse"/> round-trip (which would
+    /// re-validate kind / apiVersion headers and throw on partial
+    /// artefacts).
+    /// </summary>
+    private static string? ReadDisplayNameFromContent(string? yamlText)
+    {
+        if (string.IsNullOrWhiteSpace(yamlText))
+        {
+            return null;
+        }
+        try
+        {
+            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+                .IgnoreUnmatchedProperties()
+                .Build();
+            var headers = deserializer.Deserialize<DisplayNameOnly>(yamlText);
+            return string.IsNullOrWhiteSpace(headers?.DisplayName) ? null : headers!.DisplayName;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private sealed class DisplayNameOnly
+    {
+        [YamlDotNet.Serialization.YamlMember(Alias = "displayName")]
+        public string? DisplayName { get; set; }
     }
 
     // ── Phase 2 helpers ────────────────────────────────────────────────────
@@ -1305,12 +1368,22 @@ public class PackageInstallService : IPackageInstallService
                     : artefact.Kind == ArtefactKind.Agent);
             var perArtefactDisplayName = isOverrideTarget ? displayNameOverride : null;
 
+            // Resolve the staging-row Guid up-front. For units the symbol map
+            // carries the Phase-1-minted id; agents have no staging row in
+            // unit_definitions so the value is unused on that branch.
+            Guid? artefactId = null;
+            if (artefact.Kind == ArtefactKind.Unit
+                && symbolMap.TryResolve(ArtefactKind.Unit, artefact.Name, out var stagedId))
+            {
+                artefactId = stagedId;
+            }
+
             try
             {
                 await _activator.ActivateAsync(
                     pkg.Name, artefact, installId, symbolMap, unitBindings, unitExecution,
                     perArtefactDisplayName, cancellationToken);
-                await FlipArtefactStateToActiveAsync(artefact, installId, perArtefactDisplayName, cancellationToken);
+                await FlipArtefactStateToActiveAsync(artefact, artefactId, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -1331,7 +1404,7 @@ public class PackageInstallService : IPackageInstallService
                 _logger.LogWarning(ex,
                     "Phase 2: activation failed for {Kind} '{Name}' in package '{Package}' (install {InstallId}).",
                     artefact.Kind, artefact.Name, pkg.Name, installId);
-                await FlipArtefactStateToFailedAsync(artefact, installId, perArtefactDisplayName, msg, cancellationToken);
+                await FlipArtefactStateToFailedAsync(artefact, artefactId, msg, cancellationToken);
                 firstError ??= msg;
                 allSucceeded = false;
                 // Continue — every artefact gets its best shot.
@@ -1345,69 +1418,68 @@ public class PackageInstallService : IPackageInstallService
 
     private async Task FlipArtefactStateToActiveAsync(
         ResolvedArtefact artefact,
-        Guid installId,
-        string? displayNameOverride,
+        Guid? artefactId,
         CancellationToken cancellationToken)
     {
+        if (artefact.Kind != ArtefactKind.Unit || artefactId is null)
+        {
+            // Agents are activated via the directory service in Phase 2 and
+            // don't have a separate staging row in unit_definitions written
+            // in Phase 1.
+            return;
+        }
+
         await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
-        if (artefact.Kind == ArtefactKind.Unit)
+        // Look up by Guid id (minted in Phase 1 from the symbol map) rather
+        // than by display name — the manifest's `displayName:` slot makes
+        // the staging row's DisplayName diverge from `artefact.Name`, and
+        // a name-based query would miss the row in that case.
+        var row = await db.UnitDefinitions
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u =>
+                u.Id == artefactId.Value,
+                cancellationToken);
+        if (row is not null)
         {
-            // #2310: the staging row's DisplayName reflects the override
-            // (when present) — look it up by the same value Phase 1 wrote.
-            var stagedDisplayName = !string.IsNullOrWhiteSpace(displayNameOverride)
-                ? displayNameOverride!
-                : artefact.Name;
-            var row = await db.UnitDefinitions
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(u =>
-                    u.InstallId == installId && u.DisplayName == stagedDisplayName,
-                    cancellationToken);
-            if (row is not null)
-            {
-                row.InstallState = PackageInstallState.Active;
-                await db.SaveChangesAsync(cancellationToken);
-            }
+            row.InstallState = PackageInstallState.Active;
+            await db.SaveChangesAsync(cancellationToken);
         }
-        // Agents are activated via the directory service in Phase 2 and don't
-        // have a separate staging row in unit_definitions written in Phase 1.
     }
 
     private async Task FlipArtefactStateToFailedAsync(
         ResolvedArtefact artefact,
-        Guid installId,
-        string? displayNameOverride,
+        Guid? artefactId,
         string errorMessage,
         CancellationToken cancellationToken)
     {
+        if (artefact.Kind != ArtefactKind.Unit || artefactId is null)
+        {
+            return;
+        }
+
         try
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
-            if (artefact.Kind == ArtefactKind.Unit)
+            var row = await db.UnitDefinitions
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(u =>
+                    u.Id == artefactId.Value,
+                    cancellationToken);
+            if (row is not null)
             {
-                var stagedDisplayName = !string.IsNullOrWhiteSpace(displayNameOverride)
-                    ? displayNameOverride!
-                    : artefact.Name;
-                var row = await db.UnitDefinitions
-                    .IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(u =>
-                        u.InstallId == installId && u.DisplayName == stagedDisplayName,
-                        cancellationToken);
-                if (row is not null)
-                {
-                    row.InstallState = PackageInstallState.Failed;
-                    await db.SaveChangesAsync(cancellationToken);
-                }
+                row.InstallState = PackageInstallState.Failed;
+                await db.SaveChangesAsync(cancellationToken);
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "Phase 2: failed to flip state to Failed for {Kind} '{Name}' (install {InstallId}).",
-                artefact.Kind, artefact.Name, installId);
+                "Phase 2: failed to flip state to Failed for {Kind} '{Name}'.",
+                artefact.Kind, artefact.Name);
         }
     }
 

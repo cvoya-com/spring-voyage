@@ -184,9 +184,19 @@ public class UnitCreationService : IUnitCreationService
         var name = !string.IsNullOrWhiteSpace(overrides.Name)
             ? overrides.Name!.Trim()
             : manifest.Name!;
+        // Display-name precedence (single-source-of-truth for both top-level
+        // and nested artefacts):
+        //   1. Operator's per-target override (only flowed for the package's
+        //      single top-level activatable from PackageInstallService).
+        //   2. Manifest's `displayName:` field (declarative slot; null when
+        //      the YAML omits it).
+        //   3. Canonical `name:` field — preserves pre-displayName behaviour
+        //      when neither (1) nor (2) is set.
         var displayName = !string.IsNullOrWhiteSpace(overrides.DisplayName)
             ? overrides.DisplayName!
-            : name;
+            : (!string.IsNullOrWhiteSpace(manifest.DisplayName)
+                ? manifest.DisplayName!
+                : name);
         var description = manifest.Description ?? string.Empty;
         // ADR-0038: ai.model is structured {provider, id}; the Model
         // hint surfaced on the unit row is the provider-scoped id.

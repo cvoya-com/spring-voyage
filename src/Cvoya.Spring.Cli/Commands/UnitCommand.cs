@@ -20,7 +20,12 @@ public static class UnitCommand
     private static readonly OutputFormatter.Column<UnitResponse>[] UnitColumns =
     {
         new("id", u => GuidDisplay.Format(u.Id)),
-        new("name", u => u.Name),
+        // Prefer the manifest-declared / operator-supplied DisplayName so
+        // packages that ship a friendly label surface it here; fall back
+        // to the slug `Name` for the (entirely valid) case where neither
+        // displayName was declared. JSON output keeps both fields via the
+        // wire shape — only the table column collapses.
+        new("name", u => !string.IsNullOrWhiteSpace(u.DisplayName) ? u.DisplayName : u.Name),
     };
 
     private static readonly OutputFormatter.Column<UnitMembershipResponse>[] MembershipColumns =

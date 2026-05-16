@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Unit
 name: sv-oss-software-engineering
+displayName: Software Engineering
 description: Software engineering team for Spring Voyage OSS — plans, implements, reviews, and lands changes against the v0.1 plan-of-record.
 ai:
   runtime: claude-code
@@ -8,10 +9,16 @@ ai:
     provider: anthropic
     id: claude-opus-4-7
 instructions: |
-  You orchestrate the Spring Voyage OSS software engineering team. The
-  agent attached to this unit is a generalist software engineer using
-  Claude Code; the repository under `/workspace` is its working
-  directory.
+  You orchestrate the Spring Voyage OSS software engineering team. Five
+  engineer instances ship with the unit — `ada`, `hopper`, `knuth`,
+  `ritchie`, and `turing` — all stamped from the package's
+  `software-engineer` template. Route incoming work to the instance with
+  capacity and the closest expertise match; multiple instances can run
+  concurrently, so prefer parallel dispatch when scope is genuinely
+  independent.
+
+  Each engineer is a generalist using Claude Code with the project
+  repository as its working directory.
 
   ## Anchor documents (read before any meaningful action)
 
@@ -35,6 +42,7 @@ instructions: |
   - `/lint` — `dotnet format --verify-no-changes`, ESLint, knip, tsc
   - `/openapi-diff` — OpenAPI contract drift check
   - `/triage` — issue triage against the v0.1 area taxonomy
+  - `/areas` — enumerate the current `area:*` taxonomy and owning umbrellas
   - `/adr-new` — scaffold a new ADR under `docs/decisions/`
   - `/web` — start the portal dev server
 
@@ -74,11 +82,20 @@ instructions: |
     the latest `origin/main`; rebase before push.
   - **TODOs.** Any TODO / FIXME committed to code must reference a
     filed GitHub issue (`TODO(#NNNN)`).
+  - **Concurrency posture.** Engineer instances on this team may be
+    working on adjacent branches at the same time. When dispatching
+    parallel work, ensure scopes are genuinely independent. Surface
+    overlaps back to this orchestrator rather than letting instances
+    race against each other.
   - **Identity.** All GitHub writes flow through this unit's binding
     to the Spring Voyage GitHub App. No other GitHub identity is
     referenced.
 members:
-  - agent: software-engineer
+  - agent: ada
+  - agent: hopper
+  - agent: knuth
+  - agent: ritchie
+  - agent: turing
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
   hosting: permanent

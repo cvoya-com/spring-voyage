@@ -684,7 +684,19 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         }
 
         var id = ScalarValue(agentNode, "id");
-        var displayName = ScalarValue(agentNode, "name");
+        // ADR-0043 §5d: `displayName:` is the declarative human-readable
+        // label; it sits at the top level alongside `name:` (the slug /
+        // address path). Honour it when present so packages that ship
+        // friendly labels for nested agents land with the right
+        // DisplayName on the directory entry. The historical fallback
+        // (use `name:` as the display label) stays in place via the
+        // coalesce below so YAMLs that omit `displayName:` keep their
+        // pre-change behaviour byte-for-byte.
+        var declaredDisplayName = ScalarValue(agentNode, "displayName");
+        var declaredName = ScalarValue(agentNode, "name");
+        var displayName = !string.IsNullOrWhiteSpace(declaredDisplayName)
+            ? declaredDisplayName
+            : declaredName;
         var role = ScalarValue(agentNode, "role");
         var description = ScalarValue(agentNode, "description");
 
