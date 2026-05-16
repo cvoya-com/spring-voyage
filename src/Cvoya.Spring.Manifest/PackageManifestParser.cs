@@ -708,7 +708,14 @@ public static class PackageManifestParser
                     Name = name,
                     SourcePackage = null,
                     Kind = kind,
-                    ResolvedPath = null,
+                    // Inline members have no file of their own; inherit the
+                    // containing unit's path so path-aware consumers (the
+                    // validator's annotation surface, the install activator's
+                    // diagnostics) point at the YAML that actually declares
+                    // them. The activator's symbol-map walks address the
+                    // synthesised artefact by name anyway, so reusing the
+                    // unit's path here is purely a diagnostic hint.
+                    ResolvedPath = artefact.ResolvedPath,
                     Content = WrapInlineBody(kind, inline.InlineBody),
                     ContainingArtefactName = artefact.Name,
                 });
