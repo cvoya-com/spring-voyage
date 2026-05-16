@@ -215,7 +215,15 @@ export function UnitCard({
           <UnitSparkline series={activitySeries} />
         </div>
 
-        <div className="relative z-[1] mt-3 flex items-center justify-between">
+        {/*
+          Footer strip stays `relative z-[1]` so interactive children paint
+          above the full-card overlay, but `pointer-events-none` lets the
+          gap between the cross-link icons and the right-hand action group
+          fall through to the overlay link — clicking that whitespace now
+          navigates to the unit instead of dying on a wrapper div.
+          Interactive descendants restore `pointer-events-auto`.
+        */}
+        <div className="pointer-events-none relative z-[1] mt-3 flex items-center justify-between">
           {/* Cross-links: activity, costs, policies. Legacy fallback —
               hidden when the `<CardTabRow>` footer is active via
               `onOpenTab`; kept for callers that have not migrated. */}
@@ -250,7 +258,7 @@ export function UnitCard({
             <Link
               href={href}
               onClick={onSelect ? (e) => { e.preventDefault(); onSelect(unit.name); } : undefined}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
+              className="pointer-events-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
               data-testid={`unit-open-${unit.name}`}
             >
               Open
@@ -263,7 +271,7 @@ export function UnitCard({
                 onClick={handleDelete}
                 aria-label={`Delete ${unit.displayName}`}
                 data-testid={`unit-delete-${unit.name}`}
-                className="h-7 w-7"
+                className="pointer-events-auto h-7 w-7"
               >
                 <Trash2 className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
               </Button>
@@ -304,7 +312,7 @@ function CrossLinkButton({
       aria-label={label}
       title={label}
       data-testid={testId}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
       {icon}
     </Link>
