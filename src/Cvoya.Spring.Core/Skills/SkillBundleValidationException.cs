@@ -66,10 +66,10 @@ public record SkillBundleValidationProblem(
     public override string ToString() => Reason switch
     {
         SkillBundleValidationProblemReason.ToolNotAvailable =>
-            $"bundle '{PackageName}/{SkillName}' requires tool '{ToolName}', which is not surfaced by any registered connector.",
+            $"Bundle '{PackageName}/{SkillName}' declares RequiredTool '{ToolName}' but no registry exposes it.",
         SkillBundleValidationProblemReason.BlockedByUnitPolicy =>
-            $"bundle '{PackageName}/{SkillName}' requires tool '{ToolName}', which unit '{DenyingUnitId}' blocks via its SkillPolicy.",
-        _ => $"bundle '{PackageName}/{SkillName}' tool '{ToolName}' failed validation.",
+            $"Bundle '{PackageName}/{SkillName}' requires tool '{ToolName}', which unit '{DenyingUnitId}' blocks via its SkillPolicy.",
+        _ => $"Bundle '{PackageName}/{SkillName}' tool '{ToolName}' failed validation.",
     };
 }
 
@@ -78,7 +78,14 @@ public record SkillBundleValidationProblem(
 /// </summary>
 public enum SkillBundleValidationProblemReason
 {
-    /// <summary>The tool is not registered by any <see cref="ISkillRegistry"/> in the host.</summary>
+    /// <summary>
+    /// The declared tool is not reachable: no registered
+    /// <see cref="ISkillRegistry"/> exposes the declaration's namespace
+    /// and the image-tier <see cref="IImageToolsReader"/> does not surface
+    /// the tool name. Blocking under strict validation (#2346); the
+    /// endpoint layer maps it to a 400 with
+    /// <c>code: "RequiredToolUnresolved"</c>.
+    /// </summary>
     ToolNotAvailable,
 
     /// <summary>The tool is registered, but a unit <c>SkillPolicy</c> denies it.</summary>

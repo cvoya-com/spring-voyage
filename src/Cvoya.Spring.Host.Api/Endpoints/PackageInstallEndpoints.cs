@@ -9,6 +9,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Host.Api.Services;
@@ -480,6 +481,61 @@ public static class PackageInstallEndpoints
             return Results.Problem(
                 detail: ex.Message,
                 statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (SkillBundleValidationException ex)
+        {
+            // #2346: strict RequiredTool validation. The bundle declares a
+            // tool whose namespace no ISkillRegistry exposes and which the
+            // image-tier IImageToolsReader does not surface either. Surface
+            // a structured 400 so the wizard / CLI render one row per
+            // unresolved tool rather than parsing the prose message.
+            var unresolved = ex.Problems
+                .Where(p => p.Reason == SkillBundleValidationProblemReason.ToolNotAvailable)
+                .ToList();
+            if (unresolved.Count > 0)
+            {
+                var first = unresolved[0];
+                var detail = $"Bundle '{first.PackageName}' declares RequiredTool "
+                    + $"'{first.ToolName}' but no registry exposes it.";
+                return Results.Problem(
+                    detail: detail,
+                    statusCode: StatusCodes.Status400BadRequest,
+                    type: "https://cvoya.com/problems/required-tool-unresolved",
+                    extensions: new Dictionary<string, object?>
+                    {
+                        ["code"] = "RequiredToolUnresolved",
+                        ["unresolved"] = unresolved
+                            .Select(p => new
+                            {
+                                package = p.PackageName,
+                                skill = p.SkillName,
+                                tool = p.ToolName,
+                            })
+                            .ToList(),
+                    });
+            }
+
+            // Pure policy-block path (no unresolved tools) — the C3 invariant
+            // is also a 400 but with a different code so client UIs can
+            // distinguish configuration drift from a missing tool surface.
+            return Results.Problem(
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest,
+                type: "https://cvoya.com/problems/skill-bundle-policy-block",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "SkillBundlePolicyBlock",
+                    ["blocked"] = ex.Problems
+                        .Where(p => p.Reason == SkillBundleValidationProblemReason.BlockedByUnitPolicy)
+                        .Select(p => new
+                        {
+                            package = p.PackageName,
+                            skill = p.SkillName,
+                            tool = p.ToolName,
+                            denyingUnit = p.DenyingUnitId,
+                        })
+                        .ToList(),
+                });
         }
         catch (ArgumentException ex)
         {

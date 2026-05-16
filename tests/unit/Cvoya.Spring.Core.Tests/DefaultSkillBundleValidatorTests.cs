@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Core.Tests;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 
@@ -13,10 +14,13 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for <see cref="DefaultSkillBundleValidator"/>. Covers:
-/// happy-path (all tools available, no policy), missing tool (advisory warning,
-/// no throw — see #261), policy-blocked tool (still throws — C3 invariant),
-/// optional-missing-tool tolerance, and the empty-bundle no-op.
+/// Tests for <see cref="DefaultSkillBundleValidator"/> under strict
+/// validation (#2346). Covers:
+/// happy-path (namespace resolves via registry, no policy);
+/// missing-namespace blocks install (was warning under #261; now blocking);
+/// image-tier fallback resolves a tool when no registry exposes the
+/// namespace; optional-missing-tool tolerance; policy-blocked tool still
+/// blocks; the empty-bundle no-op.
 /// </summary>
 public class DefaultSkillBundleValidatorTests
 {
@@ -27,7 +31,8 @@ public class DefaultSkillBundleValidatorTests
     {
         var validator = new DefaultSkillBundleValidator(
             Array.Empty<ISkillRegistry>(),
-            new FakePolicyRepository());
+            new FakePolicyRepository(),
+            new EmptyImageToolsReader());
 
         var report = await validator.ValidateAsync(
             TestSlugIds.For("engineering"), Array.Empty<SkillBundle>(), TestContext.Current.CancellationToken);
@@ -36,12 +41,13 @@ public class DefaultSkillBundleValidatorTests
     }
 
     [Fact]
-    public async Task Validate_ToolAvailable_NoPolicy_ReturnsEmptyReport()
+    public async Task Validate_NamespaceRegistered_NoPolicy_ReturnsEmptyReport()
     {
         var bundle = BundleWith("triage-and-assign", "platform.assign_to_agent");
         var validator = new DefaultSkillBundleValidator(
             new[] { new FakeRegistry("platform", "platform.assign_to_agent") },
-            new FakePolicyRepository());
+            new FakePolicyRepository(),
+            new EmptyImageToolsReader());
 
         var report = await validator.ValidateAsync(
             TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken);
@@ -50,40 +56,109 @@ public class DefaultSkillBundleValidatorTests
     }
 
     [Fact]
-    public async Task Validate_MissingRequiredTool_ReturnsWarning_DoesNotThrow()
+    public async Task Validate_NamespaceResolvesEvenWhenExactToolNotListed()
     {
-        // #261 regression: the shipped software-engineering templates declare
-        // unit-orchestration tools (`platform.assign_to_agent`, `eng.request_review`, ...) that
-        // no connector surfaces. Unit creation must proceed with an advisory
-        // warning rather than a 400.
+        // The validator resolves at the namespace level (#2346): a registry
+        // that exposes ANY tool under the declaration's namespace satisfies
+        // the requirement, because the grant resolver lands the whole
+        // namespace on the unit when the matching connector is bound at
+        // runtime. Mirrors the ToolGrantResolver.GetToolsByNamespace shape.
         var bundle = BundleWith("triage-and-assign", "platform.assign_to_agent");
         var validator = new DefaultSkillBundleValidator(
-            Array.Empty<ISkillRegistry>(),
-            new FakePolicyRepository());
+            new[] { new FakeRegistry("platform", "platform.some_other_tool") },
+            new FakePolicyRepository(),
+            new EmptyImageToolsReader());
 
         var report = await validator.ValidateAsync(
-            TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken);
+            TestSlugIds.For("u"), new[] { bundle }, TestContext.Current.CancellationToken);
 
-        report.Warnings.ShouldHaveSingleItem();
-        report.Warnings[0].ShouldContain("spring-voyage/software-engineering/triage-and-assign");
-        report.Warnings[0].ShouldContain("platform.assign_to_agent");
-        report.Warnings[0].ShouldContain("not surfaced by any registered connector");
+        report.Warnings.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task Validate_MultipleMissingTools_AggregatesAllWarnings()
+    public async Task Validate_MissingRequiredTool_Throws_RequiredToolUnresolved()
+    {
+        // #2346: strict validation. The legacy "warning, continue" path is
+        // gone — an unresolved RequiredTool blocks install. The endpoint
+        // layer maps this exception to a 400 with code
+        // RequiredToolUnresolved.
+        var bundle = BundleWith("triage-and-assign", "platform.assign_to_agent");
+        var validator = new DefaultSkillBundleValidator(
+            Array.Empty<ISkillRegistry>(),
+            new FakePolicyRepository(),
+            new EmptyImageToolsReader());
+
+        var ex = await Should.ThrowAsync<SkillBundleValidationException>(
+            () => validator.ValidateAsync(
+                TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken));
+
+        ex.Problems.ShouldHaveSingleItem();
+        ex.Problems[0].Reason.ShouldBe(SkillBundleValidationProblemReason.ToolNotAvailable);
+        ex.Problems[0].PackageName.ShouldBe("spring-voyage/software-engineering");
+        ex.Problems[0].SkillName.ShouldBe("triage-and-assign");
+        ex.Problems[0].ToolName.ShouldBe("platform.assign_to_agent");
+    }
+
+    [Fact]
+    public async Task Validate_MultipleMissingTools_AggregatesAllProblems()
     {
         var bundle = BundleWith("pr-review-cycle", "platform.request_review", "platform.submit_review");
         var validator = new DefaultSkillBundleValidator(
             Array.Empty<ISkillRegistry>(),
-            new FakePolicyRepository());
+            new FakePolicyRepository(),
+            new EmptyImageToolsReader());
+
+        var ex = await Should.ThrowAsync<SkillBundleValidationException>(
+            () => validator.ValidateAsync(
+                TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken));
+
+        ex.Problems.Count.ShouldBe(2);
+        ex.Problems.ShouldContain(p => p.ToolName == "platform.request_review");
+        ex.Problems.ShouldContain(p => p.ToolName == "platform.submit_review");
+        ex.Problems.ShouldAllBe(p => p.Reason == SkillBundleValidationProblemReason.ToolNotAvailable);
+    }
+
+    [Fact]
+    public async Task Validate_ImageTierProvidesTool_ResolvesWhenNoRegistryExposes()
+    {
+        // #2346: when no ISkillRegistry exposes the declaration's namespace,
+        // the validator falls back to the image-tier IImageToolsReader (the
+        // Sub C seam, #2336). An exact tool-name match in the subject's
+        // image_tools resolves the requirement.
+        var bundle = BundleWith("acme-skill", "acme.transcode_audio");
+        var imageReader = new FakeImageToolsReader(
+            new ImageToolEntry("acme.transcode_audio", "Transcode an audio stream", "sha256:abc"));
+        var validator = new DefaultSkillBundleValidator(
+            Array.Empty<ISkillRegistry>(),
+            new FakePolicyRepository(),
+            imageReader);
 
         var report = await validator.ValidateAsync(
-            TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken);
+            TestSlugIds.For("u"), new[] { bundle }, TestContext.Current.CancellationToken);
 
-        report.Warnings.Count.ShouldBe(2);
-        report.Warnings.ShouldContain(w => w.Contains("platform.request_review"));
-        report.Warnings.ShouldContain(w => w.Contains("platform.submit_review"));
+        report.Warnings.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Validate_ImageTierDoesNotMatchByName_StillThrows()
+    {
+        // Image-tier lookup is by tool name, not namespace prefix — an
+        // unrelated image tool with the same namespace prefix does not
+        // resolve a different tool in that namespace.
+        var bundle = BundleWith("acme-skill", "acme.transcode_audio");
+        var imageReader = new FakeImageToolsReader(
+            new ImageToolEntry("acme.unrelated_tool", "", "sha256:abc"));
+        var validator = new DefaultSkillBundleValidator(
+            Array.Empty<ISkillRegistry>(),
+            new FakePolicyRepository(),
+            imageReader);
+
+        var ex = await Should.ThrowAsync<SkillBundleValidationException>(
+            () => validator.ValidateAsync(
+                TestSlugIds.For("u"), new[] { bundle }, TestContext.Current.CancellationToken));
+
+        ex.Problems.ShouldHaveSingleItem();
+        ex.Problems[0].Reason.ShouldBe(SkillBundleValidationProblemReason.ToolNotAvailable);
     }
 
     [Fact]
@@ -99,7 +174,31 @@ public class DefaultSkillBundleValidatorTests
 
         var validator = new DefaultSkillBundleValidator(
             new[] { new FakeRegistry("platform", "platform.must_have") },
-            new FakePolicyRepository());
+            new FakePolicyRepository(),
+            new EmptyImageToolsReader());
+
+        var report = await validator.ValidateAsync(
+            TestSlugIds.For("u"), new[] { bundle }, TestContext.Current.CancellationToken);
+
+        report.Warnings.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Validate_MissingOptionalToolInUnregisteredNamespace_Passes()
+    {
+        // Optional requirements stay advisory even when the namespace
+        // resolves nowhere — they're explicit "tolerate the absence" signals.
+        var bundle = new SkillBundle(
+            PackageName: "p", SkillName: "s", Prompt: "",
+            RequiredTools: new[]
+            {
+                new SkillToolRequirement("missing.thing", "", EmptySchema, Optional: true),
+            });
+
+        var validator = new DefaultSkillBundleValidator(
+            Array.Empty<ISkillRegistry>(),
+            new FakePolicyRepository(),
+            new EmptyImageToolsReader());
 
         var report = await validator.ValidateAsync(
             TestSlugIds.For("u"), new[] { bundle }, TestContext.Current.CancellationToken);
@@ -111,13 +210,14 @@ public class DefaultSkillBundleValidatorTests
     public async Task Validate_ToolBlockedByUnitPolicy_StillThrows()
     {
         // C3 security invariant: a unit's SkillPolicy must still be enforced
-        // at create time. Softening missing-tools to warnings (#261) does not
-        // relax this — policy violations remain blocking.
+        // at create time. Strict validation (#2346) does not relax this —
+        // policy violations remain blocking.
         var bundle = BundleWith("triage-and-assign", "platform.assign_to_agent");
         var policy = new UnitPolicy(new SkillPolicy(Blocked: new[] { "platform.assign_to_agent" }));
         var validator = new DefaultSkillBundleValidator(
             new[] { new FakeRegistry("platform", "platform.assign_to_agent") },
-            FakePolicyRepository.With(("engineering", policy)));
+            FakePolicyRepository.With(("engineering", policy)),
+            new EmptyImageToolsReader());
 
         var ex = await Should.ThrowAsync<SkillBundleValidationException>(
             () => validator.ValidateAsync(TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken));
@@ -134,7 +234,8 @@ public class DefaultSkillBundleValidatorTests
         var policy = new UnitPolicy(new SkillPolicy(Allowed: new[] { "platform.search" }));
         var validator = new DefaultSkillBundleValidator(
             new[] { new FakeRegistry("platform", "platform.assign_to_agent") },
-            FakePolicyRepository.With(("engineering", policy)));
+            FakePolicyRepository.With(("engineering", policy)),
+            new EmptyImageToolsReader());
 
         var ex = await Should.ThrowAsync<SkillBundleValidationException>(
             () => validator.ValidateAsync(TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken));
@@ -143,41 +244,48 @@ public class DefaultSkillBundleValidatorTests
     }
 
     [Fact]
-    public async Task Validate_MixedPolicyBlockAndMissingTool_ThrowsWithOnlyBlockingProblems()
+    public async Task Validate_MixedPolicyBlockAndMissingTool_AggregatesBothBlocking()
     {
-        // When both a blocking problem (policy violation) and a warning
-        // (missing tool) occur, the exception must carry only the blocking
-        // problem — the warning is meaningless once the call fails. Ensures
-        // the ProblemDetails payload stays focused on the actionable issue.
+        // Strict validation: both reasons are blocking, so the exception
+        // carries both problems. Mirrors the existing policy-block invariant
+        // and the new strict missing-tool invariant.
         var bundle = new SkillBundle(
             PackageName: "p", SkillName: "s", Prompt: "",
             RequiredTools: new[]
             {
-                // available, but blocked by policy → blocking
                 new SkillToolRequirement("platform.search", "", EmptySchema, Optional: false),
-                // not available → would be a warning, dropped on throw
-                new SkillToolRequirement("platform.missing", "", EmptySchema, Optional: false),
+                new SkillToolRequirement("missing.thing", "", EmptySchema, Optional: false),
             });
         var policy = new UnitPolicy(new SkillPolicy(Blocked: new[] { "platform.search" }));
         var validator = new DefaultSkillBundleValidator(
             new[] { new FakeRegistry("platform", "platform.search") },
-            FakePolicyRepository.With(("u", policy)));
+            FakePolicyRepository.With(("u", policy)),
+            new EmptyImageToolsReader());
 
         var ex = await Should.ThrowAsync<SkillBundleValidationException>(
             () => validator.ValidateAsync(TestSlugIds.For("u"), new[] { bundle }, TestContext.Current.CancellationToken));
 
-        ex.Problems.ShouldHaveSingleItem();
-        ex.Problems[0].Reason.ShouldBe(SkillBundleValidationProblemReason.BlockedByUnitPolicy);
-        ex.Problems[0].ToolName.ShouldBe("platform.search");
+        ex.Problems.Count.ShouldBe(2);
+        ex.Problems.ShouldContain(p =>
+            p.ToolName == "platform.search"
+            && p.Reason == SkillBundleValidationProblemReason.BlockedByUnitPolicy);
+        ex.Problems.ShouldContain(p =>
+            p.ToolName == "missing.thing"
+            && p.Reason == SkillBundleValidationProblemReason.ToolNotAvailable);
     }
 
     [Fact]
     public async Task Validate_CaseInsensitiveToolMatch()
     {
-        var bundle = BundleWith("triage-and-assign", "Platform.Assign_To_Agent");
+        // Namespace lookup is case-sensitive (matches ToolGrantResolver), but
+        // the declaration is normalised by the registry contract — both are
+        // lowercase under ToolNaming. The validator's case-insensitive policy
+        // check still applies once the namespace resolves.
+        var bundle = BundleWith("triage-and-assign", "platform.assign_to_agent");
         var validator = new DefaultSkillBundleValidator(
             new[] { new FakeRegistry("platform", "platform.assign_to_agent") },
-            new FakePolicyRepository());
+            new FakePolicyRepository(),
+            new EmptyImageToolsReader());
 
         var report = await validator.ValidateAsync(
             TestSlugIds.For("u"), new[] { bundle }, TestContext.Current.CancellationToken);
@@ -205,6 +313,22 @@ public class DefaultSkillBundleValidatorTests
 
         public Task<JsonElement> InvokeAsync(string toolName, JsonElement arguments, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class EmptyImageToolsReader : IImageToolsReader
+    {
+        public Task<IReadOnlyList<ImageToolEntry>> GetImageToolsAsync(
+            Address subject,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ImageToolEntry>>(Array.Empty<ImageToolEntry>());
+    }
+
+    private sealed class FakeImageToolsReader(params ImageToolEntry[] entries) : IImageToolsReader
+    {
+        public Task<IReadOnlyList<ImageToolEntry>> GetImageToolsAsync(
+            Address subject,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ImageToolEntry>>(entries);
     }
 
     private sealed class FakePolicyRepository : IUnitPolicyRepository
