@@ -4,11 +4,11 @@
 namespace Cvoya.Spring.Host.Api.Tests.Endpoints;
 
 using System.Net;
-
 using System.Text.Json;
 
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -54,15 +54,15 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     public async Task StartUnit_HappyPath_Returns202AndTransitionsToRunning()
     {
         var ct = TestContext.Current.CancellationToken;
-        var proxy = ArrangeUnit(startingResult: new TransitionResult(true, UnitStatus.Starting, null),
-            finalResult: new TransitionResult(true, UnitStatus.Running, null));
+        var proxy = ArrangeUnit(startingResult: new TransitionResult(true, LifecycleStatus.Starting, null),
+            finalResult: new TransitionResult(true, LifecycleStatus.Running, null));
 
         var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/start", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
-        await proxy.Received(1).TransitionAsync(UnitStatus.Starting, Arg.Any<CancellationToken>());
-        await proxy.Received(1).TransitionAsync(UnitStatus.Running, Arg.Any<CancellationToken>());
+        await proxy.Received(1).TransitionAsync(LifecycleStatus.Starting, Arg.Any<CancellationToken>());
+        await proxy.Received(1).TransitionAsync(LifecycleStatus.Running, Arg.Any<CancellationToken>());
 
         // Container lifecycle must NOT be invoked — #371.
         await _factory.UnitContainerLifecycle.DidNotReceive()
@@ -74,8 +74,8 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
-        proxy.TransitionAsync(UnitStatus.Starting, Arg.Any<CancellationToken>())
-            .Returns(new TransitionResult(false, UnitStatus.Running, "cannot transition from Running to Starting"));
+        proxy.TransitionAsync(LifecycleStatus.Starting, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(false, LifecycleStatus.Running, "cannot transition from Running to Starting"));
 
         ArrangeResolved(proxy);
 
@@ -93,10 +93,10 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.TransitionAsync(UnitStatus.Stopping, Arg.Any<CancellationToken>())
-            .Returns(new TransitionResult(true, UnitStatus.Stopping, null));
-        proxy.TransitionAsync(UnitStatus.Stopped, Arg.Any<CancellationToken>())
-            .Returns(new TransitionResult(true, UnitStatus.Stopped, null));
+        proxy.TransitionAsync(LifecycleStatus.Stopping, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopping, null));
+        proxy.TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopped, null));
 
         ArrangeResolved(proxy);
 
@@ -104,8 +104,8 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
-        await proxy.Received(1).TransitionAsync(UnitStatus.Stopping, Arg.Any<CancellationToken>());
-        await proxy.Received(1).TransitionAsync(UnitStatus.Stopped, Arg.Any<CancellationToken>());
+        await proxy.Received(1).TransitionAsync(LifecycleStatus.Stopping, Arg.Any<CancellationToken>());
+        await proxy.Received(1).TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>());
 
         // Container lifecycle must NOT be invoked — #371.
         await _factory.UnitContainerLifecycle.DidNotReceive()
@@ -116,8 +116,8 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     public async Task StartUnit_BoundToConnector_InvokesConnectorStartHook()
     {
         var ct = TestContext.Current.CancellationToken;
-        var proxy = ArrangeUnit(startingResult: new TransitionResult(true, UnitStatus.Starting, null),
-            finalResult: new TransitionResult(true, UnitStatus.Running, null));
+        var proxy = ArrangeUnit(startingResult: new TransitionResult(true, LifecycleStatus.Starting, null),
+            finalResult: new TransitionResult(true, LifecycleStatus.Running, null));
 
         // ADR-0040 / #2050: the binding lookup goes through
         // IUnitConnectorConfigStore (EF), not the unit actor proxy.
@@ -137,8 +137,8 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     public async Task StartUnit_ConnectorStartHookThrows_StillTransitionsToRunning()
     {
         var ct = TestContext.Current.CancellationToken;
-        var proxy = ArrangeUnit(startingResult: new TransitionResult(true, UnitStatus.Starting, null),
-            finalResult: new TransitionResult(true, UnitStatus.Running, null));
+        var proxy = ArrangeUnit(startingResult: new TransitionResult(true, LifecycleStatus.Starting, null),
+            finalResult: new TransitionResult(true, LifecycleStatus.Running, null));
 
         var boundTypeId = _factory.StubConnectorType.TypeId;
         var boundConfig = JsonSerializer.SerializeToElement(new { owner = "acme", repo = "platform" });
@@ -151,7 +151,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/start", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
-        await proxy.Received(1).TransitionAsync(UnitStatus.Running, Arg.Any<CancellationToken>());
+        await proxy.Received(1).TransitionAsync(LifecycleStatus.Running, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -160,10 +160,10 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.TransitionAsync(UnitStatus.Stopping, Arg.Any<CancellationToken>())
-            .Returns(new TransitionResult(true, UnitStatus.Stopping, null));
-        proxy.TransitionAsync(UnitStatus.Stopped, Arg.Any<CancellationToken>())
-            .Returns(new TransitionResult(true, UnitStatus.Stopped, null));
+        proxy.TransitionAsync(LifecycleStatus.Stopping, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopping, null));
+        proxy.TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopped, null));
         var boundTypeId = _factory.StubConnectorType.TypeId;
         var boundConfig = JsonSerializer.SerializeToElement(new { owner = "acme", repo = "platform" });
         _factory.ConnectorConfigStore.GetAsync(UnitName, Arg.Any<CancellationToken>())
@@ -184,10 +184,10 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.TransitionAsync(UnitStatus.Stopping, Arg.Any<CancellationToken>())
-            .Returns(new TransitionResult(true, UnitStatus.Stopping, null));
-        proxy.TransitionAsync(UnitStatus.Stopped, Arg.Any<CancellationToken>())
-            .Returns(new TransitionResult(true, UnitStatus.Stopped, null));
+        proxy.TransitionAsync(LifecycleStatus.Stopping, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopping, null));
+        proxy.TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopped, null));
         _factory.ConnectorConfigStore.GetAsync(UnitName, Arg.Any<CancellationToken>())
             .Returns((UnitConnectorBinding?)null);
 
@@ -206,8 +206,8 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.TransitionAsync(UnitStatus.Stopping, Arg.Any<CancellationToken>())
-            .Returns(new TransitionResult(false, UnitStatus.Stopped, "cannot transition from Stopped to Stopping"));
+        proxy.TransitionAsync(LifecycleStatus.Stopping, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(false, LifecycleStatus.Stopped, "cannot transition from Stopped to Stopping"));
 
         ArrangeResolved(proxy);
 
@@ -222,8 +222,8 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     private IUnitActor ArrangeUnit(TransitionResult startingResult, TransitionResult finalResult)
     {
         var proxy = Substitute.For<IUnitActor>();
-        proxy.TransitionAsync(UnitStatus.Starting, Arg.Any<CancellationToken>()).Returns(startingResult);
-        proxy.TransitionAsync(UnitStatus.Running, Arg.Any<CancellationToken>()).Returns(finalResult);
+        proxy.TransitionAsync(LifecycleStatus.Starting, Arg.Any<CancellationToken>()).Returns(startingResult);
+        proxy.TransitionAsync(LifecycleStatus.Running, Arg.Any<CancellationToken>()).Returns(finalResult);
         ArrangeResolved(proxy);
         return proxy;
     }

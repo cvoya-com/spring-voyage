@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Units;
@@ -63,7 +64,7 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
 
         // Unit-1 is Running, Unit-2 defaults to Draft (proxy throws).
         var runningProxy = Substitute.For<IUnitActor>();
-        runningProxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Running);
+        runningProxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Running);
 
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
@@ -100,17 +101,17 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
         summary!.UnitCount.ShouldBe(2);
         summary.AgentCount.ShouldBe(1);
         summary.TotalCost.ShouldBe(25.50m);
-        summary.UnitsByStatus.ShouldContainKeyAndValue(UnitStatus.Running, 1);
-        summary.UnitsByStatus.ShouldContainKeyAndValue(UnitStatus.Draft, 1);
+        summary.UnitsByStatus.ShouldContainKeyAndValue(LifecycleStatus.Running, 1);
+        summary.UnitsByStatus.ShouldContainKeyAndValue(LifecycleStatus.Draft, 1);
         summary.RecentActivity.Count.ShouldBe(1);
         summary.RecentActivity[0].Summary.ShouldBe("Agent received message");
 
         // Verify inline unit and agent lists.
         summary.Units.Count.ShouldBe(2);
         summary.Units[0].Name.ShouldBe(Unit_Unit1_Id.ToString("N"));
-        summary.Units[0].Status.ShouldBe(UnitStatus.Running);
+        summary.Units[0].Status.ShouldBe(LifecycleStatus.Running);
         summary.Units[1].Name.ShouldBe(Unit_Unit2_Id.ToString("N"));
-        summary.Units[1].Status.ShouldBe(UnitStatus.Draft);
+        summary.Units[1].Status.ShouldBe(LifecycleStatus.Draft);
 
         summary.Agents.Count.ShouldBe(1);
         summary.Agents[0].Name.ShouldBe(Agent_Agent1_Id.ToString("N"));

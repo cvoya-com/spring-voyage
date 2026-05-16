@@ -20,7 +20,7 @@ using Xunit;
 /// casing / flag-name regressions without spinning up an API.
 ///
 /// The wait-loop behaviour itself is tested in
-/// <see cref="UnitValidationWaitLoopTests"/>; the action-level wire
+/// <see cref="ArtefactValidationWaitLoopTests"/>; the action-level wire
 /// integration is owned by the existing <c>SpringApiClientTests</c> (the
 /// Kiota-wrapper layer that <c>RevalidateUnitAsync</c> goes through).
 /// </summary>

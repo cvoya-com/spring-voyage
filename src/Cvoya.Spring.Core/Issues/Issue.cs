@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Core.Issues;
 
 using System;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// One operationally-significant condition observed about a unit or an
 /// agent — surfaced on the Overview tab and through
@@ -18,7 +20,7 @@ using System;
 /// <remarks>
 /// <para>
 /// Distinct from the existing
-/// <see cref="Cvoya.Spring.Core.Units.UnitValidationError"/>: that
+/// <see cref="Cvoya.Spring.Core.Lifecycle.ArtefactValidationError"/>: that
 /// type is the *transient* outcome of the most recent validation
 /// probe, replaced on every Validating transition. <see cref="Issue"/>
 /// is the *durable* set of currently-active concerns from any source —
@@ -42,7 +44,7 @@ using System;
 /// </param>
 /// <param name="Code">
 /// Stable code consumers branch on — same shape as the existing
-/// <see cref="Cvoya.Spring.Core.Units.UnitValidationCodes"/> values,
+/// <see cref="Cvoya.Spring.Core.Lifecycle.ArtefactValidationCodes"/> values,
 /// extended with codes from non-validation producers (e.g. <c>image-pull-failed</c>,
 /// <c>credential-rejected</c>). The translator (CLI + portal) maps codes
 /// to friendly title + advice.

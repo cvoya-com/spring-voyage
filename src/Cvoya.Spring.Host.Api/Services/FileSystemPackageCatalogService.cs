@@ -10,12 +10,14 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Manifest;
 
 using Microsoft.Extensions.Logging;
 
-using ArtefactKind = Cvoya.Spring.Manifest.ArtefactKind;
+using ArtefactKind = Cvoya.Spring.Core.Artefacts.ArtefactKind;
 
 /// <summary>
 /// File-system backed <see cref="IPackageCatalogService"/>. Scans a

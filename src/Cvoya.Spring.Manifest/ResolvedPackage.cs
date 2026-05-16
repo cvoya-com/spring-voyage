@@ -5,6 +5,9 @@ namespace Cvoya.Spring.Manifest;
 
 using System.Collections.Generic;
 
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// The fully resolved, validated output of parsing a <c>package.yaml</c>
 /// through <see cref="PackageManifestParser"/>. Produced after input

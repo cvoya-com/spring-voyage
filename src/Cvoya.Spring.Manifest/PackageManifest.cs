@@ -5,6 +5,9 @@ namespace Cvoya.Spring.Manifest;
 
 using System.Collections.Generic;
 
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Lifecycle;
+
 using YamlDotNet.Serialization;
 
 /// <summary>

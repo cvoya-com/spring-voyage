@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Capabilities;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Defines the types of activity events emitted by platform components.
 /// </summary>
@@ -76,11 +78,11 @@ public enum ActivityEventType
     ReflectionActionProposed,
 
     /// <summary>
-    /// Emitted by the <c>UnitValidationWorkflow</c> (T-04) as each probe step
+    /// Emitted by the <c>ArtefactValidationWorkflow</c> (T-04) as each probe step
     /// transitions through <c>Running</c> / <c>Succeeded</c> / <c>Failed</c>,
     /// with the unit address as <see cref="ActivityEvent.Source"/>. Payload
     /// carries at minimum <c>{step, status}</c> and, on failure,
-    /// <c>{code}</c> from <see cref="Units.UnitValidationCodes"/>. The T-06
+    /// <c>{code}</c> from <see cref="Units.ArtefactValidationCodes"/>. The T-06
     /// web detail page and the T-07 validation panel subscribe to this type
     /// to render live progress without polling. APPENDED to the end of the
     /// enum per #956: the actor-remoting wire format serialises this enum

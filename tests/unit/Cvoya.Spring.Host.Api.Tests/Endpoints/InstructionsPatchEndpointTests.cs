@@ -10,6 +10,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -265,7 +266,7 @@ public class InstructionsPatchEndpointTests : IClassFixture<CustomWebApplication
             .Returns(entry);
         var actorProxy = Substitute.For<IUnitActor>();
         actorProxy.GetStatusAsync(Arg.Any<CancellationToken>())
-            .Returns(UnitStatus.Draft);
+            .Returns(LifecycleStatus.Draft);
         actorProxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, null, null));
         _factory.ActorProxyFactory

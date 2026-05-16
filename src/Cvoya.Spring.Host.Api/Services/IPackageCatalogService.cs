@@ -7,6 +7,8 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Host.Api.Models;
 
 /// <summary>
@@ -74,7 +76,7 @@ public interface IPackageCatalogService
     /// </summary>
     Task<string?> LoadArtefactYamlAsync(
         string packageName,
-        Cvoya.Spring.Manifest.ArtefactKind kind,
+        Cvoya.Spring.Core.Artefacts.ArtefactKind kind,
         string artefactName,
         CancellationToken cancellationToken);
 }

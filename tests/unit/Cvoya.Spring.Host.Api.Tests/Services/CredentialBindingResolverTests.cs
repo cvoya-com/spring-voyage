@@ -7,7 +7,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Catalog;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Host.Api.Services;
 using Cvoya.Spring.Manifest;
 

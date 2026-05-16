@@ -6,7 +6,9 @@ namespace Cvoya.Spring.Manifest;
 using System;
 using System.Collections.Generic;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Core.Lifecycle;
 
 /// <summary>
 /// Per-install bookkeeping for the IaC-style local symbols introduced in

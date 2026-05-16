@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Skills;
@@ -129,6 +130,32 @@ public static class AgentEndpoints
             .WithSummary("Tear down a persistent agent's backing container (idempotent)")
             .Produces<PersistentAgentDeploymentResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // #2364: lifecycle-state transitions mirroring the unit surface.
+        // Agents now share the Draft → Validating → Stopped → Starting →
+        // Running state machine; these endpoints are the operator-driven
+        // entry points for manual transitions (the auto-start gate at
+        // install time drives the same flow without operator action).
+        group.MapPost("/{id}/start", StartAgentAsync)
+            .WithName("StartAgent")
+            .WithSummary("Start an agent (transitions Stopped → Starting → Running)")
+            .Produces<AgentLifecycleResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        group.MapPost("/{id}/stop", StopAgentAsync)
+            .WithName("StopAgent")
+            .WithSummary("Stop a running agent (transitions Running → Stopping → Stopped)")
+            .Produces<AgentLifecycleResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        group.MapPost("/{id}/revalidate", RevalidateAgentAsync)
+            .WithName("RevalidateAgent")
+            .WithSummary("Re-run the validation workflow for an agent (Draft/Error/Stopped → Validating). Settles in Stopped on success.")
+            .Produces<AgentLifecycleResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapPost("/{id}/scale", ScalePersistentAgentAsync)
             .WithName("ScalePersistentAgent")
@@ -1114,12 +1141,12 @@ public static class AgentEndpoints
         // cleanly" from "install failed; here's why" without grepping
         // worker logs. Fail-open (null) so a transient actor outage
         // doesn't blank the otherwise-complete response.
-        AgentLifecycleStatus? lifecycleStatus = null;
+        LifecycleStatus? lifecycleStatus = null;
         string? lifecycleError = null;
         try
         {
-            lifecycleStatus = await proxy.GetLifecycleStatusAsync(cancellationToken);
-            if (lifecycleStatus == AgentLifecycleStatus.Error)
+            lifecycleStatus = await proxy.GetStatusAsync(cancellationToken);
+            if (lifecycleStatus == LifecycleStatus.Error)
             {
                 lifecycleError = await proxy.GetLifecycleErrorAsync(cancellationToken);
             }
@@ -1833,7 +1860,7 @@ public static class AgentEndpoints
         AgentMetadata? metadata = null,
         string? hostingMode = null,
         InitiativeLevel? initiativeLevel = null,
-        AgentLifecycleStatus? lifecycleStatus = null,
+        LifecycleStatus? lifecycleStatus = null,
         string? lifecycleError = null,
         Guid? parentUnitId = null,
         string? instructions = null,
@@ -2131,4 +2158,152 @@ public static class AgentEndpoints
             ? prop.GetString()
             : null;
 
+    // ──────────────────────────────────────────────────────────────────────
+    // #2364: lifecycle-state transition endpoints.
+    // ──────────────────────────────────────────────────────────────────────
+
+    private static async Task<IResult> StartAgentAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.AgentEndpoints");
+        var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+            new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(AgentActor));
+
+        var starting = await proxy.TransitionAsync(LifecycleStatus.Starting, cancellationToken);
+        if (!starting.Success)
+        {
+            return Results.Conflict(new
+            {
+                Error = starting.RejectionReason,
+                CurrentStatus = starting.CurrentStatus,
+            });
+        }
+
+        var running = await proxy.TransitionAsync(LifecycleStatus.Running, cancellationToken);
+        if (!running.Success)
+        {
+            logger.LogError(
+                "Agent {AgentId} failed to transition to Running: {Reason}. Current status {Status}.",
+                id, running.RejectionReason, running.CurrentStatus);
+            return Results.Problem(
+                title: "Agent start failed",
+                detail: running.RejectionReason,
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        return Results.Accepted(
+            $"/api/v1/tenant/agents/{id}",
+            new AgentLifecycleResponse(entry.ActorId, running.CurrentStatus));
+    }
+
+    private static async Task<IResult> StopAgentAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.AgentEndpoints");
+        var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+            new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(AgentActor));
+
+        var stopping = await proxy.TransitionAsync(LifecycleStatus.Stopping, cancellationToken);
+        if (!stopping.Success)
+        {
+            return Results.Conflict(new
+            {
+                Error = stopping.RejectionReason,
+                CurrentStatus = stopping.CurrentStatus,
+            });
+        }
+
+        var stopped = await proxy.TransitionAsync(LifecycleStatus.Stopped, cancellationToken);
+        if (!stopped.Success)
+        {
+            logger.LogError(
+                "Agent {AgentId} failed to transition to Stopped: {Reason}. Current status {Status}.",
+                id, stopped.RejectionReason, stopped.CurrentStatus);
+            return Results.Problem(
+                title: "Agent stop failed",
+                detail: stopped.RejectionReason,
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        return Results.Accepted(
+            $"/api/v1/tenant/agents/{id}",
+            new AgentLifecycleResponse(entry.ActorId, stopped.CurrentStatus));
+    }
+
+    private static async Task<IResult> RevalidateAgentAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+            new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(AgentActor));
+
+        var current = await proxy.GetStatusAsync(cancellationToken);
+        if (current != LifecycleStatus.Draft
+            && current != LifecycleStatus.Error
+            && current != LifecycleStatus.Stopped)
+        {
+            return Results.Problem(
+                title: "Invalid state",
+                detail: $"Agent '{id}' is {current}; revalidation is only allowed from Draft, Error, or Stopped.",
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "InvalidState",
+                    ["currentStatus"] = current.ToString(),
+                });
+        }
+
+        var transition = await proxy.TransitionAsync(LifecycleStatus.Validating, cancellationToken);
+        if (!transition.Success)
+        {
+            return Results.Problem(
+                title: "Invalid state",
+                detail: transition.RejectionReason ?? "Agent could not enter Validating.",
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "InvalidState",
+                    ["currentStatus"] = transition.CurrentStatus.ToString(),
+                });
+        }
+
+        return Results.Accepted(
+            $"/api/v1/tenant/agents/{id}",
+            new AgentLifecycleResponse(entry.ActorId, transition.CurrentStatus));
+    }
 }
+
+/// <summary>
+/// Lifecycle-transition response for the agent <c>/start</c>, <c>/stop</c>,
+/// and <c>/revalidate</c> endpoints (#2364). Mirrors
+/// <c>UnitLifecycleResponse</c> shape.
+/// </summary>
+public sealed record AgentLifecycleResponse(Guid AgentId, LifecycleStatus Status);

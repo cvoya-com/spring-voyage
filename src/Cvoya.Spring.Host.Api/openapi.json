@@ -961,6 +961,159 @@
         }
       }
     },
+    "/api/v1/tenant/agents/{id}/start": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Start an agent (transitions Stopped → Starting → Running)",
+        "operationId": "StartAgent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentLifecycleResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/agents/{id}/stop": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Stop a running agent (transitions Running → Stopping → Stopped)",
+        "operationId": "StopAgent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentLifecycleResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/agents/{id}/revalidate": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Re-run the validation workflow for an agent (Draft/Error/Stopped → Validating). Settles in Stopped on success.",
+        "operationId": "RevalidateAgent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentLifecycleResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/agents/{id}/scale": {
       "post": {
         "tags": [
@@ -1878,7 +2031,7 @@
           "Units"
         ],
         "summary": "Re-run backend validation for a unit in Error or Stopped state",
-        "description": "Transitions the unit into Validating and kicks off a new UnitValidationWorkflow run. The handler returns immediately — progress is observable via SSE ValidationProgress events and the terminal state is written back by the workflow.",
+        "description": "Transitions the unit into Validating and kicks off a new ArtefactValidationWorkflow run. The handler returns immediately — progress is observable via SSE ValidationProgress events and the terminal state is written back by the workflow.",
         "operationId": "RevalidateUnit",
         "parameters": [
           {
@@ -9646,6 +9799,22 @@
           }
         }
       },
+      "AgentLifecycleResponse": {
+        "required": [
+          "agentId",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LifecycleStatus"
+          }
+        }
+      },
       "AgentResponse": {
         "required": [
           "id",
@@ -9945,6 +10114,44 @@
             }
           }
         }
+      },
+      "ArtefactValidationError": {
+        "required": [
+          "step",
+          "code",
+          "message",
+          "details"
+        ],
+        "type": "object",
+        "properties": {
+          "step": {
+            "$ref": "#/components/schemas/ArtefactValidationStep"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "details": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ArtefactValidationStep": {
+        "enum": [
+          "PullingImage",
+          "VerifyingTool",
+          "ValidatingCredential",
+          "ResolvingModel",
+          "SchedulingWorkflow"
+        ]
       },
       "AttachmentMode": {
         "enum": [
@@ -11850,6 +12057,17 @@
         }
       },
       "JsonElement": { },
+      "LifecycleStatus": {
+        "enum": [
+          "Draft",
+          "Stopped",
+          "Starting",
+          "Running",
+          "Stopping",
+          "Error",
+          "Validating"
+        ]
+      },
       "MemoriesResponse": {
         "required": [
           "shortTerm",
@@ -13888,7 +14106,7 @@
             "format": "date-time"
           },
           "status": {
-            "$ref": "#/components/schemas/UnitStatus"
+            "$ref": "#/components/schemas/LifecycleStatus"
           }
         }
       },
@@ -14079,7 +14297,7 @@
             "format": "uuid"
           },
           "status": {
-            "$ref": "#/components/schemas/UnitStatus"
+            "$ref": "#/components/schemas/LifecycleStatus"
           }
         }
       },
@@ -14249,7 +14467,7 @@
             "format": "date-time"
           },
           "status": {
-            "$ref": "#/components/schemas/UnitStatus"
+            "$ref": "#/components/schemas/LifecycleStatus"
           },
           "model": {
             "type": [
@@ -14275,7 +14493,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/UnitValidationError"
+                "$ref": "#/components/schemas/ArtefactValidationError"
               }
             ]
           },
@@ -14341,17 +14559,6 @@
           }
         }
       },
-      "UnitStatus": {
-        "enum": [
-          "Draft",
-          "Stopped",
-          "Starting",
-          "Running",
-          "Stopping",
-          "Error",
-          "Validating"
-        ]
-      },
       "UnitTemplateDetail": {
         "required": [
           "package",
@@ -14400,44 +14607,6 @@
             "type": "string"
           }
         }
-      },
-      "UnitValidationError": {
-        "required": [
-          "step",
-          "code",
-          "message",
-          "details"
-        ],
-        "type": "object",
-        "properties": {
-          "step": {
-            "$ref": "#/components/schemas/UnitValidationStep"
-          },
-          "code": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "details": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "additionalProperties": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "UnitValidationStep": {
-        "enum": [
-          "PullingImage",
-          "VerifyingTool",
-          "ValidatingCredential",
-          "ResolvingModel",
-          "SchedulingWorkflow"
-        ]
       },
       "UnitWebSearchConfigRequest": {
         "required": [

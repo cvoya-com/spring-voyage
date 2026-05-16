@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 using global::Dapr.Workflow;
@@ -18,10 +19,10 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// Failure mapping: <see cref="TimeoutException"/> surfaces as
-/// <see cref="UnitValidationCodes.ProbeTimeout"/>; any other exception surfaces
-/// as <see cref="UnitValidationCodes.ImagePullFailed"/>. Images that pull but
+/// <see cref="ArtefactValidationCodes.ProbeTimeout"/>; any other exception surfaces
+/// as <see cref="ArtefactValidationCodes.ImagePullFailed"/>. Images that pull but
 /// then fail to start surface as
-/// <see cref="UnitValidationCodes.ImageStartFailed"/> later, from
+/// <see cref="ArtefactValidationCodes.ImageStartFailed"/> later, from
 /// <see cref="RunContainerProbeActivity"/>, not here.
 /// </remarks>
 public class PullImageActivity(
@@ -50,9 +51,9 @@ public class PullImageActivity(
             _logger.LogWarning(ex, "Image pull timed out for {Image}", input.Image);
             return new PullImageActivityOutput(
                 Success: false,
-                Failure: new UnitValidationError(
-                    Step: UnitValidationStep.PullingImage,
-                    Code: UnitValidationCodes.ProbeTimeout,
+                Failure: new ArtefactValidationError(
+                    Step: ArtefactValidationStep.PullingImage,
+                    Code: ArtefactValidationCodes.ProbeTimeout,
                     Message: $"Image pull exceeded the configured timeout of {input.Timeout}.",
                     Details: new Dictionary<string, string>(StringComparer.Ordinal)
                     {
@@ -65,9 +66,9 @@ public class PullImageActivity(
             _logger.LogWarning(ex, "Image pull failed for {Image}", input.Image);
             return new PullImageActivityOutput(
                 Success: false,
-                Failure: new UnitValidationError(
-                    Step: UnitValidationStep.PullingImage,
-                    Code: UnitValidationCodes.ImagePullFailed,
+                Failure: new ArtefactValidationError(
+                    Step: ArtefactValidationStep.PullingImage,
+                    Code: ArtefactValidationCodes.ImagePullFailed,
                     Message: $"Failed to pull image '{input.Image}': {ex.Message}",
                     Details: new Dictionary<string, string>(StringComparer.Ordinal)
                     {

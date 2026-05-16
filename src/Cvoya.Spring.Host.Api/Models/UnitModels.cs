@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Models;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 /// <summary>
@@ -144,11 +145,11 @@ public record UnitResponse(
     string DisplayName,
     string Description,
     DateTimeOffset RegisteredAt,
-    UnitStatus Status,
+    LifecycleStatus Status,
     string? Model,
     string? Color,
     string? Hosting = null,
-    UnitValidationError? LastValidationError = null,
+    ArtefactValidationError? LastValidationError = null,
     string? LastValidationRunId = null,
     string? Instructions = null,
     string? Role = null,
@@ -201,7 +202,7 @@ public record UnitDetailResponse(UnitResponse Unit, System.Text.Json.JsonElement
 /// <c>POST /api/v1/units/{id}/stop</c>. Returns the unit id and the
 /// post-transition lifecycle status.
 /// </summary>
-public record UnitLifecycleResponse(Guid UnitId, UnitStatus Status);
+public record UnitLifecycleResponse(Guid UnitId, LifecycleStatus Status);
 
 /// <summary>
 /// Response body for <c>PATCH /api/v1/units/{id}/humans/{humanId}/permissions</c>.
@@ -221,7 +222,7 @@ public record SetHumanPermissionResponse(
 public record UnitForceDeleteResponse(
     Guid UnitId,
     bool ForceDeleted,
-    UnitStatus PreviousStatus,
+    LifecycleStatus PreviousStatus,
     IReadOnlyList<string> TeardownFailures,
     string Message);
 
@@ -270,10 +271,10 @@ public record UnitReadinessResponse(bool IsReady, string[] MissingRequirements);
 /// Response body for <c>GET /api/v1/units/{id}/deployment</c>. Surfaces
 /// the unit's lifecycle state in a deployment-shaped view so the portal's
 /// Deployment tab can render start/stop controls without a separate unit
-/// status query. A unit that is <see cref="UnitStatus.Running"/> is
+/// status query. A unit that is <see cref="LifecycleStatus.Running"/> is
 /// considered <see cref="Running"/>; all other states map to
 /// <c>Running = false</c>.
 /// </summary>
 /// <param name="Running">True when the unit status is <c>Running</c>.</param>
-/// <param name="Status">The current <see cref="UnitStatus"/> label.</param>
+/// <param name="Status">The current <see cref="LifecycleStatus"/> label.</param>
 public record UnitDeploymentResponse(bool Running, string Status);

@@ -10,6 +10,7 @@ using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Core.Units;
@@ -67,7 +68,7 @@ public class UnitDeploymentEndpointsTests : IClassFixture<CustomWebApplicationFa
         // Arrange: directory resolves the unit and the actor proxy reports Running.
         var ct = TestContext.Current.CancellationToken;
         var unitGuid = Guid.NewGuid();
-        var proxy = ArrangeUnit(unitGuid, "engineering", UnitStatus.Running);
+        var proxy = ArrangeUnit(unitGuid, "engineering", LifecycleStatus.Running);
 
         // Act
         var response = await _client.GetAsync(
@@ -88,7 +89,7 @@ public class UnitDeploymentEndpointsTests : IClassFixture<CustomWebApplicationFa
         // Arrange
         var ct = TestContext.Current.CancellationToken;
         var unitGuid = Guid.NewGuid();
-        ArrangeUnit(unitGuid, "engineering", UnitStatus.Stopped);
+        ArrangeUnit(unitGuid, "engineering", LifecycleStatus.Stopped);
 
         // Act
         var response = await _client.GetAsync(
@@ -124,7 +125,7 @@ public class UnitDeploymentEndpointsTests : IClassFixture<CustomWebApplicationFa
         problem.GetProperty("status").GetInt32().ShouldBe(404);
     }
 
-    private IUnitActor ArrangeUnit(Guid unitGuid, string displayName, UnitStatus status)
+    private IUnitActor ArrangeUnit(Guid unitGuid, string displayName, LifecycleStatus status)
     {
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();

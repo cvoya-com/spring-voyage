@@ -5,8 +5,10 @@ namespace Cvoya.Spring.Dapr.Tests.Actors;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
@@ -26,10 +28,10 @@ using Xunit;
 
 /// <summary>
 /// Unit tests for <see cref="UnitActor.CompleteValidationAsync"/> — the
-/// terminal callback the Dapr <c>UnitValidationWorkflow</c> posts back to
-/// the actor so it can drive <see cref="UnitStatus.Validating"/> →
-/// <see cref="UnitStatus.Stopped"/> (success) or
-/// <see cref="UnitStatus.Validating"/> → <see cref="UnitStatus.Error"/>
+/// terminal callback the Dapr <c>ArtefactValidationWorkflow</c> posts back to
+/// the actor so it can drive <see cref="LifecycleStatus.Validating"/> →
+/// <see cref="LifecycleStatus.Stopped"/> (success) or
+/// <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Error"/>
 /// (failure), persist the redacted failure payload, and emit the
 /// <c>StateChanged</c> activity event. Also covers the stale-run and
 /// terminal-status guards that protect against superseded workflows
@@ -46,7 +48,7 @@ public class UnitActorValidationCompletionTests
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
-    private readonly IUnitValidationTracker _validationTracker = Substitute.For<IUnitValidationTracker>();
+    private readonly IArtefactValidationTracker _validationTracker = Substitute.For<IArtefactValidationTracker>();
     private readonly UnitActor _actor;
 
     public UnitActorValidationCompletionTests()
@@ -69,10 +71,10 @@ public class UnitActorValidationCompletionTests
             validationTracker: _validationTracker);
         SetStateManager(_actor, _stateManager);
 
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Validating));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Validating));
         _validationTracker
-            .GetLastValidationRunIdAsync(TestUnitActorId, Arg.Any<CancellationToken>())
+            .GetLastValidationRunIdAsync(ArtefactKind.Unit, TestUnitActorId, Arg.Any<CancellationToken>())
             .Returns(CurrentRunId);
     }
 
@@ -91,16 +93,16 @@ public class UnitActorValidationCompletionTests
         }
     }
 
-    private static UnitValidationCompletion Success(string runId = CurrentRunId) =>
+    private static ArtefactValidationCompletion Success(string runId = CurrentRunId) =>
         new(true, null, runId);
 
-    private static UnitValidationCompletion Failure(
+    private static ArtefactValidationCompletion Failure(
         string runId = CurrentRunId,
-        string code = UnitValidationCodes.CredentialInvalid) =>
+        string code = ArtefactValidationCodes.CredentialInvalid) =>
         new(
             false,
-            new UnitValidationError(
-                UnitValidationStep.ValidatingCredential,
+            new ArtefactValidationError(
+                ArtefactValidationStep.ValidatingCredential,
                 code,
                 Message: "credential rejected",
                 Details: new Dictionary<string, string> { ["status"] = "401" }),
@@ -115,12 +117,11 @@ public class UnitActorValidationCompletionTests
             Success(), TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Stopped);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Stopped);
 
-        await _validationTracker.Received(1).SetFailureAsync(
-            TestUnitActorId, null, Arg.Any<CancellationToken>());
+        await _validationTracker.Received(1).SetFailureAsync(ArtefactKind.Unit, TestUnitActorId, null, Arg.Any<CancellationToken>());
         await _stateManager.Received(1).SetStateAsync(
-            StateKeys.UnitStatus, UnitStatus.Stopped, Arg.Any<CancellationToken>());
+            StateKeys.UnitLifecycleStatus, LifecycleStatus.Stopped, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -128,25 +129,35 @@ public class UnitActorValidationCompletionTests
     {
         string? capturedJson = null;
         _validationTracker
-            .When(t => t.SetFailureAsync(
-                Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()))
-            .Do(ci => capturedJson = ci.ArgAt<string?>(1));
+            .When(t => t.SetFailureAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()))
+            .Do(ci =>
+            {
+                // SetFailureAsync(kind, actorId, errorJson, ct) — capture the
+                // errorJson only when it's non-null (the coordinator may
+                // also call this with null on success-clear paths that share
+                // the same test setup).
+                var maybeJson = ci.Args()[2] as string;
+                if (maybeJson is not null)
+                {
+                    capturedJson = maybeJson;
+                }
+            });
 
         var result = await _actor.CompleteValidationAsync(
             Failure(), TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Error);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Error);
 
         await _stateManager.Received(1).SetStateAsync(
-            StateKeys.UnitStatus, UnitStatus.Error, Arg.Any<CancellationToken>());
+            StateKeys.UnitLifecycleStatus, LifecycleStatus.Error, Arg.Any<CancellationToken>());
 
         capturedJson.ShouldNotBeNull();
         // Round-trip the JSON through System.Text.Json to confirm the
         // failure payload is serialized correctly (no Newtonsoft in scope).
-        var roundTripped = JsonSerializer.Deserialize<UnitValidationError>(capturedJson!);
-        roundTripped!.Step.ShouldBe(UnitValidationStep.ValidatingCredential);
-        roundTripped.Code.ShouldBe(UnitValidationCodes.CredentialInvalid);
+        var roundTripped = JsonSerializer.Deserialize<ArtefactValidationError>(capturedJson!);
+        roundTripped!.Step.ShouldBe(ArtefactValidationStep.ValidatingCredential);
+        roundTripped.Code.ShouldBe(ArtefactValidationCodes.CredentialInvalid);
         roundTripped.Message.ShouldBe("credential rejected");
         roundTripped.Details!["status"].ShouldBe("401");
     }
@@ -170,21 +181,21 @@ public class UnitActorValidationCompletionTests
         capturedEvent.ShouldNotBeNull();
         capturedEvent!.EventType.ShouldBe(ActivityEventType.StateChanged);
         capturedEvent.Severity.ShouldBe(ActivitySeverity.Warning);
-        capturedEvent.Summary.ShouldContain(UnitValidationCodes.CredentialInvalid);
+        capturedEvent.Summary.ShouldContain(ArtefactValidationCodes.CredentialInvalid);
         capturedEvent.Summary.ShouldContain("credential rejected");
 
         capturedEvent.Details.ShouldNotBeNull();
         var details = capturedEvent.Details!.Value;
         details.GetProperty("action").GetString().ShouldBe("StatusTransition");
-        details.GetProperty("from").GetString().ShouldBe(UnitStatus.Validating.ToString());
-        details.GetProperty("to").GetString().ShouldBe(UnitStatus.Error.ToString());
-        details.GetProperty("validationCode").GetString().ShouldBe(UnitValidationCodes.CredentialInvalid);
+        details.GetProperty("from").GetString().ShouldBe(LifecycleStatus.Validating.ToString());
+        details.GetProperty("to").GetString().ShouldBe(LifecycleStatus.Error.ToString());
+        details.GetProperty("validationCode").GetString().ShouldBe(ArtefactValidationCodes.CredentialInvalid);
         details.GetProperty("validationMessage").GetString().ShouldBe("credential rejected");
-        details.GetProperty("validationStep").GetString().ShouldBe(UnitValidationStep.ValidatingCredential.ToString());
+        details.GetProperty("validationStep").GetString().ShouldBe(ArtefactValidationStep.ValidatingCredential.ToString());
         // The full structured error blob is also present so the portal can
         // expand the row to show every field (including validation Details).
         details.GetProperty("error").GetProperty("Code").GetString()
-            .ShouldBe(UnitValidationCodes.CredentialInvalid);
+            .ShouldBe(ArtefactValidationCodes.CredentialInvalid);
     }
 
     [Fact]
@@ -205,7 +216,7 @@ public class UnitActorValidationCompletionTests
         capturedEvent!.EventType.ShouldBe(ActivityEventType.StateChanged);
         capturedEvent.Severity.ShouldBe(ActivitySeverity.Debug);
         capturedEvent.Summary.ShouldBe(
-            $"Unit transitioned from {UnitStatus.Validating} to {UnitStatus.Stopped}");
+            $"Unit transitioned from {LifecycleStatus.Validating} to {LifecycleStatus.Stopped}");
 
         capturedEvent.Details.ShouldNotBeNull();
         var details = capturedEvent.Details!.Value;
@@ -219,59 +230,57 @@ public class UnitActorValidationCompletionTests
     public async Task StaleRun_NoOp_NoTransition_NoWrite()
     {
         _validationTracker
-            .GetLastValidationRunIdAsync(TestUnitActorId, Arg.Any<CancellationToken>())
+            .GetLastValidationRunIdAsync(ArtefactKind.Unit, TestUnitActorId, Arg.Any<CancellationToken>())
             .Returns("run-99"); // current differs from completion's WorkflowInstanceId
 
         var result = await _actor.CompleteValidationAsync(
             Success(runId: "run-stale"), TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
-        result.CurrentStatus.ShouldBe(UnitStatus.Validating);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Validating);
 
         await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitStatus, Arg.Any<UnitStatus>(), Arg.Any<CancellationToken>());
-        await _validationTracker.DidNotReceive().SetFailureAsync(
-            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+            StateKeys.UnitLifecycleStatus, Arg.Any<LifecycleStatus>(), Arg.Any<CancellationToken>());
+        await _validationTracker.DidNotReceive().SetFailureAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task TerminalStatusStopped_NoOp_NoWrite()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Stopped));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Stopped));
 
         var result = await _actor.CompleteValidationAsync(
             Failure(), TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
-        result.CurrentStatus.ShouldBe(UnitStatus.Stopped);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Stopped);
 
         await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitStatus, Arg.Any<UnitStatus>(), Arg.Any<CancellationToken>());
-        await _validationTracker.DidNotReceive().SetFailureAsync(
-            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+            StateKeys.UnitLifecycleStatus, Arg.Any<LifecycleStatus>(), Arg.Any<CancellationToken>());
+        await _validationTracker.DidNotReceive().SetFailureAsync(ArtefactKind.Unit, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task TerminalStatusError_NoOp_NoWrite()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Error));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Error));
 
         var result = await _actor.CompleteValidationAsync(
             Success(), TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
-        result.CurrentStatus.ShouldBe(UnitStatus.Error);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Error);
 
         await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitStatus, Arg.Any<UnitStatus>(), Arg.Any<CancellationToken>());
+            StateKeys.UnitLifecycleStatus, Arg.Any<LifecycleStatus>(), Arg.Any<CancellationToken>());
     }
 
     // --- Round-trip safety ---
 
     [Fact]
-    public void UnitValidationError_RoundTripsThroughSystemTextJson()
+    public void ArtefactValidationError_RoundTripsThroughSystemTextJson()
     {
         // Defensive: if System.Text.Json can't round-trip the failure shape
         // (e.g. the Details dictionary), CompleteValidationAsync's persistence
@@ -281,9 +290,9 @@ public class UnitActorValidationCompletionTests
         // API-layer response converts to a string via JsonStringEnumConverter
         // configured in Program.cs, so operator-facing output reads
         // "ResolvingModel" even though the on-disk JSON holds 3.
-        var error = new UnitValidationError(
-            UnitValidationStep.ResolvingModel,
-            UnitValidationCodes.ModelNotFound,
+        var error = new ArtefactValidationError(
+            ArtefactValidationStep.ResolvingModel,
+            ArtefactValidationCodes.ModelNotFound,
             Message: "model foo not found",
             Details: new Dictionary<string, string>
             {
@@ -294,10 +303,10 @@ public class UnitActorValidationCompletionTests
         var json = JsonSerializer.Serialize(error);
         json.ShouldContain("ModelNotFound");
 
-        var restored = JsonSerializer.Deserialize<UnitValidationError>(json);
+        var restored = JsonSerializer.Deserialize<ArtefactValidationError>(json);
         restored.ShouldNotBeNull();
-        restored!.Step.ShouldBe(UnitValidationStep.ResolvingModel);
-        restored.Code.ShouldBe(UnitValidationCodes.ModelNotFound);
+        restored!.Step.ShouldBe(ArtefactValidationStep.ResolvingModel);
+        restored.Code.ShouldBe(ArtefactValidationCodes.ModelNotFound);
         restored.Message.ShouldBe("model foo not found");
         restored.Details!["model"].ShouldBe("foo");
         restored.Details!["http_status"].ShouldBe("404");

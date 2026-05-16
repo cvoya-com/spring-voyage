@@ -3,13 +3,14 @@
 
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 /// <summary>
 /// Structured outcome returned by <c>RunContainerProbeActivity</c>: either a
 /// success verdict (optionally with <see cref="Extras"/> forwarded from the
 /// runtime's interpreter) OR a failure with a stable code from
-/// <see cref="UnitValidationCodes"/>. Every string field MUST have been
+/// <see cref="ArtefactValidationCodes"/>. Every string field MUST have been
 /// passed through <see cref="Cvoya.Spring.Core.Security.CredentialRedactor"/>
 /// before this record leaves the activity process.
 /// </summary>
@@ -30,13 +31,13 @@ using Cvoya.Spring.Core.Units;
 /// </para>
 /// </remarks>
 /// <param name="Success"><c>true</c> when the step's <see cref="Cvoya.Spring.Core.ModelProviders.ProbeStep.InterpretOutput"/> returned <see cref="Cvoya.Spring.Core.ModelProviders.StepOutcome.Succeeded"/>; <c>false</c> on any failure path (container run failure, timeout, interpreter failure, or internal error).</param>
-/// <param name="Failure">Structured failure payload — <c>null</c> when <see cref="Success"/> is <c>true</c>; otherwise carries the originating <see cref="UnitValidationStep"/>, a stable <see cref="UnitValidationCodes"/> code, a redacted operator message, and optional structured details.</param>
-/// <param name="Extras">Optional success-path payload from <see cref="Cvoya.Spring.Core.ModelProviders.StepResult.Extras"/>. For <see cref="UnitValidationStep.ResolvingModel"/> this carries the comma-separated <c>"models"</c> catalog under the <c>models</c> key; <c>null</c> when the interpreter emits nothing.</param>
+/// <param name="Failure">Structured failure payload — <c>null</c> when <see cref="Success"/> is <c>true</c>; otherwise carries the originating <see cref="ArtefactValidationStep"/>, a stable <see cref="ArtefactValidationCodes"/> code, a redacted operator message, and optional structured details.</param>
+/// <param name="Extras">Optional success-path payload from <see cref="Cvoya.Spring.Core.ModelProviders.StepResult.Extras"/>. For <see cref="ArtefactValidationStep.ResolvingModel"/> this carries the comma-separated <c>"models"</c> catalog under the <c>models</c> key; <c>null</c> when the interpreter emits nothing.</param>
 /// <param name="RedactedStdOut">The container process' stdout with the credential replaced by <c>***</c>. Always populated.</param>
 /// <param name="RedactedStdErr">The container process' stderr with the credential replaced by <c>***</c>. Always populated.</param>
 public record RunContainerProbeActivityOutput(
     bool Success,
-    UnitValidationError? Failure,
+    ArtefactValidationError? Failure,
     IReadOnlyDictionary<string, string>? Extras,
     string RedactedStdOut,
     string RedactedStdErr);

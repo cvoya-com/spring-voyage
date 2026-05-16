@@ -1,9 +1,11 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.Units;
+namespace Cvoya.Spring.Core.Lifecycle;
 
 using System.Runtime.Serialization;
+
+using Cvoya.Spring.Core.Lifecycle;
 
 /// <summary>
 /// Result of a unit lifecycle transition attempt.
@@ -19,5 +21,5 @@ using System.Runtime.Serialization;
 [DataContract]
 public record TransitionResult(
     [property: DataMember(Order = 0)] bool Success,
-    [property: DataMember(Order = 1)] UnitStatus CurrentStatus,
+    [property: DataMember(Order = 1)] LifecycleStatus CurrentStatus,
     [property: DataMember(Order = 2)] string? RejectionReason);

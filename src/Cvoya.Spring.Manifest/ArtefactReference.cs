@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Manifest;
 
+using Cvoya.Spring.Core.Artefacts;
+
 /// <summary>
 /// Represents a parsed artefact reference from a <c>package.yaml</c>. The
 /// reference grammar is a flat string (ADR-0035 decision 3, extended by
@@ -106,23 +108,4 @@ public record ArtefactReference(
                 $"(format: '<name>', '<package>/<name>', or '<package>/<name>@<version>').")
         };
     }
-}
-
-/// <summary>
-/// The kind (artefact type) a reference targets, used to derive the
-/// within-package resolution path.
-/// </summary>
-public enum ArtefactKind
-{
-    /// <summary>Resolves to <c>./units/&lt;name&gt;.yaml</c>.</summary>
-    Unit,
-
-    /// <summary>Resolves to <c>./agents/&lt;name&gt;.yaml</c>.</summary>
-    Agent,
-
-    /// <summary>Resolves to <c>./skills/&lt;name&gt;.md</c>.</summary>
-    Skill,
-
-    /// <summary>Resolves to <c>./workflows/&lt;name&gt;/</c>.</summary>
-    Workflow,
 }

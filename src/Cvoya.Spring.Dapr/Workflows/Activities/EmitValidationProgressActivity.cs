@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 
@@ -14,7 +15,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Publishes a <see cref="ActivityEventType.ValidationProgress"/> activity
-/// event on behalf of the <see cref="Cvoya.Spring.Dapr.Workflows.UnitValidationWorkflow"/>.
+/// event on behalf of the <see cref="Cvoya.Spring.Dapr.Workflows.ArtefactValidationWorkflow"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -52,10 +53,17 @@ public class EmitValidationProgressActivity(
             var details = BuildDetails(input);
             var summary = BuildSummary(input);
 
+            var scheme = input.Kind switch
+            {
+                ArtefactKind.Unit => Address.UnitScheme,
+                ArtefactKind.Agent => Address.AgentScheme,
+                _ => Address.UnitScheme,
+            };
+
             var activityEvent = new ActivityEvent(
                 Id: Guid.NewGuid(),
                 Timestamp: DateTimeOffset.UtcNow,
-                Source: Address.ForIdentity(Address.UnitScheme, input.UnitId),
+                Source: Address.ForIdentity(scheme, input.ArtefactId),
                 EventType: ActivityEventType.ValidationProgress,
                 Severity: severity,
                 Summary: summary,
@@ -75,8 +83,8 @@ public class EmitValidationProgressActivity(
             // fire-and-forget.
             _logger.LogWarning(
                 ex,
-                "Failed to emit ValidationProgress event for unit {UnitId} step {Step} status {Status}.",
-                input.UnitId, input.Step, input.Status);
+                "Failed to emit ValidationProgress event for {Kind} {ArtefactId} step {Step} status {Status}.",
+                input.Kind, input.ArtefactId, input.Step, input.Status);
             return false;
         }
     }

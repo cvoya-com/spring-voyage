@@ -5,6 +5,9 @@ namespace Cvoya.Spring.Manifest.Tests;
 
 using System;
 
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Lifecycle;
+
 using Shouldly;
 
 using Xunit;

@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.ModelProviders;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Outcome of a container-baseline probe. Reports whether a subject's
 /// required tooling (CLI binaries, network reachability, etc.) is present
@@ -13,8 +15,8 @@ namespace Cvoya.Spring.Core.ModelProviders;
 /// <see cref="Cvoya.Spring.Connectors.IConnectorType.VerifyContainerBaselineAsync(System.Threading.CancellationToken)"/>.
 /// Agent-runtime launchers no longer expose a separate baseline probe;
 /// their in-container tool verification runs as the
-/// <see cref="Cvoya.Spring.Core.Units.UnitValidationStep.VerifyingTool"/>
-/// step of the <c>UnitValidationWorkflow</c> probe plan returned by
+/// <see cref="Cvoya.Spring.Core.Lifecycle.ArtefactValidationStep.VerifyingTool"/>
+/// step of the <c>ArtefactValidationWorkflow</c> probe plan returned by
 /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher.GetProbeSteps(ModelProviderInstallConfig, string)"/>.
 /// </remarks>
 /// <param name="Passed">

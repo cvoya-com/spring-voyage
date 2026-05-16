@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Core.ModelProviders;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 /// <summary>
@@ -16,18 +17,18 @@ using Cvoya.Spring.Core.Units;
 /// declarative command (<see cref="Args"/>, <see cref="Env"/>,
 /// <see cref="Timeout"/>) and its interpreter
 /// (<see cref="InterpretOutput"/>); the host (the
-/// <c>UnitValidationWorkflow</c> Dapr workflow + its activities) is
+/// <c>ArtefactValidationWorkflow</c> Dapr workflow + its activities) is
 /// responsible for pulling the image, running the command inside the
 /// container, enforcing the timeout, capturing stdout/stderr, redacting
 /// the credential value via <see cref="Security.CredentialRedactor"/>,
 /// and feeding the triple back through <see cref="InterpretOutput"/>.
 /// </para>
 /// <para>
-/// <b><see cref="UnitValidationStep.PullingImage"/> is NEVER returned by
+/// <b><see cref="ArtefactValidationStep.PullingImage"/> is NEVER returned by
 /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher.GetProbeSteps(ModelProviderInstallConfig, string)"/>.</b>
 /// The image pull is a launcher-agnostic concern owned by the dispatcher
 /// / workflow: it is performed once up-front, so the launcher contract
-/// starts at <see cref="UnitValidationStep.VerifyingTool"/>.
+/// starts at <see cref="ArtefactValidationStep.VerifyingTool"/>.
 /// </para>
 /// <para>
 /// Because <see cref="InterpretOutput"/> is a <see cref="Func{T1, T2, T3, TResult}"/>
@@ -42,10 +43,10 @@ using Cvoya.Spring.Core.Units;
 /// </remarks>
 /// <param name="Step">
 /// The unit-validation step this probe exercises. Must be one of
-/// <see cref="UnitValidationStep.VerifyingTool"/>,
-/// <see cref="UnitValidationStep.ValidatingCredential"/>, or
-/// <see cref="UnitValidationStep.ResolvingModel"/>.
-/// <see cref="UnitValidationStep.PullingImage"/> is reserved for the
+/// <see cref="ArtefactValidationStep.VerifyingTool"/>,
+/// <see cref="ArtefactValidationStep.ValidatingCredential"/>, or
+/// <see cref="ArtefactValidationStep.ResolvingModel"/>.
+/// <see cref="ArtefactValidationStep.PullingImage"/> is reserved for the
 /// dispatcher and must not appear.
 /// </param>
 /// <param name="Args">
@@ -61,7 +62,7 @@ using Cvoya.Spring.Core.Units;
 /// <param name="Timeout">
 /// Maximum wall-clock time the host will allow the container command to run
 /// before it is terminated and the step is reported as
-/// <see cref="UnitValidationCodes.ProbeTimeout"/>.
+/// <see cref="ArtefactValidationCodes.ProbeTimeout"/>.
 /// </param>
 /// <param name="InterpretOutput">
 /// Interprets the container's <c>(exitCode, stdout, stderr)</c> triple and
@@ -70,7 +71,7 @@ using Cvoya.Spring.Core.Units;
 /// and stderr buffers; implementers should treat the strings as
 /// already-redacted and parse them for success/failure signals only (HTTP
 /// status codes, JSON envelopes, etc.). The delegate must not throw: return
-/// a failure with code <see cref="UnitValidationCodes.ProbeInternalError"/>
+/// a failure with code <see cref="ArtefactValidationCodes.ProbeInternalError"/>
 /// for any unexpected shape.
 /// </param>
 /// <param name="NetworkName">
@@ -81,7 +82,7 @@ using Cvoya.Spring.Core.Units;
 /// <c>null</c> the probe container inherits the launcher's default network.
 /// </param>
 public sealed record ProbeStep(
-    UnitValidationStep Step,
+    ArtefactValidationStep Step,
     IReadOnlyList<string> Args,
     IReadOnlyDictionary<string, string> Env,
     TimeSpan Timeout,

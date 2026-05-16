@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Core.Execution;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
@@ -59,7 +60,7 @@ public interface IAgentRuntimeLauncher
 
     /// <summary>
     /// Builds the declarative list of in-container probe commands the
-    /// Dapr <c>UnitValidationWorkflow</c> should execute against the
+    /// Dapr <c>ArtefactValidationWorkflow</c> should execute against the
     /// unit's chosen container image, after pulling the image and
     /// starting it. Per ADR-0038 the probe logic lives next to the
     /// launcher that actually runs the tool.
@@ -71,7 +72,7 @@ public interface IAgentRuntimeLauncher
     /// proceeds.
     /// </para>
     /// <para>
-    /// <see cref="Cvoya.Spring.Core.Units.UnitValidationStep.PullingImage"/>
+    /// <see cref="Cvoya.Spring.Core.Lifecycle.ArtefactValidationStep.PullingImage"/>
     /// is the dispatcher's concern and MUST NOT appear here.
     /// </para>
     /// </remarks>

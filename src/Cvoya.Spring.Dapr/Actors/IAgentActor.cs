@@ -5,14 +5,20 @@ namespace Cvoya.Spring.Dapr.Actors;
 
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Lifecycle;
 
 /// <summary>
 /// Dapr actor interface for agent actors. Extends the shared
 /// <see cref="IAgent"/> contract (mailbox / message dispatch) with the
-/// agent-only surface: metadata, parent-unit pointer, and configured skill
-/// list. A unit is also an <see cref="IAgent"/> via <see cref="IUnitActor"/>
-/// — use <see cref="IAgent"/> where only the mailbox is needed, and this
-/// interface only where the agent-only methods are required.
+/// agent-only surface: metadata, parent-unit pointer, configured skill list,
+/// and (since #2364) the same lifecycle state machine the unit actor
+/// implements — <see cref="LifecycleStatus.Draft"/> →
+/// <see cref="LifecycleStatus.Validating"/> →
+/// <see cref="LifecycleStatus.Stopped"/> → <see cref="LifecycleStatus.Running"/>
+/// driven by the shared <c>ArtefactValidationWorkflow</c>. A unit is also an
+/// <see cref="IAgent"/> via <see cref="IUnitActor"/> — use <see cref="IAgent"/>
+/// where only the mailbox is needed, and this interface only where the
+/// agent-only methods are required.
 /// </summary>
 public interface IAgentActor : IAgent
 {
@@ -47,14 +53,6 @@ public interface IAgentActor : IAgent
     /// Returned as an array so the value crosses the Dapr remoting boundary
     /// (#319).
     /// </summary>
-    /// <remarks>
-    /// The aggregator (#412) reads agent expertise through
-    /// <see cref="Core.Capabilities.IExpertiseStore"/>, which delegates to
-    /// this method — so changing an agent's expertise automatically reshapes
-    /// the effective expertise of every ancestor unit once the store
-    /// notifies the aggregator via
-    /// <c>IExpertiseAggregator.InvalidateAsync</c>.
-    /// </remarks>
     Task<ExpertiseDomain[]> GetExpertiseAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -71,11 +69,9 @@ public interface IAgentActor : IAgent
     /// persistent actor state on the per-thread channel — drains any
     /// messages appended for the thread while the dispatch was running
     /// (per-thread FIFO is preserved), or marks the channel idle when
-    /// the queue is empty — so it must run on an actor turn. Surfaced on
-    /// <see cref="IAgentActor"/> (rather than left as an internal helper)
-    /// precisely so the off-turn dispatch task can call it through the
-    /// actor proxy. Per-ADR-0030 §44: only this thread's channel is
-    /// affected; other threads on the same agent run independently.
+    /// the queue is empty — so it must run on an actor turn. Per ADR-0030 §44:
+    /// only this thread's channel is affected; other threads on the same
+    /// agent run independently.
     /// </summary>
     /// <param name="threadId">The thread whose dispatcher just exited.</param>
     /// <param name="reason">Human-readable reason for the exit.</param>
@@ -89,59 +85,90 @@ public interface IAgentActor : IAgent
     /// Returns a coarse runtime-status snapshot of this agent — the
     /// per-thread channel population the portal renders next to every
     /// agent name (#2100). Distinct from <see cref="GetMetadataAsync"/>
-    /// (which returns durable configuration) and from <c>StatusQuery</c>
-    /// via the message router (which is the orchestration-tool surface):
-    /// this method is a cheap actor-state read intended to be polled at
-    /// sub-2s cadence and does not emit a <c>StatusQuery</c> activity event.
+    /// (which returns durable configuration), from <see cref="GetStatusAsync"/>
+    /// (which returns the installation lifecycle state), and from
+    /// <c>StatusQuery</c> via the message router (which is the
+    /// orchestration-tool surface): this method is a cheap actor-state read
+    /// intended to be polled at sub-2s cadence and does not emit a
+    /// <c>StatusQuery</c> activity event.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A snapshot of the agent's per-thread channel state.</returns>
     Task<AgentRuntimeStatusReport> GetRuntimeStatusAsync(
         CancellationToken cancellationToken = default);
 
+    // ──────────────────────────────────────────────────────────────────────
+    // Lifecycle state machine (#2364) — mirrors IUnitActor.
+    // Agents and units share the same Draft → Validating → Stopped →
+    // Starting → Running progression driven by the shared
+    // ArtefactValidationWorkflow. Agents do NOT carry connector bindings in
+    // v0.1, so the agent-side TryAutoStartAsync skips the dispatcher hop
+    // that UnitActor performs between Starting and Running.
+    // ──────────────────────────────────────────────────────────────────────
+
     /// <summary>
-    /// Returns the agent's installation-lifecycle status (#2156). Distinct
-    /// from <see cref="AgentRuntimeStatus"/>: that one is the moment-to-
-    /// moment mailbox snapshot; this one records whether the package /
-    /// direct-create activation succeeded. Agents whose lifecycle was
-    /// never written default to <see cref="AgentLifecycleStatus.Active"/>
-    /// — agents installed before #2156 landed completed activation
-    /// successfully in the legacy path, so the default is the correct
-    /// backwards-compatible answer.
+    /// Gets the persisted lifecycle status of this agent. An agent that has
+    /// never transitioned reports <see cref="LifecycleStatus.Draft"/>.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    /// <returns>The persisted lifecycle status, or <c>Active</c> when unset.</returns>
-    Task<AgentLifecycleStatus> GetLifecycleStatusAsync(CancellationToken cancellationToken = default);
+    /// <returns>The current lifecycle status.</returns>
+    Task<LifecycleStatus> GetStatusAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the diagnostic error message persisted alongside an
-    /// <see cref="AgentLifecycleStatus.Error"/> status (#2156). <c>null</c>
-    /// when the agent is in <see cref="AgentLifecycleStatus.Active"/> or
-    /// when an error was recorded without an accompanying message.
+    /// <see cref="LifecycleStatus.Error"/> status. <c>null</c> when the
+    /// agent is not in <c>Error</c>, or when an error was recorded without
+    /// an accompanying message.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task<string?> GetLifecycleErrorAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Persists the agent's installation-lifecycle outcome (#2156). Called
-    /// by <c>DefaultPackageArtefactActivator</c> immediately after a
-    /// successful directory registration (with <see cref="AgentLifecycleStatus.Active"/>
-    /// and a <c>null</c> error) and from every <c>catch</c> in the
-    /// activator (with <see cref="AgentLifecycleStatus.Error"/> and the
-    /// exception message) before the activator rethrows.
+    /// Attempts a lifecycle transition to <paramref name="target"/>. If the
+    /// transition is not permitted from the current status (per
+    /// <see cref="LifecycleTransitions.IsValidTransition"/>), the status is
+    /// left unchanged and a rejection reason is returned. On a successful
+    /// transition into <see cref="LifecycleStatus.Validating"/>, the actor
+    /// also schedules a fresh <c>ArtefactValidationWorkflow</c> run via the
+    /// shared <c>IArtefactValidationCoordinator</c>.
     /// </summary>
-    /// <param name="status">The lifecycle status to persist.</param>
-    /// <param name="error">
-    /// Optional human-readable diagnostic. Persisted alongside <paramref name="status"/>
-    /// so the GET endpoint can surface "why" without forcing the operator
-    /// to comb the worker logs. Pass <c>null</c> when no diagnostic
-    /// applies (the parameter has no default — Dapr's actor proxy
-    /// generator rejects any non-cancellation-token optional parameter
-    /// on a remoted interface, see #2199).
-    /// </param>
+    /// <param name="target">The target status.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    Task SetLifecycleStatusAsync(
-        AgentLifecycleStatus status,
-        string? error,
+    Task<TransitionResult> TransitionAsync(
+        LifecycleStatus target,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Terminal callback the <c>ArtefactValidationWorkflow</c> invokes when
+    /// its probe run finishes. Drives the <see cref="LifecycleStatus.Validating"/>
+    /// → <see cref="LifecycleStatus.Stopped"/> or
+    /// <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Error"/>
+    /// transition and persists the redacted failure payload on failure. On
+    /// successful completion the actor also consumes the
+    /// <see cref="SetPendingAutoStartAsync"/> marker if set and drives the
+    /// <c>Stopped → Starting → Running</c> tail.
+    /// </summary>
+    /// <param name="completion">The workflow's terminal outcome.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task<TransitionResult> CompleteValidationAsync(
+        ArtefactValidationCompletion completion,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks this agent as awaiting an automatic transition into
+    /// <see cref="LifecycleStatus.Running"/> once
+    /// <see cref="CompleteValidationAsync"/> reports a successful validation
+    /// outcome (#2364). Called by the activator after the agent transitions
+    /// to <see cref="LifecycleStatus.Validating"/> so a freshly installed
+    /// agent ends up usable without a manual <c>POST /agents/{id}/start</c>.
+    /// </summary>
+    /// <remarks>
+    /// The flag is consumed and cleared inside
+    /// <see cref="CompleteValidationAsync"/>; setting it twice before
+    /// validation finishes is idempotent. Setting it after a validation has
+    /// already completed has no effect on the already-applied transition —
+    /// the agent stays in <see cref="LifecycleStatus.Stopped"/>.
+    /// </remarks>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task SetPendingAutoStartAsync(CancellationToken cancellationToken = default);
 }

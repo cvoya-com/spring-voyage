@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Units;
 
@@ -77,14 +78,14 @@ public class CodexLauncher(
         return new[]
         {
             new ProbeStep(
-                Step: UnitValidationStep.VerifyingTool,
+                Step: ArtefactValidationStep.VerifyingTool,
                 Args: new[] { "codex", "--version" },
                 Env: new Dictionary<string, string>(StringComparer.Ordinal),
                 Timeout: TimeSpan.FromSeconds(10),
                 InterpretOutput: (exit, _, stderr) => exit == 0
                     ? StepResult.Succeed()
                     : StepResult.Fail(
-                        UnitValidationCodes.ToolMissing,
+                        ArtefactValidationCodes.ToolMissing,
                         $"`codex --version` exited with code {exit}. {stderr}".TrimEnd())),
         };
     }

@@ -7,6 +7,7 @@ using System.Net;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -64,7 +65,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Running);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Running);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, null, null));
         proxy.GetMembersAsync(Arg.Any<CancellationToken>())
@@ -92,7 +93,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         // The raw payload shape is PascalCase — ConfigureHttpJsonOptions
         // only re-serialises top-level response DTOs; a JsonElement
         // (UnitDetailResponse.Details) is written through as-is.
-        details.GetProperty("Status").GetString().ShouldBe(nameof(UnitStatus.Running));
+        details.GetProperty("Status").GetString().ShouldBe(nameof(LifecycleStatus.Running));
         details.GetProperty("MemberCount").GetInt32().ShouldBe(3);
 
         // #339: the status-query payload now also carries the full member
@@ -107,7 +108,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, null, null));
         proxy.GetMembersAsync(Arg.Any<CancellationToken>())
@@ -126,7 +127,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         _factory.AgentProxyResolver.DidNotReceiveWithAnyArgs().Resolve(default!, default!);
 
         // And the direct-proxy calls must have happened.
-        // GetStatusAsync is called twice: once by TryGetUnitStatusAsync for
+        // GetStatusAsync is called twice: once by TryGetLifecycleStatusAsync for
         // the top-level UnitResponse.Status projection (pre-existing) and
         // once by the #339 status-payload helper. That's deliberate — the
         // two helpers serve different fields. A single call would be a bug:
@@ -161,7 +162,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         // the new status-payload helper mirrors that resilience by returning
         // null details on any proxy failure.
         proxy.GetStatusAsync(Arg.Any<CancellationToken>())
-            .Returns<UnitStatus>(_ => throw new InvalidOperationException("actor down"));
+            .Returns<LifecycleStatus>(_ => throw new InvalidOperationException("actor down"));
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns<UnitMetadata>(_ => throw new InvalidOperationException("actor down"));
         proxy.GetMembersAsync(Arg.Any<CancellationToken>())
@@ -185,7 +186,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         // from UnitDefinitionEntity and projects them into UnitResponse.
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Error);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Error);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, null, null));
         proxy.GetMembersAsync(Arg.Any<CancellationToken>())
@@ -196,9 +197,9 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         // Seed the UnitDefinitionEntity row with a validation failure so
         // the GET endpoint's TryGetValidationTrackingAsync helper picks up
         // both columns.
-        var error = new UnitValidationError(
-            UnitValidationStep.ValidatingCredential,
-            UnitValidationCodes.CredentialInvalid,
+        var error = new ArtefactValidationError(
+            ArtefactValidationStep.ValidatingCredential,
+            ArtefactValidationCodes.CredentialInvalid,
             Message: "credential rejected",
             Details: new Dictionary<string, string> { ["http_status"] = "401" });
 
@@ -230,7 +231,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
 
         var lastError = unit.GetProperty("lastValidationError");
         lastError.GetProperty("step").GetString().ShouldBe("ValidatingCredential");
-        lastError.GetProperty("code").GetString().ShouldBe(UnitValidationCodes.CredentialInvalid);
+        lastError.GetProperty("code").GetString().ShouldBe(ArtefactValidationCodes.CredentialInvalid);
         lastError.GetProperty("message").GetString().ShouldBe("credential rejected");
         lastError.GetProperty("details").GetProperty("http_status").GetString().ShouldBe("401");
 
@@ -267,7 +268,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Running);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Running);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, null, null));
         proxy.GetMembersAsync(Arg.Any<CancellationToken>())
@@ -337,7 +338,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Running);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Running);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, null, null));
         proxy.GetMembersAsync(Arg.Any<CancellationToken>())
@@ -409,7 +410,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, null, null));
         proxy.GetMembersAsync(Arg.Any<CancellationToken>())
@@ -432,7 +433,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, null, null));
         proxy.GetMembersAsync(Arg.Any<CancellationToken>())

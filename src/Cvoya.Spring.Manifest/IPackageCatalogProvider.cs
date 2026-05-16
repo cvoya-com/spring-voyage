@@ -8,6 +8,9 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// One nested artefact discovered under a named parent artefact in a
 /// cross-package catalog walk. Used by <see cref="TemplateResolver"/> to

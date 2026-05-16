@@ -61,7 +61,7 @@ public class CredentialHealthEndpointsTests : IClassFixture<CustomWebApplication
 
     // T-03 (#945) removed the per-runtime validate-credential endpoint.
     // The credential-health row for an agent runtime is now populated
-    // by the backend UnitValidationWorkflow (T-04) and the
+    // by the backend ArtefactValidationWorkflow (T-04) and the
     // refresh-models watchdog path; neither is exercised from this
     // endpoint test. The connector validate-credential path below still
     // covers the write + read round-trip against the shared store.

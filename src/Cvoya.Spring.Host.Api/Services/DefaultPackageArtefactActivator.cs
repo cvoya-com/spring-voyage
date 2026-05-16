@@ -11,8 +11,12 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
@@ -472,9 +476,13 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             }
         }
 
-        // Directory registration + definition write both succeeded — mark
-        // the agent Active so the GET endpoint reports a clean install.
-        await actorProxy.SetLifecycleStatusAsync(AgentLifecycleStatus.Active, null, ct);
+        // #2364: drive the agent through the auto-start gate — schedules
+        // the shared ArtefactValidationWorkflow and arms the post-validation
+        // auto-start so the agent reaches Running without an operator click.
+        // Mirrors UnitCreationService.TryAutoStartValidationAsync; agents
+        // skip the connector-dispatcher hop (no per-agent connector bindings
+        // in v0.1).
+        await TryAutoStartAgentAsync(actorId, slug, ct);
 
         _logger.LogInformation(
             "Agent artefact '{Name}' registered (actorId={ActorId}, role={Role}).",
@@ -483,28 +491,142 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
 
     /// <summary>
     /// Best-effort flip of the agent's lifecycle row to
-    /// <see cref="AgentLifecycleStatus.Error"/>. Called from the
+    /// <see cref="LifecycleStatus.Error"/>. Called from the
     /// <c>catch</c> blocks in <see cref="ActivateAgentAsync"/>; a failure
     /// inside this method is swallowed so the original exception is the
     /// one that surfaces to the install pipeline.
     /// </summary>
-    private async Task TrySetLifecycleErrorAsync(
+    /// <summary>
+    /// Mirror of <c>UnitCreationService.TryAutoStartValidationAsync</c>
+    /// for the agent path (#2364). Reads the agent's persisted execution
+    /// defaults from <see cref="IAgentExecutionStore"/>, verifies the
+    /// runtime + credential preconditions, and — when satisfied —
+    /// transitions the agent to <see cref="LifecycleStatus.Validating"/>
+    /// + arms <see cref="IAgentActor.SetPendingAutoStartAsync"/> so the
+    /// post-validation auto-start chain reaches <see cref="LifecycleStatus.Running"/>.
+    /// Best-effort: any failure leaves the agent in <see cref="LifecycleStatus.Draft"/>
+    /// and the activator continues — the operator can recover via
+    /// <c>POST /api/v1/tenant/agents/{id}/revalidate</c>.
+    /// </summary>
+    private async Task TryAutoStartAgentAsync(
+        Guid agentActorGuid,
+        string agentName,
+        CancellationToken ct)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var executionStore = scope.ServiceProvider.GetService<IAgentExecutionStore>();
+        var runtimeCatalog = scope.ServiceProvider.GetService<IRuntimeCatalog>();
+        var credentialResolver = scope.ServiceProvider.GetService<ILlmCredentialResolver>();
+
+        if (executionStore is null || runtimeCatalog is null)
+        {
+            return;
+        }
+
+        var actorId = GuidFormatter.Format(agentActorGuid);
+        AgentExecutionShape? defaults;
+        try
+        {
+            defaults = await executionStore.GetAsync(actorId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex,
+                "Agent '{AgentName}' auto-start gate: failed to read execution defaults; leaving agent in Draft.",
+                agentName);
+            return;
+        }
+
+        if (defaults is null
+            || string.IsNullOrWhiteSpace(defaults.Image)
+            || string.IsNullOrWhiteSpace(defaults.Model))
+        {
+            return;
+        }
+
+        var runtimeId = !string.IsNullOrWhiteSpace(defaults.Agent)
+            ? defaults.Agent
+            : defaults.Provider;
+        if (string.IsNullOrWhiteSpace(runtimeId))
+        {
+            return;
+        }
+
+        var catalogRuntime = runtimeCatalog.GetAgentRuntime(runtimeId);
+        if (catalogRuntime is null || catalogRuntime.ModelProviders.Count == 0)
+        {
+            return;
+        }
+
+        var edge = catalogRuntime.ModelProviders[0];
+        if (edge.AuthMethod is not null && credentialResolver is not null)
+        {
+            try
+            {
+                var resolution = await credentialResolver.ResolveAsync(
+                    providerId: edge.Id,
+                    authMethod: edge.AuthMethod.Value,
+                    agentId: agentActorGuid,
+                    unitId: null,
+                    ct);
+                if (string.IsNullOrEmpty(resolution.Value))
+                {
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Agent '{AgentName}' auto-start gate: credential resolution threw; leaving agent in Draft.",
+                    agentName);
+                return;
+            }
+        }
+
+        try
+        {
+            var proxy = _actorProxyFactory.CreateActorProxy<IAgentActor>(
+                new ActorId(actorId), nameof(AgentActor));
+            var transition = await proxy.TransitionAsync(LifecycleStatus.Validating, ct);
+            if (transition is { Success: true })
+            {
+                await proxy.SetPendingAutoStartAsync(ct);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Agent '{AgentName}' failed to transition to Validating on creation: {Reason}. Staying in Draft.",
+                    agentName, transition?.RejectionReason ?? "unknown");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Agent '{AgentName}' transition to Validating threw on creation. Staying in Draft.",
+                agentName);
+        }
+    }
+
+    private Task TrySetLifecycleErrorAsync(
         IAgentActor actorProxy,
         string slug,
         Exception ex,
         CancellationToken ct)
     {
-        try
-        {
-            await actorProxy.SetLifecycleStatusAsync(
-                AgentLifecycleStatus.Error, ex.Message, ct);
-        }
-        catch (Exception lifecycleEx)
-        {
-            _logger.LogWarning(lifecycleEx,
-                "Agent artefact '{Name}': failed to record lifecycle Error after install fault; original error: {OriginalError}",
-                slug, ex.Message);
-        }
+        // #2364: the old AgentLifecycleStatus.Error sentinel is gone.
+        // The new state machine has no Draft → Error edge (an agent
+        // that fails activation never entered Validating), so we just
+        // log the install failure here. The activator's caller rethrows
+        // the original exception so the install pipeline still surfaces
+        // it to the operator. Phase 4 may add a richer error path once
+        // the auto-start gate is wired.
+        _logger.LogWarning(
+            ex,
+            "Agent artefact '{Name}': activation failed; agent left unregistered. Operator-visible message: {Message}",
+            slug, ex.Message);
+        _ = actorProxy; // parameter retained for future Phase 4 wiring
+        _ = ct;
+        return Task.CompletedTask;
     }
 
     /// <summary>Minimal projection of the agent YAML fields the activator needs.</summary>

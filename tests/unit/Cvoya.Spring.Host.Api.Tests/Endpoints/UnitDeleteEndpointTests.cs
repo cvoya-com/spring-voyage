@@ -8,6 +8,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -49,7 +50,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
     public async Task DeleteUnit_Stopped_Returns204AndUnregisters()
     {
         var ct = TestContext.Current.CancellationToken;
-        ArrangeUnit(UnitStatus.Stopped);
+        ArrangeUnit(LifecycleStatus.Stopped);
 
         var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}", ct);
 
@@ -64,7 +65,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
     public async Task DeleteUnit_Draft_Returns204AndUnregisters()
     {
         var ct = TestContext.Current.CancellationToken;
-        ArrangeUnit(UnitStatus.Draft);
+        ArrangeUnit(LifecycleStatus.Draft);
 
         var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}", ct);
 
@@ -76,11 +77,11 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Theory]
-    [InlineData(UnitStatus.Running)]
-    [InlineData(UnitStatus.Starting)]
-    [InlineData(UnitStatus.Stopping)]
-    [InlineData(UnitStatus.Error)]
-    public async Task DeleteUnit_NotStopped_Returns409AndDoesNotUnregister(UnitStatus status)
+    [InlineData(LifecycleStatus.Running)]
+    [InlineData(LifecycleStatus.Starting)]
+    [InlineData(LifecycleStatus.Stopping)]
+    [InlineData(LifecycleStatus.Error)]
+    public async Task DeleteUnit_NotStopped_Returns409AndDoesNotUnregister(LifecycleStatus status)
     {
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(status);
@@ -97,7 +98,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
     public async Task DeleteUnit_Force_FromError_Returns204AndTearsDownAndEmitsEvent()
     {
         var ct = TestContext.Current.CancellationToken;
-        ArrangeUnit(UnitStatus.Error);
+        ArrangeUnit(LifecycleStatus.Error);
 
         var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}?force=true", ct);
 
@@ -121,7 +122,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
     public async Task DeleteUnit_Force_ContainerStopFails_Returns200WithFailuresAndStillUnregisters()
     {
         var ct = TestContext.Current.CancellationToken;
-        ArrangeUnit(UnitStatus.Error);
+        ArrangeUnit(LifecycleStatus.Error);
 
         _factory.UnitContainerLifecycle
             .StopUnitAsync(ActorId, Arg.Any<CancellationToken>())
@@ -159,7 +160,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         // When the unit is already in a clean state, ?force=true should not invoke
         // teardown — the fast path still applies.
         var ct = TestContext.Current.CancellationToken;
-        ArrangeUnit(UnitStatus.Stopped);
+        ArrangeUnit(LifecycleStatus.Stopped);
 
         var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}?force=true", ct);
 
@@ -187,7 +188,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
-    private void ArrangeUnit(UnitStatus status)
+    private void ArrangeUnit(LifecycleStatus status)
     {
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();

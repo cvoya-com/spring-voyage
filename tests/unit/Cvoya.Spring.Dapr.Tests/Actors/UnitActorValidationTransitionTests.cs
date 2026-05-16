@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Tests.Actors;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
@@ -62,8 +63,8 @@ public class UnitActorValidationTransitionTests
         SetStateManager(_actor, _stateManager);
 
         // Default: no persisted status -> Draft.
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(false, default));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(false, default));
     }
 
     private static void SetStateManager(Actor actor, IActorStateManager stateManager)
@@ -82,10 +83,10 @@ public class UnitActorValidationTransitionTests
         }
     }
 
-    private void WithCurrentStatus(UnitStatus current)
+    private void WithCurrentStatus(LifecycleStatus current)
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, current));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, current));
     }
 
     // --- Allowed edges ---
@@ -93,60 +94,60 @@ public class UnitActorValidationTransitionTests
     [Fact]
     public async Task TransitionAsync_DraftToValidating_Succeeds()
     {
-        WithCurrentStatus(UnitStatus.Draft);
+        WithCurrentStatus(LifecycleStatus.Draft);
 
-        var result = await _actor.TransitionAsync(UnitStatus.Validating, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Validating);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Validating);
         await _stateManager.Received(1).SetStateAsync(
-            StateKeys.UnitStatus,
-            UnitStatus.Validating,
+            StateKeys.UnitLifecycleStatus,
+            LifecycleStatus.Validating,
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task TransitionAsync_ValidatingToStopped_Succeeds()
     {
-        WithCurrentStatus(UnitStatus.Validating);
+        WithCurrentStatus(LifecycleStatus.Validating);
 
-        var result = await _actor.TransitionAsync(UnitStatus.Stopped, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Stopped, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Stopped);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Stopped);
     }
 
     [Fact]
     public async Task TransitionAsync_ValidatingToError_Succeeds()
     {
-        WithCurrentStatus(UnitStatus.Validating);
+        WithCurrentStatus(LifecycleStatus.Validating);
 
-        var result = await _actor.TransitionAsync(UnitStatus.Error, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Error, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Error);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Error);
     }
 
     [Fact]
     public async Task TransitionAsync_ErrorToValidating_Succeeds()
     {
-        WithCurrentStatus(UnitStatus.Error);
+        WithCurrentStatus(LifecycleStatus.Error);
 
-        var result = await _actor.TransitionAsync(UnitStatus.Validating, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Validating);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Validating);
     }
 
     [Fact]
     public async Task TransitionAsync_StoppedToValidating_Succeeds()
     {
-        WithCurrentStatus(UnitStatus.Stopped);
+        WithCurrentStatus(LifecycleStatus.Stopped);
 
-        var result = await _actor.TransitionAsync(UnitStatus.Validating, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Validating);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Validating);
     }
 
     // --- Disallowed edges — only non-Draft, non-Stopped, non-Error states may
@@ -156,41 +157,41 @@ public class UnitActorValidationTransitionTests
     [Fact]
     public async Task TransitionAsync_RunningToValidating_Rejected()
     {
-        WithCurrentStatus(UnitStatus.Running);
+        WithCurrentStatus(LifecycleStatus.Running);
 
-        var result = await _actor.TransitionAsync(UnitStatus.Validating, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
-        result.CurrentStatus.ShouldBe(UnitStatus.Running);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Running);
         result.RejectionReason.ShouldNotBeNullOrEmpty();
 
         await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitStatus,
-            Arg.Any<UnitStatus>(),
+            StateKeys.UnitLifecycleStatus,
+            Arg.Any<LifecycleStatus>(),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task TransitionAsync_StartingToValidating_Rejected()
     {
-        WithCurrentStatus(UnitStatus.Starting);
+        WithCurrentStatus(LifecycleStatus.Starting);
 
-        var result = await _actor.TransitionAsync(UnitStatus.Validating, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
-        result.CurrentStatus.ShouldBe(UnitStatus.Starting);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Starting);
         result.RejectionReason.ShouldNotBeNullOrEmpty();
     }
 
     [Fact]
     public async Task TransitionAsync_StoppingToValidating_Rejected()
     {
-        WithCurrentStatus(UnitStatus.Stopping);
+        WithCurrentStatus(LifecycleStatus.Stopping);
 
-        var result = await _actor.TransitionAsync(UnitStatus.Validating, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
-        result.CurrentStatus.ShouldBe(UnitStatus.Stopping);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Stopping);
         result.RejectionReason.ShouldNotBeNullOrEmpty();
     }
 }

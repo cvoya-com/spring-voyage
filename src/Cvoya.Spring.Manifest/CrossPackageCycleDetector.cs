@@ -6,6 +6,9 @@ namespace Cvoya.Spring.Manifest;
 using System;
 using System.Collections.Generic;
 
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Detects reference cycles in the post-resolve artefact graph, including
 /// edges that cross package boundaries (ADR-0037 decision 4).

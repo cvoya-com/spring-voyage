@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http.Json;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -108,7 +109,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
         ResetMocks();
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
             .Returns(proxy);
@@ -198,7 +199,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
                 Arg.Any<string>())
             .Returns(parentProxy);
         var childProxy = Substitute.For<IUnitActor>();
-        childProxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        childProxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         var actorParentIdStr = ActorParent_Id.ToString("N");
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(

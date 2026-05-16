@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Workflows;
 
@@ -11,14 +12,14 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for <see cref="UnitValidationWorkflowScheduler"/>'s agent-runtime
+/// Tests for <see cref="ArtefactValidationWorkflowScheduler"/>'s agent-runtime
 /// id resolution (#1683). The fix routes the agent-runtime registry id
 /// through <see cref="UnitExecutionDefaults.Agent"/> (sourced from the
 /// manifest's <c>ai.agent</c> field) and only falls back to
 /// <see cref="UnitExecutionDefaults.Provider"/> for back-compat with
 /// units persisted before the slot existed.
 /// </summary>
-public class UnitValidationWorkflowSchedulerTests
+public class ArtefactValidationWorkflowSchedulerTests
 {
     [Fact]
     public void ResolveAgentRuntimeId_PrefersAgent_OverProvider()
@@ -27,7 +28,7 @@ public class UnitValidationWorkflowSchedulerTests
             Provider: "openai",
             Agent: "claude");
 
-        var runtimeId = UnitValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults);
+        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults.Agent, defaults.Provider);
 
         runtimeId.ShouldBe("claude");
     }
@@ -41,7 +42,7 @@ public class UnitValidationWorkflowSchedulerTests
         var defaults = new UnitExecutionDefaults(
             Provider: "openai");
 
-        var runtimeId = UnitValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults);
+        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults.Agent, defaults.Provider);
 
         runtimeId.ShouldBe("openai");
     }
@@ -51,7 +52,7 @@ public class UnitValidationWorkflowSchedulerTests
     {
         var defaults = new UnitExecutionDefaults();
 
-        var runtimeId = UnitValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults);
+        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults.Agent, defaults.Provider);
 
         runtimeId.ShouldBeNull();
     }
@@ -65,7 +66,7 @@ public class UnitValidationWorkflowSchedulerTests
             Provider: "ollama",
             Agent: "   ");
 
-        var runtimeId = UnitValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults);
+        var runtimeId = ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId(defaults.Agent, defaults.Provider);
 
         runtimeId.ShouldBe("ollama");
     }

@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Base exception class for all Spring Voyage platform exceptions.
 /// </summary>
@@ -11,7 +13,7 @@ public class SpringException : Exception
     /// <summary>
     /// #2189: <see cref="System.Exception.Data"/> key producers use to
     /// stamp the stable issue code (matches the
-    /// <c>ProblemDetails.code</c> / <c>UnitValidationCodes</c> namespace
+    /// <c>ProblemDetails.code</c> / <c>ArtefactValidationCodes</c> namespace
     /// — e.g. <c>"CredentialFormatRejected"</c>,
     /// <c>"CredentialMissing"</c>, <c>"ImagePullFailed"</c>) on a
     /// thrown <see cref="SpringException"/>. The

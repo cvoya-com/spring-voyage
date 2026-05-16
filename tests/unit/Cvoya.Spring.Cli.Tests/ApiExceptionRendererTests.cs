@@ -324,7 +324,7 @@ public class ApiExceptionRendererTests
                 problem,
                 new CliRenderContext("table", Verbose: false, null, so, se)));
 
-        exitCode.ShouldBe(UnitValidationExitCodes.UnknownError);
+        exitCode.ShouldBe(ArtefactValidationExitCodes.UnknownError);
     }
 
     [Fact]
@@ -341,7 +341,7 @@ public class ApiExceptionRendererTests
                 problem,
                 new CliRenderContext("table", Verbose: false, null, so, se)));
 
-        exitCode.ShouldBe(UnitValidationExitCodes.UnknownError);
+        exitCode.ShouldBe(ArtefactValidationExitCodes.UnknownError);
     }
 
     [Fact]

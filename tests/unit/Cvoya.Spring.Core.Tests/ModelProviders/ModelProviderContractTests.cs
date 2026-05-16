@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Core.Tests.ModelProviders;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.ModelProviders;
 
 using Shouldly;
@@ -117,12 +118,12 @@ public class ModelProviderContractTests
     public void StepResult_Fail_CarriesCodeAndMessage()
     {
         var result = StepResult.Fail(
-            Cvoya.Spring.Core.Units.UnitValidationCodes.CredentialInvalid,
+            Cvoya.Spring.Core.Lifecycle.ArtefactValidationCodes.CredentialInvalid,
             "rejected",
             new Dictionary<string, string>(StringComparer.Ordinal) { ["http_status"] = "401" });
 
         result.Outcome.ShouldBe(StepOutcome.Failed);
-        result.Code.ShouldBe(Cvoya.Spring.Core.Units.UnitValidationCodes.CredentialInvalid);
+        result.Code.ShouldBe(Cvoya.Spring.Core.Lifecycle.ArtefactValidationCodes.CredentialInvalid);
         result.Message.ShouldBe("rejected");
         result.Details!["http_status"].ShouldBe("401");
         result.Extras.ShouldBeNull();
@@ -132,7 +133,7 @@ public class ModelProviderContractTests
     public void ProbeStep_IsConstructibleWithInterpreterDelegate()
     {
         var step = new ProbeStep(
-            Step: Cvoya.Spring.Core.Units.UnitValidationStep.VerifyingTool,
+            Step: Cvoya.Spring.Core.Lifecycle.ArtefactValidationStep.VerifyingTool,
             Args: new[] { "claude", "--version" },
             Env: new Dictionary<string, string>(StringComparer.Ordinal),
             Timeout: TimeSpan.FromSeconds(10),

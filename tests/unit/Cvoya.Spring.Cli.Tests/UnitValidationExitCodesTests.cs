@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Cli.Tests;
 
 using Cvoya.Spring.Cli;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 using Shouldly;
@@ -11,26 +12,26 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Pins the <see cref="UnitValidationExitCodes"/> contract (T-08 / #950).
+/// Pins the <see cref="ArtefactValidationExitCodes"/> contract (T-08 / #950).
 /// The table is additive-only public surface: these tests would fail the
 /// moment anyone renumbers an existing code, which is the whole point —
 /// operators script on these numbers and a silent renumber would break
 /// every pipeline that branches on them.
 /// </summary>
-public class UnitValidationExitCodesTests
+public class ArtefactValidationExitCodesTests
 {
     [Theory]
-    [InlineData(UnitValidationCodes.ImagePullFailed, 20)]
-    [InlineData(UnitValidationCodes.ImageStartFailed, 21)]
-    [InlineData(UnitValidationCodes.ToolMissing, 22)]
-    [InlineData(UnitValidationCodes.CredentialInvalid, 23)]
-    [InlineData(UnitValidationCodes.CredentialFormatRejected, 24)]
-    [InlineData(UnitValidationCodes.ModelNotFound, 25)]
-    [InlineData(UnitValidationCodes.ProbeTimeout, 26)]
-    [InlineData(UnitValidationCodes.ProbeInternalError, 27)]
+    [InlineData(ArtefactValidationCodes.ImagePullFailed, 20)]
+    [InlineData(ArtefactValidationCodes.ImageStartFailed, 21)]
+    [InlineData(ArtefactValidationCodes.ToolMissing, 22)]
+    [InlineData(ArtefactValidationCodes.CredentialInvalid, 23)]
+    [InlineData(ArtefactValidationCodes.CredentialFormatRejected, 24)]
+    [InlineData(ArtefactValidationCodes.ModelNotFound, 25)]
+    [InlineData(ArtefactValidationCodes.ProbeTimeout, 26)]
+    [InlineData(ArtefactValidationCodes.ProbeInternalError, 27)]
     public void ForCode_MapsEveryKnownValidationCodeToItsExitCode(string code, int expected)
     {
-        UnitValidationExitCodes.ForCode(code).ShouldBe(expected);
+        ArtefactValidationExitCodes.ForCode(code).ShouldBe(expected);
     }
 
     [Theory]
@@ -40,7 +41,7 @@ public class UnitValidationExitCodesTests
     [InlineData("imagePullFailed")] // case-sensitive — server emits the exact constant name
     public void ForCode_UnknownCodeMapsToUnknownError(string? code)
     {
-        UnitValidationExitCodes.ForCode(code).ShouldBe(UnitValidationExitCodes.UnknownError);
+        ArtefactValidationExitCodes.ForCode(code).ShouldBe(ArtefactValidationExitCodes.UnknownError);
     }
 
     [Fact]
@@ -49,9 +50,9 @@ public class UnitValidationExitCodesTests
         // The whole public surface of the exit-code contract is additive-
         // only; these three constants are the reserved header rows that
         // operators read first from `--help`.
-        UnitValidationExitCodes.Success.ShouldBe(0);
-        UnitValidationExitCodes.UnknownError.ShouldBe(1);
-        UnitValidationExitCodes.UsageError.ShouldBe(2);
+        ArtefactValidationExitCodes.Success.ShouldBe(0);
+        ArtefactValidationExitCodes.UnknownError.ShouldBe(1);
+        ArtefactValidationExitCodes.UsageError.ShouldBe(2);
     }
 
     [Fact]
@@ -61,7 +62,7 @@ public class UnitValidationExitCodesTests
         // `spring unit revalidate --help`. If a new code is added to the
         // `ForCode` mapping but not to the table (or vice versa) operators
         // get a silent drift; pin both shapes together.
-        var table = UnitValidationExitCodes.HelpTable;
+        var table = ArtefactValidationExitCodes.HelpTable;
         table.ShouldContain("Exit codes:");
         table.ShouldContain("20");
         table.ShouldContain("ImagePullFailed");

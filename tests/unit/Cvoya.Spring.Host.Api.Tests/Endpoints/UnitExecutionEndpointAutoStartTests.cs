@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http.Json;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Host.Api.Services;
@@ -49,7 +50,7 @@ public class UnitExecutionEndpointAutoStartTests : IClassFixture<CustomWebApplic
         var mockCreationService = Substitute.For<IUnitCreationService>();
         mockCreationService
             .TryAutoStartAsync(UnitActorGuid, Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(UnitStatus.Validating);
+            .Returns(LifecycleStatus.Validating);
 
         var entry = new DirectoryEntry(
             new Address("unit", UnitActorGuid),

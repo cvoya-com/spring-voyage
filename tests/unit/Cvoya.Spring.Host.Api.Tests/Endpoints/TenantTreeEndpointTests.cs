@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -154,7 +155,7 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
-    public async Task GetTenantTree_EmitsUnitStatusFromActor_NotHardcodedRunning()
+    public async Task GetTenantTree_EmitsLifecycleStatusFromActor_NotHardcodedRunning()
     {
         // #1032: the endpoint previously pinned every unit to "running"
         // regardless of actor state, which showed a green "Running" badge
@@ -173,9 +174,9 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         // ArrangeDirectoryEntries now assigns UUID actorIds; retrieve them
         // for wiring the actor-proxy stubs.
-        ArrangeUnitStatus(_entryUuids["unit:draft-unit"].ToString("N"), UnitStatus.Draft);
-        ArrangeUnitStatus(_entryUuids["unit:running-unit"].ToString("N"), UnitStatus.Running);
-        ArrangeUnitStatus(_entryUuids["unit:error-unit"].ToString("N"), UnitStatus.Error);
+        ArrangeLifecycleStatus(_entryUuids["unit:draft-unit"].ToString("N"), LifecycleStatus.Draft);
+        ArrangeLifecycleStatus(_entryUuids["unit:running-unit"].ToString("N"), LifecycleStatus.Running);
+        ArrangeLifecycleStatus(_entryUuids["unit:error-unit"].ToString("N"), LifecycleStatus.Error);
 
         var body = await FetchTreeAsync(ct);
         var tenant = body!.Tree;
@@ -199,7 +200,7 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
         ArrangeDirectoryEntries(units: [("flaky", "Flaky Unit")]);
-        ArrangeUnitStatusThrows(_entryUuids["unit:flaky"].ToString("N"));
+        ArrangeLifecycleStatusThrows(_entryUuids["unit:flaky"].ToString("N"));
 
         var body = await FetchTreeAsync(ct);
         var flakyId = _entryUuids["unit:flaky"].ToString("N");
@@ -283,7 +284,7 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
             .Returns(list);
     }
 
-    private void ArrangeUnitStatus(string actorId, UnitStatus status)
+    private void ArrangeLifecycleStatus(string actorId, LifecycleStatus status)
     {
         var proxy = Substitute.For<IUnitActor>();
         proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(status);
@@ -294,11 +295,11 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
             .Returns(proxy);
     }
 
-    private void ArrangeUnitStatusThrows(string actorId)
+    private void ArrangeLifecycleStatusThrows(string actorId)
     {
         var proxy = Substitute.For<IUnitActor>();
         proxy.GetStatusAsync(Arg.Any<CancellationToken>())
-            .Returns<Task<UnitStatus>>(_ => throw new InvalidOperationException("actor unreachable"));
+            .Returns<Task<LifecycleStatus>>(_ => throw new InvalidOperationException("actor unreachable"));
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == actorId),

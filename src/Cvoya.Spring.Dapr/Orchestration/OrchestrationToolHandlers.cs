@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Dapr.Actors;
@@ -476,7 +477,7 @@ public class OrchestrationToolHandlers(
     /// Probes the target child's lifecycle status by sending a
     /// <see cref="MessageType.StatusQuery"/> control message through the
     /// existing actor mailbox. The response payload's <c>Status</c>
-    /// (<see cref="AgentStatus"/> for agents, <see cref="Core.Units.UnitStatus"/>
+    /// (<see cref="AgentStatus"/> for agents, <see cref="Core.Units.LifecycleStatus"/>
     /// for units) is mapped onto the closed schema enum
     /// (<c>ready | busy | stopped | error | unknown</c>).
     /// </summary>
@@ -532,7 +533,7 @@ public class OrchestrationToolHandlers(
         }
 
         var isUnit = string.Equals(target.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase);
-        var status = isUnit ? MapUnitStatus(raw) : MapAgentStatus(raw);
+        var status = isUnit ? MapLifecycleStatus(raw) : MapAgentStatus(raw);
 
         string? busyOnThread = null;
         if (status == "busy")
@@ -569,7 +570,7 @@ public class OrchestrationToolHandlers(
         _ => "unknown",
     };
 
-    private static string MapUnitStatus(string raw) => raw switch
+    private static string MapLifecycleStatus(string raw) => raw switch
     {
         "Stopped" => "stopped",
         "Running" => "ready",

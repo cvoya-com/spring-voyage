@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Workflows;
 using Cvoya.Spring.Dapr.Workflows.Activities;
@@ -16,21 +18,21 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for <see cref="UnitValidationWorkflow"/>. The workflow's
+/// Unit tests for <see cref="ArtefactValidationWorkflow"/>. The workflow's
 /// orchestration is validated by substituting the
 /// <see cref="WorkflowContext"/> and asserting which activities it calls
 /// and in what order.
 /// </summary>
-public class UnitValidationWorkflowTests
+public class ArtefactValidationWorkflowTests
 {
     private readonly WorkflowContext _context;
-    private readonly UnitValidationWorkflow _workflow;
+    private readonly ArtefactValidationWorkflow _workflow;
     private readonly List<EmitValidationProgressActivityInput> _emitted = new();
 
-    public UnitValidationWorkflowTests()
+    public ArtefactValidationWorkflowTests()
     {
         _context = Substitute.For<WorkflowContext>();
-        _workflow = new UnitValidationWorkflow();
+        _workflow = new ArtefactValidationWorkflow();
 
         // Capture every EmitValidationProgressActivity call so tests can
         // assert on the event sequence emitted by the workflow.
@@ -46,23 +48,22 @@ public class UnitValidationWorkflowTests
             .Returns(true);
     }
 
-    private static UnitValidationWorkflowInput Input(string model = "gpt-4o") =>
-        new(
-            UnitId: "unit-1",
-            UnitName: "unit-1",
+    private static ArtefactValidationWorkflowInput Input(string model = "gpt-4o") =>
+        new(Kind: ArtefactKind.Unit, ArtefactId: "unit-1",
+            ArtefactName: "unit-1",
             Image: "ghcr.io/cvoya/test:1",
             RuntimeId: "test-runtime",
             Credential: "sk-test",
             RequestedModel: model);
 
-    private void SetupPullImage(bool success, UnitValidationError? failure = null)
+    private void SetupPullImage(bool success, ArtefactValidationError? failure = null)
     {
         _context.CallActivityAsync<PullImageActivityOutput>(
                 nameof(PullImageActivity), Arg.Any<object?>())
             .Returns(new PullImageActivityOutput(success, failure));
     }
 
-    private void SetupProbeStep(UnitValidationStep step, RunContainerProbeActivityOutput output)
+    private void SetupProbeStep(ArtefactValidationStep step, RunContainerProbeActivityOutput output)
     {
         _context.CallActivityAsync<RunContainerProbeActivityOutput>(
                 nameof(RunContainerProbeActivity),
@@ -70,7 +71,7 @@ public class UnitValidationWorkflowTests
             .Returns(output);
     }
 
-    private static bool MatchesStep(object? o, UnitValidationStep expected) =>
+    private static bool MatchesStep(object? o, ArtefactValidationStep expected) =>
         o is RunContainerProbeActivityInput input && input.Step == expected;
 
     private static RunContainerProbeActivityOutput Succeeded(
@@ -78,10 +79,10 @@ public class UnitValidationWorkflowTests
         new(Success: true, Failure: null, Extras: extras,
             RedactedStdOut: string.Empty, RedactedStdErr: string.Empty);
 
-    private static RunContainerProbeActivityOutput Failed(UnitValidationStep step, string code) =>
+    private static RunContainerProbeActivityOutput Failed(ArtefactValidationStep step, string code) =>
         new(
             Success: false,
-            Failure: new UnitValidationError(step, code, "failed", null),
+            Failure: new ArtefactValidationError(step, code, "failed", null),
             Extras: null,
             RedactedStdOut: string.Empty,
             RedactedStdErr: string.Empty);
@@ -90,10 +91,10 @@ public class UnitValidationWorkflowTests
     public async Task RunAsync_AllStepsPass_ReturnsSuccessWithLiveModels()
     {
         SetupPullImage(success: true);
-        SetupProbeStep(UnitValidationStep.VerifyingTool, Succeeded());
-        SetupProbeStep(UnitValidationStep.ValidatingCredential, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.VerifyingTool, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.ValidatingCredential, Succeeded());
         SetupProbeStep(
-            UnitValidationStep.ResolvingModel,
+            ArtefactValidationStep.ResolvingModel,
             Succeeded(new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["models"] = "gpt-4o,gpt-4o-mini",
@@ -112,9 +113,9 @@ public class UnitValidationWorkflowTests
     {
         SetupPullImage(
             success: false,
-            failure: new UnitValidationError(
-                UnitValidationStep.PullingImage,
-                UnitValidationCodes.ImagePullFailed,
+            failure: new ArtefactValidationError(
+                ArtefactValidationStep.PullingImage,
+                ArtefactValidationCodes.ImagePullFailed,
                 "registry denied",
                 null));
 
@@ -122,8 +123,8 @@ public class UnitValidationWorkflowTests
 
         result.Success.ShouldBeFalse();
         result.Failure.ShouldNotBeNull();
-        result.Failure!.Code.ShouldBe(UnitValidationCodes.ImagePullFailed);
-        result.Failure.Step.ShouldBe(UnitValidationStep.PullingImage);
+        result.Failure!.Code.ShouldBe(ArtefactValidationCodes.ImagePullFailed);
+        result.Failure.Step.ShouldBe(ArtefactValidationStep.PullingImage);
 
         await _context.DidNotReceive().CallActivityAsync<RunContainerProbeActivityOutput>(
             nameof(RunContainerProbeActivity), Arg.Any<object?>());
@@ -134,59 +135,59 @@ public class UnitValidationWorkflowTests
     {
         SetupPullImage(success: true);
         SetupProbeStep(
-            UnitValidationStep.VerifyingTool,
-            Failed(UnitValidationStep.VerifyingTool, UnitValidationCodes.ToolMissing));
+            ArtefactValidationStep.VerifyingTool,
+            Failed(ArtefactValidationStep.VerifyingTool, ArtefactValidationCodes.ToolMissing));
 
         var result = await _workflow.RunAsync(_context, Input());
 
         result.Success.ShouldBeFalse();
-        result.Failure!.Code.ShouldBe(UnitValidationCodes.ToolMissing);
-        result.Failure.Step.ShouldBe(UnitValidationStep.VerifyingTool);
+        result.Failure!.Code.ShouldBe(ArtefactValidationCodes.ToolMissing);
+        result.Failure.Step.ShouldBe(ArtefactValidationStep.VerifyingTool);
 
         // No ValidatingCredential / ResolvingModel should have fired.
         await _context.DidNotReceive().CallActivityAsync<RunContainerProbeActivityOutput>(
             nameof(RunContainerProbeActivity),
-            Arg.Is<object?>(o => MatchesStep(o, UnitValidationStep.ValidatingCredential)));
+            Arg.Is<object?>(o => MatchesStep(o, ArtefactValidationStep.ValidatingCredential)));
         await _context.DidNotReceive().CallActivityAsync<RunContainerProbeActivityOutput>(
             nameof(RunContainerProbeActivity),
-            Arg.Is<object?>(o => MatchesStep(o, UnitValidationStep.ResolvingModel)));
+            Arg.Is<object?>(o => MatchesStep(o, ArtefactValidationStep.ResolvingModel)));
     }
 
     [Fact]
     public async Task RunAsync_CredentialInvalid_ReturnsCredentialInvalid_SkipsResolvingModel()
     {
         SetupPullImage(success: true);
-        SetupProbeStep(UnitValidationStep.VerifyingTool, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.VerifyingTool, Succeeded());
         SetupProbeStep(
-            UnitValidationStep.ValidatingCredential,
-            Failed(UnitValidationStep.ValidatingCredential, UnitValidationCodes.CredentialInvalid));
+            ArtefactValidationStep.ValidatingCredential,
+            Failed(ArtefactValidationStep.ValidatingCredential, ArtefactValidationCodes.CredentialInvalid));
 
         var result = await _workflow.RunAsync(_context, Input());
 
         result.Success.ShouldBeFalse();
-        result.Failure!.Code.ShouldBe(UnitValidationCodes.CredentialInvalid);
-        result.Failure.Step.ShouldBe(UnitValidationStep.ValidatingCredential);
+        result.Failure!.Code.ShouldBe(ArtefactValidationCodes.CredentialInvalid);
+        result.Failure.Step.ShouldBe(ArtefactValidationStep.ValidatingCredential);
 
         await _context.DidNotReceive().CallActivityAsync<RunContainerProbeActivityOutput>(
             nameof(RunContainerProbeActivity),
-            Arg.Is<object?>(o => MatchesStep(o, UnitValidationStep.ResolvingModel)));
+            Arg.Is<object?>(o => MatchesStep(o, ArtefactValidationStep.ResolvingModel)));
     }
 
     [Fact]
     public async Task RunAsync_ModelNotFound_ReturnsModelNotFound()
     {
         SetupPullImage(success: true);
-        SetupProbeStep(UnitValidationStep.VerifyingTool, Succeeded());
-        SetupProbeStep(UnitValidationStep.ValidatingCredential, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.VerifyingTool, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.ValidatingCredential, Succeeded());
         SetupProbeStep(
-            UnitValidationStep.ResolvingModel,
-            Failed(UnitValidationStep.ResolvingModel, UnitValidationCodes.ModelNotFound));
+            ArtefactValidationStep.ResolvingModel,
+            Failed(ArtefactValidationStep.ResolvingModel, ArtefactValidationCodes.ModelNotFound));
 
         var result = await _workflow.RunAsync(_context, Input());
 
         result.Success.ShouldBeFalse();
-        result.Failure!.Code.ShouldBe(UnitValidationCodes.ModelNotFound);
-        result.Failure.Step.ShouldBe(UnitValidationStep.ResolvingModel);
+        result.Failure!.Code.ShouldBe(ArtefactValidationCodes.ModelNotFound);
+        result.Failure.Step.ShouldBe(ArtefactValidationStep.ResolvingModel);
         result.LiveModels.ShouldBeNull();
     }
 
@@ -194,18 +195,18 @@ public class UnitValidationWorkflowTests
     public async Task RunAsync_HappyPath_EmitsRunningAndSucceededForEveryStep()
     {
         SetupPullImage(success: true);
-        SetupProbeStep(UnitValidationStep.VerifyingTool, Succeeded());
-        SetupProbeStep(UnitValidationStep.ValidatingCredential, Succeeded());
-        SetupProbeStep(UnitValidationStep.ResolvingModel, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.VerifyingTool, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.ValidatingCredential, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.ResolvingModel, Succeeded());
 
         await _workflow.RunAsync(_context, Input());
 
         var steps = new[]
         {
-            UnitValidationStep.PullingImage,
-            UnitValidationStep.VerifyingTool,
-            UnitValidationStep.ValidatingCredential,
-            UnitValidationStep.ResolvingModel,
+            ArtefactValidationStep.PullingImage,
+            ArtefactValidationStep.VerifyingTool,
+            ArtefactValidationStep.ValidatingCredential,
+            ArtefactValidationStep.ResolvingModel,
         };
         foreach (var step in steps)
         {
@@ -222,18 +223,18 @@ public class UnitValidationWorkflowTests
     {
         SetupPullImage(
             success: false,
-            failure: new UnitValidationError(
-                UnitValidationStep.PullingImage,
-                UnitValidationCodes.ImagePullFailed,
+            failure: new ArtefactValidationError(
+                ArtefactValidationStep.PullingImage,
+                ArtefactValidationCodes.ImagePullFailed,
                 "err",
                 null));
 
         await _workflow.RunAsync(_context, Input());
 
         _emitted.ShouldContain(e =>
-            e.Step == UnitValidationStep.PullingImage &&
+            e.Step == ArtefactValidationStep.PullingImage &&
             e.Status == "Failed" &&
-            e.Code == UnitValidationCodes.ImagePullFailed);
+            e.Code == ArtefactValidationCodes.ImagePullFailed);
     }
 
     [Fact]
@@ -241,25 +242,25 @@ public class UnitValidationWorkflowTests
     {
         SetupPullImage(success: true);
         SetupProbeStep(
-            UnitValidationStep.VerifyingTool,
-            Failed(UnitValidationStep.VerifyingTool, UnitValidationCodes.ToolMissing));
+            ArtefactValidationStep.VerifyingTool,
+            Failed(ArtefactValidationStep.VerifyingTool, ArtefactValidationCodes.ToolMissing));
 
         await _workflow.RunAsync(_context, Input());
 
         _emitted.ShouldContain(e =>
-            e.Step == UnitValidationStep.VerifyingTool &&
+            e.Step == ArtefactValidationStep.VerifyingTool &&
             e.Status == "Failed" &&
-            e.Code == UnitValidationCodes.ToolMissing);
+            e.Code == ArtefactValidationCodes.ToolMissing);
     }
 
     [Fact]
     public async Task RunAsync_SuccessWithoutModelExtras_ReturnsNullLiveModels()
     {
         SetupPullImage(success: true);
-        SetupProbeStep(UnitValidationStep.VerifyingTool, Succeeded());
-        SetupProbeStep(UnitValidationStep.ValidatingCredential, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.VerifyingTool, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.ValidatingCredential, Succeeded());
         SetupProbeStep(
-            UnitValidationStep.ResolvingModel,
+            ArtefactValidationStep.ResolvingModel,
             Succeeded(new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 // Interpreter emitted a model key but no "models" list

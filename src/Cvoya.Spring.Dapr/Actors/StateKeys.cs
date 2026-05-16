@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Actors;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Centralized constants for Dapr actor state keys.
 /// Prevents typos and ensures consistency across parallel work.
@@ -150,9 +152,10 @@ public static class StateKeys
     // `BudgetEndpoints` and `BudgetEnforcer`.
 
     /// <summary>
-    /// State key for the unit's lifecycle status.
+    /// State key for the unit's lifecycle status (#2364: stored as
+    /// <see cref="Cvoya.Spring.Core.Lifecycle.LifecycleStatus"/>).
     /// </summary>
-    public const string UnitStatus = "Unit:Status";
+    public const string UnitLifecycleStatus = "Unit:Status";
 
     /// <summary>
     /// State key (boolean) marking a unit as awaiting an automatic transition
@@ -164,7 +167,18 @@ public static class StateKeys
     /// Stopped after validation" — the original behaviour preserved for the
     /// manual <c>/revalidate</c> path.
     /// </summary>
-    public const string PendingAutoStart = "Unit:PendingAutoStart";
+    public const string UnitPendingAutoStart = "Unit:PendingAutoStart";
+
+    /// <summary>
+    /// State key (boolean) marking an agent as awaiting an automatic transition
+    /// to <c>Running</c> as soon as validation succeeds (#2364). Set by the
+    /// activator / direct-create path after the agent transitions into
+    /// <c>Validating</c>; consumed and cleared by
+    /// <c>AgentActor.CompleteValidationAsync</c> when the workflow reports
+    /// success. Mirrors the unit-side <see cref="UnitPendingAutoStart"/>
+    /// marker.
+    /// </summary>
+    public const string AgentPendingAutoStart = "Agent:PendingAutoStart";
 
     // ADR-0040 / #2049: the unit live-config keys (Unit:Model,
     // Unit:Color, Unit:Provider, Unit:Hosting, Unit:Boundary,
@@ -232,20 +246,17 @@ public static class StateKeys
     public const string HumanLastReadAt = "Human:LastReadAt";
 
     /// <summary>
-    /// State key for an agent's installation-lifecycle status (#2156).
-    /// Stored as a <see cref="Cvoya.Spring.Core.Agents.AgentLifecycleStatus"/>
-    /// enum value (Active / Error). Set by
-    /// <c>DefaultPackageArtefactActivator</c> at install time. Absent
-    /// means the agent activated successfully through the pre-#2156
-    /// path — readers default to <c>Active</c>.
+    /// State key for an agent's lifecycle status (#2156 / #2364). Stored as
+    /// a <see cref="Cvoya.Spring.Core.Lifecycle.LifecycleStatus"/> enum
+    /// value. Set by the agent actor on every transition.
     /// </summary>
     public const string AgentLifecycleStatus = "Agent:LifecycleStatus";
 
     /// <summary>
     /// State key for the diagnostic message accompanying an
-    /// <see cref="Cvoya.Spring.Core.Agents.AgentLifecycleStatus.Error"/>
+    /// <see cref="Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Error"/>
     /// row (#2156). Cleared whenever the lifecycle status flips back to
-    /// <see cref="Cvoya.Spring.Core.Agents.AgentLifecycleStatus.Active"/>.
+    /// a non-error state.
     /// </summary>
     public const string AgentLifecycleError = "Agent:LifecycleError";
 }

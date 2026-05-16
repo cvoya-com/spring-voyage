@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Execution;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Result returned by <see cref="IContainerRuntime.GetHealthAsync"/>. Models
 /// the three states a container's built-in HEALTHCHECK can be in, plus the
@@ -32,8 +34,8 @@ public interface IContainerRuntime
     /// start it without an implicit pull. Separate from
     /// <see cref="RunAsync(ContainerConfig, CancellationToken)"/> because image
     /// pulls have distinct timeout and failure semantics (slow registry,
-    /// auth failure, tag-not-found) that the <c>UnitValidationWorkflow</c>
-    /// surfaces as <see cref="Units.UnitValidationCodes.ImagePullFailed"/>
+    /// auth failure, tag-not-found) that the <c>ArtefactValidationWorkflow</c>
+    /// surfaces as <see cref="Units.ArtefactValidationCodes.ImagePullFailed"/>
     /// rather than a run-time failure.
     /// </summary>
     /// <param name="image">The fully-qualified container image reference (e.g. <c>ghcr.io/cvoya/claude:1.2.3</c>).</param>

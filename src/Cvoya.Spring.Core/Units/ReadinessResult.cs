@@ -5,9 +5,11 @@ namespace Cvoya.Spring.Core.Units;
 
 using System.Runtime.Serialization;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Result of a unit readiness check. Describes whether the unit has enough
-/// configuration to leave the <see cref="UnitStatus.Draft"/> state and lists
+/// configuration to leave the <see cref="LifecycleStatus.Draft"/> state and lists
 /// the requirements that are not yet satisfied.
 /// </summary>
 /// <param name="IsReady">True when the unit meets all minimum requirements and can be started.</param>

@@ -8,6 +8,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Validation;
 using Cvoya.Spring.Host.Api.Models;
@@ -182,7 +183,7 @@ public class DisplayNameValidationEndpointTests : IClassFixture<CustomWebApplica
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new Cvoya.Spring.Core.Units.UnitMetadata(null, null, "gpt-4o", null));
         proxy.GetStatusAsync(Arg.Any<CancellationToken>())
-            .Returns(Cvoya.Spring.Core.Units.UnitStatus.Draft);
+            .Returns(Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Draft);
         _factory.ActorProxyFactory
             .CreateActorProxy<Cvoya.Spring.Dapr.Actors.IUnitActor>(Arg.Any<global::Dapr.Actors.ActorId>(), Arg.Any<string>())
             .Returns(proxy);
