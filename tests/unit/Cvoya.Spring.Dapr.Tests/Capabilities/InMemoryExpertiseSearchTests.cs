@@ -91,7 +91,7 @@ public class InMemoryExpertiseSearchTests
         _store.GetDomainsAsync(agent.Address, Arg.Any<CancellationToken>())
             .Returns(new[] { Domain("python") });
         _store.GetDomainsAsync(unit.Address, Arg.Any<CancellationToken>())
-            .Returns(new[] { Domain("release-planning") });
+            .Returns(new[] { Domain("release_planning") });
 
         var search = CreateSearch();
         var result = await search.SearchAsync(
@@ -99,7 +99,7 @@ public class InMemoryExpertiseSearchTests
             TestContext.Current.CancellationToken);
 
         result.Hits.Select(h => h.Slug).ShouldNotContain("python");
-        result.Hits.Select(h => h.Slug).ShouldContain("release-planning");
+        result.Hits.Select(h => h.Slug).ShouldContain("release_planning");
     }
 
     [Fact]
@@ -165,12 +165,12 @@ public class InMemoryExpertiseSearchTests
         var search = CreateSearch();
         var result = await search.SearchAsync(
             new ExpertiseSearchQuery(
-                Domains: new[] { "python-fastapi", "rust" },
+                Domains: new[] { "python_fastapi", "rust" },
                 Context: BoundaryViewContext.InsideUnit),
             TestContext.Current.CancellationToken);
 
         result.Hits.Select(h => h.Slug).OrderBy(s => s, StringComparer.Ordinal)
-            .ShouldBe(new[] { "python-fastapi", "rust" });
+            .ShouldBe(new[] { "python_fastapi", "rust" });
     }
 
     [Fact]
@@ -225,7 +225,7 @@ public class InMemoryExpertiseSearchTests
         _store.GetDomainsAsync(rootUnit.Address, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<ExpertiseDomain>());
         _store.GetDomainsAsync(childUnit.Address, Arg.Any<CancellationToken>())
-            .Returns(new[] { Domain("release-planning") });
+            .Returns(new[] { Domain("release_planning") });
 
         // Root's aggregator view surfaces the child's expertise via a path
         // [root, child] — the search must pick it up as an aggregated-coverage hit.
@@ -236,7 +236,7 @@ public class InMemoryExpertiseSearchTests
                 new[]
                 {
                     new ExpertiseEntry(
-                        Domain("release-planning"),
+                        Domain("release_planning"),
                         childUnit.Address,
                         new[] { rootUnit.Address, childUnit.Address }),
                 },
@@ -295,7 +295,7 @@ public class InMemoryExpertiseSearchTests
         _store.GetDomainsAsync(rootUnit.Address, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<ExpertiseDomain>());
         _store.GetDomainsAsync(childUnit.Address, Arg.Any<CancellationToken>())
-            .Returns(new[] { Domain("release-planning") });
+            .Returns(new[] { Domain("release_planning") });
 
         _aggregator
             .GetAsync(rootUnit.Address, Arg.Any<BoundaryViewContext>(), Arg.Any<CancellationToken>())
@@ -304,7 +304,7 @@ public class InMemoryExpertiseSearchTests
                 new[]
                 {
                     new ExpertiseEntry(
-                        Domain("release-planning"),
+                        Domain("release_planning"),
                         childUnit.Address,
                         new[] { rootUnit.Address, childUnit.Address }),
                 },
@@ -323,7 +323,7 @@ public class InMemoryExpertiseSearchTests
         aggregatedHit.AncestorChain!.Count.ShouldBe(1);
         aggregatedHit.AncestorChain[0].ShouldBe(rootUnit.Address);
         aggregatedHit.ProjectionPaths.ShouldNotBeNull();
-        aggregatedHit.ProjectionPaths!.ShouldBe(new[] { "projection/release-planning" });
+        aggregatedHit.ProjectionPaths!.ShouldBe(new[] { "projection/release_planning" });
     }
 
     [Fact]

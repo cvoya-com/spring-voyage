@@ -1,6 +1,6 @@
 [
   {
-    "name": "openSprint",
+    "name": "pm.open_sprint",
     "description": "Open a new sprint with a goal and time window",
     "parameters": {
       "type": "object",
@@ -26,7 +26,7 @@
     }
   },
   {
-    "name": "addToSprint",
+    "name": "pm.add_to_sprint",
     "description": "Add an item from the backlog to an open sprint",
     "parameters": {
       "type": "object",
@@ -48,7 +48,7 @@
     }
   },
   {
-    "name": "closeSprint",
+    "name": "pm.close_sprint",
     "description": "Close a sprint and record its outcome",
     "parameters": {
       "type": "object",

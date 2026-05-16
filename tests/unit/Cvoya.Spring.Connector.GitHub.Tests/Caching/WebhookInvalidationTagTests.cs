@@ -156,7 +156,7 @@ public class WebhookInvalidationTagTests
     public void DeriveInvalidationTags_ProjectsV2ItemEdited_EmitsItemTag()
     {
         // Item events carry the item's GraphQL node id as projects_v2_item.node_id.
-        // The per-item tag is what the github_get_project_v2_item skill caches
+        // The per-item tag is what the github.get_project_v2_item skill caches
         // under, so emitting that tag is necessary AND sufficient for item reads.
         var handler = CreateHandler();
         var payload = Parse("""

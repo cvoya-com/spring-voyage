@@ -217,14 +217,14 @@ public class AgentMetadataTests
     {
         // Input has duplicates, whitespace, and unstable order — the
         // persisted list must be deduped, trimmed, and ordinal-sorted.
-        var input = new[] { " github_write_file ", "github_read_file", "github_write_file", "" };
+        var input = new[] { " github.write_file ", "github.read_file", "github.write_file", "" };
 
         await _actor.SetSkillsAsync(input, TestContext.Current.CancellationToken);
 
         var stored = await _liveConfigStore.GetSkillsAsync(AgentGuid, TestContext.Current.CancellationToken);
         stored.Length.ShouldBe(2);
-        stored[0].ShouldBe("github_read_file");
-        stored[1].ShouldBe("github_write_file");
+        stored[0].ShouldBe("github.read_file");
+        stored[1].ShouldBe("github.write_file");
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>

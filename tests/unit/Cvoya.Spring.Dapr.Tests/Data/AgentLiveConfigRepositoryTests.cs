@@ -144,12 +144,12 @@ public class AgentLiveConfigRepositoryTests : IDisposable
 
         var persisted = await _repository.SetSkillsAsync(
             Agent1,
-            new[] { " github_write ", "github_read", "github_write", "" },
+            new[] { " github.write ", "github.read", "github.write", "" },
             ct);
 
         persisted.Length.ShouldBe(2);
-        persisted.ShouldContain("github_read");
-        persisted.ShouldContain("github_write");
+        persisted.ShouldContain("github.read");
+        persisted.ShouldContain("github.write");
 
         var fetched = await _repository.GetSkillsAsync(Agent1, ct);
         fetched.ShouldBe(persisted);

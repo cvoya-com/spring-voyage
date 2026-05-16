@@ -62,7 +62,7 @@ public class FileSystemSkillBundleResolverTests : IDisposable
             """
             [
               {
-                "name": "assignToAgent",
+                "name": "platform.assign_to_agent",
                 "description": "Assign a work item",
                 "parameters": { "type": "object", "required": ["agentId"], "properties": { "agentId": { "type": "string" } } }
               }
@@ -77,7 +77,7 @@ public class FileSystemSkillBundleResolverTests : IDisposable
         bundle.SkillName.ShouldBe("triage-and-assign");
         bundle.Prompt.ShouldContain("Triage prompt text");
         bundle.RequiredTools.Count.ShouldBe(1);
-        bundle.RequiredTools[0].Name.ShouldBe("assignToAgent");
+        bundle.RequiredTools[0].Name.ShouldBe("platform.assign_to_agent");
         bundle.RequiredTools[0].Description.ShouldBe("Assign a work item");
         bundle.RequiredTools[0].Optional.ShouldBeFalse();
     }

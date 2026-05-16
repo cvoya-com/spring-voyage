@@ -14,7 +14,7 @@ namespace Cvoya.Spring.Connector.Arxiv;
 /// category filter is applied by default.
 /// </param>
 /// <param name="MaxResults">
-/// Default maximum number of results returned by <c>searchLiterature</c> when
+/// Default maximum number of results returned by <c>arxiv.search_literature</c> when
 /// the caller does not supply a limit. Hard-capped to 100 at call time.
 /// </param>
 public record UnitArxivConfig(

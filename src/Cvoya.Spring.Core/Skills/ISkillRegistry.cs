@@ -20,6 +20,45 @@ public interface ISkillRegistry
     IReadOnlyList<ToolDefinition> GetToolDefinitions();
 
     /// <summary>
+    /// Returns the tool definitions whose canonical <see cref="ToolDefinition.Name"/>
+    /// starts with the supplied namespace segment (the portion before the first
+    /// <c>.</c> in a <c>&lt;namespace&gt;.&lt;tool_name&gt;</c> id). The default
+    /// implementation filters <see cref="GetToolDefinitions"/>; registries that
+    /// already partition their tool surface by namespace MAY override with a
+    /// more efficient implementation.
+    /// </summary>
+    /// <remarks>
+    /// Consumed by the grant pipeline (#2335) so a unit can authorise an entire
+    /// namespace (e.g. all <c>github.*</c> tools) without enumerating each id.
+    /// Matching is case-sensitive and exact — callers must pass the lower-case
+    /// namespace segment as it appears on the tool ids.
+    /// </remarks>
+    /// <param name="namespace">
+    /// Namespace segment to match (e.g. <c>"github"</c>, <c>"sv"</c>).
+    /// </param>
+    IReadOnlyList<ToolDefinition> GetToolsByNamespace(string @namespace)
+    {
+        if (string.IsNullOrEmpty(@namespace))
+        {
+            return Array.Empty<ToolDefinition>();
+        }
+        var tools = GetToolDefinitions();
+        if (tools.Count == 0)
+        {
+            return Array.Empty<ToolDefinition>();
+        }
+        var matched = new List<ToolDefinition>(tools.Count);
+        foreach (var tool in tools)
+        {
+            if (string.Equals(tool.Namespace, @namespace, StringComparison.Ordinal))
+            {
+                matched.Add(tool);
+            }
+        }
+        return matched;
+    }
+
+    /// <summary>
     /// Executes a tool by name against the provided arguments. Arguments follow the
     /// tool's input schema. Implementations throw <see cref="SkillNotFoundException"/>
     /// when <paramref name="toolName"/> is not handled by this registry.

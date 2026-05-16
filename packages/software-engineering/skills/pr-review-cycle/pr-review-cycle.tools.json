@@ -1,6 +1,6 @@
 [
   {
-    "name": "requestReview",
+    "name": "eng.request_review",
     "description": "Request a code review from a specific agent",
     "parameters": {
       "type": "object",
@@ -18,7 +18,7 @@
     }
   },
   {
-    "name": "submitReview",
+    "name": "eng.submit_review",
     "description": "Submit a review decision on a pull request",
     "parameters": {
       "type": "object",

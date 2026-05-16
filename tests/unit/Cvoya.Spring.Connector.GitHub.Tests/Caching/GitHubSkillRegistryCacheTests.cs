@@ -110,8 +110,8 @@ public class GitHubSkillRegistryCacheTests
 
         var args = JsonSerializer.SerializeToElement(new { owner = "owner", repo = "repo", number = 7 });
 
-        var r1 = await registry.InvokeAsync("github_get_pull_request", args, TestContext.Current.CancellationToken);
-        var r2 = await registry.InvokeAsync("github_get_pull_request", args, TestContext.Current.CancellationToken);
+        var r1 = await registry.InvokeAsync("github.get_pull_request", args, TestContext.Current.CancellationToken);
+        var r2 = await registry.InvokeAsync("github.get_pull_request", args, TestContext.Current.CancellationToken);
 
         r1.GetProperty("number").GetInt32().ShouldBe(7);
         r2.GetProperty("number").GetInt32().ShouldBe(7);
@@ -133,8 +133,8 @@ public class GitHubSkillRegistryCacheTests
 
         var args = JsonSerializer.SerializeToElement(new { owner = "owner", repo = "repo", number = 7 });
 
-        await registry.InvokeAsync("github_get_pull_request", args, TestContext.Current.CancellationToken);
-        await registry.InvokeAsync("github_get_pull_request", args, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_pull_request", args, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.get_pull_request", args, TestContext.Current.CancellationToken);
 
         await client.PullRequest.Received(2).Get("owner", "repo", 7);
     }
@@ -150,8 +150,8 @@ public class GitHubSkillRegistryCacheTests
         var args1 = JsonSerializer.SerializeToElement(new { owner = "o", repo = "r", state = "open", maxResults = 10 });
         var args2 = JsonSerializer.SerializeToElement(new { owner = "o", repo = "r", state = "closed", maxResults = 10 });
 
-        await registry.InvokeAsync("github_list_pull_requests", args1, TestContext.Current.CancellationToken);
-        await registry.InvokeAsync("github_list_pull_requests", args2, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.list_pull_requests", args1, TestContext.Current.CancellationToken);
+        await registry.InvokeAsync("github.list_pull_requests", args2, TestContext.Current.CancellationToken);
 
         // state=open vs state=closed are different discriminators; both must
         // hit Octokit at least once.

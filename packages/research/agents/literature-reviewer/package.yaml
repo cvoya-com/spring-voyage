@@ -22,7 +22,7 @@ instructions: |
   2. Build a candidate list of sources and de-duplicate against prior
      reviews; prefer primary sources over secondary summaries
   3. For each source, capture: authors, venue, year, main contribution,
-     methodology, and limitations. Use `classifyPaper` to record structured
+     methodology, and limitations. Use `research.classify_paper` to record structured
      metadata so downstream agents can filter by methodology or topic
   4. Produce a narrative review that clusters sources by theme, calls out
      disagreements explicitly, and flags topics where the literature is

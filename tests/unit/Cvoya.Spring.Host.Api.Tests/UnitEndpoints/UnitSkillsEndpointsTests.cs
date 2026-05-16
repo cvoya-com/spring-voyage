@@ -64,7 +64,7 @@ public class UnitSkillsEndpointsTests : IClassFixture<CustomWebApplicationFactor
         _factory.AgentStateCoordinator.ClearReceivedCalls();
         _factory.AgentStateCoordinator
             .GetSkillsAsync(actorIdStr, Arg.Any<CancellationToken>())
-            .Returns(new[] { "github_read_file", "github_write_file" });
+            .Returns(new[] { "github.read_file", "github.write_file" });
 
         // Act
         var response = await _client.GetAsync(
@@ -74,7 +74,7 @@ public class UnitSkillsEndpointsTests : IClassFixture<CustomWebApplicationFactor
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<AgentSkillsResponse>(JsonOptions, ct);
         body.ShouldNotBeNull();
-        body!.Skills.ShouldBe(new[] { "github_read_file", "github_write_file" });
+        body!.Skills.ShouldBe(new[] { "github.read_file", "github.write_file" });
         await _factory.AgentStateCoordinator.Received(1)
             .GetSkillsAsync(actorIdStr, Arg.Any<CancellationToken>());
     }
@@ -116,7 +116,7 @@ public class UnitSkillsEndpointsTests : IClassFixture<CustomWebApplicationFactor
         // call returns the new value.
         _factory.AgentStateCoordinator
             .GetSkillsAsync(actorIdStr, Arg.Any<CancellationToken>())
-            .Returns(new[] { "github_list_files", "github_create_branch" });
+            .Returns(new[] { "github.list_files", "github.create_branch" });
         _factory.AgentStateCoordinator
             .SetSkillsAsync(
                 actorIdStr,
@@ -127,7 +127,7 @@ public class UnitSkillsEndpointsTests : IClassFixture<CustomWebApplicationFactor
 
         // Act
         var request = new SetAgentSkillsRequest(
-            new[] { "github_list_files", "github_create_branch" });
+            new[] { "github.list_files", "github.create_branch" });
         var response = await _client.PutAsJsonAsync(
             $"/api/v1/tenant/units/{unitGuid:N}/skills", request, JsonOptions, ct);
 
@@ -135,14 +135,14 @@ public class UnitSkillsEndpointsTests : IClassFixture<CustomWebApplicationFactor
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<AgentSkillsResponse>(JsonOptions, ct);
         body.ShouldNotBeNull();
-        body!.Skills.ShouldBe(new[] { "github_list_files", "github_create_branch" });
+        body!.Skills.ShouldBe(new[] { "github.list_files", "github.create_branch" });
 
         await _factory.AgentStateCoordinator.Received(1).SetSkillsAsync(
             actorIdStr,
             Arg.Is<string[]>(l =>
                 l.Length == 2 &&
-                l.Contains("github_list_files") &&
-                l.Contains("github_create_branch")),
+                l.Contains("github.list_files") &&
+                l.Contains("github.create_branch")),
             Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
             Arg.Any<CancellationToken>());
     }
@@ -220,7 +220,7 @@ public class UnitSkillsEndpointsTests : IClassFixture<CustomWebApplicationFactor
             .Returns((DirectoryEntry?)null);
 
         // Act
-        var request = new SetAgentSkillsRequest(new[] { "github_read_file" });
+        var request = new SetAgentSkillsRequest(new[] { "github.read_file" });
         var response = await _client.PutAsJsonAsync(
             $"/api/v1/tenant/units/{Guid.NewGuid():N}/skills",
             request, JsonOptions, ct);
@@ -310,7 +310,7 @@ public class UnitSkillsEndpointsUnauthenticatedTests : IDisposable
 
         var response = await client.PutAsJsonAsync(
             $"/api/v1/tenant/units/{Guid.NewGuid():N}/skills",
-            new SetAgentSkillsRequest(new[] { "github_read_file" }),
+            new SetAgentSkillsRequest(new[] { "github.read_file" }),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);

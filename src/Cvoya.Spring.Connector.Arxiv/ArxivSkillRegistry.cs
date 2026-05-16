@@ -15,8 +15,8 @@ using Microsoft.Extensions.Logging;
 /// Implements <see cref="ISkillRegistry"/> so the MCP server and the platform
 /// prompt-assembly path surface arxiv tools alongside every other connector.
 ///
-/// The exported tool set intentionally includes <c>searchLiterature</c>: the
-/// research package's <c>literature-review</c> skill bundle declares that
+/// The exported tool set intentionally includes <c>arxiv.search_literature</c>:
+/// the research package's <c>literature-review</c> skill bundle declares that
 /// exact tool name, and resolving it through a concrete connector turns the
 /// bundle's "referenced tool not present" validation warning into a no-op
 /// on any unit that binds arxiv.
@@ -56,7 +56,7 @@ public class ArxivSkillRegistry : ISkillRegistry
 
         return toolName switch
         {
-            "searchLiterature" => await _search.ExecuteAsync(
+            "arxiv.search_literature" => await _search.ExecuteAsync(
                 GetString(arguments, "query")
                     ?? throw new ArgumentException("'query' is required.", nameof(arguments)),
                 GetStringArray(arguments, "categories"),
@@ -64,7 +64,7 @@ public class ArxivSkillRegistry : ISkillRegistry
                 GetInt(arguments, "yearTo"),
                 GetInt(arguments, "limit") ?? 20,
                 cancellationToken),
-            "fetchAbstract" => await _fetch.ExecuteAsync(
+            "arxiv.fetch_abstract" => await _fetch.ExecuteAsync(
                 GetString(arguments, "arxivId")
                     ?? throw new ArgumentException("'arxivId' is required.", nameof(arguments)),
                 cancellationToken),
@@ -77,7 +77,7 @@ public class ArxivSkillRegistry : ISkillRegistry
         return new[]
         {
             ToolDef(
-                "searchLiterature",
+                "arxiv.search_literature",
                 "Search the arxiv preprint catalogue for papers matching the supplied query, optionally scoped to arxiv categories and a publication-year window.",
                 new
                 {
@@ -116,7 +116,7 @@ public class ArxivSkillRegistry : ISkillRegistry
                     },
                 }),
             ToolDef(
-                "fetchAbstract",
+                "arxiv.fetch_abstract",
                 "Fetch the full abstract and metadata for a single arxiv entry by its canonical id (e.g. 2401.12345).",
                 new
                 {

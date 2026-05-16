@@ -16,7 +16,7 @@ using Cvoya.Spring.Core.Messaging;
 /// concrete target.
 /// </summary>
 /// <remarks>
-/// The skill name is directory-keyed (<c>expertise/{slug}</c>) — agent names
+/// The skill name is directory-keyed (<c>sv.expertise.{slug}</c>) — agent names
 /// never appear in the skill surface. That keeps the catalog stable across
 /// agent churn: swapping the agent that holds an expertise entry does not
 /// rename the skill, and a capability projected at the unit boundary is
@@ -48,10 +48,12 @@ public static class ExpertiseSkillNaming
     /// Catalog prefix for expertise-driven skills. Chosen so (a) agent names
     /// never appear in the skill surface and (b) the prefix is unambiguously
     /// tied to the expertise directory (not to the agent roster or a unit
-    /// path). Rationale lives in the closing issue (#540) and the
+    /// path). The leading <c>sv.</c> places these tools in the platform
+    /// namespace so the dotted-snake naming contract (#2334) is satisfied —
+    /// rationale lives in the closing issue (#540) and the
     /// <c>agent-runtime.md</c> skill-registries section.
     /// </summary>
-    public const string Prefix = "expertise/";
+    public const string Prefix = "sv.expertise.";
 
     /// <summary>
     /// Derives the catalog skill name for an expertise domain. The slug is a
@@ -65,10 +67,12 @@ public static class ExpertiseSkillNaming
 
     /// <summary>
     /// Lowercases the domain name and replaces any non-slug character with
-    /// <c>-</c>, collapsing runs so <c>python/fastapi</c> → <c>python-fastapi</c>
-    /// and <c>React / Next.js</c> → <c>react-next-js</c>. Empty input yields
+    /// <c>_</c>, collapsing runs so <c>python/fastapi</c> → <c>python_fastapi</c>
+    /// and <c>React / Next.js</c> → <c>react_next_js</c>. Empty input yields
     /// the empty string — callers that care about that case must guard before
-    /// calling.
+    /// calling. The underscore separator satisfies the canonical
+    /// <see cref="ToolNaming.Pattern"/> (#2334), which forbids hyphens in
+    /// tool-name segments.
     /// </summary>
     public static string Slugify(string name)
     {
@@ -88,15 +92,25 @@ public static class ExpertiseSkillNaming
             }
             else if (!lastWasSeparator)
             {
-                buffer.Append('-');
+                buffer.Append('_');
                 lastWasSeparator = true;
             }
         }
 
         // Trim any trailing separator.
-        while (buffer.Length > 0 && buffer[^1] == '-')
+        while (buffer.Length > 0 && buffer[^1] == '_')
         {
             buffer.Length--;
+        }
+
+        // A slug whose first character is a digit (e.g. domain name "9 to 5")
+        // would break the segment's [a-z] leading-character rule on the
+        // composed tool id. Prefix with `x` so the composed name still passes
+        // ToolNaming.Pattern; the prefix is harmless in normal slugs (which
+        // start with a letter).
+        if (buffer.Length > 0 && !char.IsAsciiLetter(buffer[0]))
+        {
+            buffer.Insert(0, 'x');
         }
 
         return buffer.ToString();

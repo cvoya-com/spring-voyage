@@ -1,6 +1,6 @@
 [
   {
-    "name": "recordExperiment",
+    "name": "research.record_experiment",
     "description": "Record an analysis run so it can be reproduced or audited later",
     "parameters": {
       "type": "object",
@@ -34,7 +34,7 @@
     }
   },
   {
-    "name": "reportFindings",
+    "name": "research.report_findings",
     "description": "Report the outcome of a completed analysis back to the requesting agent or unit",
     "parameters": {
       "type": "object",

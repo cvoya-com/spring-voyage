@@ -45,7 +45,7 @@ public class UnitContextBuilderTests
         var skills = new List<Skill>
         {
             new("code-review", "Reviews pull requests", [
-                new ToolDefinition("analyze", "Analyzes code changes", JsonSerializer.SerializeToElement(new { }))
+                new ToolDefinition("review.analyze", "Analyzes code changes", JsonSerializer.SerializeToElement(new { }))
             ])
         };
 
@@ -54,7 +54,7 @@ public class UnitContextBuilderTests
         result.ShouldContain("Available Skills");
         result.ShouldContain("code-review");
         result.ShouldContain("Reviews pull requests");
-        result.ShouldContain("analyze");
+        result.ShouldContain("review.analyze");
     }
 
     /// <summary>
@@ -81,7 +81,7 @@ public class UnitContextBuilderTests
         {
             new("spring-voyage/software-engineering", "triage-and-assign",
                 "## Triage & Assignment\nClassify incoming work.",
-                new[] { new SkillToolRequirement("assignToAgent", "assign work", emptySchema, false) }),
+                new[] { new SkillToolRequirement("platform.assign_to_agent", "assign work", emptySchema, false) }),
             new("spring-voyage/software-engineering", "pr-review-cycle",
                 "## PR Review Cycle\nRoute PR reviews.",
                 Array.Empty<SkillToolRequirement>()),
@@ -91,7 +91,7 @@ public class UnitContextBuilderTests
 
         result.ShouldContain("### Skill Bundles");
         result.ShouldContain("spring-voyage/software-engineering/triage-and-assign");
-        result.ShouldContain("assignToAgent");
+        result.ShouldContain("platform.assign_to_agent");
         result.ShouldContain("spring-voyage/software-engineering/pr-review-cycle");
 
         var triageIdx = result.IndexOf("triage-and-assign", StringComparison.Ordinal);
@@ -128,7 +128,7 @@ public class UnitContextBuilderTests
         var skills = new List<Skill>
         {
             new("github", "Tools from GitHub",
-                new[] { new ToolDefinition("github_list_issues", "list issues", emptySchema) }),
+                new[] { new ToolDefinition("github.list_issues", "list issues", emptySchema) }),
         };
         var bundles = new List<SkillBundle>
         {

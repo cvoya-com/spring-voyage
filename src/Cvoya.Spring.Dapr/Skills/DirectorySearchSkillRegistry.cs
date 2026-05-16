@@ -12,9 +12,9 @@ using Cvoya.Spring.Core.Skills;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Meta-skill registry that advertises <c>directory/search</c> (#542) so a
+/// Meta-skill registry that advertises <c>sv.search_expertise</c> (#542) so a
 /// planner (or any <see cref="ISkillInvoker"/> consumer) can resolve a
-/// capability description to concrete <c>expertise/{slug}</c> hits BEFORE
+/// capability description to concrete <c>sv.expertise.{slug}</c> hits BEFORE
 /// invoking any other skill. This is load-bearing for PR #541's practical
 /// usefulness — without it the planner has no way to go from "refactor this
 /// Python" to the right slug.
@@ -43,7 +43,7 @@ using Microsoft.Extensions.Logging;
 public class DirectorySearchSkillRegistry : ISkillRegistry
 {
     /// <summary>Catalog name for the meta-skill.</summary>
-    public const string SkillName = "directory/search";
+    public const string SkillName = "sv.search_expertise";
 
     private static readonly JsonElement InputSchema = BuildInputSchema();
     private static readonly JsonElement OutputSchema = BuildOutputSchema();
@@ -65,7 +65,7 @@ public class DirectorySearchSkillRegistry : ISkillRegistry
                 SkillName,
                 "Search the expertise directory by free-text query or structured filters. " +
                 "Returns a ranked list of hits — each hit carries the capability slug that can " +
-                "then be invoked as 'expertise/{slug}'.",
+                "then be invoked as 'sv.expertise.{slug}'.",
                 InputSchema),
         };
     }
@@ -375,7 +375,7 @@ public class DirectorySearchSkillRegistry : ISkillRegistry
                 "type": "object",
                 "properties": {
                   "slug": { "type": "string" },
-                  "skill": { "type": "string", "description": "Invocable skill name — expertise/{slug}." },
+                  "skill": { "type": "string", "description": "Invocable skill name — sv.expertise.{slug}." },
                   "name": { "type": "string" },
                   "description": { "type": "string" },
                   "level": { "type": "string" },

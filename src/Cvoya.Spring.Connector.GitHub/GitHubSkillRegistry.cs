@@ -135,7 +135,7 @@ public class GitHubSkillRegistry : ISkillRegistry
         var factory = _oauthClientFactory;
         return new Dictionary<string, Func<JsonElement, CancellationToken, Task<JsonElement>>>(StringComparer.Ordinal)
         {
-            ["github_get_authenticated_user"] = (args, ct) =>
+            ["github.get_authenticated_user"] = (args, ct) =>
                 new Cvoya.Spring.Connector.GitHub.Skills.GetAuthenticatedUserSkill(factory, _loggerFactory)
                     .ExecuteAsync(GetString(args, "sessionId"), ct),
         };
@@ -145,15 +145,15 @@ public class GitHubSkillRegistry : ISkillRegistry
     {
         return new Dictionary<string, Func<JsonElement, CancellationToken, Task<JsonElement>>>(StringComparer.Ordinal)
         {
-            ["github_list_installations"] = (args, ct) =>
+            ["github.list_installations"] = (args, ct) =>
                 new ListInstallationsSkill(_installations, _loggerFactory).ExecuteAsync(ct),
 
-            ["github_list_installation_repositories"] = (args, ct) =>
+            ["github.list_installation_repositories"] = (args, ct) =>
                 new ListInstallationRepositoriesSkill(_installations, _loggerFactory).ExecuteAsync(
                     GetLong(args, "installationId"),
                     ct),
 
-            ["github_find_installation_for_repo"] = (args, ct) =>
+            ["github.find_installation_for_repo"] = (args, ct) =>
                 new FindInstallationForRepoSkill(_installations, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -165,7 +165,7 @@ public class GitHubSkillRegistry : ISkillRegistry
     {
         return new Dictionary<string, Func<IGitHubClient, JsonElement, CancellationToken, Task<JsonElement>>>(StringComparer.Ordinal)
         {
-            ["github_create_branch"] = (client, args, ct) =>
+            ["github.create_branch"] = (client, args, ct) =>
                 new CreateBranchSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -173,7 +173,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetString(args, "fromRef"),
                     ct),
 
-            ["github_create_pull_request"] = (client, args, ct) =>
+            ["github.create_pull_request"] = (client, args, ct) =>
                 new CreatePullRequestSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -183,7 +183,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetString(args, "base"),
                     ct),
 
-            ["github_comment_on_issue"] = (client, args, ct) =>
+            ["github.comment_on_issue"] = (client, args, ct) =>
                 new CommentSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -192,7 +192,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     "issue",
                     ct),
 
-            ["github_comment_on_pull_request"] = (client, args, ct) =>
+            ["github.comment_on_pull_request"] = (client, args, ct) =>
                 new CommentSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -201,7 +201,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     "pull_request",
                     ct),
 
-            ["github_read_file"] = (client, args, ct) =>
+            ["github.read_file"] = (client, args, ct) =>
                 new ReadFileSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -209,7 +209,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalString(args, "ref"),
                     ct),
 
-            ["github_write_file"] = (client, args, ct) =>
+            ["github.write_file"] = (client, args, ct) =>
                 new WriteFileSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -219,7 +219,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetString(args, "branch"),
                     ct),
 
-            ["github_delete_file"] = (client, args, ct) =>
+            ["github.delete_file"] = (client, args, ct) =>
                 new DeleteFileSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -228,7 +228,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetString(args, "branch"),
                     ct),
 
-            ["github_list_files"] = (client, args, ct) =>
+            ["github.list_files"] = (client, args, ct) =>
                 new ListFilesSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -236,21 +236,21 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalString(args, "ref"),
                     ct),
 
-            ["github_get_issue_details"] = (client, args, ct) =>
+            ["github.get_issue_details"] = (client, args, ct) =>
                 new GetIssueDetailsSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
                     GetInt(args, "number"),
                     ct),
 
-            ["github_get_pull_request_diff"] = (client, args, ct) =>
+            ["github.get_pull_request_diff"] = (client, args, ct) =>
                 new GetPullRequestDiffSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
                     GetInt(args, "number"),
                     ct),
 
-            ["github_manage_labels"] = (client, args, ct) =>
+            ["github.manage_labels"] = (client, args, ct) =>
                 new ManageLabelsSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -259,7 +259,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetStringArray(args, "labelsToRemove"),
                     ct),
 
-            ["github_create_issue"] = (client, args, ct) =>
+            ["github.create_issue"] = (client, args, ct) =>
                 new CreateIssueSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -269,7 +269,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetStringArray(args, "assignees"),
                     ct),
 
-            ["github_close_issue"] = (client, args, ct) =>
+            ["github.close_issue"] = (client, args, ct) =>
                 new CloseIssueSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -277,7 +277,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalString(args, "reason"),
                     ct),
 
-            ["github_list_issues"] = (client, args, ct) =>
+            ["github.list_issues"] = (client, args, ct) =>
                 new ListIssuesSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -287,7 +287,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalInt(args, "maxResults") ?? 30,
                     ct),
 
-            ["github_assign_issue"] = (client, args, ct) =>
+            ["github.assign_issue"] = (client, args, ct) =>
                 new AssignIssueSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -296,14 +296,14 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetStringArray(args, "assigneesToRemove"),
                     ct),
 
-            ["github_get_issue_author"] = (client, args, ct) =>
+            ["github.get_issue_author"] = (client, args, ct) =>
                 new GetIssueAuthorSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
                     GetInt(args, "number"),
                     ct),
 
-            ["github_update_comment"] = (client, args, ct) =>
+            ["github.update_comment"] = (client, args, ct) =>
                 new UpdateCommentSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -311,7 +311,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetString(args, "body"),
                     ct),
 
-            ["github_list_comments"] = (client, args, ct) =>
+            ["github.list_comments"] = (client, args, ct) =>
             {
                 var owner = GetString(args, "owner");
                 var repo = GetString(args, "repo");
@@ -332,7 +332,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct);
             },
 
-            ["github_get_pull_request"] = (client, args, ct) =>
+            ["github.get_pull_request"] = (client, args, ct) =>
             {
                 var owner = GetString(args, "owner");
                 var repo = GetString(args, "repo");
@@ -349,7 +349,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct);
             },
 
-            ["github_list_pull_requests"] = (client, args, ct) =>
+            ["github.list_pull_requests"] = (client, args, ct) =>
             {
                 var owner = GetString(args, "owner");
                 var repo = GetString(args, "repo");
@@ -378,7 +378,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct);
             },
 
-            ["github_find_pull_request_for_branch"] = (client, args, ct) =>
+            ["github.find_pull_request_for_branch"] = (client, args, ct) =>
                 new FindPullRequestForBranchSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -387,7 +387,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalBool(args, "includeClosed") ?? false,
                     ct),
 
-            ["github_list_pull_requests_by_author"] = (client, args, ct) =>
+            ["github.list_pull_requests_by_author"] = (client, args, ct) =>
                 new ListPullRequestsByUserSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -397,7 +397,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalInt(args, "maxResults") ?? 30,
                     ct),
 
-            ["github_list_pull_requests_by_assignee"] = (client, args, ct) =>
+            ["github.list_pull_requests_by_assignee"] = (client, args, ct) =>
                 new ListPullRequestsByUserSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -407,7 +407,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalInt(args, "maxResults") ?? 30,
                     ct),
 
-            ["github_list_pull_request_reviews"] = (client, args, ct) =>
+            ["github.list_pull_request_reviews"] = (client, args, ct) =>
             {
                 var owner = GetString(args, "owner");
                 var repo = GetString(args, "repo");
@@ -424,7 +424,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct);
             },
 
-            ["github_list_pull_request_review_comments"] = (client, args, ct) =>
+            ["github.list_pull_request_review_comments"] = (client, args, ct) =>
                 new ListPullRequestReviewCommentsSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -432,7 +432,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalInt(args, "maxResults") ?? 30,
                     ct),
 
-            ["github_has_approved_review"] = (client, args, ct) =>
+            ["github.has_approved_review"] = (client, args, ct) =>
                 new HasApprovedReviewSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -440,7 +440,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalString(args, "requiredReviewer"),
                     ct),
 
-            ["github_merge_pull_request"] = (client, args, ct) =>
+            ["github.merge_pull_request"] = (client, args, ct) =>
                 new MergePullRequestSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -451,7 +451,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalString(args, "sha"),
                     ct),
 
-            ["github_enable_auto_merge"] = (client, args, ct) =>
+            ["github.enable_auto_merge"] = (client, args, ct) =>
                 new EnableAutoMergeSkill(client, CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -461,7 +461,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalString(args, "commitBody"),
                     ct),
 
-            ["github_list_review_threads"] = (client, args, ct) =>
+            ["github.list_review_threads"] = (client, args, ct) =>
             {
                 var owner = GetString(args, "owner");
                 var repo = GetString(args, "repo");
@@ -479,7 +479,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct);
             },
 
-            ["github_get_pr_review_bundle"] = (client, args, ct) =>
+            ["github.get_pr_review_bundle"] = (client, args, ct) =>
                 new GetPrReviewBundleSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -487,17 +487,17 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalInt(args, "maxPerSection") ?? 100,
                     ct),
 
-            ["github_resolve_review_thread"] = (client, args, ct) =>
+            ["github.resolve_review_thread"] = (client, args, ct) =>
                 new ResolveReviewThreadSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
                     GetString(args, "threadId"),
                     ct),
 
-            ["github_unresolve_review_thread"] = (client, args, ct) =>
+            ["github.unresolve_review_thread"] = (client, args, ct) =>
                 new UnresolveReviewThreadSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
                     GetString(args, "threadId"),
                     ct),
 
-            ["github_update_branch"] = (client, args, ct) =>
+            ["github.update_branch"] = (client, args, ct) =>
                 new UpdateBranchSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -505,7 +505,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalString(args, "expectedHeadSha"),
                     ct),
 
-            ["github_request_pull_request_review"] = (client, args, ct) =>
+            ["github.request_pull_request_review"] = (client, args, ct) =>
                 new RequestPullRequestReviewSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -514,7 +514,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetStringArray(args, "teamReviewers"),
                     ct),
 
-            ["github_ensure_issue_linked_to_pull_request"] = (client, args, ct) =>
+            ["github.ensure_issue_linked_to_pull_request"] = (client, args, ct) =>
                 new EnsureIssueLinkedToPullRequestSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -522,7 +522,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetIntArray(args, "issueNumbers"),
                     ct),
 
-            ["github_search_mentions"] = (client, args, ct) =>
+            ["github.search_mentions"] = (client, args, ct) =>
                 new SearchMentionsSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -531,7 +531,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalInt(args, "limit") ?? 30,
                     ct),
 
-            ["github_get_prior_work_context"] = (client, args, ct) =>
+            ["github.get_prior_work_context"] = (client, args, ct) =>
                 new GetPriorWorkContextSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -540,7 +540,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalInt(args, "maxPerBucket") ?? 20,
                     ct),
 
-            ["github_label_transition"] = (client, args, ct) =>
+            ["github.label_transition"] = (client, args, ct) =>
                 new LabelTransitionSkill(client, _labelStateMachine, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -548,13 +548,13 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetString(args, "toState"),
                     ct),
 
-            ["github_list_webhooks"] = (client, args, ct) =>
+            ["github.list_webhooks"] = (client, args, ct) =>
                 new ListWebhooksSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
                     ct),
 
-            ["github_update_webhook"] = (client, args, ct) =>
+            ["github.update_webhook"] = (client, args, ct) =>
                 new UpdateWebhookSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
@@ -567,21 +567,21 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalBool(args, "insecureSsl"),
                     ct),
 
-            ["github_delete_webhook"] = (client, args, ct) =>
+            ["github.delete_webhook"] = (client, args, ct) =>
                 new DeleteWebhookSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
                     GetLong(args, "hookId"),
                     ct),
 
-            ["github_test_webhook"] = (client, args, ct) =>
+            ["github.test_webhook"] = (client, args, ct) =>
                 new TestWebhookSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
                     GetLong(args, "hookId"),
                     ct),
 
-            ["github_list_projects_v2"] = (client, args, ct) =>
+            ["github.list_projects_v2"] = (client, args, ct) =>
             {
                 var owner = GetString(args, "owner");
                 var first = GetOptionalInt(args, "first") ?? 30;
@@ -600,7 +600,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct);
             },
 
-            ["github_get_project_v2"] = (client, args, ct) =>
+            ["github.get_project_v2"] = (client, args, ct) =>
             {
                 var owner = GetString(args, "owner");
                 var number = GetInt(args, "number");
@@ -619,7 +619,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct);
             },
 
-            ["github_list_project_v2_items"] = (client, args, ct) =>
+            ["github.list_project_v2_items"] = (client, args, ct) =>
             {
                 var owner = GetString(args, "owner");
                 var number = GetInt(args, "number");
@@ -640,7 +640,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct);
             },
 
-            ["github_get_project_v2_item"] = (client, args, ct) =>
+            ["github.get_project_v2_item"] = (client, args, ct) =>
             {
                 var itemId = GetString(args, "itemId");
                 return _cachedInvoker.InvokeAsync(
@@ -652,7 +652,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct);
             },
 
-            ["github_add_project_v2_item"] = (client, args, ct) =>
+            ["github.add_project_v2_item"] = (client, args, ct) =>
                 new AddProjectV2ItemSkill(CreateGraphQLClient(client), _responseCache, _loggerFactory).ExecuteAsync(
                     GetString(args, "projectId"),
                     GetString(args, "contentId"),
@@ -660,7 +660,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalInt(args, "number"),
                     ct),
 
-            ["github_update_project_v2_item_field_value"] = (client, args, ct) =>
+            ["github.update_project_v2_item_field_value"] = (client, args, ct) =>
                 new UpdateProjectV2ItemFieldValueSkill(CreateGraphQLClient(client), _responseCache, _loggerFactory).ExecuteAsync(
                     GetString(args, "projectId"),
                     GetString(args, "itemId"),
@@ -675,7 +675,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalInt(args, "number"),
                     ct),
 
-            ["github_archive_project_v2_item"] = (client, args, ct) =>
+            ["github.archive_project_v2_item"] = (client, args, ct) =>
                 new ArchiveProjectV2ItemSkill(CreateGraphQLClient(client), _responseCache, _loggerFactory).ExecuteAsync(
                     GetString(args, "projectId"),
                     GetString(args, "itemId"),
@@ -683,7 +683,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetOptionalInt(args, "number"),
                     ct),
 
-            ["github_delete_project_v2_item"] = (client, args, ct) =>
+            ["github.delete_project_v2_item"] = (client, args, ct) =>
                 new DeleteProjectV2ItemSkill(CreateGraphQLClient(client), _responseCache, _loggerFactory).ExecuteAsync(
                     GetString(args, "projectId"),
                     GetString(args, "itemId"),
@@ -826,7 +826,7 @@ public class GitHubSkillRegistry : ISkillRegistry
         return
         [
             CreateToolDefinition(
-                "github_create_branch",
+                "github.create_branch",
                 "Creates a new Git branch in a GitHub repository from a specified reference.",
                 new
                 {
@@ -842,7 +842,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_create_pull_request",
+                "github.create_pull_request",
                 "Creates a pull request in a GitHub repository.",
                 new
                 {
@@ -860,7 +860,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_comment_on_issue",
+                "github.comment_on_issue",
                 "Posts a comment on a GitHub issue conversation thread.",
                 new
                 {
@@ -876,7 +876,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_comment_on_pull_request",
+                "github.comment_on_pull_request",
                 "Posts a comment on a GitHub pull request conversation thread. Does not place line-level review comments.",
                 new
                 {
@@ -892,7 +892,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_read_file",
+                "github.read_file",
                 "Reads a file from a GitHub repository.",
                 new
                 {
@@ -908,7 +908,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_write_file",
+                "github.write_file",
                 "Creates or updates a file in a GitHub repository on the specified branch. If the file exists it is overwritten; otherwise it is created.",
                 new
                 {
@@ -926,7 +926,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_delete_file",
+                "github.delete_file",
                 "Deletes a file from a GitHub repository on the specified branch.",
                 new
                 {
@@ -943,7 +943,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_files",
+                "github.list_files",
                 "Lists files in a directory within a GitHub repository.",
                 new
                 {
@@ -959,7 +959,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_get_issue_details",
+                "github.get_issue_details",
                 "Gets detailed information about a GitHub issue.",
                 new
                 {
@@ -974,7 +974,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_get_pull_request_diff",
+                "github.get_pull_request_diff",
                 "Gets the file changes (diff) for a GitHub pull request.",
                 new
                 {
@@ -989,7 +989,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_manage_labels",
+                "github.manage_labels",
                 "Adds and/or removes labels on a GitHub issue or pull request.",
                 new
                 {
@@ -1006,7 +1006,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_create_issue",
+                "github.create_issue",
                 "Creates a new issue in a GitHub repository.",
                 new
                 {
@@ -1024,7 +1024,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_close_issue",
+                "github.close_issue",
                 "Closes an existing GitHub issue.",
                 new
                 {
@@ -1040,7 +1040,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_issues",
+                "github.list_issues",
                 "Lists issues in a GitHub repository filtered by state, labels, or assignee. Pull requests are excluded.",
                 new
                 {
@@ -1058,7 +1058,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_assign_issue",
+                "github.assign_issue",
                 "Adds and/or removes assignees on a GitHub issue or pull request.",
                 new
                 {
@@ -1075,7 +1075,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_get_issue_author",
+                "github.get_issue_author",
                 "Gets the login of the user who opened a GitHub issue.",
                 new
                 {
@@ -1090,7 +1090,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_update_comment",
+                "github.update_comment",
                 "Updates the body of an existing issue or pull request conversation comment.",
                 new
                 {
@@ -1106,7 +1106,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_comments",
+                "github.list_comments",
                 "Lists conversation comments on an issue or pull request.",
                 new
                 {
@@ -1122,7 +1122,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_get_pull_request",
+                "github.get_pull_request",
                 "Gets detailed information about a GitHub pull request.",
                 new
                 {
@@ -1137,7 +1137,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_pull_requests",
+                "github.list_pull_requests",
                 "Lists pull requests in a repository filtered by state, head branch, base branch, with optional sort.",
                 new
                 {
@@ -1157,7 +1157,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_find_pull_request_for_branch",
+                "github.find_pull_request_for_branch",
                 "Finds the pull request associated with a given branch, if one exists.",
                 new
                 {
@@ -1174,7 +1174,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_pull_requests_by_author",
+                "github.list_pull_requests_by_author",
                 "Lists pull requests opened by the specified GitHub user in a repository, via the Search API.",
                 new
                 {
@@ -1191,7 +1191,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_pull_requests_by_assignee",
+                "github.list_pull_requests_by_assignee",
                 "Lists pull requests assigned to the specified GitHub user in a repository, via the Search API.",
                 new
                 {
@@ -1208,7 +1208,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_pull_request_reviews",
+                "github.list_pull_request_reviews",
                 "Lists the reviews submitted on a pull request.",
                 new
                 {
@@ -1223,7 +1223,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_pull_request_review_comments",
+                "github.list_pull_request_review_comments",
                 "Lists the line-level review comments on a pull request's diff.",
                 new
                 {
@@ -1239,7 +1239,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_has_approved_review",
+                "github.has_approved_review",
                 "Returns whether a pull request has at least one approving review (most recent state per reviewer).",
                 new
                 {
@@ -1255,7 +1255,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_merge_pull_request",
+                "github.merge_pull_request",
                 "Merges a pull request using the specified strategy (merge, squash, or rebase).",
                 new
                 {
@@ -1274,7 +1274,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_enable_auto_merge",
+                "github.enable_auto_merge",
                 "Enables auto-merge on a pull request (via the GraphQL enablePullRequestAutoMerge mutation).",
                 new
                 {
@@ -1292,7 +1292,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_update_branch",
+                "github.update_branch",
                 "Updates a pull request branch by merging the base branch into it (PUT /pulls/:n/update-branch).",
                 new
                 {
@@ -1308,7 +1308,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_request_pull_request_review",
+                "github.request_pull_request_review",
                 "Requests reviews from users and/or teams on an open pull request.",
                 new
                 {
@@ -1325,7 +1325,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_ensure_issue_linked_to_pull_request",
+                "github.ensure_issue_linked_to_pull_request",
                 "Ensures a pull request body contains closing-keyword references for each of the given issue numbers, appending Closes #N lines when missing.",
                 new
                 {
@@ -1341,7 +1341,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_search_mentions",
+                "github.search_mentions",
                 "Searches a repository for @-mentions of the given GitHub login in issues, pull requests, and their comments.",
                 new
                 {
@@ -1358,7 +1358,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_get_prior_work_context",
+                "github.get_prior_work_context",
                 "Summarizes recent agent activity for a GitHub login in a repository: mentions, authored PRs, commented issues, and assigned issues.",
                 new
                 {
@@ -1375,7 +1375,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_label_transition",
+                "github.label_transition",
                 "Transitions an issue or pull request to the given state label, validated against the configured label state machine. Rejects illegal transitions.",
                 new
                 {
@@ -1391,7 +1391,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_review_threads",
+                "github.list_review_threads",
                 "Lists review threads on a pull request via GraphQL, including per-thread resolution state (which the REST API does not expose). Returns an is_resolved flag per thread and a summary unresolved_count.",
                 new
                 {
@@ -1406,20 +1406,20 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_resolve_review_thread",
+                "github.resolve_review_thread",
                 "Marks a pull request review thread as resolved via the GraphQL resolveReviewThread mutation. Idempotent on an already-resolved thread.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        threadId = new { type = "string", description = "The GraphQL node id of the review thread (returned by github_list_review_threads)" }
+                        threadId = new { type = "string", description = "The GraphQL node id of the review thread (returned by github.list_review_threads)" }
                     },
                     required = new[] { "threadId" }
                 }),
 
             CreateToolDefinition(
-                "github_unresolve_review_thread",
+                "github.unresolve_review_thread",
                 "Reopens a previously resolved pull request review thread via the GraphQL unresolveReviewThread mutation. Idempotent on an already-unresolved thread.",
                 new
                 {
@@ -1432,8 +1432,8 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_get_pr_review_bundle",
-                "Returns reviews, line-level review comments, and review threads for a pull request in one batched GraphQL call. Prefer this over issuing github_list_pull_request_reviews, github_list_pull_request_review_comments, and github_list_review_threads separately when a caller needs all three — single round-trip, single graphql quota decrement.",
+                "github.get_pr_review_bundle",
+                "Returns reviews, line-level review comments, and review threads for a pull request in one batched GraphQL call. Prefer this over issuing github.list_pull_request_reviews, github.list_pull_request_review_comments, and github.list_review_threads separately when a caller needs all three — single round-trip, single graphql quota decrement.",
                 new
                 {
                     type = "object",
@@ -1448,7 +1448,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_webhooks",
+                "github.list_webhooks",
                 "Lists every repository webhook configured on the given repo, including events, config (url, content-type, insecure-ssl), and active flag.",
                 new
                 {
@@ -1462,7 +1462,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_update_webhook",
+                "github.update_webhook",
                 "Updates an existing repository webhook. Any input left unset is preserved on the hook. Supports changing events, toggling active, and patching config (url, content-type, secret, insecure-ssl).",
                 new
                 {
@@ -1483,7 +1483,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_delete_webhook",
+                "github.delete_webhook",
                 "Deletes a repository webhook by id. Returns deleted=false with reason=not_found when the hook is already gone; other errors surface normally.",
                 new
                 {
@@ -1498,7 +1498,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_test_webhook",
+                "github.test_webhook",
                 "Asks GitHub to redeliver the most recent push event to the hook for end-to-end validation (POST /repos/:o/:r/hooks/:id/tests).",
                 new
                 {
@@ -1513,7 +1513,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_installations",
+                "github.list_installations",
                 "Lists every GitHub App installation the configured App can see. Authenticates with the App JWT (not an installation token).",
                 new
                 {
@@ -1523,7 +1523,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_installation_repositories",
+                "github.list_installation_repositories",
                 "Lists the repositories accessible to a specific GitHub App installation (GET /installation/repositories).",
                 new
                 {
@@ -1536,7 +1536,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_find_installation_for_repo",
+                "github.find_installation_for_repo",
                 "Resolves which installation covers the given repo. Returns installed=false when the App is not installed for that repo (structured, not an error).",
                 new
                 {
@@ -1550,7 +1550,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_projects_v2",
+                "github.list_projects_v2",
                 "Lists Projects v2 boards owned by a user or organization via GraphQL. Projects v2 has no REST surface — this is the canonical read entry point.",
                 new
                 {
@@ -1564,7 +1564,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_get_project_v2",
+                "github.get_project_v2",
                 "Fetches a single Projects v2 board by owner + number, including its field definitions (id, name, dataType, options / iteration configuration).",
                 new
                 {
@@ -1578,7 +1578,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_list_project_v2_items",
+                "github.list_project_v2_items",
                 "Lists items on a Projects v2 board with their content (Issue / PullRequest / DraftIssue) and field values. Paginated — pass the previous response's end_cursor as cursor to advance.",
                 new
                 {
@@ -1594,20 +1594,20 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_get_project_v2_item",
+                "github.get_project_v2_item",
                 "Fetches a single Projects v2 item by GraphQL node id, returning the same content + field-values projection as the list query.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        itemId = new { type = "string", description = "The GraphQL node id of the project item (returned by github_list_project_v2_items)" }
+                        itemId = new { type = "string", description = "The GraphQL node id of the project item (returned by github.list_project_v2_items)" }
                     },
                     required = new[] { "itemId" }
                 }),
 
             CreateToolDefinition(
-                "github_add_project_v2_item",
+                "github.add_project_v2_item",
                 "Attaches an existing Issue or PullRequest (by GraphQL node id) to a Projects v2 board via the addProjectV2ItemById mutation. Returns the newly created project item's id plus metadata. Draft issues are out of scope (see separate mutation).",
                 new
                 {
@@ -1623,7 +1623,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_update_project_v2_item_field_value",
+                "github.update_project_v2_item_field_value",
                 "Sets a single field value on a Projects v2 item via the updateProjectV2ItemFieldValue mutation. The value is a tagged union: choose valueType from {text, number, date, single_select, iteration} and pass the matching value argument.",
                 new
                 {
@@ -1651,8 +1651,8 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_archive_project_v2_item",
-                "Soft-archives a Projects v2 item via the archiveProjectV2Item mutation. The item remains queryable with is_archived=true; use github_delete_project_v2_item for a hard delete.",
+                "github.archive_project_v2_item",
+                "Soft-archives a Projects v2 item via the archiveProjectV2Item mutation. The item remains queryable with is_archived=true; use github.delete_project_v2_item for a hard delete.",
                 new
                 {
                     type = "object",
@@ -1667,8 +1667,8 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_delete_project_v2_item",
-                "Hard-deletes a Projects v2 item via the deleteProjectV2Item mutation. This is not recoverable — prefer github_archive_project_v2_item when you want a reversible soft-delete.",
+                "github.delete_project_v2_item",
+                "Hard-deletes a Projects v2 item via the deleteProjectV2Item mutation. This is not recoverable — prefer github.archive_project_v2_item when you want a reversible soft-delete.",
                 new
                 {
                     type = "object",
@@ -1683,7 +1683,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_get_authenticated_user",
+                "github.get_authenticated_user",
                 "Returns the authenticated GitHub user's profile (login, id, name, email) for the given OAuth session. Uses the OAuth user-to-server token — not the App installation — so the response reflects the human who authorized the OAuth App.",
                 new
                 {

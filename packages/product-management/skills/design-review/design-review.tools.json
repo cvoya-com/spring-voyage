@@ -1,6 +1,6 @@
 [
   {
-    "name": "requestDesignReview",
+    "name": "pm.request_design_review",
     "description": "Request a design review from a specific agent",
     "parameters": {
       "type": "object",
@@ -18,7 +18,7 @@
     }
   },
   {
-    "name": "submitDesignReview",
+    "name": "pm.submit_design_review",
     "description": "Submit a review decision on a design proposal",
     "parameters": {
       "type": "object",

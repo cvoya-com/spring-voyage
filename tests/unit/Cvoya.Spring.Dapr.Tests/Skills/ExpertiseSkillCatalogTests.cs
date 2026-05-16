@@ -27,7 +27,7 @@ using Xunit;
 ///     are excluded).</description></item>
 ///   <item><description>Boundary filter (agent-level expertise hidden from
 ///     outside callers when not unit-projected).</description></item>
-///   <item><description>Name scheme (<c>expertise/{slug}</c>, no agent name in
+///   <item><description>Name scheme (<c>sv.expertise.{slug}</c>, no agent name in
 ///     the skill name).</description></item>
 /// </list>
 /// </summary>
@@ -94,7 +94,7 @@ public class ExpertiseSkillCatalogTests
         var skills = await catalog.EnumerateAsync(BoundaryViewContext.InsideUnit, TestContext.Current.CancellationToken);
 
         skills.ShouldHaveSingleItem();
-        skills[0].SkillName.ShouldBe("expertise/python");
+        skills[0].SkillName.ShouldBe("sv.expertise.python");
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class ExpertiseSkillCatalogTests
 
         var skills = await catalog.EnumerateAsync(BoundaryViewContext.External, TestContext.Current.CancellationToken);
 
-        skills.Select(s => s.SkillName).ShouldBe(new[] { "expertise/release-planning" });
+        skills.Select(s => s.SkillName).ShouldBe(new[] { "sv.expertise.release_planning" });
         skills[0].Target.ShouldBe(unit);
     }
 
@@ -140,7 +140,7 @@ public class ExpertiseSkillCatalogTests
         var skills = await catalog.EnumerateAsync(BoundaryViewContext.InsideUnit, TestContext.Current.CancellationToken);
 
         skills.ShouldHaveSingleItem();
-        skills[0].SkillName.ShouldBe("expertise/python");
+        skills[0].SkillName.ShouldBe("sv.expertise.python");
         skills[0].Target.ShouldBe(agent);
     }
 
@@ -161,7 +161,7 @@ public class ExpertiseSkillCatalogTests
 
         skills.ShouldHaveSingleItem();
         // Agent name is absent; directory-keyed slug wins.
-        skills[0].SkillName.ShouldBe("expertise/python-fastapi");
+        skills[0].SkillName.ShouldBe("sv.expertise.python_fastapi");
         skills[0].SkillName.ShouldNotContain("ada");
     }
 
@@ -192,7 +192,7 @@ public class ExpertiseSkillCatalogTests
         var after = await catalog.EnumerateAsync(BoundaryViewContext.InsideUnit, TestContext.Current.CancellationToken);
 
         after.ShouldHaveSingleItem();
-        after[0].SkillName.ShouldBe("expertise/python");
+        after[0].SkillName.ShouldBe("sv.expertise.python");
     }
 
     [Fact]
@@ -213,10 +213,10 @@ public class ExpertiseSkillCatalogTests
                 new ExpertiseEntry(TypedDomain("python"), agent, new[] { unit, agent }),
             }, 1, DateTimeOffset.UtcNow));
 
-        var external = await catalog.ResolveAsync("expertise/python", BoundaryViewContext.External, TestContext.Current.CancellationToken);
+        var external = await catalog.ResolveAsync("sv.expertise.python", BoundaryViewContext.External, TestContext.Current.CancellationToken);
         external.ShouldBeNull();
 
-        var inside = await catalog.ResolveAsync("expertise/python", BoundaryViewContext.InsideUnit, TestContext.Current.CancellationToken);
+        var inside = await catalog.ResolveAsync("sv.expertise.python", BoundaryViewContext.InsideUnit, TestContext.Current.CancellationToken);
         inside.ShouldNotBeNull();
         inside.Target.ShouldBe(agent);
     }

@@ -1,6 +1,6 @@
 [
   {
-    "name": "setPriority",
+    "name": "pm.set_priority",
     "description": "Set the priority of an incoming item in the configured issue tracker",
     "parameters": {
       "type": "object",
@@ -23,7 +23,7 @@
     }
   },
   {
-    "name": "linkToTheme",
+    "name": "pm.link_to_theme",
     "description": "Link an item to an existing roadmap theme",
     "parameters": {
       "type": "object",
@@ -41,7 +41,7 @@
     }
   },
   {
-    "name": "assignToAgent",
+    "name": "platform.assign_to_agent",
     "description": "Assign an item to a specific agent in the unit for follow-up",
     "parameters": {
       "type": "object",

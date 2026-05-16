@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Executes a literature search against the arxiv catalogue. Surface mirrors
-/// the <c>searchLiterature</c> tool declared by the research package's
+/// the <c>arxiv.search_literature</c> tool declared by the research package's
 /// <c>literature-review</c> skill bundle, so binding this connector to a
 /// research unit self-resolves the bundle's "referenced tool not present"
 /// warning.

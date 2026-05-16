@@ -1,6 +1,6 @@
 [
   {
-    "name": "searchLiterature",
+    "name": "arxiv.search_literature",
     "description": "Search the configured literature connector (arxiv, Semantic Scholar, web search, ...) for candidate sources",
     "parameters": {
       "type": "object",
@@ -36,7 +36,7 @@
     }
   },
   {
-    "name": "classifyPaper",
+    "name": "research.classify_paper",
     "description": "Record structured metadata for a paper or article encountered during a literature review",
     "parameters": {
       "type": "object",

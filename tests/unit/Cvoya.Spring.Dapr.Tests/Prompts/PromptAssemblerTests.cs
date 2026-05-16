@@ -133,7 +133,7 @@ public class PromptAssemblerTests
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: [new Skill("deploy", "Deploys services", [
-                new ToolDefinition("run-deploy", "Runs deployment", JsonSerializer.SerializeToElement(new { }))
+                new ToolDefinition("ops.run_deploy", "Runs deployment", JsonSerializer.SerializeToElement(new { }))
             ])],
             PriorMessages: [],
             LastCheckpoint: null,
@@ -144,6 +144,6 @@ public class PromptAssemblerTests
         result.ShouldContain("## Unit Context");
         result.ShouldContain("deploy");
         result.ShouldContain("Deploys services");
-        result.ShouldContain("run-deploy");
+        result.ShouldContain("ops.run_deploy");
     }
 }

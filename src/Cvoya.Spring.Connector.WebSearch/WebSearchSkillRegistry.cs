@@ -46,7 +46,7 @@ public class WebSearchSkillRegistry : ISkillRegistry
 
         return toolName switch
         {
-            "webSearch" => await _skill.ExecuteAsync(
+            "websearch.search" => await _skill.ExecuteAsync(
                 GetString(arguments, "unitId")
                     ?? throw new ArgumentException("'unitId' is required.", nameof(arguments)),
                 GetString(arguments, "query")
@@ -63,7 +63,7 @@ public class WebSearchSkillRegistry : ISkillRegistry
         return new[]
         {
             ToolDef(
-                "webSearch",
+                "websearch.search",
                 "Run a general-purpose web search via the unit's configured provider and return the top results.",
                 new
                 {
