@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -52,7 +53,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, "claude-opus-4", "#336699"));
 
@@ -105,7 +106,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, "gpt-4o-mini", "#ff00aa"));
 
@@ -133,7 +134,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, "gpt-4o", null));
 
@@ -161,7 +162,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, null, null));
 
@@ -215,7 +216,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, "gpt-4o", null));
 
@@ -241,7 +242,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(null, null, null, null));
 
@@ -287,7 +288,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitMetadata(
                 DisplayName: null,

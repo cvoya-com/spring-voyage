@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Units;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.Logging;
@@ -33,7 +34,7 @@ public class UnitValidationCoordinator(
     /// <inheritdoc />
     public async Task<TransitionResult?> TryStartWorkflowAsync(
         string unitActorId,
-        Func<UnitStatus, UnitStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
+        Func<LifecycleStatus, LifecycleStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
         CancellationToken cancellationToken = default)
     {
         if (scheduler is null)
@@ -100,8 +101,8 @@ public class UnitValidationCoordinator(
     public async Task<TransitionResult> CompleteValidationAsync(
         string unitActorId,
         UnitValidationCompletion completion,
-        Func<CancellationToken, Task<UnitStatus>> getCurrentStatus,
-        Func<UnitStatus, UnitStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
+        Func<CancellationToken, Task<LifecycleStatus>> getCurrentStatus,
+        Func<LifecycleStatus, LifecycleStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
         CancellationToken cancellationToken = default)
     {
         var current = await getCurrentStatus(cancellationToken);
@@ -109,7 +110,7 @@ public class UnitValidationCoordinator(
         // Terminal-status guard: if we're already Stopped / Error (e.g. a
         // second workflow superseded this one), silently drop the callback
         // rather than overwriting current state.
-        if (current == UnitStatus.Stopped || current == UnitStatus.Error)
+        if (current == LifecycleStatus.Stopped || current == LifecycleStatus.Error)
         {
             logger.LogInformation(
                 "Unit {ActorId} ignoring validation completion from workflow {WorkflowInstanceId}: status is already terminal ({Status}).",
@@ -136,7 +137,7 @@ public class UnitValidationCoordinator(
 
         // A completion only makes sense from Validating; any other non-
         // terminal state means a transition was racing.
-        if (current != UnitStatus.Validating)
+        if (current != LifecycleStatus.Validating)
         {
             logger.LogWarning(
                 "Unit {ActorId} received validation completion but current status is {Status}; expected Validating.",
@@ -154,7 +155,7 @@ public class UnitValidationCoordinator(
                 await tracker.SetFailureAsync(unitActorId, null, cancellationToken);
             }
 
-            return await persistTransition(UnitStatus.Validating, UnitStatus.Stopped, null, cancellationToken);
+            return await persistTransition(LifecycleStatus.Validating, LifecycleStatus.Stopped, null, cancellationToken);
         }
 
         // Failure: serialize the payload and persist before the transition
@@ -172,20 +173,20 @@ public class UnitValidationCoordinator(
         // the StateChanged activity event can elevate its severity and embed
         // the validation code/message in the activity feed.
         return await persistTransition(
-            UnitStatus.Validating, UnitStatus.Error, completion.Failure, cancellationToken);
+            LifecycleStatus.Validating, LifecycleStatus.Error, completion.Failure, cancellationToken);
     }
 
     /// <summary>
     /// Persists a scheduler-side failure: writes the structured error blob
-    /// and transitions the unit out of <see cref="UnitStatus.Validating"/>
-    /// into <see cref="UnitStatus.Error"/> via the actor's
+    /// and transitions the unit out of <see cref="LifecycleStatus.Validating"/>
+    /// into <see cref="LifecycleStatus.Error"/> via the actor's
     /// <paramref name="persistTransition"/> delegate. Best-effort: a
     /// tracker-write failure here does not block the recovery transition.
     /// </summary>
     private async Task<TransitionResult> PersistSchedulerFailureAsync(
         string unitActorId,
         UnitValidationError error,
-        Func<UnitStatus, UnitStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
+        Func<LifecycleStatus, LifecycleStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
         CancellationToken cancellationToken)
     {
         if (tracker is not null)
@@ -207,6 +208,6 @@ public class UnitValidationCoordinator(
         // #1665: forward the structured failure to PersistTransitionAsync so
         // the StateChanged activity event can elevate its severity and embed
         // the validation code/message in the activity feed.
-        return await persistTransition(UnitStatus.Validating, UnitStatus.Error, error, cancellationToken);
+        return await persistTransition(LifecycleStatus.Validating, LifecycleStatus.Error, error, cancellationToken);
     }
 }

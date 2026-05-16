@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Tests.Orchestration;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Tenancy;
@@ -887,7 +888,7 @@ public class OrchestrationToolHandlersTests
         var unitAgent = Substitute.For<IAgent>();
         RegisterAgent(subUnit, unitAgent);
         unitAgent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
-            .Returns(CreateStatusResponse(subUnit, status: nameof(UnitStatus.Stopped), activeThreadId: null));
+            .Returns(CreateStatusResponse(subUnit, status: nameof(LifecycleStatus.Stopped), activeThreadId: null));
 
         var status = await handlers.HandleQueryChildStatusAsync(
             caller,

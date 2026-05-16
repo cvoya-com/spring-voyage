@@ -8,6 +8,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -23,10 +24,10 @@ using Xunit;
 
 /// <summary>
 /// Integration tests for <c>POST /api/v1/units/{id}/revalidate</c> (#947 /
-/// T-05). The endpoint is allowed from <see cref="UnitStatus.Draft"/>,
-/// <see cref="UnitStatus.Error"/>, and <see cref="UnitStatus.Stopped"/>
+/// T-05). The endpoint is allowed from <see cref="LifecycleStatus.Draft"/>,
+/// <see cref="LifecycleStatus.Error"/>, and <see cref="LifecycleStatus.Stopped"/>
 /// — every state from which the actor's transition table allows entering
-/// <see cref="UnitStatus.Validating"/>. Every other status rejects with a
+/// <see cref="LifecycleStatus.Validating"/>. Every other status rejects with a
 /// 409 containing a structured <c>currentStatus</c> detail so the client
 /// can surface the mismatch.
 /// </summary>
@@ -50,17 +51,17 @@ public class UnitRevalidateEndpointTests : IClassFixture<CustomWebApplicationFac
     }
 
     [Theory]
-    [InlineData(UnitStatus.Draft)]
-    [InlineData(UnitStatus.Error)]
-    [InlineData(UnitStatus.Stopped)]
+    [InlineData(LifecycleStatus.Draft)]
+    [InlineData(LifecycleStatus.Error)]
+    [InlineData(LifecycleStatus.Stopped)]
     public async Task Revalidate_FromAllowedStatus_Returns202_TransitionsToValidating(
-        UnitStatus from)
+        LifecycleStatus from)
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
         proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(from);
-        proxy.TransitionAsync(UnitStatus.Validating, Arg.Any<CancellationToken>())
-            .Returns(new TransitionResult(true, UnitStatus.Validating, null));
+        proxy.TransitionAsync(LifecycleStatus.Validating, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Validating, null));
         ArrangeResolved(proxy);
 
         var response = await _client.PostAsync(
@@ -68,16 +69,16 @@ public class UnitRevalidateEndpointTests : IClassFixture<CustomWebApplicationFac
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         await proxy.Received(1).TransitionAsync(
-            UnitStatus.Validating, Arg.Any<CancellationToken>());
+            LifecycleStatus.Validating, Arg.Any<CancellationToken>());
     }
 
     [Theory]
-    [InlineData(UnitStatus.Validating)]
-    [InlineData(UnitStatus.Running)]
-    [InlineData(UnitStatus.Starting)]
-    [InlineData(UnitStatus.Stopping)]
+    [InlineData(LifecycleStatus.Validating)]
+    [InlineData(LifecycleStatus.Running)]
+    [InlineData(LifecycleStatus.Starting)]
+    [InlineData(LifecycleStatus.Stopping)]
     public async Task Revalidate_FromInvalidStatus_Returns409_WithCurrentStatus(
-        UnitStatus from)
+        LifecycleStatus from)
     {
         var ct = TestContext.Current.CancellationToken;
         var proxy = Substitute.For<IUnitActor>();
@@ -89,7 +90,7 @@ public class UnitRevalidateEndpointTests : IClassFixture<CustomWebApplicationFac
 
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         await proxy.DidNotReceive().TransitionAsync(
-            UnitStatus.Validating, Arg.Any<CancellationToken>());
+            LifecycleStatus.Validating, Arg.Any<CancellationToken>());
 
         // The 409 ProblemDetails must carry a structured payload with the
         // current status so the client can render useful guidance.

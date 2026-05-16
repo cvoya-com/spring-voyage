@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Units;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Identifies the probe step a unit-validation run is executing — or the step
 /// that failed, when persisted on a <see cref="UnitValidationError"/>. Probes run
@@ -42,7 +44,7 @@ public enum UnitValidationStep
     /// <summary>
     /// Scheduling the unit-validation workflow itself — the host-side step that
     /// runs in <see cref="UnitActor"/> *before* any in-container probe. Reported
-    /// when the actor accepts a transition into <see cref="UnitStatus.Validating"/>
+    /// when the actor accepts a transition into <see cref="LifecycleStatus.Validating"/>
     /// but the call into <c>IUnitValidationWorkflowScheduler.ScheduleAsync</c>
     /// throws (Dapr workflow runtime unavailable, scheduler dependency
     /// unresolved, etc.). The failure is host-side: no probe step ever ran.

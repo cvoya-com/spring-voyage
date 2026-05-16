@@ -11,9 +11,11 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;

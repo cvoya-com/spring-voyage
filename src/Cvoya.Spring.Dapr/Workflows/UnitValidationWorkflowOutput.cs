@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Workflows;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 /// <summary>
@@ -13,7 +14,7 @@ using Cvoya.Spring.Core.Units;
 /// <remarks>
 /// T-05 will consume this record inside <c>UnitActor</c> to decide the
 /// next lifecycle transition — <c>Success == true</c> triggers
-/// <see cref="UnitStatus.Stopped"/>, otherwise <see cref="UnitStatus.Error"/>
+/// <see cref="LifecycleStatus.Stopped"/>, otherwise <see cref="LifecycleStatus.Error"/>
 /// with <see cref="Failure"/> persisted as <c>LastValidationErrorJson</c>.
 /// </remarks>
 /// <param name="Success"><c>true</c> when every probe step passed; <c>false</c> when any step failed.</param>

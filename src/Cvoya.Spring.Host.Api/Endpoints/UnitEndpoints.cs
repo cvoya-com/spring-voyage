@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
@@ -286,7 +287,7 @@ public static class UnitEndpoints
         // "no registry entry" is the "not yet started / never deployed"
         // case which we report as `idle` rather than `unavailable` so
         // the chip doesn't scream on every Draft / Stopped unit. Operators
-        // who want lifecycle-state visibility have the `UnitStatus` field
+        // who want lifecycle-state visibility have the `LifecycleStatus` field
         // (Draft / Validating / Stopped / Error) on the unit detail
         // endpoint.
         if (persistentAgentRegistry.TryGet(actorId, out var registryEntry)
@@ -399,7 +400,7 @@ public static class UnitEndpoints
             return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        var status = await TryGetUnitStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
+        var status = await TryGetLifecycleStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
         var metadata = await TryGetUnitMetadataAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
         var validationTracking = await TryGetValidationTrackingAsync(
             scopeFactory, entry.ActorId, logger, id, cancellationToken);
@@ -417,7 +418,7 @@ public static class UnitEndpoints
         // units created post-#328. The payload shape must stay byte-
         // compatible with UnitActor.HandleStatusQueryAsync so clients that
         // parse the Details envelope keep working.
-        var details = await TryGetUnitStatusPayloadAsync(
+        var details = await TryGetLifecycleStatusPayloadAsync(
             actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
 
         // #2337 Sub D: resolve effective tools so the portal's Tools
@@ -455,7 +456,7 @@ public static class UnitEndpoints
     /// to null just because the router's permission gate refuses a
     /// platform-internal dispatch.
     /// </summary>
-    private static async Task<JsonElement?> TryGetUnitStatusPayloadAsync(
+    private static async Task<JsonElement?> TryGetLifecycleStatusPayloadAsync(
         IActorProxyFactory actorProxyFactory,
         Guid actorId,
         ILogger logger,
@@ -492,7 +493,7 @@ public static class UnitEndpoints
         }
     }
 
-    private static async Task<UnitStatus> TryGetUnitStatusAsync(
+    private static async Task<LifecycleStatus> TryGetLifecycleStatusAsync(
         IActorProxyFactory actorProxyFactory,
         Guid actorId,
         ILogger logger,
@@ -513,7 +514,7 @@ public static class UnitEndpoints
             logger.LogWarning(ex,
                 "Failed to read persisted status for unit {UnitId}; reporting Draft.",
                 unitId);
-            return UnitStatus.Draft;
+            return LifecycleStatus.Draft;
         }
     }
 
@@ -724,7 +725,7 @@ public static class UnitEndpoints
                 scopeFactory, entry.ActorId, logger, id, instructionsPatch.Value, cancellationToken);
         }
 
-        var status = await TryGetUnitStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
+        var status = await TryGetLifecycleStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
         var updatedMetadata = await TryGetUnitMetadataAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
         var instructions = await TryReadUnitInstructionsAsync(
             scopeFactory, entry.ActorId, logger, id, cancellationToken);
@@ -914,10 +915,10 @@ public static class UnitEndpoints
         // Only Draft (never started) and Stopped (cleanly torn down) are safe.
         // Force-delete (#147) bypasses this gate to recover from stuck Error states
         // where /stop itself may fail or hang.
-        var status = await TryGetUnitStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
+        var status = await TryGetLifecycleStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
         var isForce = force == true;
 
-        if (!isForce && status != UnitStatus.Draft && status != UnitStatus.Stopped)
+        if (!isForce && status != LifecycleStatus.Draft && status != LifecycleStatus.Stopped)
         {
             return Results.Conflict(new
             {
@@ -928,7 +929,7 @@ public static class UnitEndpoints
             });
         }
 
-        if (!isForce || status == UnitStatus.Draft || status == UnitStatus.Stopped)
+        if (!isForce || status == LifecycleStatus.Draft || status == LifecycleStatus.Stopped)
         {
             // Clean-path delete. No runtime teardown required — the gate above
             // already proved the container / sidecar / webhook are either gone
@@ -956,7 +957,7 @@ public static class UnitEndpoints
         string id,
         Address address,
         Guid actorId,
-        UnitStatus previousStatus,
+        LifecycleStatus previousStatus,
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         IUnitContainerLifecycle containerLifecycle,
@@ -1030,7 +1031,7 @@ public static class UnitEndpoints
     private static async Task PublishForceDeleteEventAsync(
         IActivityEventBus bus,
         Address unit,
-        UnitStatus previousStatus,
+        LifecycleStatus previousStatus,
         IReadOnlyList<string> failures,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -1110,7 +1111,7 @@ public static class UnitEndpoints
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(UnitActor));
 
-        var startingTransition = await proxy.TransitionAsync(UnitStatus.Starting, cancellationToken);
+        var startingTransition = await proxy.TransitionAsync(LifecycleStatus.Starting, cancellationToken);
         if (!startingTransition.Success)
         {
             return Results.Conflict(new
@@ -1133,7 +1134,7 @@ public static class UnitEndpoints
 
         // Transition straight to Running. Agent-container lifecycle is
         // managed by the A2A dispatcher (#346/#349), not by this endpoint.
-        var runningTransition = await proxy.TransitionAsync(UnitStatus.Running, cancellationToken);
+        var runningTransition = await proxy.TransitionAsync(LifecycleStatus.Running, cancellationToken);
         if (!runningTransition.Success)
         {
             logger.LogError(
@@ -1172,7 +1173,7 @@ public static class UnitEndpoints
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(UnitActor));
 
-        var stoppingTransition = await proxy.TransitionAsync(UnitStatus.Stopping, cancellationToken);
+        var stoppingTransition = await proxy.TransitionAsync(LifecycleStatus.Stopping, cancellationToken);
         if (!stoppingTransition.Success)
         {
             return Results.Conflict(new
@@ -1193,7 +1194,7 @@ public static class UnitEndpoints
 
         // Transition straight to Stopped. Agent-container lifecycle is
         // managed by the A2A dispatcher (#346/#349), not by this endpoint.
-        var stoppedTransition = await proxy.TransitionAsync(UnitStatus.Stopped, cancellationToken);
+        var stoppedTransition = await proxy.TransitionAsync(LifecycleStatus.Stopped, cancellationToken);
         if (!stoppedTransition.Success)
         {
             logger.LogError(
@@ -1213,18 +1214,18 @@ public static class UnitEndpoints
 
     /// <summary>
     /// Handler for <c>POST /api/v1/units/{id}/revalidate</c>. Allowed
-    /// from <see cref="UnitStatus.Draft"/>, <see cref="UnitStatus.Error"/>,
-    /// or <see cref="UnitStatus.Stopped"/> — every state from which the
+    /// from <see cref="LifecycleStatus.Draft"/>, <see cref="LifecycleStatus.Error"/>,
+    /// or <see cref="LifecycleStatus.Stopped"/> — every state from which the
     /// actor's transition table allows entering
-    /// <see cref="UnitStatus.Validating"/>. <c>Draft</c> covers the
+    /// <see cref="LifecycleStatus.Validating"/>. <c>Draft</c> covers the
     /// first-time validation path the wizard's <c>Validate</c> button
     /// drives when the create endpoint left the unit in Draft (the
     /// credential-free / no-credential runtime case, e.g. Ollama),
     /// per #1451. Any other status returns 409 with a structured
     /// <c>currentStatus</c> detail so the client can surface guidance.
     /// The handler returns 202 immediately; the workflow's terminal
-    /// activity drives the follow-up <see cref="UnitStatus.Validating"/> →
-    /// <see cref="UnitStatus.Stopped"/> or <see cref="UnitStatus.Error"/>
+    /// activity drives the follow-up <see cref="LifecycleStatus.Validating"/> →
+    /// <see cref="LifecycleStatus.Stopped"/> or <see cref="LifecycleStatus.Error"/>
     /// transition via <see cref="IUnitActor.CompleteValidationAsync"/>.
     /// </summary>
     private static async Task<IResult> RevalidateUnitAsync(
@@ -1244,8 +1245,8 @@ public static class UnitEndpoints
             return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        var status = await TryGetUnitStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
-        if (status != UnitStatus.Draft && status != UnitStatus.Error && status != UnitStatus.Stopped)
+        var status = await TryGetLifecycleStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
+        if (status != LifecycleStatus.Draft && status != LifecycleStatus.Error && status != LifecycleStatus.Stopped)
         {
             return Results.Problem(
                 title: "Invalid state",
@@ -1261,7 +1262,7 @@ public static class UnitEndpoints
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(UnitActor));
 
-        var transition = await proxy.TransitionAsync(UnitStatus.Validating, cancellationToken);
+        var transition = await proxy.TransitionAsync(LifecycleStatus.Validating, cancellationToken);
         if (!transition.Success)
         {
             return Results.Problem(
@@ -1670,7 +1671,7 @@ public static class UnitEndpoints
 
     private static UnitResponse ToUnitResponse(
         DirectoryEntry entry,
-        UnitStatus status = UnitStatus.Draft,
+        LifecycleStatus status = LifecycleStatus.Draft,
         UnitMetadata? metadata = null,
         UnitValidationTracking? validationTracking = null,
         string? instructions = null,
@@ -2403,7 +2404,7 @@ public static class UnitEndpoints
 
         var status = await proxy.GetStatusAsync(cancellationToken);
         return Results.Ok(new UnitDeploymentResponse(
-            Running: status == UnitStatus.Running,
+            Running: status == LifecycleStatus.Running,
             Status: status.ToString()));
     }
 

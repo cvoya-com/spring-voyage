@@ -866,7 +866,7 @@ public static class UnitCommand
     /// validate yet); we echo whichever came back so operators don't have
     /// to re-run <c>unit get</c> just to learn which path they got.
     /// </summary>
-    internal static string RenderNoWaitHint(string unitName, UnitStatus? status)
+    internal static string RenderNoWaitHint(string unitName, LifecycleStatus? status)
     {
         var statusString = status?.ToString() ?? "Unknown";
         return $"Unit '{unitName}' created. Status: {statusString}. "

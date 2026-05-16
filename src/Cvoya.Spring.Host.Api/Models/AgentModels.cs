@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Models;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Lifecycle;
 
 /// <summary>
 /// Request body for creating a new agent.

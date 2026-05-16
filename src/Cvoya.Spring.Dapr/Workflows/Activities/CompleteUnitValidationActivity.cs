@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 
@@ -17,8 +18,8 @@ using Microsoft.Extensions.Logging;
 /// both success and failure exit paths. Builds an <see cref="IUnitActor"/>
 /// proxy for the unit under validation and invokes
 /// <see cref="IUnitActor.CompleteValidationAsync"/> so the actor can drive
-/// the <see cref="UnitStatus.Validating"/> → <see cref="UnitStatus.Stopped"/>
-/// (success) or <see cref="UnitStatus.Validating"/> → <see cref="UnitStatus.Error"/>
+/// the <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Stopped"/>
+/// (success) or <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Error"/>
 /// (failure) transition, persist the redacted failure payload, and emit
 /// the <c>StateChanged</c> activity event the UI already consumes.
 /// </summary>

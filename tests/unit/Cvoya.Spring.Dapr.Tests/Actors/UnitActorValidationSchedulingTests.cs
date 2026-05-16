@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Tests.Actors;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
@@ -25,11 +26,11 @@ using Xunit;
 /// <summary>
 /// Unit tests for <see cref="UnitActor.TransitionAsync"/> orchestration
 /// wiring introduced in T-05: every transition into
-/// <see cref="UnitStatus.Validating"/> must schedule the
+/// <see cref="LifecycleStatus.Validating"/> must schedule the
 /// <c>UnitValidationWorkflow</c> and persist the returned instance id to
 /// <c>LastValidationRunId</c>. On the revalidate paths
-/// (<see cref="UnitStatus.Error"/> → <see cref="UnitStatus.Validating"/>
-/// and <see cref="UnitStatus.Stopped"/> → <see cref="UnitStatus.Validating"/>)
+/// (<see cref="LifecycleStatus.Error"/> → <see cref="LifecycleStatus.Validating"/>
+/// and <see cref="LifecycleStatus.Stopped"/> → <see cref="LifecycleStatus.Validating"/>)
 /// the tracker's <c>BeginRunAsync</c> also clears any stale
 /// <c>LastValidationErrorJson</c> so observers see "clean slate + fresh
 /// run id" rather than "new run id + stale error."
@@ -90,22 +91,22 @@ public class UnitActorValidationSchedulingTests
         }
     }
 
-    private void WithCurrentStatus(UnitStatus current)
+    private void WithCurrentStatus(LifecycleStatus current)
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, current));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, current));
     }
 
     [Fact]
     public async Task DraftToValidating_SchedulesWorkflow_PersistsRunId()
     {
-        WithCurrentStatus(UnitStatus.Draft);
+        WithCurrentStatus(LifecycleStatus.Draft);
 
         var result = await _actor.TransitionAsync(
-            UnitStatus.Validating, TestContext.Current.CancellationToken);
+            LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Validating);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Validating);
 
         await _scheduler.Received(1).ScheduleAsync(
             TestUnitActorId, Arg.Any<CancellationToken>());
@@ -116,10 +117,10 @@ public class UnitActorValidationSchedulingTests
     [Fact]
     public async Task ErrorToValidating_ClearsFailureBlob_SchedulesWorkflow()
     {
-        WithCurrentStatus(UnitStatus.Error);
+        WithCurrentStatus(LifecycleStatus.Error);
 
         var result = await _actor.TransitionAsync(
-            UnitStatus.Validating, TestContext.Current.CancellationToken);
+            LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
         // BeginRunAsync's contract is to clear LastValidationErrorJson
@@ -135,10 +136,10 @@ public class UnitActorValidationSchedulingTests
     [Fact]
     public async Task StoppedToValidating_SchedulesWorkflow_PersistsRunId()
     {
-        WithCurrentStatus(UnitStatus.Stopped);
+        WithCurrentStatus(LifecycleStatus.Stopped);
 
         var result = await _actor.TransitionAsync(
-            UnitStatus.Validating, TestContext.Current.CancellationToken);
+            LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
         await _scheduler.Received(1).ScheduleAsync(
@@ -150,10 +151,10 @@ public class UnitActorValidationSchedulingTests
     [Fact]
     public async Task TransitionToNonValidating_DoesNotScheduleWorkflow()
     {
-        WithCurrentStatus(UnitStatus.Running);
+        WithCurrentStatus(LifecycleStatus.Running);
 
         var result = await _actor.TransitionAsync(
-            UnitStatus.Stopping, TestContext.Current.CancellationToken);
+            LifecycleStatus.Stopping, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
         await _scheduler.DidNotReceive().ScheduleAsync(
@@ -166,10 +167,10 @@ public class UnitActorValidationSchedulingTests
     public async Task DisallowedTransitionToValidating_DoesNotScheduleWorkflow()
     {
         // Running -> Validating is not allowed per the state machine.
-        WithCurrentStatus(UnitStatus.Running);
+        WithCurrentStatus(LifecycleStatus.Running);
 
         var result = await _actor.TransitionAsync(
-            UnitStatus.Validating, TestContext.Current.CancellationToken);
+            LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
         await _scheduler.DidNotReceive().ScheduleAsync(
@@ -197,20 +198,20 @@ public class UnitActorValidationSchedulingTests
         // (the host-side step that never finished), and flips to Error so
         // the UI / CLI can surface a structured failure and offer a
         // Retry.
-        WithCurrentStatus(UnitStatus.Draft);
+        WithCurrentStatus(LifecycleStatus.Draft);
         _scheduler
             .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<UnitValidationSchedule>(
                 new InvalidOperationException("dapr down")));
 
         var result = await _actor.TransitionAsync(
-            UnitStatus.Validating, TestContext.Current.CancellationToken);
+            LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         // The return value is the result of the final
         // PersistTransitionAsync call inside the catch path:
         // Validating -> Error.
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Error);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Error);
 
         // BeginRunAsync must NOT have been called — the run never started.
         await _validationTracker.DidNotReceive().BeginRunAsync(
@@ -227,8 +228,8 @@ public class UnitActorValidationSchedulingTests
         // The Validating -> Error transition must have been persisted to
         // the actor state store.
         await _stateManager.Received().SetStateAsync(
-            StateKeys.UnitStatus,
-            UnitStatus.Error,
+            StateKeys.UnitLifecycleStatus,
+            LifecycleStatus.Error,
             Arg.Any<CancellationToken>());
     }
 
@@ -241,7 +242,7 @@ public class UnitActorValidationSchedulingTests
     [Fact]
     public async Task SchedulerThrows_TrackerThrows_StillFlipsToError()
     {
-        WithCurrentStatus(UnitStatus.Draft);
+        WithCurrentStatus(LifecycleStatus.Draft);
         _scheduler
             .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<UnitValidationSchedule>(
@@ -251,14 +252,14 @@ public class UnitActorValidationSchedulingTests
             .Returns(Task.FromException(new InvalidOperationException("db down")));
 
         var result = await _actor.TransitionAsync(
-            UnitStatus.Validating, TestContext.Current.CancellationToken);
+            LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Error);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Error);
 
         await _stateManager.Received().SetStateAsync(
-            StateKeys.UnitStatus,
-            UnitStatus.Error,
+            StateKeys.UnitLifecycleStatus,
+            LifecycleStatus.Error,
             Arg.Any<CancellationToken>());
     }
 
@@ -274,7 +275,7 @@ public class UnitActorValidationSchedulingTests
     [Fact]
     public async Task SchedulerThrowsTyped_FlipsToError_AndPersistsConfigurationIncompleteBlob()
     {
-        WithCurrentStatus(UnitStatus.Draft);
+        WithCurrentStatus(LifecycleStatus.Draft);
         var error = new UnitValidationError(
             Step: UnitValidationStep.PullingImage,
             Code: UnitValidationCodes.ConfigurationIncomplete,
@@ -286,10 +287,10 @@ public class UnitActorValidationSchedulingTests
                 new UnitValidationSchedulingException(error)));
 
         var result = await _actor.TransitionAsync(
-            UnitStatus.Validating, TestContext.Current.CancellationToken);
+            LifecycleStatus.Validating, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Error);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Error);
 
         // Storage serialization uses default options, so the
         // UnitValidationStep enum is written as its numeric value (0 ==
@@ -316,7 +317,7 @@ public class UnitActorValidationSchedulingTests
             Arg.Any<CancellationToken>());
 
         await _stateManager.Received().SetStateAsync(
-            StateKeys.UnitStatus, UnitStatus.Error, Arg.Any<CancellationToken>());
+            StateKeys.UnitLifecycleStatus, LifecycleStatus.Error, Arg.Any<CancellationToken>());
     }
 
     private static bool PayloadHasScheduleFailedCode(string payload)

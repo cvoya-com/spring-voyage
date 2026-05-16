@@ -5,12 +5,14 @@ namespace Cvoya.Spring.Core.Units;
 
 using System.Runtime.Serialization;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Terminal callback payload the <c>UnitValidationWorkflow</c> posts back to
 /// <c>IUnitActor.CompleteValidationAsync</c> at the end of a validation run.
-/// The actor uses it to drive the <see cref="UnitStatus.Validating"/> →
-/// <see cref="UnitStatus.Stopped"/> or <see cref="UnitStatus.Validating"/> →
-/// <see cref="UnitStatus.Error"/> transition and to persist the redacted
+/// The actor uses it to drive the <see cref="LifecycleStatus.Validating"/> →
+/// <see cref="LifecycleStatus.Stopped"/> or <see cref="LifecycleStatus.Validating"/> →
+/// <see cref="LifecycleStatus.Error"/> transition and to persist the redacted
 /// <see cref="Failure"/> blob on failure (null on success).
 /// </summary>
 /// <remarks>

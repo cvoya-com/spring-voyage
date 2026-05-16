@@ -10,6 +10,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Lifecycle;
+
 using YamlDotNet.RepresentationModel;
 using YamlDotNet.Serialization;
 

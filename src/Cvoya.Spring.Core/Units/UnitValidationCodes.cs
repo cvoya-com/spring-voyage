@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Units;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Stable string codes identifying known unit-validation failure modes. The
 /// workflow emits one of these as the <see cref="UnitValidationError.Code"/>
@@ -40,7 +42,7 @@ public static class UnitValidationCodes
     /// The actor failed to schedule the unit-validation workflow before any
     /// probe step ran. Host-side failure (Dapr workflow runtime unavailable,
     /// scheduler dependency unresolved, etc.) — not a probe failure. The
-    /// unit is tombstoned into <see cref="UnitStatus.Error"/> so lifecycle
+    /// unit is tombstoned into <see cref="LifecycleStatus.Error"/> so lifecycle
     /// operations (delete, revalidate) can proceed without operator
     /// knowledge of the API's <c>?force=true</c> escape hatch.
     /// </summary>

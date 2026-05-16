@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Host.Api.Models;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Units;
 
@@ -22,7 +23,7 @@ public record AgentDashboardSummary(string Name, string DisplayName, string? Rol
 /// <param name="DisplayName">The human-readable display name.</param>
 /// <param name="RegisteredAt">When the unit was registered.</param>
 /// <param name="Status">The unit's current lifecycle status.</param>
-public record UnitDashboardSummary(string Name, string DisplayName, DateTimeOffset RegisteredAt, UnitStatus Status);
+public record UnitDashboardSummary(string Name, string DisplayName, DateTimeOffset RegisteredAt, LifecycleStatus Status);
 
 /// <summary>
 /// Dashboard summary for cost aggregation.
@@ -43,7 +44,7 @@ public record CostDashboardSummary(decimal TotalCost, IReadOnlyList<CostBySource
 /// <param name="TotalCost">Aggregate cost across all sources.</param>
 public record DashboardSummary(
     int UnitCount,
-    IReadOnlyDictionary<UnitStatus, int> UnitsByStatus,
+    IReadOnlyDictionary<LifecycleStatus, int> UnitsByStatus,
     int AgentCount,
     IReadOnlyList<ActivityQueryResult.Item> RecentActivity,
     decimal TotalCost,

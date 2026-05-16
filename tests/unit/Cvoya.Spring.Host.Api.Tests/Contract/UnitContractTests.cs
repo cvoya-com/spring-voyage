@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http.Json;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -60,7 +61,7 @@ public class UnitContractTests : IClassFixture<CustomWebApplicationFactory>
         // The list endpoint reads each member-actor's status as Draft when
         // the proxy resolves. Pin the actor proxy so the status read is
         // deterministic.
-        ArrangeUnitActor(UnitStatus.Draft);
+        ArrangeUnitActor(LifecycleStatus.Draft);
 
         var response = await _client.GetAsync("/api/v1/tenant/units", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -74,7 +75,7 @@ public class UnitContractTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
         ResetDirectory();
-        ArrangeUnitActor(UnitStatus.Draft);
+        ArrangeUnitActor(LifecycleStatus.Draft);
 
         // Top-level unit creation does not need a parent unit to resolve;
         // the unit doesn't have to pre-exist.
@@ -165,7 +166,7 @@ public class UnitContractTests : IClassFixture<CustomWebApplicationFactory>
         _factory.ActorProxyFactory.ClearReceivedCalls();
     }
 
-    private void ArrangeUnitActor(UnitStatus status)
+    private void ArrangeUnitActor(LifecycleStatus status)
     {
         var proxy = Substitute.For<IUnitActor>();
         proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(status);

@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Workflows;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Workflows.Activities;
 
@@ -153,8 +154,8 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
     /// <summary>
     /// Posts the workflow's terminal outcome to the unit actor via
     /// <see cref="CompleteUnitValidationActivity"/> so the actor can drive
-    /// the <see cref="UnitStatus.Validating"/> → <see cref="UnitStatus.Stopped"/>
-    /// or <see cref="UnitStatus.Validating"/> → <see cref="UnitStatus.Error"/>
+    /// the <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Stopped"/>
+    /// or <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Error"/>
     /// transition and persist the redacted failure payload. The activity
     /// is best-effort — a failure to notify the actor is logged and
     /// swallowed so the workflow's own outcome is never masked.

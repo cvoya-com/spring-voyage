@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Core.Units;
 
 using System.Runtime.Serialization;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Result of a unit lifecycle transition attempt.
 /// </summary>
@@ -19,5 +21,5 @@ using System.Runtime.Serialization;
 [DataContract]
 public record TransitionResult(
     [property: DataMember(Order = 0)] bool Success,
-    [property: DataMember(Order = 1)] UnitStatus CurrentStatus,
+    [property: DataMember(Order = 1)] LifecycleStatus CurrentStatus,
     [property: DataMember(Order = 2)] string? RejectionReason);

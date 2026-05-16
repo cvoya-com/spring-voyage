@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Host.Api.Tests.Services;
 
 using System.Collections.Generic;
 
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Host.Api.Services;
 using Cvoya.Spring.Manifest;
 

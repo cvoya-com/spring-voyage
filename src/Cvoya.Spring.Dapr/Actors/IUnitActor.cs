@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Actors;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
@@ -118,11 +119,11 @@ public interface IUnitActor : IAgent
     Task<UnitPermissionEntry[]> GetHumanPermissionsAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Gets the persisted lifecycle status of this unit. A unit that has never transitioned reports <see cref="UnitStatus.Draft"/>.
+    /// Gets the persisted lifecycle status of this unit. A unit that has never transitioned reports <see cref="LifecycleStatus.Draft"/>.
     /// </summary>
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>The current lifecycle status.</returns>
-    Task<UnitStatus> GetStatusAsync(CancellationToken ct = default);
+    Task<LifecycleStatus> GetStatusAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Attempts a lifecycle transition to <paramref name="target"/>. If the transition is not
@@ -131,13 +132,13 @@ public interface IUnitActor : IAgent
     /// <param name="target">The target status.</param>
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>A <see cref="TransitionResult"/> describing success or rejection.</returns>
-    Task<TransitionResult> TransitionAsync(UnitStatus target, CancellationToken ct = default);
+    Task<TransitionResult> TransitionAsync(LifecycleStatus target, CancellationToken ct = default);
 
     /// <summary>
     /// Terminal callback the <c>UnitValidationWorkflow</c> invokes when its
-    /// probe run finishes. Drives the <see cref="UnitStatus.Validating"/>
-    /// → <see cref="UnitStatus.Stopped"/> or
-    /// <see cref="UnitStatus.Validating"/> → <see cref="UnitStatus.Error"/>
+    /// probe run finishes. Drives the <see cref="LifecycleStatus.Validating"/>
+    /// → <see cref="LifecycleStatus.Stopped"/> or
+    /// <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Error"/>
     /// transition and persists the redacted failure payload on failure.
     /// </summary>
     /// <remarks>
@@ -154,17 +155,17 @@ public interface IUnitActor : IAgent
     ///   </item>
     ///   <item>
     ///   <b>Terminal-status guard.</b> If the unit's current status is
-    ///   already <see cref="UnitStatus.Stopped"/> or
-    ///   <see cref="UnitStatus.Error"/> (e.g. a second workflow superseded
+    ///   already <see cref="LifecycleStatus.Stopped"/> or
+    ///   <see cref="LifecycleStatus.Error"/> (e.g. a second workflow superseded
     ///   this one), the callback is also a no-op.
     ///   </item>
     /// </list>
     /// <para>
     /// On success, <c>LastValidationErrorJson</c> is cleared and the unit
-    /// transitions to <see cref="UnitStatus.Stopped"/>. On failure, the
+    /// transitions to <see cref="LifecycleStatus.Stopped"/>. On failure, the
     /// failure payload is serialized (System.Text.Json) into
     /// <c>LastValidationErrorJson</c> and the unit transitions to
-    /// <see cref="UnitStatus.Error"/>. Both paths emit a
+    /// <see cref="LifecycleStatus.Error"/>. Both paths emit a
     /// <c>StateChanged</c> activity event through the existing transition
     /// write path.
     /// </para>
@@ -183,7 +184,7 @@ public interface IUnitActor : IAgent
     /// once <see cref="CompleteValidationAsync"/> reports a successful
     /// validation outcome (#2156). Called by the unit-creation /
     /// package-install paths immediately after the unit transitions to
-    /// <see cref="UnitStatus.Validating"/> so a freshly installed unit ends
+    /// <see cref="LifecycleStatus.Validating"/> so a freshly installed unit ends
     /// up usable without a manual <c>POST /units/{id}/start</c> click.
     /// </summary>
     /// <remarks>
@@ -191,7 +192,7 @@ public interface IUnitActor : IAgent
     /// <see cref="CompleteValidationAsync"/>; setting it twice before
     /// validation finishes is idempotent. Setting it after a validation has
     /// already completed has no effect on the already-applied transition —
-    /// the unit stays in <see cref="UnitStatus.Stopped"/>.
+    /// the unit stays in <see cref="LifecycleStatus.Stopped"/>.
     /// </remarks>
     /// <param name="ct">A token to cancel the operation.</param>
     Task SetPendingAutoStartAsync(CancellationToken ct = default);
@@ -234,7 +235,7 @@ public interface IUnitActor : IAgent
 
     /// <summary>
     /// Evaluates whether the unit has enough configuration to leave the
-    /// <see cref="UnitStatus.Draft"/> state. The result lists each
+    /// <see cref="LifecycleStatus.Draft"/> state. The result lists each
     /// unsatisfied requirement so the UI can surface actionable guidance.
     /// </summary>
     /// <param name="ct">A token to cancel the operation.</param>

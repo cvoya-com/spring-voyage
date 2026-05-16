@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Units;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Seam for persisting the per-unit validation-tracking columns added in
 /// T-02 (<c>LastValidationRunId</c> and <c>LastValidationErrorJson</c>)
@@ -42,7 +44,7 @@ public interface IUnitValidationTracker
     /// atomically clears <c>LastValidationErrorJson</c> so an observer
     /// sees "clean slate + fresh run id" rather than "stale error plus
     /// new run id." Called by <c>UnitActor</c> on every transition into
-    /// <see cref="UnitStatus.Validating"/>.
+    /// <see cref="LifecycleStatus.Validating"/>.
     /// </summary>
     /// <param name="unitActorId">The unit's Dapr actor id.</param>
     /// <param name="runId">The new workflow instance id.</param>

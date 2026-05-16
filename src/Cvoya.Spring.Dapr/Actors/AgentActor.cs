@@ -13,6 +13,7 @@ using Cvoya.Spring.Core.Cloning;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Security;
@@ -1142,7 +1143,7 @@ public class AgentActor(
     }
 
     /// <inheritdoc />
-    public async Task<AgentLifecycleStatus> GetLifecycleStatusAsync(
+    public async Task<LifecycleStatus> GetLifecycleStatusAsync(
         CancellationToken cancellationToken = default)
     {
         // Default to Active for pre-#2156 agents (those activated before the
@@ -1150,8 +1151,8 @@ public class AgentActor(
         // activation succeeded silently in the legacy path so reporting
         // Active is the correct backwards-compatible answer.
         var result = await StateManager
-            .TryGetStateAsync<AgentLifecycleStatus>(StateKeys.AgentLifecycleStatus, cancellationToken);
-        return result.HasValue ? result.Value : AgentLifecycleStatus.Active;
+            .TryGetStateAsync<LifecycleStatus>(StateKeys.AgentLifecycleStatus, cancellationToken);
+        return result.HasValue ? result.Value : LifecycleStatus.Running;
     }
 
     /// <inheritdoc />
@@ -1164,12 +1165,12 @@ public class AgentActor(
 
     /// <inheritdoc />
     public async Task SetLifecycleStatusAsync(
-        AgentLifecycleStatus status,
+        LifecycleStatus status,
         string? error,
         CancellationToken cancellationToken = default)
     {
         await StateManager.SetStateAsync(StateKeys.AgentLifecycleStatus, status, cancellationToken);
-        if (status == AgentLifecycleStatus.Error)
+        if (status == LifecycleStatus.Error)
         {
             // Persist the diagnostic alongside the status so the GET
             // endpoint can surface "why" without forcing the operator to

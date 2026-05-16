@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Skills;
@@ -1114,12 +1115,12 @@ public static class AgentEndpoints
         // cleanly" from "install failed; here's why" without grepping
         // worker logs. Fail-open (null) so a transient actor outage
         // doesn't blank the otherwise-complete response.
-        AgentLifecycleStatus? lifecycleStatus = null;
+        LifecycleStatus? lifecycleStatus = null;
         string? lifecycleError = null;
         try
         {
             lifecycleStatus = await proxy.GetLifecycleStatusAsync(cancellationToken);
-            if (lifecycleStatus == AgentLifecycleStatus.Error)
+            if (lifecycleStatus == LifecycleStatus.Error)
             {
                 lifecycleError = await proxy.GetLifecycleErrorAsync(cancellationToken);
             }
@@ -1833,7 +1834,7 @@ public static class AgentEndpoints
         AgentMetadata? metadata = null,
         string? hostingMode = null,
         InitiativeLevel? initiativeLevel = null,
-        AgentLifecycleStatus? lifecycleStatus = null,
+        LifecycleStatus? lifecycleStatus = null,
         string? lifecycleError = null,
         Guid? parentUnitId = null,
         string? instructions = null,

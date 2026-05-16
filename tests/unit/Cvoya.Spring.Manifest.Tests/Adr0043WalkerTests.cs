@@ -7,6 +7,9 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Artefacts;
+using Cvoya.Spring.Core.Lifecycle;
+
 using Shouldly;
 
 using Xunit;

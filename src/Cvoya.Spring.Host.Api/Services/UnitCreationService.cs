@@ -15,6 +15,7 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
@@ -920,7 +921,7 @@ public class UnitCreationService : IUnitCreationService
             // installed units. The caller invokes
             // <see cref="TryAutoStartValidationAsync"/> after all execution
             // defaults have been persisted.
-            var initialStatus = UnitStatus.Draft;
+            var initialStatus = LifecycleStatus.Draft;
 
             // Bind the connector *after* the actor is reachable — the store
             // talks to the unit actor, which needs the directory entry in
@@ -975,12 +976,12 @@ public class UnitCreationService : IUnitCreationService
     /// <summary>
     /// #2204: evaluates the auto-start gate against the unit's persisted
     /// execution defaults and, when the gate passes, transitions the unit to
-    /// <see cref="UnitStatus.Validating"/> and marks the
+    /// <see cref="LifecycleStatus.Validating"/> and marks the
     /// <c>Unit:PendingAutoStart</c> flag so
     /// <see cref="IUnitActor.CompleteValidationAsync"/> drives the unit on
     /// through <c>Stopped → Starting → Running</c> once validation succeeds.
-    /// Returns the resulting status (<see cref="UnitStatus.Validating"/> on a
-    /// successful transition, otherwise <see cref="UnitStatus.Draft"/>).
+    /// Returns the resulting status (<see cref="LifecycleStatus.Validating"/> on a
+    /// successful transition, otherwise <see cref="LifecycleStatus.Draft"/>).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -999,25 +1000,25 @@ public class UnitCreationService : IUnitCreationService
     /// Skipped when image, runtime, or model is missing, when the runtime
     /// catalogue does not know the runtime, or when the credential resolver
     /// reports <c>NotFound</c>. Skipping is silent — partial configs land in
-    /// <see cref="UnitStatus.Draft"/> exactly as before; the operator finishes
+    /// <see cref="LifecycleStatus.Draft"/> exactly as before; the operator finishes
     /// configuration and calls <c>/revalidate</c>.
     /// </para>
     /// </remarks>
     /// <inheritdoc />
-    public Task<UnitStatus> TryAutoStartAsync(
+    public Task<LifecycleStatus> TryAutoStartAsync(
         Guid unitActorGuid,
         string unitName,
         CancellationToken cancellationToken)
         => TryAutoStartValidationAsync(unitActorGuid, unitName, cancellationToken);
 
-    private async Task<UnitStatus> TryAutoStartValidationAsync(
+    private async Task<LifecycleStatus> TryAutoStartValidationAsync(
         Guid unitActorGuid,
         string unitName,
         CancellationToken cancellationToken)
     {
         if (_executionStore is null)
         {
-            return UnitStatus.Draft;
+            return LifecycleStatus.Draft;
         }
 
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorGuid);
@@ -1031,20 +1032,20 @@ public class UnitCreationService : IUnitCreationService
             _logger.LogWarning(ex,
                 "Unit '{UnitName}' auto-start gate: failed to read execution defaults; leaving unit in Draft.",
                 unitName);
-            return UnitStatus.Draft;
+            return LifecycleStatus.Draft;
         }
 
         if (defaults is null || defaults.IsEmpty
             || string.IsNullOrWhiteSpace(defaults.Image)
             || string.IsNullOrWhiteSpace(defaults.Model))
         {
-            return UnitStatus.Draft;
+            return LifecycleStatus.Draft;
         }
 
         var runtimeId = ResolveAgentRuntimeId(defaults);
         if (string.IsNullOrWhiteSpace(runtimeId))
         {
-            return UnitStatus.Draft;
+            return LifecycleStatus.Draft;
         }
 
         // Mirror UnitValidationWorkflowScheduler.cs: the catalogue runtime's
@@ -1054,13 +1055,13 @@ public class UnitCreationService : IUnitCreationService
         // the scheduler uses when its catalogue lookup misses.
         if (_runtimeCatalog is null)
         {
-            return UnitStatus.Draft;
+            return LifecycleStatus.Draft;
         }
 
         var catalogRuntime = _runtimeCatalog.GetAgentRuntime(runtimeId);
         if (catalogRuntime is null || catalogRuntime.ModelProviders.Count == 0)
         {
-            return UnitStatus.Draft;
+            return LifecycleStatus.Draft;
         }
 
         var edge = catalogRuntime.ModelProviders[0];
@@ -1082,7 +1083,7 @@ public class UnitCreationService : IUnitCreationService
                     cancellationToken);
                 if (string.IsNullOrEmpty(resolution.Value))
                 {
-                    return UnitStatus.Draft;
+                    return LifecycleStatus.Draft;
                 }
             }
             catch (Exception ex)
@@ -1090,7 +1091,7 @@ public class UnitCreationService : IUnitCreationService
                 _logger.LogWarning(ex,
                     "Unit '{UnitName}' auto-start gate: credential resolution threw; leaving unit in Draft.",
                     unitName);
-                return UnitStatus.Draft;
+                return LifecycleStatus.Draft;
             }
         }
 
@@ -1103,24 +1104,24 @@ public class UnitCreationService : IUnitCreationService
             var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 new ActorId(actorId), nameof(UnitActor));
             var transitionResult = await proxy.TransitionAsync(
-                UnitStatus.Validating, cancellationToken);
+                LifecycleStatus.Validating, cancellationToken);
             if (transitionResult is { Success: true })
             {
                 await proxy.SetPendingAutoStartAsync(cancellationToken);
-                return UnitStatus.Validating;
+                return LifecycleStatus.Validating;
             }
 
             _logger.LogWarning(
                 "Unit '{UnitName}' failed to transition to Validating on creation: {Reason}. Staying in Draft.",
                 unitName, transitionResult?.RejectionReason ?? "unknown");
-            return UnitStatus.Draft;
+            return LifecycleStatus.Draft;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
                 "Unit '{UnitName}' transition to Validating threw on creation. Staying in Draft.",
                 unitName);
-            return UnitStatus.Draft;
+            return LifecycleStatus.Draft;
         }
     }
 

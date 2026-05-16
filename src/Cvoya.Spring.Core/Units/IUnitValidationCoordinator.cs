@@ -3,10 +3,12 @@
 
 namespace Cvoya.Spring.Core.Units;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Seam that encapsulates the validation-scheduling concern extracted from
 /// <c>UnitActor</c>: receiving the trigger to enter
-/// <see cref="UnitStatus.Validating"/>, scheduling the
+/// <see cref="LifecycleStatus.Validating"/>, scheduling the
 /// <c>UnitValidationWorkflow</c> via
 /// <see cref="IUnitValidationWorkflowScheduler"/>, persisting the run id
 /// through <see cref="IUnitValidationTracker"/>, and driving the terminal
@@ -33,7 +35,7 @@ public interface IUnitValidationCoordinator
 {
     /// <summary>
     /// Called by the actor immediately after it has successfully persisted
-    /// the transition into <see cref="UnitStatus.Validating"/>. Schedules
+    /// the transition into <see cref="LifecycleStatus.Validating"/>. Schedules
     /// the <c>UnitValidationWorkflow</c>, persists the returned instance id,
     /// and returns:
     /// <list type="bullet">
@@ -45,7 +47,7 @@ public interface IUnitValidationCoordinator
     ///     A non-null <see cref="TransitionResult"/> when the scheduler threw
     ///     and the coordinator recovered by calling
     ///     <paramref name="persistTransition"/> to flip the unit to
-    ///     <see cref="UnitStatus.Error"/> — the caller should return this
+    ///     <see cref="LifecycleStatus.Error"/> — the caller should return this
     ///     result so observers see the final state without a separate status
     ///     read (#1136).
     ///   </description></item>
@@ -56,7 +58,7 @@ public interface IUnitValidationCoordinator
     /// Delegate that writes the status to actor state and emits the
     /// <c>StateChanged</c> activity event. Called by the coordinator when
     /// scheduler failure forces a recovery transition into
-    /// <see cref="UnitStatus.Error"/>. The optional
+    /// <see cref="LifecycleStatus.Error"/>. The optional
     /// <see cref="UnitValidationError"/> argument carries the structured
     /// failure context (#1665) so the activity event can elevate severity
     /// and inject the validation <c>code</c>/<c>message</c> into
@@ -66,7 +68,7 @@ public interface IUnitValidationCoordinator
     /// <param name="cancellationToken">Cancels the schedule.</param>
     Task<TransitionResult?> TryStartWorkflowAsync(
         string unitActorId,
-        Func<UnitStatus, UnitStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
+        Func<LifecycleStatus, LifecycleStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -74,14 +76,14 @@ public interface IUnitValidationCoordinator
     /// <c>UnitValidationWorkflow</c>. Applies the stale-run and
     /// terminal-status guards, persists the failure payload (on failure),
     /// and drives the appropriate
-    /// <see cref="UnitStatus.Validating"/>→<see cref="UnitStatus.Stopped"/> or
-    /// <see cref="UnitStatus.Validating"/>→<see cref="UnitStatus.Error"/>
+    /// <see cref="LifecycleStatus.Validating"/>→<see cref="LifecycleStatus.Stopped"/> or
+    /// <see cref="LifecycleStatus.Validating"/>→<see cref="LifecycleStatus.Error"/>
     /// transition through <paramref name="persistTransition"/>.
     /// </summary>
     /// <param name="unitActorId">The unit's Dapr actor id.</param>
     /// <param name="completion">The workflow's completion payload.</param>
     /// <param name="getCurrentStatus">
-    /// Delegate that reads the current <see cref="UnitStatus"/> from actor
+    /// Delegate that reads the current <see cref="LifecycleStatus"/> from actor
     /// state. The coordinator calls this to evaluate the stale-run and
     /// terminal-status guards.
     /// </param>
@@ -98,7 +100,7 @@ public interface IUnitValidationCoordinator
     Task<TransitionResult> CompleteValidationAsync(
         string unitActorId,
         UnitValidationCompletion completion,
-        Func<CancellationToken, Task<UnitStatus>> getCurrentStatus,
-        Func<UnitStatus, UnitStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
+        Func<CancellationToken, Task<LifecycleStatus>> getCurrentStatus,
+        Func<LifecycleStatus, LifecycleStatus, UnitValidationError?, CancellationToken, Task<TransitionResult>> persistTransition,
         CancellationToken cancellationToken = default);
 }

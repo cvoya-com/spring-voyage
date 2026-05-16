@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Actors;
 
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Lifecycle;
 
 /// <summary>
 /// Dapr actor interface for agent actors. Extends the shared
@@ -104,19 +105,19 @@ public interface IAgentActor : IAgent
     /// from <see cref="AgentRuntimeStatus"/>: that one is the moment-to-
     /// moment mailbox snapshot; this one records whether the package /
     /// direct-create activation succeeded. Agents whose lifecycle was
-    /// never written default to <see cref="AgentLifecycleStatus.Active"/>
+    /// never written default to <see cref="LifecycleStatus.Running"/>
     /// — agents installed before #2156 landed completed activation
     /// successfully in the legacy path, so the default is the correct
     /// backwards-compatible answer.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The persisted lifecycle status, or <c>Active</c> when unset.</returns>
-    Task<AgentLifecycleStatus> GetLifecycleStatusAsync(CancellationToken cancellationToken = default);
+    Task<LifecycleStatus> GetLifecycleStatusAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the diagnostic error message persisted alongside an
-    /// <see cref="AgentLifecycleStatus.Error"/> status (#2156). <c>null</c>
-    /// when the agent is in <see cref="AgentLifecycleStatus.Active"/> or
+    /// <see cref="LifecycleStatus.Error"/> status (#2156). <c>null</c>
+    /// when the agent is in <see cref="LifecycleStatus.Running"/> or
     /// when an error was recorded without an accompanying message.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
@@ -125,9 +126,9 @@ public interface IAgentActor : IAgent
     /// <summary>
     /// Persists the agent's installation-lifecycle outcome (#2156). Called
     /// by <c>DefaultPackageArtefactActivator</c> immediately after a
-    /// successful directory registration (with <see cref="AgentLifecycleStatus.Active"/>
+    /// successful directory registration (with <see cref="LifecycleStatus.Running"/>
     /// and a <c>null</c> error) and from every <c>catch</c> in the
-    /// activator (with <see cref="AgentLifecycleStatus.Error"/> and the
+    /// activator (with <see cref="LifecycleStatus.Error"/> and the
     /// exception message) before the activator rethrows.
     /// </summary>
     /// <param name="status">The lifecycle status to persist.</param>
@@ -141,7 +142,7 @@ public interface IAgentActor : IAgent
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task SetLifecycleStatusAsync(
-        AgentLifecycleStatus status,
+        LifecycleStatus status,
         string? error,
         CancellationToken cancellationToken = default);
 }

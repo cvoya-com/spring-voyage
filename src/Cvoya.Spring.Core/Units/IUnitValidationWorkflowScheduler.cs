@@ -3,10 +3,12 @@
 
 namespace Cvoya.Spring.Core.Units;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Seam for scheduling the Dapr <c>UnitValidationWorkflow</c> on behalf of
 /// the unit actor. The actor calls this interface whenever it transitions
-/// into <see cref="UnitStatus.Validating"/>; the implementation in the
+/// into <see cref="LifecycleStatus.Validating"/>; the implementation in the
 /// <c>Cvoya.Spring.Dapr</c> package resolves the unit's execution defaults
 /// (image, runtime, credential, model), schedules the workflow via
 /// <c>DaprWorkflowClient</c>, and returns the instance id so the actor can

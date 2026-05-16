@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using System.Globalization;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -174,11 +175,11 @@ public static class TenantTreeEndpoints
         // endpoints already pay this per-unit actor round-trip (see
         // DashboardEndpoints.GetUnitsSummaryAsync) and the cache-control
         // window on this endpoint (15s) absorbs the fanout.
-        var unitStatuses = new Dictionary<string, UnitStatus>(StringComparer.Ordinal);
+        var unitStatuses = new Dictionary<string, LifecycleStatus>(StringComparer.Ordinal);
         foreach (var unit in unitEntries)
         {
             unitStatuses[unit.Address.Path] =
-                await TryGetUnitStatusAsync(actorProxyFactory, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.ActorId), logger, unit.Address.Path, cancellationToken);
+                await TryGetLifecycleStatusAsync(actorProxyFactory, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.ActorId), logger, unit.Address.Path, cancellationToken);
         }
 
         // Walk the tree top-down from the units that render under the
@@ -224,7 +225,7 @@ public static class TenantTreeEndpoints
     private static TenantTreeNode BuildUnitNode(
         DirectoryEntry unit,
         IReadOnlyDictionary<string, DirectoryEntry> unitEntriesById,
-        IReadOnlyDictionary<string, UnitStatus> unitStatuses,
+        IReadOnlyDictionary<string, LifecycleStatus> unitStatuses,
         IReadOnlyDictionary<string, List<UnitMembership>> membershipsByUnit,
         IReadOnlyDictionary<string, IReadOnlyList<string>> childUnitsByParent,
         IReadOnlyDictionary<string, DirectoryEntry> agentEntries,
@@ -236,7 +237,7 @@ public static class TenantTreeEndpoints
         var unitPath = unit.Address.Path;
         var status = unitStatuses.TryGetValue(unitPath, out var persisted)
             ? persisted
-            : UnitStatus.Draft;
+            : LifecycleStatus.Draft;
         var displayName = string.IsNullOrWhiteSpace(unit.DisplayName) ? unitPath : unit.DisplayName;
         var description = string.IsNullOrWhiteSpace(unit.Description) ? null : unit.Description;
 
@@ -310,10 +311,10 @@ public static class TenantTreeEndpoints
     /// <summary>
     /// Read a unit's persisted status from its actor. Mirrors the fallback
     /// policy in <see cref="DashboardEndpoints.GetUnitsSummaryAsync"/>: a
-    /// missing or unreachable actor collapses to <see cref="UnitStatus.Draft"/>
+    /// missing or unreachable actor collapses to <see cref="LifecycleStatus.Draft"/>
     /// so the tree still renders rather than failing the whole fetch.
     /// </summary>
-    private static async Task<UnitStatus> TryGetUnitStatusAsync(
+    private static async Task<LifecycleStatus> TryGetLifecycleStatusAsync(
         IActorProxyFactory actorProxyFactory,
         string actorId,
         ILogger logger,
@@ -331,26 +332,26 @@ public static class TenantTreeEndpoints
             logger.LogWarning(ex,
                 "Failed to read persisted status for unit {UnitPath}; reporting Draft in tenant tree.",
                 unitPath);
-            return UnitStatus.Draft;
+            return LifecycleStatus.Draft;
         }
     }
 
     /// <summary>
-    /// Maps the <see cref="UnitStatus"/> lifecycle enum to the lowercase
+    /// Maps the <see cref="LifecycleStatus"/> lifecycle enum to the lowercase
     /// wire vocabulary consumed by <c>src/lib/api/validate-tenant-tree.ts</c>
     /// on the portal. Kept next to the unit-node builder so a new enum
     /// value fails the wire-status switch fast instead of silently leaking
     /// into the tree as <c>stopped</c>.
     /// </summary>
-    private static string ToWireStatus(UnitStatus status) => status switch
+    private static string ToWireStatus(LifecycleStatus status) => status switch
     {
-        UnitStatus.Draft => "draft",
-        UnitStatus.Stopped => "stopped",
-        UnitStatus.Starting => "starting",
-        UnitStatus.Running => "running",
-        UnitStatus.Stopping => "stopping",
-        UnitStatus.Error => "error",
-        UnitStatus.Validating => "validating",
+        LifecycleStatus.Draft => "draft",
+        LifecycleStatus.Stopped => "stopped",
+        LifecycleStatus.Starting => "starting",
+        LifecycleStatus.Running => "running",
+        LifecycleStatus.Stopping => "stopping",
+        LifecycleStatus.Error => "error",
+        LifecycleStatus.Validating => "validating",
         _ => "stopped",
     };
 

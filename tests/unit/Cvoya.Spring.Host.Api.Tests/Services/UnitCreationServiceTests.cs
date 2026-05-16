@@ -7,6 +7,7 @@ using System.Security.Claims;
 
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
@@ -168,7 +169,7 @@ public class UnitCreationServiceTests
                 .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
                 .Returns(Task.CompletedTask);
 
-            Proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+            Proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
             ActorProxyFactory
                 .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
                 .Returns(Proxy);
@@ -452,9 +453,9 @@ public class UnitCreationServiceTests
                 IsTopLevel: true),
             CancellationToken.None);
 
-        result.Unit.Status.ShouldBe(UnitStatus.Draft);
+        result.Unit.Status.ShouldBe(LifecycleStatus.Draft);
         await fixture.Proxy.DidNotReceive().TransitionAsync(
-            UnitStatus.Validating, Arg.Any<CancellationToken>());
+            LifecycleStatus.Validating, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -485,9 +486,9 @@ public class UnitCreationServiceTests
                 IsTopLevel: true),
             CancellationToken.None);
 
-        result.Unit.Status.ShouldBe(UnitStatus.Draft);
+        result.Unit.Status.ShouldBe(LifecycleStatus.Draft);
         await fixture.Proxy.DidNotReceive().TransitionAsync(
-            UnitStatus.Validating, Arg.Any<CancellationToken>());
+            LifecycleStatus.Validating, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -498,9 +499,9 @@ public class UnitCreationServiceTests
 
         var result = await fixture.CreateAsync("no-model-unit");
 
-        result.Unit.Status.ShouldBe(UnitStatus.Draft);
+        result.Unit.Status.ShouldBe(LifecycleStatus.Draft);
         await fixture.Proxy.DidNotReceive().TransitionAsync(
-            UnitStatus.Validating, Arg.Any<CancellationToken>());
+            LifecycleStatus.Validating, Arg.Any<CancellationToken>());
     }
 
     // --- #2204: regression — package-installed units must auto-start ---
@@ -565,8 +566,8 @@ public class UnitCreationServiceTests
         // for arming the PendingAutoStart flag the actor consumes after
         // CompleteValidationAsync to drive Stopped → Starting → Running.
         fixture.Proxy
-            .TransitionAsync(UnitStatus.Validating, Arg.Any<CancellationToken>())
-            .Returns(new TransitionResult(true, UnitStatus.Validating, null));
+            .TransitionAsync(LifecycleStatus.Validating, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Validating, null));
 
         var manifest = new UnitManifest
         {
@@ -589,9 +590,9 @@ public class UnitCreationServiceTests
             new UnitCreationOverrides(IsTopLevel: true),
             CancellationToken.None);
 
-        result.Unit.Status.ShouldBe(UnitStatus.Validating);
+        result.Unit.Status.ShouldBe(LifecycleStatus.Validating);
         await fixture.Proxy.Received(1).TransitionAsync(
-            UnitStatus.Validating, Arg.Any<CancellationToken>());
+            LifecycleStatus.Validating, Arg.Any<CancellationToken>());
         await fixture.Proxy.Received(1).SetPendingAutoStartAsync(
             Arg.Any<CancellationToken>());
     }
@@ -663,9 +664,9 @@ public class UnitCreationServiceTests
             new UnitCreationOverrides(IsTopLevel: true),
             CancellationToken.None);
 
-        result.Unit.Status.ShouldBe(UnitStatus.Draft);
+        result.Unit.Status.ShouldBe(LifecycleStatus.Draft);
         await fixture.Proxy.DidNotReceive().TransitionAsync(
-            UnitStatus.Validating, Arg.Any<CancellationToken>());
+            LifecycleStatus.Validating, Arg.Any<CancellationToken>());
         await fixture.Proxy.DidNotReceive().SetPendingAutoStartAsync(
             Arg.Any<CancellationToken>());
     }

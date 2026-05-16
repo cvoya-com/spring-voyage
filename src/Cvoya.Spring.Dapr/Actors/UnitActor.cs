@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
@@ -67,7 +68,7 @@ public class UnitActor : Actor, IUnitActor
     /// </param>
     /// <param name="validationCoordinator">
     /// Optional coordinator for the validation-scheduling concern (#1280).
-    /// When present, every transition into <see cref="UnitStatus.Validating"/>
+    /// When present, every transition into <see cref="LifecycleStatus.Validating"/>
     /// delegates to the coordinator to schedule the workflow and persist the
     /// run id; terminal callbacks are also routed through it. Null in legacy
     /// test harnesses that construct the actor directly — the transition still
@@ -542,11 +543,11 @@ public class UnitActor : Actor, IUnitActor
                 $"UnitActor activated with non-Guid id '{Id.GetId()}'; cannot key unit_human_permissions row.");
 
     /// <inheritdoc />
-    public Task<UnitStatus> GetStatusAsync(CancellationToken ct = default)
+    public Task<LifecycleStatus> GetStatusAsync(CancellationToken ct = default)
         => GetStatusInternalAsync(ct);
 
     /// <inheritdoc />
-    public async Task<TransitionResult> TransitionAsync(UnitStatus target, CancellationToken ct = default)
+    public async Task<TransitionResult> TransitionAsync(LifecycleStatus target, CancellationToken ct = default)
     {
         var current = await GetStatusInternalAsync(ct);
 
@@ -570,7 +571,7 @@ public class UnitActor : Actor, IUnitActor
         // returns the post-recovery TransitionResult so the caller sees
         // the actual final state (Error) instead of the intermediate
         // Validating leg (#1280: this logic lives in UnitValidationCoordinator).
-        if (result.Success && target == UnitStatus.Validating && _validationCoordinator is not null)
+        if (result.Success && target == LifecycleStatus.Validating && _validationCoordinator is not null)
         {
             var recoveryResult = await _validationCoordinator.TryStartWorkflowAsync(
                 Id.GetId(), PersistTransitionAsync, ct);
@@ -609,19 +610,19 @@ public class UnitActor : Actor, IUnitActor
             // Legacy fallback (no coordinator wired — e.g. UnitActorValidationTransitionTests
             // that construct the actor without a scheduler or tracker).
             var current = await GetStatusInternalAsync(ct);
-            if (current == UnitStatus.Stopped || current == UnitStatus.Error)
+            if (current == LifecycleStatus.Stopped || current == LifecycleStatus.Error)
             {
                 return new TransitionResult(false, current, $"validation completion ignored: unit already {current}");
             }
 
-            if (current != UnitStatus.Validating)
+            if (current != LifecycleStatus.Validating)
             {
                 return new TransitionResult(false, current, $"validation completion ignored: status is {current}, expected Validating");
             }
 
             result = await PersistTransitionAsync(
-                UnitStatus.Validating,
-                completion.Success ? UnitStatus.Stopped : UnitStatus.Error,
+                LifecycleStatus.Validating,
+                completion.Success ? LifecycleStatus.Stopped : LifecycleStatus.Error,
                 completion.Success ? null : completion.Failure,
                 ct);
         }
@@ -633,7 +634,7 @@ public class UnitActor : Actor, IUnitActor
         // (the legacy /revalidate behaviour). The dispatcher is optional so
         // tests that construct the actor without it still see the
         // post-validation Stopped state.
-        if (result.Success && result.CurrentStatus == UnitStatus.Stopped)
+        if (result.Success && result.CurrentStatus == LifecycleStatus.Stopped)
         {
             await TryAutoStartAsync(ct);
         }
@@ -657,7 +658,7 @@ public class UnitActor : Actor, IUnitActor
     /// #2160: bridge the unit-validation outcome to the issue surface.
     /// </summary>
     private async Task TryPublishValidationIssueAsync(
-        UnitStatus newStatus,
+        LifecycleStatus newStatus,
         Cvoya.Spring.Core.Units.UnitValidationError? failure,
         CancellationToken ct)
     {
@@ -672,7 +673,7 @@ public class UnitActor : Actor, IUnitActor
                 Cvoya.Spring.Core.Issues.IssueSubjectKind.Unit,
                 subjectGuid.Value);
 
-            if (newStatus == Cvoya.Spring.Core.Units.UnitStatus.Error && failure is not null)
+            if (newStatus == Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Error && failure is not null)
             {
                 var title = string.IsNullOrWhiteSpace(failure.Message)
                     ? $"Validation failed at step {failure.Step}."
@@ -749,7 +750,7 @@ public class UnitActor : Actor, IUnitActor
             return;
         }
 
-        var startingResult = await TransitionAsync(UnitStatus.Starting, ct);
+        var startingResult = await TransitionAsync(LifecycleStatus.Starting, ct);
         if (!startingResult.Success)
         {
             _logger.LogWarning(
@@ -760,7 +761,7 @@ public class UnitActor : Actor, IUnitActor
 
         await _connectorStartDispatcher.DispatchAsync(Id.GetId(), ct);
 
-        var runningResult = await TransitionAsync(UnitStatus.Running, ct);
+        var runningResult = await TransitionAsync(LifecycleStatus.Running, ct);
         if (!runningResult.Success)
         {
             _logger.LogWarning(
@@ -927,12 +928,12 @@ public class UnitActor : Actor, IUnitActor
     /// feed and devoid of any cue as to *why* the validation failed.
     /// </remarks>
     private async Task<TransitionResult> PersistTransitionAsync(
-        UnitStatus current,
-        UnitStatus target,
+        LifecycleStatus current,
+        LifecycleStatus target,
         UnitValidationError? failure,
         CancellationToken ct)
     {
-        await StateManager.SetStateAsync(StateKeys.UnitStatus, target, ct);
+        await StateManager.SetStateAsync(StateKeys.UnitLifecycleStatus, target, ct);
 
         _logger.LogInformation(
             "Unit {ActorId} transitioned from {Current} to {Target}",
@@ -1002,30 +1003,30 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <summary>
-    /// Reads the persisted lifecycle status, defaulting to <see cref="UnitStatus.Draft"/> when unset.
+    /// Reads the persisted lifecycle status, defaulting to <see cref="LifecycleStatus.Draft"/> when unset.
     /// </summary>
-    private async Task<UnitStatus> GetStatusInternalAsync(CancellationToken ct)
+    private async Task<LifecycleStatus> GetStatusInternalAsync(CancellationToken ct)
     {
         var result = await StateManager
-            .TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, ct);
+            .TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, ct);
 
-        return result.HasValue ? result.Value : UnitStatus.Draft;
+        return result.HasValue ? result.Value : LifecycleStatus.Draft;
     }
 
     /// <summary>
     /// Enforces the unit lifecycle state machine.
     /// </summary>
-    private static bool IsTransitionAllowed(UnitStatus current, UnitStatus target) =>
+    private static bool IsTransitionAllowed(LifecycleStatus current, LifecycleStatus target) =>
         (current, target) switch
         {
-            (UnitStatus.Draft, UnitStatus.Stopped) => true,
-            (UnitStatus.Stopped, UnitStatus.Starting) => true,
-            (UnitStatus.Starting, UnitStatus.Running) => true,
-            (UnitStatus.Starting, UnitStatus.Error) => true,
-            (UnitStatus.Running, UnitStatus.Stopping) => true,
-            (UnitStatus.Stopping, UnitStatus.Stopped) => true,
-            (UnitStatus.Stopping, UnitStatus.Error) => true,
-            (UnitStatus.Error, UnitStatus.Stopped) => true,
+            (LifecycleStatus.Draft, LifecycleStatus.Stopped) => true,
+            (LifecycleStatus.Stopped, LifecycleStatus.Starting) => true,
+            (LifecycleStatus.Starting, LifecycleStatus.Running) => true,
+            (LifecycleStatus.Starting, LifecycleStatus.Error) => true,
+            (LifecycleStatus.Running, LifecycleStatus.Stopping) => true,
+            (LifecycleStatus.Stopping, LifecycleStatus.Stopped) => true,
+            (LifecycleStatus.Stopping, LifecycleStatus.Error) => true,
+            (LifecycleStatus.Error, LifecycleStatus.Stopped) => true,
 
             // Backend-validation edges (#944, T-02 / #939). Units enter
             // Validating from Draft (on creation) or Stopped/Error (on
@@ -1033,11 +1034,11 @@ public class UnitActor : Actor, IUnitActor
             // Validating -> Stopped | Error transition via CompleteValidationAsync.
             // Draft -> Starting is intentionally absent: units must pass through
             // Validating before they can be started (#939).
-            (UnitStatus.Draft, UnitStatus.Validating) => true,
-            (UnitStatus.Validating, UnitStatus.Stopped) => true,
-            (UnitStatus.Validating, UnitStatus.Error) => true,
-            (UnitStatus.Error, UnitStatus.Validating) => true,
-            (UnitStatus.Stopped, UnitStatus.Validating) => true,
+            (LifecycleStatus.Draft, LifecycleStatus.Validating) => true,
+            (LifecycleStatus.Validating, LifecycleStatus.Stopped) => true,
+            (LifecycleStatus.Validating, LifecycleStatus.Error) => true,
+            (LifecycleStatus.Error, LifecycleStatus.Validating) => true,
+            (LifecycleStatus.Stopped, LifecycleStatus.Validating) => true,
 
             _ => false,
         };

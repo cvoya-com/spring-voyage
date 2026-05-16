@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
@@ -79,7 +80,7 @@ public class UnitCreationServiceExpertiseSeedTests
             .Returns(Task.CompletedTask);
 
         var unitProxy = Substitute.For<IUnitActor>();
-        unitProxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        unitProxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         var actorProxyFactory = Substitute.For<IActorProxyFactory>();
         actorProxyFactory.CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>()).Returns(unitProxy);
         actorProxyFactory.CreateActorProxy<IHumanActor>(Arg.Any<ActorId>(), Arg.Any<string>())

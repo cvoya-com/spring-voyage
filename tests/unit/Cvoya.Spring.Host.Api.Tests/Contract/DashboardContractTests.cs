@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Tests.Contract;
 using System.Net;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Units;
@@ -61,7 +62,7 @@ public class DashboardContractTests : IClassFixture<CustomWebApplicationFactory>
         _factory.DirectoryService.ListAllAsync(Arg.Any<CancellationToken>()).Returns(entries);
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Draft);
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
             .Returns(proxy);
@@ -120,7 +121,7 @@ public class DashboardContractTests : IClassFixture<CustomWebApplicationFactory>
             });
 
         var proxy = Substitute.For<IUnitActor>();
-        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Running);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Running);
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
             .Returns(proxy);

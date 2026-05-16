@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Units;
 
 /// <summary>
@@ -11,7 +12,7 @@ using Cvoya.Spring.Core.Units;
 /// <see cref="Failure"/> carries a structured
 /// <see cref="UnitValidationError"/> the workflow persists on the unit's
 /// <c>LastValidationErrorJson</c> and transitions the unit to
-/// <see cref="UnitStatus.Error"/>.
+/// <see cref="LifecycleStatus.Error"/>.
 /// </summary>
 /// <param name="Success"><c>true</c> when the image pulled and is ready to probe; <c>false</c> otherwise.</param>
 /// <param name="Failure">

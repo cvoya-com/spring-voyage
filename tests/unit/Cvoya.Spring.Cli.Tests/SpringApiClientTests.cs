@@ -7,6 +7,7 @@ using System.Net;
 using System.Text.Json;
 
 using Cvoya.Spring.Cli.Commands;
+using Cvoya.Spring.Core.Lifecycle;
 
 using Shouldly;
 
@@ -759,7 +760,7 @@ public class SpringApiClientTests
             "eng-team", TestContext.Current.CancellationToken);
 
         result.Name.ShouldBe("eng-team");
-        result.Status.ShouldBe(Cvoya.Spring.Cli.Generated.Models.UnitStatus.Validating);
+        result.Status.ShouldBe(Cvoya.Spring.Cli.Generated.Models.LifecycleStatus.Validating);
         result.LastValidationRunId.ShouldBe("run-42");
         handler.WasCalled.ShouldBeTrue();
     }

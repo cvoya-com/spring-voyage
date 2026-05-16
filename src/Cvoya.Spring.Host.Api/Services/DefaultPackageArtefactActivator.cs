@@ -11,8 +11,10 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
@@ -474,7 +476,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
 
         // Directory registration + definition write both succeeded — mark
         // the agent Active so the GET endpoint reports a clean install.
-        await actorProxy.SetLifecycleStatusAsync(AgentLifecycleStatus.Active, null, ct);
+        await actorProxy.SetLifecycleStatusAsync(LifecycleStatus.Running, null, ct);
 
         _logger.LogInformation(
             "Agent artefact '{Name}' registered (actorId={ActorId}, role={Role}).",
@@ -483,7 +485,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
 
     /// <summary>
     /// Best-effort flip of the agent's lifecycle row to
-    /// <see cref="AgentLifecycleStatus.Error"/>. Called from the
+    /// <see cref="LifecycleStatus.Error"/>. Called from the
     /// <c>catch</c> blocks in <see cref="ActivateAgentAsync"/>; a failure
     /// inside this method is swallowed so the original exception is the
     /// one that surfaces to the install pipeline.
@@ -497,7 +499,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         try
         {
             await actorProxy.SetLifecycleStatusAsync(
-                AgentLifecycleStatus.Error, ex.Message, ct);
+                LifecycleStatus.Error, ex.Message, ct);
         }
         catch (Exception lifecycleEx)
         {

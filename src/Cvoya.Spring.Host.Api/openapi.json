@@ -11850,6 +11850,17 @@
         }
       },
       "JsonElement": { },
+      "LifecycleStatus": {
+        "enum": [
+          "Draft",
+          "Stopped",
+          "Starting",
+          "Running",
+          "Stopping",
+          "Error",
+          "Validating"
+        ]
+      },
       "MemoriesResponse": {
         "required": [
           "shortTerm",
@@ -13888,7 +13899,7 @@
             "format": "date-time"
           },
           "status": {
-            "$ref": "#/components/schemas/UnitStatus"
+            "$ref": "#/components/schemas/LifecycleStatus"
           }
         }
       },
@@ -14079,7 +14090,7 @@
             "format": "uuid"
           },
           "status": {
-            "$ref": "#/components/schemas/UnitStatus"
+            "$ref": "#/components/schemas/LifecycleStatus"
           }
         }
       },
@@ -14249,7 +14260,7 @@
             "format": "date-time"
           },
           "status": {
-            "$ref": "#/components/schemas/UnitStatus"
+            "$ref": "#/components/schemas/LifecycleStatus"
           },
           "model": {
             "type": [
@@ -14340,17 +14351,6 @@
             }
           }
         }
-      },
-      "UnitStatus": {
-        "enum": [
-          "Draft",
-          "Stopped",
-          "Starting",
-          "Running",
-          "Stopping",
-          "Error",
-          "Validating"
-        ]
       },
       "UnitTemplateDetail": {
         "required": [

@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -71,11 +72,11 @@ public static class DashboardEndpoints
             .Where(e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        var statusCounts = new Dictionary<UnitStatus, int>();
+        var statusCounts = new Dictionary<LifecycleStatus, int>();
         var unitSummaries = new List<UnitDashboardSummary>(unitEntries.Count);
         foreach (var e in unitEntries)
         {
-            var status = UnitStatus.Draft;
+            var status = LifecycleStatus.Draft;
             try
             {
                 var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
@@ -149,7 +150,7 @@ public static class DashboardEndpoints
         var units = new List<UnitDashboardSummary>(unitEntries.Count);
         foreach (var e in unitEntries)
         {
-            var status = UnitStatus.Draft;
+            var status = LifecycleStatus.Draft;
             try
             {
                 var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(

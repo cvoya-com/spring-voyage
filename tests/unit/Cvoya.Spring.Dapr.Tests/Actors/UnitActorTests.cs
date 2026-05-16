@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -76,8 +77,8 @@ public class UnitActorTests
         SetStateManager(_actor, _stateManager);
 
         // Default: no persisted status -> Draft.
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(false, default));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(false, default));
 
         _runtimeInvocationPath
             .InvokeAsync(
@@ -194,7 +195,7 @@ public class UnitActorTests
     // --- Control Message Tests ---
 
     [Fact]
-    public async Task ReceiveAsync_StatusQuery_ReturnsUnitStatusWithMemberCount()
+    public async Task ReceiveAsync_StatusQuery_ReturnsLifecycleStatusWithMemberCount()
     {
         // ADR-0040 / #2052: members come from the EF graph store, not
         // actor state. Seed two agent edges and verify the status-query
@@ -626,137 +627,137 @@ public class UnitActorTests
     {
         var status = await _actor.GetStatusAsync(TestContext.Current.CancellationToken);
 
-        status.ShouldBe(UnitStatus.Draft);
+        status.ShouldBe(LifecycleStatus.Draft);
     }
 
     [Fact]
     public async Task TransitionAsync_DraftToStopped_SucceedsAndPersists()
     {
-        var result = await _actor.TransitionAsync(UnitStatus.Stopped, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Stopped, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Stopped);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Stopped);
         result.RejectionReason.ShouldBeNull();
 
         await _stateManager.Received(1).SetStateAsync(
-            StateKeys.UnitStatus,
-            UnitStatus.Stopped,
+            StateKeys.UnitLifecycleStatus,
+            LifecycleStatus.Stopped,
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task TransitionAsync_StoppedToStarting_Succeeds()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Stopped));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Stopped));
 
-        var result = await _actor.TransitionAsync(UnitStatus.Starting, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Starting, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Starting);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Starting);
         await _stateManager.Received(1).SetStateAsync(
-            StateKeys.UnitStatus,
-            UnitStatus.Starting,
+            StateKeys.UnitLifecycleStatus,
+            LifecycleStatus.Starting,
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task TransitionAsync_StartingToRunning_Succeeds()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Starting));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Starting));
 
-        var result = await _actor.TransitionAsync(UnitStatus.Running, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Running, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Running);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Running);
     }
 
     [Fact]
     public async Task TransitionAsync_RunningToStopping_Succeeds()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Running));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Running));
 
-        var result = await _actor.TransitionAsync(UnitStatus.Stopping, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Stopping, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Stopping);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Stopping);
     }
 
     [Fact]
     public async Task TransitionAsync_StoppingToStopped_Succeeds()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Stopping));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Stopping));
 
-        var result = await _actor.TransitionAsync(UnitStatus.Stopped, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Stopped, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Stopped);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Stopped);
     }
 
     [Fact]
     public async Task TransitionAsync_ErrorToStopped_Succeeds()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Error));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Error));
 
-        var result = await _actor.TransitionAsync(UnitStatus.Stopped, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Stopped, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Stopped);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Stopped);
     }
 
     [Fact]
     public async Task TransitionAsync_StartingToError_Succeeds()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Starting));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Starting));
 
-        var result = await _actor.TransitionAsync(UnitStatus.Error, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Error, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Error);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Error);
     }
 
     [Fact]
     public async Task TransitionAsync_RunningToDraft_Rejected()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Running));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Running));
 
-        var result = await _actor.TransitionAsync(UnitStatus.Draft, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Draft, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
-        result.CurrentStatus.ShouldBe(UnitStatus.Running);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Running);
         result.RejectionReason.ShouldNotBeNull();
         result.RejectionReason.ShouldContain("Running");
         result.RejectionReason.ShouldContain("Draft");
 
         await _stateManager.DidNotReceive().SetStateAsync(
-            StateKeys.UnitStatus,
-            Arg.Any<UnitStatus>(),
+            StateKeys.UnitLifecycleStatus,
+            Arg.Any<LifecycleStatus>(),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task TransitionAsync_StoppedToRunning_Rejected()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Stopped));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Stopped));
 
-        var result = await _actor.TransitionAsync(UnitStatus.Running, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Running, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
-        result.CurrentStatus.ShouldBe(UnitStatus.Stopped);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Stopped);
         result.RejectionReason.ShouldNotBeNullOrEmpty();
     }
 
     [Fact]
     public async Task TransitionAsync_Success_EmitsStateChangedEvent()
     {
-        await _actor.TransitionAsync(UnitStatus.Stopped, TestContext.Current.CancellationToken);
+        await _actor.TransitionAsync(LifecycleStatus.Stopped, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
@@ -768,12 +769,12 @@ public class UnitActorTests
     [Fact]
     public async Task TransitionAsync_Rejected_DoesNotEmitStateChangedEvent()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Running));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Running));
 
         _activityEventBus.ClearReceivedCalls();
 
-        await _actor.TransitionAsync(UnitStatus.Draft, TestContext.Current.CancellationToken);
+        await _actor.TransitionAsync(LifecycleStatus.Draft, TestContext.Current.CancellationToken);
 
         await _activityEventBus.DidNotReceive().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
@@ -785,8 +786,8 @@ public class UnitActorTests
     [Fact]
     public async Task ReceiveAsync_StatusQuery_ReportsPersistedStatus()
     {
-        _stateManager.TryGetStateAsync<UnitStatus>(StateKeys.UnitStatus, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<UnitStatus>(true, UnitStatus.Running));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Running));
 
         var message = CreateMessage(type: MessageType.StatusQuery);
 
@@ -1104,10 +1105,10 @@ public class UnitActorTests
     {
         // Draft → Starting is no longer a valid transition (#939).
         // Units must go Draft → Validating → Stopped → Starting.
-        var result = await _actor.TransitionAsync(UnitStatus.Starting, TestContext.Current.CancellationToken);
+        var result = await _actor.TransitionAsync(LifecycleStatus.Starting, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
-        result.CurrentStatus.ShouldBe(UnitStatus.Draft);
+        result.CurrentStatus.ShouldBe(LifecycleStatus.Draft);
         result.RejectionReason.ShouldNotBeNull();
         result.RejectionReason.ShouldContain("Draft");
         result.RejectionReason.ShouldContain("Starting");

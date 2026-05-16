@@ -6,10 +6,12 @@ namespace Cvoya.Spring.Core.Units;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Structured, operator-facing outcome of a failed unit-validation probe run.
 /// Persisted on the unit definition as <c>LastValidationErrorJson</c> on every
-/// <see cref="UnitStatus.Validating"/> → <see cref="UnitStatus.Error"/> transition,
+/// <see cref="LifecycleStatus.Validating"/> → <see cref="LifecycleStatus.Error"/> transition,
 /// and surfaced to UI / CLI consumers so they can render the failed step, branch on
 /// a stable <see cref="Code"/>, and read the redacted <see cref="Message"/>.
 /// </summary>

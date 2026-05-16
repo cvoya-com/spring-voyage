@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Units;
 
+using Cvoya.Spring.Core.Lifecycle;
+
 /// <summary>
 /// Thrown by an <see cref="IUnitValidationWorkflowScheduler"/> implementation
 /// when it can determine — without running the in-container probes — that the
@@ -10,8 +12,8 @@ namespace Cvoya.Spring.Core.Units;
 /// reached. Carries a fully-formed <see cref="UnitValidationError"/> so the
 /// caller (typically <c>UnitActor.TryStartValidationWorkflowAsync</c>) can
 /// persist it on the unit's <c>LastValidationErrorJson</c> column and flip the
-/// unit straight into <see cref="UnitStatus.Error"/> instead of leaving it
-/// stuck in <see cref="UnitStatus.Validating"/> with no workflow running.
+/// unit straight into <see cref="LifecycleStatus.Error"/> instead of leaving it
+/// stuck in <see cref="LifecycleStatus.Validating"/> with no workflow running.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,7 +22,7 @@ namespace Cvoya.Spring.Core.Units;
 /// <see cref="UnitValidationCodes.ConfigurationIncomplete"/>). Transient
 /// infrastructure errors (e.g. a momentary Dapr workflow gateway hiccup) should
 /// surface as a regular <see cref="System.Exception"/>; the actor still recovers
-/// by transitioning to <see cref="UnitStatus.Error"/> with the catch-all
+/// by transitioning to <see cref="LifecycleStatus.Error"/> with the catch-all
 /// <see cref="UnitValidationCodes.ScheduleFailed"/> code so an operator can
 /// retry via <c>/revalidate</c>.
 /// </para>
