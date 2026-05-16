@@ -17,7 +17,7 @@
 //     engagement link. Lifecycle on Unit is tracked under #2274 (the
 //     panel is keyed strictly on `agentId`).
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -27,7 +27,6 @@ import {
   MessagesSquare,
   TrendingDown,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
 
 import { LifecyclePanel } from "@/components/agents/tab-impls/lifecycle-panel";
 import { UnitCard } from "@/components/cards/unit-card";
@@ -48,7 +47,6 @@ import {
   useUnitExecution,
   useUnitIssues,
 } from "@/lib/api/queries";
-import { queryKeys } from "@/lib/api/query-keys";
 import { formatCost } from "@/lib/utils";
 
 import {
@@ -244,25 +242,16 @@ function UnitOverviewBody({ unit }: { unit: UnitNode }) {
   // actual lifecycle state.
   //
   // #1787: poll while validating so the Status tile updates without a
-  // manual refresh, and invalidate the tenant-tree once validation
-  // exits so the sidebar / roll-ups follow.
+  // manual refresh. The tenant-tree refresh used to be triggered here on
+  // the Validating→terminal edge, but #2387 moved that invalidation into
+  // the activity SSE handler so the tree updates regardless of which
+  // surface drove the transition.
   const unitQuery = useUnit(unit.id, {
     refetchInterval: (query) =>
       query.state.data?.status === "Validating" ? 3000 : false,
   });
   const liveUnit = unitQuery.data ?? null;
   const executionQuery = useUnitExecution(unit.id);
-
-  const queryClient = useQueryClient();
-  const prevStatusRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    const prev = prevStatusRef.current;
-    const curr = liveUnit?.status;
-    if (prev === "Validating" && curr && curr !== "Validating") {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
-    }
-    prevStatusRef.current = curr;
-  }, [liveUnit?.status, queryClient]);
 
   const roll = aggregate(unit);
   const sparklinePoints =

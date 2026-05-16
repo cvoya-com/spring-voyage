@@ -280,6 +280,10 @@ export function queryKeysAffectedBySource(source: {
       queryKeys.units.detail(source.path),
       queryKeys.units.cost(source.path),
       queryKeys.threads.all,
+      // #2387: lifecycle transitions change the per-node status surfaced
+      // in the tenant tree. Invalidate the tree slice here so the left
+      // explorer dots refresh without a manual page reload.
+      queryKeys.tenant.tree(),
     ];
   }
   if (scheme === "agent") {
@@ -295,6 +299,8 @@ export function queryKeysAffectedBySource(source: {
       // separate poller.
       queryKeys.agents.deployment(source.path),
       queryKeys.threads.all,
+      // #2387: agent lifecycle transitions roll up into the tenant tree.
+      queryKeys.tenant.tree(),
     ];
   }
   if (scheme === "thread") {

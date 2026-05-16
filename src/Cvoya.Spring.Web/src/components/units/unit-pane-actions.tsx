@@ -157,7 +157,8 @@ function UnitActions({ node }: { node: TreeNode }) {
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.units.detail(node.id) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+    // #2387: tenant.tree() is invalidated by the activity SSE handler
+    // (`queryKeysAffectedBySource` for `unit://…`) — no manual call needed.
     queryClient.invalidateQueries({ queryKey: queryKeys.activity.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
   };
@@ -477,7 +478,8 @@ function AgentActions({ id, name }: { id: string; name: string }) {
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(id) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+    // #2387: tenant.tree() is invalidated by the activity SSE handler
+    // (`queryKeysAffectedBySource` for `agent://…`) — no manual call needed.
     queryClient.invalidateQueries({ queryKey: queryKeys.activity.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
   };
