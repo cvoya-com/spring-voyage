@@ -14,7 +14,7 @@ import { registerTab, type TabContentProps } from "./index";
 
 function UnitConfigTab({ node }: TabContentProps) {
   if (node.kind !== "Unit") return null;
-  return <ConfigTab kind="Unit" id={node.id} name={node.name} />;
+  return <ConfigTab kind="Unit" id={node.id} />;
 }
 
 registerTab("Unit", "Config", UnitConfigTab);

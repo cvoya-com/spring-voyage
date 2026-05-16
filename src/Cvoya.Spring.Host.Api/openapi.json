@@ -9463,6 +9463,12 @@
             "items": {
               "$ref": "#/components/schemas/EffectiveToolResponse"
             }
+          },
+          "executionImage": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -13960,6 +13966,12 @@
             "items": {
               "$ref": "#/components/schemas/EffectiveToolResponse"
             }
+          },
+          "executionImage": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

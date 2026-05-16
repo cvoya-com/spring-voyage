@@ -162,7 +162,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
 
   describe("Tenant", () => {
     it("renders the three tenant sub-tabs in canonical order", () => {
-      render(<ConfigTab kind="Tenant" id="tenant" name="Tenant" />);
+      render(<ConfigTab kind="Tenant" id="tenant" />);
 
       expect(screen.getByTestId("tab-tenant-config")).toBeInTheDocument();
       const tabs = screen.getAllByRole("tab");
@@ -174,7 +174,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
     });
 
     it("defaults to the Secrets sub-tab and renders <TenantDefaultsPanel>", () => {
-      render(<ConfigTab kind="Tenant" id="tenant" name="Tenant" />);
+      render(<ConfigTab kind="Tenant" id="tenant" />);
       expect(
         screen.getByRole("tab", { name: "Secrets" }),
       ).toHaveAttribute("aria-selected", "true");
@@ -182,7 +182,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
     });
 
     it("renders the embedded `/settings` panels — Budget + Cloning are the same components", () => {
-      render(<ConfigTab kind="Tenant" id="tenant" name="Tenant" />);
+      render(<ConfigTab kind="Tenant" id="tenant" />);
 
       fireEvent.click(screen.getByRole("tab", { name: "Budget" }));
       expect(screen.getByTestId("legacy-budget-panel")).toBeInTheDocument();
@@ -194,7 +194,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
 
   describe("Unit", () => {
     it("renders nine sub-tabs — General first, then existing six plus Budget + Debug (#2337 renames Skills→Tools)", () => {
-      render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
+      render(<ConfigTab kind="Unit" id="engineering" />);
 
       expect(screen.getByTestId("tab-unit-config")).toBeInTheDocument();
       const tabs = screen.getAllByRole("tab");
@@ -212,7 +212,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
     });
 
     it("renders the Tools sub-tab via <ToolsPanel kind='Unit' …> (#2337)", () => {
-      render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
+      render(<ConfigTab kind="Unit" id="engineering" />);
       fireEvent.click(screen.getByRole("tab", { name: "Tools" }));
       const panel = screen.getByTestId("legacy-tools-panel");
       expect(panel.dataset.kind).toBe("Unit");
@@ -220,7 +220,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
     });
 
     it("defaults to the General sub-tab", () => {
-      render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
+      render(<ConfigTab kind="Unit" id="engineering" />);
       expect(
         screen.getByRole("tab", { name: "General" }),
       ).toHaveAttribute("aria-selected", "true");
@@ -230,7 +230,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
     });
 
     it("renders the Budget sub-tab with the live unit budget editor (#2280)", () => {
-      render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
+      render(<ConfigTab kind="Unit" id="engineering" />);
       fireEvent.click(screen.getByRole("tab", { name: "Budget" }));
       expect(screen.getByTestId("legacy-unit-budget").dataset.unitId).toBe(
         "engineering",
@@ -238,7 +238,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
     });
 
     it("renders the Debug sub-tab with a collapsed details element", () => {
-      render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
+      render(<ConfigTab kind="Unit" id="engineering" />);
       fireEvent.click(screen.getByRole("tab", { name: "Debug" }));
       const section = screen.getByTestId("agent-debug-section");
       expect(section.tagName).toBe("DETAILS");
@@ -249,7 +249,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
       act(() => {
         setSearchParams(new URLSearchParams("subtab=Boundary"));
       });
-      render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
+      render(<ConfigTab kind="Unit" id="engineering" />);
       expect(
         screen.getByRole("tab", { name: "Boundary" }),
       ).toHaveAttribute("aria-selected", "true");
@@ -258,7 +258,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
 
   describe("Agent", () => {
     it("renders eight sub-tabs — General / Execution / Instructions / Budget / Connector / Tools / Secrets / Debug (#2337 renames Skills→Tools)", () => {
-      render(<ConfigTab kind="Agent" id="ada" name="Ada" />);
+      render(<ConfigTab kind="Agent" id="ada" />);
 
       expect(screen.getByTestId("tab-agent-config")).toBeInTheDocument();
       const tabs = screen.getAllByRole("tab");
@@ -279,7 +279,6 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
         <ConfigTab
           kind="Agent"
           id="ada"
-          name="Ada"
           parentUnitId="engineering"
         />,
       );
@@ -296,7 +295,6 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
         <ConfigTab
           kind="Agent"
           id="ada"
-          name="Ada"
           parentUnitId="engineering"
         />,
       );
@@ -307,7 +305,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
     });
 
     it("renders the Budget sub-tab with the live agent budget editor", () => {
-      render(<ConfigTab kind="Agent" id="ada" name="Ada" />);
+      render(<ConfigTab kind="Agent" id="ada" />);
       fireEvent.click(screen.getByRole("tab", { name: "Budget" }));
       expect(screen.getByTestId("legacy-agent-budget").dataset.agentId).toBe(
         "ada",
@@ -319,7 +317,6 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
         <ConfigTab
           kind="Agent"
           id="ada"
-          name="Ada"
           parentUnitId="engineering"
         />,
       );
@@ -338,7 +335,6 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
         <ConfigTab
           kind="Agent"
           id="ada"
-          name="Ada"
           parentUnitId="engineering"
         />,
       );
@@ -350,7 +346,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
     });
 
     it("renders the Secrets sub-tab via <AgentOverridesPanel agentId=…>", () => {
-      render(<ConfigTab kind="Agent" id="ada" name="Ada" />);
+      render(<ConfigTab kind="Agent" id="ada" />);
       fireEvent.click(screen.getByRole("tab", { name: "Secrets" }));
       expect(
         screen.getByTestId("legacy-agent-overrides").dataset.agentId,
@@ -362,7 +358,6 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
         <ConfigTab
           kind="Agent"
           id="ada"
-          name="Ada"
           status={{ mode: "Auto", running: true }}
         />,
       );
@@ -375,7 +370,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
     });
 
     it("falls back to (no status reported) when status is null", () => {
-      render(<ConfigTab kind="Agent" id="ada" name="Ada" status={null} />);
+      render(<ConfigTab kind="Agent" id="ada" status={null} />);
       fireEvent.click(screen.getByRole("tab", { name: "Debug" }));
       expect(screen.getByTestId("agent-debug-status").textContent).toBe(
         "(no status reported)",
@@ -389,7 +384,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
         setSearchParams(new URLSearchParams("node=ada&tab=Config"));
       });
       replaceStateSpy.mockClear();
-      render(<ConfigTab kind="Agent" id="ada" name="Ada" />);
+      render(<ConfigTab kind="Agent" id="ada" />);
 
       fireEvent.click(screen.getByRole("tab", { name: "Budget" }));
 
@@ -409,7 +404,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
       act(() => {
         setSearchParams(new URLSearchParams("subtab=Ghost"));
       });
-      render(<ConfigTab kind="Tenant" id="tenant" name="Tenant" />);
+      render(<ConfigTab kind="Tenant" id="tenant" />);
       expect(
         screen.getByRole("tab", { name: "Secrets" }),
       ).toHaveAttribute("aria-selected", "true");

@@ -11,13 +11,11 @@ vi.mock("@/components/units/tab-impls/config-tab", () => ({
   ConfigTab: (props: {
     kind: string;
     id: string;
-    name: string;
   }) => (
     <div
       data-testid="canonical-config-tab"
       data-kind={props.kind}
       data-id={props.id}
-      data-name={props.name}
     />
   ),
 }));
@@ -32,12 +30,11 @@ const unit: UnitNode = {
 };
 
 describe("UnitConfigTab — canonical wrapper (#2254)", () => {
-  it("wires the canonical ConfigTab with the unit's id + name", () => {
+  it("wires the canonical ConfigTab with the unit's id", () => {
     render(<UnitConfigTab node={unit} path={[unit]} />);
     const canonical = screen.getByTestId("canonical-config-tab");
     expect(canonical.dataset.kind).toBe("Unit");
     expect(canonical.dataset.id).toBe("engineering");
-    expect(canonical.dataset.name).toBe("Engineering");
   });
 
   it("returns null when the node is not a Unit (defensive — registry guards this)", () => {

@@ -12,7 +12,6 @@ vi.mock("@/components/units/tab-impls/config-tab", () => ({
   ConfigTab: (props: {
     kind: string;
     id: string;
-    name: string;
     parentUnitId?: string | null;
     status?: unknown;
   }) => (
@@ -20,7 +19,6 @@ vi.mock("@/components/units/tab-impls/config-tab", () => ({
       data-testid="canonical-config-tab"
       data-kind={props.kind}
       data-id={props.id}
-      data-name={props.name}
       data-parent-unit-id={props.parentUnitId ?? ""}
       data-status={
         props.status == null ? "" : JSON.stringify(props.status)
@@ -62,7 +60,6 @@ describe("AgentConfigTab — canonical wrapper (#2254)", () => {
     const canonical = screen.getByTestId("canonical-config-tab");
     expect(canonical.dataset.kind).toBe("Agent");
     expect(canonical.dataset.id).toBe("ada");
-    expect(canonical.dataset.name).toBe("Ada");
     expect(canonical.dataset.parentUnitId).toBe(
       "deadbeefcafef00d1234567890abcdef",
     );

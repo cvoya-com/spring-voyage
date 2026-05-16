@@ -365,6 +365,7 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IToolGrantResolver toolGrantResolver,
+        [FromServices] IAgentDefinitionProvider agentDefinitionProvider,
         [FromServices] IServiceScopeFactory scopeFactory,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -416,7 +417,19 @@ public static class UnitEndpoints
             id,
             cancellationToken);
 
-        var unitResponse = ToUnitResponse(entry, status, metadata, validationTracking, instructions, effectiveTools);
+        // #2348: surface the unit's effective execution.image tag via
+        // IAgentDefinitionProvider — the same path the dispatcher uses
+        // (which, for unit-as-agent, projects the unit's own definition
+        // JSON). Fail-open (null) so a transient definition-store outage
+        // doesn't blank the otherwise-complete response.
+        var executionImage = await AgentEndpoints.TryResolveExecutionImageAsync(
+            agentDefinitionProvider,
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId),
+            logger,
+            id,
+            cancellationToken);
+
+        var unitResponse = ToUnitResponse(entry, status, metadata, validationTracking, instructions, effectiveTools, executionImage);
         return Results.Ok(new UnitDetailResponse(unitResponse, details));
     }
 
@@ -1647,7 +1660,8 @@ public static class UnitEndpoints
         UnitMetadata? metadata = null,
         UnitValidationTracking? validationTracking = null,
         string? instructions = null,
-        IReadOnlyList<EffectiveToolResponse>? effectiveTools = null) =>
+        IReadOnlyList<EffectiveToolResponse>? effectiveTools = null,
+        string? executionImage = null) =>
         new(
             entry.ActorId,
             entry.Address.Path,
@@ -1672,7 +1686,12 @@ public static class UnitEndpoints
             // #2337 Sub D: effective-tools projection used by the portal's
             // Tools sub-tab. Only the single-subject GET path populates
             // this; list / other paths leave it as an empty list.
-            EffectiveTools: effectiveTools ?? Array.Empty<EffectiveToolResponse>());
+            EffectiveTools: effectiveTools ?? Array.Empty<EffectiveToolResponse>(),
+            // #2348: execution.image tag from the persisted definition
+            // (read via IAgentDefinitionProvider). Null when the unit
+            // declares no image or when the list-path caller did not
+            // resolve it.
+            ExecutionImage: executionImage);
 
     /// <summary>
     /// View of the per-unit validation-tracking columns projected into the

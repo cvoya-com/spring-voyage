@@ -111,6 +111,16 @@ public record CreateAgentRequest(
 /// grant set. Empty list when the resolver returns nothing — the field
 /// is non-null on the wire to keep client code branchless.
 /// </param>
+/// <param name="ExecutionImage">
+/// The container image tag (e.g. <c>acme/agent:v1.2</c>) read from the
+/// persisted <c>execution.image</c> slot via
+/// <see cref="Cvoya.Spring.Core.Execution.IAgentDefinitionProvider"/> —
+/// the same path the dispatcher uses, so the merge with the parent
+/// unit's defaults (#601 / #603) flows through automatically. <c>null</c>
+/// when neither the agent nor its primary parent unit declares an image.
+/// Surfaced so the portal's Tools sub-tab Image section (#2348) can
+/// render the tag rather than the digest-suffixed provenance string.
+/// </param>
 public record AgentResponse(
     Guid Id,
     string Name,
@@ -129,7 +139,8 @@ public record AgentResponse(
     string? LifecycleStatus = null,
     string? LifecycleError = null,
     string? Instructions = null,
-    IReadOnlyList<EffectiveToolResponse>? EffectiveTools = null);
+    IReadOnlyList<EffectiveToolResponse>? EffectiveTools = null,
+    string? ExecutionImage = null);
 
 /// <summary>
 /// Request body for <c>PATCH /api/v1/agents/{id}</c>. All fields optional;

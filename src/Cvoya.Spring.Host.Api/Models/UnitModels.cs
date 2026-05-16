@@ -129,6 +129,15 @@ public record UpdateUnitRequest(
 /// grant set. Empty list when the resolver returns nothing — the field
 /// is non-null on the wire to keep client code branchless.
 /// </param>
+/// <param name="ExecutionImage">
+/// The container image tag (e.g. <c>acme/agent:v1.2</c>) read from the
+/// persisted <c>execution.image</c> slot via
+/// <see cref="Cvoya.Spring.Core.Execution.IAgentDefinitionProvider"/> —
+/// the same path the dispatcher uses. <c>null</c> when the unit declares
+/// no image. Surfaced so the portal's Tools sub-tab Image section
+/// (#2348) can render the tag rather than the digest-suffixed
+/// provenance string.
+/// </param>
 public record UnitResponse(
     Guid Id,
     string Name,
@@ -146,7 +155,8 @@ public record UnitResponse(
     string? Specialty = null,
     bool Enabled = true,
     AgentExecutionMode ExecutionMode = AgentExecutionMode.Auto,
-    IReadOnlyList<EffectiveToolResponse>? EffectiveTools = null);
+    IReadOnlyList<EffectiveToolResponse>? EffectiveTools = null,
+    string? ExecutionImage = null);
 
 /// <summary>
 /// Request body for adding a member to a unit.
