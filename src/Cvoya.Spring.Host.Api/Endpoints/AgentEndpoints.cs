@@ -1475,6 +1475,7 @@ public static class AgentEndpoints
         IExecutionConfigInheritanceResolver inheritanceResolver,
         ITenantContext tenantContext,
         SpringDbContext db,
+        Services.IArtefactAutoStartGate autoStartGate,
         CancellationToken cancellationToken)
     {
         var jsonOptions = httpContext.RequestServices
@@ -1715,6 +1716,22 @@ public static class AgentEndpoints
                 await db.SaveChangesAsync(cancellationToken);
             }
         }
+
+        // #2374: run the shared auto-start gate now that the directory
+        // entry, membership rows, and execution defaults are persisted.
+        // When the caller supplied a complete execution config (image +
+        // model + runtime + resolvable credential), the gate drives the
+        // agent to Validating and arms the post-validation auto-start so
+        // the agent reaches Running without a follow-up CLI / API call.
+        // Partial configs land in Draft — the operator finishes
+        // configuration and calls /revalidate. Best-effort: any gate
+        // failure leaves the agent in Draft (the directory entry is
+        // already live, so the 201 still succeeds).
+        _ = await autoStartGate.TryAutoStartAsync(
+            Cvoya.Spring.Core.Artefacts.ArtefactKind.Agent,
+            actorGuid,
+            entry.DisplayName,
+            cancellationToken);
 
         var primaryUnitGuid = resolvedUnits.Count > 0
             ? resolvedUnits[0].Entry.ActorId
