@@ -1,5 +1,7 @@
 # Software Engineering Package
 
+> **Tier 6 of 7.** Adds a checked-in Dapr workflow (`software-dev-cycle`) shipped as a real `.NET` project alongside the YAML manifests. Builds on the required-connector pattern from [`product-management`](../product-management/). The next package ([`spring-voyage-oss`](../spring-voyage-oss/)) is the heaviest one — an umbrella unit over multiple sub-units that uses this same domain shape to develop the Spring Voyage platform on itself.
+
 A domain package that ships a software engineering team — tech lead, backend engineer, and QA — wired to a GitHub repository with triage, PR-review, and coding-standards skills.
 
 ## What this package ships

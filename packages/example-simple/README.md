@@ -1,5 +1,7 @@
 # example-simple
 
+> **Tier 2 of 7.** Adds the recursive folder layout: a multi-agent unit with per-agent skills sitting inside the agent's own folder. Builds on [`hello-world`](../hello-world/) (one unit, one agent, no skills) and feeds into [`example-templated`](../example-templated/), which expresses the same shape via `from:` clones instead of literal authoring.
+
 An ADR-0043 example package that demonstrates the recursive folder shape using **instances only** — no templates, no `from:` clones. Every artefact is authored as a concrete folder under the conventional subdirectories.
 
 Pair it with [`example-templated/`](../example-templated/) — the templated counterpart — to see the difference between literal authoring and template instantiation.

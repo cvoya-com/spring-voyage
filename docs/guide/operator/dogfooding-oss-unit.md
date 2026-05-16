@@ -1,6 +1,6 @@
 # Install and run the Spring Voyage OSS dogfooding unit
 
-> **Audience.** Operators running Spring Voyage OSS who want to install the built-in dogfooding package on their tenant — a five-unit hierarchy (one parent, four role sub-units) that uses the platform to develop the platform itself.
+> **Audience.** Operators running Spring Voyage OSS who want to install the built-in dogfooding package on their tenant — a three-unit hierarchy (one umbrella, two role sub-units) that uses the platform to develop the platform itself.
 
 > **Scope.** How to install and verify the package. For the conceptual overview — what each sub-unit is responsible for and how they coordinate — see [`docs/concepts/spring-voyage-oss.md`](../../concepts/spring-voyage-oss.md). For the design rationale, see [`docs/decisions/0034-oss-dogfooding-unit.md`](../../decisions/0034-oss-dogfooding-unit.md).
 
@@ -21,15 +21,13 @@ Before installing the package, confirm all of the following:
 - [ ] **OSS agent images are available.** Build them locally with:
 
   ```bash
-  ./eng/build/build-agent-images.sh           # builds all four OSS images at :dev
+  ./eng/build/build-agent-images.sh           # builds the two OSS images at :dev
   ```
 
   Or pull pre-published images from GHCR (after a `spring-voyage-v*` release tag has run):
 
   ```bash
   podman pull ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
-  podman pull ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest
-  podman pull ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:latest
   podman pull ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest
   ```
 
@@ -75,14 +73,12 @@ spring package install spring-voyage-oss \
 
 Replace `<installation-id>` with the numeric ID from `spring github-app list-installations`.
 
-The command installs all 5 units (root + 4 sub-units) in a single atomic operation. If any step fails, the whole install rolls back. On success you see the install ID and the status of each unit:
+The command installs all three units (umbrella + two sub-units) in a single atomic operation. If any step fails, the whole install rolls back. On success you see the install ID and the status of each unit:
 
 ```
 install: <install-id>   status: active
   spring-voyage-oss             active
   sv-oss-software-engineering   active
-  sv-oss-design                 active
-  sv-oss-product-management     active
   sv-oss-program-management     active
 ```
 
@@ -102,7 +98,7 @@ spring package status <install-id>
 4. Fill in the three inputs — GitHub owner, repository, and installation ID — on the inputs form.
 5. Click **Install**.
 
-The status view shows each unit moving from staging to active as activation completes. The install is atomic: either all 5 units reach active, or the whole install is rolled back.
+The status view shows each unit moving from staging to active as activation completes. The install is atomic: either all three units reach active, or the whole install is rolled back.
 
 ---
 
@@ -112,14 +108,12 @@ The status view shows each unit moving from staging to active as activation comp
 spring package status <install-id>
 ```
 
-Should show five entries:
+Should show three entries:
 
 | Name | Status |
 | ---- | ------ |
 | `spring-voyage-oss` | active |
 | `sv-oss-software-engineering` | active |
-| `sv-oss-design` | active |
-| `sv-oss-product-management` | active |
 | `sv-oss-program-management` | active |
 
 Each sub-unit has:
@@ -140,7 +134,7 @@ spring message send sv-oss-program-management \
   "New issue opened: 'Agent container restarts on every turn even with hosting: permanent set.' Triage this."
 ```
 
-Expected response: identifies the sub-system (agent runtime / hosting mode), proposes a milestone (`v0.1` or `v0.2`), suggests an issue type (`Bug`), proposes one or more `area:*` labels, and — if this looks like a dependency — suggests a sub-issue or `blocked-by` relationship with an existing issue.
+Expected response: identifies the sub-system (agent runtime / hosting mode), proposes a milestone matching whichever plan version is active under `docs/plan/`, suggests an issue type (`Bug`), proposes one or more `area:*` labels, and — if this looks like a dependency — suggests a sub-issue or `blocked-by` relationship with an existing issue.
 
 ### Software engineering
 
@@ -151,7 +145,7 @@ spring message send sv-oss-software-engineering \
   "The unit execution defaults merge doesn't honour the agent's own model field when the unit also sets one. Propose a fix."
 ```
 
-Expected response: cites scope discipline, references `docs/plan/v0.1/README.md` for area placement, proposes an `area:*` label and issue type, and — because this touches the execution-config merge path — routes to the `dotnet-engineer` or `architect` persona and may suggest an ADR before code.
+Expected response: cites scope discipline, references the active plan-of-record under `docs/plan/` for area placement, proposes an `area:*` label and issue type, and — because this touches the execution-config merge path — dispatches via Claude Code's Task tool to the `dotnet-engineer` or `architect` persona defined under `.claude/agents/` and may suggest an ADR before code.
 
 ---
 
@@ -171,4 +165,4 @@ Expected response: cites scope discipline, references `docs/plan/v0.1/README.md`
 - [`docs/concepts/spring-voyage-oss.md`](../../concepts/spring-voyage-oss.md) — what the unit is: sub-unit responsibilities, orchestrator prompts, how it dogfoods the platform.
 - [`docs/decisions/0034-oss-dogfooding-unit.md`](../../decisions/0034-oss-dogfooding-unit.md) — why this design: role decomposition, FROM-agent-base + claude-code image strategy, `hosting: permanent`, connector binding at apply time.
 - [`packages/spring-voyage-oss/README.md`](../../../packages/spring-voyage-oss/README.md) — package internals: unit and agent YAML layout, connector declaration, and post-install steps.
-- [`docs/guide/operator/byoi-agent-images.md`](byoi-agent-images.md) — conformance contract the four OSS images satisfy (BYOI path 1).
+- [`docs/guide/operator/byoi-agent-images.md`](byoi-agent-images.md) — conformance contract the OSS images satisfy (BYOI path 1).

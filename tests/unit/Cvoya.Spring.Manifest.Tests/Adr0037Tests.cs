@@ -515,7 +515,7 @@ public class Adr0037Tests
         manifest.Description.ShouldBe("Something.");
         manifest.Readme.ShouldBe("my-unit.md");
         manifest.Members!.Count.ShouldBe(1);
-        manifest.Members[0].Agent.ShouldBe("my-agent");
+        manifest.Members[0].AgentName.ShouldBe("my-agent");
         manifest.Requires!.Count.ShouldBe(1);
         manifest.Requires[0].Type.ShouldBe(RequirementType.Connector);
         manifest.Requires[0].Identifier.ShouldBe("github");

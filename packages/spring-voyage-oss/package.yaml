@@ -1,7 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Package
 name: spring-voyage-oss
-description: The Spring Voyage OSS dogfooding organisation — software engineering, design, product management, and program management operating on the Spring Voyage platform itself.
+description: The Spring Voyage OSS dogfooding organisation — software engineering and program management operating on the Spring Voyage platform itself.
 version: 1.0.0
 readme: README.md
 
@@ -12,16 +12,17 @@ readme: README.md
 # binding once via the wizard's connector step or `spring package install
 # --connector github=<owner>/<repo>@<installation-id>`.
 #
-# ADR-0043 §2: directory layout is the manifest — no `content:` block. The
-# package ships exactly the artefacts discovered under `units/` and
-# `agents/`. Sub-units (sv-oss-software-engineering / -design /
-# -product-management / -program-management) are members of the umbrella
-# unit, declared in its own `members:` list.
+# ADR-0043 §2 / §3: directory layout is the manifest — no `content:` block.
+# The package ships exactly the artefacts discovered under `units/`. The
+# two sub-units (`sv-oss-software-engineering`, `sv-oss-program-management`)
+# sit alongside the umbrella `spring-voyage-oss` under `units/`; each
+# sub-unit nests its own member agent under its local `agents/`
+# subdirectory per ADR-0043 §3.
 
 # Package-level execution defaults (#1679). The umbrella's container image
-# becomes the package default — sub-units that don't ship their own
-# image inherit it; sub-units that DO declare execution.image (the four
-# OSS team images) override field-wise. `inherit:` is omitted, so every
-# member participates by default.
+# becomes the package default — the umbrella unit (which does not pin its
+# own image) inherits it; the two sub-units declare their own
+# `execution.image` and override field-wise. `inherit:` is omitted, so
+# every member participates by default.
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest

@@ -1,5 +1,7 @@
 # example-templated
 
+> **Tier 3 of 7.** Adds the type / instance separation: a unit template (`engineering-team`) with stamped children and an agent template (`software-engineer`) instantiated three times via `from:`. Builds on [`example-simple`](../example-simple/), which expresses the same fan-out by literal authoring. The next package ([`research`](../research/)) adds package-level skills shared across multiple agents.
+
 An ADR-0043 example package that demonstrates **type / instance separation** via templates (ADR-0043 §5). Pair with [`example-simple/`](../example-simple/) — the instance-only counterpart — to compare authoring styles.
 
 ## Type vs instance

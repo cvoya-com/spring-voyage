@@ -1,27 +1,27 @@
 # Spring Voyage OSS
 
-The **Spring Voyage OSS** unit is a built-in, hierarchical unit that uses Spring Voyage to develop Spring Voyage itself. It ships as a package (`packages/spring-voyage-oss/`) that is automatically visible in the platform catalog. When installed via `spring package install spring-voyage-oss`, it creates a five-unit hierarchy in a single atomic operation: a top-level coordination unit plus four role-flavored sub-units covering software engineering, design, product management, and program management.
+The **Spring Voyage OSS** unit is a built-in, hierarchical unit that uses Spring Voyage to develop Spring Voyage itself. It ships as a package (`packages/spring-voyage-oss/`) that is automatically visible in the platform catalog. When installed via `spring package install spring-voyage-oss`, it creates a three-unit hierarchy in a single atomic operation: a top-level coordination unit plus two role-flavoured sub-units covering software engineering and program management.
 
-The unit is the concrete realisation of the v0.1 stretch criterion: "SV is usable for further development of SV" (`docs/plan/v0.1/README.md`, exit criteria). It turns that criterion into something observable — a running team that plans, triages, implements, reviews, and ships the platform on itself.
+The unit is the concrete realisation of the dogfooding stretch criterion: "SV is usable for further development of SV". That criterion was first stated as a v0.1 stretch goal in `docs/plan/v0.1/README.md` and carries forward across plan versions. The unit turns it into something observable — a running team that plans, triages, implements, reviews, and ships the platform on itself.
 
 ## Why this exists
 
 Confidence in a platform's primitives comes from using them. The Spring Voyage OSS unit is a stress test of the same primitives every operator uses:
 
-- Hierarchical unit composition with four `members: [unit: ...]` entries.
+- Hierarchical unit composition with `members: [unit: ...]` entries.
 - `execution.hosting: permanent` so containers stay warm across the continuous work of a development team.
 - GitHub connector binding at template-apply time, flowing all GitHub App identity through the connector rather than hardcoding it.
 - Agent images built on the BYOI path 1 conformance contract (ADR-0027): each image extends `spring-voyage-agent-base`, adds the Claude Code CLI, role tooling, and inherits the bridge ENTRYPOINT unchanged.
 
-When the SE team hits a friction point, that friction is a bug or improvement opportunity in the platform. When the PgM team needs a feature in `gh issue` integration, that need is a feature request against the platform's GitHub connector. The feedback loop is direct.
+When the SE sub-unit hits a friction point, that friction is a bug or improvement opportunity in the platform. When the PgM sub-unit needs a feature in `gh issue` integration, that need is a feature request against the platform's GitHub connector. The feedback loop is direct.
 
-## Structure: the four sub-units
+## Structure: the two sub-units
 
 ### Software Engineering (`sv-oss-software-engineering`)
 
-Responsible for implementing features, fixing bugs, and running the build/test/lint loop.
+Responsible for implementing features, fixing bugs, code review, and running the build/test/lint loop.
 
-**Members:** architect, dotnet-engineer, web-engineer, cli-engineer, qa-engineer, devops-engineer, security-engineer, connector-engineer, api-designer, docs-writer.
+**Member:** A single `software-engineer` agent built on Claude Code. Specialised work is dispatched to repository-defined persona subagents under `.claude/agents/` (architect, dotnet-engineer, web-engineer, cli-engineer, api-designer, connector-engineer, qa-engineer, devops-engineer, security-engineer, design-engineer, docs-writer). The persona files are read by Claude Code's Task tool at dispatch time, so the package itself does not ship persona prompts.
 
 **Image:** `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering` — extends `spring-voyage-agent-base` with:
 - Claude Code CLI (Anthropic's claude-code launcher)
@@ -29,56 +29,29 @@ Responsible for implementing features, fixing bugs, and running the build/test/l
 - `gh` CLI for GitHub App-mediated issue and PR work
 - Node 22 + npm (inherited from spring-voyage-agent-base), `ruff`, and full Playwright browser support (Chromium, Firefox, WebKit) including all required system dependencies
 
-**Orchestrator prompt:** The sub-unit's `ai.prompt` encodes the project's working norms: scope discipline (file-and-move-on default; bar for in-scope expansion is "the PR's declared goal is materially broken without it"), triage (close / route to area / park, with `area:*` labels and native issue types), PR review checklist (declared scope, ADR alignment, OpenAPI contract drift, formatting, lints, tests at the solution root), issue tracking (milestones for releases, issue types for category, labels only for what those don't cover, `sub-issues` + `blocked-by` for task dependencies), worktree workflow (branch off latest `origin/main`, rebase before push), pre-push gates (solution-wide build, test, format, lint, knip, tsc all green), and identity (all GitHub writes through the Spring Voyage GitHub App via this unit's connector binding).
+**Anchor documents:** The sub-unit's `instructions:` field points at the project's checked-in rules — `CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the `docs/architecture/` and `docs/decisions/` indexes, and whichever plan version is active under `docs/plan/`. The prompt does not duplicate those documents; it tells the agent to read them and defer to them when this prompt and a file disagree, so the package stays useful as the active milestone changes.
 
-Each member agent inherits the orchestrator's frame. The orchestrator routes incoming work to the appropriate persona based on file paths and the area touched.
-
-### Design (`sv-oss-design`)
-
-Responsible for visual review, component mockups, and accessibility checks.
-
-**Members:** design-engineer.
-
-**Image:** `ghcr.io/cvoya-com/spring-voyage-agent-oss-design` — adds Playwright with Chromium as the primary browser, `@mermaid-js/mermaid-cli` for diagram rendering, and ImageMagick for image processing.
-
-**Orchestrator prompt:** Tuned to visual review and accessibility — screenshot capture, diagram diff, WCAG checklist.
-
-### Product Management (`sv-oss-product-management`)
-
-Responsible for issue triage, roadmap maintenance, sprint planning, and requirements.
-
-**Members:** pm.
-
-**Image:** `ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management` — adds `gh` CLI, `@mermaid-js/mermaid-cli` for roadmap diagrams, and `markdownlint-cli2` for documentation hygiene.
-
-**Orchestrator prompt:** Tuned to the v0.1 plan (`docs/plan/v0.1/README.md`), milestone scheme, and the area label taxonomy. Issues are triaged against active milestones; new work is placed in the correct area bucket before any planning artefact is written.
+**Slash-command skills:** The sub-unit uses the canonical slash-command skills under `.agents/skills/` — `/build`, `/test`, `/lint`, `/openapi-diff`, `/triage`, `/adr-new`, `/web` — for CI-aligned invocations.
 
 ### Program Management (`sv-oss-program-management`)
 
-Responsible for milestone hygiene, sub-issue and blocked-by relationships, and dependency tracking.
+Responsible for issue triage, milestone hygiene, sub-issue and blocked-by relationships, and dependency tracking.
 
-**Members:** program-manager.
+**Member:** A single `program-manager` agent.
 
 **Image:** `ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management` — adds `gh` CLI and `markdownlint-cli2`.
 
-**Orchestrator prompt:** Tuned to the three issue primitives (milestones, issue types, labels), the sub-issue/blocked-by relationship model, and the rule that prose "blocked by #N" in a body is not enough — the relationship must be registered natively so it surfaces in GitHub's dependency view.
+**Anchor documents:** `CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, and the active plan-of-record under `docs/plan/` (along with its `areas/` subdirectory). The sub-unit's prompt encodes the three issue primitives (milestones, issue types, labels), the sub-issue/blocked-by relationship model, and the rule that prose "blocked by #N" in a body is not enough — the relationship must be registered natively so it surfaces in GitHub's dependency view.
+
+**Slash-command skills:** `/triage` — the canonical triage flow against the active area taxonomy.
 
 ## How the unit runs
 
 Each sub-unit declares `execution.hosting: permanent`. The agent containers stay warm across messages — the right default for a team that runs continuously rather than responding to isolated, ephemeral requests.
 
-The top-level `spring-voyage-oss` unit lists the four sub-units as `members`. Messages routed to the top-level unit invoke the top-level unit's runtime; the runtime uses the orchestration tools to inspect and delegate to the appropriate sub-unit, which then runs its own runtime to delegate to one of its member agents.
+The top-level `spring-voyage-oss` unit lists the two sub-units as `members`. Messages routed to the top-level unit invoke the top-level unit's runtime; the runtime uses the orchestration tools to inspect and delegate to the appropriate sub-unit, which then runs its own runtime to delegate to its single member agent.
 
-Each sub-unit declares a GitHub connector at template level:
-
-```yaml
-connectors:
-  - type: github
-    config:
-      events: ["issues", "issue_comment", "pull_request", "pull_request_review"]
-```
-
-The `owner`, `repo`, and `installation_id` fields are intentionally absent from the checked-in package YAML — they require per-deployment identity that does not belong in source. The operator supplies them as inputs when running `spring package install spring-voyage-oss` (or through the **Catalog** path in the New Unit wizard), and the platform creates the unit hierarchy and connector bindings atomically as part of the install. See [Connectors](connectors.md) for the binding model and the GitHub connector's repository and reviewer discovery behaviour.
+Each sub-unit declares a GitHub connector requirement. The `owner`, `repo`, and `installation_id` fields are intentionally absent from the checked-in package YAML — they require per-deployment identity that does not belong in source. The operator supplies them as inputs when running `spring package install spring-voyage-oss` (or through the **Catalog** path in the New Unit wizard), and the platform creates the unit hierarchy and connector bindings atomically as part of the install. See [Connectors](connectors.md) for the binding model and the GitHub connector's repository and reviewer discovery behaviour.
 
 ## How the unit dogfoods the platform
 
@@ -90,16 +63,12 @@ The Spring Voyage OSS unit exercises platform features as a working team, not as
 - `dotnet format SpringVoyage.slnx --verify-no-changes` for format enforcement
 - `npm run lint`, `npm --workspace=spring-voyage-dashboard run knip`, `npm --workspace=spring-voyage-dashboard run typecheck` for the web layer
 
-**Product Management** plans against `docs/plan/v0.1/README.md` and manages issues in `cvoya-com/spring-voyage` via the Spring Voyage GitHub App. Sprint planning outputs live in the same `docs/plan/` structure the project already uses.
+**Program Management** manages issues, milestones, and sub-issue/blocked-by relationships in `cvoya-com/spring-voyage` via `gh issue` commands, exercising the same GitHub connector skills available to any unit. Sprint planning outputs live in the same `docs/plan/` structure the project already uses; the plan-of-record is whichever version directory under `docs/plan/` is currently active.
 
-**Program Management** manages milestones and sub-issue/blocked-by relationships via `gh issue` commands, exercising the same GitHub connector skills available to any unit.
-
-**Design** renders screenshots via Playwright and produces mockups and accessibility reports against the portal's UI — exercising the same Playwright tooling the SE team's QA agents use.
-
-Bugs the team encounters are bugs in Spring Voyage. Friction they hit — in the CLI, the connector, the portal wizard — is improvement feedback for the platform. The team works in the open: every issue it files, every PR it raises, and every review it posts flows through the Spring Voyage GitHub App, making the identity and access model a live part of the feedback loop.
+Bugs the team encounters are bugs in Spring Voyage. Friction it hits — in the CLI, the connector, the portal wizard — is improvement feedback for the platform. The team works in the open: every issue it files, every PR it raises, and every review it posts flows through the Spring Voyage GitHub App, making the identity and access model a live part of the feedback loop.
 
 ## Where to go next
 
 - `docs/guide/operator/dogfooding-oss-unit.md` — step-by-step bring-up: prerequisites, CLI and wizard paths, post-create verification, and troubleshooting.
-- `docs/decisions/0034-oss-dogfooding-unit.md` — design rationale: why these four roles, the FROM-agent-base + claude-code image strategy, `hosting: permanent`, and the connector-binding-at-apply-time pattern.
+- `docs/decisions/0034-oss-dogfooding-unit.md` — design rationale: why these roles, the FROM-agent-base + claude-code image strategy, `hosting: permanent`, and the connector-binding-at-apply-time pattern.
 - `packages/spring-voyage-oss/README.md` — package internals: unit and agent YAML layout, connector declaration, and post-install steps.

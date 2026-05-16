@@ -253,9 +253,13 @@ public class FileSystemPackageCatalogService(
         var yaml = entry.RawYaml;
         if (string.IsNullOrWhiteSpace(yaml)) yield break;
 
+        // ADR-0043 §5g: register the inline-or-reference converter so unit
+        // YAMLs with inline member bodies deserialise cleanly. We only read
+        // `.Requires`, but YamlDotNet walks every key on the document.
         var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
             .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
             .WithTypeConverter(new RequirementEntryYamlConverter())
+            .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
             .IgnoreUnmatchedProperties()
             .Build();
 

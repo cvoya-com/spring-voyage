@@ -137,6 +137,54 @@ public class TemplateResolverTests
     }
 
     [Fact]
+    public async Task ResolveAsync_DisplayName_ScalarMerge_InstanceWinsAndTemplateFills()
+    {
+        // ADR-0043 §5d: `displayName:` is a scalar at the top level —
+        // instance wins when both declare it; template fills the gap when
+        // only the template declares it. This is the precedence the
+        // install pipeline relies on for template-stamped artefacts.
+        using var pkg = BuildPackage(
+            files: new[]
+            {
+                ("templates/engineer/package.yaml", """
+                    apiVersion: spring.voyage/v1
+                    kind: AgentTemplate
+                    name: engineer
+                    displayName: Engineer (template label)
+                    description: An engineering archetype.
+                    """),
+                // Instance declares its own displayName → wins.
+                ("agents/ada/package.yaml", """
+                    apiVersion: spring.voyage/v1
+                    kind: Agent
+                    name: ada
+                    displayName: Ada (engineer)
+                    description: x
+                    from: engineer
+                    """),
+                // Instance leaves displayName unset → template's value flows through.
+                ("agents/hopper/package.yaml", """
+                    apiVersion: spring.voyage/v1
+                    kind: Agent
+                    name: hopper
+                    description: x
+                    from: engineer
+                    """),
+            });
+
+        var resolved = await ParseAsync(pkg.Root);
+        var output = await new TemplateResolver().ResolveAsync(
+            resolved, pkg.Root, TestContext.Current.CancellationToken);
+
+        var ada = output.Agents.Single(a => a.Name == "ada");
+        ada.Content!.ShouldContain("displayName: Ada (engineer)");
+        ada.Content!.ShouldNotContain("Engineer (template label)");
+
+        var hopper = output.Agents.Single(a => a.Name == "hopper");
+        hopper.Content!.ShouldContain("Engineer (template label)");
+    }
+
+    [Fact]
     public async Task ResolveAsync_MapField_DeepMergesWithConsumerKeysWinning()
     {
         // ADR-0043 §5d: maps deep-merge. The template ships
@@ -610,6 +658,65 @@ public class TemplateResolverTests
         // Far-side archetype body flows through into the cloned child.
         engineerContent.ShouldContain("role: senior-engineer");
         engineerContent.ShouldContain("Far-side archetype instructions.");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_InlineFromMembers_TemplateBodyMergedIntoEachInstance()
+    {
+        // ADR-0043 §5g end-to-end: the unit declares three inline `from:`
+        // members. The parser synthesises three concrete agent peers; the
+        // resolver then stamps each one against the named template — the
+        // template's body fields fill the gaps; the inline `displayName:`
+        // wins per §5d scalar-merge.
+        using var pkg = BuildPackage(
+            files: new[]
+            {
+                ("templates/software-engineer/package.yaml", """
+                    apiVersion: spring.voyage/v1
+                    kind: AgentTemplate
+                    name: software-engineer
+                    description: shared engineer body.
+                    role: software-engineer
+                    instructions: |
+                        You are a software engineer.
+                    """),
+                ("units/engineering/package.yaml", """
+                    apiVersion: spring.voyage/v1
+                    kind: Unit
+                    name: engineering
+                    description: x
+                    members:
+                      - agent: { name: ada,    from: software-engineer, displayName: "Ada (engineer)" }
+                      - agent: { name: hopper, from: software-engineer, displayName: "Hopper (engineer)" }
+                    """),
+            });
+
+        var resolved = await ParseAsync(pkg.Root);
+        var output = await new TemplateResolver().ResolveAsync(
+            resolved, pkg.Root, TestContext.Current.CancellationToken);
+
+        // Two stamped agents — one per inline member — and the owning unit.
+        output.Units.Count(u => u.Name == "engineering").ShouldBe(1);
+        output.Agents.Count(a => a.Name == "ada").ShouldBe(1);
+        output.Agents.Count(a => a.Name == "hopper").ShouldBe(1);
+
+        // Each cloned instance carries:
+        //   • the inline `displayName:` (instance wins per §5d scalars);
+        //   • the template's `role:` and `instructions:` (template fills);
+        //   • `kind: Agent` (reserved key — consumer wins).
+        var ada = output.Agents.Single(a => a.Name == "ada");
+        ada.Content!.ShouldContain("displayName: Ada (engineer)");
+        ada.Content!.ShouldContain("role: software-engineer");
+        ada.Content!.ShouldContain("You are a software engineer.");
+        ada.Content!.ShouldContain("kind: Agent");
+        ada.Content!.ShouldNotContain("kind: AgentTemplate");
+
+        var hopper = output.Agents.Single(a => a.Name == "hopper");
+        hopper.Content!.ShouldContain("displayName: Hopper (engineer)");
+        // Both clones reach the resolver as nested children of the
+        // owning unit, not as top-level activatables.
+        ada.ContainingArtefactName.ShouldBe("engineering");
+        hopper.ContainingArtefactName.ShouldBe("engineering");
     }
 
     [Fact]

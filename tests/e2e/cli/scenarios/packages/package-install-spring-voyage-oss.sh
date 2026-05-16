@@ -1,34 +1,42 @@
 #!/usr/bin/env bash
 # pool: fast
-# Install the spring-voyage-oss package — the built-in dogfooding unit that
-# stands up the multi-role organisation developing the Spring Voyage
-# platform on itself. Asserts that the install completes (active state) and
-# that the four sub-units (engineering / design / product / program) plus
-# the parent organisation unit appear via the units list.
+# Install the spring-voyage-oss package — the built-in dogfooding unit
+# that stands up the OSS organisation developing the Spring Voyage
+# platform on itself. Asserts that the install completes (active state)
+# and that the two sub-units (software-engineering, program-management)
+# plus the umbrella organisation unit appear via the units list.
 #
-# This is the heaviest catalog package shipped today (5 units, 13 agents)
-# and a useful smoke test for the full install pipeline. Inputs are
-# required by the package manifest; we pass placeholder values that
-# satisfy validation without touching real GitHub state — the test does
-# NOT exercise the GitHub connector itself.
+# Inputs are required by the package manifest; we pass placeholder
+# values that satisfy validation without touching real GitHub state —
+# the test does NOT exercise the GitHub connector itself.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${HERE}/../../_lib.sh"
 
-# The OSS package's units have fixed display names declared in their
-# manifests (the slug-style sv-oss-* names were renamed to the human-
-# readable forms below). We clean them all up via the trap because the
-# package's parent unit cascades its sub-units on purge.
+# Friendly displayNames declared by the OSS package YAMLs via the
+# top-level `displayName:` manifest slot. The CLI's `unit list` table
+# column collapses to displayName-when-present (falling back to the
+# slug `name:`), so these are the strings the operator actually sees on
+# the API wire and at the table column.
+#
+# HAND-OFF (parallel restructure in flight): these strings mirror the
+# `displayName:` values declared in
+#   packages/spring-voyage-oss/units/<slug>/package.yaml
+# A separate restructure of the OSS package YAMLs is filling those in.
+# Keep this list and the YAMLs aligned: if the OSS package ships a
+# different friendly label, update both together. The platform install
+# pipeline carries each manifest's `displayName:` through to the unit's
+# persisted DisplayName when no per-target operator override is
+# supplied.
 parent_unit="Spring Voyage OSS"
 sub_units=(
     "Software Engineering"
-    "Design"
-    "Product Management"
     "Program Management"
 )
-# Slug used by the engineering sub-unit's members-list assertion below; the
-# CLI's CliResolver matches on display name when no Guid hit is found.
+# Friendly displayName used by the engineering sub-unit's members-list
+# assertion below; the CLI's CliResolver matches on display name when no
+# Guid hit is found.
 engineering_unit="Software Engineering"
 
 # Force-delete every unit whose displayName matches `target` (and the agents

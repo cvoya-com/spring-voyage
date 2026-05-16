@@ -29,6 +29,17 @@ public class UnitManifest
     [YamlMember(Alias = "name")]
     public string? Name { get; set; }
 
+    /// <summary>
+    /// Optional human-friendly label for the unit. When set, surfaces as
+    /// the unit's <c>DisplayName</c> on the persisted definition and in
+    /// every read API / CLI / portal projection; when null or whitespace,
+    /// the persistence layer falls back to <see cref="Name"/>. An
+    /// install-time operator override (<c>--display-name</c>) still wins
+    /// over both fields for the package's top-level activatable.
+    /// </summary>
+    [YamlMember(Alias = "displayName")]
+    public string? DisplayName { get; set; }
+
     /// <summary>Human-readable single-line description of the unit's purpose.</summary>
     [YamlMember(Alias = "description")]
     public string? Description { get; set; }
@@ -259,14 +270,16 @@ public class SkillReference
 
 /// <summary>
 /// A unit member reference. Identifies a peer artefact in the same manifest
-/// (a sibling agent or sub-unit) using one of two forms (#1629 PR7):
+/// (a sibling agent or sub-unit) using one of three forms (#1629 PR7,
+/// ADR-0043 §5g):
 /// <list type="bullet">
 ///   <item><description>
 ///     <b>Local symbol</b> — the value of <see cref="Agent"/> or
-///     <see cref="Unit"/> names a local symbol scoped to the manifest. The
-///     install-time activator maps the symbol to the freshly-minted Guid of
-///     the corresponding artefact. Path-style references
-///     (<c>scheme://path</c>) are rejected with an actionable error.
+///     <see cref="Unit"/> is a scalar naming a local symbol scoped to the
+///     manifest. The install-time activator maps the symbol to the
+///     freshly-minted Guid of the corresponding artefact. Path-style
+///     references (<c>scheme://path</c>) are rejected with an actionable
+///     error.
 ///   </description></item>
 ///   <item><description>
 ///     <b>Cross-package Guid</b> — a 32-char no-dash hex string (or any form
@@ -275,23 +288,58 @@ public class SkillReference
 ///     aren't unique, so resolving by name would silently bind to the wrong
 ///     target.
 ///   </description></item>
+///   <item><description>
+///     <b>Inline definition (ADR-0043 §5g)</b> — the value of
+///     <see cref="Agent"/> or <see cref="Unit"/> is a YAML mapping carrying a
+///     fresh artefact body. When the body declares <c>from:</c> the install
+///     pipeline stamps a fresh concrete child by cloning the named template
+///     (§5d merge rules) and the inline body's overrides — primarily
+///     <c>name:</c> and <c>displayName:</c> — flow through to the persisted
+///     child. The inline body's <c>name:</c> serves as the local symbol the
+///     unit references; identity is a fresh Guid minted at install time.
+///   </description></item>
 /// </list>
 /// </summary>
 public class MemberManifest
 {
     /// <summary>
-    /// Agent reference — either a local symbol (peer agent in the same
-    /// manifest) or a 32-char no-dash hex Guid (cross-package).
+    /// Agent reference — bare scalar (local symbol or cross-package Guid)
+    /// or inline body (ADR-0043 §5g) carrying a fresh agent definition.
     /// </summary>
     [YamlMember(Alias = "agent")]
-    public string? Agent { get; set; }
+    public InlineArtefactDefinition? Agent { get; set; }
 
     /// <summary>
-    /// Nested-unit reference — either a local symbol (peer unit in the same
-    /// manifest) or a 32-char no-dash hex Guid (cross-package).
+    /// Nested-unit reference — bare scalar (local symbol or cross-package
+    /// Guid) or inline body (ADR-0043 §5g) carrying a fresh sub-unit
+    /// definition.
     /// </summary>
     [YamlMember(Alias = "unit")]
-    public string? Unit { get; set; }
+    public InlineArtefactDefinition? Unit { get; set; }
+
+    /// <summary>
+    /// Returns the agent reference as a bare string when the member uses
+    /// the scalar form, or the inline body's <c>name:</c> when the member
+    /// uses the inline form. <c>null</c> when the <c>agent:</c> slot is
+    /// absent.
+    /// </summary>
+    [YamlIgnore]
+    public string? AgentName => ExtractName(Agent);
+
+    /// <summary>
+    /// Returns the unit reference as a bare string when the member uses the
+    /// scalar form, or the inline body's <c>name:</c> when the member uses
+    /// the inline form. <c>null</c> when the <c>unit:</c> slot is absent.
+    /// </summary>
+    [YamlIgnore]
+    public string? UnitName => ExtractName(Unit);
+
+    private static string? ExtractName(InlineArtefactDefinition? def)
+    {
+        if (def is null) return null;
+        if (def.Reference is not null) return def.Reference;
+        return def.InlineName;
+    }
 }
 
 /// <summary>

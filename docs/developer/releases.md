@@ -168,8 +168,6 @@ Container images are published to the GitHub Container Registry (`ghcr.io/cvoya-
 | `ghcr.io/cvoya-com/spring-voyage-agent-base` | `release.yml` | BYOI conformance path-1 base image; bundles the A2A sidecar bridge. |
 | `ghcr.io/cvoya-com/spring-voyage-agent` | `release.yml` | Dapr-native A2A agent (path-3). |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering` | `release.yml` | OSS software-engineering role agent. |
-| `ghcr.io/cvoya-com/spring-voyage-agent-oss-design` | `release.yml` | OSS design role agent. |
-| `ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management` | `release.yml` | OSS product-management role agent. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management` | `release.yml` | OSS program-management role agent. |
 
 ### Tag convention

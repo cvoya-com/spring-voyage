@@ -19,7 +19,11 @@ public static class AgentCommand
     private static readonly OutputFormatter.Column<AgentResponse>[] AgentListColumns =
     {
         new("id", a => GuidDisplay.Format(a.Id)),
-        new("name", a => a.Name),
+        // Prefer the manifest-declared / operator-supplied DisplayName so
+        // packages that ship a friendly label surface it; fall back to the
+        // slug `Name` when displayName was not declared. JSON output keeps
+        // both fields via the wire shape — only the table column collapses.
+        new("name", a => !string.IsNullOrWhiteSpace(a.DisplayName) ? a.DisplayName : a.Name),
         new("role", a => a.Role),
         new("enabled", a => a.Enabled?.ToString().ToLowerInvariant()),
         new("hosting", a => a.HostingMode),
@@ -29,7 +33,7 @@ public static class AgentCommand
     private static readonly OutputFormatter.Column<AgentResponse>[] AgentCreateColumns =
     {
         new("id", a => GuidDisplay.Format(a.Id)),
-        new("name", a => a.Name),
+        new("name", a => !string.IsNullOrWhiteSpace(a.DisplayName) ? a.DisplayName : a.Name),
         new("role", a => a.Role),
     };
 

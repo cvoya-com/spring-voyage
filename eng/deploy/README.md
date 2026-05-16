@@ -55,11 +55,9 @@ on top:
 | `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest`      | path 1 (bridge)  | Claude Code CLI baked in; ready to dispatch. |
 | `ghcr.io/cvoya-com/spring-voyage-agent:latest`             | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<semver>` | path 1 (bridge) | OSS dogfooding SE team — .NET SDK, gh CLI, Playwright + browsers. |
-| `ghcr.io/cvoya-com/spring-voyage-agent-oss-design:<semver>` | path 1 (bridge) | OSS dogfooding design team — Playwright Chromium, Mermaid CLI, ImageMagick. |
-| `ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:<semver>` | path 1 (bridge) | OSS dogfooding PM team — gh CLI, Mermaid CLI, markdownlint. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:<semver>` | path 1 (bridge) | OSS dogfooding PgM team — gh CLI, markdownlint. |
 
-The four `spring-voyage-agent-oss-*` images are the role-flavored agents that back the **Spring Voyage OSS** dogfooding template. See [`docs/guide/operator/dogfooding-oss-unit.md`](../../docs/guide/operator/dogfooding-oss-unit.md) for the bring-up flow and [`docs/concepts/spring-voyage-oss.md`](../../docs/concepts/spring-voyage-oss.md) for the conceptual overview.
+The two `spring-voyage-agent-oss-*` images are the role-flavored agents that back the **Spring Voyage OSS** dogfooding template. See [`docs/guide/operator/dogfooding-oss-unit.md`](../../docs/guide/operator/dogfooding-oss-unit.md) for the bring-up flow and [`docs/concepts/spring-voyage-oss.md`](../../docs/concepts/spring-voyage-oss.md) for the conceptual overview.
 
 Build them locally with:
 

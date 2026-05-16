@@ -11,20 +11,20 @@ using Cvoya.Spring.Core.Artefacts;
 /// ADR-0037 decision 5):
 /// <list type="bullet">
 ///   <item><description>
-///     <b>Bare name</b> — <c>sv-oss-design</c> — a local symbol scoped to
-///     the current package. Resolves to a sibling artefact file (units →
-///     <c>./units/sv-oss-design.yaml</c>, agents →
-///     <c>./agents/sv-oss-design.yaml</c>, skills →
-///     <c>./skills/sv-oss-design.md</c>, workflows →
-///     <c>./workflows/sv-oss-design/</c>) and is mapped to a fresh Guid at
-///     install time.
+///     <b>Bare name</b> — <c>sv-oss-program-management</c> — a local symbol
+///     scoped to the current package. Resolves to a sibling artefact file
+///     (units → <c>./units/sv-oss-program-management.yaml</c>, agents →
+///     <c>./agents/sv-oss-program-management.yaml</c>, skills →
+///     <c>./skills/sv-oss-program-management.md</c>, workflows →
+///     <c>./workflows/sv-oss-program-management/</c>) and is mapped to a
+///     fresh Guid at install time.
 ///   </description></item>
 ///   <item><description>
-///     <b>Qualified name</b> — <c>spring-voyage-oss/architect</c> — resolves
-///     cross-package via the catalog.
+///     <b>Qualified name</b> — <c>spring-voyage-oss/software-engineer</c> —
+///     resolves cross-package via the catalog.
 ///   </description></item>
 ///   <item><description>
-///     <b>Qualified + version</b> — <c>spring-voyage-oss/architect@1.0.0</c>
+///     <b>Qualified + version</b> — <c>spring-voyage-oss/software-engineer@1.0.0</c>
 ///     (ADR-0037 decision 5) — resolves cross-package to the named version
 ///     of the named package via the catalog. When <c>@&lt;version&gt;</c>
 ///     is omitted the catalog picks the most recently installed version

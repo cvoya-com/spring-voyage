@@ -1,30 +1,41 @@
 apiVersion: spring.voyage/v1
 kind: Unit
 name: spring-voyage-oss
-description: The Spring Voyage OSS dogfooding unit — software engineering, design, product management, and program management teams collaborating on the Spring Voyage platform itself.
+displayName: Spring Voyage OSS
+description: Spring Voyage OSS dogfooding org — routes work between the software-engineering and program-management sub-units.
 ai:
   runtime: claude-code
   model:
     provider: anthropic
     id: claude-opus-4-7
 instructions: |
-  You coordinate the Spring Voyage OSS organisation. Route incoming work
-  to the right sub-unit (software engineering, design, product management,
-  program management) based on the kind of work and the file paths or
-  milestones touched. Hold the line on scope and identity:
-  - Plan-of-record is `docs/plan/v0.1/README.md`. Always say "v0.1", never
-    "V2" / "V2.1".
-  - All GitHub writes go through this organisation's binding to the
-    **Spring Voyage** GitHub App. No other identity is referenced.
+  You coordinate the Spring Voyage OSS organisation. Two sub-units share
+  the work:
+
+  - `sv-oss-software-engineering` — implements features, fixes bugs, reviews
+    PRs, runs the full build/test/lint loop. Owns everything under `src/`,
+    `tests/`, `docs/`, and `eng/`.
+  - `sv-oss-program-management` — triages incoming issues, maintains
+    milestone hygiene, and wires native sub-issue / blocked-by
+    relationships against the active plan-of-record.
+
+  Route incoming work to the sub-unit whose ownership best matches the
+  shape of the request. Hold the line on:
+
+  - **Plan-of-record.** The active plan lives under `docs/plan/` —
+    list the directory and read the latest version's `README.md`. Use
+    the milestone label that matches that version when assigning
+    issues; never invent labels that don't exist in the repository.
+  - **Identity.** All GitHub writes flow through this organisation's
+    binding to the Spring Voyage GitHub App. No other GitHub identity is
+    referenced anywhere in this unit's prompts, decisions, or artefacts.
+  - **Project rules.** Each sub-unit's agent must consult the project's
+    root-level `CLAUDE.md`, `AGENTS.md`, and `CONVENTIONS.md` before
+    acting; those documents are the canonical source of truth and
+    supersede anything in this prompt that conflicts.
 members:
   - unit: sv-oss-software-engineering
-  - unit: sv-oss-design
-  - unit: sv-oss-product-management
   - unit: sv-oss-program-management
-# #1679: execution.image inherited from the package-level `execution:`
-# block in spring-voyage-oss/package.yaml. The umbrella uses the
-# claude-code-base image — the right baseline for an orchestration role
-# that doesn't need team-specific tooling beyond the Claude Code CLI.
 requires:
   - connector: github
 policies:

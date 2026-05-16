@@ -1,5 +1,7 @@
 # Hello World Package
 
+> **Tier 1 of 7.** The simplest in-repo catalog package — one unit, one agent, no connector. Pair with [`example-simple`](../example-simple/) to see how the recursive folder layout grows when you add agent-scoped skills.
+
 A minimal connector-free catalog package. Ships one unit (`hello-world`) and one agent (`greeter`) wired up with no `requires:` block on either side, so `spring package install hello-world` succeeds without a `--connector` flag.
 
 ## What this package ships

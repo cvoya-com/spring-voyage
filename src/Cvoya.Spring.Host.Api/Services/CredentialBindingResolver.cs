@@ -177,8 +177,13 @@ public static class CredentialBindingResolver
         // skipped here.
         try
         {
+            // ADR-0043 §5g: register the inline-or-reference converter so
+            // unit YAMLs whose `members:` list mixes scalar and inline
+            // mapping forms still deserialise cleanly. The caller only
+            // reads `.Ai`, but YamlDotNet walks every key on the document.
             var deserializer = new DeserializerBuilder()
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
                 .IgnoreUnmatchedProperties()
                 .Build();
             var manifest = deserializer.Deserialize<UnitManifest>(unit.Content);

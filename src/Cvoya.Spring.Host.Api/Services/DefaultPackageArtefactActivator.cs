@@ -248,17 +248,31 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
 
         foreach (var member in members)
         {
-            if (!string.IsNullOrWhiteSpace(member.Unit))
+            // ADR-0043 §5g: inline bodies in the original YAML have already
+            // been synthesised into peer artefacts by PackageManifestParser,
+            // so by this point an inline member's `.Agent` / `.Unit` slot
+            // collapses through `AgentName` / `UnitName` to the body's
+            // `name:` field — exactly the local symbol the symbol map keys
+            // off. Rewriting the slot back to a bare scalar reference keeps
+            // the downstream unit-creation service's symbol → Guid fork
+            // simple.
+            var unitName = member.UnitName;
+            if (!string.IsNullOrWhiteSpace(unitName))
             {
                 // Unit-typed members are the heart of #1664. An unresolvable
                 // unit reference would mint a phantom Guid that has no
                 // corresponding unit_definitions row — the failure mode is
                 // a "stranded" sub-unit hierarchy in the Explorer tree.
                 // Fail loudly here so the operator hears about it.
-                (member.Unit, directoryEntries) = await ResolveUnitReferenceAsync(
-                    member.Unit!, symbolMap, directoryEntries, ct);
+                string resolved;
+                (resolved, directoryEntries) = await ResolveUnitReferenceAsync(
+                    unitName!, symbolMap, directoryEntries, ct);
+                member.Unit = InlineArtefactDefinition.FromReference(resolved);
+                continue;
             }
-            else if (!string.IsNullOrWhiteSpace(member.Agent))
+
+            var agentName = member.AgentName;
+            if (!string.IsNullOrWhiteSpace(agentName))
             {
                 // Agent-typed members keep the historic auto-register fall-
                 // back: when the agent isn't a batch peer or a pre-existing
@@ -269,8 +283,10 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
                 // YAMLs rather than at package level) relied on exactly
                 // this fallback, so tightening it here would be a separate,
                 // larger refactor.
-                (member.Agent, directoryEntries) = await ResolveAgentReferenceAsync(
-                    member.Agent!, symbolMap, directoryEntries, ct);
+                string resolved;
+                (resolved, directoryEntries) = await ResolveAgentReferenceAsync(
+                    agentName!, symbolMap, directoryEntries, ct);
+                member.Agent = InlineArtefactDefinition.FromReference(resolved);
             }
             // Members with neither field set fall through to the creation
             // service, which surfaces the same "no 'agent' or 'unit' field"
@@ -598,7 +614,19 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         }
 
         var id = ScalarValue(agentNode, "id");
-        var displayName = ScalarValue(agentNode, "name");
+        // ADR-0043 §5d: `displayName:` is the declarative human-readable
+        // label; it sits at the top level alongside `name:` (the slug /
+        // address path). Honour it when present so packages that ship
+        // friendly labels for nested agents land with the right
+        // DisplayName on the directory entry. The historical fallback
+        // (use `name:` as the display label) stays in place via the
+        // coalesce below so YAMLs that omit `displayName:` keep their
+        // pre-change behaviour byte-for-byte.
+        var declaredDisplayName = ScalarValue(agentNode, "displayName");
+        var declaredName = ScalarValue(agentNode, "name");
+        var displayName = !string.IsNullOrWhiteSpace(declaredDisplayName)
+            ? declaredDisplayName
+            : declaredName;
         var role = ScalarValue(agentNode, "role");
         var description = ScalarValue(agentNode, "description");
 

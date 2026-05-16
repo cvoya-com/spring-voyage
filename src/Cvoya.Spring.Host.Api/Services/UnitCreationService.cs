@@ -188,9 +188,19 @@ public class UnitCreationService : IUnitCreationService
         var name = !string.IsNullOrWhiteSpace(overrides.Name)
             ? overrides.Name!.Trim()
             : manifest.Name!;
+        // Display-name precedence (single-source-of-truth for both top-level
+        // and nested artefacts):
+        //   1. Operator's per-target override (only flowed for the package's
+        //      single top-level activatable from PackageInstallService).
+        //   2. Manifest's `displayName:` field (declarative slot; null when
+        //      the YAML omits it).
+        //   3. Canonical `name:` field — preserves pre-displayName behaviour
+        //      when neither (1) nor (2) is set.
         var displayName = !string.IsNullOrWhiteSpace(overrides.DisplayName)
             ? overrides.DisplayName!
-            : name;
+            : (!string.IsNullOrWhiteSpace(manifest.DisplayName)
+                ? manifest.DisplayName!
+                : name);
         var description = manifest.Description ?? string.Empty;
         // ADR-0038: ai.model is structured {provider, id}; the Model
         // hint surfaced on the unit row is the provider-scoped id.
@@ -1286,13 +1296,22 @@ public class UnitCreationService : IUnitCreationService
 
     private static (string Scheme, string Path)? ResolveMemberAddress(MemberManifest member)
     {
-        if (!string.IsNullOrWhiteSpace(member.Agent))
+        // ADR-0043 §5g: inline-body members are expanded into synthesised
+        // peer artefacts by PackageManifestParser before the activator
+        // rewrites references. By the time this service sees the member,
+        // both forms have collapsed to a name — the inline body's `name:`
+        // when the member was authored inline, or the bare scalar value
+        // when authored as a reference. Reading through AgentName / UnitName
+        // keeps this single resolution point honest.
+        var agentName = member.AgentName;
+        if (!string.IsNullOrWhiteSpace(agentName))
         {
-            return ("agent", member.Agent!);
+            return ("agent", agentName!);
         }
-        if (!string.IsNullOrWhiteSpace(member.Unit))
+        var unitName = member.UnitName;
+        if (!string.IsNullOrWhiteSpace(unitName))
         {
-            return ("unit", member.Unit!);
+            return ("unit", unitName!);
         }
         return null;
     }

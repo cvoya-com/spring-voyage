@@ -40,6 +40,15 @@ public class UnitTemplateManifest
     [YamlMember(Alias = "name")]
     public string? Name { get; set; }
 
+    /// <summary>
+    /// Optional human-friendly label inherited by every instance cloned
+    /// from this template (ADR-0043 §5d scalar-merge rule — the instance's
+    /// own <c>displayName:</c> still wins). When null, instances fall back
+    /// to their own <see cref="Name"/>.
+    /// </summary>
+    [YamlMember(Alias = "displayName")]
+    public string? DisplayName { get; set; }
+
     /// <summary>Human-readable single-line description of the template.</summary>
     [YamlMember(Alias = "description")]
     public string? Description { get; set; }

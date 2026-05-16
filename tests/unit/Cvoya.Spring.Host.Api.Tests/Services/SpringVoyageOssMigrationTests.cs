@@ -16,11 +16,11 @@ using Xunit;
 /// <summary>
 /// Regression test for the <c>packages/spring-voyage-oss/</c> migration
 /// to package-level <see cref="PackageManifest.Execution"/> inheritance
-/// (#1679). Verifies the resolved per-unit execution defaults stay
-/// stable after the migration: every member unit's image resolves to the
-/// same value the pre-migration manifest produced, the umbrella unit
-/// inherits the package-level image, and the four sub-units still carry
-/// their team-specific image overrides.
+/// (#1679). Verifies the resolved per-unit execution defaults: the
+/// umbrella unit inherits the package-level image and the two
+/// sub-units (<c>sv-oss-software-engineering</c>,
+/// <c>sv-oss-program-management</c>) carry their own team-specific
+/// image overrides.
 /// </summary>
 public class SpringVoyageOssMigrationTests
 {
@@ -48,10 +48,6 @@ public class SpringVoyageOssMigrationTests
         // Each sub-unit keeps its own team-specific image.
         execution.ByUnit["sv-oss-software-engineering"].Image
             .ShouldBe("ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest");
-        execution.ByUnit["sv-oss-design"].Image
-            .ShouldBe("ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest");
-        execution.ByUnit["sv-oss-product-management"].Image
-            .ShouldBe("ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:latest");
         execution.ByUnit["sv-oss-program-management"].Image
             .ShouldBe("ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest");
     }

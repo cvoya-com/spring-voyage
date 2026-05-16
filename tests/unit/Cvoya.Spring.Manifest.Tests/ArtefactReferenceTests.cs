@@ -16,8 +16,8 @@ using Xunit;
 public class ArtefactReferenceTests
 {
     [Theory]
-    [InlineData("sv-oss-design", ArtefactKind.Unit, null, "sv-oss-design", false)]
-    [InlineData("architect", ArtefactKind.Agent, null, "architect", false)]
+    [InlineData("sv-oss-program-management", ArtefactKind.Unit, null, "sv-oss-program-management", false)]
+    [InlineData("software-engineer", ArtefactKind.Agent, null, "software-engineer", false)]
     [InlineData("code-review", ArtefactKind.Skill, null, "code-review", false)]
     [InlineData("ci-workflow", ArtefactKind.Workflow, null, "ci-workflow", false)]
     public void Parse_BareReference_IsWithinPackage(
@@ -33,7 +33,7 @@ public class ArtefactReferenceTests
     }
 
     [Theory]
-    [InlineData("spring-voyage-oss/architect", ArtefactKind.Agent, "spring-voyage-oss", "architect", true)]
+    [InlineData("spring-voyage-oss/software-engineer", ArtefactKind.Agent, "spring-voyage-oss", "software-engineer", true)]
     [InlineData("research/triage", ArtefactKind.Unit, "research", "triage", true)]
     [InlineData("other-pkg/code-review", ArtefactKind.Skill, "other-pkg", "code-review", true)]
     [InlineData("analytics/ci-workflow", ArtefactKind.Workflow, "analytics", "ci-workflow", true)]
