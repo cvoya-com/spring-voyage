@@ -48,9 +48,11 @@ public class ArtefactValidationWorkflowTests
             .Returns(true);
     }
 
-    private static ArtefactValidationWorkflowInput Input(string model = "gpt-4o") =>
-        new(Kind: ArtefactKind.Unit, ArtefactId: "unit-1",
-            ArtefactName: "unit-1",
+    private static ArtefactValidationWorkflowInput Input(
+        string model = "gpt-4o",
+        ArtefactKind kind = ArtefactKind.Unit) =>
+        new(Kind: kind, ArtefactId: kind == ArtefactKind.Agent ? "agent-1" : "unit-1",
+            ArtefactName: kind == ArtefactKind.Agent ? "agent-1" : "unit-1",
             Image: "ghcr.io/cvoya/test:1",
             RuntimeId: "test-runtime",
             Credential: "sk-test",
@@ -251,6 +253,64 @@ public class ArtefactValidationWorkflowTests
             e.Step == ArtefactValidationStep.VerifyingTool &&
             e.Status == "Failed" &&
             e.Code == ArtefactValidationCodes.ToolMissing);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // #2373: Kind=Agent variants. The workflow body itself is kind-agnostic
+    // (the same probe sequence runs for both kinds); the per-kind routing
+    // happens in CompleteArtefactValidationActivity (which is exercised by
+    // its own tests). These tests pin that the Kind flag is preserved on
+    // the inputs of the activity calls, so the routing is reachable.
+    // ──────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RunAsync_Agent_AllStepsPass_ReturnsSuccess()
+    {
+        SetupPullImage(success: true);
+        SetupProbeStep(ArtefactValidationStep.VerifyingTool, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.ValidatingCredential, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.ResolvingModel, Succeeded());
+
+        var result = await _workflow.RunAsync(_context, Input(kind: ArtefactKind.Agent));
+
+        result.Success.ShouldBeTrue();
+        result.Failure.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RunAsync_Agent_PreservesKindOnEmittedProgressEvents()
+    {
+        // Every EmitValidationProgressActivity call must carry Kind=Agent
+        // so the portal's SSE filter (which keys on the event's address
+        // scheme — `agent` vs `unit`) routes the event to the right
+        // detail page.
+        SetupPullImage(success: true);
+        SetupProbeStep(ArtefactValidationStep.VerifyingTool, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.ValidatingCredential, Succeeded());
+        SetupProbeStep(ArtefactValidationStep.ResolvingModel, Succeeded());
+
+        await _workflow.RunAsync(_context, Input(kind: ArtefactKind.Agent));
+
+        _emitted.ShouldNotBeEmpty();
+        _emitted.ShouldAllBe(e => e.Kind == ArtefactKind.Agent);
+    }
+
+    [Fact]
+    public async Task RunAsync_Agent_PullFails_ReturnsImagePullFailed()
+    {
+        SetupPullImage(
+            success: false,
+            failure: new ArtefactValidationError(
+                ArtefactValidationStep.PullingImage,
+                ArtefactValidationCodes.ImagePullFailed,
+                "registry denied",
+                Details: null));
+
+        var result = await _workflow.RunAsync(_context, Input(kind: ArtefactKind.Agent));
+
+        result.Success.ShouldBeFalse();
+        result.Failure.ShouldNotBeNull();
+        result.Failure!.Code.ShouldBe(ArtefactValidationCodes.ImagePullFailed);
     }
 
     [Fact]
