@@ -41,17 +41,6 @@ public interface IAgentLiveConfigStore
     Task<IReadOnlyList<string>> UpsertMetadataAsync(
         Guid agentId, AgentMetadata metadata, CancellationToken cancellationToken = default);
 
-    /// <summary>Returns the configured skill list, sorted by skill name.</summary>
-    Task<string[]> GetSkillsAsync(Guid agentId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Replaces the configured skill list in full. Returns the
-    /// normalised list that was actually persisted so the caller can
-    /// emit it on the activity event.
-    /// </summary>
-    Task<string[]> SetSkillsAsync(
-        Guid agentId, IReadOnlyList<string> skills, CancellationToken cancellationToken = default);
-
     /// <summary>Returns the configured expertise list, sorted by domain name.</summary>
     Task<ExpertiseDomain[]> GetExpertiseAsync(Guid agentId, CancellationToken cancellationToken = default);
 

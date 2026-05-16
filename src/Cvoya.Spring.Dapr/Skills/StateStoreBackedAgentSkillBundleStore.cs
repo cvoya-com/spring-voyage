@@ -9,20 +9,19 @@ using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.State;
 
 /// <summary>
-/// OSS default <see cref="IUnitSkillBundleStore"/>. Persists the unit's
+/// OSS default <see cref="IAgentSkillBundleStore"/>. Persists the agent's
 /// equipped bundle list as a single JSON document under a deterministic
 /// key in the shared <see cref="IStateStore"/>. The bundle prompts feed
-/// Layer 2 (unit context) of the assembled prompt — member agents
-/// inherit them through the same Layer 2 path so the unit's equipped
-/// skills are visible everywhere the unit dispatches.
+/// Layer 4 (agent instructions) of the assembled prompt — distinct from
+/// the unit-scoped store which feeds Layer 2.
 /// </summary>
-public sealed class StateStoreBackedUnitSkillBundleStore
-    : StateStoreBackedSkillBundleStoreBase, IUnitSkillBundleStore
+public sealed class StateStoreBackedAgentSkillBundleStore
+    : StateStoreBackedSkillBundleStoreBase, IAgentSkillBundleStore
 {
     /// <summary>
-    /// Creates a new <see cref="StateStoreBackedUnitSkillBundleStore"/>.
+    /// Creates a new <see cref="StateStoreBackedAgentSkillBundleStore"/>.
     /// </summary>
-    public StateStoreBackedUnitSkillBundleStore(
+    public StateStoreBackedAgentSkillBundleStore(
         IStateStore stateStore,
         ISkillBundleResolver resolver)
         : base(stateStore, resolver)
@@ -30,37 +29,37 @@ public sealed class StateStoreBackedUnitSkillBundleStore
     }
 
     /// <inheritdoc />
-    protected override string KeyPrefix => "Unit:SkillBundles:";
+    protected override string KeyPrefix => "Agent:SkillBundles:";
 
     /// <inheritdoc />
     public Task<IReadOnlyList<SkillBundle>> GetAsync(
-        string unitId,
+        string agentId,
         CancellationToken cancellationToken = default) =>
-        GetCoreAsync(unitId, cancellationToken);
+        GetCoreAsync(agentId, cancellationToken);
 
     /// <inheritdoc />
     public Task<IReadOnlyList<SkillBundle>> SetAsync(
-        string unitId,
+        string agentId,
         IReadOnlyList<SkillBundleReference> references,
         CancellationToken cancellationToken = default) =>
-        SetCoreAsync(unitId, references, cancellationToken);
+        SetCoreAsync(agentId, references, cancellationToken);
 
     /// <inheritdoc />
     public Task<IReadOnlyList<SkillBundle>> AddAsync(
-        string unitId,
+        string agentId,
         SkillBundleReference reference,
         CancellationToken cancellationToken = default) =>
-        AddCoreAsync(unitId, reference, cancellationToken);
+        AddCoreAsync(agentId, reference, cancellationToken);
 
     /// <inheritdoc />
     public Task<IReadOnlyList<SkillBundle>> RemoveAsync(
-        string unitId,
+        string agentId,
         string packageName,
         string skillName,
         CancellationToken cancellationToken = default) =>
-        RemoveCoreAsync(unitId, packageName, skillName, cancellationToken);
+        RemoveCoreAsync(agentId, packageName, skillName, cancellationToken);
 
     /// <inheritdoc />
-    public Task DeleteAsync(string unitId, CancellationToken cancellationToken = default) =>
-        DeleteCoreAsync(unitId, cancellationToken);
+    public Task DeleteAsync(string agentId, CancellationToken cancellationToken = default) =>
+        DeleteCoreAsync(agentId, cancellationToken);
 }

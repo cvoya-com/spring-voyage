@@ -110,6 +110,7 @@ internal static class ServiceCollectionExtensionsOrchestration
         // Prompt
         services.AddSingleton<UnitContextBuilder>();
         services.AddSingleton<ThreadContextBuilder>();
+        services.AddSingleton<AgentInstructionsBuilder>();
 
         return services;
     }

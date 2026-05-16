@@ -27,14 +27,23 @@ using Cvoya.Spring.Core.Skills;
 /// rather than re-reading the agent's global state.
 /// </param>
 /// <param name="SkillBundles">
-/// Optional ordered list of package-level skill bundles resolved from the
-/// unit manifest (see #167). Each bundle contributes a prompt fragment and a
-/// list of required tools. Prompts are concatenated in declaration order and
-/// rendered as a sub-section of Layer 2 (unit context) so the ordering is:
-/// platform → unit context (including bundle prompts) → conversation →
-/// agent instructions. The surrounding layer order matches the existing
-/// four-layer assembly; bundle prompts are additive and never interleave
-/// with agent-specific instructions.
+/// Optional ordered list of package-level skill bundles equipped on the
+/// **unit** (see #167 / #2360). Each bundle contributes a prompt fragment
+/// and a list of required tools. Prompts are concatenated in declaration
+/// order and rendered as a sub-section of Layer 2 (unit context) so the
+/// ordering is: platform → unit context (including unit bundle prompts)
+/// → conversation → agent instructions. The surrounding layer order
+/// matches the existing four-layer assembly; bundle prompts are additive
+/// and never interleave with agent-specific instructions.
+/// </param>
+/// <param name="AgentSkillBundles">
+/// Optional ordered list of package-level skill bundles equipped directly
+/// on the **agent** subject (see #2360). Rendered as a sub-section of
+/// Layer 4 (agent instructions) so the agent's own equipped skills
+/// extend its role-specific guidance without conflating with the unit-
+/// scoped <see cref="SkillBundles"/> rendered in Layer 2. Member agents
+/// see both: the unit's bundles via Layer 2 and their own via Layer 4,
+/// with no explicit inheritance table needed.
 /// </param>
 /// <param name="PendingAmendments">
 /// Optional list of pending amendments queued for this agent.
@@ -69,5 +78,6 @@ public record PromptAssemblyContext(
     string? AgentInstructions,
     AgentMetadata? EffectiveMetadata = null,
     IReadOnlyList<SkillBundle>? SkillBundles = null,
+    IReadOnlyList<SkillBundle>? AgentSkillBundles = null,
     IReadOnlyList<PendingAmendment>? PendingAmendments = null,
     IReadOnlyDictionary<Address, string>? PriorMessageSenderDisplayNames = null);

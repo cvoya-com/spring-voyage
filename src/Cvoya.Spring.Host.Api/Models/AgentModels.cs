@@ -215,19 +215,58 @@ public record AgentDetailResponse(
 public record SkillCatalogEntry(string Name, string Description, string Registry);
 
 /// <summary>
-/// Response body for <c>GET /api/v1/agents/{id}/skills</c>. Returns the
-/// agent's configured skill list verbatim; an empty list is meaningful
-/// (agent is explicitly disabled from every tool) and distinct from a
-/// 404 (agent does not exist).
+/// A single entry in the equipped-skills surface returned by
+/// <c>GET /api/v1/tenant/{units|agents}/{id}/skills</c> (#2360). Carries
+/// the canonical package + skill coordinates, a short prompt summary
+/// suitable for UI listings, and the bundle's required-tool list so
+/// callers can render the operator's effective tool surface without a
+/// second round-trip.
 /// </summary>
-public record AgentSkillsResponse(IReadOnlyList<string> Skills);
+/// <param name="PackageName">Package the skill was resolved from (e.g. <c>spring-voyage/software-engineering</c>).</param>
+/// <param name="SkillName">Skill identifier within the package.</param>
+/// <param name="PromptSummary">
+/// Short excerpt of the resolved prompt body — the first line (or the
+/// first 200 characters, whichever comes first) — suitable for table
+/// rows in operator UIs. Callers that need the full prompt can read it
+/// from the package contents directly.
+/// </param>
+/// <param name="RequiredTools">
+/// Tool requirements declared by the bundle. Empty when the bundle is
+/// prompt-only. The shape matches what the bundle declared at install
+/// time; runtime tool-availability is a separate concern surfaced
+/// through the tool-grant resolver.
+/// </param>
+public record EquippedSkillEntry(
+    string PackageName,
+    string SkillName,
+    string PromptSummary,
+    IReadOnlyList<EquippedSkillToolRequirement> RequiredTools);
 
 /// <summary>
-/// Request body for <c>PUT /api/v1/agents/{id}/skills</c>. Full replacement
-/// of the agent's skill list — pass the new complete list. An empty list
-/// clears the configuration; it is not treated as "leave alone."
+/// Tool requirement declared by a skill bundle. Flat wire shape; the
+/// JSON-schema field is omitted from this listing surface — callers
+/// that need the full schema fetch the bundle directly.
 /// </summary>
-public record SetAgentSkillsRequest(IReadOnlyList<string> Skills);
+public record EquippedSkillToolRequirement(
+    string Name,
+    string Description,
+    bool Optional);
+
+/// <summary>
+/// Response body for <c>GET /api/v1/tenant/{units|agents}/{id}/skills</c>
+/// (#2360). The list reflects declaration order — the first entry
+/// renders first in the assembled prompt.
+/// </summary>
+public record EquippedSkillsResponse(IReadOnlyList<EquippedSkillEntry> Skills);
+
+/// <summary>
+/// Request body for <c>POST /api/v1/tenant/{units|agents}/{id}/skills</c>
+/// (#2360). Equips a single bundle. Idempotent on
+/// <c>(packageName, skillName)</c> — re-posting an already-equipped pair
+/// refreshes the persisted prompt + required-tools snapshot without
+/// reordering.
+/// </summary>
+public record EquipSkillRequest(string PackageName, string SkillName);
 
 /// <summary>
 /// Response body for <c>GET /api/v1/tenant/agents/{id}/runtime-status</c>

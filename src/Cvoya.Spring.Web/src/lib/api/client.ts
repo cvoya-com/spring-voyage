@@ -281,19 +281,11 @@ export const api = {
         body: patch,
       }),
     ),
-  getAgentSkills: async (id: string) =>
-    unwrap(
-      await fetchClient.GET("/api/v1/tenant/agents/{id}/skills", {
-        params: { path: { id } },
-      }),
-    ),
-  setAgentSkills: async (id: string, skills: string[]) =>
-    unwrap(
-      await fetchClient.PUT("/api/v1/tenant/agents/{id}/skills", {
-        params: { path: { id } },
-        body: { skills },
-      }),
-    ),
+  // #2360 retired the legacy string-array `Skills` surface on
+  // /api/v1/tenant/agents/{id}/skills (it was the older MCP-tool grant
+  // surface). The new equipped-skill-bundle endpoints under the same
+  // path use a different shape and are wired through the Portal's
+  // Skills sub-tab (#2362).
   deleteAgent: async (id: string): Promise<void> => {
     assertOk(
       await fetchClient.DELETE("/api/v1/tenant/agents/{id}", {
@@ -514,19 +506,11 @@ export const api = {
         params: { path: { id } },
       }),
     ),
-  getUnitSkills: async (id: string) =>
-    unwrap(
-      await fetchClient.GET("/api/v1/tenant/units/{id}/skills", {
-        params: { path: { id } },
-      }),
-    ),
-  setUnitSkills: async (id: string, skills: string[]) =>
-    unwrap(
-      await fetchClient.PUT("/api/v1/tenant/units/{id}/skills", {
-        params: { path: { id } },
-        body: { skills },
-      }),
-    ),
+  // #2360 retired the legacy string-array `Skills` surface on
+  // /api/v1/tenant/units/{id}/skills (it was the older MCP-tool grant
+  // surface). The new equipped-skill-bundle endpoints under the same
+  // path use a different shape and are wired through the Portal's
+  // Skills sub-tab (#2362).
   getUnitBudget: async (unitId: string) =>
     unwrap(
       await fetchClient.GET("/api/v1/tenant/units/{unitId}/budget", {

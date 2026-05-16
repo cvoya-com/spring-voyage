@@ -96,19 +96,33 @@ public static class UnitEndpoints
             .Produces<UnitDeploymentResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapGet("/{id}/skills", GetUnitSkillsAsync)
+        // #2360: equipped skill bundles on a unit. The pre-#2360 `/skills`
+        // surface returned a flat string[] of tool names (legacy MCP-tool
+        // grant shape from the Tools wave); it was superseded by the
+        // proper Tools surface under Config → Tools. The new shape under
+        // this route is operator-equip of skill bundles, which feeds
+        // Layer 2 of the assembled prompt for the unit and is inherited
+        // by member-agent dispatches as part of that layer.
+        group.MapGet("/{id}/skills", GetEquippedSkillsAsync)
             .WithName("GetUnitSkills")
-            .WithSummary("Get the equipped skills for a unit")
-            .WithDescription("A unit is an agent (ADR-0039); its skills are stored by the same agent-live-config store used for leaf agents.")
-            .Produces<AgentSkillsResponse>(StatusCodes.Status200OK)
+            .WithSummary("List the skill bundles equipped on a unit")
+            .WithDescription("Returns the resolved bundles in declaration order. Each entry carries the package + skill coordinates, a prompt-body summary, and the bundle's required-tool list.")
+            .Produces<EquippedSkillsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPut("/{id}/skills", SetUnitSkillsAsync)
-            .WithName("SetUnitSkills")
-            .WithSummary("Replace the equipped skills for a unit")
-            .WithDescription("Full replacement — pass the complete desired skill list. Use [] to clear.")
-            .Produces<AgentSkillsResponse>(StatusCodes.Status200OK)
+        group.MapPost("/{id}/skills", EquipUnitSkillAsync)
+            .WithName("EquipUnitSkill")
+            .WithSummary("Equip a skill bundle on a unit")
+            .WithDescription("Idempotent on (packageName, skillName). The store re-resolves the bundle so the persisted record carries the freshest prompt + required-tools snapshot. Returns the new effective list in declaration order.")
+            .Produces<EquippedSkillsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapDelete("/{id}/skills/{packageName}/{skillName}", UnequipUnitSkillAsync)
+            .WithName("UnequipUnitSkill")
+            .WithSummary("Unequip a skill bundle from a unit")
+            .WithDescription("No-op when the bundle is not currently equipped. Returns the new effective list.")
+            .Produces<EquippedSkillsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/{id}/start", StartUnitAsync)
@@ -2394,19 +2408,18 @@ public static class UnitEndpoints
     }
 
     // -------------------------------------------------------------------------
-    // Unit skills (#2276). A unit is an agent (ADR-0039); its skills are
-    // stored in the same agent-live-config store as leaf agents, keyed by
-    // the unit's actor id. The coordinator is called directly here because
-    // IUnitActor does not expose GetSkillsAsync / SetSkillsAsync (the
-    // IAgentActor methods are on a separate interface). The emitActivity
-    // delegate is a no-op since the activity event fires from the actor
-    // during actor-invocation paths; the endpoint read/write goes direct.
+    // Equipped skill bundles on a unit (#2360). The unit store feeds Layer 2
+    // of the assembled prompt; member agents inherit the unit's bundles via
+    // that layer in addition to their own Layer-4 bundles from the agent
+    // store (see AgentEndpoints). The pre-#2360 string-array `Skill` surface
+    // (legacy MCP-tool grant shape) was retired in this PR alongside the
+    // dead IAgentStateCoordinator.{Get,Set}SkillsAsync chain.
     // -------------------------------------------------------------------------
 
-    private static async Task<IResult> GetUnitSkillsAsync(
+    private static async Task<IResult> GetEquippedSkillsAsync(
         string id,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] IAgentStateCoordinator agentStateCoordinator,
+        [FromServices] IUnitSkillBundleStore bundleStore,
         CancellationToken cancellationToken)
     {
         var address = Address.For("unit", id);
@@ -2419,21 +2432,23 @@ public static class UnitEndpoints
         }
 
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
-        var skills = await agentStateCoordinator.GetSkillsAsync(actorId, cancellationToken);
-        return Results.Ok(new AgentSkillsResponse(skills));
+        var bundles = await bundleStore.GetAsync(actorId, cancellationToken);
+        return Results.Ok(new EquippedSkillsResponse(EquippedSkillsProjection.From(bundles)));
     }
 
-    private static async Task<IResult> SetUnitSkillsAsync(
+    private static async Task<IResult> EquipUnitSkillAsync(
         string id,
-        SetAgentSkillsRequest request,
+        EquipSkillRequest request,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] IAgentStateCoordinator agentStateCoordinator,
+        [FromServices] IUnitSkillBundleStore bundleStore,
         CancellationToken cancellationToken)
     {
-        if (request.Skills is null)
+        if (request is null
+            || string.IsNullOrWhiteSpace(request.PackageName)
+            || string.IsNullOrWhiteSpace(request.SkillName))
         {
             return Results.Problem(
-                detail: "Skills list is required (use [] to clear).",
+                detail: "Both 'packageName' and 'skillName' are required.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
@@ -2447,13 +2462,43 @@ public static class UnitEndpoints
         }
 
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
-        await agentStateCoordinator.SetSkillsAsync(
-            actorId,
-            request.Skills.ToArray(),
-            (_, _) => Task.CompletedTask,
-            cancellationToken);
+        try
+        {
+            var updated = await bundleStore.AddAsync(
+                actorId,
+                new SkillBundleReference(request.PackageName, request.SkillName),
+                cancellationToken);
+            return Results.Ok(new EquippedSkillsResponse(EquippedSkillsProjection.From(updated)));
+        }
+        catch (SkillBundlePackageNotFoundException ex)
+        {
+            return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (SkillBundleNotFoundException ex)
+        {
+            return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
 
-        var updated = await agentStateCoordinator.GetSkillsAsync(actorId, cancellationToken);
-        return Results.Ok(new AgentSkillsResponse(updated));
+    private static async Task<IResult> UnequipUnitSkillAsync(
+        string id,
+        string packageName,
+        string skillName,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IUnitSkillBundleStore bundleStore,
+        CancellationToken cancellationToken)
+    {
+        var address = Address.For("unit", id);
+        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        var updated = await bundleStore.RemoveAsync(actorId, packageName, skillName, cancellationToken);
+        return Results.Ok(new EquippedSkillsResponse(EquippedSkillsProjection.From(updated)));
     }
 }

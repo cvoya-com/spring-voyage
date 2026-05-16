@@ -130,74 +130,6 @@ public class AgentLiveConfigRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task GetSkillsAsync_NoGrants_ReturnsEmpty()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var skills = await _repository.GetSkillsAsync(Agent1, ct);
-        skills.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task SetSkillsAsync_NormalisesAndPersists()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        var persisted = await _repository.SetSkillsAsync(
-            Agent1,
-            new[] { " github.write ", "github.read", "github.write", "" },
-            ct);
-
-        persisted.Length.ShouldBe(2);
-        persisted.ShouldContain("github.read");
-        persisted.ShouldContain("github.write");
-
-        var fetched = await _repository.GetSkillsAsync(Agent1, ct);
-        fetched.ShouldBe(persisted);
-    }
-
-    [Fact]
-    public async Task SetSkillsAsync_ReplaceInFull_RemovesOldGrants()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        await _repository.SetSkillsAsync(Agent1, new[] { "a", "b", "c" }, ct);
-        await _repository.SetSkillsAsync(Agent1, new[] { "b", "d" }, ct);
-
-        var fetched = await _repository.GetSkillsAsync(Agent1, ct);
-        fetched.Length.ShouldBe(2);
-        fetched.ShouldContain("b");
-        fetched.ShouldContain("d");
-    }
-
-    [Fact]
-    public async Task SetSkillsAsync_EmptyList_ClearsGrants()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        await _repository.SetSkillsAsync(Agent1, new[] { "a" }, ct);
-        await _repository.SetSkillsAsync(Agent1, Array.Empty<string>(), ct);
-
-        var fetched = await _repository.GetSkillsAsync(Agent1, ct);
-        fetched.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task SetSkillsAsync_PerAgent_DoesNotLeakAcrossAgents()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        await _repository.SetSkillsAsync(Agent1, new[] { "a", "b" }, ct);
-        await _repository.SetSkillsAsync(Agent2, new[] { "c" }, ct);
-
-        var a = await _repository.GetSkillsAsync(Agent1, ct);
-        var b = await _repository.GetSkillsAsync(Agent2, ct);
-
-        a.Length.ShouldBe(2);
-        b.Length.ShouldBe(1);
-        b[0].ShouldBe("c");
-    }
-
-    [Fact]
     public async Task SetExpertiseAsync_DedupesByNameLastWriteWins()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -274,7 +206,6 @@ public class AgentLiveConfigRepositoryTests : IDisposable
                     Enabled: true,
                     ExecutionMode: AgentExecutionMode.OnDemand),
                 ct);
-            await writer.SetSkillsAsync(Agent1, new[] { "a", "b" }, ct);
             await writer.SetExpertiseAsync(Agent1, new[]
             {
                 new ExpertiseDomain("python", string.Empty, ExpertiseLevel.Expert),
@@ -288,9 +219,6 @@ public class AgentLiveConfigRepositoryTests : IDisposable
             metadata.Model.ShouldBe("claude-opus");
             metadata.Enabled.ShouldBe(true);
             metadata.ExecutionMode.ShouldBe(AgentExecutionMode.OnDemand);
-
-            var skills = await reader.GetSkillsAsync(Agent1, ct);
-            skills.Length.ShouldBe(2);
 
             var expertise = await reader.GetExpertiseAsync(Agent1, ct);
             expertise.Length.ShouldBe(1);

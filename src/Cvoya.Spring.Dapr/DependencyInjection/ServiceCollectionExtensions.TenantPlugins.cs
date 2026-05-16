@@ -55,7 +55,14 @@ internal static class ServiceCollectionExtensionsTenantPlugins
         services.TryAddScoped<ISkillBundleResolver, TenantFilteringSkillBundleResolver>();
         services.TryAddScoped<ITenantSkillBundleBindingService, DefaultTenantSkillBundleBindingService>();
         services.TryAddScoped<ISkillBundleValidator, DefaultSkillBundleValidator>();
-        services.TryAddSingleton<IUnitSkillBundleStore, StateStoreBackedUnitSkillBundleStore>();
+        // The bundle stores depend on the scoped ISkillBundleResolver
+        // (TenantFilteringSkillBundleResolver), so they must themselves be
+        // scoped — the underlying IStateStore is a Dapr-backed singleton
+        // wrapper so concurrent scoped instances share a single backing
+        // state-store handle. The per-subject Unit/Agent key prefixes
+        // namespace the JSON docs in the shared store.
+        services.TryAddScoped<IUnitSkillBundleStore, StateStoreBackedUnitSkillBundleStore>();
+        services.TryAddScoped<IAgentSkillBundleStore, StateStoreBackedAgentSkillBundleStore>();
 
         // Default-tenant bootstrap seed adapter for the file-system bundle
         // resolver (#676). Registered as an enumerable ITenantSeedProvider

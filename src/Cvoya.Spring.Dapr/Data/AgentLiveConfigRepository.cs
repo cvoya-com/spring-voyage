@@ -5,18 +5,20 @@ namespace Cvoya.Spring.Dapr.Data;
 
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
-using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Data.Entities;
 
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
 /// EF-backed implementation of <see cref="IAgentLiveConfigRepository"/>.
-/// Reads and writes <see cref="AgentLiveConfigEntity"/>,
-/// <see cref="AgentToolGrantEntity"/>, and
+/// Reads and writes <see cref="AgentLiveConfigEntity"/> and
 /// <see cref="AgentExpertiseEntity"/> rows; the <c>SpringDbContext</c>
 /// stamps <c>TenantId</c> from the ambient <c>ITenantContext</c> on
-/// insert and applies the per-entity tenant query filter on read.
+/// insert and applies the per-entity tenant query filter on read. The
+/// per-agent tool-grant rows live in <c>agent_tool_grants</c> and are
+/// owned by <see cref="Cvoya.Spring.Core.Skills.IToolGrantResolver"/>;
+/// this repository no longer touches them after the #2360 cleanup
+/// dropped the legacy operator-skills write path.
 /// </summary>
 public class AgentLiveConfigRepository(SpringDbContext context) : IAgentLiveConfigRepository
 {
@@ -81,81 +83,6 @@ public class AgentLiveConfigRepository(SpringDbContext context) : IAgentLiveConf
 
         await context.SaveChangesAsync(cancellationToken);
         return written;
-    }
-
-    /// <inheritdoc />
-    public async Task<string[]> GetSkillsAsync(Guid agentId, CancellationToken cancellationToken = default)
-    {
-        // #2335 Sub B: the persisted-skills surface continues to return the
-        // operator-explicit grants only (the legacy semantics of "what did
-        // the operator equip"). Connector / platform / image-tier tools
-        // are recovered through IToolGrantResolver, not through this read.
-        return await context.AgentToolGrants
-            .AsNoTracking()
-            .Where(s => s.AgentId == agentId && s.Provenance == ToolProvenance.Explicit)
-            .OrderBy(s => s.ToolName)
-            .Select(s => s.ToolName)
-            .ToArrayAsync(cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public async Task<string[]> SetSkillsAsync(
-        Guid agentId, IReadOnlyList<string> skills, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(skills);
-
-        // Canonicalise the input: drop blank entries, trim, dedupe (case-
-        // insensitive — same skill name in different casing is the same
-        // grant), sort. A stable order makes diffs in logs and activity
-        // events predictable.
-        var normalised = skills
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Select(s => s.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(s => s, StringComparer.Ordinal)
-            .ToArray();
-
-        // #2335 Sub B: only "explicit" rows are touched by the operator-
-        // facing write path. Connector / image rows are owned by the
-        // binding pipeline; clobbering them here would let an operator
-        // accidentally revoke the auto-grants that ride on a connector.
-        var existing = await context.AgentToolGrants
-            .Where(s => s.AgentId == agentId && s.Provenance == ToolProvenance.Explicit)
-            .ToListAsync(cancellationToken);
-
-        var keep = new HashSet<string>(normalised, StringComparer.OrdinalIgnoreCase);
-
-        // Remove rows that are no longer in the list.
-        foreach (var row in existing)
-        {
-            if (!keep.Contains(row.ToolName))
-            {
-                context.AgentToolGrants.Remove(row);
-            }
-        }
-
-        // Add rows for tools that aren't yet persisted.
-        var existingNames = new HashSet<string>(
-            existing.Select(s => s.ToolName), StringComparer.OrdinalIgnoreCase);
-
-        var now = DateTimeOffset.UtcNow;
-        foreach (var tool in normalised)
-        {
-            if (!existingNames.Contains(tool))
-            {
-                context.AgentToolGrants.Add(new AgentToolGrantEntity
-                {
-                    AgentId = agentId,
-                    Namespace = ToolNaming.GetNamespace(tool),
-                    ToolName = tool,
-                    Provenance = ToolProvenance.Explicit,
-                    CreatedAt = now,
-                });
-            }
-        }
-
-        await context.SaveChangesAsync(cancellationToken);
-        return normalised;
     }
 
     /// <inheritdoc />

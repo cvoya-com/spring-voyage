@@ -698,7 +698,8 @@
         "tags": [
           "Agents"
         ],
-        "summary": "Get the agent's configured skill list (tool names the agent is allowed to invoke)",
+        "summary": "List the skill bundles equipped on an agent",
+        "description": "Returns the resolved bundles in declaration order. Each entry carries the package + skill coordinates, a prompt-body summary, and the bundle's required-tool list.",
         "operationId": "GetAgentSkills",
         "parameters": [
           {
@@ -716,7 +717,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentSkillsResponse"
+                  "$ref": "#/components/schemas/EquippedSkillsResponse"
                 }
               }
             }
@@ -733,12 +734,13 @@
           }
         }
       },
-      "put": {
+      "post": {
         "tags": [
           "Agents"
         ],
-        "summary": "Replace the agent's skill list in full; empty list means the agent is disabled from every tool",
-        "operationId": "SetAgentSkills",
+        "summary": "Equip a skill bundle on an agent",
+        "description": "Idempotent on (packageName, skillName). The store re-resolves the bundle so the persisted record carries the freshest prompt + required-tools snapshot. Returns the new effective list in declaration order.",
+        "operationId": "EquipAgentSkill",
         "parameters": [
           {
             "name": "id",
@@ -753,7 +755,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SetAgentSkillsRequest"
+                "$ref": "#/components/schemas/EquipSkillRequest"
               }
             }
           },
@@ -765,7 +767,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentSkillsResponse"
+                  "$ref": "#/components/schemas/EquippedSkillsResponse"
                 }
               }
             }
@@ -776,6 +778,64 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/agents/{id}/skills/{packageName}/{skillName}": {
+      "delete": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Unequip a skill bundle from an agent",
+        "description": "No-op when the bundle is not currently equipped. Returns the new effective list.",
+        "operationId": "UnequipAgentSkill",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "packageName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "skillName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EquippedSkillsResponse"
                 }
               }
             }
@@ -1555,8 +1615,8 @@
         "tags": [
           "Units"
         ],
-        "summary": "Get the equipped skills for a unit",
-        "description": "A unit is an agent (ADR-0039); its skills are stored by the same agent-live-config store used for leaf agents.",
+        "summary": "List the skill bundles equipped on a unit",
+        "description": "Returns the resolved bundles in declaration order. Each entry carries the package + skill coordinates, a prompt-body summary, and the bundle's required-tool list.",
         "operationId": "GetUnitSkills",
         "parameters": [
           {
@@ -1574,7 +1634,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentSkillsResponse"
+                  "$ref": "#/components/schemas/EquippedSkillsResponse"
                 }
               }
             }
@@ -1591,13 +1651,13 @@
           }
         }
       },
-      "put": {
+      "post": {
         "tags": [
           "Units"
         ],
-        "summary": "Replace the equipped skills for a unit",
-        "description": "Full replacement — pass the complete desired skill list. Use [] to clear.",
-        "operationId": "SetUnitSkills",
+        "summary": "Equip a skill bundle on a unit",
+        "description": "Idempotent on (packageName, skillName). The store re-resolves the bundle so the persisted record carries the freshest prompt + required-tools snapshot. Returns the new effective list in declaration order.",
+        "operationId": "EquipUnitSkill",
         "parameters": [
           {
             "name": "id",
@@ -1612,7 +1672,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SetAgentSkillsRequest"
+                "$ref": "#/components/schemas/EquipSkillRequest"
               }
             }
           },
@@ -1624,7 +1684,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentSkillsResponse"
+                  "$ref": "#/components/schemas/EquippedSkillsResponse"
                 }
               }
             }
@@ -1635,6 +1695,64 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/units/{id}/skills/{packageName}/{skillName}": {
+      "delete": {
+        "tags": [
+          "Units"
+        ],
+        "summary": "Unequip a skill bundle from a unit",
+        "description": "No-op when the bundle is not currently equipped. Returns the new effective list.",
+        "operationId": "UnequipUnitSkill",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "packageName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "skillName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EquippedSkillsResponse"
                 }
               }
             }
@@ -9670,20 +9788,6 @@
           }
         }
       },
-      "AgentSkillsResponse": {
-        "required": [
-          "skills"
-        ],
-        "type": "object",
-        "properties": {
-          "skills": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
       "AgentTemplateSummary": {
         "required": [
           "package",
@@ -10984,6 +11088,80 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "EquippedSkillEntry": {
+        "required": [
+          "packageName",
+          "skillName",
+          "promptSummary",
+          "requiredTools"
+        ],
+        "type": "object",
+        "properties": {
+          "packageName": {
+            "type": "string"
+          },
+          "skillName": {
+            "type": "string"
+          },
+          "promptSummary": {
+            "type": "string"
+          },
+          "requiredTools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EquippedSkillToolRequirement"
+            }
+          }
+        }
+      },
+      "EquippedSkillsResponse": {
+        "required": [
+          "skills"
+        ],
+        "type": "object",
+        "properties": {
+          "skills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EquippedSkillEntry"
+            }
+          }
+        }
+      },
+      "EquippedSkillToolRequirement": {
+        "required": [
+          "name",
+          "description",
+          "optional"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "optional": {
+            "type": "boolean"
+          }
+        }
+      },
+      "EquipSkillRequest": {
+        "required": [
+          "packageName",
+          "skillName"
+        ],
+        "type": "object",
+        "properties": {
+          "packageName": {
+            "type": "string"
+          },
+          "skillName": {
+            "type": "string"
           }
         }
       },
@@ -12979,20 +13157,6 @@
           },
           "payload": {
             "$ref": "#/components/schemas/JsonElement"
-          }
-        }
-      },
-      "SetAgentSkillsRequest": {
-        "required": [
-          "skills"
-        ],
-        "type": "object",
-        "properties": {
-          "skills": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           }
         }
       },

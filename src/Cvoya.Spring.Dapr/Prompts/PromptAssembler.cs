@@ -21,6 +21,7 @@ public class PromptAssembler(
     IPlatformPromptProvider platformPromptProvider,
     UnitContextBuilder unitContextBuilder,
     ThreadContextBuilder threadContextBuilder,
+    AgentInstructionsBuilder agentInstructionsBuilder,
     ILoggerFactory loggerFactory) : IPromptAssembler
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<PromptAssembler>();
@@ -43,7 +44,8 @@ public class PromptAssembler(
 
         if (context is not null)
         {
-            // Layer 2: Unit context
+            // Layer 2: Unit context — policies, connector-skills,
+            // unit-equipped skill bundles.
             var unitContext = unitContextBuilder.Build(
                 context.Policies,
                 context.Skills,
@@ -74,11 +76,20 @@ public class PromptAssembler(
                 builder.AppendLine();
             }
 
-            // Layer 4: Agent instructions
-            if (!string.IsNullOrWhiteSpace(context.AgentInstructions))
+            // Layer 4: Agent instructions — user-authored instructions plus
+            // any agent-equipped skill bundles (#2360). Composed by
+            // AgentInstructionsBuilder so the conditional emit of the
+            // section header is consistent: when both the user instructions
+            // and the bundle list are empty, no "## Agent Instructions"
+            // header is rendered.
+            var agentInstructions = agentInstructionsBuilder.Build(
+                context.AgentInstructions,
+                context.AgentSkillBundles);
+
+            if (!string.IsNullOrWhiteSpace(agentInstructions))
             {
                 builder.AppendLine("## Agent Instructions");
-                builder.AppendLine(context.AgentInstructions);
+                builder.AppendLine(agentInstructions);
                 builder.AppendLine();
             }
         }
