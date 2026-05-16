@@ -104,7 +104,7 @@ public class DirectoryServiceTests : IDisposable
 
         await _service.RegisterAsync(entry, ct);
 
-        var updated = await _service.UpdateEntryAsync(address, "new-display", "new-desc", ct);
+        var updated = await _service.UpdateEntryAsync(address, "new-display", "new-desc", cancellationToken: ct);
 
         updated.ShouldNotBeNull();
         updated!.DisplayName.ShouldBe("new-display");
@@ -125,11 +125,31 @@ public class DirectoryServiceTests : IDisposable
 
         await _service.RegisterAsync(entry, ct);
 
-        var updated = await _service.UpdateEntryAsync(address, displayName: null, description: "new-desc", ct);
+        var updated = await _service.UpdateEntryAsync(address, displayName: null, description: "new-desc", cancellationToken: ct);
 
         updated.ShouldNotBeNull();
         updated!.DisplayName.ShouldBe("display");
         updated.Description.ShouldBe("new-desc");
+    }
+
+    [Fact]
+    public async Task UpdateEntryAsync_updates_role_for_agent_entries()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var actorId = Guid.NewGuid();
+        var address = new Address("agent", actorId);
+        var entry = new DirectoryEntry(address, actorId, "Ada", "Engineer", "backend-engineer", DateTimeOffset.UtcNow);
+
+        await _service.RegisterAsync(entry, ct);
+
+        var updated = await _service.UpdateEntryAsync(address, displayName: null, description: null, role: "frontend-engineer", cancellationToken: ct);
+
+        updated.ShouldNotBeNull();
+        updated!.Role.ShouldBe("frontend-engineer");
+
+        var matches = await _service.ResolveByRoleAsync("frontend-engineer", ct);
+        matches.Count.ShouldBe(1);
+        matches[0].ActorId.ShouldBe(actorId);
     }
 
     [Fact]
@@ -138,7 +158,7 @@ public class DirectoryServiceTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var address = new Address("unit", Guid.NewGuid());
 
-        var updated = await _service.UpdateEntryAsync(address, "display", "desc", ct);
+        var updated = await _service.UpdateEntryAsync(address, "display", "desc", cancellationToken: ct);
 
         updated.ShouldBeNull();
     }

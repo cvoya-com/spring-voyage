@@ -1187,12 +1187,35 @@ public static class AgentEndpoints
 
         request ??= new UpdateAgentMetadataRequest();
 
+        // Validate only when the caller actually supplied a new display name —
+        // null means "leave unchanged" on the PATCH surface and must stay a no-op
+        // for the validator. Mirrors the gate UnitEndpoints.UpdateUnitAsync uses.
+        if (request.DisplayName is not null)
+        {
+            var displayNameProblem = DisplayNameProblems.ValidateOrProblem(request.DisplayName);
+            if (displayNameProblem is not null)
+            {
+                return displayNameProblem;
+            }
+        }
+
         var address = Address.For("agent", id);
         var entry = await directoryService.ResolveAsync(address, cancellationToken);
 
         if (entry is null)
         {
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // DisplayName / Description / Role live on the directory entity (same split
+        // UnitEndpoints uses for unit metadata). Route those through IDirectoryService
+        // so the in-memory cache, role index, and AgentDefinitions row stay consistent.
+        if (request.DisplayName is not null || request.Description is not null || request.Role is not null)
+        {
+            var updatedEntry = await directoryService.UpdateEntryAsync(
+                address, request.DisplayName, request.Description, request.Role, cancellationToken);
+
+            entry = updatedEntry ?? entry;
         }
 
         // ParentUnit is intentionally not accepted here — changing containment

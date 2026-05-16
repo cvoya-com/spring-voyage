@@ -120,6 +120,7 @@ public class DirectoryService(
         Address address,
         string? displayName,
         string? description,
+        string? role = null,
         CancellationToken cancellationToken = default)
     {
         var key = ToKey(address);
@@ -135,10 +136,13 @@ public class DirectoryService(
         }
 
         // Null fields mean "leave unchanged" so partial PATCH-style updates are supported.
+        // Role is only persisted on agent entries; non-agent schemes ignore it (UpsertUnitAsync
+        // does not project Role onto UnitDefinitionEntity).
         var updated = existing with
         {
             DisplayName = displayName ?? existing.DisplayName,
             Description = description ?? existing.Description,
+            Role = role ?? existing.Role,
         };
 
         _entries[key] = updated;
@@ -147,11 +151,12 @@ public class DirectoryService(
         await PersistEntryAsync(updated, cancellationToken);
 
         _logger.LogInformation(
-            "Updated directory entry for {Scheme}://{Path} (displayName changed: {DisplayNameChanged}, description changed: {DescriptionChanged})",
+            "Updated directory entry for {Scheme}://{Path} (displayName changed: {DisplayNameChanged}, description changed: {DescriptionChanged}, role changed: {RoleChanged})",
             address.Scheme,
             address.Path,
             displayName is not null,
-            description is not null);
+            description is not null,
+            role is not null);
 
         return updated;
     }

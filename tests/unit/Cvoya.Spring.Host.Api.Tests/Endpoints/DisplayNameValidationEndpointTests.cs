@@ -152,6 +152,7 @@ public class DisplayNameValidationEndpointTests : IClassFixture<CustomWebApplica
             Arg.Any<Address>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
+            Arg.Any<string?>(),
             Arg.Any<CancellationToken>());
     }
 

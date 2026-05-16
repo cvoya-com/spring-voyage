@@ -77,6 +77,20 @@ vi.mock("@/components/expertise/agent-expertise-panel", () => ({
     </div>
   ),
 }));
+vi.mock("@/components/units/tab-impls/unit-general-panel", () => ({
+  UnitGeneralPanel: ({ unitId }: { unitId: string }) => (
+    <div data-testid="legacy-unit-general" data-unit-id={unitId}>
+      Unit general
+    </div>
+  ),
+}));
+vi.mock("@/components/units/tab-impls/agent-general-panel", () => ({
+  AgentGeneralPanel: ({ agentId }: { agentId: string }) => (
+    <div data-testid="legacy-agent-general" data-agent-id={agentId}>
+      Agent general
+    </div>
+  ),
+}));
 vi.mock("@/components/agents/tab-impls/execution-panel", () => ({
   AgentExecutionPanel: ({
     agentId,
@@ -176,30 +190,30 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
   });
 
   describe("Unit", () => {
-    it("renders nine sub-tabs — existing six plus Instructions + Budget + Debug", () => {
+    it("renders nine sub-tabs — General first, then existing six plus Budget + Debug", () => {
       render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
 
       expect(screen.getByTestId("tab-unit-config")).toBeInTheDocument();
       const tabs = screen.getAllByRole("tab");
       expect(tabs.map((t) => t.textContent)).toEqual([
+        "General",
         "Boundary",
         "Execution",
         "Instructions",
         "Connector",
         "Skills",
         "Secrets",
-        "Expertise",
         "Budget",
         "Debug",
       ]);
     });
 
-    it("defaults to the Boundary sub-tab", () => {
+    it("defaults to the General sub-tab", () => {
       render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
       expect(
-        screen.getByRole("tab", { name: "Boundary" }),
+        screen.getByRole("tab", { name: "General" }),
       ).toHaveAttribute("aria-selected", "true");
-      expect(screen.getByTestId("legacy-boundary").dataset.unitId).toBe(
+      expect(screen.getByTestId("legacy-unit-general").dataset.unitId).toBe(
         "engineering",
       );
     });
@@ -220,36 +234,36 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
       expect(section.hasAttribute("open")).toBe(false);
     });
 
-    it("pre-selects a non-default sub-tab when ?subtab= carries its value (Expertise)", () => {
+    it("pre-selects a non-default sub-tab when ?subtab= carries its value (Boundary)", () => {
       act(() => {
-        setSearchParams(new URLSearchParams("subtab=Expertise"));
+        setSearchParams(new URLSearchParams("subtab=Boundary"));
       });
       render(<ConfigTab kind="Unit" id="engineering" name="Engineering" />);
       expect(
-        screen.getByRole("tab", { name: "Expertise" }),
+        screen.getByRole("tab", { name: "Boundary" }),
       ).toHaveAttribute("aria-selected", "true");
     });
   });
 
   describe("Agent", () => {
-    it("renders eight sub-tabs — Execution / Instructions / Budget / Connector / Skills / Secrets / Expertise / Debug", () => {
+    it("renders eight sub-tabs — General / Execution / Instructions / Budget / Connector / Skills / Secrets / Debug", () => {
       render(<ConfigTab kind="Agent" id="ada" name="Ada" />);
 
       expect(screen.getByTestId("tab-agent-config")).toBeInTheDocument();
       const tabs = screen.getAllByRole("tab");
       expect(tabs.map((t) => t.textContent)).toEqual([
+        "General",
         "Execution",
         "Instructions",
         "Budget",
         "Connector",
         "Skills",
         "Secrets",
-        "Expertise",
         "Debug",
       ]);
     });
 
-    it("defaults to the Execution sub-tab and wires it with parentUnitId", () => {
+    it("defaults to the General sub-tab and wires it with agentId", () => {
       render(
         <ConfigTab
           kind="Agent"
@@ -259,8 +273,23 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
         />,
       );
       expect(
-        screen.getByRole("tab", { name: "Execution" }),
+        screen.getByRole("tab", { name: "General" }),
       ).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByTestId("legacy-agent-general").dataset.agentId).toBe(
+        "ada",
+      );
+    });
+
+    it("renders the Execution sub-tab with parentUnitId", () => {
+      render(
+        <ConfigTab
+          kind="Agent"
+          id="ada"
+          name="Ada"
+          parentUnitId="engineering"
+        />,
+      );
+      fireEvent.click(screen.getByRole("tab", { name: "Execution" }));
       const exec = screen.getByTestId("legacy-agent-execution");
       expect(exec.dataset.agentId).toBe("ada");
       expect(exec.dataset.parentUnitId).toBe("engineering");

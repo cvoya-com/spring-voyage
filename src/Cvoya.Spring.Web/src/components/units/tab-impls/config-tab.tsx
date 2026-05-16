@@ -11,23 +11,25 @@
 //
 // Sub-tab catalog per subject (canonical-tabs.md § 5.11):
 //
-//   Tenant — Secrets, Budget, Cloning. New tab under #2254; bodies
-//   reuse the existing `<TenantDefaultsPanel>`, `<BudgetPanel>`, and
-//   `<CloningPolicyPanel>` so `/settings` and Tenant × Config render
-//   the same component bodies.
+//   Tenant — Secrets, Budget, Cloning. Bodies reuse the existing
+//   `<TenantDefaultsPanel>`, `<BudgetPanel>`, and `<CloningPolicyPanel>`
+//   so `/settings` and Tenant × Config render the same component bodies.
+//   Tenant has no General sub-tab: the only editable tenant field
+//   (display name) lives on the platform-admin surface, not the
+//   tenant-operator Config surface.
 //
-//   Unit — Boundary, Execution, Connector, Skills, Secrets, Expertise,
-//   Budget, Debug. Existing 6 sub-tabs preserved; Budget and Debug
-//   added under alignment for parity with Agent. Per units-vs-agents
-//   rule 3 a unit is an agent, so the Budget panel applies to both
-//   subjects.
+//   Unit — General, Boundary, Execution, Instructions, Connector,
+//   Skills, Secrets, Budget, Debug. #2331 added General as the first
+//   tab (display name / description / model hint / color, plus the
+//   expertise editor folded in) and retired the standalone Expertise
+//   sub-tab.
 //
-//   Agent — Execution, Budget, Connector, Skills, Secrets, Expertise,
-//   Debug. Existing 4 sections (Execution / Budget / Expertise /
-//   Debug) promoted from a stacked layout to sub-tabs; Connector,
-//   Skills, and Secrets added under alignment for parity with Unit.
-//   Connector ships as a "Manage via CLI" placeholder pending #2279
-//   (agent-scope connector binding endpoint).
+//   Agent — General, Execution, Instructions, Budget, Connector,
+//   Skills, Secrets, Debug. Same #2331 promotion (General first,
+//   Expertise folded in) for the agent surface. The agent General
+//   tab additionally exposes role, specialty, the enabled toggle, and
+//   the execution-mode selector — none of which were previously
+//   editable post-creation in the portal.
 //
 // URL contract — `?tab=Config&subtab=<name>` on every subject. Writes
 // go through `window.history.replaceState` + the Explorer URL-change
@@ -43,12 +45,11 @@ import { Link2, Settings } from "lucide-react";
 import { AgentBudgetPanel } from "@/components/agents/agent-budget-panel";
 import { UnitBudgetPanel } from "@/components/units/unit-budget-panel";
 import { AgentExecutionPanel } from "@/components/agents/tab-impls/execution-panel";
-import { AgentExpertisePanel } from "@/components/expertise/agent-expertise-panel";
 import { AgentOverridesPanel } from "@/components/settings/agent-overrides-panel";
 import { BudgetPanel } from "@/components/settings/budget-panel";
 import { CloningPolicyPanel } from "@/components/settings/cloning-policy-panel";
 import { TenantDefaultsPanel } from "@/components/settings/tenant-defaults-panel";
-import { UnitExpertisePanel } from "@/components/expertise/unit-expertise-panel";
+import { AgentGeneralPanel } from "@/components/units/tab-impls/agent-general-panel";
 import { BoundaryTab } from "@/components/units/tab-impls/boundary-tab";
 import { ConnectorTab } from "@/components/units/tab-impls/connector-tab";
 import { EquippedSkillsTab } from "@/components/units/tab-impls/equipped-skills-tab";
@@ -56,6 +57,7 @@ import { ExecutionTab } from "@/components/units/tab-impls/execution-tab";
 import { InstructionsPanel } from "@/components/units/tab-impls/instructions-panel";
 import { SecretsTab } from "@/components/units/tab-impls/secrets-tab";
 import { SkillsTab } from "@/components/units/tab-impls/skills-tab";
+import { UnitGeneralPanel } from "@/components/units/tab-impls/unit-general-panel";
 import {
   Tabs,
   TabsContent,
@@ -106,24 +108,24 @@ export interface ConfigTabProps {
 
 const TENANT_SUBTABS = ["Secrets", "Budget", "Cloning"] as const;
 const UNIT_SUBTABS = [
+  "General",
   "Boundary",
   "Execution",
   "Instructions",
   "Connector",
   "Skills",
   "Secrets",
-  "Expertise",
   "Budget",
   "Debug",
 ] as const;
 const AGENT_SUBTABS = [
+  "General",
   "Execution",
   "Instructions",
   "Budget",
   "Connector",
   "Skills",
   "Secrets",
-  "Expertise",
   "Debug",
 ] as const;
 
@@ -236,9 +238,13 @@ export function ConfigTab({
           </>
         )}
 
-        {/* Unit sub-tabs — existing 6 + Budget + Debug */}
+        {/* Unit sub-tabs — General + Boundary/Execution/Instructions/Connector/Skills/Secrets + Budget + Debug.
+            Expertise was folded into General under #2331; the legacy Expertise sub-tab is retired. */}
         {kind === "Unit" && (
           <>
+            <TabsContent value="General" className="space-y-2">
+              <UnitGeneralPanel unitId={id} />
+            </TabsContent>
             <TabsContent value="Boundary" className="space-y-2">
               <BoundaryTab unitId={id} />
             </TabsContent>
@@ -257,9 +263,6 @@ export function ConfigTab({
             <TabsContent value="Secrets" className="space-y-2">
               <SecretsTab unitId={id} />
             </TabsContent>
-            <TabsContent value="Expertise" className="space-y-2">
-              <UnitExpertisePanel unitId={id} />
-            </TabsContent>
             <TabsContent value="Budget" className="space-y-2">
               <UnitBudgetPanel unitId={id} />
             </TabsContent>
@@ -272,9 +275,13 @@ export function ConfigTab({
           </>
         )}
 
-        {/* Agent sub-tabs — existing 4 promoted to sub-tabs + Connector/Skills/Secrets */}
+        {/* Agent sub-tabs — General + Execution/Instructions/Budget/Connector/Skills/Secrets + Debug.
+            Expertise was folded into General under #2331; the legacy Expertise sub-tab is retired. */}
         {kind === "Agent" && (
           <>
+            <TabsContent value="General" className="space-y-2">
+              <AgentGeneralPanel agentId={id} />
+            </TabsContent>
             <TabsContent value="Execution" className="space-y-2">
               <AgentExecutionPanel agentId={id} parentUnitId={parentUnitId} />
             </TabsContent>
@@ -300,9 +307,6 @@ export function ConfigTab({
                 parentUnitId={parentUnitId ?? undefined}
               />
             </TabsContent>
-            <TabsContent value="Expertise" className="space-y-2">
-              <AgentExpertisePanel agentId={id} />
-            </TabsContent>
             <TabsContent value="Debug" className="space-y-2">
               <DebugSection status={status} />
             </TabsContent>
@@ -322,16 +326,17 @@ function describeSubject(kind: ConfigSubjectKind): string {
       );
     case "Unit":
       return (
-        "Boundary, execution defaults, instructions, connector, skills, secrets, " +
-        "expertise, and budget for this unit. Each section mirrors the matching " +
+        "General metadata (display name, description, color, expertise) and the " +
+        "boundary, execution defaults, instructions, connector, skills, secrets, " +
+        "and budget for this unit. Each section mirrors the matching " +
         "`spring unit …` CLI subcommand."
       );
     case "Agent":
       return (
-        "Execution defaults, instructions, daily budget, connector, equipped " +
-        "skills, secret overrides, expertise, and debug for this agent. " +
-        "Mirrors the matching `spring agent …` CLI subcommands. Initiative " +
-        "lives on the Policies tab."
+        "General metadata (display name, description, role, specialty, expertise) " +
+        "plus execution defaults, instructions, daily budget, connector, equipped " +
+        "skills, and secret overrides for this agent. Mirrors the matching " +
+        "`spring agent …` CLI subcommands. Initiative lives on the Policies tab."
       );
   }
 }

@@ -171,6 +171,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
                 Arg.Any<Address>(),
                 Arg.Any<string?>(),
                 Arg.Any<string?>(),
+                Arg.Any<string?>(),
                 Arg.Any<CancellationToken>())
             .Returns(ci => new DirectoryEntry(
                 new Address("unit", ActorId_Guid),
@@ -192,6 +193,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
             Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == UnitName),
             "Eng Team",
             "Builds stuff",
+            Arg.Any<string?>(),
             Arg.Any<CancellationToken>());
 
         // Actor is still invoked so the audit-trail StateChanged event is emitted (#123).
@@ -227,6 +229,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
 
         await _factory.DirectoryService.DidNotReceive().UpdateEntryAsync(
             Arg.Any<Address>(),
+            Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>());
