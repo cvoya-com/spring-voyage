@@ -26,6 +26,8 @@ internal class UnitDefinitionEntityConfiguration : IEntityTypeConfiguration<Unit
         builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.DisplayName).HasColumnName("display_name").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Description).HasColumnName("description").HasMaxLength(1024);
+        // #2341: agent-parity column. Same shape as AgentDefinitionEntityConfiguration.
+        builder.Property(e => e.Role).HasColumnName("role").HasMaxLength(512);
         builder.Property(e => e.Definition).HasColumnName("definition").HasColumnType("jsonb");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();

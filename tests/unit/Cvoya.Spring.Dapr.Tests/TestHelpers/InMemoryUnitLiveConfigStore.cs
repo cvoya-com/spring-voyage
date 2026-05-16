@@ -59,6 +59,22 @@ public class InMemoryUnitLiveConfigStore : IUnitLiveConfigStore
             existing = existing with { Hosting = metadata.Hosting };
             written.Add(nameof(metadata.Hosting));
         }
+        // #2341: parity slots — keep this double aligned with UnitLiveConfigRepository.
+        if (metadata.Specialty is not null)
+        {
+            existing = existing with { Specialty = metadata.Specialty };
+            written.Add(nameof(metadata.Specialty));
+        }
+        if (metadata.Enabled is not null)
+        {
+            existing = existing with { Enabled = metadata.Enabled };
+            written.Add(nameof(metadata.Enabled));
+        }
+        if (metadata.ExecutionMode is not null)
+        {
+            existing = existing with { ExecutionMode = metadata.ExecutionMode };
+            written.Add(nameof(metadata.ExecutionMode));
+        }
 
         if (written.Count > 0)
         {

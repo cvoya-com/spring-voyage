@@ -36,6 +36,7 @@ import type {
   UnitPolicyResponse,
   UnitResponse,
   UpdateAgentMetadataRequest,
+  UpdateUnitRequest,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -454,19 +455,13 @@ export const api = {
     }
     return unwrap(result);
   },
-  updateUnit: async (
-    id: string,
-    patch: Partial<{
-      displayName: string;
-      description: string;
-      model: string;
-      color: string;
-      // #2293: tri-state. Omit the property to leave instructions alone;
-      // set to `null` to clear; set to a string to replace. The server
-      // inspects the raw body to distinguish absent from explicit-null.
-      instructions: string | null;
-    }>,
-  ) =>
+  // #2293: `instructions` is tri-state — omit to leave alone; set to `null`
+  // to clear; set to a string to replace. The server inspects the raw body
+  // to distinguish absent from explicit-null. #2341 widened the type to the
+  // generated `UpdateUnitRequest`, which carries the role / specialty /
+  // enabled / executionMode parity fields alongside the directory + actor
+  // metadata slots.
+  updateUnit: async (id: string, patch: UpdateUnitRequest) =>
     unwrap(
       await fetchClient.PATCH("/api/v1/tenant/units/{id}", {
         params: { path: { id } },

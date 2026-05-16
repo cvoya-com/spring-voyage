@@ -98,6 +98,9 @@ public class UnitStateCoordinator(
                     color = metadata.Color,
                     provider = metadata.Provider,
                     hosting = metadata.Hosting,
+                    specialty = metadata.Specialty,
+                    enabled = metadata.Enabled,
+                    executionMode = metadata.ExecutionMode?.ToString(),
                 })),
             cancellationToken);
     }

@@ -66,6 +66,13 @@ export type PersistentAgentLogsResponse =
 export type UpdateAgentMetadataRequest = Schemas["UpdateAgentMetadataRequest"];
 
 /**
+ * PATCH /api/v1/units/{id} request body. #2341 added the
+ * role / specialty / enabled / executionMode parity fields to bring the
+ * unit PATCH surface in line with the agent equivalent.
+ */
+export type UpdateUnitRequest = Schemas["UpdateUnitRequest"];
+
+/**
  * Response body for `GET /api/v1/tenant/{agents|units}/{id}/runtime-status`
  * (#2100). Polled by the portal's `<RuntimeStatusBadge>` to surface the
  * four-state runtime indicator (idle / busy / queued / unavailable) next

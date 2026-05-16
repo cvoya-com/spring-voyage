@@ -3,7 +3,10 @@
 // Unit Config → General sub-tab (#2331). First tab in the Config strip;
 // surfaces every directory-owned metadata field that previously could
 // only be set at create time (displayName, description, model hint,
-// color) plus the existing expertise editor folded in.
+// color) plus the existing expertise editor folded in. #2341 widened
+// the field set to include role / specialty / enabled / executionMode
+// to match the agent equivalent (units-vs-agents.md: only cloning is
+// agent-only; everything else applies to both).
 
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -24,6 +27,10 @@ import { api } from "@/lib/api/client";
 import { useUnit } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatTranslatedError } from "@/lib/api/translate-error";
+import type {
+  AgentExecutionMode,
+  UpdateUnitRequest,
+} from "@/lib/api/types";
 
 interface UnitGeneralPanelProps {
   unitId: string;
@@ -34,6 +41,10 @@ interface DraftFields {
   description: string;
   model: string;
   color: string;
+  role: string;
+  specialty: string;
+  enabled: boolean;
+  executionMode: AgentExecutionMode;
 }
 
 const EMPTY_DRAFT: DraftFields = {
@@ -41,7 +52,13 @@ const EMPTY_DRAFT: DraftFields = {
   description: "",
   model: "",
   color: "",
+  role: "",
+  specialty: "",
+  enabled: true,
+  executionMode: "Auto",
 };
+
+const EXECUTION_MODES: readonly AgentExecutionMode[] = ["Auto", "OnDemand"];
 
 export function UnitGeneralPanel({ unitId }: UnitGeneralPanelProps) {
   const { toast } = useToast();
@@ -56,13 +73,17 @@ export function UnitGeneralPanel({ unitId }: UnitGeneralPanelProps) {
           description: data.description ?? "",
           model: data.model ?? "",
           color: data.color ?? "",
+          role: data.role ?? "",
+          specialty: data.specialty ?? "",
+          enabled: data.enabled ?? true,
+          executionMode: data.executionMode ?? "Auto",
         }
       : EMPTY_DRAFT;
   }, [unitQuery.data]);
 
   const [draft, setDraft] = useState<DraftFields>(EMPTY_DRAFT);
   const [seededFor, setSeededFor] = useState<string | null>(null);
-  const fingerprint = `${unitId}:${persisted.displayName}:${persisted.description}:${persisted.model}:${persisted.color}`;
+  const fingerprint = `${unitId}:${persisted.displayName}:${persisted.description}:${persisted.model}:${persisted.color}:${persisted.role}:${persisted.specialty}:${persisted.enabled}:${persisted.executionMode}`;
 
   // Render-phase derived-state pattern (same shape <InstructionsPanel> uses)
   // so the textarea seeds from the latest persisted snapshot without paying
@@ -77,16 +98,15 @@ export function UnitGeneralPanel({ unitId }: UnitGeneralPanelProps) {
     draft.displayName !== persisted.displayName ||
     draft.description !== persisted.description ||
     draft.model !== persisted.model ||
-    draft.color !== persisted.color;
+    draft.color !== persisted.color ||
+    draft.role !== persisted.role ||
+    draft.specialty !== persisted.specialty ||
+    draft.enabled !== persisted.enabled ||
+    draft.executionMode !== persisted.executionMode;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const patch: Partial<{
-        displayName: string;
-        description: string;
-        model: string;
-        color: string;
-      }> = {};
+      const patch: UpdateUnitRequest = {};
       if (draft.displayName !== persisted.displayName) {
         patch.displayName = draft.displayName;
       }
@@ -98,6 +118,18 @@ export function UnitGeneralPanel({ unitId }: UnitGeneralPanelProps) {
       }
       if (draft.color !== persisted.color) {
         patch.color = draft.color;
+      }
+      if (draft.role !== persisted.role) {
+        patch.role = draft.role;
+      }
+      if (draft.specialty !== persisted.specialty) {
+        patch.specialty = draft.specialty;
+      }
+      if (draft.enabled !== persisted.enabled) {
+        patch.enabled = draft.enabled;
+      }
+      if (draft.executionMode !== persisted.executionMode) {
+        patch.executionMode = draft.executionMode;
       }
       await api.updateUnit(unitId, patch);
     },
@@ -132,7 +164,7 @@ export function UnitGeneralPanel({ unitId }: UnitGeneralPanelProps) {
           <p className="text-xs text-muted-foreground">
             Core metadata for this unit. Each field maps 1:1 to a field on{" "}
             <code className="rounded bg-muted px-1 py-0.5 text-xs">
-              spring unit update
+              spring unit set
             </code>
             .
           </p>
@@ -162,6 +194,30 @@ export function UnitGeneralPanel({ unitId }: UnitGeneralPanelProps) {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block space-y-1">
+              <span className="text-xs text-muted-foreground">Role</span>
+              <Input
+                data-testid="unit-general-role"
+                value={draft.role}
+                placeholder="e.g. backend-team"
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, role: e.target.value }))
+                }
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-xs text-muted-foreground">Specialty</span>
+              <Input
+                data-testid="unit-general-specialty"
+                value={draft.specialty}
+                placeholder="e.g. reviewer"
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, specialty: e.target.value }))
+                }
+              />
+            </label>
+
+            <label className="block space-y-1">
               <span className="text-xs text-muted-foreground">
                 Model (hint)
               </span>
@@ -173,6 +229,29 @@ export function UnitGeneralPanel({ unitId }: UnitGeneralPanelProps) {
                   setDraft((d) => ({ ...d, model: e.target.value }))
                 }
               />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-xs text-muted-foreground">
+                Execution mode
+              </span>
+              <select
+                data-testid="unit-general-execution-mode"
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={draft.executionMode}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    executionMode: e.target.value as AgentExecutionMode,
+                  }))
+                }
+              >
+                {EXECUTION_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label className="block space-y-1">
@@ -201,6 +280,21 @@ export function UnitGeneralPanel({ unitId }: UnitGeneralPanelProps) {
               </div>
             </label>
           </div>
+
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              data-testid="unit-general-enabled"
+              className="h-4 w-4 rounded border border-input"
+              checked={draft.enabled}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, enabled: e.target.checked }))
+              }
+            />
+            <span className="text-sm">
+              Enabled — orchestration strategies skip this unit when off.
+            </span>
+          </label>
 
           <div className="flex items-center gap-2 pt-2">
             <Button

@@ -638,15 +638,20 @@ public static class UnitEndpoints
             return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        // DisplayName/Description live on the directory entity — route those
-        // through IDirectoryService (#123). Model/Color are actor-owned and
-        // persisted through SetMetadataAsync. We always forward the PATCH to
-        // the actor so the audit trail captures the change even when only
-        // directory-side fields are touched.
-        if (request.DisplayName is not null || request.Description is not null)
+        // DisplayName / Description / Role live on the directory entity — route
+        // those through IDirectoryService (#123 + #2341). Model / Color / Hosting /
+        // Specialty / Enabled / ExecutionMode are actor-owned and persisted
+        // through SetMetadataAsync. We always forward the PATCH to the actor so
+        // the audit trail captures the change even when only directory-side
+        // fields are touched.
+        if (request.DisplayName is not null || request.Description is not null || request.Role is not null)
         {
             var updatedEntry = await directoryService.UpdateEntryAsync(
-                address, request.DisplayName, request.Description, role: null, cancellationToken: cancellationToken);
+                address,
+                request.DisplayName,
+                request.Description,
+                role: request.Role,
+                cancellationToken: cancellationToken);
 
             entry = updatedEntry ?? entry;
         }
@@ -662,7 +667,10 @@ public static class UnitEndpoints
             Model: request.Model,
             Color: request.Color,
             Provider: null,
-            Hosting: request.Hosting);
+            Hosting: request.Hosting,
+            Specialty: request.Specialty,
+            Enabled: request.Enabled,
+            ExecutionMode: request.ExecutionMode);
 
         await proxy.SetMetadataAsync(metadata, cancellationToken);
 
@@ -1638,7 +1646,15 @@ public static class UnitEndpoints
             metadata?.Hosting,
             validationTracking?.LastValidationError,
             validationTracking?.LastValidationRunId,
-            instructions);
+            instructions,
+            // #2341: directory-owned role + actor-owned parity fields.
+            Role: entry.Role,
+            Specialty: metadata?.Specialty,
+            // Enabled / ExecutionMode are non-nullable on the response so that
+            // UI callers can read them without null checks; the unit defaults
+            // are Enabled=true and ExecutionMode=Auto, matching the agent contract.
+            Enabled: metadata?.Enabled ?? true,
+            ExecutionMode: metadata?.ExecutionMode ?? Cvoya.Spring.Core.Agents.AgentExecutionMode.Auto);
 
     /// <summary>
     /// View of the per-unit validation-tracking columns projected into the

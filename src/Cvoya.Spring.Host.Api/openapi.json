@@ -13889,6 +13889,25 @@
               "null",
               "string"
             ]
+          },
+          "role": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "specialty": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "executionMode": {
+            "$ref": "#/components/schemas/AgentExecutionMode"
           }
         }
       },
@@ -14173,6 +14192,34 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "role": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "specialty": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "executionMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentExecutionMode"
+              }
             ]
           }
         }

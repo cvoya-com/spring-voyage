@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Models;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Units;
 
 /// <summary>
@@ -51,24 +52,48 @@ public record CreateUnitRequest(
 /// </summary>
 /// <remarks>
 /// <para>
+/// <see cref="DisplayName"/>, <see cref="Description"/>, and <see cref="Role"/>
+/// live on the directory entity and are routed through
+/// <see cref="Cvoya.Spring.Core.Directory.IDirectoryService.UpdateEntryAsync"/>.
+/// <see cref="DisplayName"/> passes the same validation gate (<c>DisplayNameProblems</c>)
+/// the create flow uses. Mirrors the same split <see cref="UpdateAgentMetadataRequest"/>
+/// uses for agent metadata.
+/// </para>
+/// <para>
 /// <see cref="Instructions"/> is a tri-state slot per ADR-0043: omitting the
 /// property leaves the unit's <c>instructions</c> unchanged; an explicit
 /// JSON <c>null</c> clears it; a string replaces it. The DTO collapses
 /// absent / explicit-null at deserialization, so the endpoint inspects the
 /// raw JSON body to distinguish the two.
 /// </para>
+/// <para>
+/// <see cref="Specialty"/> / <see cref="Enabled"/> / <see cref="ExecutionMode"/>
+/// were added in #2341 for unit/agent parity per <c>units-vs-agents.md</c>
+/// (only cloning is documented as agent-only; everything else applies to both).
+/// They persist on the unit live-config row, same shape as the agent equivalents.
+/// </para>
 /// </remarks>
 /// <param name="DisplayName">The new display name, or <c>null</c> to leave unchanged.</param>
 /// <param name="Description">The new description, or <c>null</c> to leave unchanged.</param>
 /// <param name="Model">The new model hint, or <c>null</c> to leave unchanged.</param>
 /// <param name="Color">The new UI color hint, or <c>null</c> to leave unchanged.</param>
+/// <param name="Hosting">The new hosting hint, or <c>null</c> to leave unchanged.</param>
+/// <param name="Instructions">The new instructions value (set / clear / leave-alone tri-state).</param>
+/// <param name="Role">The new role identifier (used by multicast resolution), or <c>null</c> to leave unchanged. Added in #2341.</param>
+/// <param name="Specialty">The new specialty label, or <c>null</c> to leave unchanged. Added in #2341.</param>
+/// <param name="Enabled">The new enabled flag, or <c>null</c> to leave unchanged. Added in #2341.</param>
+/// <param name="ExecutionMode">The new execution mode, or <c>null</c> to leave unchanged. Added in #2341.</param>
 public record UpdateUnitRequest(
     string? DisplayName = null,
     string? Description = null,
     string? Model = null,
     string? Color = null,
     string? Hosting = null,
-    string? Instructions = null);
+    string? Instructions = null,
+    string? Role = null,
+    string? Specialty = null,
+    bool? Enabled = null,
+    AgentExecutionMode? ExecutionMode = null);
 
 /// <summary>
 /// Response body representing a unit.
@@ -84,6 +109,10 @@ public record UpdateUnitRequest(
 /// <param name="Hosting">Optional hosting hint.</param>
 /// <param name="LastValidationError">Structured outcome of the most recent failed validation run, or <c>null</c> when the most recent run succeeded or the unit has never been validated.</param>
 /// <param name="LastValidationRunId">Dapr workflow instance id of the most recent validation run. Null until the first run.</param>
+/// <param name="Role">Optional role identifier used by multicast resolution (mirrors <see cref="AgentResponse.Role"/>). Added in #2341.</param>
+/// <param name="Specialty">Optional specialty label consumed by orchestration strategies (mirrors <see cref="AgentResponse.Specialty"/>). Added in #2341.</param>
+/// <param name="Enabled">Whether the unit participates in orchestration. Defaults to <c>true</c> (mirrors <see cref="AgentResponse.Enabled"/>). Added in #2341.</param>
+/// <param name="ExecutionMode">How the unit participates in dispatch (mirrors <see cref="AgentResponse.ExecutionMode"/>). Added in #2341.</param>
 /// <remarks>
 /// ADR-0038: the standalone <c>Provider</c> slot is dropped — provider is
 /// intrinsic to <c>execution.model.provider</c>. The execution tool slot
@@ -103,7 +132,11 @@ public record UnitResponse(
     string? Hosting = null,
     UnitValidationError? LastValidationError = null,
     string? LastValidationRunId = null,
-    string? Instructions = null);
+    string? Instructions = null,
+    string? Role = null,
+    string? Specialty = null,
+    bool Enabled = true,
+    AgentExecutionMode ExecutionMode = AgentExecutionMode.Auto);
 
 /// <summary>
 /// Request body for adding a member to a unit.

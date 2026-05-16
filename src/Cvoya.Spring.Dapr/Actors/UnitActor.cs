@@ -877,7 +877,10 @@ public class UnitActor : Actor, IUnitActor
             metadata.Model is not null
             || metadata.Color is not null
             || metadata.Provider is not null
-            || metadata.Hosting is not null;
+            || metadata.Hosting is not null
+            || metadata.Specialty is not null
+            || metadata.Enabled is not null
+            || metadata.ExecutionMode is not null;
 
         // The coordinator emits the StateChanged event when at least one
         // actor-owned field was patched. Emit a directory-only audit

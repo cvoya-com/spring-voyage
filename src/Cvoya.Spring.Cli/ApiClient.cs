@@ -215,6 +215,55 @@ public class SpringApiClient
     }
 
     /// <summary>
+    /// PATCH the unit's mutable metadata (#2341). Every parameter is optional
+    /// — <c>null</c> means "leave unchanged"; the Kiota request adapter elides
+    /// absent properties so only the supplied fields hit the wire. Mirrors the
+    /// agent equivalent now that <c>UnitMetadata</c> carries the role /
+    /// specialty / enabled / executionMode parity slots.
+    /// </summary>
+    /// <remarks>
+    /// The <c>instructions</c> tri-state still requires the raw-JSON path in
+    /// <see cref="SetUnitInstructionsAsync"/> because Kiota's writer elides
+    /// <c>null</c> strings (and we need to distinguish absent from
+    /// explicit-null on the wire to clear the slot). All other slots can ride
+    /// the Kiota client because their "leave unchanged" semantics match
+    /// absence on the wire.
+    /// </remarks>
+    public async Task<UnitResponse?> UpdateUnitAsync(
+        string unitId,
+        string? displayName = null,
+        string? description = null,
+        string? model = null,
+        string? color = null,
+        string? hosting = null,
+        string? role = null,
+        string? specialty = null,
+        bool? enabled = null,
+        AgentExecutionMode? executionMode = null,
+        CancellationToken ct = default)
+    {
+        var body = new UpdateUnitRequest
+        {
+            DisplayName = displayName,
+            Description = description,
+            Model = model,
+            Color = color,
+            Hosting = hosting,
+            Role = role,
+            Specialty = specialty,
+            Enabled = enabled,
+            ExecutionMode = executionMode is null
+                ? null
+                : new UpdateUnitRequest.UpdateUnitRequest_executionMode
+                {
+                    AgentExecutionMode = executionMode,
+                },
+        };
+
+        return await _client.Api.V1.Tenant.Units[unitId].PatchAsync(body, cancellationToken: ct);
+    }
+
+    /// <summary>
     /// Builds the raw PATCH body for an instructions-only update. The
     /// JSON shape is <c>{"instructions": &lt;value-or-null&gt;}</c>; the
     /// server's tri-state distinguishes absent / explicit-null /

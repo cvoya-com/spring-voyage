@@ -31,6 +31,14 @@ public class UnitDefinitionEntity : ITenantScopedEntity
     /// <summary>Gets or sets an optional description of the unit.</summary>
     public string? Description { get; set; }
 
+    /// <summary>
+    /// Optional role identifier used for multicast resolution (e.g.,
+    /// <c>backend-team</c>). Mirrors <see cref="AgentDefinitionEntity.Role"/>;
+    /// the directory index resolves both unit and agent rows by role.
+    /// Added in #2341 for unit/agent parity per <c>units-vs-agents.md</c>.
+    /// </summary>
+    public string? Role { get; set; }
+
     /// <summary>Gets or sets the full unit definition stored as JSON.</summary>
     public JsonElement? Definition { get; set; }
 

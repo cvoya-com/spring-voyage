@@ -121,6 +121,39 @@ public class UnitLiveConfigRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task UpsertMetadataAsync_ParityFields_PersistAndRoundTrip()
+    {
+        // #2341: Specialty / Enabled / ExecutionMode were added to UnitMetadata
+        // for unit/agent parity. Confirm the live-config repository persists
+        // them through the actor-owned write path the same way Model/Color do.
+        var ct = TestContext.Current.CancellationToken;
+
+        var written = await _repository.UpsertMetadataAsync(
+            Unit1,
+            new UnitMetadata(
+                DisplayName: null,
+                Description: null,
+                Model: null,
+                Color: null,
+                Provider: null,
+                Hosting: null,
+                Specialty: "reviewer",
+                Enabled: false,
+                ExecutionMode: Cvoya.Spring.Core.Agents.AgentExecutionMode.OnDemand),
+            ct);
+
+        written.Count.ShouldBe(3);
+        written.ShouldContain("Specialty");
+        written.ShouldContain("Enabled");
+        written.ShouldContain("ExecutionMode");
+
+        var fetched = await _repository.GetMetadataAsync(Unit1, ct);
+        fetched.Specialty.ShouldBe("reviewer");
+        fetched.Enabled.ShouldBe(false);
+        fetched.ExecutionMode.ShouldBe(Cvoya.Spring.Core.Agents.AgentExecutionMode.OnDemand);
+    }
+
+    [Fact]
     public async Task UpsertMetadataAsync_DisplayNameAndDescription_AreIgnored()
     {
         // ADR-0040: DisplayName / Description live on the directory
