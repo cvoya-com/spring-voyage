@@ -40,6 +40,8 @@ import type {
   BudgetResponse,
   CloneResponse,
   CostBreakdownResponse,
+  EquippedSkillsResponse,
+  EquipSkillRequest,
   InstalledConnectorResponse,
   InstallStatusResponse,
   PackageInstallTarget,
@@ -60,6 +62,7 @@ import type {
   PersistentAgentDeploymentResponse,
   PersistentAgentLogsResponse,
   PlatformInfoResponse,
+  SkillSummary,
   TenantCostTimeseriesResponse,
   ThroughputRollupResponse,
   TokenResponse,
@@ -1714,5 +1717,133 @@ export function useIssueCounts(
     enabled: (opts?.enabled ?? true) && subjects.length > 0,
     refetchInterval: opts?.refetchInterval ?? 30_000,
     staleTime: 5_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Equipped skills (#2360 / #2362)
+// ---------------------------------------------------------------------------
+//
+// The Skills sub-tab on both Unit and Agent pages rides these hooks. The
+// `scope` arg routes to the matching subject endpoint — unit skills feed
+// Layer 2 of the assembled prompt, agent skills feed Layer 4. Mutations
+// invalidate the affected slice + the subject's detail slice (the latter
+// because future surfaces may surface the equipped count alongside the
+// general detail envelope).
+
+export type SkillSubjectScope = "unit" | "agent";
+
+/**
+ * Read the list of skill bundles equipped on a unit or agent.
+ * Mirrors `GET /api/v1/tenant/{units|agents}/{id}/skills` (#2360).
+ */
+export function useEquippedSkills(
+  scope: SkillSubjectScope,
+  id: string,
+  opts?: SliceOptions<EquippedSkillsResponse>,
+): UseQueryResult<EquippedSkillsResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.skills.equipped(scope, id),
+    queryFn: () =>
+      scope === "unit" ? api.getUnitSkills(id) : api.getAgentSkills(id),
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Derived list of every authored skill the operator can equip — the
+ * union of `kind: Skill` bundles across every installed package.
+ *
+ * v0.1 has no dedicated `GET /api/v1/packages/skills` endpoint. Instead
+ * the hook fans `listPackages()` → `getPackage(name)` for every
+ * package with `skillCount > 0` and concatenates each
+ * `PackageDetail.skills` array. The N+1 is bounded by the small number
+ * of installed packages a tenant runs at v0.1; if catalog size grows we
+ * file a dedicated endpoint (out of scope here). Errors on a single
+ * package detail are silently skipped — a partial browse list beats a
+ * hard failure on the whole drawer.
+ */
+export function useAvailableSkills(
+  opts?: SliceOptions<readonly SkillSummary[]>,
+): UseQueryResult<readonly SkillSummary[], Error> {
+  return useQuery({
+    queryKey: queryKeys.skills.available(),
+    queryFn: async (): Promise<readonly SkillSummary[]> => {
+      const packages = (await api.listPackages()) as PackageSummary[];
+      const skillBearing = packages.filter((p) => (p.skillCount ?? 0) > 0);
+      const details = await Promise.allSettled(
+        skillBearing.map((p) => api.getPackage(p.name)),
+      );
+      const out: SkillSummary[] = [];
+      for (const result of details) {
+        if (result.status !== "fulfilled") continue;
+        const detail = result.value as PackageDetail | null;
+        if (!detail || !Array.isArray(detail.skills)) continue;
+        for (const s of detail.skills) {
+          out.push(s);
+        }
+      }
+      // Stable sort: package, then skill name. Mirrors the equipped list
+      // ordering so the drawer reads alphabetically when scrolling.
+      out.sort((a, b) => {
+        const byPkg = a.package.localeCompare(b.package);
+        return byPkg !== 0 ? byPkg : a.name.localeCompare(b.name);
+      });
+      return out;
+    },
+    staleTime: opts?.staleTime ?? 60_000,
+    refetchInterval: opts?.refetchInterval,
+    enabled: opts?.enabled,
+  });
+}
+
+/**
+ * Equip a skill bundle on a unit or agent. Mirrors
+ * `POST /api/v1/tenant/{units|agents}/{id}/skills` (#2360). On success
+ * the server returns the new full equipped list, which we seed back
+ * into the per-(scope, id) cache so the panel renders the optimistic
+ * truth without a refetch.
+ */
+export function useEquipSkill(
+  scope: SkillSubjectScope,
+  id: string,
+): UseMutationResult<EquippedSkillsResponse, Error, EquipSkillRequest> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: EquipSkillRequest) =>
+      scope === "unit"
+        ? api.equipUnitSkill(id, body)
+        : api.equipAgentSkill(id, body),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.skills.equipped(scope, id), updated);
+    },
+  });
+}
+
+/**
+ * Unequip a skill bundle. Mirrors
+ * `DELETE /api/v1/tenant/{units|agents}/{id}/skills/{packageName}/{skillName}`
+ * (#2360). Same cache-seeding pattern as {@link useEquipSkill}.
+ */
+export interface UnequipSkillInput {
+  packageName: string;
+  skillName: string;
+}
+
+export function useUnequipSkill(
+  scope: SkillSubjectScope,
+  id: string,
+): UseMutationResult<EquippedSkillsResponse, Error, UnequipSkillInput> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ packageName, skillName }: UnequipSkillInput) =>
+      scope === "unit"
+        ? api.unequipUnitSkill(id, packageName, skillName)
+        : api.unequipAgentSkill(id, packageName, skillName),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.skills.equipped(scope, id), updated);
+    },
   });
 }

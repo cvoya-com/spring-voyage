@@ -137,6 +137,62 @@ spring unit export <unit> > engineering-team.yaml
 
 This works regardless of how the unit was originally built (imperatively or declaratively).
 
+## Equipping Skills
+
+Skills are authored capabilities shipped inside packages (artefacts with
+`kind: Skill`). Each skill carries a markdown prompt fragment plus an
+optional `<name>.tools.json` declaration of the tools its prose expects
+to invoke. Equipping a skill on a subject *concatenates that fragment*
+into the assembled prompt: equipped on a **unit**, the body lands in
+Layer 2 (unit context) and is visible to every member agent; equipped on
+an **agent**, it lands in Layer 4 (agent instructions) and is private to
+that agent. See `docs/architecture/agents.md` for the four-layer model
+and `docs/concepts/skills.md` for the package authoring shape.
+
+Addressing is always `<package>/<skill>`. No version pinning — operators
+who reinstall the package with new content pick up the new body on the
+next turn.
+
+### Via the portal
+
+Open the Unit (or Agent) detail page and switch to the **Skills** tab
+(under `Config` on the agent overflow strip, surfaced top-level on the
+unit). The tab shows:
+
+- **Equipped list** — each row labelled `<pkg>/<skill>` with a short
+  prompt summary, a tool-count chip when the skill declares any required
+  tools, and a per-row Remove button (confirmation-gated).
+- **Equip a skill** button — opens a focus-trapped dialog that lists
+  every `kind: Skill` bundle across your installed packages. Type-ahead
+  filters by package or skill name; clicking *Equip* writes the bundle
+  to the subject's store and refreshes the equipped list in place.
+- **Inherited rows (agent only)** — bundles equipped on the agent's
+  owning unit render greyed-out with an `Inherited from <unit>` badge
+  linking back to the parent unit's Skills tab. Operators detach an
+  inherited skill by visiting that parent — agents cannot override an
+  inherited bundle, only stack additional ones on top.
+
+The dialog flags bundles already equipped (directly or inherited) with
+an in-place `Equipped` pill so it is hard to double-equip.
+
+### Via the CLI
+
+```bash
+spring unit  skills list   <unit>
+spring unit  skills add    <unit>  --skill <package>/<skill>
+spring unit  skills remove <unit>  --skill <package>/<skill>
+spring unit  skills set    <unit>  --skill <package>/<skill>[,…]
+
+spring agent skills list   <agent>
+spring agent skills add    <agent> --skill <package>/<skill>
+spring agent skills remove <agent> --skill <package>/<skill>
+spring agent skills set    <agent> --skill <package>/<skill>[,…]
+```
+
+`add` is idempotent on `(packageName, skillName)`; `set` replaces the
+full equipped list in one call. `list` shows the resolved bundles in
+declaration order — the same order the assembled prompt renders them.
+
 ## Agent Lifecycle
 
 ### Creating an Agent
