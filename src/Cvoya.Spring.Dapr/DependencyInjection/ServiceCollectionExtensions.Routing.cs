@@ -16,6 +16,7 @@ using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Memory;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Skills;
+using Cvoya.Spring.Dapr.Units;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -107,6 +108,15 @@ internal static class ServiceCollectionExtensionsRouting
         // implementations.
         services.TryAddSingleton<IUnitConnectorConfigStore, UnitActorConnectorConfigStore>();
         services.TryAddSingleton<IUnitConnectorRuntimeStore, UnitActorConnectorRuntimeStore>();
+
+        // #2359: the unit-start connector dispatcher must register here, not
+        // in the API host. UnitActor.TryAutoStartAsync runs in the Worker
+        // process — which has no project reference to Cvoya.Spring.Host.Api —
+        // so a Worker-side null on this seam silently aborts the post-
+        // validation Stopped → Starting → Running sequence and leaves units
+        // wedged in Stopped. Registering in the shared Dapr DI ensures every
+        // host that pulls in AddCvoyaSpringDapr resolves the real dispatcher.
+        services.TryAddSingleton<IUnitConnectorStartDispatcher, UnitConnectorStartDispatcher>();
 
         // ADR-0040 / #2050: connector binding persistence is now
         // EF-backed (unit_connector_bindings table). The singleton store

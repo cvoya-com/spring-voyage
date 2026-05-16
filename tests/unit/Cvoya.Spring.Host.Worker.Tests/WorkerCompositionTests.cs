@@ -13,6 +13,7 @@ using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Tenancy;
+using Cvoya.Spring.Dapr.Units;
 using Cvoya.Spring.Dapr.Workflows;
 using Cvoya.Spring.Host.Worker.Composition;
 
@@ -80,6 +81,32 @@ public class WorkerCompositionTests
         // — a non-empty set is the contract the Worker depends on.
         registries.ShouldNotBeEmpty();
         registries.ShouldAllBe(r => r != null);
+    }
+
+    /// <summary>
+    /// Regression test for issue #2359: the unit-start connector dispatcher
+    /// must resolve in the Worker host. Pre-fix, the registration lived in
+    /// <c>Cvoya.Spring.Host.Api.Services.ServiceCollectionExtensions</c>
+    /// only, and the Worker — which never invokes <c>AddCvoyaSpringApiServices</c>
+    /// — silently saw a null dispatcher on <see cref="Actors.UnitActor"/>.
+    /// <c>UnitActor.TryAutoStartAsync</c> exited early on the null check and
+    /// every unit settled in <c>Stopped</c> rather than advancing to
+    /// <c>Running</c> after validation. Moving the registration into the
+    /// shared <c>AddCvoyaSpringDapr</c> module (via
+    /// <c>ServiceCollectionExtensionsRouting</c>) fixes the gap.
+    /// </summary>
+    [Fact]
+    public void AddWorkerServices_UnitConnectorStartDispatcher_Resolves()
+    {
+        using var provider = BuildWorkerServiceProvider();
+
+        var dispatcher = provider.GetService<IUnitConnectorStartDispatcher>();
+
+        dispatcher.ShouldNotBeNull(
+            "IUnitConnectorStartDispatcher must resolve in the Worker DI graph; " +
+            "without it, UnitActor.TryAutoStartAsync silently aborts the " +
+            "Stopped → Starting → Running sequence and units stay wedged in Stopped. " +
+            "Regression for issue #2359.");
     }
 
     [Fact]
