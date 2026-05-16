@@ -8,12 +8,19 @@ vi.mock("./unit-pane-actions", () => ({
   UnitPaneActions: () => null,
 }));
 
-// #2372: the header status cluster reads live LifecycleStatus through
-// `useUnit` / `useAgent`. Stub them so chrome-only tests don't need a
-// TanStack QueryClient — same posture as the pane-actions stub above.
+// #2372 / #2388: the header status cluster reads live LifecycleStatus
+// through `useUnit` / `useAgent`. Stub via mutable refs so individual tests
+// can dictate what each hook resolves with — same posture as the
+// pane-actions stub above (no TanStack QueryClient needed).
+const useUnitMock = vi.fn<(id: string) => { data: unknown }>(() => ({
+  data: undefined,
+}));
+const useAgentMock = vi.fn<(id: string) => { data: unknown }>(() => ({
+  data: undefined,
+}));
 vi.mock("@/lib/api/queries", () => ({
-  useUnit: () => ({ data: undefined }),
-  useAgent: () => ({ data: undefined }),
+  useUnit: (id: string) => useUnitMock(id),
+  useAgent: (id: string) => useAgentMock(id),
 }));
 
 import type { TreeNode } from "./aggregate";
@@ -282,6 +289,166 @@ describe("DetailPane copy-address button (#1070)", () => {
     expect(btn).toHaveAttribute(
       "aria-label",
       "Copy address unit://engineering",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `DetailHeaderStatus` — issue #2388 regression suite.
+//
+// The detail-pane header renders a coloured dot + 7-state lifecycle badge
+// for the selected node. The cluster reads live `LifecycleStatus` from
+// `useUnit(id)` for units and `useAgent(id).agent.lifecycleStatus` for
+// agents, falling back to the tree-side `node.status` when the per-kind
+// detail query has not resolved.
+//
+// #2388 reports that the agent detail page header was rendering with no
+// dot or badge for freshly-created agents. The badge component itself
+// always renders SOMETHING (unknown statuses collapse to "Draft"), so the
+// risk surface is upstream — a contract drift on the
+// `AgentDetailResponse.agent.lifecycleStatus` field or a regression in
+// the header's read path would cause the cluster to render against an
+// empty value. These tests pin the live-read paths for both kinds.
+// ---------------------------------------------------------------------------
+
+describe("DetailHeaderStatus (#2388)", () => {
+  beforeEach(() => {
+    __resetTabRegistryForTesting();
+    useUnitMock.mockReset();
+    useAgentMock.mockReset();
+    useUnitMock.mockReturnValue({ data: undefined });
+    useAgentMock.mockReturnValue({ data: undefined });
+  });
+  afterEach(() => {
+    __resetTabRegistryForTesting();
+    vi.restoreAllMocks();
+  });
+
+  it("renders the dot + badge for a unit using the tree-side status while the unit query is unresolved", () => {
+    // Mirrors the cold-load path: tree carries `status: "running"`, the
+    // per-unit detail query has not yet returned. The badge must still
+    // render so the operator sees the unit's lifecycle without waiting
+    // for the round-trip.
+    render(
+      <DetailPane
+        node={unit}
+        path={[tenant, unit]}
+        tab="Overview"
+        onTabChange={vi.fn()}
+        onSelectNode={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("detail-status-dot")).toHaveAttribute(
+      "data-lifecycle-status",
+      "Running",
+    );
+    expect(screen.getByTestId("detail-status-badge")).toHaveAttribute(
+      "data-lifecycle-status",
+      "Running",
+    );
+  });
+
+  it("prefers the live unit status from `useUnit` over the tree-side value once the query resolves", () => {
+    useUnitMock.mockReturnValue({
+      // UnitResponse-shaped — `useUnit` returns the unwrapped envelope.
+      data: { status: "Stopped" },
+    });
+    render(
+      <DetailPane
+        node={unit}
+        path={[tenant, unit]}
+        tab="Overview"
+        onTabChange={vi.fn()}
+        onSelectNode={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("detail-status-badge")).toHaveTextContent(
+      "Stopped",
+    );
+    expect(screen.getByTestId("detail-status-dot")).toHaveAttribute(
+      "data-lifecycle-status",
+      "Stopped",
+    );
+  });
+
+  it("renders the dot + badge for an agent using the tree-side status while the agent query is unresolved (#2388 cold-load)", () => {
+    render(
+      <DetailPane
+        node={agent}
+        path={[tenant, unit, agent]}
+        tab="Overview"
+        onTabChange={vi.fn()}
+        onSelectNode={vi.fn()}
+      />,
+    );
+    // Cold load: `useAgent` returns `{ data: undefined }` so the cluster
+    // falls back to `node.status = "running"` from the tree. Neither the
+    // dot nor the badge may be missing — that was the #2388 symptom.
+    expect(screen.getByTestId("detail-status-dot")).toHaveAttribute(
+      "data-lifecycle-status",
+      "Running",
+    );
+    expect(screen.getByTestId("detail-status-badge")).toHaveTextContent(
+      "Running",
+    );
+  });
+
+  it("prefers the live agent lifecycleStatus from `useAgent` over the tree-side value (#2388 hot path)", () => {
+    // AgentDetailResponse-shaped — the wire emits `lifecycleStatus` as
+    // a lowercase string (see AgentEndpoints.ToAgentResponse). The badge
+    // component normalises to PascalCase.
+    useAgentMock.mockReturnValue({
+      data: {
+        agent: { lifecycleStatus: "running" },
+        status: null,
+        deployment: null,
+      },
+    });
+    render(
+      <DetailPane
+        node={agent}
+        path={[tenant, unit, agent]}
+        tab="Overview"
+        onTabChange={vi.fn()}
+        onSelectNode={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("detail-status-dot")).toHaveAttribute(
+      "data-lifecycle-status",
+      "Running",
+    );
+    expect(screen.getByTestId("detail-status-badge")).toHaveTextContent(
+      "Running",
+    );
+  });
+
+  it("falls back to `node.status` when the agent envelope omits `lifecycleStatus` (server returned null)", () => {
+    // The Show endpoint fail-opens to `lifecycleStatus: null` when the
+    // actor proxy throws (see GetAgent_LifecycleStatus_NullWhenActorThrows
+    // on the backend). The header must still render — the tree-side
+    // status keeps the badge populated until the next refetch.
+    useAgentMock.mockReturnValue({
+      data: {
+        agent: { lifecycleStatus: null },
+        status: null,
+        deployment: null,
+      },
+    });
+    render(
+      <DetailPane
+        node={agent}
+        path={[tenant, unit, agent]}
+        tab="Overview"
+        onTabChange={vi.fn()}
+        onSelectNode={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("detail-status-dot")).toHaveAttribute(
+      "data-lifecycle-status",
+      "Running",
+    );
+    expect(screen.getByTestId("detail-status-badge")).toHaveTextContent(
+      "Running",
     );
   });
 });

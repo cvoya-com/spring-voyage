@@ -953,6 +953,83 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body.Agent.ExecutionImage.ShouldBeNull();
     }
 
+    // -------------------------------------------------------------------
+    // GET /api/v1/tenant/agents/{id} — lifecycleStatus projection (#2388).
+    //
+    // The Show endpoint reads the agent's persisted LifecycleStatus through
+    // the actor proxy (#2156 / #2371) and emits it as a lowercase string on
+    // the wire so the portal's detail-pane header
+    // (`<DetailHeaderStatus>` in `unit-detail-pane.tsx`) can render the
+    // 7-state badge without falling back to the stale tree-side value.
+    // The wire contract these tests pin:
+    //   1. The JSON key is camelCase `lifecycleStatus` (matches schema.d.ts
+    //      `AgentResponse.lifecycleStatus`).
+    //   2. The value is the lowercase form of `LifecycleStatus` (e.g.
+    //      `"running"`, `"draft"`) — the front-end `normaliseLifecycleStatus`
+    //      handles the lowercase → PascalCase coercion.
+    //   3. When the actor's `GetStatusAsync` throws, the field is JSON null
+    //      (fail-open path in `GetAgentAsync`) so the rest of the envelope
+    //      still renders.
+    // -------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Running, "running")]
+    [InlineData(Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Draft, "draft")]
+    [InlineData(Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Validating, "validating")]
+    [InlineData(Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Error, "error")]
+    public async Task GetAgent_LifecycleStatus_EmittedAsLowercaseStringOnWire(
+        Cvoya.Spring.Core.Lifecycle.LifecycleStatus actorStatus,
+        string expectedWireValue)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Lifecycle Agent");
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 0, channels: 0);
+        ArrangeAgentLifecycleStatus(agentId, actorStatus);
+
+        var response = await _client.GetAsync($"/api/v1/tenant/agents/{agentId:N}", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Read the raw JSON to pin the camelCase key + lowercase value
+        // contract the portal's detail-pane header reads from. A typed
+        // `ReadFromJsonAsync` would mask a key-casing drift.
+        var raw = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(raw);
+        var agent = doc.RootElement.GetProperty("agent");
+        agent.TryGetProperty("lifecycleStatus", out var statusProp).ShouldBeTrue(
+            "AgentResponse.lifecycleStatus must be present on the wire so " +
+            "<DetailHeaderStatus> can render the live badge for the agent " +
+            "detail page (issue #2388).");
+        statusProp.ValueKind.ShouldBe(JsonValueKind.String);
+        statusProp.GetString().ShouldBe(expectedWireValue);
+    }
+
+    [Fact]
+    public async Task GetAgent_LifecycleStatus_NullWhenActorThrows()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeAgentDirectoryEntry(agentId, "Cold Agent");
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 0, channels: 0);
+
+        // Override GetStatusAsync to throw so the fail-open path in
+        // GetAgentAsync kicks in and the field collapses to JSON null.
+        var proxy = _factory.ActorProxyFactory.CreateActorProxy<IAgentActor>(
+            new ActorId(agentId.ToString("N")), nameof(AgentActor));
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>())
+            .Returns<Cvoya.Spring.Core.Lifecycle.LifecycleStatus>(
+                _ => throw new InvalidOperationException("actor offline"));
+
+        var response = await _client.GetAsync($"/api/v1/tenant/agents/{agentId:N}", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var raw = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(raw);
+        var agent = doc.RootElement.GetProperty("agent");
+        agent.TryGetProperty("lifecycleStatus", out var statusProp).ShouldBeTrue();
+        statusProp.ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
     private async Task SeedAgentDefinitionAsync(
         Guid agentId,
         string displayName,
@@ -1039,6 +1116,23 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 Arg.Is<ActorId>(a => a.GetId() == actorIdString),
                 Arg.Any<string>())
             .Returns(proxy);
+    }
+
+    /// <summary>
+    /// Stubs the agent actor's <c>GetStatusAsync</c> on the proxy that
+    /// <see cref="ArrangeAgentRuntimeStatus"/> already registered. Used by
+    /// the #2388 wire-contract tests to drive a real <see cref="Cvoya.Spring.Core.Lifecycle.LifecycleStatus"/>
+    /// through the Show endpoint instead of relying on the substitute's
+    /// default (which always returns <see cref="Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Draft"/>).
+    /// </summary>
+    private void ArrangeAgentLifecycleStatus(
+        Guid agentId,
+        Cvoya.Spring.Core.Lifecycle.LifecycleStatus status)
+    {
+        var actorIdString = agentId.ToString("N");
+        var proxy = _factory.ActorProxyFactory.CreateActorProxy<IAgentActor>(
+            new ActorId(actorIdString), nameof(AgentActor));
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(status);
     }
 
     private void ArrangeAgentExecutionShape(Guid agentId, string hosting)
