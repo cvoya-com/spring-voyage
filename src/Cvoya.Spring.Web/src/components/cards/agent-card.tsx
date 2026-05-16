@@ -223,7 +223,15 @@ export function AgentCard({
           </p>
         )}
 
-        <div className="relative z-[1] mt-3 flex items-center justify-between">
+        {/*
+          Footer strip stays `relative z-[1]` so interactive children paint
+          above the full-card overlay, but `pointer-events-none` lets the
+          gap between the cross-link icons and the right-hand action group
+          fall through to the overlay link — clicking that whitespace now
+          navigates to the agent instead of dying on a wrapper div.
+          Interactive descendants restore `pointer-events-auto`.
+        */}
+        <div className="pointer-events-none relative z-[1] mt-3 flex items-center justify-between">
           {/* Legacy cross-links: suppressed when the `<CardTabRow>`
               footer is active via `onOpenTab`. */}
           <div
@@ -250,7 +258,7 @@ export function AgentCard({
           <div className="flex items-center gap-1">
             {actions && (
               <div
-                className="flex items-center gap-1"
+                className="pointer-events-auto flex items-center gap-1"
                 data-testid={`agent-actions-${agent.name}`}
               >
                 {actions}
@@ -258,7 +266,7 @@ export function AgentCard({
             )}
             <Link
               href={href}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
+              className="pointer-events-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
               data-testid={`agent-open-${agent.name}`}
             >
               Open
@@ -300,7 +308,7 @@ function CrossLinkButton({
       aria-label={label}
       title={label}
       data-testid={testId}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
       {icon}
     </Link>
