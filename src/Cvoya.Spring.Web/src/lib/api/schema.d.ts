@@ -372,12 +372,12 @@ export interface paths {
         };
         /**
          * Get the equipped skills for a unit
-         * @description A unit is an agent (ADR-0039); its skills are stored by the same agent-live-config store used for leaf agents. Mirrors `spring agent skills get`.
+         * @description A unit is an agent (ADR-0039); its skills are stored by the same agent-live-config store used for leaf agents.
          */
         get: operations["GetUnitSkills"];
         /**
          * Replace the equipped skills for a unit
-         * @description Full replacement — pass the complete desired skill list. Use [] to clear. Mirrors `spring agent skills set`.
+         * @description Full replacement — pass the complete desired skill list. Use [] to clear.
          */
         put: operations["SetUnitSkills"];
         post?: never;

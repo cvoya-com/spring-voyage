@@ -99,14 +99,14 @@ public static class UnitEndpoints
         group.MapGet("/{id}/skills", GetUnitSkillsAsync)
             .WithName("GetUnitSkills")
             .WithSummary("Get the equipped skills for a unit")
-            .WithDescription("A unit is an agent (ADR-0039); its skills are stored by the same agent-live-config store used for leaf agents. Mirrors `spring agent skills get`.")
+            .WithDescription("A unit is an agent (ADR-0039); its skills are stored by the same agent-live-config store used for leaf agents.")
             .Produces<AgentSkillsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPut("/{id}/skills", SetUnitSkillsAsync)
             .WithName("SetUnitSkills")
             .WithSummary("Replace the equipped skills for a unit")
-            .WithDescription("Full replacement — pass the complete desired skill list. Use [] to clear. Mirrors `spring agent skills set`.")
+            .WithDescription("Full replacement — pass the complete desired skill list. Use [] to clear.")
             .Produces<AgentSkillsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);

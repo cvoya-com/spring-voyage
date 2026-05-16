@@ -140,9 +140,6 @@ export type CreateTokenResponse = Schemas["CreateTokenResponse"];
 /** Entry in the platform-wide skill catalog (GET /api/v1/skills). */
 export type SkillCatalogEntry = Schemas["SkillCatalogEntry"];
 
-/** GET /api/v1/agents/{id}/skills response body. */
-export type AgentSkillsResponse = Schemas["AgentSkillsResponse"];
-
 /** Matches Cvoya.Spring.Core.Units.UnitStatus enum. */
 export type UnitStatus = Schemas["UnitStatus"];
 
