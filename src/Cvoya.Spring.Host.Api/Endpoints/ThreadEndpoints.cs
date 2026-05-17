@@ -115,6 +115,17 @@ public static class ThreadEndpoints
         }
 
         var from = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (from is null)
+        {
+            // Endpoint sits behind RequireAuthorization(TenantUser); a null
+            // caller means the auth pipeline accepted the request but did
+            // not surface a NameIdentifier claim. Surface as 401 rather
+            // than fabricating a synthetic sender (#2405).
+            return Results.Problem(
+                detail: "No authenticated caller identity available.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
         var to = Address.For(request.To.Scheme, request.To.Path ?? string.Empty);
         var messageId = Guid.NewGuid();
 
@@ -303,11 +314,17 @@ public static class InboxEndpoints
         CancellationToken cancellationToken)
     {
         var caller = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (caller is null)
+        {
+            // Inbox is scoped to the authenticated caller. Without an
+            // identity there is no inbox to list (#2405).
+            return Results.Problem(
+                detail: "No authenticated caller identity available.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
         // callerAddress is the canonical form used to match activity event
-        // sources. For identity-form addresses (uuid-keyed humans) use
-        // ToIdentityUri(); for the fallback navigation form use scheme://path.
-        // The address always renders as scheme:no-dash-guid post-#1629; the
-        // identity vs navigation distinction is gone.
+        // sources. Every address renders as scheme:no-dash-guid post-#1629
+        // (ADR-0036); the identity vs navigation distinction is gone.
         var callerAddress = caller.ToString();
 
         // Fetch the caller's per-thread read cursors from their HumanActor so
@@ -352,6 +369,15 @@ public static class InboxEndpoints
         }
 
         var caller = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (caller is null)
+        {
+            // mark-read writes a per-thread read cursor on the caller's
+            // HumanActor; without an identity there is nothing to advance
+            // (#2405).
+            return Results.Problem(
+                detail: "No authenticated caller identity available.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
         var readAt = DateTimeOffset.UtcNow;
 
         var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(

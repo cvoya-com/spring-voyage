@@ -1081,15 +1081,24 @@ public static class AgentEndpoints
         var (metadata, parentUnitGuid) = await GetDerivedAgentMetadataAsync(proxy, membershipRepository, agentActorUuid, directoryService, cancellationToken);
 
         // #339: Thread the authenticated caller's identity through as the
-        // From address rather than hardcoding `human://api`. The router's
-        // permission gate only fires for `unit://` destinations today, so
-        // `agent://` dispatch works either way — but the synthetic identity
-        // dropped observability (activity events are labelled with the
-        // sender) and masked auth bugs. Falls back to `human://api` only
-        // when no authenticated principal is present.
+        // From address. The router's permission gate only fires for
+        // `unit://` destinations today, so `agent://` dispatch works either
+        // way — but a synthetic identity would drop observability (activity
+        // events are labelled with the sender). #2405: the accessor returns
+        // null when no authenticated principal is present; this endpoint is
+        // behind RequireAuthorization(TenantUser) so that means the auth
+        // pipeline accepted the request but did not surface a NameIdentifier
+        // claim — surface as 401 rather than fabricating a From.
+        var callerAddress = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (callerAddress is null)
+        {
+            return Results.Problem(
+                detail: "No authenticated caller identity available.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
         var statusQuery = new Message(
             Guid.NewGuid(),
-            await callerAccessor.GetCallerAddressAsync(cancellationToken),
+            callerAddress,
             address,
             MessageType.StatusQuery,
             null,

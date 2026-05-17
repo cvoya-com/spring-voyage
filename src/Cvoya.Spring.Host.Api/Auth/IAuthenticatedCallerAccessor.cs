@@ -10,33 +10,37 @@ using Cvoya.Spring.Core.Messaging;
 /// Endpoints that dispatch messages on a user's behalf use this to thread
 /// the authenticated subject's identity through <see cref="IMessageRouter"/>,
 /// so the router's permission gate evaluates against the real caller rather
-/// than a synthetic <c>human://api</c> sender (issue #339).
+/// than a synthetic sender (issue #339).
 /// </summary>
 /// <remarks>
 /// When no authenticated principal is available (out-of-request contexts,
 /// anonymous endpoints, or the LocalDev/ApiToken auth handlers have not
 /// surfaced a <see cref="System.Security.Claims.ClaimTypes.NameIdentifier"/>
-/// claim) the accessor falls back to the synthetic <c>human://api</c>
-/// identity so existing platform-internal call sites keep working. Callers
-/// that specifically want platform-internal semantics should bypass
-/// <see cref="IMessageRouter"/> entirely and dispatch to the actor proxy
-/// directly — the accessor is only for user-on-behalf-of dispatch.
+/// claim) the accessor returns <see langword="null"/> from
+/// <see cref="GetCallerAddressAsync"/>. Callers handle that explicitly —
+/// authenticated endpoints fail with 401, background paths degrade.
+/// Post-ADR-0036 every <see cref="Address"/> is Guid-keyed, so there is no
+/// usable synthetic fallback identity at the type level (#2405).
 /// </remarks>
 public interface IAuthenticatedCallerAccessor
 {
     /// <summary>
-    /// Returns the stable identity-form address (<c>human:id:&lt;uuid&gt;</c>)
-    /// representing the authenticated caller, resolving the JWT username to
-    /// a UUID via <see cref="Cvoya.Spring.Core.Security.IHumanIdentityResolver"/>.
-    /// Falls back to the navigation-form <c>human://api</c> address when no
-    /// authenticated subject is present.
+    /// Returns the stable Guid-keyed address representing the authenticated
+    /// caller, resolving the JWT username to a UUID via
+    /// <see cref="Cvoya.Spring.Core.Security.IHumanIdentityResolver"/>.
+    /// Returns <see langword="null"/> when no authenticated principal is
+    /// present (out-of-request paths, anonymous handlers). Callers must
+    /// branch on null and either degrade or surface a 401.
     /// </summary>
     /// <param name="cancellationToken">Propagates request cancellation.</param>
-    Task<Address> GetCallerAddressAsync(CancellationToken cancellationToken = default);
+    Task<Address?> GetCallerAddressAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the JWT username claim (NameIdentifier) for the current
-    /// authenticated user, or the fallback value when no principal is present.
+    /// authenticated user, or the fallback value when no principal is
+    /// present. Kept on the interface so legacy diagnostics that log a
+    /// username string keep working; new identity comparisons go through
+    /// <see cref="GetCallerAddressAsync"/> and the Guid identity it carries.
     /// </summary>
     string GetUsername();
 }

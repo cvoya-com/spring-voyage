@@ -264,31 +264,16 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             return;
         }
 
-        // Resolve the install caller once per activation. The policy receives
-        // it on every request so it can work from worker / out-of-request
-        // install paths too (where there is no authenticated principal — the
-        // policy receives null and the OSS default returns Skipped). The
-        // accessor's identity-form path returns Address.ForIdentity with a
-        // proper Guid; the fallback navigation form throws when the host
-        // would emit a non-Guid id, so wrap the call in a try/catch and
-        // treat any failure as "no caller available".
-        Guid? callerHumanId = null;
-        try
-        {
-            var callerAddress = await _callerAccessor.GetCallerAddressAsync(ct);
-            if (callerAddress is { Scheme: "human" } && callerAddress.Id != Guid.Empty)
-            {
-                callerHumanId = callerAddress.Id;
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogInformation(
-                ex,
-                "Package human resolution: caller address unavailable for unit '{Unit}'; " +
-                "policy will receive null InstallCallerHumanId.",
-                manifest.DisplayName ?? manifest.Name);
-        }
+        // Resolve the install caller once per activation. The policy
+        // receives it on every request so it can work from worker /
+        // out-of-request install paths too — the accessor returns null
+        // when no authenticated principal is present (#2405), the policy
+        // receives null InstallCallerHumanId, and the OSS default returns
+        // Skipped rather than failing the install.
+        var callerAddress = await _callerAccessor.GetCallerAddressAsync(ct);
+        var callerHumanId = callerAddress is { Scheme: "human" } && callerAddress.Id != Guid.Empty
+            ? callerAddress.Id
+            : (Guid?)null;
 
         var tenantId = _tenantContext.CurrentTenantId;
         var unitDisplayName = !string.IsNullOrWhiteSpace(manifest.DisplayName)
