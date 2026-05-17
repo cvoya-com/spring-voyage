@@ -124,6 +124,14 @@ internal static class ServiceCollectionExtensionsRouting
         // repository — same pattern as IUnitLiveConfigStore.
         services.TryAddSingleton<IUnitConnectorBindingStore, UnitConnectorBindingStore>();
 
+        // #2380: per-launch connector runtime-context resolver. Walks the
+        // subject's direct + inherited bindings, invokes each connector's
+        // IConnectorRuntimeContextContributor, and merges the contributions
+        // into the launch spec. Singleton — internal collaborators are
+        // resolved either from the singleton graph (binding store, hierarchy
+        // resolver) or from a per-call scope (membership repository).
+        services.TryAddSingleton<IConnectorRuntimeContextResolver, ConnectorRuntimeContextResolver>();
+
         // #2335 Sub B: tool-grant resolver + image-tier seam. The
         // resolver merges the four provenance tiers (platform / connector
         // / image / explicit) into a single flat list with provenance

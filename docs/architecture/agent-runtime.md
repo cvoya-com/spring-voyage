@@ -503,6 +503,92 @@ list and the wizard rule does the rest, no per-runtime code change required.
 
 ---
 
+## 4g. Connector runtime-context contribution (#2380)
+
+A connector binding (`unit_connector_bindings`) attaches a unit to an
+external system. The runtime container needs the external-system identity
+and a short-lived credential to act on the binding — the GitHub connector,
+for example, needs the owner / repo / installation id / reviewer login and
+an installation access token so the container's `gh` / `git` tooling can
+push branches and open pull requests.
+
+The bridge is `IConnectorRuntimeContextContributor` (in
+`Cvoya.Spring.Connectors.Abstractions`). Every connector that wants to
+contribute runtime context implements the seam; the dispatcher resolves
+the contributions and merges them into the launch spec.
+
+### Resolution order
+
+For each dispatch the dispatcher invokes
+`IConnectorRuntimeContextResolver.ResolveAsync(subject)` immediately after
+the platform `AgentContextBuilder` bootstrap and before the workspace
+volume mount step:
+
+1. If the subject is an `agent:`, resolve the agent's primary parent unit
+   (first `unit_memberships` row by `CreatedAt`).
+2. Starting from that unit, walk ancestors via the production
+   `IUnitHierarchyResolver` (`unit_subunit_memberships`).
+3. For each connector type id, the closest unit's binding wins (a direct
+   binding on the subject shadows any inherited binding of the same type).
+4. For every resolved binding, invoke the matching contributor (one
+   contributor per connector type id) with the binding payload, the
+   binding's owning unit id, the subject address, and the current
+   tenant id.
+
+### Contribution shape
+
+Each contributor returns env-vars + context files. The dispatcher merges
+both onto the bootstrap-merged launch spec.
+
+| Channel | Reserved namespace | Mount path inside the container |
+| --- | --- | --- |
+| Env vars | `SPRING_CONNECTOR_<SLUG_UPPER>_*` (e.g. `SPRING_CONNECTOR_GITHUB_TOKEN`). | Standard process environment. |
+| Context files | `connectors/<slug>/*` (relative to `/spring/context/`). | `/spring/context/connectors/<slug>/...` (the dispatcher mounts the merged context directory at `/spring/context/` per the runtime spec). |
+
+The resolver fails the launch on any of:
+
+- An env-var key that does not respect the
+  `SPRING_CONNECTOR_<SLUG_UPPER>_*` prefix.
+- A context-file sub-path that does not respect the `connectors/<slug>/`
+  prefix.
+- Two contributors writing the same env-var key or file sub-path.
+- A contributor's contribution colliding with a platform-bootstrap env-var
+  (`SPRING_TENANT_ID`, `SPRING_MCP_TOKEN`, …) or context file
+  (`agent-definition.yaml`, `tenant-config.json`).
+
+These checks are deliberate: a clean dispatch failure is better than a
+container running with a partially-populated environment or a silently
+overwritten platform value.
+
+### Credential lifecycle
+
+Tokens contributed through this seam are **per-launch**. The contributor
+mints credentials inline in `ContributeAsync` — they live only for the
+duration of the container, and rotation is handled by launching again.
+Contributors MUST NOT cache credentials across launches. The seam is
+invoked only from the launch path; plain-text credentials never round-trip
+through any API or portal response.
+
+### GitHub-side contract (v0.1)
+
+`GitHubConnectorRuntimeContextContributor` emits the following on every
+launch whose subject inherits a `UnitGitHubConfig`:
+
+| Env var | Source | Purpose |
+| --- | --- | --- |
+| `SPRING_CONNECTOR_GITHUB_OWNER` | `UnitGitHubConfig.Owner` | Repository owner login. |
+| `SPRING_CONNECTOR_GITHUB_REPO` | `UnitGitHubConfig.Repo` | Repository name. |
+| `SPRING_CONNECTOR_GITHUB_INSTALLATION_ID` | `UnitGitHubConfig.AppInstallationId` | GitHub App installation id (decimal). |
+| `SPRING_CONNECTOR_GITHUB_REVIEWER` | `UnitGitHubConfig.Reviewer` | Chosen reviewer login. Omitted when the binding declares no reviewer; v0.2 will resolve this through a per-human GitHub-handle mapping in the hosted overlay. |
+| `SPRING_CONNECTOR_GITHUB_TOKEN` | `GitHubAppAuth.MintInstallationTokenAsync` | Short-lived installation access token. |
+| `SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT` | Token mint response. | ISO-8601 UTC expiry so the container can plan its work. |
+
+The contributor also writes `connectors/github/binding.json` — the same
+fields minus the token. The token itself lives **only** in the env var so
+log dumps of the context-files mount cannot leak it.
+
+---
+
 ## 5. Dapr Conversation wiring (Spring Voyage Agent runtime only)
 
 > **Naming disambiguation.** "Conversation" in this section refers to Dapr's [Conversation API](https://docs.dapr.io/reference/components-reference/supported-conversation/) — the building block that abstracts the LLM provider call (Ollama / OpenAI / Anthropic / Google). It is unrelated to Spring Voyage's **Thread** concept (the participant-set relationship described in [`docs/architecture/thread-model.md`](thread-model.md) and [ADR-0030](../decisions/0030-thread-model.md)).

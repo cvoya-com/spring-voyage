@@ -222,3 +222,30 @@ Persisting the result of these hooks into a credential-health store
 and flipping health on hot-path 401/403 responses are tracked as
 separate phase-2 sub-issues — the platform side of #674 lands the
 contract first, the storage and middleware land independently.
+
+## Runtime-context contribution (#2380)
+
+A bound connector can deliver its identity and a short-lived credential
+into the runtime container by implementing
+`IConnectorRuntimeContextContributor`. The dispatcher resolves every
+binding applicable to the subject (direct on the unit, or inherited via
+`unit_subunit_memberships`), invokes each contributor, and merges the
+contribution into the launch spec.
+
+Contributors are bound to the **per-launch** lifecycle: tokens are minted
+inside `ContributeAsync` and live only for the duration of the container.
+Rotation is handled by re-launching; contributors MUST NOT cache
+credentials across launches.
+
+Each contributor's env vars must use the reserved namespace
+`SPRING_CONNECTOR_<SLUG_UPPER>_*` and its files must use the
+`connectors/<slug>/*` sub-path. The resolver fails the launch when:
+
+- An env-var key or context-file sub-path collides with another
+  contributor.
+- A contributed name collides with a platform-bootstrap env var (e.g.
+  `SPRING_TENANT_ID`) or context file (e.g. `agent-definition.yaml`).
+
+See [`agent-runtime.md § 4g`](agent-runtime.md#4g-connector-runtime-context-contribution-2380)
+for the launch-path layer diagram, the full GitHub-side env-var contract,
+and the JSON shape of the `connectors/github/binding.json` context file.
