@@ -62,6 +62,17 @@ using Cvoya.Spring.Core.Skills;
 /// <c>ThreadContextBuilder</c> falls back to the address's scheme literal
 /// (e.g. <c>human</c> / <c>agent</c>) — never the raw GUID.
 /// </param>
+/// <param name="ConnectorPromptFragments">
+/// Optional ordered list of markdown fragments contributed by each
+/// connector binding applicable to the launch subject (#2442). The
+/// assembler concatenates these into a platform-layer subsection
+/// titled "Connector context (auto-injected by platform)" — telling
+/// the agent what env-vars its container has, what bound resource
+/// identity each binding represents, and how to use the connector's
+/// CLI tools. Built upstream by the dispatcher via
+/// <c>IConnectorPromptContextResolver</c>; an empty / null list omits
+/// the subsection entirely.
+/// </param>
 /// <remarks>
 /// The peer-directory member list that used to live on this record was
 /// removed in #2231 once the runtime gained the <c>sv.*</c> directory
@@ -80,4 +91,5 @@ public record PromptAssemblyContext(
     IReadOnlyList<SkillBundle>? SkillBundles = null,
     IReadOnlyList<SkillBundle>? AgentSkillBundles = null,
     IReadOnlyList<PendingAmendment>? PendingAmendments = null,
-    IReadOnlyDictionary<Address, string>? PriorMessageSenderDisplayNames = null);
+    IReadOnlyDictionary<Address, string>? PriorMessageSenderDisplayNames = null,
+    IReadOnlyList<string>? ConnectorPromptFragments = null);

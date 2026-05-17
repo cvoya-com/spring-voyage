@@ -142,9 +142,25 @@ public record ConnectorRuntimeContextRequest(
 /// fails the launch if two contributors write the same sub-path. Empty
 /// when the contributor has nothing to add.
 /// </param>
+/// <param name="WellKnownAliasEnvironmentVariables">
+/// Optional extra env-vars the contributor intentionally publishes
+/// outside the <c>SPRING_CONNECTOR_&lt;SLUG_UPPER&gt;_*</c> namespace —
+/// canonical names downstream CLI tooling already reads (#2442). The
+/// canonical example is <c>GITHUB_TOKEN</c>, which the <c>gh</c> CLI
+/// and <c>git</c> credential helpers consume natively; without setting
+/// it, agents would have to manually re-export the namespaced value
+/// before every <c>gh</c> call. Aliases are subject to the same no-
+/// collision rule across contributors as <see cref="EnvironmentVariables"/>,
+/// and the resolver still rejects any alias that collides with a
+/// platform-bootstrap name. The namespaced var (e.g.
+/// <c>SPRING_CONNECTOR_GITHUB_TOKEN</c>) remains the canonical Spring
+/// Voyage interface; the alias is the convenience hop for ecosystem
+/// tooling. Empty when the contributor publishes no aliases.
+/// </param>
 public record ConnectorRuntimeContextContribution(
     IReadOnlyDictionary<string, string> EnvironmentVariables,
-    IReadOnlyDictionary<string, string> ContextFiles)
+    IReadOnlyDictionary<string, string> ContextFiles,
+    IReadOnlyDictionary<string, string>? WellKnownAliasEnvironmentVariables = null)
 {
     /// <summary>
     /// Singleton "no contribution" instance. Contributors return this

@@ -71,6 +71,7 @@ public class A2AExecutionDispatcher(
     IA2ATransportFactory transportFactory,
     ICallbackTokenIssuer callbackTokenIssuer,
     IConnectorRuntimeContextResolver connectorRuntimeContextResolver,
+    IConnectorPromptContextResolver connectorPromptContextResolver,
     ILoggerFactory loggerFactory) : IExecutionDispatcher
 {
     private static readonly ISerializer _yamlSerializer = new SerializerBuilder()
@@ -110,6 +111,12 @@ public class A2AExecutionDispatcher(
     // here only — no API / portal surface ever calls it).
     private readonly IConnectorRuntimeContextResolver _connectorRuntimeContextResolver = connectorRuntimeContextResolver
         ?? throw new ArgumentNullException(nameof(connectorRuntimeContextResolver));
+    // #2442: per-launch connector prompt-context resolver. Walks the same
+    // bindings as the runtime-context resolver and returns the ordered
+    // list of markdown fragments the prompt assembler renders under the
+    // platform-layer "Connector context" subsection.
+    private readonly IConnectorPromptContextResolver _connectorPromptContextResolver = connectorPromptContextResolver
+        ?? throw new ArgumentNullException(nameof(connectorPromptContextResolver));
 
     internal const string CallbackTokenPayloadField = "callbackToken";
 
@@ -206,7 +213,17 @@ public class A2AExecutionDispatcher(
         var threadId = message.ThreadId
             ?? throw new SpringException("A2A dispatch requires a thread id on the message.");
 
-        var prompt = await promptAssembler.AssembleAsync(message, context, cancellationToken);
+        // #2442: resolve every connector binding (direct + inherited) for the
+        // dispatch subject and gather the ordered list of platform-layer
+        // prompt fragments each contributor produced. The fragments land in
+        // the platform layer of the assembled prompt — the assembler is
+        // singleton-safe so we thread them in through the per-invocation
+        // PromptAssemblyContext rather than via a constructor dependency.
+        var connectorPromptFragments = await _connectorPromptContextResolver.ResolveAsync(
+            message.To, cancellationToken);
+        var contextWithConnectorPrompts = WithConnectorPromptFragments(context, connectorPromptFragments);
+
+        var prompt = await promptAssembler.AssembleAsync(message, contextWithConnectorPrompts, cancellationToken);
         // Carry the receiver's scheme into the MCP session so platform
         // tools (#2231) can answer get_self()-style queries without a DB
         // lookup. message.To.Scheme is the authoritative caller-kind here.
@@ -533,6 +550,39 @@ public class A2AExecutionDispatcher(
     }
 
     /// <summary>
+    /// Returns a copy of <paramref name="context"/> with
+    /// <see cref="PromptAssemblyContext.ConnectorPromptFragments"/>
+    /// populated for the dispatch (#2442). Builds a minimal placeholder
+    /// context when the upstream caller passed <c>null</c> so the
+    /// platform-layer "Connector context" subsection still renders even
+    /// when no per-invocation context was supplied. Returns the original
+    /// reference (without an allocation) when there are no fragments to
+    /// inject and the caller already passed a context.
+    /// </summary>
+    private static PromptAssemblyContext? WithConnectorPromptFragments(
+        PromptAssemblyContext? context,
+        IReadOnlyList<string> fragments)
+    {
+        if (fragments is null || fragments.Count == 0)
+        {
+            return context;
+        }
+
+        if (context is null)
+        {
+            return new PromptAssemblyContext(
+                Policies: null,
+                Skills: null,
+                PriorMessages: [],
+                LastCheckpoint: null,
+                AgentInstructions: null,
+                ConnectorPromptFragments: fragments);
+        }
+
+        return context with { ConnectorPromptFragments = fragments };
+    }
+
+    /// <summary>
     /// Produces a stable, short Dapr <c>app-id</c> for a persistent
     /// <c>spring-voyage</c> so workflow / actor state can survive process restarts.
     /// </summary>
@@ -699,7 +749,15 @@ public class A2AExecutionDispatcher(
                 agentId, endpoint);
         }
 
-        var prompt = await promptAssembler.AssembleAsync(message, context, cancellationToken);
+        // #2442: enrich the per-invocation context with the platform-layer
+        // connector prompt fragments before handing it to the assembler.
+        // Symmetric with the ephemeral path — persistent agents must see
+        // the same auto-injected connector context on every dispatch.
+        var connectorPromptFragments = await _connectorPromptContextResolver.ResolveAsync(
+            message.To, cancellationToken);
+        var contextWithConnectorPrompts = WithConnectorPromptFragments(context, connectorPromptFragments);
+
+        var prompt = await promptAssembler.AssembleAsync(message, contextWithConnectorPrompts, cancellationToken);
         var callbackToken = IssuePerMessageCallbackToken(message);
 
         // #2159: register this dispatch as in flight so the background health

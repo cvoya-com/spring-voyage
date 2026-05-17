@@ -124,6 +124,13 @@ internal static class ServiceCollectionExtensionsRouting
         // repository — same pattern as IUnitLiveConfigStore.
         services.TryAddSingleton<IUnitConnectorBindingStore, UnitConnectorBindingStore>();
 
+        // #2442: shared binding-walk helper used by the runtime-context
+        // and prompt-context resolvers. Both walks share the same
+        // direct-vs-inherited semantics, so the helper lives in one place
+        // — change "what bindings apply to a subject" in one place and
+        // both resolvers move together.
+        services.TryAddSingleton<ConnectorBindingWalker>();
+
         // #2380: per-launch connector runtime-context resolver. Walks the
         // subject's direct + inherited bindings, invokes each connector's
         // IConnectorRuntimeContextContributor, and merges the contributions
@@ -131,6 +138,18 @@ internal static class ServiceCollectionExtensionsRouting
         // resolved either from the singleton graph (binding store, hierarchy
         // resolver) or from a per-call scope (membership repository).
         services.TryAddSingleton<IConnectorRuntimeContextResolver, ConnectorRuntimeContextResolver>();
+
+        // #2442: per-launch connector prompt-context resolver. Walks the
+        // same bindings as the runtime-context resolver but invokes each
+        // connector's IConnectorPromptContextContributor and returns the
+        // ordered list of markdown fragments the prompt assembler renders
+        // under the platform-layer "Connector context" subsection.
+        // Singleton for lifetime symmetry with IConnectorRuntimeContextResolver
+        // — the dispatcher is also a singleton, so the two resolvers it
+        // calls must be too. TryAdd so the cloud overlay can substitute a
+        // tenant-aware decorator (e.g. one that redacts the rendered
+        // fragment per tenant policy) without touching this registration.
+        services.TryAddSingleton<IConnectorPromptContextResolver, ConnectorPromptContextResolver>();
 
         // #2335 Sub B: tool-grant resolver + image-tier seam. The
         // resolver merges the four provenance tiers (platform / connector

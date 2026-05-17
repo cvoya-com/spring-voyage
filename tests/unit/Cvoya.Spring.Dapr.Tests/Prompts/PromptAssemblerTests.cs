@@ -214,6 +214,87 @@ public class PromptAssemblerTests
         result.ShouldNotContain("## Unit Context");
     }
 
+    /// <summary>
+    /// #2442: the assembler renders an auto-injected "Connector context"
+    /// section between the platform layer and the unit-context layer
+    /// when the per-invocation context carries connector prompt
+    /// fragments. The section header is the canonical, stable text the
+    /// resolver and docs both pin against.
+    /// </summary>
+    [Fact]
+    public async Task AssembleAsync_ConnectorPromptFragments_RenderUnderPlatformSection()
+    {
+        var message = CreateMessage();
+        var context = new PromptAssemblyContext(
+            Policies: null,
+            Skills: null,
+            PriorMessages: [],
+            LastCheckpoint: null,
+            AgentInstructions: "agent body",
+            ConnectorPromptFragments: new[]
+            {
+                "### GitHub binding — cvoya-com/spring-voyage\nbody-a",
+                "### Other binding\nbody-b",
+            });
+
+        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+
+        result.ShouldContain("## Connector context (auto-injected by platform)");
+        result.ShouldContain("### GitHub binding — cvoya-com/spring-voyage");
+        result.ShouldContain("### Other binding");
+        result.ShouldContain("body-a");
+        result.ShouldContain("body-b");
+
+        var platformIdx = result.IndexOf("## Platform Instructions", StringComparison.Ordinal);
+        var connectorIdx = result.IndexOf("## Connector context", StringComparison.Ordinal);
+        var agentIdx = result.IndexOf("## Agent Instructions", StringComparison.Ordinal);
+        platformIdx.ShouldBeLessThan(connectorIdx);
+        connectorIdx.ShouldBeLessThan(agentIdx);
+    }
+
+    [Fact]
+    public async Task AssembleAsync_NoConnectorPromptFragments_OmitsConnectorSectionEntirely()
+    {
+        var message = CreateMessage();
+        var context = new PromptAssemblyContext(
+            Policies: null,
+            Skills: null,
+            PriorMessages: [],
+            LastCheckpoint: null,
+            AgentInstructions: "agent body");
+
+        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+
+        result.ShouldNotContain("## Connector context");
+    }
+
+    [Fact]
+    public async Task AssembleAsync_NullAndBlankConnectorFragments_AreSkipped()
+    {
+        var message = CreateMessage();
+        var context = new PromptAssemblyContext(
+            Policies: null,
+            Skills: null,
+            PriorMessages: [],
+            LastCheckpoint: null,
+            AgentInstructions: null,
+            ConnectorPromptFragments: new[]
+            {
+                "### Real fragment\nbody",
+                string.Empty,
+                "   ",
+            });
+
+        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+
+        result.ShouldContain("### Real fragment");
+        // The whitespace-only entries do not produce any extra heading-
+        // looking output; the section heading appears exactly once.
+        var firstSection = result.IndexOf("## Connector context", StringComparison.Ordinal);
+        var secondSection = result.IndexOf("## Connector context", firstSection + 1, StringComparison.Ordinal);
+        secondSection.ShouldBe(-1);
+    }
+
     [Fact]
     public async Task AssembleAsync_UnitAndAgentBundles_RenderInDistinctLayers()
     {

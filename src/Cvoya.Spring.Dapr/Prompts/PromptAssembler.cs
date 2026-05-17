@@ -26,6 +26,13 @@ public class PromptAssembler(
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<PromptAssembler>();
 
+    /// <summary>
+    /// Heading used for the platform-injected connector-context
+    /// subsection (#2442). Exposed as a constant so tests and downstream
+    /// docs can pin the exact rendered text.
+    /// </summary>
+    internal const string ConnectorContextHeading = "## Connector context (auto-injected by platform)";
+
     /// <inheritdoc />
     public async Task<string> AssembleAsync(
         Message message,
@@ -44,6 +51,30 @@ public class PromptAssembler(
 
         if (context is not null)
         {
+            // Layer 1 (continued): connector context. Platform-injected
+            // markdown fragments built upstream by IConnectorPromptContextResolver
+            // (#2442) — one per direct + inherited connector binding on the
+            // launch subject. Each fragment is expected to start with a
+            // `### …` sub-heading naming the binding; the assembler wraps
+            // them in a single section header so multiple connectors render
+            // cleanly side-by-side. The section is omitted entirely when
+            // the resolver returned no fragments.
+            if (context.ConnectorPromptFragments is { Count: > 0 } fragments)
+            {
+                builder.AppendLine(ConnectorContextHeading);
+                foreach (var fragment in fragments)
+                {
+                    if (string.IsNullOrWhiteSpace(fragment))
+                    {
+                        continue;
+                    }
+
+                    builder.AppendLine(fragment.TrimEnd());
+                    builder.AppendLine();
+                }
+            }
+
+
             // Layer 2: Unit context — policies, connector-skills,
             // unit-equipped skill bundles.
             var unitContext = unitContextBuilder.Build(

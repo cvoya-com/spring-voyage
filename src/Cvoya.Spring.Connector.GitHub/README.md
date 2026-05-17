@@ -18,17 +18,30 @@ integration:
   installation token plus owner / repo / reviewer metadata and surfaces
   it inside the agent container via the
   `SPRING_CONNECTOR_GITHUB_*` env vars and the
-  `connectors/github/binding.json` context file.
+  `connectors/github/binding.json` context file. A convenience alias
+  `GITHUB_TOKEN` is published alongside `SPRING_CONNECTOR_GITHUB_TOKEN`
+  (#2442) so `gh` and `git` credential helpers pick the token up
+  natively — `gh auth status` inside the container reports
+  authenticated without manual setup.
+- Per-launch prompt-context contribution (#2442): for every container
+  launch whose subject inherits the binding, the connector returns a
+  markdown fragment that names the bound repo and lists the env-vars
+  the agent's LLM should read. The fragment lands in the platform
+  layer of the four-layer prompt assembly under
+  `## Connector context (auto-injected by platform)`.
 
 **No `github.*` MCP tools are registered** (issues #2384 / #2383).
 Agent containers run `gh` and `git` directly against GitHub using the
 credentials and metadata that
 `GitHubConnectorRuntimeContextContributor` injects — see
 [`docs/architecture/agent-runtime.md` § 4g](../../docs/architecture/agent-runtime.md#4g-connector-runtime-context-contribution-2380)
-for the env-var contract and the `binding.json` shape. A hosted-overlay
-caching layer for selected GitHub reads is a v0.2 consideration tracked
-separately; the OSS platform does not surface any GitHub workload tool
-through `tools/list`.
+for the env-var contract and the `binding.json` shape, and
+[§ 4h](../../docs/architecture/agent-runtime.md#4h-connector-prompt-context-contribution-2442)
+for the platform-layer prompt fragment the connector injects so the
+agent's LLM knows the env-vars exist. A hosted-overlay caching layer
+for selected GitHub reads is a v0.2 consideration tracked separately;
+the OSS platform does not surface any GitHub workload tool through
+`tools/list`.
 
 The connector self-registers as an `IConnectorType` (slug `github`).
 The Host.Api project iterates every registered `IConnectorType` at

@@ -595,6 +595,80 @@ The contributor also writes `connectors/github/binding.json` — the same
 fields minus the token. The token itself lives **only** in the env var so
 log dumps of the context-files mount cannot leak it.
 
+`GITHUB_TOKEN` is published as a **well-known alias** alongside
+`SPRING_CONNECTOR_GITHUB_TOKEN` (#2442). Both names hold the same value;
+the namespaced var stays canonical, while the alias is the convenience
+hop downstream CLIs already read — `gh` and `git` credential helpers
+pick it up natively, so agents do not need to re-export the namespaced
+value before every call. The contributor returns the alias in the new
+`ConnectorRuntimeContextContribution.WellKnownAliasEnvironmentVariables`
+slot, which is exempt from the `SPRING_CONNECTOR_<SLUG_UPPER>_*` namespace
+check but subject to the same no-collision rule.
+
+## 4h. Connector prompt-context contribution (#2442)
+
+The runtime-context seam (§ 4g) tells the **container** about a binding
+via env-vars and mounted files. The complementary
+`IConnectorPromptContextContributor` seam (in
+`Cvoya.Spring.Connectors.Abstractions`) tells the **agent's LLM** about
+those env-vars by injecting a markdown fragment into the platform layer
+of the four-layer prompt assembly. Without it, the agent sees the
+env-vars in its container but the prompt never tells it they exist —
+the symptom that surfaced during the OSS dogfood: agents asked "what's
+the repo?" instead of reading `$SPRING_CONNECTOR_GITHUB_OWNER`.
+
+The interface is a sibling of `IConnectorRuntimeContextContributor`. A
+connector type implements either or both:
+
+```csharp
+public interface IConnectorPromptContextContributor
+{
+    Guid ConnectorTypeId { get; }
+    Task<string?> GetPromptHintsAsync(
+        Address subject,
+        Guid bindingOwnerUnitId,
+        UnitConnectorBinding binding,
+        CancellationToken ct);
+}
+```
+
+`null` from a contributor means "no hints for this subject" — no
+opt-in flag, no fall-back to a legacy text path. The dispatcher's
+`IConnectorPromptContextResolver` walks the same direct + inherited
+bindings as the runtime-context resolver (both share an internal
+`ConnectorBindingWalker` so the two paths stay in lockstep), gathers
+each contributor's non-null fragment, and threads the ordered list
+through `PromptAssemblyContext.ConnectorPromptFragments`. The prompt
+assembler wraps the concatenated fragments in a single section under
+the platform layer:
+
+```text
+## Platform Instructions
+…
+
+## Connector context (auto-injected by platform)
+
+### GitHub binding — cvoya-com/spring-voyage
+…body…
+
+### Other connector binding
+…
+```
+
+The section is omitted entirely when the resolver returns no
+fragments — no empty heading. Each contributor is expected to open its
+fragment with a `### …` sub-heading naming the binding so multiple
+connectors render cleanly side-by-side.
+
+### GitHub-side contract (v0.1)
+
+`GitHubConnectorRuntimeContextContributor` implements **both** seams.
+Its prompt fragment substitutes the actual `$OWNER` / `$REPO` at hint
+generation time and lists the env-vars the container has, including
+the `$GITHUB_TOKEN` alias. The exact rendered shape is pinned by a
+snapshot test in
+`tests/unit/Cvoya.Spring.Connector.GitHub.Tests/GitHubConnectorRuntimeContextContributorTests.cs`.
+
 ---
 
 ## 5. Dapr Conversation wiring (Spring Voyage Agent runtime only)
