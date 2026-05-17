@@ -35,7 +35,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
     private readonly FakeToolGrantResolver _resolver = new();
     private readonly FakeRegistry _registry = new(
         ("sv.get_self", "sv"),
-        ("github.create_issue", "github"),
+        ("acme.create_issue", "acme"),
         ("arxiv.search", "arxiv"));
     private readonly FakeEnforcer _enforcer = new();
     private McpServer? _server;
@@ -100,14 +100,14 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
             .Select(t => t.GetProperty("name").GetString())
             .ToList();
         tools.ShouldBe(new[] { "sv.get_self" });
-        tools.ShouldNotContain("github.create_issue");
+        tools.ShouldNotContain("acme.create_issue");
         tools.ShouldNotContain("arxiv.search");
     }
 
     [Fact]
     public async Task ToolsCall_UnboundConnectorTool_RejectedWithToolNotGrantedError()
     {
-        // Same setup as above — registry knows github.create_issue, but
+        // Same setup as above — registry knows acme.create_issue, but
         // the resolver does not surface it. tools/call must reject before
         // the registry sees the request.
         var agentId = Guid.NewGuid();
@@ -121,7 +121,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
             jsonrpc = "2.0",
             id = 1,
             method = "tools/call",
-            @params = new { name = "github.create_issue", arguments = new { } },
+            @params = new { name = "acme.create_issue", arguments = new { } },
         });
 
         // Structured JSON-RPC error with the dedicated ToolNotGranted code
@@ -130,7 +130,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         // not authorised for it".
         json.TryGetProperty("error", out var error).ShouldBeTrue();
         error.GetProperty("code").GetInt32().ShouldBe(McpRpcErrorCodes.ToolNotGranted);
-        error.GetProperty("message").GetString()!.ShouldContain("github.create_issue");
+        error.GetProperty("message").GetString()!.ShouldContain("acme.create_issue");
 
         _registry.LastInvokedName.ShouldBeNull();
         _enforcer.LastToolName.ShouldBeNull();
@@ -139,17 +139,17 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
     [Fact]
     public async Task ToolsList_BoundConnectorTool_PresentWhenGranted()
     {
-        // The agent has an inherited connector grant for github.* — the
+        // The agent has an inherited connector grant for acme.* — the
         // resolver returns it, and tools/list surfaces it.
         var agentId = Guid.NewGuid();
         _resolver.SetGrants(
             new Address(Address.AgentScheme, agentId),
             new EffectiveTool("sv.get_self", "sv", "Get self.", ToolProvenance.Platform, null),
             new EffectiveTool(
-                "github.create_issue",
-                "github",
+                "acme.create_issue",
+                "acme",
                 "Create an issue.",
-                ToolProvenance.ConnectorPrefix + "github",
+                ToolProvenance.ConnectorPrefix + "acme",
                 InheritedFromUnitName: "Engineering"));
 
         var session = _server!.IssueSession(agentId.ToString("N"), "conv-1", Address.AgentScheme);
@@ -164,7 +164,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
             .Select(t => t.GetProperty("name").GetString())
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToList();
-        tools.ShouldBe(new[] { "github.create_issue", "sv.get_self" });
+        tools.ShouldBe(new[] { "acme.create_issue", "sv.get_self" });
     }
 
     [Fact]
@@ -205,13 +205,13 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         _resolver.SetGrants(
             new Address(Address.AgentScheme, agentId),
             new EffectiveTool(
-                "github.create_issue",
-                "github",
+                "acme.create_issue",
+                "acme",
                 "Create an issue.",
-                ToolProvenance.ConnectorPrefix + "github",
+                ToolProvenance.ConnectorPrefix + "acme",
                 null));
         _enforcer.NextDecision = PolicyDecision.Deny(
-            "Tool 'github.create_issue' is blocked by unit 'engineering' skill policy.",
+            "Tool 'acme.create_issue' is blocked by unit 'engineering' skill policy.",
             "engineering");
 
         var session = _server!.IssueSession(agentId.ToString("N"), "conv-1", Address.AgentScheme);
@@ -220,7 +220,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
             jsonrpc = "2.0",
             id = 1,
             method = "tools/call",
-            @params = new { name = "github.create_issue", arguments = new { } },
+            @params = new { name = "acme.create_issue", arguments = new { } },
         });
 
         // No -32002 error; policy fired and short-circuited as isError=true.
@@ -229,7 +229,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         result.GetProperty("isError").GetBoolean().ShouldBeTrue();
         result.GetProperty("content")[0].GetProperty("text").GetString()!.ShouldContain("blocked");
 
-        _enforcer.LastToolName.ShouldBe("github.create_issue");
+        _enforcer.LastToolName.ShouldBe("acme.create_issue");
         _registry.LastInvokedName.ShouldBeNull();
     }
 
@@ -278,7 +278,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
             jsonrpc = "2.0",
             id = 1,
             method = "tools/call",
-            @params = new { name = "github.create_issue", arguments = new { } },
+            @params = new { name = "acme.create_issue", arguments = new { } },
         });
 
         json.TryGetProperty("error", out var error).ShouldBeTrue();
@@ -321,10 +321,10 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         _resolver.SetGrants(
             new Address(Address.AgentScheme, agentId),
             new EffectiveTool(
-                "github.create_issue",
-                "github",
+                "acme.create_issue",
+                "acme",
                 "Create an issue.",
-                ToolProvenance.ConnectorPrefix + "github",
+                ToolProvenance.ConnectorPrefix + "acme",
                 null));
         _enforcer.NextDecision = PolicyDecision.Allowed;
 
@@ -334,12 +334,12 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
             jsonrpc = "2.0",
             id = 1,
             method = "tools/call",
-            @params = new { name = "github.create_issue", arguments = new { echo = "hi" } },
+            @params = new { name = "acme.create_issue", arguments = new { echo = "hi" } },
         });
 
         json.TryGetProperty("error", out _).ShouldBeFalse();
         json.GetProperty("result").GetProperty("isError").GetBoolean().ShouldBeFalse();
-        _registry.LastInvokedName.ShouldBe("github.create_issue");
+        _registry.LastInvokedName.ShouldBe("acme.create_issue");
     }
 
     private async Task<JsonElement> PostJsonAsync(string token, object body)

@@ -1,10 +1,34 @@
 # GitHub Connector
 
 `Cvoya.Spring.Connector.GitHub` binds Spring Voyage units to GitHub
-repositories — translating webhook events into platform messages,
-exposing GitHub-aware skills (issues, pull requests, comments, branch /
-file ops, label routing), and handling the GitHub App auth surface
-(installation token minting, OAuth, webhook signature validation).
+repositories. The connector owns the **platform-side** of the GitHub
+integration:
+
+- Binding lifecycle (per-unit `Owner` / `Repo` / `AppInstallationId` /
+  `Reviewer` / inbound-filter config), surfaced through the typed
+  `IConnectorType` endpoints under `/api/v1/connectors/github`.
+- Webhook ingestion: HMAC signature validation, event translation into
+  domain messages, and per-binding inbound filtering (issue #2407).
+- GitHub App auth: JWT minting, installation-token cache, and the
+  authenticated `IGitHubClient` factory used by the webhook registrar
+  and the runtime-context contributor.
+- Webhook registrar (creates / removes the repo webhook on unit
+  start / stop) and label-roundtrip subscriber.
+- Per-launch runtime-context contribution (#2380): mints a short-lived
+  installation token plus owner / repo / reviewer metadata and surfaces
+  it inside the agent container via the
+  `SPRING_CONNECTOR_GITHUB_*` env vars and the
+  `connectors/github/binding.json` context file.
+
+**No `github.*` MCP tools are registered** (issues #2384 / #2383).
+Agent containers run `gh` and `git` directly against GitHub using the
+credentials and metadata that
+`GitHubConnectorRuntimeContextContributor` injects — see
+[`docs/architecture/agent-runtime.md` § 4g](../../docs/architecture/agent-runtime.md#4g-connector-runtime-context-contribution-2380)
+for the env-var contract and the `binding.json` shape. A hosted-overlay
+caching layer for selected GitHub reads is a v0.2 consideration tracked
+separately; the OSS platform does not surface any GitHub workload tool
+through `tools/list`.
 
 The connector self-registers as an `IConnectorType` (slug `github`).
 The Host.Api project iterates every registered `IConnectorType` at

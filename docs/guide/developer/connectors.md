@@ -29,7 +29,7 @@ The shape and the lifecycle hooks (`OnUnitStartingAsync` / `OnUnitStoppingAsync`
 
 Every tool a connector exposes through its `ISkillRegistry` uses an id of the form `<ToolNamespace>.<tool_name>` — lowercase dotted snake_case, validated against `ToolNaming.Pattern` at registration. The platform's structural regression test enumerates every DI-registered `ISkillRegistry` and re-checks the contract from the outside, so a mis-namespaced tool fails the test suite rather than reaching production.
 
-`IConnectorType.ToolNamespace` defaults to `Slug`. Most connectors leave it alone — the GitHub connector ships `github.create_issue`, `github.list_repos`, …; the Arxiv connector ships `arxiv.search`, `arxiv.fetch_abstract`; web-search ships `websearch.query`, `websearch.summarize`. A connector that needs a different namespace (e.g. a bundle of legacy tools imported under a non-slug prefix) overrides the property explicitly:
+`IConnectorType.ToolNamespace` defaults to `Slug`. Most connectors leave it alone — the Arxiv connector ships `arxiv.search`, `arxiv.fetch_abstract`; web-search ships `websearch.query`, `websearch.summarize`. A connector that needs a different namespace (e.g. a bundle of legacy tools imported under a non-slug prefix) overrides the property explicitly:
 
 ```csharp
 public string ToolNamespace => "legacy_acme";
@@ -57,6 +57,51 @@ Once the registry is in place:
 - **The portal surfaces them.** A unit's Config → Tools sub-tab renders one **Connectors** section per bound connector, with an inherited-from-unit badge when the grant flowed through a parent unit.
 
 The connector author's responsibility ends at "register the right `ISkillRegistry` under the right namespace" — everything downstream is platform machinery.
+
+## When NOT to ship a platform-MCP tool surface
+
+Not every connector needs an `ISkillRegistry`. A connector that mainly
+exists to translate inbound events and deliver per-launch credentials
+into the agent container can skip the tool surface entirely — agents
+talk to the external system through CLIs (`gh`, `git`, `kubectl`,
+`gcloud`, …) baked into the container image and authenticated by the
+short-lived secrets the
+[`IConnectorRuntimeContextContributor`](../../architecture/agent-runtime.md#4g-connector-runtime-context-contribution-2380)
+ships per launch.
+
+The built-in GitHub connector follows this pattern in v0.1 (issues
+[#2384](https://github.com/cvoya-com/spring-voyage/issues/2384) and
+[#2383](https://github.com/cvoya-com/spring-voyage/issues/2383)). It
+registers no `ISkillRegistry`, so `tools/list` returns zero `github.*`
+entries for a unit with a GitHub binding. Agents use the in-container
+`gh` and `git` CLIs against the credentials in
+`SPRING_CONNECTOR_GITHUB_TOKEN` / `SPRING_CONNECTOR_GITHUB_OWNER` /
+`SPRING_CONNECTOR_GITHUB_REPO` / `SPRING_CONNECTOR_GITHUB_REVIEWER` /
+`SPRING_CONNECTOR_GITHUB_INSTALLATION_ID` /
+`SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT` plus the
+`connectors/github/binding.json` context file.
+
+Choosing this pattern is appropriate when:
+
+- A well-supported CLI for the external system already exists, and the
+  agent's container can include it.
+- Authoring is faster against the CLI than against a typed MCP tool
+  surface (every `gh` flag versus a hand-rolled tool per verb).
+- The platform host gains no value from intermediating each call (no
+  per-tool policy, no cross-call caching that's actually useful, no
+  unit-scoped budget enforcement).
+
+Choosing a platform-MCP `ISkillRegistry` is appropriate when:
+
+- The external system doesn't have a usable CLI inside containers.
+- Per-call policy or cross-call platform smarts (caching, fan-in /
+  fan-out) are load-bearing.
+- The tool surface is small enough that hand-authoring per-verb
+  schemas is cheaper than carrying a CLI dependency.
+
+Either choice composes with the binding lifecycle and the
+runtime-context contributor — the `ISkillRegistry` is optional, not
+required.
 
 ## Things to watch
 

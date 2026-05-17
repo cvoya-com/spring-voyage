@@ -5,14 +5,12 @@ namespace Cvoya.Spring.Connector.GitHub.DependencyInjection;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
-using Cvoya.Spring.Connector.GitHub.Caching;
 using Cvoya.Spring.Connector.GitHub.Configuration;
 using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Configuration;
-using Cvoya.Spring.Core.Skills;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -174,28 +172,6 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<InstallationTokenCacheOptions>(),
             sp.GetRequiredService<ILoggerFactory>()));
 
-        // Response cache. Options are bound from GitHub:ResponseCache
-        // (Enabled, DefaultTtl, Ttls, CleanupInterval). The OSS default
-        // implementation is in-memory and per-host — multi-host coordination
-        // (e.g. Redis-backed shared cache + invalidation bus) is tracked as
-        // a follow-up. When Enabled=false the implementation resolves to
-        // a pass-through so skill dispatchers call the cache unconditionally
-        // without branching on configuration at every site.
-        services.AddOptions<GitHubResponseCacheOptions>()
-            .Bind(section.GetSection("ResponseCache"));
-        services.TryAddSingleton(sp =>
-            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GitHubResponseCacheOptions>>().Value);
-        services.TryAddSingleton<IGitHubResponseCache>(sp =>
-        {
-            var opts = sp.GetRequiredService<GitHubResponseCacheOptions>();
-            if (!opts.Enabled)
-            {
-                return NoOpGitHubResponseCache.Instance;
-            }
-            return new InMemoryGitHubResponseCache(opts, sp.GetRequiredService<ILoggerFactory>());
-        });
-        services.TryAddSingleton<CachedSkillInvoker>();
-
         services.TryAddSingleton<GitHubAppAuth>();
 
         // OAuth App auth surface — issue #233. Registers options, storage,
@@ -230,37 +206,6 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IGitHubWebhookHandler>(sp => sp.GetRequiredService<GitHubWebhookHandler>());
         services.TryAddSingleton<GitHubConnector>();
         services.TryAddSingleton<IGitHubConnector>(sp => sp.GetRequiredService<GitHubConnector>());
-        // GitHubSkillRegistry takes an optional OAuth client factory. The
-        // factory resolution goes through GetService<> so a host that does
-        // not wire ISecretStore (e.g. pure App-auth unit tests) still gets
-        // a working registry — OAuth tools remain visible in the tool list
-        // but invocation falls through to the App path and emits
-        // SkillNotFoundException. Real hosts register ISecretStore via the
-        // Dapr secret store or a cloud-provided implementation, in which
-        // case the factory resolves cleanly and the OAuth dispatchers fire.
-        services.TryAddSingleton(sp =>
-        {
-            IGitHubOAuthClientFactory? oauthFactory = null;
-            try
-            {
-                oauthFactory = sp.GetService<IGitHubOAuthClientFactory>();
-            }
-            catch (InvalidOperationException)
-            {
-                // Missing transitive dep (e.g. ISecretStore) — treat as
-                // "OAuth surface unavailable in this host" so the App-auth
-                // surface still works.
-                oauthFactory = null;
-            }
-            return new GitHubSkillRegistry(
-                sp.GetRequiredService<GitHubConnector>(),
-                sp.GetRequiredService<Labels.LabelStateMachine>(),
-                sp.GetRequiredService<IGitHubInstallationsClient>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<CachedSkillInvoker>(),
-                oauthFactory,
-                sp.GetRequiredService<IGitHubResponseCache>());
-        });
         services.TryAddSingleton<IGitHubWebhookRegistrar, GitHubWebhookRegistrar>();
         // Installation-listing is its own abstraction (IGitHubInstallationsClient)
         // so the cloud repo can substitute a tenant-scoped implementation
@@ -273,9 +218,13 @@ public static class ServiceCollectionExtensions
         // token and calls GET /repos/{owner}/{repo}/collaborators.
         services.TryAddSingleton<IGitHubCollaboratorsClient, GitHubCollaboratorsClient>();
 
-        // Expose the GitHub skills through the cross-connector ISkillRegistry abstraction
-        // so the MCP server (and any future planner) can discover them uniformly.
-        services.AddSingleton<ISkillRegistry>(sp => sp.GetRequiredService<GitHubSkillRegistry>());
+        // No platform MCP skill registry is registered for GitHub
+        // (issues #2384 / #2383): agents run gh / git directly inside their
+        // container using the credentials injected by
+        // GitHubConnectorRuntimeContextContributor (#2380). The
+        // connector retains only auth, webhooks, lifecycle, and runtime-
+        // context contribution — no github.* tools surface from
+        // tools/list.
 
         // Register the connector via the platform-generic IConnectorType
         // abstraction. Host.Api iterates every registered IConnectorType at
