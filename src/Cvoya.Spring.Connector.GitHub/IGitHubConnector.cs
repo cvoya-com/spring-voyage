@@ -38,9 +38,31 @@ public interface IGitHubConnector
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Creates an authenticated <see cref="IGitHubClient"/> for making API calls.
+    /// Creates an authenticated <see cref="IGitHubClient"/> for making API calls
+    /// using the connector's default (global) installation id. Issue #2385 made
+    /// the per-binding overload the canonical path for unit-owned platform work;
+    /// this parameterless overload is now the fallback for connector-level admin
+    /// flows (credential validation, install URL, etc.) where no unit binding
+    /// is in play. Throws when no global
+    /// <see cref="Auth.GitHubConnectorOptions.InstallationId"/> is configured.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>An authenticated GitHub client.</returns>
     Task<IGitHubClient> CreateAuthenticatedClientAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates an authenticated <see cref="IGitHubClient"/> for the specified
+    /// GitHub App installation. Platform-owned connector work that targets a
+    /// specific unit binding (webhook registrar, label roundtrip, PR-file
+    /// fetcher) MUST call this overload with the binding's
+    /// <see cref="UnitGitHubConfig.AppInstallationId"/> so the resulting client
+    /// authenticates against the right installation rather than the global
+    /// <see cref="Auth.GitHubConnectorOptions.InstallationId"/>. Issue #2385.
+    /// </summary>
+    /// <param name="installationId">The GitHub App installation id to authenticate as.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>An authenticated GitHub client scoped to the given installation.</returns>
+    Task<IGitHubClient> CreateAuthenticatedClientAsync(
+        long installationId,
+        CancellationToken cancellationToken = default);
 }

@@ -193,10 +193,74 @@ public class OctokitGitHubPullRequestFilesFetcherTests
         result.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task FetchAsync_BindingInstallationId_AuthenticatesPerInstallation()
+    {
+        // The fetcher must honour the binding's installation id (#2385) and
+        // stop falling through to the connector's global default for
+        // unit-owned platform work. The OSS fetcher previously logged the
+        // override and used the global default; that behaviour was unsafe in
+        // any deployment with more than one installation.
+        var client = Substitute.For<IGitHubClient>();
+        client.PullRequest.Files("o", "r", 1, Arg.Any<ApiOptions>())
+            .Returns(Array.Empty<PullRequestFile>());
+
+        var connector = Substitute.For<IGitHubConnector>();
+        connector.CreateAuthenticatedClientAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns(client);
+        connector.CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>())
+            .Returns(client);
+
+        var fetcher = new OctokitGitHubPullRequestFilesFetcher(
+            connectorAccessor: () => connector,
+            loggerFactory: NullLoggerFactory.Instance);
+
+        await fetcher.FetchAsync("o", "r", 1, installationId: 9001, TestContext.Current.CancellationToken);
+
+        await connector.Received(1)
+            .CreateAuthenticatedClientAsync(9001, Arg.Any<CancellationToken>());
+        await connector.DidNotReceive()
+            .CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FetchAsync_NullInstallationId_FallsBackToGlobal()
+    {
+        // null installation id is the documented fallback (#2385) — used by
+        // single-installation OSS deployments that never bound a per-unit
+        // installation. The connector's parameterless overload must be the
+        // one that fires.
+        var client = Substitute.For<IGitHubClient>();
+        client.PullRequest.Files("o", "r", 1, Arg.Any<ApiOptions>())
+            .Returns(Array.Empty<PullRequestFile>());
+
+        var connector = Substitute.For<IGitHubConnector>();
+        connector.CreateAuthenticatedClientAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns(client);
+        connector.CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>())
+            .Returns(client);
+
+        var fetcher = new OctokitGitHubPullRequestFilesFetcher(
+            connectorAccessor: () => connector,
+            loggerFactory: NullLoggerFactory.Instance);
+
+        await fetcher.FetchAsync("o", "r", 1, installationId: null, TestContext.Current.CancellationToken);
+
+        await connector.Received(1)
+            .CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>());
+        await connector.DidNotReceive()
+            .CreateAuthenticatedClientAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+    }
+
     private static OctokitGitHubPullRequestFilesFetcher BuildFetcher(IGitHubClient client)
     {
         var connector = Substitute.For<IGitHubConnector>();
         connector.CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>()).Returns(client);
+        // Per-binding overload added in #2385 — also returns the fake client
+        // so tests that pass an installation id get the same Octokit
+        // substitute the global-default path would have produced.
+        connector.CreateAuthenticatedClientAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns(client);
         return new OctokitGitHubPullRequestFilesFetcher(
             connectorAccessor: () => connector,
             loggerFactory: NullLoggerFactory.Instance);

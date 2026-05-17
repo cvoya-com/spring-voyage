@@ -40,10 +40,12 @@ public interface IGitHubPullRequestFilesFetcher
     /// <param name="repo">The repository name.</param>
     /// <param name="number">The pull request number.</param>
     /// <param name="installationId">
-    /// The GitHub App installation id to authenticate as. When <c>null</c>,
-    /// the fetcher falls back to the connector's default installation id
-    /// (matching how <see cref="GitHubConnector.CreateAuthenticatedClientAsync"/>
-    /// resolves credentials).
+    /// The GitHub App installation id to authenticate as. Drives the
+    /// per-binding auth path introduced by #2385. When <c>null</c>, the
+    /// fetcher falls back to
+    /// <see cref="GitHubConnector.CreateAuthenticatedClientAsync(CancellationToken)"/>'s
+    /// global default — the documented OSS-fallback path for
+    /// single-installation deployments.
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>

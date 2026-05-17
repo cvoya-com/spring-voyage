@@ -15,8 +15,13 @@ using System.Text.Json.Serialization;
 /// <param name="Repo">The repository name.</param>
 /// <param name="AppInstallationId">
 /// The GitHub App installation id selected by the user when binding this
-/// unit to a repository. <c>null</c> falls back to
-/// <see cref="Auth.GitHubConnectorOptions.InstallationId"/>.
+/// unit to a repository. Drives every platform-side outbound auth call for
+/// the binding — webhook register / unregister, label roundtrip, the
+/// per-binding PR-files fetcher (#2385). <c>null</c> falls back to
+/// <see cref="Auth.GitHubConnectorOptions.InstallationId"/>; that fallback
+/// is the documented OSS path for single-installation deployments and
+/// should not be relied on by any deployment with more than one
+/// installation visible to the App.
 /// </param>
 /// <param name="Events">
 /// The webhook event names the unit subscribes to (e.g. <c>issues</c>,

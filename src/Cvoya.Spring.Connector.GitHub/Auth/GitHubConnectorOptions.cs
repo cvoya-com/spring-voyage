@@ -25,8 +25,18 @@ public class GitHubConnectorOptions
     public string WebhookSecret { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the optional installation ID to use for authentication.
-    /// When set, the connector authenticates as this specific installation.
+    /// Optional default installation id used by the connector when no
+    /// per-binding installation is available. Issue #2385 made
+    /// <see cref="UnitGitHubConfig.AppInstallationId"/> the canonical auth
+    /// path for unit-owned platform work (webhook registrar, label
+    /// roundtrip, PR-files fetcher) — this option is now reserved for:
+    /// <list type="bullet">
+    ///   <item><description>Connector-level admin flows (credential validation, install URL, the OAuth surface).</description></item>
+    ///   <item><description>OSS single-installation deployments that never bound a per-unit installation id.</description></item>
+    /// </list>
+    /// Deployments with more than one App installation MUST bind a per-unit
+    /// installation id; the global fallback will select an arbitrary
+    /// installation and silently mis-route credentials.
     /// </summary>
     public long? InstallationId { get; set; }
 

@@ -232,14 +232,46 @@ public class GitHubConnector : IGitHubConnector
     }
 
     /// <summary>
-    /// Creates an authenticated <see cref="IGitHubClient"/> for making API calls.
+    /// Creates an authenticated <see cref="IGitHubClient"/> using the
+    /// connector's global default <see cref="GitHubConnectorOptions.InstallationId"/>.
+    /// Issue #2385 made the binding-aware overload the canonical path for
+    /// unit-owned platform work; this overload remains the documented fallback
+    /// for connector-level admin flows (credential validation, install URL,
+    /// the OSS legacy single-installation deployment) where no unit binding
+    /// is in play. Throws when the global option is not configured.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>An authenticated GitHub client.</returns>
-    public virtual async Task<IGitHubClient> CreateAuthenticatedClientAsync(CancellationToken cancellationToken = default)
+    public virtual Task<IGitHubClient> CreateAuthenticatedClientAsync(CancellationToken cancellationToken = default)
     {
         var installationId = _options.InstallationId
-            ?? throw new InvalidOperationException("InstallationId must be configured to create an authenticated client.");
+            ?? throw new InvalidOperationException(
+                "InstallationId must be configured to create an authenticated client without a binding context. "
+                + "Platform-owned work that targets a unit binding should call the (long, CancellationToken) overload "
+                + "with the binding's AppInstallationId — see issue #2385.");
+
+        return CreateAuthenticatedClientAsync(installationId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates an authenticated <see cref="IGitHubClient"/> for the supplied
+    /// installation id. Marked <c>virtual</c> so test subclasses can substitute
+    /// a pre-built client without exchanging a JWT for a token. The token
+    /// cache is keyed on <paramref name="installationId"/> so per-installation
+    /// tokens never collide — see <see cref="IInstallationTokenCache"/>.
+    /// Issue #2385.
+    /// </summary>
+    public virtual async Task<IGitHubClient> CreateAuthenticatedClientAsync(
+        long installationId,
+        CancellationToken cancellationToken = default)
+    {
+        if (installationId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(installationId),
+                installationId,
+                "Installation id must be a positive GitHub App installation id.");
+        }
 
         var minted = await _tokenCache.GetOrMintAsync(
             installationId,
@@ -248,7 +280,9 @@ public class GitHubConnector : IGitHubConnector
 
         var client = new GitHubClient(BuildConnection(minted.Token));
 
-        _logger.LogDebug("Created authenticated GitHub client for installation {InstallationId}", installationId);
+        _logger.LogDebug(
+            "Created authenticated GitHub client for installation {InstallationId}",
+            installationId);
 
         return client;
     }

@@ -289,8 +289,12 @@ public class GitHubConnectorType : IConnectorType
 
         try
         {
+            // Pass the binding's per-unit installation id so the hook is
+            // created in the right installation scope (#2385). null falls
+            // back to the connector's global default — the documented
+            // OSS-fallback path.
             var hookId = await _webhookRegistrar.RegisterAsync(
-                config.Owner, config.Repo, cancellationToken);
+                config.Owner, config.Repo, config.AppInstallationId, cancellationToken);
 
             // Persist the hook id so OnUnitStoppingAsync can tear it down.
             var runtime = JsonSerializer.SerializeToElement(
@@ -344,8 +348,11 @@ public class GitHubConnectorType : IConnectorType
 
         try
         {
+            // Tear down through the binding's installation id so the delete
+            // call authenticates against the same scope the create used
+            // (#2385). null falls back to the connector's global default.
             await _webhookRegistrar.UnregisterAsync(
-                config.Owner, config.Repo, runtime.HookId, cancellationToken);
+                config.Owner, config.Repo, runtime.HookId, config.AppInstallationId, cancellationToken);
             await _runtimeStore.ClearAsync(unitId, cancellationToken);
         }
         catch (Exception ex)

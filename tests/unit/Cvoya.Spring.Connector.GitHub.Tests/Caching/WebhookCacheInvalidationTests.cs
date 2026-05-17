@@ -54,6 +54,11 @@ public class WebhookCacheInvalidationTests
 
         public override Task<IGitHubClient> CreateAuthenticatedClientAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(_client);
+
+        public override Task<IGitHubClient> CreateAuthenticatedClientAsync(
+            long installationId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_client);
     }
 
     private static string Sign(string payload, string secret)
