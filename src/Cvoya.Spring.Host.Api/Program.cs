@@ -484,6 +484,12 @@ public partial class Program
             // TenantUser role gate via .RequireAuthorization(RolePolicies.TenantUser).
             app.MapAgentEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapUnitEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+            // #2409: team-role membership routes (ADR-0044 § 3). The handlers
+            // self-gate Owner / Viewer via UnitPermissionCheck, so only the
+            // TenantUser authentication gate is applied here. Mounted as a
+            // sibling group so the {id}/members/humans sub-route can carry
+            // its own OpenAPI metadata.
+            app.MapUnitTeamMembershipEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             // #2408: human ↔ connector-native identity mapping surface.
             // Routes live under /api/v1/tenant/humans/{id}/identities.
             app.MapHumanIdentityEndpoints().RequireAuthorization(RolePolicies.TenantUser);

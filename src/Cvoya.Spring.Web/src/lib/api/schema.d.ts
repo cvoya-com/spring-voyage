@@ -681,6 +681,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/units/{id}/members/humans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every team-role membership row attached to this unit.
+         * @description Returns the rows from `unit_memberships_humans` for the unit in stable (created_at, id) order. Mirror of `sv.list_members`'s human entries. Viewer-gated.
+         */
+        get: operations["ListUnitHumanMembers"];
+        put?: never;
+        /**
+         * Add a human as a unit team-role member.
+         * @description Idempotent on the natural key (unit, human, role) — re-posting the same tuple updates expertise + notifications in place rather than returning 409. Owner-gated.
+         */
+        post: operations["AddUnitHumanMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/units/{id}/members/humans/{humanId}/{role}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a team-role membership row.
+         * @description Idempotent — returns 204 whether or not a matching row existed. Owner-gated.
+         */
+        delete: operations["RemoveUnitHumanMember"];
+        options?: never;
+        head?: never;
+        /**
+         * Update expertise / notifications on an existing team-role membership row.
+         * @description Replaces the whole expertise + notifications tag sets — omitted properties are treated as empty lists. Owner-gated; 404 when no row matches.
+         */
+        patch: operations["UpdateUnitHumanMember"];
+        trace?: never;
+    };
+    "/api/v1/tenant/humans/{humanId}/identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List every connector identity row mapped to this human */
+        get: operations["ListHumanConnectorIdentities"];
+        put?: never;
+        /** Create or update a human ↔ connector identity mapping */
+        post: operations["UpsertHumanConnectorIdentity"];
+        /** Remove a connector identity mapping. Idempotent — returns 204 even when nothing matched. */
+        delete: operations["RemoveHumanConnectorIdentity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/units/{id}/policy": {
         parameters: {
             query?: never;
@@ -2724,6 +2791,13 @@ export interface components {
             scheme: string;
             path: string;
         };
+        AddUnitHumanMemberRequest: {
+            /** Format: uuid */
+            humanId: string;
+            role: string;
+            expertise?: null | string[];
+            notifications?: null | string[];
+        };
         AgentCloningPolicyResponse: {
             allowedPolicies?: null | components["schemas"]["CloningPolicy"][];
             allowedAttachmentModes?: null | components["schemas"]["AttachmentMode"][];
@@ -3200,6 +3274,22 @@ export interface components {
             repo: string;
             fullName: string;
             private: boolean;
+        };
+        HumanConnectorIdentityRequest: {
+            connectorId: string;
+            connectorUserId: string;
+            displayHandle: null | string;
+        };
+        HumanConnectorIdentityResponse: {
+            /** Format: uuid */
+            humanId: string;
+            connectorId: string;
+            connectorUserId: string;
+            displayHandle: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         /** Format: binary */
         IFormFile: string;
@@ -3897,6 +3987,15 @@ export interface components {
             include_authors?: null | string[];
             include_paths?: null | string[];
         };
+        UnitHumanMemberResponse: {
+            /** Format: uuid */
+            membershipId: string;
+            /** Format: uuid */
+            humanId: string;
+            role: string;
+            expertise: string[];
+            notifications: string[];
+        };
         UnitLifecycleResponse: {
             /** Format: uuid */
             unitId: string;
@@ -4001,6 +4100,10 @@ export interface components {
         };
         UpdateTenantRequest: {
             displayName: null | string;
+        };
+        UpdateUnitHumanMemberRequest: {
+            expertise?: null | string[];
+            notifications?: null | string[];
         };
         UpdateUnitRequest: {
             displayName?: null | string;
@@ -6085,6 +6188,301 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    ListUnitHumanMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitHumanMemberResponse"][];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    AddUnitHumanMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddUnitHumanMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitHumanMemberResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    RemoveUnitHumanMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                humanId: string;
+                role: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    UpdateUnitHumanMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                humanId: string;
+                role: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUnitHumanMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitHumanMemberResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    ListHumanConnectorIdentities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                humanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HumanConnectorIdentityResponse"][];
+                };
+            };
+        };
+    };
+    UpsertHumanConnectorIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                humanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HumanConnectorIdentityRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HumanConnectorIdentityResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    RemoveHumanConnectorIdentity: {
+        parameters: {
+            query?: {
+                connectorId?: string;
+                connectorUserId?: string;
+            };
+            header?: never;
+            path: {
+                humanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

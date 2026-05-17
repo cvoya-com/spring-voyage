@@ -1371,6 +1371,10 @@ public static class UnitCommand
         membersCommand.Subcommands.Add(CreateMembersAddCommand(outputOption));
         membersCommand.Subcommands.Add(CreateMembersConfigCommand(outputOption));
         membersCommand.Subcommands.Add(CreateMembersRemoveCommand());
+        // #2409: `members humans add|list|update|remove` for the ADR-0044
+        // team-role membership table (separate from the unit's ACL surface
+        // under `unit humans`).
+        membersCommand.Subcommands.Add(UnitMembersCommand.CreateHumansSubcommand(outputOption));
 
         return membersCommand;
     }

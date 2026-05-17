@@ -33,6 +33,86 @@ public sealed class InMemoryUnitHumanMembershipStore : IUnitHumanMembershipStore
         }
     }
 
+    /// <inheritdoc />
+    public Task<UnitHumanMembership?> GetAsync(
+        Guid unitId,
+        Guid humanId,
+        string role,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_byUnit.TryGetValue(unitId, out var list))
+        {
+            return Task.FromResult<UnitHumanMembership?>(null);
+        }
+        lock (list)
+        {
+            var match = list.FirstOrDefault(m => m.HumanId == humanId && m.Role == role);
+            return Task.FromResult<UnitHumanMembership?>(match);
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<UnitHumanMembership> UpsertAsync(
+        Guid unitId,
+        Guid humanId,
+        string role,
+        IReadOnlyList<string> expertise,
+        IReadOnlyList<string> notifications,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            throw new ArgumentException("Role must be non-empty.", nameof(role));
+        }
+
+        var list = _byUnit.GetOrAdd(unitId, _ => new List<UnitHumanMembership>());
+        lock (list)
+        {
+            var existingIndex = list.FindIndex(m => m.HumanId == humanId && m.Role == role);
+            UnitHumanMembership updated;
+            if (existingIndex >= 0)
+            {
+                var existing = list[existingIndex];
+                updated = existing with { Expertise = expertise.ToList(), Notifications = notifications.ToList() };
+                list[existingIndex] = updated;
+            }
+            else
+            {
+                updated = new UnitHumanMembership(
+                    MembershipId: Guid.NewGuid(),
+                    HumanId: humanId,
+                    Role: role,
+                    Expertise: expertise.ToList(),
+                    Notifications: notifications.ToList());
+                list.Add(updated);
+            }
+            return Task.FromResult(updated);
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<bool> RemoveAsync(
+        Guid unitId,
+        Guid humanId,
+        string role,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_byUnit.TryGetValue(unitId, out var list))
+        {
+            return Task.FromResult(false);
+        }
+        lock (list)
+        {
+            var index = list.FindIndex(m => m.HumanId == humanId && m.Role == role);
+            if (index < 0)
+            {
+                return Task.FromResult(false);
+            }
+            list.RemoveAt(index);
+            return Task.FromResult(true);
+        }
+    }
+
     /// <summary>
     /// Test convenience: seed a membership row directly. Caller-supplied
     /// <paramref name="membershipId"/> defaults to a fresh Guid when

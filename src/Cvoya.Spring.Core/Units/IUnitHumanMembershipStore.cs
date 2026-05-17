@@ -9,11 +9,12 @@ using System.Threading;
 using System.Threading.Tasks;
 
 /// <summary>
-/// Read seam over the new <c>unit_memberships_humans</c> table introduced
+/// Read / write seam over the <c>unit_memberships_humans</c> table introduced
 /// in ADR-0044. Surfaces the unit's team-role membership rows (one per
-/// <c>(human, role)</c> triple) for callers that need the domain
-/// participation view — primarily the <c>sv.list_members</c> MCP tool and
-/// any future "who is the security lead on my team?" routing surface.
+/// <c>(human, role)</c> tuple) for callers that need the domain
+/// participation view — primarily the <c>sv.list_members</c> MCP tool, the
+/// operator-facing CLI / REST add-member surface (#2409), and any future
+/// "who is the security lead on my team?" routing surface.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -24,10 +25,12 @@ using System.Threading.Tasks;
 /// extensibility rules so the cloud registration takes precedence.
 /// </para>
 /// <para>
-/// This is a read-only seam in v0.1; writes happen through the install
-/// activator. Future surfaces (edit-membership CLI / API) will add their
-/// own write seam — keeping reads and writes separated mirrors the
-/// existing <see cref="IUnitMemberGraphStore"/> layering.
+/// Writes share the set-semantic invariant from ADR-0044 § 3: the natural
+/// key is <c>(tenant, unit, human, role)</c> and re-asserting the same key
+/// updates <c>expertise</c> + <c>notifications</c> rather than inserting a
+/// duplicate row. Tenant scoping is applied by the underlying provider's
+/// query filter (the <see cref="UnitHumanMembership"/> projection never
+/// exposes the tenant id).
 /// </para>
 /// </remarks>
 public interface IUnitHumanMembershipStore
@@ -36,14 +39,67 @@ public interface IUnitHumanMembershipStore
     /// Returns every <c>unit_memberships_humans</c> row for the given unit
     /// in stable order (by <c>created_at</c>, then by membership Guid for
     /// equal timestamps). Each entry carries the membership row's
-    /// synthetic Guid (addressable for future edit surfaces), the human's
-    /// Guid, the team role, and the row's <c>expertise</c> / <c>notifications</c>
+    /// synthetic Guid (addressable for edit surfaces), the human's Guid,
+    /// the team role, and the row's <c>expertise</c> / <c>notifications</c>
     /// jsonb projections.
     /// </summary>
     /// <param name="unitId">The unit's stable Guid identity.</param>
     /// <param name="cancellationToken">Propagates request cancellation.</param>
     Task<IReadOnlyList<UnitHumanMembership>> ListByUnitAsync(
         Guid unitId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads a single membership row by the <c>(unit, human, role)</c>
+    /// natural key. Returns <see langword="null"/> when no row matches.
+    /// </summary>
+    /// <param name="unitId">The unit's stable Guid identity.</param>
+    /// <param name="humanId">The human's stable Guid identity.</param>
+    /// <param name="role">The team role string (case-sensitive).</param>
+    /// <param name="cancellationToken">Propagates request cancellation.</param>
+    Task<UnitHumanMembership?> GetAsync(
+        Guid unitId,
+        Guid humanId,
+        string role,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Idempotently asserts a membership row for the
+    /// <c>(unit, human, role)</c> natural key. When a row already exists
+    /// the implementation overwrites <c>expertise</c> + <c>notifications</c>
+    /// in place; when no row exists it inserts a fresh one with a new
+    /// synthetic id and the current UTC timestamp. The returned record is
+    /// the post-write projection of the row.
+    /// </summary>
+    /// <param name="unitId">The unit's stable Guid identity.</param>
+    /// <param name="humanId">The human's stable Guid identity.</param>
+    /// <param name="role">The team role string (case-sensitive; non-empty).</param>
+    /// <param name="expertise">The expertise tag list (may be empty).</param>
+    /// <param name="notifications">The notification event tag list (may be empty).</param>
+    /// <param name="cancellationToken">Propagates request cancellation.</param>
+    Task<UnitHumanMembership> UpsertAsync(
+        Guid unitId,
+        Guid humanId,
+        string role,
+        IReadOnlyList<string> expertise,
+        IReadOnlyList<string> notifications,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes the membership row for the <c>(unit, human, role)</c>
+    /// natural key. Returns <see langword="true"/> when a row was deleted
+    /// and <see langword="false"/> when nothing matched — both outcomes are
+    /// terminal for the caller (the CLI / REST DELETE surface treats the
+    /// "no row" case as a no-op).
+    /// </summary>
+    /// <param name="unitId">The unit's stable Guid identity.</param>
+    /// <param name="humanId">The human's stable Guid identity.</param>
+    /// <param name="role">The team role string (case-sensitive).</param>
+    /// <param name="cancellationToken">Propagates request cancellation.</param>
+    Task<bool> RemoveAsync(
+        Guid unitId,
+        Guid humanId,
+        string role,
         CancellationToken cancellationToken = default);
 }
 
