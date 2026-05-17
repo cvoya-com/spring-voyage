@@ -180,4 +180,55 @@ describe("UnitCard", () => {
     ).toBeInTheDocument();
     expect(screen.queryByTestId("unit-card-tabrow-engineering")).toBeNull();
   });
+
+  // PR #2390 fixed the footer row; #2441 extends the same pattern to
+  // every non-overlay row. The clock + sparkline meta row had no
+  // pointer-events handling, so whitespace clicks on it landed on the
+  // wrapper div and silently did nothing instead of falling through to
+  // the full-card overlay link.
+  describe("click-gap regression (#2441)", () => {
+    it("marks the clock + sparkline meta row as pointer-events-none", () => {
+      render(
+        <UnitCard
+          unit={{
+            name: "engineering",
+            displayName: "Engineering",
+            registeredAt: "2026-04-01T00:00:00Z",
+            status: "Running",
+            activitySeries: [1, 2, 3],
+          }}
+        />,
+      );
+      // The sparkline lives inside the meta row; walk up to the row
+      // wrapper and check it carries `pointer-events-none`.
+      const sparkline = screen.getByTestId("unit-sparkline");
+      const metaRow = sparkline.parentElement;
+      expect(metaRow).not.toBeNull();
+      expect(metaRow!.className).toMatch(/pointer-events-none/);
+    });
+
+    it("keeps the footer-strip pointer-events fix from PR #2390 intact", () => {
+      render(
+        <UnitCard
+          unit={{
+            name: "engineering",
+            displayName: "Engineering",
+            registeredAt: "2026-04-01T00:00:00Z",
+            status: "Running",
+          }}
+          onDelete={() => {}}
+        />,
+      );
+      // Footer wrapper retains `pointer-events-none`; the Open link
+      // and the Delete button retain their own `pointer-events-auto`.
+      const open = screen.getByTestId("unit-open-engineering");
+      expect(open.closest(".pointer-events-none")).not.toBeNull();
+      expect(open.className).toMatch(/pointer-events-auto/);
+      const del = screen.getByTestId("unit-delete-engineering");
+      expect(del.className).toMatch(/pointer-events-auto/);
+      // Cross-link icons keep `pointer-events-auto`.
+      const activity = screen.getByTestId("unit-link-activity-engineering");
+      expect(activity.className).toMatch(/pointer-events-auto/);
+    });
+  });
 });

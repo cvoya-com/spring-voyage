@@ -131,8 +131,12 @@ export function ConversationCard({
             so `agent://ada`, `unit://eng`, `human://savas` read as
             distinct sources at a glance. Keeps the single testid +
             comma-separated text so existing callers' snapshots and
-            fallback messaging continue to work. */}
-        <div className="mt-3">
+            fallback messaging continue to work.
+
+            Pure display row — `pointer-events-none` lets clicks fall
+            through to the full-card overlay link above. Mirrors the
+            footer-strip fix from PR #2390 (#2441). */}
+        <div className="pointer-events-none mt-3">
           {participants.length > 0 ? (
             <div
               className="flex flex-wrap items-center gap-1 text-xs font-mono text-muted-foreground"
@@ -153,7 +157,14 @@ export function ConversationCard({
           )}
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+        {/*
+          Footer strip stays `relative z-[1]` so the Open link paints
+          above the full-card overlay, but `pointer-events-none` lets
+          the timestamp badge + the gap between it and the Open link
+          fall through to the overlay link. The Open link itself
+          restores `pointer-events-auto`. Mirrors PR #2390 (#2441).
+        */}
+        <div className="pointer-events-none relative z-[1] mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
           {conversation.lastActivityAt ? (
             <Badge
               variant="outline"
@@ -167,7 +178,7 @@ export function ConversationCard({
           )}
           <Link
             href={href}
-            className="relative z-[1] inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
+            className="pointer-events-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
             data-testid={`conversation-open-${conversation.id}`}
           >
             Open

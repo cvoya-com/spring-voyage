@@ -71,8 +71,14 @@ export function InboxCard({ item, className }: InboxCardProps) {
             overlay `<a>` (which would be invalid HTML). The status
             pill sits alongside so the reader gets the "from + state"
             pair up top. Interactive descendants are promoted via
-            `relative z-[1]` so they click through the overlay. */}
-        <div className="flex items-start justify-between gap-3">
+            `relative z-[1]` so they click through the overlay.
+
+            `pointer-events-none` on the row + `pointer-events-auto`
+            on the inner `from://` link lets clicks on the status
+            badge and the gap between the badge and the from-link
+            fall through to the full-card overlay (#2441; mirrors
+            the footer-strip fix from PR #2390). */}
+        <div className="pointer-events-none flex items-start justify-between gap-3">
           <div
             className="relative z-[1] min-w-0 flex-1 truncate text-xs font-mono text-muted-foreground"
             data-testid="inbox-from"
@@ -80,7 +86,7 @@ export function InboxCard({ item, className }: InboxCardProps) {
             {fromLink ? (
               <Link
                 href={fromLink}
-                className="hover:text-foreground hover:underline"
+                className="pointer-events-auto hover:text-foreground hover:underline"
                 data-testid={`inbox-from-link-${item.threadId}`}
               >
                 {item.from.displayName}
@@ -115,7 +121,14 @@ export function InboxCard({ item, className }: InboxCardProps) {
           </p>
         </Link>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+        {/*
+          Footer strip stays `relative z-[1]` so the Open link paints
+          above the full-card overlay, but `pointer-events-none` lets
+          the pending-since badge + the gap between it and the Open
+          link fall through to the overlay link. The Open link itself
+          restores `pointer-events-auto`. Mirrors PR #2390 (#2441).
+        */}
+        <div className="pointer-events-none relative z-[1] mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
           <Badge
             variant="outline"
             className="font-mono"
@@ -125,7 +138,7 @@ export function InboxCard({ item, className }: InboxCardProps) {
           </Badge>
           <Link
             href={href}
-            className="relative z-[1] inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
+            className="pointer-events-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
             data-testid={`inbox-open-${item.threadId}`}
           >
             Open thread

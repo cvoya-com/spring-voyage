@@ -118,4 +118,27 @@ describe("InboxCard", () => {
     expect(pendingSince.tagName).toBe("SPAN");
     expect(pendingSince.className).toMatch(/rounded-full/);
   });
+
+  // PR #2390 fixed the agent/unit footer rows; #2441 extends the same
+  // pattern to every overlay-link card. Non-overlay rows must carry
+  // `pointer-events-none` so whitespace clicks fall through to the
+  // overlay link; interactive descendants (the `from://` link, the
+  // footer Open-thread link) restore `pointer-events-auto`.
+  describe("click-gap regression (#2441)", () => {
+    it("marks the from row + footer row as pointer-events-none and keeps interactive children clickable", () => {
+      render(<InboxCard item={baseItem} />);
+
+      // From row wrapper carries `pointer-events-none`; the inner
+      // `from://` link restores `pointer-events-auto`.
+      const fromLink = screen.getByTestId("inbox-from-link-conv-42");
+      expect(fromLink.closest(".pointer-events-none")).not.toBeNull();
+      expect(fromLink.className).toMatch(/pointer-events-auto/);
+
+      // Footer row wrapper carries `pointer-events-none`; the
+      // `Open thread` link restores `pointer-events-auto`.
+      const open = screen.getByTestId("inbox-open-conv-42");
+      expect(open.closest(".pointer-events-none")).not.toBeNull();
+      expect(open.className).toMatch(/pointer-events-auto/);
+    });
+  });
 });

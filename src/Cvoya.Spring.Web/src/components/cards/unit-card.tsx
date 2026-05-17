@@ -207,7 +207,13 @@ export function UnitCard({
           </div>
         </Link>
 
-        <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
+        {/*
+          Meta row (registered-at + activity sparkline). Pure display —
+          `pointer-events-none` so the row's whitespace falls through to
+          the full-card overlay link above instead of dying on the
+          wrapper div. Mirrors the footer-strip fix from PR #2390 (#2441).
+        */}
+        <div className="pointer-events-none mt-3 flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <Clock className="h-3 w-3" aria-hidden="true" />
             {timeAgo(unit.registeredAt)}
