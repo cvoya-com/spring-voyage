@@ -454,6 +454,24 @@ public static class PackageValidator
                     $"agent '{doc.Id ?? doc.Name ?? "<unnamed>"}': ai.model is required " +
                     "as a structured {provider, id} object (ADR-0038)."));
             }
+
+            // Issue #2436: validate execution.hosting alongside the typed
+            // strict parse. The Deserialize<AgentManifest> above accepts
+            // any string into Execution.Hosting; reject unknown literals
+            // here with a structured diagnostic mirroring the runtime
+            // parser's error envelope.
+            var agentHosting = doc.Execution?.Hosting;
+            if (!string.IsNullOrWhiteSpace(agentHosting)
+                && !ManifestParser.ValidHostingLiterals.Contains(agentHosting!.Trim().ToLowerInvariant()))
+            {
+                diagnostics.Add(new PackageValidationDiagnostic(
+                    agentFile,
+                    PackageValidationSeverity.Error,
+                    "agent-unknown-hosting",
+                    $"execution.hosting: unknown hosting literal '{agentHosting.Trim()}'. " +
+                    $"Expected one of: {string.Join(", ", ManifestParser.ValidHostingLiterals)} " +
+                    "(case-insensitive). Issue #2436."));
+            }
         }
 
         return new PackageValidationResult

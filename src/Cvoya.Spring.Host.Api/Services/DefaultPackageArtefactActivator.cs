@@ -101,6 +101,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
         ResolvedExecutionDefaults? executionDefaults = null,
         string? displayNameOverride = null,
+        string? inheritedAgentHosting = null,
         CancellationToken cancellationToken = default)
     {
         if (artefact.Content is null)
@@ -117,7 +118,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
                 break;
 
             case ArtefactKind.Agent:
-                await ActivateAgentAsync(artefact, symbolMap, displayNameOverride, cancellationToken);
+                await ActivateAgentAsync(artefact, symbolMap, displayNameOverride, inheritedAgentHosting, cancellationToken);
                 break;
 
             case ArtefactKind.Skill:
@@ -585,13 +586,14 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         ResolvedArtefact artefact,
         LocalSymbolMap symbolMap,
         string? displayNameOverride,
+        string? inheritedAgentHosting,
         CancellationToken ct)
     {
         var content = artefact.Content!;
         AgentManifestFields fields;
         try
         {
-            fields = ParseAgentManifest(content);
+            fields = ParseAgentManifest(content, inheritedAgentHosting);
         }
         catch (Exception ex)
         {
@@ -778,7 +780,19 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
     /// registration. The execution / ai block is round-tripped through
     /// JSON so it can land verbatim in <see cref="AgentDefinitionEntity.Definition"/>.
     /// </summary>
-    private static AgentManifestFields ParseAgentManifest(string yamlText)
+    /// <remarks>
+    /// Issue #2436: when <paramref name="inheritedAgentHosting"/> is
+    /// non-null and the agent's own <c>execution:</c> block does not
+    /// declare a <c>hosting:</c> literal, the inherited value (resolved
+    /// from the agent's containing unit and the agent template chain by
+    /// the install pipeline) lands on the persisted definition JSON's
+    /// <c>execution.hosting</c> slot. Precedence: agent's own
+    /// <c>execution.hosting</c> &gt; inherited value &gt; absent (the
+    /// dispatcher's <c>persistent</c> default).
+    /// </remarks>
+    private static AgentManifestFields ParseAgentManifest(
+        string yamlText,
+        string? inheritedAgentHosting = null)
     {
         // The Content is the FULL package YAML (matching what
         // PackageManifestParser passes to ResolvedArtefact.Content);
@@ -879,6 +893,21 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         //   ai.model.id          → execution.model     (provider-scoped model id)
         //   ai.environment.image → execution.image     (only if execution.image absent)
         var projected = ProjectExecutionBlock(execBlock, aiBlock);
+
+        // Issue #2436: layer the install-time inherited hosting onto the
+        // projected execution block only when the agent's own YAML did
+        // not declare `execution.hosting`. The agent-level value (already
+        // captured into `projected["hosting"]` from `execBlock`) wins
+        // outright per the precedence chain agent > template > unit >
+        // default(`persistent`). Templates are not represented here
+        // explicitly — `inheritedAgentHosting` is the literal the install
+        // pipeline resolved across that chain.
+        if (!string.IsNullOrWhiteSpace(inheritedAgentHosting)
+            && !projected.ContainsKey("hosting"))
+        {
+            projected["hosting"] = inheritedAgentHosting!;
+        }
+
         if (projected is { Count: > 0 })
         {
             defObj["execution"] = projected;

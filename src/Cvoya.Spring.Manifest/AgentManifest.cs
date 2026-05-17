@@ -105,4 +105,48 @@ public class AgentManifest
     /// </summary>
     [YamlMember(Alias = "requires")]
     public List<RequirementEntry>? Requires { get; set; }
+
+    /// <summary>
+    /// Optional agent-level <c>execution:</c> block. Carries the
+    /// container image and hosting mode at the same level as
+    /// <c>execution.image</c> on the unit manifest (issue #2436).
+    /// </summary>
+    [YamlMember(Alias = "execution")]
+    public AgentExecutionManifest? Execution { get; set; }
+}
+
+/// <summary>
+/// Typed view of an agent / agent-template <c>execution:</c> block. Mirrors
+/// the unit-side <see cref="ExecutionManifest"/> for the fields that are
+/// meaningful on an agent. The schema is intentionally minimal — image and
+/// hosting are the two fields the platform reads off this block at install
+/// time (issue #2436); the legacy free-form fields (<c>agent</c>,
+/// <c>provider</c>, <c>model</c>) still travel through the persisted
+/// definition JSON read by the dispatcher and the inheritance resolver, but
+/// are not part of the typed manifest because the authoring contract for
+/// those slots is the <c>ai:</c> block per ADR-0038.
+/// </summary>
+public class AgentExecutionManifest
+{
+    /// <summary>Container image reference.</summary>
+    [YamlMember(Alias = "image")]
+    public string? Image { get; set; }
+
+    /// <summary>
+    /// Hosting mode for the agent. One of <c>persistent</c> (default),
+    /// <c>ephemeral</c>, or <c>pooled</c> (case-insensitive). Absence means
+    /// "inherit from the unit / template, falling back to <c>persistent</c>"
+    /// (precedence: agent &gt; template &gt; unit &gt; default). The
+    /// manifest parser validates the literal at parse time (issue #2436);
+    /// unknown literals (<c>permanent</c>, etc.) are rejected with a
+    /// structured <see cref="ManifestParseException"/>.
+    /// </summary>
+    [YamlMember(Alias = "hosting")]
+    public string? Hosting { get; set; }
+
+    /// <summary>True when every field is null / whitespace.</summary>
+    [YamlIgnore]
+    public bool IsEmpty =>
+        string.IsNullOrWhiteSpace(Image)
+        && string.IsNullOrWhiteSpace(Hosting);
 }

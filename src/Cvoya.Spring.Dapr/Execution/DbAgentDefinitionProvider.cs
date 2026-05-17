@@ -379,9 +379,24 @@ public class DbAgentDefinitionProvider(
         return null;
     }
 
+    /// <summary>
+    /// Maps a stored <c>execution.hosting</c> literal onto the enum.
+    /// </summary>
+    /// <remarks>
+    /// Issue #2436: the manifest parser now rejects unknown literals at
+    /// parse time, so by the time the provider reads them off
+    /// <c>AgentDefinitionEntity.Definition</c> JSON the value is
+    /// guaranteed to be one of <c>persistent</c> / <c>ephemeral</c> /
+    /// <c>pooled</c> (or null / whitespace). The silent-fallback branch
+    /// that used to land any unknown literal on
+    /// <see cref="AgentHostingMode.Persistent"/> is gone — any value
+    /// that reaches this method that does not match the three known
+    /// literals is a programming error (corrupted persisted JSON) and
+    /// throws.
+    /// </remarks>
     private static AgentHostingMode ParseHosting(string? value)
     {
-        if (value is null)
+        if (string.IsNullOrWhiteSpace(value))
         {
             return AgentHostingMode.Persistent;
         }
@@ -397,16 +412,17 @@ public class DbAgentDefinitionProvider(
         }
 
         // "pooled" is reserved on the enum (PR 1 of #1087) for #362's
-        // warm-pool dispatch model. Accept it on the parser side so YAML
-        // written against #362 round-trips through the provider; the
-        // dispatcher rejects it at dispatch time with NotSupportedException
-        // until #362 lands.
+        // warm-pool dispatch model. The dispatcher rejects it at dispatch
+        // time with NotSupportedException until #362 lands.
         if (value.Equals("pooled", StringComparison.OrdinalIgnoreCase))
         {
             return AgentHostingMode.Pooled;
         }
 
-        return AgentHostingMode.Persistent;
+        throw new InvalidOperationException(
+            $"Persisted agent definition carries an unknown execution.hosting literal '{value}'. " +
+            $"Manifest parsing should have rejected this value at install time (issue #2436); " +
+            $"the persisted state has been corrupted out-of-band.");
     }
 
     private static string? GetStringOrNull(JsonElement obj, string name)

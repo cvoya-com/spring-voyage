@@ -226,6 +226,20 @@ public class UnitCreationService : IUnitCreationService
         var parentInfo = ValidateParentRequest(
             overrides.ParentUnitIds, overrides.IsTopLevel);
 
+        // Issue #2436: forward the manifest's `execution.hosting` to the
+        // unit-actor live config when the operator didn't supply an
+        // explicit override. Manifest-declared hosting flows onto the
+        // unit's UnitMetadata.Hosting the same way `model` flows from
+        // `ai.model.id`; member agents that lack their own hosting then
+        // inherit it through the activator's stamp step (precedence:
+        // agent > template > unit > default `persistent`). The manifest
+        // parser has already normalised the literal to lower-case and
+        // rejected unknown values, so the value reaches the store
+        // canonical.
+        var hosting = !string.IsNullOrWhiteSpace(overrides.Hosting)
+            ? overrides.Hosting
+            : manifest.Execution?.Hosting;
+
         var result = await CreateCoreAsync(
             name,
             displayName,
@@ -233,7 +247,7 @@ public class UnitCreationService : IUnitCreationService
             model,
             color,
             overrides.Provider,
-            overrides.Hosting,
+            hosting,
             manifest.Members ?? new List<MemberManifest>(),
             warnings,
             connector,

@@ -88,7 +88,63 @@ public static class ManifestParser
 
         ValidateUnitMemberGrammar(manifest);
 
+        // Issue #2436: strict validation of execution.hosting on the unit
+        // manifest. Unknown literals (e.g. `permanent`) are rejected at
+        // parse time so the operator sees a precise diagnostic at install
+        // time, not a silent fallback at dispatch time. Also normalises
+        // the literal to lower-case so downstream comparisons can be
+        // case-sensitive.
+        if (manifest.Execution is { Hosting: { } unitHosting }
+            && !string.IsNullOrWhiteSpace(unitHosting))
+        {
+            manifest.Execution.Hosting = NormaliseHostingLiteral(
+                unitHosting,
+                fieldLocation: "execution.hosting");
+        }
+
         return manifest;
+    }
+
+    /// <summary>
+    /// The set of valid hosting literals accepted on unit / agent /
+    /// agent-template <c>execution.hosting</c> blocks (issue #2436).
+    /// Comparison is case-insensitive; literals are normalised to
+    /// lower-case after parsing so downstream consumers can compare
+    /// directly with the enum string forms.
+    /// </summary>
+    /// <remarks>
+    /// Matches the entries on <c>Cvoya.Spring.Core.Execution.AgentHostingMode</c>:
+    /// <c>persistent</c>, <c>ephemeral</c>, <c>pooled</c>. The values are
+    /// the lower-cased enum names verbatim.
+    /// </remarks>
+    public static readonly IReadOnlySet<string> ValidHostingLiterals =
+        new HashSet<string>(System.StringComparer.Ordinal)
+        {
+            "persistent",
+            "ephemeral",
+            "pooled",
+        };
+
+    /// <summary>
+    /// Validates <paramref name="hosting"/> against the
+    /// <see cref="ValidHostingLiterals"/> set and returns the canonical
+    /// lower-case form. Throws <see cref="ManifestParseException"/> on an
+    /// unknown literal, naming the field path
+    /// (<paramref name="fieldLocation"/>) and the rejected value so the
+    /// operator can fix the YAML directly.
+    /// </summary>
+    internal static string NormaliseHostingLiteral(string hosting, string fieldLocation)
+    {
+        var trimmed = hosting.Trim();
+        var lower = trimmed.ToLowerInvariant();
+        if (!ValidHostingLiterals.Contains(lower))
+        {
+            throw new ManifestParseException(
+                $"{fieldLocation}: unknown hosting literal '{trimmed}'. " +
+                $"Expected one of: {string.Join(", ", ValidHostingLiterals)} (case-insensitive). " +
+                "Issue #2436.");
+        }
+        return lower;
     }
 
     /// <summary>
@@ -246,6 +302,82 @@ public static class ManifestParser
                 "Manifest is missing the required top-level 'name' field.");
         }
 
+        // Issue #2436: strict validation of execution.hosting on the
+        // template manifest. See the unit-side branch for the rationale.
+        if (manifest.Execution is { Hosting: { } templateHosting }
+            && !string.IsNullOrWhiteSpace(templateHosting))
+        {
+            manifest.Execution.Hosting = NormaliseHostingLiteral(
+                templateHosting,
+                fieldLocation: "execution.hosting");
+        }
+
+        return manifest;
+    }
+
+    /// <summary>
+    /// Parses an <c>kind: Agent</c> YAML document into an
+    /// <see cref="AgentManifest"/>. Strict parsing — unknown fields are a
+    /// parse error (issue #2406); the typed parser also rejects unknown
+    /// <c>execution.hosting</c> literals at parse time (issue #2436).
+    /// </summary>
+    public static AgentManifest ParseAgent(string yamlText)
+    {
+        AgentManifest? manifest;
+        try
+        {
+            var deserializer = new DeserializerBuilder()
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .WithTypeConverter(new RequirementEntryYamlConverter())
+                .Build();
+            manifest = deserializer.Deserialize<AgentManifest>(yamlText);
+        }
+        catch (YamlDotNet.Core.YamlException ex)
+        {
+            throw new ManifestParseException($"Invalid YAML: {ex.Message}", ex);
+        }
+
+        if (manifest is null)
+        {
+            throw new ManifestParseException("Manifest is empty.");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.ApiVersion))
+        {
+            throw new ManifestParseException(
+                "MissingApiVersion: every artefact YAML declares apiVersion: spring.voyage/v1 (ADR-0037 decision 1).");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.Kind))
+        {
+            throw new ManifestParseException(
+                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill/Workflow (ADR-0037 decision 1).");
+        }
+
+        if (!string.Equals(manifest.Kind.Trim(), "Agent", System.StringComparison.Ordinal))
+        {
+            throw new ManifestParseException(
+                $"Agent YAML declares kind: '{manifest.Kind}' but expected 'Agent'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.Name))
+        {
+            throw new ManifestParseException(
+                "Manifest is missing the required top-level 'name' field.");
+        }
+
+        // Issue #2436: strict validation of execution.hosting on the
+        // agent manifest. Closes the silent-fallback gap previously
+        // present in DbAgentDefinitionProvider.ParseHosting +
+        // AgentEndpoints.ParseHostingMode.
+        if (manifest.Execution is { Hosting: { } agentHosting }
+            && !string.IsNullOrWhiteSpace(agentHosting))
+        {
+            manifest.Execution.Hosting = NormaliseHostingLiteral(
+                agentHosting,
+                fieldLocation: "execution.hosting");
+        }
+
         return manifest;
     }
 
@@ -301,6 +433,19 @@ public static class ManifestParser
         }
 
         ValidateHumanEntries(manifest.Humans);
+
+        // Issue #2436: strict validation of execution.hosting on the
+        // unit-template manifest. UnitTemplate carries the same
+        // ExecutionManifest shape as a concrete Unit so the same rule
+        // applies — agents stamped from a unit-template's members
+        // inherit through the same precedence chain.
+        if (manifest.Execution is { Hosting: { } unitTemplateHosting }
+            && !string.IsNullOrWhiteSpace(unitTemplateHosting))
+        {
+            manifest.Execution.Hosting = NormaliseHostingLiteral(
+                unitTemplateHosting,
+                fieldLocation: "execution.hosting");
+        }
 
         return manifest;
     }

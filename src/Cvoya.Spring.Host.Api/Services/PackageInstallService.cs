@@ -1331,6 +1331,16 @@ public class PackageInstallService : IPackageInstallService
         string? firstError = null;
         var allSucceeded = true;
 
+        // Issue #2436: pre-compute the per-unit `execution.hosting` literal
+        // so the activator can layer the unit's value onto each member
+        // agent's persisted definition when the agent (and its template,
+        // already merged by the template resolver per ADR-0043 §5d) did
+        // not declare its own. Precedence is enforced downstream in
+        // DefaultPackageArtefactActivator.ParseAgentManifest: agent's own
+        // execution.hosting wins; this inherited value fills the gap
+        // before the dispatcher's hard default (`persistent`) takes over.
+        var hostingByUnit = BuildUnitHostingMap(pkg);
+
         // Activate units first (parents before sub-units where possible).
         // Within a package, the parser has already validated cycles; process
         // in declaration order which respects the sub-unit nesting.
@@ -1378,11 +1388,27 @@ public class PackageInstallService : IPackageInstallService
                 artefactId = stagedId;
             }
 
+            // Issue #2436: resolve the agent's inherited hosting from the
+            // map computed above. Top-level agents (ContainingArtefactName
+            // is null) have no parent unit to inherit from — leave the
+            // slot null and the activator falls back to the dispatcher's
+            // hard default. The agent's own YAML-declared
+            // execution.hosting (or a template's value, already merged
+            // into the agent YAML by the template resolver per ADR-0043
+            // §5d) wins inside the activator.
+            string? inheritedAgentHosting = null;
+            if (artefact.Kind == ArtefactKind.Agent
+                && !string.IsNullOrWhiteSpace(artefact.ContainingArtefactName)
+                && hostingByUnit.TryGetValue(artefact.ContainingArtefactName!, out var unitHosting))
+            {
+                inheritedAgentHosting = unitHosting;
+            }
+
             try
             {
                 await _activator.ActivateAsync(
                     pkg.Name, artefact, installId, symbolMap, unitBindings, unitExecution,
-                    perArtefactDisplayName, cancellationToken);
+                    perArtefactDisplayName, inheritedAgentHosting, cancellationToken);
                 await FlipArtefactStateToActiveAsync(artefact, artefactId, cancellationToken);
             }
             catch (OperationCanceledException)
@@ -1414,6 +1440,54 @@ public class PackageInstallService : IPackageInstallService
         return allSucceeded
             ? (PackageInstallOutcome.Active, null)
             : (PackageInstallOutcome.Failed, firstError);
+    }
+
+    /// <summary>
+    /// Issue #2436: builds a map of unit-name → <c>execution.hosting</c>
+    /// literal for every concrete unit in the resolved package. Used by
+    /// the install pipeline to project the unit-level hosting onto each
+    /// member agent at activation time when the agent (and its template,
+    /// already merged by the template resolver per ADR-0043 §5d) did not
+    /// declare its own <c>execution.hosting</c>.
+    /// </summary>
+    /// <remarks>
+    /// The map carries only units that declared a non-blank
+    /// <c>execution.hosting</c> literal. The manifest parser has already
+    /// normalised the literal to lower-case and rejected unknown values,
+    /// so the strings stored here are guaranteed to be one of
+    /// <see cref="ManifestParser.ValidHostingLiterals"/>.
+    /// </remarks>
+    private static IReadOnlyDictionary<string, string> BuildUnitHostingMap(ResolvedPackage pkg)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var unit in pkg.Units)
+        {
+            if (unit.IsCrossPackage || string.IsNullOrEmpty(unit.Content))
+            {
+                continue;
+            }
+            string? hosting;
+            try
+            {
+                var manifest = ManifestParser.Parse(unit.Content!);
+                hosting = manifest.Execution?.Hosting;
+            }
+            catch (ManifestParseException)
+            {
+                // The full per-kind parser will surface the same parse
+                // failure later in the install pipeline (Phase 2 will
+                // re-parse the unit and throw with the same diagnostic),
+                // so skip this unit silently here. The map stays empty
+                // for the unit and its member agents fall through to the
+                // dispatcher's default `persistent`.
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(hosting))
+            {
+                map[unit.Name] = hosting!;
+            }
+        }
+        return map;
     }
 
     private async Task FlipArtefactStateToActiveAsync(

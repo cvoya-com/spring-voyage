@@ -158,6 +158,7 @@ Agent-level (specific to this agent):
 agent:
   execution:
     image: my-org/research-env:latest
+    hosting: persistent
 ```
 
 Unit-level (default for all members):
@@ -165,9 +166,42 @@ Unit-level (default for all members):
 unit:
   execution:
     image: my-org/research-env:latest
+    hosting: persistent
 ```
 
 Agents that don't specify their own environment inherit the unit's default.
+
+### `execution.hosting` (issue #2436)
+
+The hosting mode controls how the agent's container is scheduled across
+dispatch invocations. It is a first-class field on both unit and agent
+`execution:` blocks (and on agent / unit templates).
+
+Valid literals (case-insensitive, normalised to lower-case at parse time):
+
+- `persistent` *(default)* — long-lived container; the platform keeps it
+  running and routes messages to it for its lifetime.
+- `ephemeral` — a fresh container is spun up per dispatch and torn down
+  when the work is done.
+- `pooled` — reserved for the warm-pool model in #362; the dispatcher
+  rejects this mode with `NotSupportedException` until that work lands.
+
+**Strict validation.** The manifest parser rejects any other literal
+(`permanent`, `none`, …) at parse time with a structured `ManifestParseException`
+naming the field path and the rejected value. Install / upload fails
+fast; runtime never silently defaults around a typo.
+
+**Inheritance.** Member agents inherit the parent unit's `hosting` value
+when neither they nor their template declares one. Precedence:
+
+```
+agent > template > unit > default (persistent)
+```
+
+Templates merge into the agent at install time per ADR-0043 §5d, so a
+template-declared `execution.hosting` flows into the stamped agent
+automatically. The install pipeline then layers the unit's value onto
+any member agent whose merged YAML still lacks one.
 
 ## Creating Connectors
 
