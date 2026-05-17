@@ -210,9 +210,11 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             return translated;
         }
 
+        var safeEventType = SanitizeForLog(eventType);
+
         _logger.LogInformation(
             "GitHub inbound-filter: dropping event {EventType} for unit {UnitHex} — filter {FilterKind} matched {FilterValue}.",
-            eventType, unitHex, result.Kind, result.Value);
+            safeEventType, unitHex, result.Kind, result.Value);
 
         if (_activityEventBus is not null)
         {
