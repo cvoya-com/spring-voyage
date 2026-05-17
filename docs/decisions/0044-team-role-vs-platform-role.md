@@ -82,6 +82,13 @@ Why a synthetic membership Guid and not a `(unit_id, human_id, role)` composite 
 
 The table is **not** an extension of `unit_human_permissions`. ACLs and team membership are different facts owned by different actors (tenant operator vs. package author) on different lifecycles (post-install vs. at-install). Overloading one row to carry both would re-tangle the two axes §1 separates.
 
+**Set semantics — and the collapse case.** The unique index states the model in one sentence: a unit's human members are a *set*; the same `(human, role)` pair appears at most once. The install path is required to honour that: when an upsert encounters a row already matching the unique index, the second write is a no-op. This is the load-bearing behaviour for two cases:
+
+- **OSS** — every package-declared role resolves to the install caller's UUID, so `humans: [{role: reviewer, ...}, {role: reviewer, ...}]` produces one row, not two. This is correct: at runtime, the same human receives all role-targeted messages exactly once, not duplicated per declaration.
+- **Hosted** — when one tenant member happens to fill multiple slots that share a role (e.g. an operator filling both reviewer seats during a single-admin install), the same collapse applies.
+
+A package author who wants two semantically distinct seats sharing the same shape (e.g. "lead reviewer" and "backup reviewer") uses two distinct role names. No `slot` field is introduced; the role name *is* the seat identity.
+
 ### 4. Install-time resolution goes through `IPackageHumanResolutionPolicy`
 
 A new DI-swappable seam in `Cvoya.Spring.Core` (kept dependency-free per AGENTS.md):
