@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Execution;
 
+using Cvoya.Spring.Core.Messaging;
+
 /// <summary>
 /// An in-process MCP server exposing Spring Voyage connector skills to external
 /// agent containers. Implementations bind a local HTTP endpoint and authenticate
@@ -25,6 +27,11 @@ public interface IMcpServer
     /// tools, #2231) can answer <c>get_self()</c>-style queries without a
     /// follow-up DB lookup; defaults to <c>"agent"</c> to preserve the
     /// pre-#2231 caller shape for any code path that hasn't yet been updated.
+    /// When <paramref name="agentId"/> is Guid-shaped, the implementation also
+    /// materialises <see cref="McpSession.Subject"/> so the server can resolve
+    /// effective tool grants for <c>tools/list</c> and <c>tools/call</c>
+    /// (#2379); a non-Guid id leaves the subject <c>null</c> and the runtime
+    /// authorization gate degrades to allow-all (legacy test harnesses only).
     /// </summary>
     McpSession IssueSession(string agentId, string threadId, string callerKind = "agent");
 
@@ -46,4 +53,20 @@ public interface IMcpServer
 /// <c>"agent"</c> so positional construction in tests written before
 /// #2231 keeps compiling.
 /// </param>
-public record McpSession(string Token, string AgentId, string ThreadId, string CallerKind = "agent");
+/// <param name="Subject">
+/// Address of the subject this session is bound to — either an
+/// <c>agent:&lt;guid&gt;</c> or <c>unit:&lt;guid&gt;</c>. Populated when
+/// <see cref="AgentId"/> is Guid-shaped; <c>null</c> when the session was
+/// issued from a legacy code path that handed in a non-Guid id (only
+/// reachable through unit-test harnesses). The MCP server's effective-
+/// grant gate consults this to call <c>IToolGrantResolver.ResolveAsync</c>
+/// for <c>tools/list</c> filtering and <c>tools/call</c> authorization;
+/// <c>null</c> means "no subject identity — allow all" so the gate
+/// stays out of the way of legacy unit tests.
+/// </param>
+public record McpSession(
+    string Token,
+    string AgentId,
+    string ThreadId,
+    string CallerKind = "agent",
+    Address? Subject = null);

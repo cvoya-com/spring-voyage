@@ -12,6 +12,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
@@ -110,9 +111,40 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     public McpSession IssueSession(string agentId, string threadId, string callerKind = "agent")
     {
         var token = GenerateToken();
-        var session = new McpSession(token, agentId, threadId, callerKind);
+        var subject = TryMaterialiseSubject(agentId, callerKind);
+        var session = new McpSession(token, agentId, threadId, callerKind, subject);
         _sessions[token] = session;
         return session;
+    }
+
+    /// <summary>
+    /// Builds the <see cref="McpSession.Subject"/> address from the
+    /// IssueSession parameters when the id is Guid-shaped. Production
+    /// callers (A2AExecutionDispatcher, PersistentAgentLifecycle) always
+    /// hand in a canonical-Guid agentId and a scheme-shaped callerKind, so
+    /// this is the normal path. Legacy unit tests issue sessions for
+    /// opaque ids like <c>"ada"</c>; those return <c>null</c> and the
+    /// effective-grant gate degrades to allow-all for that session (the
+    /// resolver requires a real Address — there is no sane fallback). The
+    /// scheme guard also keeps non-subject schemes (<c>connector:</c>,
+    /// <c>human:</c>) from being surfaced to the resolver, which would
+    /// reject them with SpringException at call time.
+    /// </summary>
+    private static Address? TryMaterialiseSubject(string agentId, string callerKind)
+    {
+        if (!GuidFormatter.TryParse(agentId, out var id))
+        {
+            return null;
+        }
+
+        var scheme = string.IsNullOrEmpty(callerKind) ? Address.AgentScheme : callerKind;
+        if (!string.Equals(scheme, Address.AgentScheme, StringComparison.Ordinal)
+            && !string.Equals(scheme, Address.UnitScheme, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return new Address(scheme, id);
     }
 
     /// <inheritdoc />
@@ -364,7 +396,7 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
                     return;
 
                 case "tools/list":
-                    await WriteResultAsync(response, rpcRequest.Id, BuildToolListResult());
+                    await WriteResultAsync(response, rpcRequest.Id, await BuildToolListResultAsync(session, ct));
                     return;
 
                 case "tools/call":
@@ -425,6 +457,33 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         _logger.LogInformation(
             "MCP tools/call: {Tool} (agent={AgentId} thread={ThreadId})",
             toolName, session.AgentId, session.ThreadId);
+
+        // Effective-grant gate (#2379). Registration says "the platform
+        // knows this tool"; the resolver says "this subject may call it".
+        // Reject ungranted tools before consulting the unit-policy
+        // enforcer so the policy gate sees only tools the subject was
+        // entitled to in the first place. Sessions issued without a
+        // materialised Subject (legacy unit-test code paths that pass
+        // non-Guid ids) bypass the gate — they would also bypass the
+        // resolver itself, which requires an Address subject.
+        var grants = await TryGetEffectiveGrantsAsync(session, ct);
+        if (grants is not null && !grants.Contains(toolName))
+        {
+            _logger.LogWarning(
+                "MCP tools/call rejected: tool {Tool} is not in the effective grant set for {Subject}.",
+                toolName, session.Subject);
+            await EmitToolFailureActivityAsync(
+                session,
+                toolName,
+                ActivitySeverity.Warning,
+                $"Tool '{toolName}' is not in the effective grant set for {session.Subject}.",
+                reason: "ungranted",
+                ct: ct);
+            await WriteErrorAsync(
+                response, request.Id, McpRpcErrorCodes.ToolNotGranted,
+                $"Tool '{toolName}' is not granted to this session.");
+            return;
+        }
 
         // Unit-policy enforcement (#162 / #163). Every skill invocation
         // routes through IUnitPolicyEnforcer — if any unit the agent belongs
@@ -695,19 +754,86 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         };
     }
 
-    private object BuildToolListResult()
+    /// <summary>
+    /// Builds the <c>tools/list</c> result, scoped to the active session's
+    /// effective tool grants (#2379). Registration tells the server "this
+    /// tool exists"; the resolver tells it "this subject may see it" —
+    /// callers MUST NOT discover tools they aren't allowed to invoke. The
+    /// resolver is the single source of truth across all four provenance
+    /// tiers (platform / connector / image / explicit), so we intersect
+    /// the registered set against its result rather than re-implementing
+    /// tier-specific filters here. Sessions without a materialised
+    /// Subject (legacy test callers) fall through to the unfiltered
+    /// list — the resolver requires a real Address subject, and forcing
+    /// an empty list there would break every pre-#2379 unit-test fixture
+    /// that just wants the registry surface.
+    /// </summary>
+    private async Task<object> BuildToolListResultAsync(McpSession session, CancellationToken ct)
     {
-        var tools = _registries
-            .SelectMany(r => r.GetToolDefinitions())
+        var allDefinitions = _registries.SelectMany(r => r.GetToolDefinitions());
+
+        var grants = await TryGetEffectiveGrantsAsync(session, ct);
+        var filtered = grants is null
+            ? allDefinitions
+            : allDefinitions.Where(t => grants.Contains(t.Name));
+
+        var tools = filtered
             .Select(t => new
             {
                 name = t.Name,
                 description = t.Description,
-                inputSchema = t.InputSchema
+                inputSchema = t.InputSchema,
             })
             .ToArray();
 
         return new { tools };
+    }
+
+    /// <summary>
+    /// Returns the canonical names of every tool effectively granted to
+    /// the session's subject, or <c>null</c> when the gate must be
+    /// bypassed. Bypass triggers, all narrow: no scope factory (the
+    /// resolver is scoped-DI-backed and can't be reached); no
+    /// <see cref="McpSession.Subject"/> on the session (legacy test
+    /// fixtures issued from a non-Guid id); no <see cref="IToolGrantResolver"/>
+    /// registered (older test harnesses that build the DI graph by hand);
+    /// or the resolver throws while we're answering a routine request —
+    /// in which case fail-open is safer than turning every tool call into
+    /// a hard error and is consistent with the policy-enforcer fallback
+    /// in <see cref="TryEvaluateSkillPolicyAsync"/>. Production hosts
+    /// (AddCvoyaSpringDapr) always register a real resolver, so the
+    /// bypass branches are only reachable in tests today.
+    /// </summary>
+    private async Task<HashSet<string>?> TryGetEffectiveGrantsAsync(
+        McpSession session, CancellationToken ct)
+    {
+        if (_scopeFactory is null || session.Subject is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var resolver = scope.ServiceProvider.GetService<IToolGrantResolver>();
+            if (resolver is null)
+            {
+                return null;
+            }
+
+            var effective = await resolver.ResolveAsync(session.Subject, ct);
+            return new HashSet<string>(
+                effective.Select(t => t.Name),
+                StringComparer.Ordinal);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Tool-grant resolver threw while answering MCP request for {Subject}; " +
+                "allowing the call to fall through to unit policy.",
+                session.Subject);
+            return null;
+        }
     }
 
     private static async Task WriteResultAsync(
