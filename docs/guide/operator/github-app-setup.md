@@ -155,11 +155,49 @@ Whichever path you took, the deployment ends up with these four values populated
 
 ## Local-dev recipe
 
-GitHub Apps require **publicly-reachable** webhook URLs — `localhost` will not receive deliveries. You have three workable options:
+GitHub Apps require **publicly-reachable** webhook URLs — `localhost` will not receive deliveries. The recommended local-dev path is `gh webhook forward`: the operator's already-authenticated `gh` CLI streams deliveries from GitHub and replays them against the local API. No third-party tunnel, no second hostname, no inbound port on the laptop.
 
-1. **Use Path A's loopback handler for OAuth and skip webhooks.** `spring github-app register` works against `http://localhost:5173/...` callback URLs because the conversion callback is loopback-only. The App's webhook URL still has to be publicly reachable for deliveries; configure the App with a placeholder URL and rely on the connector's polling fallback for local-dev experiments.
-2. **Tunnel a public URL to your laptop.** Use [smee.io](https://smee.io/), [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/), or [ngrok](https://ngrok.com/) to forward a public hostname to `http://localhost:8080/api/v1/connectors/github/webhooks`. Configure the App's webhook URL with the tunnel URL.
-3. **Use the bundled webhook relay.** `eng/deploy/relay.sh` opens an SSH reverse tunnel from a small VPS you already control to the local API host. See [`eng/deploy/README.md § Local-dev webhook tunnel (relay.sh)`](../../../eng/deploy/README.md#local-dev-webhook-tunnel-relaysh) for the configuration shape.
+### Recommended: `gh webhook forward` (via the convenience script)
+
+**Preconditions**
+
+- `gh` installed and `gh auth login` completed for the GitHub account that owns the repo you want to forward from.
+- **Repository admin** permission on the repo. `gh webhook forward` registers a short-lived forwarding hook through GitHub's webhook-forwarding API, which requires admin on the target repository.
+- The `gh-webhook` extension installed:
+
+  ```bash
+  gh extension install cli/gh-webhook
+  ```
+
+- `eng/deploy/spring.env` populated (so `GitHub__WebhookSecret` is present — the script reads it so the signatures `gh` adds to forwarded payloads match what the API verifies).
+
+**Run it**
+
+```bash
+# In one terminal: start the local platform so the API listens on :8080.
+./eng/deploy/deploy.sh up        # Podman
+# (or `docker compose --env-file eng/deploy/spring.env up -d` for Compose,
+#  or `dotnet run --project src/Cvoya.Spring.Host.Api` for a source-tree run.)
+
+# In another terminal: forward webhooks from your dev repo to the local API.
+./eng/deploy/gh-webhook-forward.sh --repo your-org/your-dev-repo
+```
+
+The script defaults the forward URL to `http://localhost:8080/api/v1/webhooks/github` (override with `--url`) and reads `GitHub__WebhookSecret` from `eng/deploy/spring.env` (override with `--env`). See `./eng/deploy/gh-webhook-forward.sh --help` for the full flag list, and [`eng/deploy/README.md`](../../../eng/deploy/README.md#local-dev-webhook-forwarding-gh-webhook-forwardsh) for the corresponding operator-reference entry.
+
+Stop with Ctrl-C; the forwarding hook GitHub registers is short-lived and tears down automatically when the `gh` process exits.
+
+> The App's **Webhook URL** field on github.com can stay set to your production-facing URL (or a placeholder). `gh webhook forward` does not change the App's configured URL — it subscribes to a parallel forwarding channel for the duration of the command.
+
+### Without `gh auth` — bundled SSH relay
+
+If you cannot use `gh auth login` (no GitHub account on the dev host, blocked by policy, etc.), use the bundled SSH reverse tunnel: `eng/deploy/relay.sh` exposes the local API through a small VPS you already control. See [`eng/deploy/README.md § Local-dev webhook tunnel (relay.sh)`](../../../eng/deploy/README.md#local-dev-webhook-tunnel-relaysh) for the configuration shape.
+
+### Alternatives (third-party tunnels)
+
+[smee.io](https://smee.io/), [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/), and [ngrok](https://ngrok.com/) all work — pick one, point it at `http://localhost:8080/api/v1/webhooks/github`, and set the resulting public URL as the App's **Webhook URL**. They are kept here for parity with existing operator workflows, but `gh webhook forward` is preferred: it reuses the same `gh` credentials you already have, avoids a third-party hop, and does not require changing the App's configured webhook URL.
+
+### Use a separate "dev" App
 
 Whichever option you pick, **register a separate "dev" App** pointed at `http://localhost:*` (or your tunnel URL) and use a different `GitHub__AppId` in the local `spring.env` than the one you use in production. Sharing one App across dev and prod cross-contaminates webhook deliveries and rate limits.
 
