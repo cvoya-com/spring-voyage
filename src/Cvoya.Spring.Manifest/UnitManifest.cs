@@ -333,12 +333,26 @@ public class ExecutionManifest
     [YamlMember(Alias = "model")]
     public string? Model { get; set; }
 
+    /// <summary>
+    /// Hosting mode for the unit and its member agents. One of
+    /// <c>persistent</c> (default), <c>ephemeral</c>, or <c>pooled</c>
+    /// (case-insensitive). Absence means <c>persistent</c>. Member agents
+    /// inherit the unit's value when neither the agent nor its template
+    /// declares one. Precedence: agent &gt; template &gt; unit &gt; default
+    /// (<c>persistent</c>). The manifest parser validates the literal at
+    /// parse time (issue #2436); unknown literals (<c>permanent</c>, etc.)
+    /// are rejected with a structured <see cref="ManifestParseException"/>.
+    /// </summary>
+    [YamlMember(Alias = "hosting")]
+    public string? Hosting { get; set; }
+
     /// <summary>True when every field is null / whitespace.</summary>
     [YamlIgnore]
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
         && string.IsNullOrWhiteSpace(Runtime)
-        && string.IsNullOrWhiteSpace(Model);
+        && string.IsNullOrWhiteSpace(Model)
+        && string.IsNullOrWhiteSpace(Hosting);
 }
 
 /// <summary>

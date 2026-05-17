@@ -73,6 +73,19 @@ Both subjects are addressable. The schemes differ:
 
 The dispatcher resolves either scheme through the same runtime layer. The scheme only changes which orchestration tools the runtime sees and which mailbox identity the callback uses.
 
+## `execution.hosting` (issue #2436)
+
+`execution.hosting` is a first-class field on both unit and agent
+manifests (and on agent / unit templates). Valid literals — `persistent`
+(default), `ephemeral`, `pooled` — are accepted case-insensitively and
+rejected at parse time when they don't match. Member agents inherit the
+parent unit's value when neither they nor their template declares one.
+Precedence: **agent &gt; template &gt; unit &gt; default (`persistent`)**.
+
+See `docs/developer/creating-packages.md § execution.hosting` for the
+authoring guide and `Cvoya.Spring.Core.Execution.AgentHostingMode` for
+the enum the dispatcher reads at runtime.
+
 ## Humans are subjects, not agents
 
 A **human** is a third kind of subject — addressable, can be a member of a unit, can participate in threads — but **not an agent**. A human implements only `IMessageReceiver`; the agent-shaped surfaces (memory, skills, traces, execution config, runtime, deployment) do not apply. See [Humans](humans.md) for the concept and [`docs/design/canonical-tabs.md`](../design/canonical-tabs.md) for the (deferred to v0.2) portal column.

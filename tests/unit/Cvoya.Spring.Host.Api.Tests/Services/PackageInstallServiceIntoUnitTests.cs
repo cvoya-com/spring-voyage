@@ -233,6 +233,7 @@ public class PackageInstallServiceIntoUnitTests
             IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
             ResolvedExecutionDefaults? executionDefaults = null,
             string? displayNameOverride = null,
+            string? inheritedAgentHosting = null,
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
     }

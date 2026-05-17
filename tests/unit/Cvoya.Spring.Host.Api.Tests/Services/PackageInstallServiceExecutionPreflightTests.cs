@@ -187,6 +187,15 @@ public class PackageInstallServiceExecutionPreflightTests
         public Dictionary<string, ResolvedExecutionDefaults?> Captured { get; } =
             new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// Issue #2436: captures the <c>inheritedAgentHosting</c> argument
+        /// the install service passes to the activator, keyed by agent
+        /// artefact name. Used by inheritance tests to assert the
+        /// install pipeline resolved the unit→agent inheritance correctly.
+        /// </summary>
+        public Dictionary<string, string?> CapturedAgentHosting { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
         public Task ActivateAsync(
             string packageName,
             ResolvedArtefact artefact,
@@ -195,11 +204,16 @@ public class PackageInstallServiceExecutionPreflightTests
             IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
             ResolvedExecutionDefaults? executionDefaults = null,
             string? displayNameOverride = null,
+            string? inheritedAgentHosting = null,
             CancellationToken cancellationToken = default)
         {
             if (artefact.Kind == ArtefactKind.Unit)
             {
                 Captured[artefact.Name] = executionDefaults;
+            }
+            if (artefact.Kind == ArtefactKind.Agent)
+            {
+                CapturedAgentHosting[artefact.Name] = inheritedAgentHosting;
             }
             return Task.CompletedTask;
         }

@@ -121,6 +121,10 @@ members:
   - agent: { name: deming,  from: program-manager, displayName: "Deming (PM)" }
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest
+  # Issue #2436: hosting is first-class on unit + agent execution manifests.
+  # PM instances stay warm across triage cycles; explicit so the manifest
+  # is authoritative rather than relying on the dispatcher's hard default.
+  hosting: persistent
 requires:
   - connector: github
 policies:

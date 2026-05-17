@@ -329,6 +329,19 @@ public static class AgentEndpoints
 
         request ??= new AgentExecutionResponse();
 
+        // Issue #2436: the wire write-path is held to the same hosting
+        // literal contract the manifest parser enforces. Unknown literals
+        // (e.g. `permanent`) are rejected with a 400 here rather than
+        // silently coerced to `persistent` downstream — matches the spirit
+        // of the strict-parsing direction (#2406 / #2430).
+        var normalisedHosting = NormaliseHostingForWire(request.Hosting);
+        if (normalisedHosting.Error is { } hostingError)
+        {
+            return Results.Problem(
+                detail: hostingError,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         // ADR-0038: map the new wire shape onto the internal store shape.
         // ADR-0039 §7/G8 drops the container-runtime slot; the host
         // process owns that platform setting.
@@ -336,7 +349,7 @@ public static class AgentEndpoints
             Image: request.Image,
             Provider: request.Model?.Provider,
             Model: request.Model?.Id,
-            Hosting: request.Hosting,
+            Hosting: normalisedHosting.Value,
             Agent: request.Runtime);
 
         if (shape.IsEmpty)
@@ -448,6 +461,37 @@ public static class AgentEndpoints
             Provider: shape.Provider,
             Model: shape.Model);
 
+    /// <summary>
+    /// Issue #2436: validates and normalises a wire-supplied hosting
+    /// literal before it lands on the persisted shape. Returns the
+    /// canonical lower-case form when the literal is known, or an error
+    /// message when it is not. Blank input is accepted (no change).
+    /// </summary>
+    private static (string? Value, string? Error) NormaliseHostingForWire(string? hosting)
+    {
+        if (string.IsNullOrWhiteSpace(hosting))
+        {
+            return (null, null);
+        }
+        var trimmed = hosting.Trim();
+        var lower = trimmed.ToLowerInvariant();
+        if (lower is "persistent" or "ephemeral" or "pooled")
+        {
+            return (lower, null);
+        }
+        return (null,
+            $"hosting: unknown literal '{trimmed}'. " +
+            $"Expected one of: persistent, ephemeral, pooled (case-insensitive). Issue #2436.");
+    }
+
+    /// <summary>
+    /// Maps a hosting literal (sourced either from a PUT request body or
+    /// from a persisted definition JSON) onto the enum. Throws on an
+    /// unknown literal — the manifest parser rejects unknown values at
+    /// parse time per issue #2436, so the only caller path that can reach
+    /// this method with an unknown literal is a programming error
+    /// (out-of-band JSON write).
+    /// </summary>
     private static AgentHostingMode ParseHostingMode(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -466,7 +510,10 @@ public static class AgentEndpoints
         {
             return AgentHostingMode.Pooled;
         }
-        return AgentHostingMode.Persistent;
+        throw new InvalidOperationException(
+            $"Unknown execution.hosting literal '{value}'. " +
+            $"Manifest parsing rejects unknown literals at install time (issue #2436); " +
+            $"reaching this method with an unknown value indicates a programming error.");
     }
 
     /// <summary>

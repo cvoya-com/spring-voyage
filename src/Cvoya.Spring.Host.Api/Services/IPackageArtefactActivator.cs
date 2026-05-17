@@ -62,6 +62,17 @@ public interface IPackageArtefactActivator
     /// <see cref="IPackageInstallService"/>; the activator just trusts
     /// what it receives.
     /// </param>
+    /// <param name="inheritedAgentHosting">
+    /// Optional inherited <c>execution.hosting</c> literal for an Agent
+    /// artefact (issue #2436). Carries the hosting value the install
+    /// pipeline resolved from the agent's containing unit (or the agent
+    /// template chain) when the agent itself did not declare one — the
+    /// precedence chain is <i>agent &gt; template &gt; unit &gt; default
+    /// (`persistent`)</i>. Ignored for non-Agent artefacts. The activator
+    /// writes this literal onto the agent's persisted definition JSON
+    /// under <c>execution.hosting</c> only when the agent's own
+    /// declarative shape (its YAML's <c>execution.hosting</c>) is absent.
+    /// </param>
     /// <param name="cancellationToken">A cancellation token.</param>
     Task ActivateAsync(
         string packageName,
@@ -71,5 +82,6 @@ public interface IPackageArtefactActivator
         IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
         ResolvedExecutionDefaults? executionDefaults = null,
         string? displayNameOverride = null,
+        string? inheritedAgentHosting = null,
         CancellationToken cancellationToken = default);
 }

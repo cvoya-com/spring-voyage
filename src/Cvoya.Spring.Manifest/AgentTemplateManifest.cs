@@ -99,4 +99,16 @@ public class AgentTemplateManifest
     /// </summary>
     [YamlMember(Alias = "requires")]
     public List<RequirementEntry>? Requires { get; set; }
+
+    /// <summary>
+    /// Optional template-level <c>execution:</c> block. Carries the
+    /// container image and hosting mode at the same level as
+    /// <c>execution.image</c> on the unit manifest (issue #2436). When a
+    /// concrete agent stamped from this template declares its own
+    /// <c>execution.hosting</c>, the agent's value wins; otherwise the
+    /// agent inherits this template's value, falling back to the unit's
+    /// declaration and ultimately to <c>persistent</c>.
+    /// </summary>
+    [YamlMember(Alias = "execution")]
+    public AgentExecutionManifest? Execution { get; set; }
 }
