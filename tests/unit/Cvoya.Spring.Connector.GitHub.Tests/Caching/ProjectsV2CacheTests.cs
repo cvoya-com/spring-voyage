@@ -296,7 +296,7 @@ public class ProjectsV2CacheTests
         }
         """;
         var sig = Sign(payload, "s3cret");
-        var result = connector.HandleWebhook("projects_v2_item", payload, sig);
+        var result = await connector.HandleWebhookAsync("projects_v2_item", payload, sig, TestContext.Current.CancellationToken);
         result.Outcome.ShouldBe(WebhookOutcome.Translated);
 
         var key = new CacheKey("project_v2_item", "PVTI_1", [CacheTags.ProjectV2Item("PVTI_1")]);
@@ -333,7 +333,7 @@ public class ProjectsV2CacheTests
         }
         """;
         var sig = Sign(payload, "s3cret");
-        connector.HandleWebhook("projects_v2_item", payload, sig);
+        await connector.HandleWebhookAsync("projects_v2_item", payload, sig, TestContext.Current.CancellationToken);
 
         // The item event should have no effect on the list cache. Poll
         // briefly just in case the background invalidator fires spuriously.
@@ -368,7 +368,7 @@ public class ProjectsV2CacheTests
         }
         """;
         var sig = Sign(payload, "s3cret");
-        connector.HandleWebhook("projects_v2", payload, sig);
+        await connector.HandleWebhookAsync("projects_v2", payload, sig, TestContext.Current.CancellationToken);
 
         var projectKey = new CacheKey("project_v2", "acme/#7",
             [CacheTags.ProjectV2("acme", 7), CacheTags.ProjectV2List("acme")]);

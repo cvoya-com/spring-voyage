@@ -1724,6 +1724,10 @@ public class SpringApiClient
         string? reviewer = null,
         IReadOnlyList<string>? addOnAssign = null,
         IReadOnlyList<string>? removeOnAssign = null,
+        IReadOnlyList<string>? includeLabels = null,
+        IReadOnlyList<string>? excludeLabels = null,
+        IReadOnlyList<string>? includeAuthors = null,
+        IReadOnlyList<string>? includePaths = null,
         CancellationToken ct = default)
     {
         var request = new UnitGitHubConfigRequest
@@ -1739,6 +1743,11 @@ public class SpringApiClient
             Reviewer = string.IsNullOrWhiteSpace(reviewer) ? null : reviewer,
             AddOnAssign = addOnAssign?.ToList(),
             RemoveOnAssign = removeOnAssign?.ToList(),
+            // Issue #2407 — per-binding inbound webhook filters.
+            IncludeLabels = includeLabels?.ToList(),
+            ExcludeLabels = excludeLabels?.ToList(),
+            IncludeAuthors = includeAuthors?.ToList(),
+            IncludePaths = includePaths?.ToList(),
         };
         var result = await _client.Api.V1.Tenant.Connectors.Github.Units[unitId].Config
             .PutAsync(request, cancellationToken: ct);

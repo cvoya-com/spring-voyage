@@ -90,4 +90,21 @@ public enum ActivityEventType
     /// events — append is the safe operation.
     /// </summary>
     ValidationProgress,
+
+    /// <summary>
+    /// Emitted when an inbound connector webhook event is dropped by a
+    /// per-binding filter before routing — e.g. the GitHub connector's
+    /// label / author / path filters configured on
+    /// <c>UnitGitHubConfig</c>. <see cref="ActivityEvent.Source"/> is the
+    /// unit binding the filter is attached to. <see cref="ActivityEvent.Details"/>
+    /// carries the connector slug, event type, the filter kind that
+    /// matched (<c>exclude_label</c>, <c>include_label</c>,
+    /// <c>include_author</c>, <c>include_path</c>), and the value(s)
+    /// that drove the decision so operators can audit why a particular
+    /// event was suppressed. Issue #2407.
+    /// APPENDED to the end of the enum per #956 — the actor-remoting wire
+    /// format serialises this enum by ordinal, so any mid-insert would
+    /// silently renumber existing events; append is the safe operation.
+    /// </summary>
+    ConnectorEventFiltered,
 }

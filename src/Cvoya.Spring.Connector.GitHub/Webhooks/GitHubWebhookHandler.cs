@@ -3,11 +3,14 @@
 
 namespace Cvoya.Spring.Connector.GitHub.Webhooks;
 
+using System.Text;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Caching;
 using Cvoya.Spring.Connector.GitHub.Labels;
+using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 
 using Microsoft.Extensions.Logging;
@@ -18,22 +21,57 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public class GitHubWebhookHandler : IGitHubWebhookHandler
 {
+    private static readonly JsonSerializerOptions ConfigJsonOptions = new(JsonSerializerDefaults.Web);
+
     private readonly GitHubConnectorOptions _options;
     private readonly LabelStateMachine _labelStateMachine;
+    private readonly IUnitConnectorConfigStore? _configStore;
+    private readonly IActivityEventBus? _activityEventBus;
+    private readonly IGitHubPullRequestFilesFetcher? _filesFetcher;
 
     /// <summary>
     /// Initializes the handler. The <paramref name="labelStateMachine"/> is
     /// optional — when omitted (e.g. in legacy test setups) label-change events
     /// are still translated but carry no derived <c>state_transition</c>.
     /// </summary>
+    /// <param name="options">Connector options (default target unit etc.).</param>
+    /// <param name="loggerFactory">Logger factory.</param>
+    /// <param name="labelStateMachine">Optional label state machine.</param>
+    /// <param name="configStore">
+    /// Optional per-unit connector binding store. When null, the inbound
+    /// filter (issue #2407) is a no-op — every translated event passes.
+    /// Real hosts (Host.Api) register the store; legacy / pure-unit-test
+    /// fixtures don't, which preserves their existing behaviour.
+    /// </param>
+    /// <param name="activityEventBus">
+    /// Optional activity-event bus. When null, filter drops are silent.
+    /// Real hosts always register the bus.
+    /// </param>
+    /// <param name="filesFetcher">
+    /// Optional fetcher used to lazily hydrate a PR's changed-files list
+    /// when (and only when) the unit binding configures
+    /// <see cref="UnitGitHubConfig.IncludePaths"/>. When null, PR-shape
+    /// events with no embedded <c>files</c> array fall through the path
+    /// filter as if no files changed — which drops the event (consistent
+    /// with the pure-evaluator semantics in <see cref="GitHubEventFilter"/>).
+    /// Real hosts wire the OSS <see cref="OctokitGitHubPullRequestFilesFetcher"/>
+    /// (or a cloud-provided substitute) so the filter is effective for every
+    /// PR shape. Issue #2407.
+    /// </param>
     public GitHubWebhookHandler(
         GitHubConnectorOptions options,
         ILoggerFactory loggerFactory,
-        LabelStateMachine? labelStateMachine = null)
+        LabelStateMachine? labelStateMachine = null,
+        IUnitConnectorConfigStore? configStore = null,
+        IActivityEventBus? activityEventBus = null,
+        IGitHubPullRequestFilesFetcher? filesFetcher = null)
     {
         _options = options;
         _logger = loggerFactory.CreateLogger<GitHubWebhookHandler>();
         _labelStateMachine = labelStateMachine ?? new LabelStateMachine(LabelStateMachineOptions.Default());
+        _configStore = configStore;
+        _activityEventBus = activityEventBus;
+        _filesFetcher = filesFetcher;
     }
 
 
@@ -77,6 +115,254 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             "projects_v2_item" => TranslateProjectsV2ItemEvent(payload),
             _ => null
         };
+    }
+
+    /// <inheritdoc />
+    public async Task<Message?> ApplyInboundFilterAsync(
+        Message translated,
+        string eventType,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(translated);
+
+        // The connector addresses every translated event to a single unit
+        // today (the configured DefaultTargetUnitPath). Per-binding filters
+        // apply to THAT unit's binding. Without a binding store wired (legacy
+        // / unit-test fixtures) the filter is a no-op so the existing
+        // behaviour is preserved exactly.
+        if (_configStore is null
+            || translated.To.Scheme != Address.UnitScheme)
+        {
+            return translated;
+        }
+
+        var unitHex = translated.To.Path;
+        UnitConnectorBinding? binding;
+        try
+        {
+            binding = await _configStore.GetAsync(unitHex, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // A failure looking up the binding (e.g. transient DB blip) is
+            // not a reason to suppress the event — log and pass through.
+            // The router will surface a downstream routing failure if the
+            // unit really doesn't exist; we don't want a transient lookup
+            // failure to mask a real subscription.
+            _logger.LogWarning(ex,
+                "GitHub inbound-filter: failed to load binding for unit {UnitHex}; passing event through unfiltered.",
+                unitHex);
+            return translated;
+        }
+
+        if (binding is null || binding.TypeId != GitHubConnectorType.GitHubTypeId)
+        {
+            // No GitHub binding on the target unit. Treat as "no filter
+            // configured" — the message still flows; the router decides
+            // whether the address resolves.
+            return translated;
+        }
+
+        UnitGitHubConfig? config;
+        try
+        {
+            config = binding.Config.Deserialize<UnitGitHubConfig>(ConfigJsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex,
+                "GitHub inbound-filter: stored binding config for unit {UnitHex} was not GitHub-shaped; passing event through unfiltered.",
+                unitHex);
+            return translated;
+        }
+
+        if (config is null)
+        {
+            return translated;
+        }
+
+        // Lazy enrichment for IncludePaths (issue #2407 — path filter coverage
+        // expansion): the translated PR payload doesn't carry a `files` array
+        // because the webhook body itself doesn't either. Rather than paying a
+        // GET /pulls/{n}/files on every PR webhook, we fetch only when this
+        // binding actually configures IncludePaths AND we have a PR-shape
+        // translated event. Per-event review-comment payloads still carry
+        // their own comment.path so the filter is effective there without
+        // any fetch.
+        var payloadForEvaluation = translated.Payload;
+        if (HasIncludePaths(config) && _filesFetcher is not null)
+        {
+            var enriched = await TryEnrichWithChangedFilesAsync(
+                config, translated.Payload, cancellationToken).ConfigureAwait(false);
+            if (enriched is null)
+            {
+                // Fetcher signalled "fail open" — pass through unfiltered.
+                _logger.LogWarning(
+                    "GitHub inbound-filter: changed-files fetch failed for unit {UnitHex}; passing event through unfiltered.",
+                    unitHex);
+                return translated;
+            }
+            payloadForEvaluation = enriched.Value;
+        }
+
+        var result = GitHubEventFilter.Evaluate(config, payloadForEvaluation);
+        if (result.Allowed)
+        {
+            return translated;
+        }
+
+        var safeEventType = SanitizeForLog(eventType);
+
+        _logger.LogInformation(
+            "GitHub inbound-filter: dropping event {EventType} for unit {UnitHex} — filter {FilterKind} matched {FilterValue}.",
+            safeEventType, unitHex, result.Kind, result.Value);
+
+        if (_activityEventBus is not null)
+        {
+            try
+            {
+                var details = JsonSerializer.SerializeToElement(new
+                {
+                    connector = "github",
+                    event_type = eventType,
+                    filter_kind = result.Kind,
+                    filter_value = result.Value,
+                });
+
+                var activityEvent = new ActivityEvent(
+                    Id: Guid.NewGuid(),
+                    Timestamp: DateTimeOffset.UtcNow,
+                    Source: translated.To,
+                    EventType: ActivityEventType.ConnectorEventFiltered,
+                    Severity: ActivitySeverity.Info,
+                    Summary: $"GitHub {eventType} event dropped by {result.Kind} filter.",
+                    Details: details);
+
+                await _activityEventBus.PublishAsync(activityEvent, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // An activity-bus failure must not cause the webhook to
+                // surface differently — the drop already happened; the
+                // operator just doesn't get the audit signal. Log and move
+                // on so the webhook endpoint still ACKs 202.
+                _logger.LogWarning(ex,
+                    "GitHub inbound-filter: failed to emit ConnectorEventFiltered activity event for unit {UnitHex}.",
+                    unitHex);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasIncludePaths(UnitGitHubConfig config)
+        => config.IncludePaths is { Count: > 0 };
+
+    /// <summary>
+    /// Strips control characters from attacker-controlled values before they
+    /// reach the log stream, and caps length so a crafted header or payload
+    /// field cannot forge fake log entries via CR/LF or flood logs. Mirrors
+    /// the helper on <see cref="GitHubConnector"/>; duplicated locally so the
+    /// webhook handler stays self-contained. Returns "unknown" for null/empty
+    /// input so log messages remain readable.
+    /// </summary>
+    private static string SanitizeForLog(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "unknown";
+        }
+
+        const int MaxLogValueLength = 128;
+        var length = Math.Min(value.Length, MaxLogValueLength);
+        var builder = new StringBuilder(length);
+        for (var i = 0; i < length; i++)
+        {
+            var c = value[i];
+            builder.Append(char.IsControl(c) ? '_' : c);
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Returns a translated payload with a hydrated <c>files</c> array when
+    /// the event is PR-shape and the changed-files fetch succeeded. Returns
+    /// the input payload unchanged when the event isn't PR-shape (path
+    /// filter doesn't apply) or when a <c>files</c> array is already present
+    /// (e.g. a review-comment event the translator wired). Returns <c>null</c>
+    /// when the fetch was attempted and failed — caller treats that as
+    /// "fail open" consistent with the binding-load failure pattern.
+    /// </summary>
+    private async Task<JsonElement?> TryEnrichWithChangedFilesAsync(
+        UnitGitHubConfig config,
+        JsonElement domainPayload,
+        CancellationToken cancellationToken)
+    {
+        // PR-shape gate: only events whose translated payload carries a
+        // "pull_request" object qualify. Pure issue events have no changed-
+        // files surface — the filter ignores them by design (see
+        // GitHubEventFilter remarks).
+        if (!domainPayload.TryGetProperty("pull_request", out var pr)
+            || pr.ValueKind != JsonValueKind.Object
+            || !pr.TryGetProperty("number", out var numberEl)
+            || numberEl.ValueKind != JsonValueKind.Number)
+        {
+            return domainPayload;
+        }
+
+        // If the translated payload already carries `files` (e.g. cloud-side
+        // translator already enriched, or a future review-comment event with
+        // a synthetic files entry), don't re-fetch.
+        if (domainPayload.TryGetProperty("files", out var existingFiles)
+            && existingFiles.ValueKind == JsonValueKind.Array
+            && existingFiles.GetArrayLength() > 0)
+        {
+            return domainPayload;
+        }
+
+        if (!domainPayload.TryGetProperty("repository", out var repo)
+            || repo.ValueKind != JsonValueKind.Object
+            || !repo.TryGetProperty("owner", out var ownerEl)
+            || ownerEl.ValueKind != JsonValueKind.String
+            || !repo.TryGetProperty("name", out var nameEl)
+            || nameEl.ValueKind != JsonValueKind.String)
+        {
+            // PR-shape but missing the repo coordinates we need for the
+            // fetch — unusual but possible if the translator was extended
+            // without back-filling repository. Skip enrichment; the
+            // evaluator will read the empty files list and drop closed.
+            return domainPayload;
+        }
+
+        var owner = ownerEl.GetString();
+        var name = nameEl.GetString();
+        var number = numberEl.GetInt32();
+
+        if (string.IsNullOrEmpty(owner) || string.IsNullOrEmpty(name))
+        {
+            return domainPayload;
+        }
+
+        var fetched = await _filesFetcher!
+            .FetchAsync(owner, name, number, config.AppInstallationId, cancellationToken)
+            .ConfigureAwait(false);
+        if (fetched is null)
+        {
+            // Fail open.
+            return null;
+        }
+
+        // Re-serialise with a `files` property appended. The translated
+        // payload is small enough that round-tripping it through a
+        // dictionary is cheap relative to the network call we just made.
+        var dict = new Dictionary<string, JsonElement>(domainPayload.EnumerateObject().Count() + 1);
+        foreach (var prop in domainPayload.EnumerateObject())
+        {
+            dict[prop.Name] = prop.Value.Clone();
+        }
+        dict["files"] = JsonSerializer.SerializeToElement(fetched);
+        return JsonSerializer.SerializeToElement(dict);
     }
 
     /// <inheritdoc />

@@ -44,6 +44,8 @@ public class ConnectorCommandTests
     [InlineData("connector bind-tenant github")]
     [InlineData("connector unbind github --force")]
     [InlineData("connector github label-rules set eng-team --add-on-assign triage --remove-on-assign needs-assignment")]
+    [InlineData("connector github filter set eng-team --include-label spring-voyage --exclude-label wip --include-author alice --include-path docs/")]
+    [InlineData("connector bind --unit eng-team --type github --owner acme --repo platform --include-label spring-voyage --exclude-label wip --include-author alice --include-path docs/")]
     [InlineData("connector credentials status github")]
     public void ConnectorVerbs_Parse(string argLine)
     {
@@ -400,6 +402,60 @@ public class ConnectorCommandTests
 
         result.AddOnAssign.ShouldBe(new[] { "triage" });
         result.RemoveOnAssign.ShouldBe(new[] { "needs-assignment" });
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task PutUnitGitHubConfigAsync_SendsInboundFiltersWhenProvided()
+    {
+        // Issue #2407 — per-binding inbound webhook filter fields ride on
+        // the same typed PUT used by `connector bind` and
+        // `connector github filter set`. Verify all four kinds round-trip
+        // on the wire as snake_case arrays.
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/connectors/github/units/eng-team/config",
+            expectedMethod: HttpMethod.Put,
+            responseBody:
+                """{"unitId":"eng-team","owner":"acme","repo":"platform","appInstallationId":12345,"events":["issues"],"reviewer":"alice","eventsAreDefault":false,"include_labels":["spring-voyage"],"exclude_labels":["wip"],"include_authors":["alice","bob"],"include_paths":["docs/"]}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("include_labels").EnumerateArray()
+                    .Select(e => e.GetString()).ToArray()
+                    .ShouldBe(new[] { "spring-voyage" });
+                json.GetProperty("exclude_labels").EnumerateArray()
+                    .Select(e => e.GetString()).ToArray()
+                    .ShouldBe(new[] { "wip" });
+                json.GetProperty("include_authors").EnumerateArray()
+                    .Select(e => e.GetString()).ToArray()
+                    .ShouldBe(new[] { "alice", "bob" });
+                json.GetProperty("include_paths").EnumerateArray()
+                    .Select(e => e.GetString()).ToArray()
+                    .ShouldBe(new[] { "docs/" });
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.PutUnitGitHubConfigAsync(
+            "eng-team",
+            owner: "acme",
+            repo: "platform",
+            appInstallationId: "12345",
+            events: new[] { "issues" },
+            reviewer: "alice",
+            addOnAssign: null,
+            removeOnAssign: null,
+            includeLabels: new[] { "spring-voyage" },
+            excludeLabels: new[] { "wip" },
+            includeAuthors: new[] { "alice", "bob" },
+            includePaths: new[] { "docs/" },
+            ct: TestContext.Current.CancellationToken);
+
+        result.IncludeLabels.ShouldBe(new[] { "spring-voyage" });
+        result.ExcludeLabels.ShouldBe(new[] { "wip" });
+        result.IncludeAuthors.ShouldBe(new[] { "alice", "bob" });
+        result.IncludePaths.ShouldBe(new[] { "docs/" });
         handler.WasCalled.ShouldBeTrue();
     }
 

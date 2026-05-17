@@ -334,6 +334,30 @@ public static class ConnectorCommand
         {
             Description = "Optional default reviewer (GitHub login) used for human-review handoffs on this unit. When omitted the connector falls back to its installation default.",
         };
+        // Issue #2407 — per-binding inbound webhook filter options. All
+        // four are repeatable + comma-separable. Empty / unspecified means
+        // "no filter on that kind", matching the contract on
+        // UnitGitHubConfig.
+        var includeLabelOption = new Option<string[]?>("--include-label")
+        {
+            Description = "Inbound webhook filter: only deliver events whose subject carries one of these labels. Repeat or comma-separate. Issue #2407.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var excludeLabelOption = new Option<string[]?>("--exclude-label")
+        {
+            Description = "Inbound webhook filter: drop events whose subject carries one of these labels (evaluated first). Repeat or comma-separate. Issue #2407.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var includeAuthorOption = new Option<string[]?>("--include-author")
+        {
+            Description = "Inbound webhook filter: only deliver events authored by one of these GitHub logins. Repeat or comma-separate. Issue #2407.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var includePathOption = new Option<string[]?>("--include-path")
+        {
+            Description = "Inbound webhook filter: only deliver PR-shape events whose changed files match one of these path prefixes. Repeat or comma-separate. Issue #2407.",
+            AllowMultipleArgumentsPerToken = true,
+        };
 
         var command = new Command(
             "bind",
@@ -345,6 +369,10 @@ public static class ConnectorCommand
         command.Options.Add(installationIdOption);
         command.Options.Add(eventsOption);
         command.Options.Add(reviewerOption);
+        command.Options.Add(includeLabelOption);
+        command.Options.Add(excludeLabelOption);
+        command.Options.Add(includeAuthorOption);
+        command.Options.Add(includePathOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -355,6 +383,10 @@ public static class ConnectorCommand
             var installationId = parseResult.GetValue(installationIdOption);
             var events = parseResult.GetValue(eventsOption);
             var reviewer = parseResult.GetValue(reviewerOption);
+            var includeLabels = ExpandCommaSeparated(parseResult.GetValue(includeLabelOption));
+            var excludeLabels = ExpandCommaSeparated(parseResult.GetValue(excludeLabelOption));
+            var includeAuthors = ExpandCommaSeparated(parseResult.GetValue(includeAuthorOption));
+            var includePaths = ExpandCommaSeparated(parseResult.GetValue(includePathOption));
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             if (!string.Equals(type, "github", StringComparison.OrdinalIgnoreCase))
@@ -403,6 +435,12 @@ public static class ConnectorCommand
                     installationId,
                     events,
                     reviewer,
+                    addOnAssign: null,
+                    removeOnAssign: null,
+                    includeLabels: includeLabels,
+                    excludeLabels: excludeLabels,
+                    includeAuthors: includeAuthors,
+                    includePaths: includePaths,
                     ct: ct);
 
                 if (output == "json")
@@ -812,7 +850,123 @@ public static class ConnectorCommand
         var labelRules = new Command("label-rules", "Manage per-binding GitHub label roundtrip rules.");
         labelRules.Subcommands.Add(CreateGitHubLabelRulesSetCommand());
         root.Subcommands.Add(labelRules);
+        // Issue #2407 — per-binding inbound webhook filters.
+        var filter = new Command(
+            "filter",
+            "Manage per-binding inbound webhook filters (labels / authors / paths). Issue #2407.");
+        filter.Subcommands.Add(CreateGitHubFilterSetCommand());
+        root.Subcommands.Add(filter);
         return root;
+    }
+
+    /// <summary>
+    /// Builds the <c>spring connector github filter set</c> verb (issue #2407).
+    /// Replaces the four inbound-filter lists on an existing GitHub binding.
+    /// Passing no filter flags clears every list — same convention as
+    /// <c>label-rules set</c>.
+    /// </summary>
+    private static Command CreateGitHubFilterSetCommand()
+    {
+        var bindingIdArg = new Argument<string>("binding-id")
+        {
+            Description = "Unit binding id whose GitHub inbound webhook filters should be replaced.",
+        };
+        var includeLabelOption = new Option<string[]>("--include-label")
+        {
+            Description = "Label that gates delivery (disjunctive). Repeat or comma-separate. Empty / unspecified clears the list.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var excludeLabelOption = new Option<string[]>("--exclude-label")
+        {
+            Description = "Label that drops delivery (evaluated first). Repeat or comma-separate. Empty / unspecified clears the list.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var includeAuthorOption = new Option<string[]>("--include-author")
+        {
+            Description = "GitHub login that gates delivery (disjunctive). Repeat or comma-separate. Empty / unspecified clears the list.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var includePathOption = new Option<string[]>("--include-path")
+        {
+            Description = "Path prefix that gates PR-shape delivery (disjunctive). Ignored for pure issue events. Repeat or comma-separate. Empty / unspecified clears the list.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+
+        var command = new Command(
+            "set",
+            "Replace the GitHub inbound webhook filters for a unit binding. Passing no filter flags clears every list.");
+        command.Arguments.Add(bindingIdArg);
+        command.Options.Add(includeLabelOption);
+        command.Options.Add(excludeLabelOption);
+        command.Options.Add(includeAuthorOption);
+        command.Options.Add(includePathOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var bindingId = parseResult.GetValue(bindingIdArg)!;
+            var includeLabels = ExpandCommaSeparated(parseResult.GetValue(includeLabelOption));
+            var excludeLabels = ExpandCommaSeparated(parseResult.GetValue(excludeLabelOption));
+            var includeAuthors = ExpandCommaSeparated(parseResult.GetValue(includeAuthorOption));
+            var includePaths = ExpandCommaSeparated(parseResult.GetValue(includePathOption));
+
+            var client = ClientFactory.Create();
+
+            try
+            {
+                var current = await client.GetRequiredUnitGitHubConfigAsync(bindingId, ct);
+                await client.PutUnitGitHubConfigAsync(
+                    bindingId,
+                    current.Owner!,
+                    current.Repo!,
+                    current.AppInstallationId?.ToString(CultureInfo.InvariantCulture),
+                    current.EventsAreDefault == true ? null : current.Events,
+                    current.Reviewer,
+                    addOnAssign: current.AddOnAssign,
+                    removeOnAssign: current.RemoveOnAssign,
+                    includeLabels: includeLabels,
+                    excludeLabels: excludeLabels,
+                    includeAuthors: includeAuthors,
+                    includePaths: includePaths,
+                    ct);
+
+                Console.WriteLine($"Inbound filters updated for binding {bindingId}.");
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to update inbound filters for binding {bindingId} (HTTP {ex.ResponseStatusCode}): {ProblemDetailsTranslator.Format(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    /// <summary>
+    /// Flattens a repeatable + comma-separable option's values into a
+    /// single list. Returns <c>null</c> when the option was never supplied
+    /// (so the caller can distinguish "left unset" from "explicitly empty")
+    /// — and an empty list when every value the user supplied was empty.
+    /// </summary>
+    private static IReadOnlyList<string>? ExpandCommaSeparated(string[]? values)
+    {
+        if (values is null || values.Length == 0)
+        {
+            return null;
+        }
+        var result = new List<string>(values.Length);
+        foreach (var raw in values)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+            foreach (var part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                result.Add(part);
+            }
+        }
+        return result;
     }
 
     private static Command CreateGitHubLabelRulesSetCommand()
@@ -856,9 +1010,13 @@ public static class ConnectorCommand
                     current.AppInstallationId?.ToString(CultureInfo.InvariantCulture),
                     current.EventsAreDefault == true ? null : current.Events,
                     current.Reviewer,
-                    addOnAssign,
-                    removeOnAssign,
-                    ct);
+                    addOnAssign: addOnAssign,
+                    removeOnAssign: removeOnAssign,
+                    includeLabels: current.IncludeLabels,
+                    excludeLabels: current.ExcludeLabels,
+                    includeAuthors: current.IncludeAuthors,
+                    includePaths: current.IncludePaths,
+                    ct: ct);
 
                 Console.WriteLine($"Label rules updated for binding {bindingId}.");
             }
