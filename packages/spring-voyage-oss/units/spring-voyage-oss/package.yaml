@@ -46,5 +46,6 @@ policies:
     max_level: attentive
     max_actions_per_hour: 10
 humans:
-  - role: owner
+  - role: overall-lead
+    expertise: [triage, code-review, architecture, design, dotnet, web, escalation]
     notifications: ["escalation", "completion"]

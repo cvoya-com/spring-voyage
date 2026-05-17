@@ -135,5 +135,6 @@ policies:
     max_level: attentive
     max_actions_per_hour: 10
 humans:
-  - role: owner
+  - role: pm-lead
+    expertise: [triage, design, architecture, escalation]
     notifications: ["escalation", "completion"]
