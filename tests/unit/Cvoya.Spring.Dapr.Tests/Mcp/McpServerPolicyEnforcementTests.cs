@@ -7,6 +7,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Mcp;
@@ -76,7 +77,13 @@ public class McpServerPolicyEnforcementTests : IAsyncLifetime
     [Fact]
     public async Task ToolsCall_PolicyAllows_InvokesRegistry()
     {
-        var session = _server!.IssueSession("ada", "conv-1");
+        // IssueSession requires a Guid-shaped agentId + a subject scheme
+        // (#2379 hardening — every session must carry a materialised
+        // Subject for the effective-grant gate to evaluate). Hand in a
+        // canonical no-dash Guid and assert through it instead of using
+        // the legacy opaque "ada" id shape.
+        var agentId = Guid.NewGuid().ToString("N");
+        var session = _server!.IssueSession(agentId, "conv-1", Address.AgentScheme);
         _enforcer.NextDecision = PolicyDecision.Allowed;
 
         var json = await PostJsonAsync(session.Token, new
@@ -88,7 +95,7 @@ public class McpServerPolicyEnforcementTests : IAsyncLifetime
         });
 
         _registry.LastInvokedName.ShouldBe("fake.tool");
-        _enforcer.LastAgentId.ShouldBe("ada");
+        _enforcer.LastAgentId.ShouldBe(agentId);
         _enforcer.LastToolName.ShouldBe("fake.tool");
         var result = json.GetProperty("result");
         result.TryGetProperty("isError", out var isError).ShouldBeTrue();
@@ -98,7 +105,8 @@ public class McpServerPolicyEnforcementTests : IAsyncLifetime
     [Fact]
     public async Task ToolsCall_PolicyDenies_ShortCircuitsAsToolError()
     {
-        var session = _server!.IssueSession("ada", "conv-1");
+        var session = _server!.IssueSession(
+            Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
         _enforcer.NextDecision = PolicyDecision.Deny(
             "Tool 'fake.tool' is blocked by unit 'engineering' skill policy.",
             "engineering");

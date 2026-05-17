@@ -79,20 +79,29 @@ public class McpServerTests : IAsyncLifetime
     [Fact]
     public async Task Initialize_ReturnsServerInfoAndBoundSession()
     {
-        var session = _server!.IssueSession("agent-1", "conv-1");
+        // IssueSession requires a Guid-shaped agentId + a subject-scheme
+        // callerKind (#2379 hardening) so the session's Subject is always
+        // present and the effective-grant gate applies uniformly. We hand
+        // in canonical no-dash Guids here and assert against them.
+        var agentId = Guid.NewGuid().ToString("N");
+        var threadId = Guid.NewGuid().ToString("N");
+        var session = _server!.IssueSession(agentId, threadId, Address.AgentScheme);
 
         var json = await PostJsonAsync(session.Token, new { jsonrpc = "2.0", id = 1, method = "initialize" });
 
         var result = json.GetProperty("result");
         result.GetProperty("serverInfo").GetProperty("name").GetString().ShouldBe("spring-voyage-mcp");
-        result.GetProperty("meta").GetProperty("agentId").GetString().ShouldBe("agent-1");
-        result.GetProperty("meta").GetProperty("threadId").GetString().ShouldBe("conv-1");
+        result.GetProperty("meta").GetProperty("agentId").GetString().ShouldBe(agentId);
+        result.GetProperty("meta").GetProperty("threadId").GetString().ShouldBe(threadId);
     }
 
     [Fact]
     public async Task ToolsList_ReturnsAllToolsAcrossRegistries()
     {
-        var session = _server!.IssueSession("a", "c");
+        // No IToolGrantResolver is registered in this fixture, so the
+        // server returns the unfiltered registry surface — exactly the
+        // shape exercised here.
+        var session = _server!.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
 
         var json = await PostJsonAsync(session.Token, new { jsonrpc = "2.0", id = 1, method = "tools/list" });
 
@@ -104,7 +113,7 @@ public class McpServerTests : IAsyncLifetime
     [Fact]
     public async Task ToolsCall_RoutesToCorrectRegistryAndReturnsResult()
     {
-        var session = _server!.IssueSession("a", "c");
+        var session = _server!.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
 
         var json = await PostJsonAsync(session.Token, new
         {
@@ -126,7 +135,7 @@ public class McpServerTests : IAsyncLifetime
     [Fact]
     public async Task ToolsCall_UnknownTool_ReturnsMethodNotFound()
     {
-        var session = _server!.IssueSession("a", "c");
+        var session = _server!.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
 
         var json = await PostJsonAsync(session.Token, new
         {
@@ -142,7 +151,7 @@ public class McpServerTests : IAsyncLifetime
     [Fact]
     public async Task RevokedToken_ReturnsUnauthorized()
     {
-        var session = _server!.IssueSession("a", "c");
+        var session = _server!.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
         _server.RevokeSession(session.Token);
 
         var response = await PostAsync(
@@ -150,6 +159,30 @@ public class McpServerTests : IAsyncLifetime
             new { jsonrpc = "2.0", id = 1, method = "initialize" });
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public void IssueSession_NonGuidAgentId_ThrowsArgumentException()
+    {
+        // #2379 hardening: every session must carry a materialised Subject
+        // so the effective-grant gate can evaluate it. An opaque id like
+        // "ada" is rejected at session-establishment time — no silent
+        // fail-open path remains.
+        var act = () => _server!.IssueSession("ada", "conv-1", Address.AgentScheme);
+
+        Should.Throw<ArgumentException>(act).ParamName.ShouldBe("agentId");
+    }
+
+    [Fact]
+    public void IssueSession_UnsupportedCallerKind_ThrowsArgumentException()
+    {
+        // The session's caller-kind must be a subject scheme so the
+        // resolver can route the Address. Connector / human schemes are
+        // not subjects and are rejected up-front rather than silently
+        // bypassing the grant gate.
+        var act = () => _server!.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", "connector");
+
+        Should.Throw<ArgumentException>(act).ParamName.ShouldBe("callerKind");
     }
 
     [Fact]

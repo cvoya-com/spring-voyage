@@ -7,6 +7,7 @@ using System.Net;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -37,8 +38,17 @@ public class PersistentAgentRegistryTests : IDisposable
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _launcher.Kind.Returns("claude-code-cli");
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
-        _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>())
-            .Returns(ci => new McpSession("t", ci.ArgAt<string>(0), ci.ArgAt<string>(1)));
+        // Mirror production session shape (#2379): every session carries a
+        // materialised Subject Address built from (agentId, callerKind). The
+        // PersistentAgentLifecycle always passes Address.AgentScheme for the
+        // explicit-deploy path, so the third arg defaults to that here.
+        _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(ci => new McpSession(
+                "t",
+                ci.ArgAt<string>(0),
+                ci.ArgAt<string>(1),
+                ci.ArgAt<string>(2),
+                Address.For(ci.ArgAt<string>(2), ci.ArgAt<string>(0))));
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(new AgentLaunchSpec(
                 new Dictionary<string, string>(),

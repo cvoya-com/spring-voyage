@@ -12,6 +12,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
@@ -109,10 +110,51 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     /// <inheritdoc />
     public McpSession IssueSession(string agentId, string threadId, string callerKind = "agent")
     {
+        var subject = MaterialiseSubject(agentId, callerKind);
         var token = GenerateToken();
-        var session = new McpSession(token, agentId, threadId, callerKind);
+        var session = new McpSession(token, agentId, threadId, callerKind, subject);
         _sessions[token] = session;
         return session;
+    }
+
+    /// <summary>
+    /// Builds the <see cref="McpSession.Subject"/> address from the
+    /// IssueSession parameters. Every production caller
+    /// (A2AExecutionDispatcher, PersistentAgentLifecycle) already hands in
+    /// a canonical-Guid agentId and a scheme-shaped callerKind, so this
+    /// is the contract — not a best-effort projection. Fails fast when
+    /// the inputs cannot produce a subject so the effective-grant gate
+    /// (#2379) applies uniformly to every session; there is no fail-open
+    /// path that would let an unauthenticated session bypass enforcement.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="agentId"/> is not Guid-shaped or
+    /// <paramref name="callerKind"/> is not <see cref="Address.AgentScheme"/>
+    /// / <see cref="Address.UnitScheme"/>.
+    /// </exception>
+    private static Address MaterialiseSubject(string agentId, string callerKind)
+    {
+        if (!GuidFormatter.TryParse(agentId, out var id))
+        {
+            throw new ArgumentException(
+                $"MCP session agentId '{agentId}' is not a Guid; every session must " +
+                "bind to an Address-shaped subject so the effective-grant gate can " +
+                "evaluate it (#2379). Pass the canonical 32-char no-dash id or a " +
+                "dashed Guid.",
+                nameof(agentId));
+        }
+
+        if (!string.Equals(callerKind, Address.AgentScheme, StringComparison.Ordinal)
+            && !string.Equals(callerKind, Address.UnitScheme, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"MCP session callerKind '{callerKind}' is not a subject scheme; " +
+                $"pass '{Address.AgentScheme}' or '{Address.UnitScheme}' so the " +
+                "session's Subject is routable through IToolGrantResolver (#2379).",
+                nameof(callerKind));
+        }
+
+        return new Address(callerKind, id);
     }
 
     /// <inheritdoc />
@@ -364,7 +406,7 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
                     return;
 
                 case "tools/list":
-                    await WriteResultAsync(response, rpcRequest.Id, BuildToolListResult());
+                    await WriteResultAsync(response, rpcRequest.Id, await BuildToolListResultAsync(session, ct));
                     return;
 
                 case "tools/call":
@@ -425,6 +467,34 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         _logger.LogInformation(
             "MCP tools/call: {Tool} (agent={AgentId} thread={ThreadId})",
             toolName, session.AgentId, session.ThreadId);
+
+        // Effective-grant gate (#2379). Registration says "the platform
+        // knows this tool"; the resolver says "this subject may call it".
+        // Reject ungranted tools before consulting the unit-policy
+        // enforcer so the policy gate sees only tools the subject was
+        // entitled to in the first place. The gate applies uniformly to
+        // every session — IssueSession guarantees a materialised Subject,
+        // so the only bypass is "no resolver registered" (limited test
+        // harnesses), in which case TryGetEffectiveGrantsAsync returns
+        // null and the gate falls through to unit policy.
+        var grants = await TryGetEffectiveGrantsAsync(session, ct);
+        if (grants is not null && !grants.Contains(toolName))
+        {
+            _logger.LogWarning(
+                "MCP tools/call rejected: tool {Tool} is not in the effective grant set for {Subject}.",
+                toolName, session.Subject);
+            await EmitToolFailureActivityAsync(
+                session,
+                toolName,
+                ActivitySeverity.Warning,
+                $"Tool '{toolName}' is not in the effective grant set for {session.Subject}.",
+                reason: "ungranted",
+                ct: ct);
+            await WriteErrorAsync(
+                response, request.Id, McpRpcErrorCodes.ToolNotGranted,
+                $"Tool '{toolName}' is not granted to this session.");
+            return;
+        }
 
         // Unit-policy enforcement (#162 / #163). Every skill invocation
         // routes through IUnitPolicyEnforcer — if any unit the agent belongs
@@ -588,15 +658,6 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
             return;
         }
 
-        // Address.For requires a Guid-shaped id segment. Production sessions are always
-        // keyed by an agent Guid (UnitDispatchOrchestrator issues them after looking up
-        // the agent actor), but legacy tests use opaque strings like "agent-1" — skip
-        // emission for those rather than throwing inside the failure handler.
-        if (!Guid.TryParse(session.AgentId, out var agentGuid))
-        {
-            return;
-        }
-
         try
         {
             var details = JsonSerializer.SerializeToElement(new
@@ -610,10 +671,13 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
                 deniedByUnitId,
             });
 
+            // IssueSession guarantees Subject is always materialised from a
+            // Guid-shaped agent id, so we can route the activity event off
+            // the session subject directly — no defensive Guid-parse needed.
             var activityEvent = new ActivityEvent(
                 Guid.NewGuid(),
                 DateTimeOffset.UtcNow,
-                new Address(Address.AgentScheme, agentGuid),
+                session.Subject,
                 ActivityEventType.ToolResult,
                 severity,
                 summary,
@@ -695,19 +759,72 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         };
     }
 
-    private object BuildToolListResult()
+    /// <summary>
+    /// Builds the <c>tools/list</c> result, scoped to the active session's
+    /// effective tool grants (#2379). Registration tells the server "this
+    /// tool exists"; the resolver tells it "this subject may see it" —
+    /// callers MUST NOT discover tools they aren't allowed to invoke. The
+    /// resolver is the single source of truth across all four provenance
+    /// tiers (platform / connector / image / explicit), so we intersect
+    /// the registered set against its result rather than re-implementing
+    /// tier-specific filters here. When the host doesn't register an
+    /// <see cref="IToolGrantResolver"/> (limited unit-test harnesses),
+    /// the unfiltered list surfaces — production composition always
+    /// supplies one via <c>AddCvoyaSpringDapr</c>.
+    /// </summary>
+    private async Task<object> BuildToolListResultAsync(McpSession session, CancellationToken ct)
     {
-        var tools = _registries
-            .SelectMany(r => r.GetToolDefinitions())
+        var allDefinitions = _registries.SelectMany(r => r.GetToolDefinitions());
+
+        var grants = await TryGetEffectiveGrantsAsync(session, ct);
+        var filtered = grants is null
+            ? allDefinitions
+            : allDefinitions.Where(t => grants.Contains(t.Name));
+
+        var tools = filtered
             .Select(t => new
             {
                 name = t.Name,
                 description = t.Description,
-                inputSchema = t.InputSchema
+                inputSchema = t.InputSchema,
             })
             .ToArray();
 
         return new { tools };
+    }
+
+    /// <summary>
+    /// Returns the canonical names of every tool effectively granted to
+    /// the session's subject, or <c>null</c> when no resolver is wired
+    /// (limited unit-test harnesses). Production hosts (AddCvoyaSpringDapr)
+    /// always register a real resolver, so the null branch is only
+    /// reachable in tests today. The session's <see cref="McpSession.Subject"/>
+    /// is always present — <see cref="IssueSession"/> enforces that at
+    /// session-establishment time, so the resolver always sees a real
+    /// Address. Resolver exceptions propagate; converting them into a
+    /// silent allow-all would let a transient datastore outage open the
+    /// gate for every caller and is exactly the fail-open the #2379
+    /// review rejected.
+    /// </summary>
+    private async Task<HashSet<string>?> TryGetEffectiveGrantsAsync(
+        McpSession session, CancellationToken ct)
+    {
+        if (_scopeFactory is null)
+        {
+            return null;
+        }
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var resolver = scope.ServiceProvider.GetService<IToolGrantResolver>();
+        if (resolver is null)
+        {
+            return null;
+        }
+
+        var effective = await resolver.ResolveAsync(session.Subject, ct);
+        return new HashSet<string>(
+            effective.Select(t => t.Name),
+            StringComparer.Ordinal);
     }
 
     private static async Task WriteResultAsync(

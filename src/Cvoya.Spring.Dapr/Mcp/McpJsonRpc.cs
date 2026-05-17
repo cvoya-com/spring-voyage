@@ -78,4 +78,15 @@ internal static class McpRpcErrorCodes
 
     /// <summary>Custom code for unauthenticated requests (outside standard JSON-RPC range).</summary>
     public const int Unauthorized = -32001;
+
+    /// <summary>
+    /// Custom code for <c>tools/call</c> on a tool the active session's
+    /// subject does not hold an effective grant for. Distinct from
+    /// <see cref="MethodNotFound"/> so callers can tell "this server
+    /// doesn't know about that tool" apart from "this server does, but
+    /// the caller isn't authorised". Falls in the JSON-RPC application-
+    /// error range (-32099 to -32000), alongside
+    /// <see cref="Unauthorized"/>. See #2379.
+    /// </summary>
+    public const int ToolNotGranted = -32002;
 }
