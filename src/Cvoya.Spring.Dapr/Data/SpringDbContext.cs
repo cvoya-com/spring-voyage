@@ -121,6 +121,15 @@ public class SpringDbContext : DbContext
     public DbSet<HumanEntity> Humans => Set<HumanEntity>();
 
     /// <summary>
+    /// Gets the set of human ↔ connector-native identity mapping rows
+    /// (#2408). One row per <c>(tenant, connector, connector_user_id)</c>
+    /// tuple; backs <see cref="Cvoya.Spring.Core.Security.IHumanConnectorIdentityResolver"/>
+    /// so the platform can resolve a connector login (e.g. a GitHub handle)
+    /// to a stable human UUID and vice-versa.
+    /// </summary>
+    public DbSet<HumanConnectorIdentityEntity> HumanConnectorIdentities => Set<HumanConnectorIdentityEntity>();
+
+    /// <summary>
     /// Gets the set of tenant-scoped daily cost budget rows (ADR-0040 / #2045).
     /// Replaces the pre-ADR <c>Agent:CostBudget</c>, <c>Unit:CostBudget</c>,
     /// and <c>Tenant:CostBudget</c> actor-state keys with a single relational
@@ -271,6 +280,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new TenantSkillBundleBindingEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantRecordEntityConfiguration());
         modelBuilder.ApplyConfiguration(new HumanEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new HumanConnectorIdentityEntityConfiguration());
         modelBuilder.ApplyConfiguration(new PackageInstallEntityConfiguration());
         modelBuilder.ApplyConfiguration(new BudgetLimitEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ThreadEntityConfiguration());
@@ -337,6 +347,12 @@ public class SpringDbContext : DbContext
 
         // Human identity records: tenant-scoped, no soft-delete.
         modelBuilder.Entity<HumanEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Human ↔ connector-native identity mappings (#2408): tenant-scoped,
+        // no soft-delete. Removed identities are hard-deleted so the unique
+        // index slot frees up immediately.
+        modelBuilder.Entity<HumanConnectorIdentityEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
 
         // Package install tracking: tenant-scoped, no soft-delete.

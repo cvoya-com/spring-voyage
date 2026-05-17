@@ -187,6 +187,40 @@ slot stored on a unit / agent. See [ADR-0038](../decisions/0038-agent-runtime-an
 
 ---
 
+## 11. Connector-native identities — the bridge
+
+Spring Voyage operates on a single-identity model internally (§ 1), but the **outside world** addresses humans through connector-native identifiers — a GitHub login, a Slack member id, an email. The platform stores both forms and resolves between them on the boundary.
+
+| Surface | Identifier shape | Examples |
+|---|---|---|
+| `sv.*` MCP tools (`sv.send_message`, `sv.list_members`, future `sv.github.request_review`) | Stable `Guid` | `human:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7` |
+| Container-native CLI tools agents invoke (`gh`, `git`) — populated via the `SPRING_*` env-vars from [#2380](https://github.com/cvoya-com/spring-voyage/pull/2380) | Connector-native | `gh issue assign --add-assignee alice-mccoder` |
+| `human_connector_identities` table — the bridge | Pair `(human_id, connector_id, connector_user_id)` | `(8c5fab…, github, alice-mccoder)` |
+
+The bridge lets both surfaces stay in their natural form. An sv.* tool that needs to act on a GitHub user takes a `human_uuid` and internally resolves to the login via `IHumanConnectorIdentityResolver.ResolveUserIdAsync(humanId, "github")`. Conversely, an inbound webhook that arrives with a login resolves to the platform-native human UUID via `ResolveHumanAsync("github", "alice-mccoder")` before threading through the rest of the platform.
+
+The mapping rows live in the `human_connector_identities` table:
+
+| Column | Notes |
+|---|---|
+| `id` | Surrogate `Guid` PK |
+| `tenant_id` | `ITenantScopedEntity` |
+| `human_id` | FK to `humans.id` |
+| `connector_id` | Connector slug (`github`, `slack`, …) — matches `IConnectorType.Slug` |
+| `connector_user_id` | The stable external id — for GitHub this is the login string |
+| `display_handle` | Optional human-readable label |
+| `created_at`, `updated_at` | Audit timestamps |
+
+The unique invariant `(tenant_id, connector_id, connector_user_id)` enforces "one external identity → at most one human per tenant." Including `human_id` in the uniqueness would let two humans claim the same login and defeat inbound resolution; it is intentionally excluded. The covering index `(tenant_id, human_id)` backs the "list this human's identities" read pattern.
+
+**Auto-seed.** When a unit's GitHub binding is created or updated and `UnitGitHubConfig.Reviewer` is set, the platform writes `(operator_human, github, <reviewer>)` to `human_connector_identities` if the tuple is not already claimed. The seed is idempotent and the binding-write path tolerates absent / conflicting rows — the auto-seed is an opportunistic UX shortcut, not a correctness invariant. v0.2 retires the per-binding `Reviewer` in favour of per-Human GitHub-handle configuration ([#2417](https://github.com/cvoya-com/spring-voyage/issues/2417)); the table is the data carrier for both shapes.
+
+**CLI.** `spring human identity set --connector <slug> --user-id <id> [--human <id>] [--display-handle <h>]`, `spring human identity list [--human <id>]`, and `spring human identity remove --connector <slug> --user-id <id> [--human <id>]` manage the rows. `--human` defaults to the authenticated caller's UUID (resolved through `/api/v1/tenant/auth/me`). Every CLI write routes through the Kiota-generated `SpringApiKiotaClient`.
+
+The decision is recorded in [#2408](https://github.com/cvoya-com/spring-voyage/issues/2408).
+
+---
+
 ## See also
 
 - [ADR 0036 — Single-identity model](../decisions/0036-single-identity-model.md) — the durable decision.

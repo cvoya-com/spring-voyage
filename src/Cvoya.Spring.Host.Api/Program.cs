@@ -484,6 +484,9 @@ public partial class Program
             // TenantUser role gate via .RequireAuthorization(RolePolicies.TenantUser).
             app.MapAgentEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapUnitEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+            // #2408: human ↔ connector-native identity mapping surface.
+            // Routes live under /api/v1/tenant/humans/{id}/identities.
+            app.MapHumanIdentityEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapUnitPolicyEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapMembershipEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapPackageEndpoints().RequireAuthorization(RolePolicies.TenantUser);

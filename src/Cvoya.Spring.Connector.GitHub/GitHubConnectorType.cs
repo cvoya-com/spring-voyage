@@ -17,6 +17,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Secrets;
+using Cvoya.Spring.Core.Security;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -556,6 +557,7 @@ public class GitHubConnectorType : IConnectorType
     private async Task<IResult> PutConfigAsync(
         string unitId,
         [FromBody] UnitGitHubConfigRequest request,
+        HttpContext httpContext,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Owner) || string.IsNullOrWhiteSpace(request.Repo))
@@ -590,6 +592,36 @@ public class GitHubConnectorType : IConnectorType
 
         var payload = JsonSerializer.SerializeToElement(config, ConfigJson);
         await _configStore.SetAsync(actorId, GitHubTypeId, payload, cancellationToken);
+
+        // #2408: auto-seed the operator's GitHub identity from the binding
+        // write when a Reviewer was supplied. The seed call is idempotent
+        // and silently skipped when no authenticated caller is present
+        // (workflow-driven re-binds, etc.). Resolved through the request-
+        // scope so the scoped IConnectorIdentityAutoSeed resolves cleanly;
+        // GetService keeps the connector working when the seam isn't
+        // registered (test harnesses that pre-date #2408).
+        if (!string.IsNullOrWhiteSpace(reviewer))
+        {
+            var autoSeed = httpContext.RequestServices.GetService(typeof(IConnectorIdentityAutoSeed))
+                as IConnectorIdentityAutoSeed;
+            if (autoSeed is not null)
+            {
+                try
+                {
+                    await autoSeed.SeedForCallerAsync(
+                        connectorId: Slug,
+                        connectorUserId: reviewer,
+                        displayHandle: null,
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to auto-seed connector identity for reviewer '{Reviewer}' on unit '{UnitId}'; binding write itself succeeded.",
+                        reviewer, unitId);
+                }
+            }
+        }
 
         return Results.Ok(ToResponse(unitId, config));
     }
