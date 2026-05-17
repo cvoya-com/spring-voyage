@@ -238,6 +238,21 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // register a tenant-aware implementation ahead of the OSS default.
         services.TryAddScoped<IHumanIdentityResolver, HumanIdentityResolver>();
 
+        // Package-declared human resolution policy (ADR-0044). OSS default
+        // auto-fills every declared role with the install caller's UUID;
+        // the cloud overlay registers a tenant-aware variant ahead of this
+        // line. Singleton — the policy consults only request data, never
+        // per-request state. TryAddSingleton keeps the cloud override hook.
+        services.TryAddSingleton<Cvoya.Spring.Core.Packages.IPackageHumanResolutionPolicy,
+            Auth.OssPackageHumanResolutionPolicy>();
+
+        // Unit team-membership read seam (ADR-0044). Singleton — same
+        // shape as IUnitMemberGraphStore (scope-per-call internally). The
+        // cloud overlay registers a tenant-aware decorator ahead of this
+        // line. TryAddSingleton keeps the cloud override hook.
+        services.TryAddSingleton<Cvoya.Spring.Core.Units.IUnitHumanMembershipStore,
+            Units.EfUnitHumanMembershipStore>();
+
         // Participant display-name resolver (#1485). Lifted from Host.Api
         // to Dapr (interface in Core) by #2129 so the prompt-assembly path
         // (ThreadContextBuilder, in this assembly) can fold raw

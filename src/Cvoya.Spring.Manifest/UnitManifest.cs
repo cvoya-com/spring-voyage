@@ -477,18 +477,66 @@ public class BoundarySynthesisManifestEntry
     public string? Level { get; set; }
 }
 
-/// <summary>Human participant declaration.</summary>
+/// <summary>
+/// Human participant declaration (ADR-0044). Carries domain-side team
+/// membership facts: the team role the human plays on the unit, the
+/// expertise tags they bring, and the event notifications they subscribe
+/// to. Platform ACLs (<c>PermissionLevel</c>) are deliberately NOT a
+/// manifest concern — package authors have no authority to grant tenant
+/// permissions, and the install resolver fills the role with the
+/// install caller's UUID (OSS default) or a tenant-policy-resolved
+/// identity (hosted).
+/// </summary>
+/// <remarks>
+/// The pre-ADR-0044 shape carried <c>identity:</c> / <c>permission:</c>
+/// fields; both are removed. The <see cref="LegacyIdentity"/> and
+/// <see cref="LegacyPermission"/> capture slots survive only so the
+/// parser can surface precise <c>LegacyHumanIdentityField</c> /
+/// <c>LegacyHumanPermissionField</c> migration errors when an
+/// out-of-tree package still ships the old shape.
+/// </remarks>
 public class HumanManifest
 {
-    /// <summary>Human identity key.</summary>
-    [YamlMember(Alias = "identity")]
-    public string? Identity { get; set; }
+    /// <summary>
+    /// Team role the human plays on the unit (e.g. <c>owner</c>,
+    /// <c>reviewer</c>, <c>security_lead</c>). Free-form string in v0.1
+    /// per ADR-0044 § 2; mandatory.
+    /// </summary>
+    [YamlMember(Alias = "role")]
+    public string? Role { get; set; }
 
-    /// <summary>Permission level (e.g. <c>owner</c>).</summary>
-    [YamlMember(Alias = "permission")]
-    public string? Permission { get; set; }
+    /// <summary>
+    /// Optional list of free-form expertise tags the human brings to the
+    /// team (e.g. <c>[security, infra]</c>). Persisted verbatim on the
+    /// membership row.
+    /// </summary>
+    [YamlMember(Alias = "expertise")]
+    public List<string>? Expertise { get; set; }
 
-    /// <summary>Notification subscriptions.</summary>
+    /// <summary>
+    /// Optional list of free-form notification event tags (e.g.
+    /// <c>[escalation, completion]</c>). The notification vocabulary +
+    /// delivery surface is a separate design pass; the field is captured
+    /// at install so that pass has data to design against.
+    /// </summary>
     [YamlMember(Alias = "notifications")]
     public List<string>? Notifications { get; set; }
+
+    /// <summary>
+    /// Captured legacy <c>identity:</c> field. Present only so the parser
+    /// can surface an actionable <c>LegacyHumanIdentityField</c> error
+    /// per ADR-0044 § 2 / ADR-0043 § 8 when an old-shape file still
+    /// declares it.
+    /// </summary>
+    [YamlMember(Alias = "identity")]
+    public string? LegacyIdentity { get; set; }
+
+    /// <summary>
+    /// Captured legacy <c>permission:</c> field. Present only so the
+    /// parser can surface an actionable <c>LegacyHumanPermissionField</c>
+    /// error per ADR-0044 § 2 / ADR-0043 § 8 when an old-shape file still
+    /// declares it.
+    /// </summary>
+    [YamlMember(Alias = "permission")]
+    public string? LegacyPermission { get; set; }
 }

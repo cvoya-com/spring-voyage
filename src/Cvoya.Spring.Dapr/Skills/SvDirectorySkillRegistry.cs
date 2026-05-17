@@ -105,6 +105,14 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     private const string KindUnit = Address.UnitScheme;
     private const string KindTenant = "tenant";
 
+    /// <summary>
+    /// Wire-format <c>kind</c> value for human team members surfaced via
+    /// <c>sv.list_members</c> (ADR-0044 § 5). One entry per
+    /// <c>unit_memberships_humans</c> row; entries carry an extra
+    /// <c>team_role</c> field gated on this kind.
+    /// </summary>
+    public const string KindHuman = "human";
+
     private static readonly JsonElement EmptyObjectSchema = ParseSchema("""
         { "type": "object", "additionalProperties": false, "properties": {} }
         """);
@@ -143,6 +151,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IUnitMemberGraphStore _memberGraphStore;
+    private readonly IUnitHumanMembershipStore _humanMembershipStore;
     private readonly IExpertiseStore _expertiseStore;
     private readonly PersistentAgentRegistry _agentRegistry;
     private readonly ITenantContext _tenantContext;
@@ -154,6 +163,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     public SvDirectorySkillRegistry(
         IServiceScopeFactory scopeFactory,
         IUnitMemberGraphStore memberGraphStore,
+        IUnitHumanMembershipStore humanMembershipStore,
         IExpertiseStore expertiseStore,
         PersistentAgentRegistry agentRegistry,
         ITenantContext tenantContext,
@@ -161,6 +171,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     {
         _scopeFactory = scopeFactory;
         _memberGraphStore = memberGraphStore;
+        _humanMembershipStore = humanMembershipStore;
         _expertiseStore = expertiseStore;
         _agentRegistry = agentRegistry;
         _tenantContext = tenantContext;
@@ -184,8 +195,12 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             new ToolDefinition(
                 ListMembersTool,
                 "Returns the direct members of the unit identified by uuid: a flat list mixing " +
-                "agent-kind and unit-kind entries (filter by entry.kind on the client side if " +
-                "you only want one). Sub-unit members are NOT recursively expanded — call " +
+                "agent-kind, unit-kind, and human-kind entries (filter by entry.kind on the " +
+                "client side if you only want one). Human entries carry an additional " +
+                "team_role field (the role the human plays on this unit's team, e.g. owner, " +
+                "reviewer, security_lead); their expertise list reflects the team-membership " +
+                "row's expertise tags. A single human filling multiple team roles surfaces as " +
+                "one entry per role. Sub-unit members are NOT recursively expanded — call " +
                 "sv.list_members again on a sub-unit's uuid to walk further. Pagination via " +
                 "limit (default 50, max 200) and offset; total_count carries the unfiltered total.",
                 UuidPagedArgSchema),
@@ -273,15 +288,96 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         {
             throw new ArgumentException($"uuid '{unitUuid}' is not a parseable Guid.");
         }
+
+        // Agent + sub-unit members from the existing member graph.
         var addresses = await _memberGraphStore.GetMembersAsync(unitGuid, ct);
-        var page = addresses.Skip(offset).Take(limit).ToList();
-        var entries = new List<DirectoryEntry>(page.Count);
-        foreach (var address in page)
+
+        // ADR-0044 § 5: fold in package-declared human team members. One
+        // entry per (human, role) row — a human filling two roles surfaces
+        // as two entries with the same uuid and different team_role.
+        var humanRows = await _humanMembershipStore.ListByUnitAsync(unitGuid, ct);
+
+        var totalCount = addresses.Count + humanRows.Count;
+
+        // Paginate over the homogeneous concatenated list. Order is stable:
+        // agents and sub-units first (their CreatedAt-ordered emit from
+        // the member graph), then humans (CreatedAt-ordered from the
+        // membership store). This keeps existing list-tool consumers
+        // byte-for-byte stable when the unit has no human members and
+        // surfaces the new entries deterministically when it does.
+        var entries = new List<DirectoryEntry>();
+        var skipped = 0;
+        var taken = 0;
+
+        foreach (var address in addresses)
         {
+            if (taken >= limit) break;
+            if (skipped < offset)
+            {
+                skipped++;
+                continue;
+            }
             entries.Add(await BuildEntryAsync(address.Path, address.Scheme, ct));
+            taken++;
         }
 
-        return SerializePagedList("members", entries, addresses.Count, limit, offset);
+        foreach (var row in humanRows)
+        {
+            if (taken >= limit) break;
+            if (skipped < offset)
+            {
+                skipped++;
+                continue;
+            }
+            entries.Add(await BuildHumanEntryAsync(unitGuid, row, ct));
+            taken++;
+        }
+
+        return SerializePagedList("members", entries, totalCount, limit, offset);
+    }
+
+    /// <summary>
+    /// Renders one <c>unit_memberships_humans</c> row as a
+    /// <see cref="DirectoryEntry"/> on the universal entry shape. The
+    /// <c>team_role</c> is carried on the entry's <see cref="DirectoryEntry.TeamRole"/>
+    /// slot — only entries with <c>kind == KindHuman</c> serialise this
+    /// field (gated in <see cref="WriteEntry"/>).
+    /// </summary>
+    private async Task<DirectoryEntry> BuildHumanEntryAsync(
+        Guid unitGuid,
+        UnitHumanMembership row,
+        CancellationToken ct)
+    {
+        var humanUuid = GuidFormatter.Format(row.HumanId);
+        var displayName = await ResolveHumanDisplayNameAsync(row.HumanId, ct);
+
+        // Project the membership row's expertise tags onto the universal
+        // ExpertiseDomain shape. Team-membership expertise has no level
+        // attached — the description stays empty per ADR-0044 § 5.
+        var expertise = row.Expertise
+            .Where(e => !string.IsNullOrWhiteSpace(e))
+            .Select(e => new ExpertiseDomain(e, Description: string.Empty, Level: null))
+            .ToList();
+
+        return new DirectoryEntry(
+            Uuid: humanUuid,
+            Kind: KindHuman,
+            DisplayName: displayName,
+            ParentUuids: new[] { GuidFormatter.Format(unitGuid) },
+            Description: string.Empty,
+            Expertise: expertise,
+            MemberCount: null,
+            LiveStatus: "n/a",
+            TeamRole: row.Role);
+    }
+
+    private async Task<string> ResolveHumanDisplayNameAsync(Guid humanId, CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var resolver = scope.ServiceProvider
+            .GetRequiredService<Cvoya.Spring.Core.Security.IHumanIdentityResolver>();
+        var display = await resolver.GetDisplayNameAsync(humanId, ct);
+        return string.IsNullOrWhiteSpace(display) ? GuidFormatter.Format(humanId) : display!;
     }
 
     private async Task<JsonElement> GetSiblingsAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
@@ -760,6 +856,14 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             writer.WriteNull("member_count");
         }
         writer.WriteString("live_status", entry.LiveStatus);
+
+        // ADR-0044 § 5: team_role is gated on kind == "human". Existing
+        // agent / unit / tenant entries are byte-for-byte unchanged.
+        if (string.Equals(entry.Kind, KindHuman, StringComparison.Ordinal)
+            && entry.TeamRole is { } teamRole)
+        {
+            writer.WriteString("team_role", teamRole);
+        }
         writer.WriteEndObject();
     }
 
@@ -771,5 +875,6 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         string Description,
         IReadOnlyList<ExpertiseDomain> Expertise,
         int? MemberCount,
-        string LiveStatus);
+        string LiveStatus,
+        string? TeamRole = null);
 }

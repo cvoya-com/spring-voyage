@@ -18,9 +18,12 @@ using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Packages;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Manifest;
 
 using global::Dapr.Actors;
@@ -61,6 +64,9 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
     private readonly IDirectoryService _directoryService;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IActorProxyFactory _actorProxyFactory;
+    private readonly IPackageHumanResolutionPolicy _humanResolutionPolicy;
+    private readonly IAuthenticatedCallerAccessor _callerAccessor;
+    private readonly ITenantContext _tenantContext;
     private readonly ILogger<DefaultPackageArtefactActivator> _logger;
 
     /// <summary>
@@ -71,12 +77,18 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         IDirectoryService directoryService,
         IServiceScopeFactory scopeFactory,
         IActorProxyFactory actorProxyFactory,
+        IPackageHumanResolutionPolicy humanResolutionPolicy,
+        IAuthenticatedCallerAccessor callerAccessor,
+        ITenantContext tenantContext,
         ILogger<DefaultPackageArtefactActivator> logger)
     {
         _unitCreationService = unitCreationService;
         _directoryService = directoryService;
         _scopeFactory = scopeFactory;
         _actorProxyFactory = actorProxyFactory;
+        _humanResolutionPolicy = humanResolutionPolicy;
+        _callerAccessor = callerAccessor;
+        _tenantContext = tenantContext;
         _logger = logger;
     }
 
@@ -218,6 +230,214 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         }
 
         await _unitCreationService.CreateFromManifestAsync(manifest, overrides, ct, bindingRequest);
+
+        // ADR-0044: package-declared human members.
+        // After the unit is created and its agent / sub-unit graph is wired,
+        // walk every `humans:` declaration, ask the resolution policy who
+        // fills the role, and upsert one membership row per resolved Guid.
+        // The unique index on (tenant_id, unit_id, human_id, role) makes
+        // duplicate declarations collapse to a single row — set semantics
+        // (ADR-0044 § 3).
+        await ResolveAndPersistHumansAsync(manifest, actorId, ct);
+    }
+
+    /// <summary>
+    /// Walks the unit manifest's <c>humans:</c> entries and persists one
+    /// <see cref="UnitMembershipHumanEntity"/> per resolved Guid via the
+    /// registered <see cref="IPackageHumanResolutionPolicy"/>. Idempotent on
+    /// the unique index — repeated installs of the same package, or
+    /// declarations that resolve to a human who already fills the role, are
+    /// no-ops.
+    /// </summary>
+    /// <exception cref="PackageHumanResolutionException">
+    /// Thrown when the policy returns
+    /// <see cref="PackageHumanResolutionOutcome.Rejected"/>. Surfaces
+    /// through <c>PackageInstallService</c>'s Phase-2 failure path.
+    /// </exception>
+    private async Task ResolveAndPersistHumansAsync(
+        UnitManifest manifest,
+        Guid unitId,
+        CancellationToken ct)
+    {
+        if (manifest.Humans is not { Count: > 0 })
+        {
+            return;
+        }
+
+        // Resolve the install caller once per activation. The policy receives
+        // it on every request so it can work from worker / out-of-request
+        // install paths too (where there is no authenticated principal — the
+        // policy receives null and the OSS default returns Skipped). The
+        // accessor's identity-form path returns Address.ForIdentity with a
+        // proper Guid; the fallback navigation form throws when the host
+        // would emit a non-Guid id, so wrap the call in a try/catch and
+        // treat any failure as "no caller available".
+        Guid? callerHumanId = null;
+        try
+        {
+            var callerAddress = await _callerAccessor.GetCallerAddressAsync(ct);
+            if (callerAddress is { Scheme: "human" } && callerAddress.Id != Guid.Empty)
+            {
+                callerHumanId = callerAddress.Id;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogInformation(
+                ex,
+                "Package human resolution: caller address unavailable for unit '{Unit}'; " +
+                "policy will receive null InstallCallerHumanId.",
+                manifest.DisplayName ?? manifest.Name);
+        }
+
+        var tenantId = _tenantContext.CurrentTenantId;
+        var unitDisplayName = !string.IsNullOrWhiteSpace(manifest.DisplayName)
+            ? manifest.DisplayName!
+            : manifest.Name ?? string.Empty;
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        for (var i = 0; i < manifest.Humans.Count; i++)
+        {
+            var human = manifest.Humans[i];
+            // ManifestParser rejects entries with a missing / whitespace
+            // role; the null-coalesce here is paranoia for hand-built
+            // manifests (no public surface should reach this point with
+            // a null role).
+            var role = (human.Role ?? string.Empty).Trim();
+            if (role.Length == 0)
+            {
+                continue;
+            }
+
+            var expertise = (human.Expertise ?? new List<string>())
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e.Trim())
+                .ToList();
+            var notifications = (human.Notifications ?? new List<string>())
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Select(n => n.Trim())
+                .ToList();
+
+            var request = new PackageHumanResolutionRequest(
+                TenantId: tenantId,
+                UnitId: unitId,
+                UnitDisplayName: unitDisplayName,
+                Role: role,
+                Expertise: expertise,
+                Notifications: notifications,
+                InstallCallerHumanId: callerHumanId);
+
+            var resolution = await _humanResolutionPolicy.ResolveAsync(request, ct);
+
+            switch (resolution.Outcome)
+            {
+                case PackageHumanResolutionOutcome.Rejected:
+                    throw new PackageHumanResolutionException(role, unitDisplayName, resolution.Reason);
+
+                case PackageHumanResolutionOutcome.Skipped:
+                    _logger.LogInformation(
+                        "Package humans[{Index}] (role='{Role}') on unit {UnitId} skipped: {Reason}.",
+                        i, role, unitId, resolution.Reason ?? "(no reason supplied)");
+                    continue;
+
+                case PackageHumanResolutionOutcome.Resolved:
+                    if (resolution.HumanIds is not { Count: > 0 })
+                    {
+                        _logger.LogWarning(
+                            "Package humans[{Index}] (role='{Role}') on unit {UnitId}: policy returned " +
+                            "Resolved with no Guids; treating as Skipped.",
+                            i, role, unitId);
+                        continue;
+                    }
+
+                    // Pre-dedup within a single declaration so the EF round-trip
+                    // (which uses tracked entity adds plus a single SaveChanges
+                    // per declaration) does not throw a tracked-key conflict on
+                    // a duplicate human-id within the same call. The cross-
+                    // declaration collapse case (two declarations both resolving
+                    // to the same human + role) relies on the unique index
+                    // catching the second insert below.
+                    var deduped = resolution.HumanIds.Distinct().ToList();
+                    foreach (var humanId in deduped)
+                    {
+                        await UpsertMembershipAsync(
+                            db, tenantId, unitId, humanId, role, expertise, notifications, ct);
+                    }
+                    break;
+
+                default:
+                    _logger.LogWarning(
+                        "Package humans[{Index}] (role='{Role}') on unit {UnitId}: policy returned " +
+                        "unknown outcome {Outcome}; skipping.",
+                        i, role, unitId, resolution.Outcome);
+                    continue;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Idempotently upserts one <see cref="UnitMembershipHumanEntity"/>
+    /// keyed on the unique-index tuple <c>(tenant_id, unit_id, human_id, role)</c>.
+    /// The check-then-insert race is benign: a concurrent install racing the
+    /// same package would land at most one row anyway (the unique index in
+    /// Postgres is the durable invariant). The pre-read is the v0.1 ON
+    /// CONFLICT DO NOTHING equivalent in EF — Postgres-specific upsert
+    /// syntax would couple the activator to Npgsql, and the in-memory test
+    /// provider doesn't honour <c>ON CONFLICT</c> sql anyway.
+    /// </summary>
+    private static async Task UpsertMembershipAsync(
+        SpringDbContext db,
+        Guid tenantId,
+        Guid unitId,
+        Guid humanId,
+        string role,
+        List<string> expertise,
+        List<string> notifications,
+        CancellationToken ct)
+    {
+        var existing = await db.UnitMembershipsHumans
+            .AsNoTracking()
+            .Where(m => m.TenantId == tenantId
+                && m.UnitId == unitId
+                && m.HumanId == humanId
+                && m.Role == role)
+            .Select(m => m.Id)
+            .FirstOrDefaultAsync(ct);
+        if (existing != Guid.Empty)
+        {
+            return;
+        }
+
+        db.UnitMembershipsHumans.Add(new UnitMembershipHumanEntity
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            UnitId = unitId,
+            HumanId = humanId,
+            Role = role,
+            Expertise = new List<string>(expertise),
+            Notifications = new List<string>(notifications),
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // The unique index lost a race with a concurrent insert
+            // (same package being installed simultaneously, or another
+            // declaration in this very call collapsing through). Roll
+            // the add back and treat the row as already present per
+            // ADR-0044 § 3 set semantics.
+            foreach (var entry in db.ChangeTracker.Entries<UnitMembershipHumanEntity>().ToList())
+            {
+                entry.State = EntityState.Detached;
+            }
+        }
     }
 
     /// <summary>
