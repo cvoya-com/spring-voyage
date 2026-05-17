@@ -20,8 +20,6 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// Per ADR-0039 §7 the <c>containerRuntime</c> slot is gone — the
 /// container runtime (<c>docker</c> / <c>podman</c>) is platform
 /// configuration, picked once by the host process at deploy time.
-/// Requests carrying the legacy <c>containerRuntime</c> key are rejected
-/// with 400 <c>LegacyContainerRuntimeField</c> by the PUT endpoint.
 /// </para>
 /// <para>
 /// Example (multi-provider runtime):
@@ -79,9 +77,7 @@ public record UnitExecutionResponse(
 /// <para>
 /// Per ADR-0039 §7 the <c>containerRuntime</c> slot is gone — the
 /// container runtime (<c>docker</c> / <c>podman</c>) is platform
-/// configuration. Requests carrying the legacy <c>containerRuntime</c>
-/// key are rejected with 400 <c>LegacyContainerRuntimeField</c> by the
-/// PUT endpoint.
+/// configuration.
 /// </para>
 /// </remarks>
 /// <param name="Image">Default container image reference.</param>

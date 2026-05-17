@@ -241,6 +241,8 @@ A new edge type emerges: containment. An artefact at `units/foo/agents/bar/` has
 
 ### 8. Migration: hard rename, parse error on the flat shape, no shim
 
+> **Partially superseded by [#2406](https://github.com/cvoya-com/spring-voyage/issues/2406).** The field-level legacy hints (`LegacyContentField`, `LegacyAiPromptField`) were retired in v0.1's cleanup pass — strict YAML parsing on the typed manifest classes catches an unknown `content:` or `ai.prompt:` field with a generic but actionable parse error. The structural signals the catalog walker raises (`LegacyFlatArtefactLayout`, `UnexpectedInnerVersion`, `ArtefactFolderNameMismatch`) survive because filesystem-layout problems cannot be caught by YAML strictness. The table below is preserved as historical context.
+
 ADR-0035 §1 and ADR-0037 §6 set the precedent. The catalog and parsers accept the recursive shape only. The flat shape from ADR-0037 (`./agents/<name>.yaml`, `./units/<name>.yaml`) becomes a parse error:
 
 | Old shape | Error | Migration hint |

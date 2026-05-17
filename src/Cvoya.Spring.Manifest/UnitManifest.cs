@@ -111,33 +111,6 @@ public class UnitManifest
     /// </summary>
     [YamlMember(Alias = "boundary")]
     public BoundaryManifest? Boundary { get; set; }
-
-    /// <summary>
-    /// Captured legacy wrapping <c>unit:</c> map. Present only so the
-    /// parser can surface an actionable <c>LegacyArtefactWrapper</c>
-    /// error per ADR-0037 decision 6 when an old-shape file still wraps
-    /// the body.
-    /// </summary>
-    [YamlMember(Alias = "unit")]
-    public object? LegacyUnitWrapper { get; set; }
-
-    /// <summary>
-    /// Captured legacy <c>structure:</c> field. Present only so the
-    /// parser can surface an actionable <c>LegacyStructureField</c>
-    /// error per ADR-0037 decision 6. The membership graph already
-    /// encodes the structure.
-    /// </summary>
-    [YamlMember(Alias = "structure")]
-    public string? LegacyStructure { get; set; }
-
-    /// <summary>
-    /// Captured legacy <c>connectors:</c> block. Present only so the
-    /// parser can surface an actionable <c>LegacyUnitConnectorsField</c>
-    /// error per ADR-0037 decision 6. Use <see cref="Requires"/>
-    /// instead.
-    /// </summary>
-    [YamlMember(Alias = "connectors")]
-    public List<object>? LegacyConnectors { get; set; }
 }
 
 /// <summary>
@@ -179,12 +152,6 @@ public class ExpertiseManifestEntry
 /// agent runtime id (<see cref="Runtime"/>) and the structured
 /// <c>{provider, id}</c> model selector (<see cref="Model"/>).
 /// </summary>
-/// <remarks>
-/// The legacy slots — <c>ai.agent</c> (pre-ADR-0038 runtime selector)
-/// and the string form of <c>ai.model</c> — are captured on
-/// <see cref="LegacyAgent"/> / <see cref="LegacyModelString"/> so the
-/// parser can surface precise migration hints (ADR-0038 § "Migration").
-/// </remarks>
 public class AiManifest
 {
     /// <summary>
@@ -208,27 +175,29 @@ public class AiManifest
     public List<SkillReference>? Skills { get; set; }
 
     /// <summary>
-    /// Captured legacy <c>ai.agent</c> field. Present only so the parser
-    /// can surface a precise <c>LegacyAiAgentField</c> migration error
-    /// per ADR-0038 § "Migration".
+    /// Optional execution environment for the agent runtime. The image
+    /// declared here is projected onto <c>execution.image</c> at install
+    /// time when the YAML does not declare a top-level
+    /// <c>execution.image</c>.
     /// </summary>
-    [YamlMember(Alias = "agent")]
-    public string? LegacyAgent { get; set; }
+    [YamlMember(Alias = "environment")]
+    public AiEnvironmentManifest? Environment { get; set; }
+}
 
+/// <summary>
+/// Execution-environment block on <see cref="AiManifest"/>. Carries the
+/// container image to launch the agent runtime in; the install activator
+/// projects <see cref="Image"/> onto <c>execution.image</c> when a
+/// top-level slot is absent.
+/// </summary>
+public class AiEnvironmentManifest
+{
     /// <summary>
-    /// Captured legacy <c>ai.model</c> field when authored as a string
-    /// instead of the new <c>{provider, id}</c> object form. Present
-    /// only so the parser can surface a precise
-    /// <c>LegacyAiModelStringForm</c> migration error per ADR-0038
-    /// § "Migration".
+    /// Container image reference for the agent runtime
+    /// (e.g. <c>ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest</c>).
     /// </summary>
-    /// <remarks>
-    /// The parser inspects the raw YAML and populates this field when
-    /// <c>ai.model</c> is a scalar — <see cref="Model"/> stays null in
-    /// that case and the legacy detection branch fires.
-    /// </remarks>
-    [YamlIgnore]
-    public string? LegacyModelString { get; set; }
+    [YamlMember(Alias = "image")]
+    public string? Image { get; set; }
 }
 
 /// <summary>
@@ -348,10 +317,7 @@ public class MemberManifest
 /// <remarks>
 /// ADR-0038: <c>execution.provider</c> is removed — the provider is
 /// intrinsic to <c>ai.model.provider</c>. <c>execution.tool</c> stays
-/// out (dropped in #1732). The corresponding capture slots
-/// (<see cref="LegacyTool"/>, <see cref="LegacyProvider"/>) survive
-/// only so the parser can surface precise migration errors when an
-/// old-shape file still declares them.
+/// out (dropped in #1732).
 /// </remarks>
 public class ExecutionManifest
 {
@@ -366,23 +332,6 @@ public class ExecutionManifest
     /// <summary>Default model identifier.</summary>
     [YamlMember(Alias = "model")]
     public string? Model { get; set; }
-
-    /// <summary>
-    /// Captured legacy <c>tool:</c> field. Present only so the parser can
-    /// surface an actionable <c>LegacyExecutionToolField</c> error per
-    /// ADR-0037 decision 6 / #1732 when an old-shape file still carries it.
-    /// </summary>
-    [YamlMember(Alias = "tool")]
-    public string? LegacyTool { get; set; }
-
-    /// <summary>
-    /// Captured legacy <c>provider:</c> field. Present only so the parser
-    /// can surface an actionable <c>LegacyExecutionProviderField</c>
-    /// error per ADR-0038 § "Migration" when an old-shape file still
-    /// carries it.
-    /// </summary>
-    [YamlMember(Alias = "provider")]
-    public string? LegacyProvider { get; set; }
 
     /// <summary>True when every field is null / whitespace.</summary>
     [YamlIgnore]
@@ -487,14 +436,6 @@ public class BoundarySynthesisManifestEntry
 /// install caller's UUID (OSS default) or a tenant-policy-resolved
 /// identity (hosted).
 /// </summary>
-/// <remarks>
-/// The pre-ADR-0044 shape carried <c>identity:</c> / <c>permission:</c>
-/// fields; both are removed. The <see cref="LegacyIdentity"/> and
-/// <see cref="LegacyPermission"/> capture slots survive only so the
-/// parser can surface precise <c>LegacyHumanIdentityField</c> /
-/// <c>LegacyHumanPermissionField</c> migration errors when an
-/// out-of-tree package still ships the old shape.
-/// </remarks>
 public class HumanManifest
 {
     /// <summary>
@@ -521,22 +462,4 @@ public class HumanManifest
     /// </summary>
     [YamlMember(Alias = "notifications")]
     public List<string>? Notifications { get; set; }
-
-    /// <summary>
-    /// Captured legacy <c>identity:</c> field. Present only so the parser
-    /// can surface an actionable <c>LegacyHumanIdentityField</c> error
-    /// per ADR-0044 § 2 / ADR-0043 § 8 when an old-shape file still
-    /// declares it.
-    /// </summary>
-    [YamlMember(Alias = "identity")]
-    public string? LegacyIdentity { get; set; }
-
-    /// <summary>
-    /// Captured legacy <c>permission:</c> field. Present only so the
-    /// parser can surface an actionable <c>LegacyHumanPermissionField</c>
-    /// error per ADR-0044 § 2 / ADR-0043 § 8 when an old-shape file still
-    /// declares it.
-    /// </summary>
-    [YamlMember(Alias = "permission")]
-    public string? LegacyPermission { get; set; }
 }

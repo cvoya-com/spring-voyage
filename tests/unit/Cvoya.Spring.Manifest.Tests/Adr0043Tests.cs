@@ -256,14 +256,6 @@ public class Adr0043Tests
     }
 
     [Fact]
-    public void Adr0043ParseErrors_LegacyContentField_HasExpectedText()
-    {
-        Adr0043ParseErrors.LegacyContentField.ShouldContain("LegacyContentField");
-        Adr0043ParseErrors.LegacyContentField.ShouldContain("content: is removed in ADR-0043");
-        Adr0043ParseErrors.LegacyContentField.ShouldContain("directory layout");
-    }
-
-    [Fact]
     public void Adr0043ParseErrors_UnexpectedInnerVersion_HasExpectedText()
     {
         Adr0043ParseErrors.UnexpectedInnerVersion.ShouldContain("UnexpectedInnerVersion");
@@ -277,13 +269,5 @@ public class Adr0043Tests
         Adr0043ParseErrors.ArtefactFolderNameMismatch.ShouldContain("ArtefactFolderNameMismatch");
         Adr0043ParseErrors.ArtefactFolderNameMismatch.ShouldContain("the folder name must equal the name: field of its");
         Adr0043ParseErrors.ArtefactFolderNameMismatch.ShouldContain("package.yaml");
-    }
-
-    [Fact]
-    public void Adr0043ParseErrors_LegacyAiPromptField_HasExpectedText()
-    {
-        Adr0043ParseErrors.LegacyAiPromptField.ShouldContain("LegacyAiPromptField");
-        Adr0043ParseErrors.LegacyAiPromptField.ShouldContain("ai.prompt: is removed in ADR-0043");
-        Adr0043ParseErrors.LegacyAiPromptField.ShouldContain("top-level instructions:");
     }
 }

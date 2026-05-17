@@ -6,31 +6,26 @@ namespace Cvoya.Spring.Manifest;
 using System.Collections.Generic;
 
 /// <summary>
-/// ADR-0043 §8 migration hint strings. Each constant is a precise error
-/// message surfaced when the parser rejects a pre-ADR-0043 legacy shape.
-/// Defined here so chunks 2+ can reference one canonical text per code.
+/// Structural validation messages surfaced by the catalog walker for
+/// filesystem-layout signals strict YAML parsing cannot catch (loose files
+/// instead of folders, an inner artefact that declares <c>version:</c>,
+/// a folder whose name disagrees with the inner <c>name:</c> field).
 /// </summary>
 /// <remarks>
-/// The constants are intentionally introduced ahead of the parser wiring
-/// (chunk 2). Chunk 1 lands the strings; chunk 2 activates them as the
-/// catalog walker and per-artefact parser learn the new folder shape.
+/// Field-level legacy detection (pre-v0.1 shape hints, renamed sub-fields,
+/// etc.) was retired in issue #2406 — strict YAML parsing on the typed
+/// manifest classes catches unknown fields with a generic but actionable
+/// error.
 /// </remarks>
 public static class Adr0043ParseErrors
 {
     /// <summary>
-    /// ADR-0043 §8: a file directly under <c>./agents/</c>, <c>./units/</c>,
+    /// ADR-0043 §1: a file directly under <c>./agents/</c>, <c>./units/</c>,
     /// etc. (rather than a folder rooted at <c>package.yaml</c>) is rejected.
     /// </summary>
     public const string LegacyFlatArtefactLayout =
         "LegacyFlatArtefactLayout: artefact must be a folder rooted at `package.yaml`; " +
         "move `./agents/foo.yaml` to `./agents/foo/package.yaml`.";
-
-    /// <summary>
-    /// ADR-0043 §8: the package-level <c>content:</c> block is removed.
-    /// </summary>
-    public const string LegacyContentField =
-        "LegacyContentField: content: is removed in ADR-0043; the directory layout " +
-        "under agents/, units/, skills/, workflows/, templates/ is the content.";
 
     /// <summary>
     /// ADR-0043 §4: inner artefact <c>package.yaml</c> files do not declare
@@ -41,21 +36,12 @@ public static class Adr0043ParseErrors
         "inner artefacts inherit from the container.";
 
     /// <summary>
-    /// ADR-0043 §8: the folder name must equal the <c>name:</c> field of its
+    /// ADR-0043 §3: the folder name must equal the <c>name:</c> field of its
     /// <c>package.yaml</c>.
     /// </summary>
     public const string ArtefactFolderNameMismatch =
         "ArtefactFolderNameMismatch: the folder name must equal the name: field of its " +
         "package.yaml; rename one to match.";
-
-    /// <summary>
-    /// ADR-0043 + #2298: <c>ai.prompt:</c> is hoisted to top-level
-    /// <c>instructions:</c> on both Unit and Agent. The legacy slot is
-    /// rejected with a precise migration hint.
-    /// </summary>
-    public const string LegacyAiPromptField =
-        "LegacyAiPromptField: ai.prompt: is removed in ADR-0043; move to top-level " +
-        "instructions: (which is now canonical on both Unit and Agent).";
 }
 
 /// <summary>

@@ -105,12 +105,4 @@ public class AgentManifest
     /// </summary>
     [YamlMember(Alias = "requires")]
     public List<RequirementEntry>? Requires { get; set; }
-
-    /// <summary>
-    /// Captured legacy wrapping <c>agent:</c> map. Present only so the
-    /// parser can surface an actionable <c>LegacyArtefactWrapper</c> error
-    /// per ADR-0037 decision 6 when an old-shape file still wraps the body.
-    /// </summary>
-    [YamlMember(Alias = "agent")]
-    public object? LegacyAgentWrapper { get; set; }
 }

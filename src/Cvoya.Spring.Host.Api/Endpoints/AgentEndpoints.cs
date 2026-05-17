@@ -315,48 +315,16 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        // ADR-0039 §7 / §9: read the body as a JsonDocument first so we
-        // can reject the removed `containerRuntime` key with a structured
-        // 400 before model-binding silently drops it. Legacy clients
-        // still in the field need an actionable error, not a no-op
-        // success.
-        var jsonOptions = httpContext.RequestServices
-            .GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
-            .Value
-            .SerializerOptions;
-
         AgentExecutionResponse? request;
-        JsonDocument document;
         try
         {
-            document = await JsonDocument.ParseAsync(httpContext.Request.Body, cancellationToken: cancellationToken);
+            request = await httpContext.Request.ReadFromJsonAsync<AgentExecutionResponse>(cancellationToken);
         }
         catch (JsonException ex)
         {
             return Results.Problem(
                 detail: $"Request body is not valid JSON: {ex.Message}",
                 statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        using (document)
-        {
-            var legacy = LegacyExecutionFieldProblems
-                .LegacyContainerRuntimeFieldOrNull(document.RootElement);
-            if (legacy is not null)
-            {
-                return legacy;
-            }
-
-            try
-            {
-                request = document.Deserialize<AgentExecutionResponse>(jsonOptions);
-            }
-            catch (JsonException ex)
-            {
-                return Results.Problem(
-                    detail: $"Request body could not be deserialized: {ex.Message}",
-                    statusCode: StatusCodes.Status400BadRequest);
-            }
         }
 
         request ??= new AgentExecutionResponse();
@@ -1478,46 +1446,16 @@ public static class AgentEndpoints
         Services.IArtefactAutoStartGate autoStartGate,
         CancellationToken cancellationToken)
     {
-        var jsonOptions = httpContext.RequestServices
-            .GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
-            .Value
-            .SerializerOptions;
-
         CreateAgentRequest? request;
-        JsonDocument document;
         try
         {
-            document = await JsonDocument.ParseAsync(httpContext.Request.Body, cancellationToken: cancellationToken);
+            request = await httpContext.Request.ReadFromJsonAsync<CreateAgentRequest>(cancellationToken);
         }
         catch (JsonException ex)
         {
             return Results.Problem(
                 detail: $"Request body is not valid JSON: {ex.Message}",
                 statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        using (document)
-        {
-            // ADR-0039 §7 / §9: reject the legacy top-level
-            // `containerRuntime` key before typed deserialisation silently
-            // drops it from the create request DTO.
-            var legacy = LegacyExecutionFieldProblems
-                .LegacyContainerRuntimeFieldOrNull(document.RootElement);
-            if (legacy is not null)
-            {
-                return legacy;
-            }
-
-            try
-            {
-                request = document.Deserialize<CreateAgentRequest>(jsonOptions);
-            }
-            catch (JsonException ex)
-            {
-                return Results.Problem(
-                    detail: $"Request body could not be deserialized: {ex.Message}",
-                    statusCode: StatusCodes.Status400BadRequest);
-            }
         }
 
         if (request is null)
@@ -1591,17 +1529,6 @@ public static class AgentEndpoints
             try
             {
                 using var doc = JsonDocument.Parse(request.DefinitionJson);
-                // ADR-0039 §7 / §9: reject the legacy
-                // `execution.containerRuntime` key on the agent-definition
-                // document. The container runtime is platform configuration
-                // — operators surface this on the host config, never on a
-                // per-agent definition.
-                var legacy = LegacyExecutionFieldProblems
-                    .LegacyContainerRuntimeFieldInDefinition(doc.RootElement);
-                if (legacy is not null)
-                {
-                    return legacy;
-                }
                 definition = doc.RootElement.Clone();
             }
             catch (JsonException ex)

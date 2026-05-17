@@ -140,26 +140,6 @@ public class Adr0043WalkerTests
         }
     }
 
-    // ── Legacy content: rejection (LegacyContentField) ───────────────────
-
-    [Fact]
-    public void ParseRaw_LegacyContentField_Rejected()
-    {
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Package
-            name: my-package
-            description: x
-            version: 1.0.0
-            content:
-              - unit: legacy-shape
-            """;
-
-        var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
-        ex.Message.ShouldContain("LegacyContentField");
-        ex.Message.ShouldContain("content: is removed in ADR-0043");
-    }
-
     // ── Inner-version rejection (UnexpectedInnerVersion) ─────────────────
 
     [Fact]
@@ -208,11 +188,14 @@ public class Adr0043WalkerTests
         ex.Message.ShouldContain("expects kind 'Unit'");
     }
 
-    // ── ai.prompt: rejection (LegacyAiPromptField) ───────────────────────
+    // ── Strict parsing — unknown ai.* sub-fields rejected (#2406) ────────
 
     [Fact]
-    public void ManifestParser_LegacyAiPromptField_Rejected()
+    public void ManifestParser_UnknownAiSubField_Rejected()
     {
+        // Strict parsing on AiManifest rejects unknown sub-keys like the
+        // pre-ADR-0043 ai.prompt: slot. The YAML library raises a parse
+        // error; ManifestParseException wraps it.
         var yaml = """
             apiVersion: spring.voyage/v1
             kind: Unit
@@ -224,9 +207,7 @@ public class Adr0043WalkerTests
                 You are a unit.
             """;
 
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyAiPromptField");
-        ex.Message.ShouldContain("ai.prompt: is removed in ADR-0043");
+        Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
     }
 
     // ── Name uniqueness across depths ────────────────────────────────────
