@@ -1325,6 +1325,69 @@ public class SpringApiClient
         CancellationToken ct = default)
         => _client.Api.V1.Tenant.Units[unitId].Humans[humanId].Permissions.DeleteAsync(cancellationToken: ct);
 
+    // Human ↔ connector-native identity mappings (#2408)
+
+    /// <summary>
+    /// Returns the authenticated caller's profile, including the stable human
+    /// UUID. Backs the <c>--human</c>-omitted default in <c>spring human identity *</c>.
+    /// </summary>
+    public async Task<UserProfileResponse> GetCurrentUserAsync(CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Auth.Me.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException("Server returned an empty /me response.");
+    }
+
+    /// <summary>
+    /// Upserts a human ↔ connector identity row. 409 surfaces when another
+    /// human already claims the same <c>(connector, user_id)</c> tuple in
+    /// the current tenant.
+    /// </summary>
+    public async Task<HumanConnectorIdentityResponse> UpsertHumanConnectorIdentityAsync(
+        Guid humanId,
+        string connectorId,
+        string connectorUserId,
+        string? displayHandle = null,
+        CancellationToken ct = default)
+    {
+        var body = new HumanConnectorIdentityRequest
+        {
+            ConnectorId = connectorId,
+            ConnectorUserId = connectorUserId,
+            DisplayHandle = string.IsNullOrWhiteSpace(displayHandle) ? null : displayHandle,
+        };
+        var result = await _client.Api.V1.Tenant.Humans[humanId].Identities
+            .PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty UpsertHumanConnectorIdentity response for human '{humanId:N}'.");
+    }
+
+    /// <summary>
+    /// Lists every connector identity row mapped to <paramref name="humanId"/>.
+    /// </summary>
+    public async Task<IReadOnlyList<HumanConnectorIdentityResponse>> ListHumanConnectorIdentitiesAsync(
+        Guid humanId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Humans[humanId].Identities
+            .GetAsync(cancellationToken: ct);
+        return result ?? new List<HumanConnectorIdentityResponse>();
+    }
+
+    /// <summary>
+    /// Removes a connector identity row by <c>(human, connector, user_id)</c>.
+    /// Idempotent — returns 204 even when nothing matched.
+    /// </summary>
+    public Task RemoveHumanConnectorIdentityAsync(
+        Guid humanId,
+        string connectorId,
+        string connectorUserId,
+        CancellationToken ct = default)
+        => _client.Api.V1.Tenant.Humans[humanId].Identities.DeleteAsync(config =>
+        {
+            config.QueryParameters.ConnectorId = connectorId;
+            config.QueryParameters.ConnectorUserId = connectorUserId;
+        }, cancellationToken: ct);
+
     // Activity
 
     /// <summary>Queries activity events with optional filters and pagination.</summary>

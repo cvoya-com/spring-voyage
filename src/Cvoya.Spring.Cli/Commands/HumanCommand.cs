@@ -1,0 +1,272 @@
+// Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
+// See LICENSE.md in the project root for full license terms.
+
+namespace Cvoya.Spring.Cli.Commands;
+
+using System.CommandLine;
+
+using Cvoya.Spring.Cli.Generated.Models;
+using Cvoya.Spring.Cli.Output;
+using Cvoya.Spring.Cli.Utilities;
+
+/// <summary>
+/// Builds the <c>spring human</c> verb tree. Today it covers the
+/// connector-native identity surface (#2408): <c>spring human identity
+/// set/list/remove</c>. The verb is reserved at the top level for v0.2
+/// expansion (per-Human config / dashboard / inbox views).
+/// </summary>
+/// <remarks>
+/// <para>
+/// All routes go through the Kiota-generated <c>SpringApiClient</c>; the
+/// CLI never opens raw HTTP. When <c>--human</c> is omitted, the verb
+/// defaults to the authenticated caller's UUID (resolved via
+/// <c>GET /api/v1/tenant/auth/me</c>).
+/// </para>
+/// </remarks>
+public static class HumanCommand
+{
+    private static readonly OutputFormatter.Column<HumanConnectorIdentityResponse>[] IdentityColumns =
+    {
+        new("connectorId", e => e.ConnectorId),
+        new("connectorUserId", e => e.ConnectorUserId),
+        new("displayHandle", e => e.DisplayHandle),
+        new("humanId", e => e.HumanId is { } id ? id.ToString("N") : null),
+        new("updatedAt", e => e.UpdatedAt?.ToString("u")),
+    };
+
+    /// <summary>
+    /// Entry point. Returns the <c>human</c> command attached to the root.
+    /// </summary>
+    public static Command Create(Option<string> outputOption)
+    {
+        var command = new Command(
+            "human",
+            "Manage human-scoped configuration (identities, etc.).");
+
+        command.Subcommands.Add(CreateIdentityCommand(outputOption));
+        return command;
+    }
+
+    private static Command CreateIdentityCommand(Option<string> outputOption)
+    {
+        var command = new Command(
+            "identity",
+            "Manage connector-native identity mappings (e.g. GitHub login → human UUID).");
+
+        command.Subcommands.Add(CreateSetCommand(outputOption));
+        command.Subcommands.Add(CreateListCommand(outputOption));
+        command.Subcommands.Add(CreateRemoveCommand());
+        return command;
+    }
+
+    private static Command CreateSetCommand(Option<string> outputOption)
+    {
+        var connectorOption = new Option<string>("--connector")
+        {
+            Description = "Connector slug (e.g. github).",
+            Required = true,
+        };
+        var userIdOption = new Option<string>("--user-id")
+        {
+            Description = "Connector-native user identifier (for GitHub, the login).",
+            Required = true,
+        };
+        var humanOption = new Option<string?>("--human")
+        {
+            Description = "Stable human UUID. Defaults to the authenticated caller.",
+        };
+        var handleOption = new Option<string?>("--display-handle")
+        {
+            Description = "Optional human-readable label persisted alongside the mapping.",
+        };
+
+        var command = new Command(
+            "set",
+            "Create or update a (human, connector, user_id) mapping. Idempotent: re-running with the same tuple updates the display handle in place.");
+        command.Options.Add(connectorOption);
+        command.Options.Add(userIdOption);
+        command.Options.Add(humanOption);
+        command.Options.Add(handleOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var connector = parseResult.GetValue(connectorOption)!;
+            var userId = parseResult.GetValue(userIdOption)!;
+            var humanArg = parseResult.GetValue(humanOption);
+            var displayHandle = parseResult.GetValue(handleOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+
+            Guid humanId;
+            try
+            {
+                humanId = await ResolveHumanIdAsync(client, humanArg, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                await Console.Error.WriteLineAsync(ex.Message);
+                Environment.Exit(1);
+                return;
+            }
+
+            try
+            {
+                var row = await client.UpsertHumanConnectorIdentityAsync(
+                    humanId, connector, userId, displayHandle, ct);
+                if (output == "json")
+                {
+                    Console.WriteLine(OutputFormatter.FormatJson(row));
+                }
+                else
+                {
+                    Console.WriteLine(
+                        $"Mapped {connector}:{userId} → human {humanId:N}.");
+                }
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to set identity for human '{humanId:N}': {ProblemDetailsTranslator.Format(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    private static Command CreateListCommand(Option<string> outputOption)
+    {
+        var humanOption = new Option<string?>("--human")
+        {
+            Description = "Stable human UUID. Defaults to the authenticated caller.",
+        };
+
+        var command = new Command(
+            "list",
+            "List every connector identity mapping for a human.");
+        command.Options.Add(humanOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var humanArg = parseResult.GetValue(humanOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+
+            Guid humanId;
+            try
+            {
+                humanId = await ResolveHumanIdAsync(client, humanArg, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                await Console.Error.WriteLineAsync(ex.Message);
+                Environment.Exit(1);
+                return;
+            }
+
+            try
+            {
+                var rows = await client.ListHumanConnectorIdentitiesAsync(humanId, ct);
+                Console.WriteLine(output == "json"
+                    ? OutputFormatter.FormatJson(rows)
+                    : OutputFormatter.FormatTable(rows, IdentityColumns));
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to list identities for human '{humanId:N}': {ProblemDetailsTranslator.Format(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    private static Command CreateRemoveCommand()
+    {
+        var connectorOption = new Option<string>("--connector")
+        {
+            Description = "Connector slug (e.g. github).",
+            Required = true,
+        };
+        var userIdOption = new Option<string>("--user-id")
+        {
+            Description = "Connector-native user identifier to remove.",
+            Required = true,
+        };
+        var humanOption = new Option<string?>("--human")
+        {
+            Description = "Stable human UUID. Defaults to the authenticated caller.",
+        };
+
+        var command = new Command(
+            "remove",
+            "Remove a connector identity mapping. Idempotent — succeeds whether or not a matching row exists.");
+        command.Options.Add(connectorOption);
+        command.Options.Add(userIdOption);
+        command.Options.Add(humanOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var connector = parseResult.GetValue(connectorOption)!;
+            var userId = parseResult.GetValue(userIdOption)!;
+            var humanArg = parseResult.GetValue(humanOption);
+            var client = ClientFactory.Create();
+
+            Guid humanId;
+            try
+            {
+                humanId = await ResolveHumanIdAsync(client, humanArg, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                await Console.Error.WriteLineAsync(ex.Message);
+                Environment.Exit(1);
+                return;
+            }
+
+            try
+            {
+                await client.RemoveHumanConnectorIdentityAsync(humanId, connector, userId, ct);
+                Console.WriteLine($"Removed {connector}:{userId} from human {humanId:N}.");
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to remove identity for human '{humanId:N}': {ProblemDetailsTranslator.Format(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    /// <summary>
+    /// Resolves the <c>--human</c> CLI option, accepting any standard Guid
+    /// form (lenient parse per identifiers.md § 4) or — when omitted — the
+    /// authenticated caller's stable UUID.
+    /// </summary>
+    private static async Task<Guid> ResolveHumanIdAsync(
+        SpringApiClient client,
+        string? humanArg,
+        CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(humanArg))
+        {
+            if (!Guid.TryParse(humanArg, out var parsed))
+            {
+                throw new InvalidOperationException(
+                    $"--human '{humanArg}' is not a valid Guid. Use the no-dash hex (32 chars) or dashed Guid form.");
+            }
+            return parsed;
+        }
+
+        var me = await client.GetCurrentUserAsync(ct);
+        if (me.Id is not { } id || id == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                "Server returned no caller UUID; pass --human <id> explicitly or run `spring auth login` first.");
+        }
+        return id;
+    }
+}

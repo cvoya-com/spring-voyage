@@ -51,6 +51,7 @@ public class Program
             {
                 AuthCommand.Create(outputOption),
                 AgentCommand.Create(outputOption),
+                HumanCommand.Create(outputOption),
                 UnitCommand.Create(outputOption),
                 MessageCommand.Create(outputOption),
                 ThreadCommand.Create(outputOption),

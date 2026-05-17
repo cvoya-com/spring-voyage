@@ -2675,6 +2675,158 @@
         }
       }
     },
+    "/api/v1/tenant/humans/{humanId}/identities": {
+      "post": {
+        "tags": [
+          "Humans"
+        ],
+        "summary": "Create or update a human ↔ connector identity mapping",
+        "operationId": "UpsertHumanConnectorIdentity",
+        "parameters": [
+          {
+            "name": "humanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HumanConnectorIdentityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HumanConnectorIdentityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Humans"
+        ],
+        "summary": "List every connector identity row mapped to this human",
+        "operationId": "ListHumanConnectorIdentities",
+        "parameters": [
+          {
+            "name": "humanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HumanConnectorIdentityResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Humans"
+        ],
+        "summary": "Remove a connector identity mapping. Idempotent — returns 204 even when nothing matched.",
+        "operationId": "RemoveHumanConnectorIdentity",
+        "parameters": [
+          {
+            "name": "humanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "connectorId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connectorUserId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/units/{id}/policy": {
       "get": {
         "tags": [
@@ -11540,6 +11692,65 @@
           }
         }
       },
+      "HumanConnectorIdentityRequest": {
+        "required": [
+          "connectorId",
+          "connectorUserId",
+          "displayHandle"
+        ],
+        "type": "object",
+        "properties": {
+          "connectorId": {
+            "type": "string"
+          },
+          "connectorUserId": {
+            "type": "string"
+          },
+          "displayHandle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "HumanConnectorIdentityResponse": {
+        "required": [
+          "humanId",
+          "connectorId",
+          "connectorUserId",
+          "displayHandle",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "connectorId": {
+            "type": "string"
+          },
+          "connectorUserId": {
+            "type": "string"
+          },
+          "displayHandle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "IFormFile": {
         "type": "string",
         "format": "binary"
@@ -15046,6 +15257,9 @@
     },
     {
       "name": "Units"
+    },
+    {
+      "name": "Humans"
     },
     {
       "name": "UnitPolicy"

@@ -238,6 +238,18 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // register a tenant-aware implementation ahead of the OSS default.
         services.TryAddScoped<IHumanIdentityResolver, HumanIdentityResolver>();
 
+        // Human ↔ connector-native identity resolver (#2408). Scoped
+        // because it consults SpringDbContext (scoped per request). The
+        // hosted overlay can substitute a tenant-aware / decorating
+        // implementation via TryAddScoped.
+        services.TryAddScoped<IHumanConnectorIdentityResolver, EfHumanConnectorIdentityResolver>();
+
+        // Connector identity auto-seed (#2408). Scoped because it
+        // consults SpringDbContext + IHumanIdentityResolver, both scoped.
+        // The hosted overlay (#2411) swaps this for tenant-aware
+        // multi-human resolution.
+        services.TryAddScoped<IConnectorIdentityAutoSeed, OssConnectorIdentityAutoSeed>();
+
         // Package-declared human resolution policy (ADR-0044). OSS default
         // auto-fills every declared role with the install caller's UUID;
         // the cloud overlay registers a tenant-aware variant ahead of this

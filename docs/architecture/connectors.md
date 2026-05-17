@@ -90,6 +90,21 @@ GitHub unit bindings may also carry optional label-roundtrip rules:
 GitHub binding and applies those labels to the originating issue with the
 connector's credentials.
 
+### Connector-identity auto-seed (`Reviewer` → `human_connector_identities`)
+
+When a unit's GitHub binding is created or updated with a non-empty
+`UnitGitHubConfig.Reviewer`, the connector calls the platform's
+`IConnectorIdentityAutoSeed` seam to upsert a row in the
+`human_connector_identities` table linking the operator's stable human
+UUID to the reviewer login. The seed is idempotent; concurrent writers
+and conflicting rows are silently absorbed so the binding-write path
+itself cannot fail on the seed. See
+[`docs/architecture/identifiers.md` § Connector-native identities](identifiers.md#11-connector-native-identities--the-bridge)
+for the full bridge model and CLI surface. The per-binding `Reviewer`
+field is being retired in v0.2 in favour of per-Human GitHub-handle
+configuration ([#2417](https://github.com/cvoya-com/spring-voyage/issues/2417));
+the table is the data carrier for both shapes.
+
 ## Disabled-with-reason pattern
 
 A connector's credentials are environmental configuration (env vars bound
