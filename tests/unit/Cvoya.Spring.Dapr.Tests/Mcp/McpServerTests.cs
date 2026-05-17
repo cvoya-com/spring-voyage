@@ -237,9 +237,8 @@ public class McpServerTests : IAsyncLifetime
     public async Task ToolsCall_WhenSkillThrows_PublishesToolResultActivityEvent()
     {
         // Regression for the silent-failure path: prior to the fix, a tool that threw
-        // (e.g. github.list_issues with an unconfigured installation id) was logged
-        // only via ILogger, leaving the portal activity feed empty even though the
-        // operator saw a transient toast. Now the McpServer publishes a
+        // was logged only via ILogger, leaving the portal activity feed empty even
+        // though the operator saw a transient toast. Now the McpServer publishes a
         // ToolResult ActivityEvent (severity Error) onto IActivityEventBus so the
         // failure persists in the feed alongside the matching ToolCall event.
         var recordingBus = new RecordingActivityEventBus();

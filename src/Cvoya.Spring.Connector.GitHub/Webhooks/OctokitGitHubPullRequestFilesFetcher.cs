@@ -29,8 +29,8 @@ using Octokit;
 /// Caching is deliberately omitted from the OSS fetcher today; the fetch is
 /// gated on <see cref="UnitGitHubConfig.IncludePaths"/> being configured, so
 /// the per-event cost is paid only by bindings that opted in. A response
-/// cache (matching the existing <c>IGitHubResponseCache</c> pattern) is
-/// tracked as a follow-up — see GitHub issue #2415.
+/// cache for webhook-driven fetches is tracked as a follow-up — see GitHub
+/// issue #2415.
 /// </para>
 /// </remarks>
 public class OctokitGitHubPullRequestFilesFetcher : IGitHubPullRequestFilesFetcher

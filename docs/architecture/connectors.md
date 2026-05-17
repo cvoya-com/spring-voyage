@@ -49,18 +49,46 @@ spec:
 **Rich connectors** — Custom `ConnectorActor` (code):
 For GitHub, Slack, Figma — bidirectional, stateful, domain-aware. Translates events, manages connections, provides skills.
 
-### Connector Skills
+### Connector tool surfaces
 
-A connector doesn't just pass events — it gives agents **skills**. The GitHub connector provides:
+A connector can do two complementary things for the agents that bind it:
 
-- Read issue details, PR diffs, file contents
-- Create branches, commits, PRs
-- Post comments, manage labels
-- Manage project board items
+1. **Translate inbound events** into domain messages (webhooks, polled
+   feeds). Every connector that subscribes to an external system does
+   this.
+2. **Surface tools** the agent can invoke. A connector that wants to
+   expose platform-MCP tools registers an `ISkillRegistry` whose tool
+   ids live under `<connector-slug>.*`; the auto-grant pipeline writes
+   `unit_tool_grants` rows on bind and revokes them on unbind. Tools
+   reach the agent through MCP `tools/list` alongside the platform
+   `sv.*` surface (see [Tools](../concepts/tools.md) for the three-tier
+   model).
 
-These skills are surfaced to the agent's AI as available tools, making the agent capable in that domain.
+A connector that doesn't register an `ISkillRegistry` still functions —
+inbound events flow as usual, lifecycle hooks fire, and the binding
+record drives whatever else the platform layers on top.
 
-**Skill discovery:** Connectors register their available skills with the unit when they are initialized. At agent activation time, the actor assembles the agent's tool manifest by combining: (1) platform tools, (2) tools from the agent's own tool manifest, and (3) skills from all connectors attached to the agent's unit. This means an agent automatically gains access to connector capabilities without explicit per-agent configuration.
+The GitHub connector is intentionally **event-only at the platform-MCP
+boundary in v0.1**. It owns inbound webhooks, App-auth, the binding
+lifecycle, and per-launch runtime-context contribution (#2380), but
+registers **no `github.*` MCP tools**. Agents authored against GitHub
+run `gh` and `git` directly inside their container using the
+short-lived installation token and the owner / repo / reviewer metadata
+that `GitHubConnectorRuntimeContextContributor` injects through the
+`SPRING_CONNECTOR_GITHUB_*` env vars and the
+`connectors/github/binding.json` context file. The decision and the
+removed-tools list live in issues
+[#2384](https://github.com/cvoya-com/spring-voyage/issues/2384) and
+[#2383](https://github.com/cvoya-com/spring-voyage/issues/2383); a
+hosted-overlay caching layer for selected reads is a v0.2
+consideration.
+
+**Skill discovery (when a connector does ship tools):** Connectors that
+register an `ISkillRegistry` are picked up at host startup. The
+auto-grant pipeline writes one `<ToolNamespace>.*` row per bind into
+`unit_tool_grants`, the resolver surfaces those rows on every effective
+tool set, and member agents inherit them through their unit
+memberships. No per-agent wiring is required.
 
 ## Connector discovery surfaces
 
@@ -80,9 +108,9 @@ The open-source host ships three connector types out of the box:
 
 | Slug | Project | Scope |
 | ---- | ------- | ----- |
-| `github` | `src/Cvoya.Spring.Connector.GitHub/` | Rich: OAuth / App auth, webhooks, issue + PR CRUD, rate limiting, response cache. |
-| `arxiv` | `src/Cvoya.Spring.Connector.Arxiv/` | Read-only: `searchLiterature` and `fetchAbstract` skills; no auth, no webhooks. |
-| `web-search` | `src/Cvoya.Spring.Connector.WebSearch/` | Generic façade over a pluggable `IWebSearchProvider`. Default provider is Brave Search; Bing, Google Custom Search, or SearxNG can be slotted in by registering an additional `IWebSearchProvider` before the host resolves the DI graph. API keys are referenced by unit-scoped secret name and resolved through `ISecretResolver` at skill-invoke time — plaintext never lands in the stored binding. |
+| `github` | `src/Cvoya.Spring.Connector.GitHub/` | OAuth / App auth, webhook ingestion + filtering, binding lifecycle, label-roundtrip, runtime-context contribution (#2380). **No platform-MCP `github.*` tools** — agents run `gh` / `git` in-container; see issues [#2384](https://github.com/cvoya-com/spring-voyage/issues/2384) / [#2383](https://github.com/cvoya-com/spring-voyage/issues/2383). |
+| `arxiv` | `src/Cvoya.Spring.Connector.Arxiv/` | Read-only: `searchLiterature` and `fetchAbstract` tools; no auth, no webhooks. |
+| `web-search` | `src/Cvoya.Spring.Connector.WebSearch/` | Generic façade over a pluggable `IWebSearchProvider`. Default provider is Brave Search; Bing, Google Custom Search, or SearxNG can be slotted in by registering an additional `IWebSearchProvider` before the host resolves the DI graph. API keys are referenced by unit-scoped secret name and resolved through `ISecretResolver` at tool-invoke time — plaintext never lands in the stored binding. |
 
 GitHub unit bindings may also carry optional label-roundtrip rules:
 `add_on_assign` and `remove_on_assign`. When a unit emits a routed delegate

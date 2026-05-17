@@ -77,11 +77,11 @@ public class ToolRegistryTests
             new ToolDefinition("acme.timestamp", "second", EmptyObject()),
             static (args, _) => Task.FromResult(args));
         registry.Register(
-            new ToolDefinition("github.create_issue", "third", EmptyObject()),
+            new ToolDefinition("widget.create_issue", "third", EmptyObject()),
             static (args, _) => Task.FromResult(args));
 
         var listed = registry.List();
-        listed.Select(t => t.Name).ShouldBe(["acme.echo", "acme.timestamp", "github.create_issue"]);
+        listed.Select(t => t.Name).ShouldBe(["acme.echo", "acme.timestamp", "widget.create_issue"]);
     }
 
     [Fact]

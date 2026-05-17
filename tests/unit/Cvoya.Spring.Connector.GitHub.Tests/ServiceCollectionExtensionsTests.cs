@@ -75,16 +75,6 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public void AddCvoyaSpringConnectorGitHub_RegistersGitHubSkillRegistry()
-    {
-        using var provider = BuildProvider();
-
-        var registry = provider.GetRequiredService<GitHubSkillRegistry>();
-
-        registry.ShouldNotBeNull();
-    }
-
-    [Fact]
     public void AddCvoyaSpringConnectorGitHub_RegistersGitHubConnector()
     {
         using var provider = BuildProvider();
@@ -132,24 +122,20 @@ public class ServiceCollectionExtensionsTests
             })
             .Build();
 
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddCvoyaSpringConnectorGitHub(configuration);
-
-        var connector = services.BuildServiceProvider().GetRequiredService<GitHubConnector>();
-        var labelStateMachine = new Cvoya.Spring.Connector.GitHub.Labels.LabelStateMachine(
-            Cvoya.Spring.Connector.GitHub.Labels.LabelStateMachineOptions.Default());
-        var customRegistry = new GitHubSkillRegistry(connector, labelStateMachine, Substitute.For<IGitHubInstallationsClient>(), Substitute.For<ILoggerFactory>());
+        // Pre-register a custom IWebhookSignatureValidator BEFORE the connector
+        // wiring runs; the connector's TryAdd* registrations must respect the
+        // pre-existing one rather than overwriting it.
+        var customValidator = Substitute.For<IWebhookSignatureValidator>();
 
         var servicesWithOverride = new ServiceCollection();
         servicesWithOverride.AddLogging();
-        servicesWithOverride.AddSingleton(customRegistry);
+        servicesWithOverride.AddSingleton(customValidator);
         servicesWithOverride.AddCvoyaSpringConnectorGitHub(configuration);
 
         using var provider = servicesWithOverride.BuildServiceProvider();
 
-        var resolved = provider.GetRequiredService<GitHubSkillRegistry>();
-        resolved.ShouldBeSameAs(customRegistry);
+        var resolved = provider.GetRequiredService<IWebhookSignatureValidator>();
+        resolved.ShouldBeSameAs(customValidator);
     }
 
     [Fact]

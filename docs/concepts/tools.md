@@ -18,11 +18,21 @@ The canonical names supersede the earlier ad-hoc shapes that mixed slash and und
 |---|---|
 | `directory/search` | `sv.search_expertise` |
 | `expertise/{slug}` | `sv.expertise.{slug}` |
-| `github_create_issue`, `github_list_repos`, … | `github.create_issue`, `github.list_repos`, … |
 | `arxiv_search`, `arxiv_fetch_abstract` | `arxiv.search`, `arxiv.fetch_abstract` |
 | `websearch_query`, `websearch_summarize` | `websearch.query`, `websearch.summarize` |
 
-The first dotted segment is the namespace. `sv.*` belongs to the platform; connector-provided namespaces match the connector's slug (`github.*`, `arxiv.*`, `websearch.*`); container-image-provided namespaces are chosen by the agent author.
+The first dotted segment is the namespace. `sv.*` belongs to the platform; connector-provided namespaces match the connector's slug (`arxiv.*`, `websearch.*`); container-image-provided namespaces are chosen by the agent author.
+
+> **No `github.*` platform tools.** The GitHub connector ships only the
+> binding lifecycle, webhook ingestion, App-auth, and per-launch runtime-context
+> contribution (#2380); it does **not** register an `ISkillRegistry`. Agents
+> bound to a unit with a GitHub binding receive the
+> `SPRING_CONNECTOR_GITHUB_*` env vars + the
+> `connectors/github/binding.json` context file inside their container and
+> use the in-container `gh` and `git` CLIs for all GitHub workloads. Issues
+> [#2384](https://github.com/cvoya-com/spring-voyage/issues/2384) and
+> [#2383](https://github.com/cvoya-com/spring-voyage/issues/2383) record the
+> v0.1 decision.
 
 ## The three tiers
 

@@ -636,10 +636,9 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     /// call fails — either because policy denied it, the registry rejected the call,
     /// the arguments were malformed, or the underlying skill threw. The MCP layer was
     /// previously logging these failures only to <see cref="ILogger"/>, which left the
-    /// portal's activity feed silent for the most common operator-visible failures
-    /// (e.g. an unconfigured GitHub installation id surfacing through every
-    /// <c>github.*</c> tool call). Wiring emission here means the operator sees the
-    /// failure with the exception message attached, paired with the matching
+    /// portal's activity feed silent for the most common operator-visible failures.
+    /// Wiring emission here means the operator sees the failure with the exception
+    /// message attached, paired with the matching
     /// <see cref="ActivityEventType.ToolCall"/> via the agent-id source field.
     /// </summary>
     private async Task EmitToolFailureActivityAsync(

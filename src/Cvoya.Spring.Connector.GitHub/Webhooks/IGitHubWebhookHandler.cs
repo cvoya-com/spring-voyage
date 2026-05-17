@@ -40,14 +40,4 @@ public interface IGitHubWebhookHandler
         Message translated,
         string eventType,
         CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Derives the set of cache tags that the connector should invalidate in
-    /// response to <paramref name="eventType"/> + <paramref name="payload"/>.
-    /// Returns an empty sequence when the event has no cacheable surface (or
-    /// the payload is missing the required identifiers).
-    /// </summary>
-    /// <param name="eventType">The GitHub event type from the X-GitHub-Event header.</param>
-    /// <param name="payload">The parsed JSON payload.</param>
-    IReadOnlyList<string> DeriveInvalidationTags(string eventType, JsonElement payload);
 }
