@@ -98,11 +98,12 @@ public class DefaultPackageArtefactActivator_HumansTests
     }
 
     [Fact]
-    public async Task ActivateUnitAsync_LegacyIdentityField_ParserRejectsWithLegacyHumanIdentityField()
+    public void ActivateUnitAsync_LegacyHumanIdentityField_StrictParserRejects()
     {
-        // Pre-ADR-0044 shape: `identity:` / `permission:`. The parser must
-        // refuse the legacy form with a precise migration error before the
-        // activator ever runs.
+        // Issue #2406: per-field migration hints retired in favour of
+        // strict YAML parsing. A `humans[].identity:` slot is not part of
+        // the v0.1 grammar, so strict parsing rejects it at the YAML
+        // layer with a generic but actionable error.
         var yaml = """
             apiVersion: spring.voyage/v1
             kind: Unit
@@ -114,28 +115,7 @@ public class DefaultPackageArtefactActivator_HumansTests
                 notifications: ["escalation"]
             """;
 
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyHumanIdentityField");
-    }
-
-    [Fact]
-    public async Task ActivateUnitAsync_LegacyPermissionField_ParserRejectsWithLegacyHumanPermissionField()
-    {
-        // identity removed but permission kept — the parser must still
-        // detect the legacy permission field.
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Unit
-            name: legacy-unit
-            description: legacy
-            humans:
-              - role: owner
-                permission: owner
-                notifications: ["escalation"]
-            """;
-
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyHumanPermissionField");
+        Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
     }
 
     [Fact]

@@ -384,14 +384,15 @@ public static class PackageValidator
                 continue;
             }
 
-            AgentDocument? doc = null;
+            AgentManifest? doc = null;
             try
             {
+                // Strict parsing — unknown fields are a parse error (#2406).
                 var deserializer = new DeserializerBuilder()
                     .WithNamingConvention(CamelCaseNamingConvention.Instance)
-                    .IgnoreUnmatchedProperties()
+                    .WithTypeConverter(new RequirementEntryYamlConverter())
                     .Build();
-                doc = deserializer.Deserialize<AgentDocument>(agentYaml);
+                doc = deserializer.Deserialize<AgentManifest>(agentYaml);
             }
             catch (YamlDotNet.Core.YamlException ex)
             {
@@ -406,56 +407,6 @@ public static class PackageValidator
 
             if (doc is null)
             {
-                continue;
-            }
-
-            // ADR-0037 D6: detect legacy `agent:` wrapper and surface a
-            // precise migration hint.
-            if (doc.LegacyAgentWrapper is not null)
-            {
-                diagnostics.Add(new PackageValidationDiagnostic(
-                    agentFile,
-                    PackageValidationSeverity.Error,
-                    "agent-legacy-wrapper",
-                    "LegacyArtefactWrapper: agent YAML wraps the body in an 'agent:' key. " +
-                    "ADR-0037 decision 1 — drop the wrapping 'agent:' key; hoist the body to the " +
-                    "top level with apiVersion: spring.voyage/v1, kind: Agent, name, description."));
-                continue;
-            }
-
-            // ADR-0038: reject legacy ai-block shapes with a precise
-            // migration hint. Mirrors the unit-side detection in
-            // ManifestParser.DetectLegacyAiShapes so unit and agent
-            // YAMLs share one rejection rule.
-            try
-            {
-                ManifestParser.DetectLegacyAiShapes(agentYaml);
-            }
-            catch (ManifestParseException ex)
-            {
-                diagnostics.Add(new PackageValidationDiagnostic(
-                    agentFile,
-                    PackageValidationSeverity.Error,
-                    "agent-legacy-ai-shape",
-                    ex.Message));
-                continue;
-            }
-
-            // ADR-0039 § 9: reject `containerRuntime:` (root or under
-            // `execution:`) — the container runtime is platform
-            // configuration, not a per-agent field. Same shared
-            // detector the unit-side parser uses.
-            try
-            {
-                ManifestParser.DetectLegacyContainerRuntime(agentYaml);
-            }
-            catch (ManifestParseException ex)
-            {
-                diagnostics.Add(new PackageValidationDiagnostic(
-                    agentFile,
-                    PackageValidationSeverity.Error,
-                    "agent-legacy-container-runtime",
-                    ex.Message));
                 continue;
             }
 
@@ -599,53 +550,4 @@ public static class PackageValidator
         return true;
     }
 
-    // ── local YAML shapes for tolerant agent parsing ──────────────────────
-    //
-    // ADR-0037 D1: agent YAMLs are kind-discriminated top-level documents
-    // (apiVersion / kind: Agent / name / description / id / ai / …). The
-    // wrapping `agent:` key from the pre-ADR-0037 grammar is captured
-    // separately so the validator can surface a precise
-    // LegacyArtefactWrapper migration hint.
-
-    private sealed class AgentDocument
-    {
-        [YamlDotNet.Serialization.YamlMember(Alias = "apiVersion")]
-        public string? ApiVersion { get; set; }
-
-        [YamlDotNet.Serialization.YamlMember(Alias = "kind")]
-        public string? Kind { get; set; }
-
-        [YamlDotNet.Serialization.YamlMember(Alias = "name")]
-        public string? Name { get; set; }
-
-        [YamlDotNet.Serialization.YamlMember(Alias = "description")]
-        public string? Description { get; set; }
-
-        [YamlDotNet.Serialization.YamlMember(Alias = "id")]
-        public string? Id { get; set; }
-
-        [YamlDotNet.Serialization.YamlMember(Alias = "ai")]
-        public AgentAiDoc? Ai { get; set; }
-
-        [YamlDotNet.Serialization.YamlMember(Alias = "agent")]
-        public object? LegacyAgentWrapper { get; set; }
-    }
-
-    private sealed class AgentAiDoc
-    {
-        [YamlDotNet.Serialization.YamlMember(Alias = "runtime")]
-        public string? Runtime { get; set; }
-
-        [YamlDotNet.Serialization.YamlMember(Alias = "model")]
-        public AgentAiModelDoc? Model { get; set; }
-    }
-
-    private sealed class AgentAiModelDoc
-    {
-        [YamlDotNet.Serialization.YamlMember(Alias = "provider")]
-        public string? Provider { get; set; }
-
-        [YamlDotNet.Serialization.YamlMember(Alias = "id")]
-        public string? Id { get; set; }
-    }
 }

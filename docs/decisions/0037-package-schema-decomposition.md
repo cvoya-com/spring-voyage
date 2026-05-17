@@ -167,6 +167,8 @@ Rejected: in-repo `packages/<name>/<version>/` layout right now. Existing four p
 
 ### 6. Migration: hard rename, parse error on old shape, no shim
 
+> **Superseded by [#2406](https://github.com/cvoya-com/spring-voyage/issues/2406).** The per-shape "graceful migration-hint" rejection branches (every row in the migration table below) were retired in v0.1's cleanup pass. Strict YAML parsing on the typed manifest classes now rejects unknown fields with a generic but actionable error — no per-field migration hint. The structural signals the catalog walker still raises (`LegacyFlatArtefactLayout`, `UnexpectedInnerVersion`, `ArtefactFolderNameMismatch`) survive because filesystem-layout problems cannot be caught by YAML strictness. The table below is preserved as historical context.
+
 ADR-0035 §1 set the precedent: pre-v1.0, hard renames are bounded and cheaper than carrying parallel grammars. `PackageManifestParser` accepts the new shape only. Every old-shape signal is a parse error with a precise migration hint:
 
 | Old shape | Error | Migration hint |

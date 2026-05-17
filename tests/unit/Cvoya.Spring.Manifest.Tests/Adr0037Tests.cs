@@ -110,113 +110,15 @@ public class Adr0037Tests
 
     // ---- D6 — every old-shape signal raises a precise error ------------
 
-    [Fact]
-    public void ParseRaw_LegacyMetadataNesting_Rejected()
-    {
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Package
-            metadata:
-              name: my-package
-              description: x
-            version: 1.0.0
-            content: []
-            """;
-
-        var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
-        ex.Message.ShouldContain("LegacyMetadataNesting");
-    }
+    // ---- Strict parsing — unknown top-level fields rejected -------------
+    // Issue #2406: per-shape legacy detection methods were retired. Strict
+    // YamlDotNet deserialization on the typed manifest classes catches
+    // unknown fields with a generic but actionable parse error; the tests
+    // below exercise a representative shape (a removed root key, an unknown
+    // sub-field) so the strictness contract has coverage.
 
     [Fact]
-    public void ParseRaw_LegacyInputsField_Rejected()
-    {
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Package
-            name: my-package
-            description: x
-            version: 1.0.0
-            inputs:
-              - name: foo
-                type: string
-                required: true
-            content: []
-            """;
-
-        var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
-        ex.Message.ShouldContain("LegacyInputsField");
-    }
-
-    [Fact]
-    public void ParseRaw_LegacyPackageConnectorsField_Rejected()
-    {
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Package
-            name: my-package
-            description: x
-            version: 1.0.0
-            connectors:
-              - type: github
-                required: true
-            content: []
-            """;
-
-        var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
-        ex.Message.ShouldContain("LegacyPackageConnectorsField");
-    }
-
-    [Fact]
-    public void ParseRaw_LegacyPackageKind_Rejected()
-    {
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: UnitPackage
-            name: my-package
-            description: x
-            version: 1.0.0
-            content: []
-            """;
-
-        var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
-        ex.Message.ShouldContain("LegacyPackageKind");
-    }
-
-    // ---- D6 — unit-side legacy rejections through ManifestParser -------
-
-    [Fact]
-    public void ManifestParser_LegacyArtefactWrapper_Rejected()
-    {
-        var yaml = """
-            unit:
-              name: my-unit
-              members:
-                - agent: my-agent
-            """;
-
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyArtefactWrapper");
-    }
-
-    [Fact]
-    public void ManifestParser_LegacyStructureField_Rejected()
-    {
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Unit
-            name: my-unit
-            description: x
-            structure: hierarchical
-            members:
-              - agent: a
-            """;
-
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyStructureField");
-    }
-
-    [Fact]
-    public void ManifestParser_LegacyUnitConnectorsField_Rejected()
+    public void ManifestParser_UnknownTopLevelField_Rejected()
     {
         var yaml = """
             apiVersion: spring.voyage/v1
@@ -227,37 +129,15 @@ public class Adr0037Tests
               - type: github
             """;
 
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyUnitConnectorsField");
+        Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
     }
 
     [Fact]
-    public void ManifestParser_LegacyExecutionToolField_Rejected()
+    public void ManifestParser_UnknownAiSubField_Rejected()
     {
-        // #1732: execution.tool was dropped — the catalogue derives the
-        // tool from ai.runtime (ADR-0038). The parser surfaces a clear
-        // migration hint when an old-shape file still carries it.
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Unit
-            name: my-unit
-            description: x
-            execution:
-              image: ghcr.io/example/agent:latest
-              tool: claude-code
-            """;
-
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyExecutionToolField");
-        ex.Message.ShouldContain("ai.runtime");
-    }
-
-    [Fact]
-    public void ManifestParser_LegacyAiAgentField_Rejected()
-    {
-        // ADR-0038: ai.agent was renamed to ai.runtime. The parser
-        // surfaces a clear migration hint when an old-shape file still
-        // carries ai.agent.
+        // Strict parsing rejects an unknown sub-field of ai: (e.g. the
+        // pre-ADR-0038 `ai.agent:` slot) at the YAML layer with no
+        // per-field migration hint.
         var yaml = """
             apiVersion: spring.voyage/v1
             kind: Unit
@@ -270,37 +150,15 @@ public class Adr0037Tests
                 id: claude-opus-4-7
             """;
 
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyAiAgentField");
-        ex.Message.ShouldContain("ai.runtime");
+        Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
     }
 
     [Fact]
-    public void ManifestParser_LegacyAiModelStringForm_Rejected()
+    public void ManifestParser_UnknownExecutionSubField_Rejected()
     {
-        // ADR-0038: ai.model is now a structured {provider, id} object.
-        // A string-form model selector trips the legacy detection branch.
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Unit
-            name: my-unit
-            description: x
-            ai:
-              runtime: claude-code
-              model: claude-opus-4-7
-            """;
-
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyAiModelStringForm");
-        ex.Message.ShouldContain("provider");
-    }
-
-    [Fact]
-    public void ManifestParser_LegacyContainerRuntimeField_UnderExecution_Rejected()
-    {
-        // ADR-0039 § 9: execution.containerRuntime is removed — the
-        // container runtime is platform configuration, not a per-unit
-        // field. Old-shape unit YAMLs trip the legacy detector.
+        // Strict parsing rejects unknown execution: sub-fields like the
+        // pre-ADR-0039 containerRuntime: slot. The YAML library raises
+        // a parse error; ManifestParseException wraps it.
         var yaml = """
             apiVersion: spring.voyage/v1
             kind: Unit
@@ -311,51 +169,38 @@ public class Adr0037Tests
               containerRuntime: podman
             """;
 
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyContainerRuntimeField");
-        ex.Message.ShouldContain("ADR-0039");
-        ex.Message.ShouldContain("platform configuration");
+        Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
     }
 
     [Fact]
-    public void ManifestParser_LegacyContainerRuntimeField_AtRoot_Rejected()
+    public void ParseRaw_PackageManifest_UnknownTopLevel_Rejected()
     {
-        // ADR-0039 § 9: a wire-DTO body (or hand-authored YAML) that
-        // hoists `containerRuntime:` to the document root is rejected
-        // with the same migration hint as the nested form.
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: Unit
-            name: my-unit
+            kind: Package
+            name: my-package
             description: x
-            containerRuntime: docker
+            version: 1.0.0
+            inputs:
+              - name: foo
             """;
 
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyContainerRuntimeField");
-        ex.Message.ShouldContain("platform configuration");
+        Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
     }
 
     [Fact]
-    public void ManifestParser_LegacyUnitOrchestrationField_Rejected()
+    public void ParseRaw_PackageManifest_KindMustBePackage()
     {
-        // ADR-0039: unit-level orchestration is runtime behaviour, not a
-        // platform manifest block. Old-shape unit YAMLs trip the legacy
-        // detector before typed deserialisation.
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: Unit
-            name: my-unit
+            kind: UnitPackage
+            name: my-package
             description: x
-            orchestration:
-              strategy: label-routed
+            version: 1.0.0
             """;
 
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyUnitOrchestrationField");
-        ex.Message.ShouldContain("orchestration");
-        ex.Message.ShouldContain("removed in ADR-0039");
-        ex.Message.ShouldContain("execution:");
+        var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
+        ex.Message.ShouldContain("Package");
     }
 
     [Fact]
@@ -387,10 +232,8 @@ public class Adr0037Tests
     [Fact]
     public void ManifestParser_NoContainerRuntime_Succeeds()
     {
-        // ADR-0039 § 9: a clean unit YAML with no `containerRuntime:`
-        // anywhere parses successfully. Pinned so the legacy detector
-        // does not over-match (e.g. on substring keys) when the field
-        // is absent.
+        // Pinned so the strict parser still accepts a clean unit YAML
+        // with no removed sub-fields anywhere.
         var yaml = """
             apiVersion: spring.voyage/v1
             kind: Unit
@@ -405,49 +248,6 @@ public class Adr0037Tests
         manifest.Name.ShouldBe("my-unit");
         manifest.Execution.ShouldNotBeNull();
         manifest.Execution!.Image.ShouldBe("ghcr.io/example/agent:latest");
-    }
-
-    [Fact]
-    public void ParseRaw_LegacyContainerRuntimeField_OnPackageExecution_Rejected()
-    {
-        // ADR-0039 § 9: package-level `execution:` blocks reject
-        // `containerRuntime:` for the same reason as unit blocks. The
-        // detector is shared, so the migration hint is identical.
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Package
-            name: my-package
-            description: x
-            version: 1.0.0
-            execution:
-              image: ghcr.io/example/agent:latest
-              containerRuntime: podman
-            """;
-
-        var ex = Should.Throw<PackageParseException>(() => PackageManifestParser.ParseRaw(yaml));
-        ex.Message.ShouldContain("LegacyContainerRuntimeField");
-        ex.Message.ShouldContain("platform configuration");
-    }
-
-    [Fact]
-    public void ManifestParser_LegacyExecutionProviderField_Rejected()
-    {
-        // ADR-0038: execution.provider was removed; the provider is
-        // intrinsic to ai.model.provider. Old-shape files trip the
-        // legacy detection branch.
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: Unit
-            name: my-unit
-            description: x
-            execution:
-              image: ghcr.io/example/agent:latest
-              provider: anthropic
-            """;
-
-        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("LegacyExecutionProviderField");
-        ex.Message.ShouldContain("ai.model.provider");
     }
 
     [Fact]

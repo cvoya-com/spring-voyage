@@ -6,9 +6,6 @@ namespace Cvoya.Spring.Manifest;
 using System.Collections.Generic;
 using System.IO;
 
-using YamlDotNet.Core;
-using YamlDotNet.Core.Events;
-using YamlDotNet.RepresentationModel;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -19,6 +16,11 @@ using YamlDotNet.Serialization.NamingConventions;
 /// <c>kind: Unit</c>, <c>name</c>, <c>description</c>, …) with no
 /// wrapping <c>unit:</c> key.
 /// </summary>
+/// <remarks>
+/// v0.1 has no back-compat guarantees (issue #2406). The parser is strict:
+/// unknown top-level fields are a parse error so typos and pre-v0.1
+/// schema fragments fail at the same gate.
+/// </remarks>
 public static class ManifestParser
 {
     /// <summary>
@@ -33,33 +35,11 @@ public static class ManifestParser
     /// <summary>
     /// Parses the manifest YAML text into a <see cref="UnitManifest"/>.
     /// Throws <see cref="ManifestParseException"/> if the document is
-    /// malformed, the required header fields are missing, or the document
-    /// is in the pre-ADR-0037 wrapped shape.
+    /// malformed or the required header fields are missing. Unknown
+    /// top-level fields are rejected (strict parsing — issue #2406).
     /// </summary>
     public static UnitManifest Parse(string yamlText)
     {
-        // Detect legacy ai-block shapes (ai.agent / ai.model-as-string)
-        // by walking the raw YAML stream BEFORE typed deserialisation —
-        // YamlDotNet's typed binder silently drops unmatched keys, and
-        // an `ai.model:` scalar where we expect a mapping would surface
-        // as a confusing parse error. Doing this first lets us emit a
-        // precise ADR-0038 migration hint instead.
-        DetectLegacyAiShapes(yamlText);
-
-        // ADR-0039 § 9: `execution.containerRuntime` is removed — the
-        // container runtime is platform configuration, not a per-unit
-        // / per-agent field. A unit YAML still carrying the key is
-        // rejected here with a precise migration hint (matches the
-        // wire-DTO `LegacyContainerRuntimeField` error path so operators
-        // see the same message regardless of entry point).
-        DetectLegacyContainerRuntime(yamlText);
-
-        // ADR-0039: unit-level `orchestration:` is no longer a manifest
-        // configuration surface. Reject the legacy root block before typed
-        // deserialisation, because UnitManifest no longer carries a capture
-        // property for it.
-        DetectLegacyUnitOrchestrationField(yamlText);
-
         UnitManifest? manifest;
         try
         {
@@ -67,7 +47,6 @@ public static class ManifestParser
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
                 .WithTypeConverter(new RequirementEntryYamlConverter())
                 .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
-                .IgnoreUnmatchedProperties()
                 .Build();
             manifest = deserializer.Deserialize<UnitManifest>(yamlText);
         }
@@ -81,49 +60,7 @@ public static class ManifestParser
             throw new ManifestParseException("Manifest is empty.");
         }
 
-        // ADR-0037 decision 6: detect legacy wrapper / structure / connectors
-        // and surface a precise migration hint.
-        if (manifest.LegacyUnitWrapper is not null)
-        {
-            throw new ManifestParseException(
-                "LegacyArtefactWrapper: unit YAML wraps the body in a 'unit:' key. " +
-                "ADR-0037 decision 1 — drop the wrapping 'unit:' key; hoist the body to the " +
-                "top level with apiVersion: spring.voyage/v1, kind: Unit, name, description.");
-        }
-
-        if (manifest.LegacyStructure is not null)
-        {
-            throw new ManifestParseException(
-                "LegacyStructureField: 'structure:' is removed in ADR-0037 decision 1; " +
-                "the membership graph already encodes the structure.");
-        }
-
-        if (manifest.LegacyConnectors is not null)
-        {
-            throw new ManifestParseException(
-                "LegacyUnitConnectorsField: unit-level 'connectors:' is renamed to 'requires:' in ADR-0037 decision 3. " +
-                "Each entry is a single-key mapping ('- connector: <slug>').");
-        }
-
-        if (manifest.Execution is { LegacyTool: { } legacyTool } && !string.IsNullOrWhiteSpace(legacyTool))
-        {
-            throw new ManifestParseException(
-                "LegacyExecutionToolField: 'execution.tool:' is removed in #1732. " +
-                "The execution tool is now derived from the runtime registry via 'ai.runtime:' " +
-                "(ADR-0038). Drop 'execution.tool:' and ensure 'ai.runtime:' names a registered " +
-                "agent runtime (e.g. 'claude-code', 'codex', 'gemini', 'spring-voyage').");
-        }
-
-        if (manifest.Execution is { LegacyProvider: { } legacyExecProvider } && !string.IsNullOrWhiteSpace(legacyExecProvider))
-        {
-            throw new ManifestParseException(
-                "LegacyExecutionProviderField: 'execution.provider:' is removed in ADR-0038. " +
-                "The provider is intrinsic to 'ai.model.provider'. Drop 'execution.provider:' " +
-                "and declare the provider on the structured model selector " +
-                "(e.g. 'ai.model: { provider: anthropic, id: claude-opus-4-7 }').");
-        }
-
-        DetectLegacyHumanFields(manifest);
+        ValidateHumanEntries(manifest.Humans);
 
         if (string.IsNullOrWhiteSpace(manifest.ApiVersion))
         {
@@ -261,22 +198,17 @@ public static class ManifestParser
 
     /// <summary>
     /// Parses a <c>kind: AgentTemplate</c> YAML document (ADR-0043 §5) into
-    /// an <see cref="AgentTemplateManifest"/>. Shares the legacy-rejection
-    /// pre-checks with <see cref="Parse"/> so template documents reject the
-    /// same pre-ADR-0038 / ADR-0039 shapes as concrete agents.
+    /// an <see cref="AgentTemplateManifest"/>. Strict parsing — unknown
+    /// fields are a parse error (issue #2406).
     /// </summary>
     public static AgentTemplateManifest ParseAgentTemplate(string yamlText)
     {
-        DetectLegacyAiShapes(yamlText);
-        DetectLegacyContainerRuntime(yamlText);
-
         AgentTemplateManifest? manifest;
         try
         {
             var deserializer = new DeserializerBuilder()
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
                 .WithTypeConverter(new RequirementEntryYamlConverter())
-                .IgnoreUnmatchedProperties()
                 .Build();
             manifest = deserializer.Deserialize<AgentTemplateManifest>(yamlText);
         }
@@ -319,16 +251,11 @@ public static class ManifestParser
 
     /// <summary>
     /// Parses a <c>kind: UnitTemplate</c> YAML document (ADR-0043 §5) into
-    /// a <see cref="UnitTemplateManifest"/>. Shares the legacy-rejection
-    /// pre-checks with <see cref="Parse"/> so template documents reject the
-    /// same pre-ADR-0038 / ADR-0039 shapes as concrete units.
+    /// a <see cref="UnitTemplateManifest"/>. Strict parsing — unknown
+    /// fields are a parse error (issue #2406).
     /// </summary>
     public static UnitTemplateManifest ParseUnitTemplate(string yamlText)
     {
-        DetectLegacyAiShapes(yamlText);
-        DetectLegacyContainerRuntime(yamlText);
-        DetectLegacyUnitOrchestrationField(yamlText);
-
         UnitTemplateManifest? manifest;
         try
         {
@@ -336,7 +263,6 @@ public static class ManifestParser
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
                 .WithTypeConverter(new RequirementEntryYamlConverter())
                 .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
-                .IgnoreUnmatchedProperties()
                 .Build();
             manifest = deserializer.Deserialize<UnitTemplateManifest>(yamlText);
         }
@@ -374,63 +300,28 @@ public static class ManifestParser
                 "Manifest is missing the required top-level 'name' field.");
         }
 
-        DetectLegacyHumanFieldsTemplate(manifest);
+        ValidateHumanEntries(manifest.Humans);
 
         return manifest;
     }
 
     /// <summary>
-    /// Rejects the pre-ADR-0044 <c>humans[].identity</c> /
-    /// <c>humans[].permission</c> fields with precise migration hints, and
-    /// requires every entry to declare a non-blank <c>role</c>. Shared by
-    /// the <c>Unit</c> and <c>UnitTemplate</c> parse paths.
+    /// Requires every <c>humans[]</c> entry to declare a non-blank
+    /// <c>role</c> (ADR-0044 § 2). Shared by the <c>Unit</c> and
+    /// <c>UnitTemplate</c> parse paths.
     /// </summary>
-    private static void DetectLegacyHumanFields(UnitManifest manifest)
+    private static void ValidateHumanEntries(IReadOnlyList<HumanManifest>? humans)
     {
-        if (manifest.Humans is null) return;
-        for (var i = 0; i < manifest.Humans.Count; i++)
+        if (humans is null) return;
+        for (var i = 0; i < humans.Count; i++)
         {
-            DetectLegacyHumanFieldsEntry(manifest.Humans[i], i);
-        }
-    }
-
-    private static void DetectLegacyHumanFieldsTemplate(UnitTemplateManifest manifest)
-    {
-        if (manifest.Humans is null) return;
-        for (var i = 0; i < manifest.Humans.Count; i++)
-        {
-            DetectLegacyHumanFieldsEntry(manifest.Humans[i], i);
-        }
-    }
-
-    private static void DetectLegacyHumanFieldsEntry(HumanManifest entry, int index)
-    {
-        if (!string.IsNullOrWhiteSpace(entry.LegacyIdentity))
-        {
-            throw new ManifestParseException(
-                $"LegacyHumanIdentityField: humans[{index}].identity is removed in ADR-0044. " +
-                "Package authors no longer name an install-time identity for the slot — " +
-                "the install policy fills the role with a concrete human at install time " +
-                "(OSS auto-fills with the install caller; hosted consults the tenant policy). " +
-                "Drop 'identity:' and replace 'permission:' with 'role:'.");
-        }
-
-        if (!string.IsNullOrWhiteSpace(entry.LegacyPermission))
-        {
-            throw new ManifestParseException(
-                $"LegacyHumanPermissionField: humans[{index}].permission is removed in ADR-0044. " +
-                "Permissions are platform ACLs and are managed through " +
-                "/api/v1/tenant/units/{id}/humans/.../permissions, not the package. " +
-                "Use 'role:' to describe the team role the human plays on the unit " +
-                "(e.g. role: owner, role: reviewer, role: security_lead).");
-        }
-
-        if (string.IsNullOrWhiteSpace(entry.Role))
-        {
-            throw new ManifestParseException(
-                $"humans[{index}] is missing the required 'role:' field (ADR-0044 § 2). " +
-                "Every team-member declaration carries a free-form role string (e.g. " +
-                "role: owner, role: reviewer, role: security_lead).");
+            if (string.IsNullOrWhiteSpace(humans[i].Role))
+            {
+                throw new ManifestParseException(
+                    $"humans[{i}] is missing the required 'role:' field (ADR-0044 § 2). " +
+                    "Every team-member declaration carries a free-form role string (e.g. " +
+                    "role: owner, role: reviewer, role: security_lead).");
+            }
         }
     }
 
@@ -459,213 +350,6 @@ public static class ManifestParser
         "humans" => manifest.Humans is { Count: > 0 },
         _ => false,
     };
-
-    /// <summary>
-    /// Walks the raw YAML and rejects pre-ADR-0038 ai-block shapes with
-    /// precise migration hints:
-    /// <list type="bullet">
-    /// <item><description><c>ai.agent</c> → <c>LegacyAiAgentField</c>.</description></item>
-    /// <item><description><c>ai.model</c> as a scalar → <c>LegacyAiModelStringForm</c>.</description></item>
-    /// </list>
-    /// Emitted by both <see cref="ManifestParser.Parse"/> and the agent
-    /// manifest path on <c>PackageManifestParser</c> via
-    /// <see cref="DetectLegacyAiShapes"/> so unit and agent YAMLs share
-    /// one rejection rule.
-    /// </summary>
-    internal static void DetectLegacyAiShapes(string yamlText)
-    {
-        if (string.IsNullOrWhiteSpace(yamlText))
-        {
-            return;
-        }
-
-        YamlStream stream;
-        try
-        {
-            stream = new YamlStream();
-            stream.Load(new StringReader(yamlText));
-        }
-        catch (YamlException)
-        {
-            // Typed deserialisation will surface the same parse error
-            // with a richer message; bail out and let it run.
-            return;
-        }
-
-        foreach (var doc in stream.Documents)
-        {
-            if (doc.RootNode is not YamlMappingNode root)
-            {
-                continue;
-            }
-
-            if (!TryGetMapping(root, "ai", out var aiNode))
-            {
-                continue;
-            }
-
-            if (TryGetScalar(aiNode!, "agent", out _))
-            {
-                throw new ManifestParseException(
-                    "LegacyAiAgentField: 'ai.agent:' is removed in ADR-0038. " +
-                    "Use 'ai.runtime:' with a runtime id ('claude-code', 'codex', " +
-                    "'gemini', 'spring-voyage', or a future custom runtime declared " +
-                    "in eng/runtime-catalog/runtime-catalog.yaml).");
-            }
-
-            if (aiNode!.Children.TryGetValue(new YamlScalarNode("model"), out var modelNode)
-                && modelNode is YamlScalarNode)
-            {
-                throw new ManifestParseException(
-                    "LegacyAiModelStringForm: 'ai.model:' is now a structured " +
-                    "{provider, id} object in ADR-0038. Replace the scalar with " +
-                    "'ai.model: { provider: <provider-id>, id: <model-id> }' " +
-                    "(e.g. 'ai.model: { provider: anthropic, id: claude-opus-4-7 }').");
-            }
-
-            // ADR-0043 + #2298: `ai.prompt:` is hoisted to top-level
-            // `instructions:` (canonical on both Unit and Agent kinds).
-            // The legacy slot is rejected with a precise migration hint.
-            if (aiNode.Children.ContainsKey(new YamlScalarNode("prompt")))
-            {
-                throw new ManifestParseException(Adr0043ParseErrors.LegacyAiPromptField);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Walks the raw YAML and rejects pre-ADR-0039 shapes that declare a
-    /// <c>containerRuntime:</c> field — either at the document root or
-    /// nested under <c>execution:</c> — with the
-    /// <c>LegacyContainerRuntimeField</c> migration hint from ADR-0039
-    /// § 9. Shared by <see cref="ManifestParser.Parse"/> and the
-    /// package-side parser so unit YAML, agent YAML (via the validator),
-    /// and the package-level <c>execution:</c> block all reject the same
-    /// shape.
-    /// </summary>
-    internal static void DetectLegacyContainerRuntime(string yamlText)
-    {
-        if (string.IsNullOrWhiteSpace(yamlText))
-        {
-            return;
-        }
-
-        YamlStream stream;
-        try
-        {
-            stream = new YamlStream();
-            stream.Load(new StringReader(yamlText));
-        }
-        catch (YamlException)
-        {
-            // Typed deserialisation will surface the same parse error
-            // with a richer message; bail out and let it run.
-            return;
-        }
-
-        foreach (var doc in stream.Documents)
-        {
-            if (doc.RootNode is not YamlMappingNode root)
-            {
-                continue;
-            }
-
-            // ADR-0039 § 9: reject `containerRuntime:` at the document root
-            // (e.g. a wire-DTO body that hoisted the field out of execution:).
-            if (root.Children.ContainsKey(new YamlScalarNode("containerRuntime")))
-            {
-                throw new ManifestParseException(LegacyContainerRuntimeMessage);
-            }
-
-            // ADR-0039 § 9: reject `execution.containerRuntime:` — the
-            // canonical location of the legacy field on unit / package
-            // manifests (per the migration table).
-            if (TryGetMapping(root, "execution", out var executionNode)
-                && executionNode!.Children.ContainsKey(new YamlScalarNode("containerRuntime")))
-            {
-                throw new ManifestParseException(LegacyContainerRuntimeMessage);
-            }
-        }
-    }
-
-    /// <summary>
-    /// ADR-0039 § 9 migration hint surfaced by both the unit / agent
-    /// manifest parser path and the wire-DTO rejection path.
-    /// </summary>
-    internal const string LegacyContainerRuntimeMessage =
-        "LegacyContainerRuntimeField: containerRuntime is removed in ADR-0039; " +
-        "the container runtime is platform configuration.";
-
-    /// <summary>
-    /// Walks the raw YAML and rejects the removed root <c>orchestration:</c>
-    /// block with an ADR-0039 migration hint.
-    /// </summary>
-    internal static void DetectLegacyUnitOrchestrationField(string yamlText)
-    {
-        if (string.IsNullOrWhiteSpace(yamlText))
-        {
-            return;
-        }
-
-        YamlStream stream;
-        try
-        {
-            stream = new YamlStream();
-            stream.Load(new StringReader(yamlText));
-        }
-        catch (YamlException)
-        {
-            // Typed deserialisation will surface the same parse error
-            // with a richer message; bail out and let it run.
-            return;
-        }
-
-        foreach (var doc in stream.Documents)
-        {
-            if (doc.RootNode is not YamlMappingNode root)
-            {
-                continue;
-            }
-
-            if (root.Children.ContainsKey(new YamlScalarNode("orchestration")))
-            {
-                throw new ManifestParseException(LegacyUnitOrchestrationMessage);
-            }
-        }
-    }
-
-    /// <summary>
-    /// ADR-0039 migration hint for unit YAMLs that still declare the removed
-    /// root <c>orchestration:</c> block.
-    /// </summary>
-    internal const string LegacyUnitOrchestrationMessage =
-        "LegacyUnitOrchestrationField: The 'orchestration' field is no longer supported (removed in ADR-0039).\n" +
-        "Remove the 'orchestration:' block from your unit manifest.\n" +
-        "Configure the agent's runtime via the 'execution:' block instead.";
-
-    private static bool TryGetMapping(YamlMappingNode parent, string key, out YamlMappingNode? value)
-    {
-        if (parent.Children.TryGetValue(new YamlScalarNode(key), out var node)
-            && node is YamlMappingNode mapping)
-        {
-            value = mapping;
-            return true;
-        }
-        value = null;
-        return false;
-    }
-
-    private static bool TryGetScalar(YamlMappingNode parent, string key, out string? value)
-    {
-        if (parent.Children.TryGetValue(new YamlScalarNode(key), out var node)
-            && node is YamlScalarNode scalar)
-        {
-            value = scalar.Value;
-            return true;
-        }
-        value = null;
-        return false;
-    }
 }
 
 /// <summary>

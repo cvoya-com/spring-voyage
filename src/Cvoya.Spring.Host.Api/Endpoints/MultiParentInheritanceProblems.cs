@@ -16,8 +16,7 @@ using Cvoya.Spring.Core.Agents;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The body extends the problem-details shape used elsewhere in the API
-/// (see <see cref="LegacyExecutionFieldProblems"/>) with two
+/// The body extends the problem-details shape with two
 /// platform-specific extensions at the root:
 /// </para>
 /// <list type="bullet">
@@ -51,9 +50,7 @@ internal static class MultiParentInheritanceProblems
 {
     /// <summary>
     /// Stable URI placed into <c>type</c> on every multi-parent inheritance
-    /// conflict response. The path follows the same convention as
-    /// <see cref="LegacyExecutionFieldProblems"/> so clients can switch on
-    /// the URI prefix.
+    /// conflict response. Clients can switch on the URI prefix.
     /// </summary>
     private const string ProblemType = "https://docs.cvoya.com/spring/errors/multi-parent-inheritance-conflict";
 

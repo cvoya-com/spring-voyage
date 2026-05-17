@@ -55,12 +55,6 @@ public static class UnitExecutionEndpoints
             .Produces<UnitExecutionResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        // ADR-0039 §9: the PUT handler hand-reads the body as
-        // JsonDocument so it can reject the legacy `containerRuntime`
-        // key with a structured 400 before model-binding silently drops
-        // it. The DTO surface stays advertised via Accepts<T>() so the
-        // OpenAPI schema (and downstream Kiota client) keeps a typed
-        // body.
         group.MapPut("/", SetExecutionAsync)
             .WithName("SetUnitExecution")
             .WithSummary("Upsert one or more fields on the unit's execution defaults (partial update)")
@@ -113,47 +107,16 @@ public static class UnitExecutionEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        // ADR-0039 §7 / §9: read the body as a JsonDocument first so we can
-        // reject the removed `containerRuntime` key with a structured 400
-        // before model-binding silently drops it. Legacy clients still in
-        // the field need an actionable error, not a no-op success.
-        var jsonOptions = httpContext.RequestServices
-            .GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
-            .Value
-            .SerializerOptions;
-
         UnitExecutionResponse? request;
-        JsonDocument document;
         try
         {
-            document = await JsonDocument.ParseAsync(httpContext.Request.Body, cancellationToken: cancellationToken);
+            request = await httpContext.Request.ReadFromJsonAsync<UnitExecutionResponse>(cancellationToken);
         }
         catch (JsonException ex)
         {
             return Results.Problem(
                 detail: $"Request body is not valid JSON: {ex.Message}",
                 statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        using (document)
-        {
-            var legacy = LegacyExecutionFieldProblems
-                .LegacyContainerRuntimeFieldOrNull(document.RootElement);
-            if (legacy is not null)
-            {
-                return legacy;
-            }
-
-            try
-            {
-                request = document.Deserialize<UnitExecutionResponse>(jsonOptions);
-            }
-            catch (JsonException ex)
-            {
-                return Results.Problem(
-                    detail: $"Request body could not be deserialized: {ex.Message}",
-                    statusCode: StatusCodes.Status400BadRequest);
-            }
         }
 
         request ??= new UnitExecutionResponse();

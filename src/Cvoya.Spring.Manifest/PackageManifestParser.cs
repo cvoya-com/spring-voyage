@@ -25,11 +25,13 @@ using YamlDotNet.Serialization.NamingConventions;
 ///   <item><description>ADR-0037 D3: uniform composition — bare = within-package, qualified = cross-package.</description></item>
 ///   <item><description>ADR-0037 D10: name uniqueness — first collision aborts with all offending names.</description></item>
 ///   <item><description>ADR-0037 D14: cross-package batch resolution via <see cref="IPackageCatalogProvider"/>.</description></item>
-///   <item><description>ADR-0043 §2: directory layout IS the content — <c>content:</c> is rejected.</description></item>
 ///   <item><description>ADR-0043 §3: artefacts can ship nested children; the walker descends every conventional subdirectory at every depth.</description></item>
 ///   <item><description>ADR-0043 §4: inner artefact <c>package.yaml</c> files do not declare <c>version:</c>.</description></item>
-///   <item><description>ADR-0043 §8: legacy shape signals (flat artefact layout, <c>content:</c>, inner <c>version:</c>, folder-name mismatch, <c>ai.prompt:</c>) are rejected with precise migration hints.</description></item>
 /// </list>
+/// <para>
+/// v0.1 has no back-compat guarantees (issue #2406). The parser is strict:
+/// unknown top-level fields on the package manifest are a parse error.
+/// </para>
 /// </summary>
 public static class PackageManifestParser
 {
@@ -53,7 +55,8 @@ public static class PackageManifestParser
     /// <summary>
     /// Parses a <c>package.yaml</c> YAML string into a <see cref="PackageManifest"/>
     /// without resolving references. Useful for inspecting the raw manifest
-    /// shape before resolution.
+    /// shape before resolution. Strict parsing — unknown top-level fields
+    /// are a parse error (issue #2406).
     /// </summary>
     /// <exception cref="PackageParseException">Thrown when YAML is malformed or required fields are missing.</exception>
     public static PackageManifest ParseRaw(string yamlText)
@@ -80,133 +83,24 @@ public static class PackageManifestParser
             throw new PackageParseException("Package manifest is empty.");
         }
 
-        ValidateLegacyFields(yamlText, doc);
+        ValidatePackageKind(doc);
         ValidateRequiredFields(doc);
-
-        // ADR-0039 § 9: reject `execution.containerRuntime:` (and the
-        // hoisted root-level form) on the package-level `execution:`
-        // block too. Mirrors the unit-side detection in
-        // ManifestParser.DetectLegacyContainerRuntime so unit, agent
-        // (via PackageValidator), and package manifests share one
-        // rejection rule.
-        try
-        {
-            ManifestParser.DetectLegacyContainerRuntime(yamlText);
-        }
-        catch (ManifestParseException ex)
-        {
-            throw new PackageParseException(ex.Message, ex);
-        }
 
         return doc;
     }
 
-    /// <summary>
-    /// ADR-0037 decision 6 + ADR-0043 §8: reject every legacy-shape signal
-    /// with a precise migration hint. Covers items 1+2 from #1718 (already
-    /// shipped in PR #1719) plus the per-artefact decomposition from
-    /// ADR-0037 plus the recursive folder layout from ADR-0043.
-    /// </summary>
-    private static void ValidateLegacyFields(string yamlText, PackageManifest doc)
+    private static void ValidatePackageKind(PackageManifest doc)
     {
-        // ADR-0037 decision 2 + #1718 item 1: kind: must be the literal
-        // string Package. Old-shape values (UnitPackage / AgentPackage,
-        // or any other) are rejected.
+        // ADR-0037 decision 2: kind: must be the literal string Package on
+        // the package-root manifest.
         if (!string.IsNullOrWhiteSpace(doc.Kind)
             && !string.Equals(doc.Kind.Trim(), "Package", StringComparison.Ordinal))
         {
             throw new PackageParseException(
-                $"LegacyPackageKind: 'kind:' must be 'Package' in ADR-0037 (got '{doc.Kind}'). " +
+                $"Package manifest 'kind:' must be 'Package' (got '{doc.Kind}'). " +
                 "The container manifest is the only kind of YAML at the package root.");
         }
-
-        // ADR-0037 decision 2: metadata: nesting is removed.
-        if (TopLevelKeyPresent(yamlText, "metadata"))
-        {
-            throw new PackageParseException(
-                "LegacyMetadataNesting: 'metadata:' nesting is removed in ADR-0037. " +
-                "Hoist 'name', 'description', and 'readme' to the top level of package.yaml.");
-        }
-
-        // ADR-0037 decision 2: inputs: is removed.
-        if (TopLevelKeyPresent(yamlText, "inputs"))
-        {
-            throw new PackageParseException(
-                "LegacyInputsField: 'inputs:' is removed in ADR-0037. " +
-                "Move connector-binding parameters into per-artefact 'requires:' blocks; " +
-                "behaviour parameters move to per-unit 'policies:'.");
-        }
-
-        // ADR-0037 decision 2: package-level connectors: is removed.
-        if (TopLevelKeyPresent(yamlText, "connectors"))
-        {
-            throw new PackageParseException(
-                "LegacyPackageConnectorsField: package-level 'connectors:' is removed in ADR-0037. " +
-                "Declare requirements on per-artefact YAMLs as 'requires: [{ connector: <slug> }]'. " +
-                "The package's effective requirement set is the union of every artefact's requires.");
-        }
-
-        // #1718 item 2: flat artefact lists are gone.
-        var legacyKeys = new[] { "unit", "agent", "subUnits", "skills", "workflows" };
-        foreach (var key in legacyKeys)
-        {
-            if (TopLevelKeyPresent(yamlText, key))
-            {
-                throw new PackageParseException(
-                    $"Package manifest declares the obsolete top-level '{key}:' field. " +
-                    "v0.1 declares all bundled artefacts under conventional folders " +
-                    "(units/, agents/, skills/, workflows/, templates/) per ADR-0043 §2. " +
-                    "Sub-units of an umbrella unit are discovered automatically from " +
-                    "the umbrella's 'members:' list.");
-            }
-        }
-
-        // ADR-0043 §8: `content:` is removed. The directory layout under
-        // agents/, units/, skills/, workflows/, templates/ is the content.
-        if (TopLevelKeyPresent(yamlText, "content"))
-        {
-            throw new PackageParseException(Adr0043ParseErrors.LegacyContentField);
-        }
     }
-
-    /// <summary>
-    /// Best-effort top-level-key probe: scans line-starts of the raw YAML
-    /// for <c>&lt;key&gt;:</c> at column 0 (no leading whitespace, the
-    /// only place YAML places a top-level key). Skips comment lines.
-    /// Sufficient for the legacy-field rejection — false positives on
-    /// embedded heredoc-style strings are not realistic in a v0.1
-    /// package manifest, and any false positive surfaces as a parse error
-    /// the operator can correct by adjusting indentation.
-    /// </summary>
-    private static bool TopLevelKeyPresent(string yamlText, string key)
-    {
-        if (string.IsNullOrEmpty(yamlText))
-        {
-            return false;
-        }
-
-        var lines = yamlText.Split('\n');
-        var prefix = key + ":";
-        foreach (var rawLine in lines)
-        {
-            var line = rawLine.EndsWith('\r') ? rawLine[..^1] : rawLine;
-            if (line.Length == 0) continue;
-            if (line[0] is ' ' or '\t' or '#') continue;
-            if (line.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                if (line.Length == prefix.Length || !IsKeyChar(line[prefix.Length - 1])
-                    || line[prefix.Length] is ' ' or '\t' or '\0' or '\r')
-                {
-                    if (line.Length == prefix.Length) return true;
-                    var next = line[prefix.Length];
-                    if (next is ' ' or '\t' or '\r' or '#') return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private static bool IsKeyChar(char c) => c == ':' || char.IsLetterOrDigit(c) || c is '_' or '-';
 
     /// <summary>
     /// Fully parses and resolves a <c>package.yaml</c> into a
@@ -1286,6 +1180,5 @@ public static class PackageManifestParser
         => new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .WithTypeConverter(new RequirementEntryYamlConverter())
-            .IgnoreUnmatchedProperties()
             .Build();
 }

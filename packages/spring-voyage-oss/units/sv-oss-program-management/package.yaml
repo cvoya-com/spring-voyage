@@ -121,7 +121,6 @@ members:
   - agent: { name: deming,  from: program-manager, displayName: "Deming (PM)" }
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest
-  hosting: permanent
 requires:
   - connector: github
 policies:
