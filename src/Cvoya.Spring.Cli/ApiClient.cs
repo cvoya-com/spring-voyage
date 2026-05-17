@@ -1388,6 +1388,82 @@ public class SpringApiClient
             config.QueryParameters.ConnectorUserId = connectorUserId;
         }, cancellationToken: ct);
 
+    // Unit team-role membership (#2409 / ADR-0044 § 3). Backs
+    // `spring unit members humans add|list|update|remove`.
+
+    /// <summary>
+    /// Returns every team-role membership row attached to the unit. Viewer-
+    /// gated; an unauthorised caller surfaces as a Kiota <c>ApiException</c>
+    /// carrying the 403.
+    /// </summary>
+    public async Task<IReadOnlyList<UnitHumanMemberResponse>> ListUnitHumanMembersAsync(
+        string unitId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Units[unitId].Members.Humans.GetAsync(cancellationToken: ct);
+        return result ?? new List<UnitHumanMemberResponse>();
+    }
+
+    /// <summary>
+    /// Adds a team-role member to a unit. Owner-gated. Idempotent on the
+    /// natural key <c>(unit, human, role)</c> — re-posting the same tuple
+    /// updates <c>expertise</c> + <c>notifications</c> rather than 409'ing.
+    /// </summary>
+    public async Task<UnitHumanMemberResponse> AddUnitHumanMemberAsync(
+        string unitId,
+        Guid humanId,
+        string role,
+        IReadOnlyList<string>? expertise = null,
+        IReadOnlyList<string>? notifications = null,
+        CancellationToken ct = default)
+    {
+        var body = new AddUnitHumanMemberRequest
+        {
+            HumanId = humanId,
+            Role = role,
+            Expertise = expertise?.ToList(),
+            Notifications = notifications?.ToList(),
+        };
+        var result = await _client.Api.V1.Tenant.Units[unitId].Members.Humans.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty AddUnitHumanMember response for unit '{unitId}' / human '{humanId:N}' / role '{role}'.");
+    }
+
+    /// <summary>
+    /// Updates the <c>expertise</c> + <c>notifications</c> on an existing
+    /// team-role membership row. Owner-gated; 404 when no row matches.
+    /// </summary>
+    public async Task<UnitHumanMemberResponse> UpdateUnitHumanMemberAsync(
+        string unitId,
+        Guid humanId,
+        string role,
+        IReadOnlyList<string>? expertise = null,
+        IReadOnlyList<string>? notifications = null,
+        CancellationToken ct = default)
+    {
+        var body = new UpdateUnitHumanMemberRequest
+        {
+            Expertise = expertise?.ToList(),
+            Notifications = notifications?.ToList(),
+        };
+        var result = await _client.Api.V1.Tenant.Units[unitId].Members.Humans[humanId][role]
+            .PatchAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty UpdateUnitHumanMember response for unit '{unitId}' / human '{humanId:N}' / role '{role}'.");
+    }
+
+    /// <summary>
+    /// Removes a team-role membership row. Owner-gated. Idempotent — a
+    /// DELETE on a row that does not exist still returns 204.
+    /// </summary>
+    public Task RemoveUnitHumanMemberAsync(
+        string unitId,
+        Guid humanId,
+        string role,
+        CancellationToken ct = default)
+        => _client.Api.V1.Tenant.Units[unitId].Members.Humans[humanId][role]
+            .DeleteAsync(cancellationToken: ct);
+
     // Activity
 
     /// <summary>Queries activity events with optional filters and pagination.</summary>
