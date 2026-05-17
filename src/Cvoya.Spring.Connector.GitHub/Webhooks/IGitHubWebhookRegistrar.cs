@@ -13,8 +13,7 @@ namespace Cvoya.Spring.Connector.GitHub.Webhooks;
 public interface IGitHubWebhookRegistrar
 {
     /// <summary>
-    /// Creates a repository webhook that forwards <c>issues</c>,
-    /// <c>pull_request</c>, and <c>issue_comment</c> events to the platform's
+    /// Creates a repository webhook that forwards events to the platform's
     /// configured webhook URL, signed with the shared secret. The hook is
     /// created in the scope of <paramref name="installationId"/> when
     /// supplied — issue #2385 made this the canonical path so platform-side
@@ -23,6 +22,15 @@ public interface IGitHubWebhookRegistrar
     /// installation id and is reserved for OSS deployments that never bound a
     /// per-unit installation; the global option is documented as a fallback
     /// only.
+    ///
+    /// <para>
+    /// <paramref name="events"/> drives the event list the hook subscribes
+    /// to. When <c>null</c> or empty the implementation falls back to its
+    /// hard-coded default list — that fallback exists for legacy bindings
+    /// that never persisted an explicit <see cref="UnitGitHubConfig.Events"/>
+    /// list and is the only remaining caller of the hard-coded constant
+    /// (issue #2423).
+    /// </para>
     /// </summary>
     /// <param name="owner">The repository owner.</param>
     /// <param name="repo">The repository name.</param>
@@ -31,12 +39,18 @@ public interface IGitHubWebhookRegistrar
     /// <see cref="UnitGitHubConfig.AppInstallationId"/>, or <c>null</c> to use
     /// the connector's global default installation id.
     /// </param>
+    /// <param name="events">
+    /// The webhook event names the hook should subscribe to (e.g.
+    /// <c>issues</c>, <c>pull_request</c>). <c>null</c> or empty falls back
+    /// to the connector's hard-coded default set (issue #2423).
+    /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The id of the newly created hook.</returns>
     Task<long> RegisterAsync(
         string owner,
         string repo,
         long? installationId,
+        IReadOnlyList<string>? events,
         CancellationToken cancellationToken = default);
 
     /// <summary>
