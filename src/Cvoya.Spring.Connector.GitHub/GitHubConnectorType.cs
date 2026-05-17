@@ -582,7 +582,11 @@ public class GitHubConnectorType : IConnectorType
             events,
             reviewer,
             request.AddOnAssign,
-            request.RemoveOnAssign);
+            request.RemoveOnAssign,
+            request.IncludeLabels,
+            request.ExcludeLabels,
+            request.IncludeAuthors,
+            request.IncludePaths);
 
         var payload = JsonSerializer.SerializeToElement(config, ConfigJson);
         await _configStore.SetAsync(actorId, GitHubTypeId, payload, cancellationToken);
@@ -949,7 +953,11 @@ public class GitHubConnectorType : IConnectorType
             config.Reviewer,
             eventsAreDefault,
             config.AddOnAssign,
-            config.RemoveOnAssign);
+            config.RemoveOnAssign,
+            config.IncludeLabels,
+            config.ExcludeLabels,
+            config.IncludeAuthors,
+            config.IncludePaths);
     }
 
     // Hand-authored schema — deriving from C# via reflection would be cleaner
@@ -986,6 +994,26 @@ public class GitHubConnectorType : IConnectorType
               "type": ["array", "null"],
               "items": { "type": "string" },
               "description": "Labels to remove when an issue is assigned."
+            },
+            "include_labels": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "Inbound webhook filter: labels that gate delivery (disjunctive). Empty / null means no filter on this kind. Issue #2407."
+            },
+            "exclude_labels": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "Inbound webhook filter: labels that drop delivery (evaluated first). Empty / null means no filter on this kind. Issue #2407."
+            },
+            "include_authors": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "Inbound webhook filter: GitHub logins that gate delivery (disjunctive). Empty / null means no filter on this kind. Issue #2407."
+            },
+            "include_paths": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "Inbound webhook filter: file-path prefixes that gate PR-shape delivery (disjunctive). Ignored for pure issue events. Empty / null means no filter on this kind. Issue #2407."
             }
           }
         }

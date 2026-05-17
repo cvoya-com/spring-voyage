@@ -20,14 +20,22 @@ public interface IGitHubConnector
     IGitHubWebhookHandler WebhookHandler { get; }
 
     /// <summary>
-    /// Processes an incoming webhook payload, validates its signature, and
-    /// translates the event into a domain message.
+    /// Processes an incoming webhook payload, validates its signature,
+    /// translates the event into a domain message, and applies any
+    /// per-binding inbound filter (#2407). A filter-drop surfaces as
+    /// <see cref="WebhookOutcome.Ignored"/>, identical to the
+    /// "event-type not handled" path.
     /// </summary>
     /// <param name="eventType">The GitHub event type from the X-GitHub-Event header.</param>
     /// <param name="payload">The raw webhook payload body.</param>
     /// <param name="signature">The signature from the X-Hub-Signature-256 header.</param>
+    /// <param name="cancellationToken">Cancellation propagated from the request.</param>
     /// <returns>A <see cref="WebhookHandleResult"/> describing the outcome.</returns>
-    WebhookHandleResult HandleWebhook(string eventType, string payload, string signature);
+    Task<WebhookHandleResult> HandleWebhookAsync(
+        string eventType,
+        string payload,
+        string signature,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Creates an authenticated <see cref="IGitHubClient"/> for making API calls.

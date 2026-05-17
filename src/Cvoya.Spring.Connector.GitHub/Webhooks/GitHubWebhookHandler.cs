@@ -8,6 +8,8 @@ using System.Text.Json;
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Caching;
 using Cvoya.Spring.Connector.GitHub.Labels;
+using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 
 using Microsoft.Extensions.Logging;
@@ -18,22 +20,43 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public class GitHubWebhookHandler : IGitHubWebhookHandler
 {
+    private static readonly JsonSerializerOptions ConfigJsonOptions = new(JsonSerializerDefaults.Web);
+
     private readonly GitHubConnectorOptions _options;
     private readonly LabelStateMachine _labelStateMachine;
+    private readonly IUnitConnectorConfigStore? _configStore;
+    private readonly IActivityEventBus? _activityEventBus;
 
     /// <summary>
     /// Initializes the handler. The <paramref name="labelStateMachine"/> is
     /// optional — when omitted (e.g. in legacy test setups) label-change events
     /// are still translated but carry no derived <c>state_transition</c>.
     /// </summary>
+    /// <param name="options">Connector options (default target unit etc.).</param>
+    /// <param name="loggerFactory">Logger factory.</param>
+    /// <param name="labelStateMachine">Optional label state machine.</param>
+    /// <param name="configStore">
+    /// Optional per-unit connector binding store. When null, the inbound
+    /// filter (issue #2407) is a no-op — every translated event passes.
+    /// Real hosts (Host.Api) register the store; legacy / pure-unit-test
+    /// fixtures don't, which preserves their existing behaviour.
+    /// </param>
+    /// <param name="activityEventBus">
+    /// Optional activity-event bus. When null, filter drops are silent.
+    /// Real hosts always register the bus.
+    /// </param>
     public GitHubWebhookHandler(
         GitHubConnectorOptions options,
         ILoggerFactory loggerFactory,
-        LabelStateMachine? labelStateMachine = null)
+        LabelStateMachine? labelStateMachine = null,
+        IUnitConnectorConfigStore? configStore = null,
+        IActivityEventBus? activityEventBus = null)
     {
         _options = options;
         _logger = loggerFactory.CreateLogger<GitHubWebhookHandler>();
         _labelStateMachine = labelStateMachine ?? new LabelStateMachine(LabelStateMachineOptions.Default());
+        _configStore = configStore;
+        _activityEventBus = activityEventBus;
     }
 
 
@@ -77,6 +100,118 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             "projects_v2_item" => TranslateProjectsV2ItemEvent(payload),
             _ => null
         };
+    }
+
+    /// <inheritdoc />
+    public async Task<Message?> ApplyInboundFilterAsync(
+        Message translated,
+        string eventType,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(translated);
+
+        // The connector addresses every translated event to a single unit
+        // today (the configured DefaultTargetUnitPath). Per-binding filters
+        // apply to THAT unit's binding. Without a binding store wired (legacy
+        // / unit-test fixtures) the filter is a no-op so the existing
+        // behaviour is preserved exactly.
+        if (_configStore is null
+            || translated.To.Scheme != Address.UnitScheme)
+        {
+            return translated;
+        }
+
+        var unitHex = translated.To.Path;
+        UnitConnectorBinding? binding;
+        try
+        {
+            binding = await _configStore.GetAsync(unitHex, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // A failure looking up the binding (e.g. transient DB blip) is
+            // not a reason to suppress the event — log and pass through.
+            // The router will surface a downstream routing failure if the
+            // unit really doesn't exist; we don't want a transient lookup
+            // failure to mask a real subscription.
+            _logger.LogWarning(ex,
+                "GitHub inbound-filter: failed to load binding for unit {UnitHex}; passing event through unfiltered.",
+                unitHex);
+            return translated;
+        }
+
+        if (binding is null || binding.TypeId != GitHubConnectorType.GitHubTypeId)
+        {
+            // No GitHub binding on the target unit. Treat as "no filter
+            // configured" — the message still flows; the router decides
+            // whether the address resolves.
+            return translated;
+        }
+
+        UnitGitHubConfig? config;
+        try
+        {
+            config = binding.Config.Deserialize<UnitGitHubConfig>(ConfigJsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex,
+                "GitHub inbound-filter: stored binding config for unit {UnitHex} was not GitHub-shaped; passing event through unfiltered.",
+                unitHex);
+            return translated;
+        }
+
+        if (config is null)
+        {
+            return translated;
+        }
+
+        var result = GitHubEventFilter.Evaluate(config, translated.Payload);
+        if (result.Allowed)
+        {
+            return translated;
+        }
+
+        _logger.LogInformation(
+            "GitHub inbound-filter: dropping event {EventType} for unit {UnitHex} — filter {FilterKind} matched {FilterValue}.",
+            eventType, unitHex, result.Kind, result.Value);
+
+        if (_activityEventBus is not null)
+        {
+            try
+            {
+                var details = JsonSerializer.SerializeToElement(new
+                {
+                    connector = "github",
+                    event_type = eventType,
+                    filter_kind = result.Kind,
+                    filter_value = result.Value,
+                });
+
+                var activityEvent = new ActivityEvent(
+                    Id: Guid.NewGuid(),
+                    Timestamp: DateTimeOffset.UtcNow,
+                    Source: translated.To,
+                    EventType: ActivityEventType.ConnectorEventFiltered,
+                    Severity: ActivitySeverity.Info,
+                    Summary: $"GitHub {eventType} event dropped by {result.Kind} filter.",
+                    Details: details);
+
+                await _activityEventBus.PublishAsync(activityEvent, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // An activity-bus failure must not cause the webhook to
+                // surface differently — the drop already happened; the
+                // operator just doesn't get the audit signal. Log and move
+                // on so the webhook endpoint still ACKs 202.
+                _logger.LogWarning(ex,
+                    "GitHub inbound-filter: failed to emit ConnectorEventFiltered activity event for unit {UnitHex}.",
+                    unitHex);
+            }
+        }
+
+        return null;
     }
 
     /// <inheritdoc />

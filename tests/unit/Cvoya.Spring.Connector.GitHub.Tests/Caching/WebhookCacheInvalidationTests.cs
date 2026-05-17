@@ -147,7 +147,7 @@ public class WebhookCacheInvalidationTests
         """;
         var sig = Sign(payload, options.WebhookSecret);
 
-        var result = connector.HandleWebhook("pull_request", payload, sig);
+        var result = await connector.HandleWebhookAsync("pull_request", payload, sig, TestContext.Current.CancellationToken);
         result.Outcome.ShouldBe(WebhookOutcome.Translated);
 
         var prKey = new CacheKey("pull_request", "cvoya/spring#7",
@@ -179,7 +179,7 @@ public class WebhookCacheInvalidationTests
         // Send a webhook with a deliberately wrong signature — HandleWebhook
         // must short-circuit on the signature check before touching the cache.
         var rawPayload = """{"action":"edited","repository":{"name":"spring","owner":{"login":"cvoya"}},"pull_request":{"number":7}}""";
-        var result = connector.HandleWebhook("pull_request", rawPayload, signature: "sha256=wrong");
+        var result = await connector.HandleWebhookAsync("pull_request", rawPayload, signature: "sha256=wrong", TestContext.Current.CancellationToken);
         result.Outcome.ShouldBe(WebhookOutcome.InvalidSignature);
 
         // Cache entry is intact — an unauthenticated webhook cannot be used

@@ -102,18 +102,28 @@ public class GitHubConnector : IGitHubConnector
     public GitHubAppAuth Auth => _auth;
 
     /// <summary>
-    /// Processes an incoming webhook payload, validates its signature, and
-    /// translates the event into a domain message.
+    /// Processes an incoming webhook payload, validates its signature,
+    /// translates the event into a domain message, and applies any
+    /// per-binding inbound filter declared on the target unit's
+    /// <see cref="UnitGitHubConfig"/> (issue #2407). A filter-drop is
+    /// indistinguishable from "event type not handled" — both surface as
+    /// <see cref="WebhookOutcome.Ignored"/> so the webhook endpoint still
+    /// ACKs 202 to GitHub.
     /// </summary>
     /// <param name="eventType">The GitHub event type from the X-GitHub-Event header.</param>
     /// <param name="payload">The raw webhook payload body.</param>
     /// <param name="signature">The signature from the X-Hub-Signature-256 header.</param>
+    /// <param name="cancellationToken">Cancellation propagated from the request.</param>
     /// <returns>
     /// A <see cref="WebhookHandleResult"/> distinguishing invalid-signature,
     /// accepted-but-ignored, and translated-message outcomes so the endpoint
     /// can map each to the correct HTTP status (401 / 202 / 202-with-routing).
     /// </returns>
-    public WebhookHandleResult HandleWebhook(string eventType, string payload, string signature)
+    public async Task<WebhookHandleResult> HandleWebhookAsync(
+        string eventType,
+        string payload,
+        string signature,
+        CancellationToken cancellationToken = default)
     {
         if (!_signatureValidator.Validate(payload, signature, _options.WebhookSecret))
         {
@@ -138,9 +148,23 @@ public class GitHubConnector : IGitHubConnector
             InvalidateTagsAfterDispatch(eventType, invalidationTags);
         }
 
-        return message is null
+        if (message is null)
+        {
+            return WebhookHandleResult.Ignored;
+        }
+
+        // Per-binding inbound filter (issue #2407). When the unit binding
+        // configures label / author / path filters, evaluate them against
+        // the translated payload and short-circuit to Ignored on a drop.
+        // The handler emits an audit ActivityEvent on drop so operators can
+        // see why a particular event was suppressed.
+        var filtered = await _webhookHandler
+            .ApplyInboundFilterAsync(message, eventType, cancellationToken)
+            .ConfigureAwait(false);
+
+        return filtered is null
             ? WebhookHandleResult.Ignored
-            : WebhookHandleResult.Translated(message);
+            : WebhookHandleResult.Translated(filtered);
     }
 
     /// <summary>

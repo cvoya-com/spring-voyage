@@ -105,7 +105,7 @@ public static class WebhookEndpoints
         WebhookHandleResult result;
         try
         {
-            result = githubConnector.HandleWebhook(eventType, payload, signature);
+            result = await githubConnector.HandleWebhookAsync(eventType, payload, signature, cancellationToken);
         }
         catch (Exception ex)
         {

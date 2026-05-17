@@ -21,6 +21,10 @@ using System.Text.Json.Serialization;
 /// </param>
 /// <param name="AddOnAssign">Labels to add when an issue is assigned through this unit.</param>
 /// <param name="RemoveOnAssign">Labels to remove when an issue is assigned through this unit.</param>
+/// <param name="IncludeLabels">Inbound webhook filter: labels that gate delivery (disjunctive). Issue #2407.</param>
+/// <param name="ExcludeLabels">Inbound webhook filter: labels that drop delivery (evaluated first). Issue #2407.</param>
+/// <param name="IncludeAuthors">Inbound webhook filter: GitHub logins that gate delivery (disjunctive). Issue #2407.</param>
+/// <param name="IncludePaths">Inbound webhook filter: file-path prefixes that gate PR-shape delivery (disjunctive). Issue #2407.</param>
 public record UnitGitHubConfigRequest(
     string Owner,
     string Repo,
@@ -28,7 +32,11 @@ public record UnitGitHubConfigRequest(
     IReadOnlyList<string>? Events = null,
     string? Reviewer = null,
     [property: JsonPropertyName("add_on_assign")] IReadOnlyList<string>? AddOnAssign = null,
-    [property: JsonPropertyName("remove_on_assign")] IReadOnlyList<string>? RemoveOnAssign = null);
+    [property: JsonPropertyName("remove_on_assign")] IReadOnlyList<string>? RemoveOnAssign = null,
+    [property: JsonPropertyName("include_labels")] IReadOnlyList<string>? IncludeLabels = null,
+    [property: JsonPropertyName("exclude_labels")] IReadOnlyList<string>? ExcludeLabels = null,
+    [property: JsonPropertyName("include_authors")] IReadOnlyList<string>? IncludeAuthors = null,
+    [property: JsonPropertyName("include_paths")] IReadOnlyList<string>? IncludePaths = null);
 
 /// <summary>
 /// Response body for
@@ -60,6 +68,10 @@ public record UnitGitHubConfigRequest(
 /// </param>
 /// <param name="AddOnAssign">Labels to add when an issue is assigned through this unit.</param>
 /// <param name="RemoveOnAssign">Labels to remove when an issue is assigned through this unit.</param>
+/// <param name="IncludeLabels">Inbound webhook filter: labels that gate delivery (disjunctive). Issue #2407.</param>
+/// <param name="ExcludeLabels">Inbound webhook filter: labels that drop delivery (evaluated first). Issue #2407.</param>
+/// <param name="IncludeAuthors">Inbound webhook filter: GitHub logins that gate delivery (disjunctive). Issue #2407.</param>
+/// <param name="IncludePaths">Inbound webhook filter: file-path prefixes that gate PR-shape delivery (disjunctive). Issue #2407.</param>
 public record UnitGitHubConfigResponse(
     string UnitId,
     string Owner,
@@ -69,7 +81,11 @@ public record UnitGitHubConfigResponse(
     string? Reviewer,
     bool EventsAreDefault,
     [property: JsonPropertyName("add_on_assign")] IReadOnlyList<string>? AddOnAssign = null,
-    [property: JsonPropertyName("remove_on_assign")] IReadOnlyList<string>? RemoveOnAssign = null);
+    [property: JsonPropertyName("remove_on_assign")] IReadOnlyList<string>? RemoveOnAssign = null,
+    [property: JsonPropertyName("include_labels")] IReadOnlyList<string>? IncludeLabels = null,
+    [property: JsonPropertyName("exclude_labels")] IReadOnlyList<string>? ExcludeLabels = null,
+    [property: JsonPropertyName("include_authors")] IReadOnlyList<string>? IncludeAuthors = null,
+    [property: JsonPropertyName("include_paths")] IReadOnlyList<string>? IncludePaths = null);
 
 /// <summary>
 /// Response item for

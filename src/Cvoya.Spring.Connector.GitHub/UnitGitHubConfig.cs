@@ -31,6 +31,29 @@ using System.Text.Json.Serialization;
 /// </param>
 /// <param name="AddOnAssign">Labels to add when an issue is assigned through this unit.</param>
 /// <param name="RemoveOnAssign">Labels to remove when an issue is assigned through this unit.</param>
+/// <param name="IncludeLabels">
+/// Inbound webhook filter: when non-empty, the unit only receives events
+/// whose subject (issue or PR) carries at least one of these labels. Null
+/// or empty means "no label include filter." Issue #2407.
+/// </param>
+/// <param name="ExcludeLabels">
+/// Inbound webhook filter: when non-empty, drops events whose subject
+/// carries any of these labels — evaluated first, short-circuits the
+/// other filter kinds. Issue #2407.
+/// </param>
+/// <param name="IncludeAuthors">
+/// Inbound webhook filter: when non-empty, the unit only receives events
+/// authored by one of these GitHub logins (issue author, PR author, or
+/// the comment author for comment events). Null or empty means "no
+/// author filter." Issue #2407.
+/// </param>
+/// <param name="IncludePaths">
+/// Inbound webhook filter: when non-empty, the unit only receives PR-shape
+/// events whose changed file set intersects one of these paths. Pure
+/// issue events ignore this filter (they have no changed files). Path
+/// matching is prefix-based — <c>docs/</c> matches <c>docs/foo.md</c>.
+/// Null or empty means "no path filter." Issue #2407.
+/// </param>
 public record UnitGitHubConfig(
     string Owner,
     string Repo,
@@ -38,4 +61,8 @@ public record UnitGitHubConfig(
     IReadOnlyList<string>? Events = null,
     string? Reviewer = null,
     [property: JsonPropertyName("add_on_assign")] IReadOnlyList<string>? AddOnAssign = null,
-    [property: JsonPropertyName("remove_on_assign")] IReadOnlyList<string>? RemoveOnAssign = null);
+    [property: JsonPropertyName("remove_on_assign")] IReadOnlyList<string>? RemoveOnAssign = null,
+    [property: JsonPropertyName("include_labels")] IReadOnlyList<string>? IncludeLabels = null,
+    [property: JsonPropertyName("exclude_labels")] IReadOnlyList<string>? ExcludeLabels = null,
+    [property: JsonPropertyName("include_authors")] IReadOnlyList<string>? IncludeAuthors = null,
+    [property: JsonPropertyName("include_paths")] IReadOnlyList<string>? IncludePaths = null);

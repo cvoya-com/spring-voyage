@@ -3876,6 +3876,10 @@ export interface components {
             reviewer?: null | string;
             add_on_assign?: null | string[];
             remove_on_assign?: null | string[];
+            include_labels?: null | string[];
+            exclude_labels?: null | string[];
+            include_authors?: null | string[];
+            include_paths?: null | string[];
         };
         UnitGitHubConfigResponse: {
             unitId: string;
@@ -3888,6 +3892,10 @@ export interface components {
             eventsAreDefault: boolean;
             add_on_assign?: null | string[];
             remove_on_assign?: null | string[];
+            include_labels?: null | string[];
+            exclude_labels?: null | string[];
+            include_authors?: null | string[];
+            include_paths?: null | string[];
         };
         UnitLifecycleResponse: {
             /** Format: uuid */
