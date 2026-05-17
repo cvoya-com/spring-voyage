@@ -1020,8 +1020,7 @@ public class PackageInstallServiceIntegrationTests : IDisposable
                 max_level: attentive
                 max_actions_per_hour: 10
             humans:
-              - identity: owner
-                permission: owner
+              - role: owner
                 notifications: ["escalation"]
             """);
 

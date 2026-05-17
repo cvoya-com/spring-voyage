@@ -123,6 +123,8 @@ public static class ManifestParser
                 "(e.g. 'ai.model: { provider: anthropic, id: claude-opus-4-7 }').");
         }
 
+        DetectLegacyHumanFields(manifest);
+
         if (string.IsNullOrWhiteSpace(manifest.ApiVersion))
         {
             throw new ManifestParseException(
@@ -372,7 +374,64 @@ public static class ManifestParser
                 "Manifest is missing the required top-level 'name' field.");
         }
 
+        DetectLegacyHumanFieldsTemplate(manifest);
+
         return manifest;
+    }
+
+    /// <summary>
+    /// Rejects the pre-ADR-0044 <c>humans[].identity</c> /
+    /// <c>humans[].permission</c> fields with precise migration hints, and
+    /// requires every entry to declare a non-blank <c>role</c>. Shared by
+    /// the <c>Unit</c> and <c>UnitTemplate</c> parse paths.
+    /// </summary>
+    private static void DetectLegacyHumanFields(UnitManifest manifest)
+    {
+        if (manifest.Humans is null) return;
+        for (var i = 0; i < manifest.Humans.Count; i++)
+        {
+            DetectLegacyHumanFieldsEntry(manifest.Humans[i], i);
+        }
+    }
+
+    private static void DetectLegacyHumanFieldsTemplate(UnitTemplateManifest manifest)
+    {
+        if (manifest.Humans is null) return;
+        for (var i = 0; i < manifest.Humans.Count; i++)
+        {
+            DetectLegacyHumanFieldsEntry(manifest.Humans[i], i);
+        }
+    }
+
+    private static void DetectLegacyHumanFieldsEntry(HumanManifest entry, int index)
+    {
+        if (!string.IsNullOrWhiteSpace(entry.LegacyIdentity))
+        {
+            throw new ManifestParseException(
+                $"LegacyHumanIdentityField: humans[{index}].identity is removed in ADR-0044. " +
+                "Package authors no longer name an install-time identity for the slot — " +
+                "the install policy fills the role with a concrete human at install time " +
+                "(OSS auto-fills with the install caller; hosted consults the tenant policy). " +
+                "Drop 'identity:' and replace 'permission:' with 'role:'.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(entry.LegacyPermission))
+        {
+            throw new ManifestParseException(
+                $"LegacyHumanPermissionField: humans[{index}].permission is removed in ADR-0044. " +
+                "Permissions are platform ACLs and are managed through " +
+                "/api/v1/tenant/units/{id}/humans/.../permissions, not the package. " +
+                "Use 'role:' to describe the team role the human plays on the unit " +
+                "(e.g. role: owner, role: reviewer, role: security_lead).");
+        }
+
+        if (string.IsNullOrWhiteSpace(entry.Role))
+        {
+            throw new ManifestParseException(
+                $"humans[{index}] is missing the required 'role:' field (ADR-0044 § 2). " +
+                "Every team-member declaration carries a free-form role string (e.g. " +
+                "role: owner, role: reviewer, role: security_lead).");
+        }
     }
 
     /// <summary>

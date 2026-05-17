@@ -38,6 +38,8 @@ public class SvDirectorySkillRegistryContractTests
 {
     private readonly IServiceScopeFactory _scopeFactory = Substitute.For<IServiceScopeFactory>();
     private readonly IUnitMemberGraphStore _memberGraphStore = new InMemoryUnitMemberGraphStore();
+    private readonly IUnitHumanMembershipStore _humanMembershipStore =
+        new InMemoryUnitHumanMembershipStore();
     private readonly IExpertiseStore _expertiseStore = Substitute.For<IExpertiseStore>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
@@ -76,6 +78,7 @@ public class SvDirectorySkillRegistryContractTests
     private SvDirectorySkillRegistry CreateRegistry() => new(
         _scopeFactory,
         _memberGraphStore,
+        _humanMembershipStore,
         _expertiseStore,
         _agentRegistry,
         _tenantContext,

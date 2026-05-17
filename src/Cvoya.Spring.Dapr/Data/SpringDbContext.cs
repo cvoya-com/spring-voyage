@@ -151,6 +151,15 @@ public class SpringDbContext : DbContext
     public DbSet<UnitHumanPermissionEntity> UnitHumanPermissions => Set<UnitHumanPermissionEntity>();
 
     /// <summary>
+    /// Gets the set of package-declared team-membership rows for humans on
+    /// units (ADR-0044). Sibling to <see cref="UnitHumanPermissions"/>:
+    /// permissions capture platform ACLs; this table captures domain team
+    /// roles declared in the package YAML's <c>humans:</c> block. One row
+    /// per <c>(unit, human, role)</c> triple.
+    /// </summary>
+    public DbSet<UnitMembershipHumanEntity> UnitMembershipsHumans => Set<UnitMembershipHumanEntity>();
+
+    /// <summary>
     /// Gets the set of persisted message-history rows (#2053 / ADR-0030 /
     /// ADR-0040). The dispatcher writes one row per accepted Domain
     /// message; readers query this table directly instead of scanning
@@ -266,6 +275,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new BudgetLimitEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ThreadEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitHumanPermissionEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new UnitMembershipHumanEntityConfiguration());
         modelBuilder.ApplyConfiguration(new MessageEntityConfiguration());
         modelBuilder.ApplyConfiguration(new AgentLiveConfigEntityConfiguration());
         modelBuilder.ApplyConfiguration(new AgentToolGrantEntityConfiguration());
@@ -343,6 +353,14 @@ public class SpringDbContext : DbContext
 
         // Unit ACL grants: tenant-scoped, no soft-delete (#2044 / ADR-0040).
         modelBuilder.Entity<UnitHumanPermissionEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Unit team-membership rows: tenant-scoped, no soft-delete (ADR-0044).
+        // Sibling to unit_human_permissions — see entity for the orthogonality
+        // rationale. The unique-index invariant lives in
+        // UnitMembershipHumanEntityConfiguration; this filter just gates
+        // visibility per tenant per CONVENTIONS § 12.
+        modelBuilder.Entity<UnitMembershipHumanEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
 
         // Message history: tenant-scoped, no soft-delete (#2053 / ADR-0030).
