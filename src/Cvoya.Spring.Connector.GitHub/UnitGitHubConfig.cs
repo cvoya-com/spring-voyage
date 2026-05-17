@@ -32,7 +32,10 @@ using System.Text.Json.Serialization;
 /// Default GitHub login (without the leading <c>@</c>) requested as the
 /// reviewer on pull requests this unit opens. <c>null</c> means "no
 /// default reviewer" — agents that explicitly pass a reviewer to
-/// <c>RequestPullRequestReviewSkill</c> still override per-call.
+/// <c>gh pr edit --add-reviewer</c> (or the equivalent <c>gh</c> /
+/// <c>git</c> invocation) still override per-call. Per #2384 / #2383
+/// the platform no longer surfaces a <c>github.*</c> review-request
+/// MCP tool; agents reach GitHub through the in-container CLIs.
 /// </param>
 /// <param name="AddOnAssign">Labels to add when an issue is assigned through this unit.</param>
 /// <param name="RemoveOnAssign">Labels to remove when an issue is assigned through this unit.</param>

@@ -389,12 +389,20 @@ See [ADR 0014](../decisions/0014-skill-invoker-seam.md) for the decision record 
 Tools exposed over MCP are surfaced by any number of `ISkillRegistry`
 implementations registered in DI. The MCP server enumerates every registry at
 `tools/list` time and routes every `tools/call` to the registry that declared
-the tool. Two registries ship in the OSS core:
+the tool. The OSS core ships one registry; built-in connectors that surface
+tools register their own:
 
 | Registry                    | Source | Surface |
 | --------------------------- | ------ | ------- |
-| `GitHubSkillRegistry`        | GitHub connector package | Hand-rolled tool definitions for GitHub operations (issues, PRs, labels, topology). |
 | `ExpertiseSkillRegistry`     | Core (#359)              | **Expertise-directory-driven**: skills are derived live from `IExpertiseAggregator` (per #487 / #498) and projected through the caller's `BoundaryViewContext` (per #497). No startup snapshot — a mutation (agent gains expertise, unit boundary changes) propagates on the next enumeration. |
+
+The built-in `arxiv` and `web-search` connectors each register an
+`ISkillRegistry` under their slug (`arxiv.*`, `websearch.*`). The
+`github` connector deliberately registers none (issues #2384 / #2383):
+agents bound to a GitHub unit run `gh` and `git` directly inside their
+container against the credentials the
+[runtime-context contributor](#4g-connector-runtime-context-contribution-2380)
+injects per launch, so no `github.*` entry surfaces from `tools/list`.
 
 ### The expertise-directory-driven skill surface (#359)
 
