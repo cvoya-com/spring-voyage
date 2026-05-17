@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./unit-pane-actions", () => ({
   UnitPaneActions: () => null,
 }));
+vi.mock("@/components/agents/agent-pane-actions", () => ({
+  AgentPaneActions: () => null,
+}));
 
 // #2372: the header status cluster reads live LifecycleStatus through
 // `useUnit` / `useAgent`. Stub them so chrome-only tests don't need a

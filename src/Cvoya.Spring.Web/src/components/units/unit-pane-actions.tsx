@@ -1,17 +1,18 @@
 "use client";
 
-// Explorer pane header actions (#980 item 3).
+// Explorer pane header actions for unit nodes (#980 item 3).
 //
 // Surfaces the Day-2 verbs the CLI already ships — `spring unit
-// start|stop|revalidate|delete` and `spring agent delete` — as buttons
-// in the `<DetailPane>` header. Each action is status-gated so the user
-// only sees the verbs that apply to the unit's current lifecycle state;
-// Delete is always available and goes through a confirmation dialog.
+// start|stop|revalidate|delete` — as buttons in the `<DetailPane>`
+// header. Each action is status-gated so the user only sees the verbs
+// that apply to the unit's current lifecycle state; Delete is always
+// available and goes through a confirmation dialog.
 //
-// Agent lifecycle (#2372): mirrors the unit surface 1:1 — Run / Stop /
-// Revalidate / Delete, status-gated against the live `LifecycleStatus`
-// read from `useAgent(id)`. The backend exposes the same verbs under
-// `/api/v1/tenant/agents/{id}/{start,stop,revalidate}` (#2371).
+// Agent counterpart lives in
+// `src/Cvoya.Spring.Web/src/components/agents/agent-pane-actions.tsx`
+// (#2372). The Explorer detail pane dispatches between the two by
+// `node.kind`; both components share the same shape, lifecycle-status
+// reads, and verb gating so the muscle memory carries across kinds.
 //
 // The component reads live unit status via `useUnit(id)` because the
 // tenant-tree endpoint pins every node to `"running"` (see
@@ -46,7 +47,7 @@ import { useToast } from "@/components/ui/toast";
 import { api, ApiError } from "@/lib/api/client";
 import { formatTranslatedError } from "@/lib/api/translate-error";
 import { queryKeys } from "@/lib/api/query-keys";
-import { useAgent, useUnit } from "@/lib/api/queries";
+import { useUnit } from "@/lib/api/queries";
 import type { LifecycleStatus } from "@/lib/api/types";
 
 // #1137: shape of the API's 409 conflict body for DELETE /units/{id}.
@@ -68,28 +69,21 @@ function isForceableConflict(err: unknown): boolean {
 // follow-up if per-state tuning becomes necessary.
 const EXPLORER_STUCK_THRESHOLD_MS = 90_000;
 
-import type { TreeNode } from "./aggregate";
+import type { UnitNode } from "./aggregate";
 
 interface UnitPaneActionsProps {
-  node: TreeNode;
+  node: UnitNode;
 }
 
 /**
- * Renders the header action cluster for the Explorer pane. The caller
- * places it anywhere in the header layout; the component owns its own
- * mutation state, confirmation dialog, and cache-invalidation logic.
+ * Renders the header action cluster for a unit node in the Explorer
+ * pane. The caller places it anywhere in the header layout; the
+ * component owns its own mutation state, confirmation dialog, and
+ * cache-invalidation logic. The agent counterpart lives in
+ * `src/Cvoya.Spring.Web/src/components/agents/agent-pane-actions.tsx`
+ * (#2372).
  */
 export function UnitPaneActions({ node }: UnitPaneActionsProps) {
-  if (node.kind === "Unit") {
-    return <UnitActions node={node} />;
-  }
-  if (node.kind === "Agent") {
-    return <AgentActions id={node.id} name={node.name} />;
-  }
-  return null;
-}
-
-function UnitActions({ node }: { node: TreeNode }) {
   const { toast } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -456,173 +450,6 @@ function UnitActions({ node }: { node: TreeNode }) {
         pending={forceDeleteMutation.isPending}
         onConfirm={() => forceDeleteMutation.mutate()}
         onCancel={() => setForceConfirmOpen(false)}
-      />
-    </div>
-  );
-}
-
-function AgentActions({ id, name }: { id: string; name: string }) {
-  const { toast } = useToast();
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  // #2372: read the live LifecycleStatus from the per-agent endpoint —
-  // the tenant-tree wire status for agents is the legacy "running"
-  // pin until BuildAgentNode plumbs the real lifecycle through. Hitting
-  // the detail endpoint matches what `spring agent start|stop|revalidate`
-  // would accept.
-  const agentQuery = useAgent(id);
-  const status: LifecycleStatus | null =
-    (agentQuery.data?.agent.lifecycleStatus as LifecycleStatus | null) ?? null;
-
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(id) });
-    // #2387: tenant.tree() is invalidated by the activity SSE handler
-    // (`queryKeysAffectedBySource` for `agent://…`) — no manual call needed.
-    queryClient.invalidateQueries({ queryKey: queryKeys.activity.all });
-    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-  };
-
-  const onError = (verb: string) => (err: unknown) => {
-    toast({
-      title: `${verb} failed`,
-      description: formatTranslatedError(err),
-      variant: "destructive",
-    });
-  };
-
-  const validateMutation = useMutation({
-    mutationFn: () => api.revalidateAgent(id),
-    onSuccess: invalidate,
-    onError: onError("Validate"),
-  });
-
-  const revalidateMutation = useMutation({
-    mutationFn: () => api.revalidateAgent(id),
-    onSuccess: invalidate,
-    onError: onError("Revalidate"),
-  });
-
-  const startMutation = useMutation({
-    mutationFn: () => api.startAgent(id),
-    onSuccess: invalidate,
-    onError: onError("Start"),
-  });
-
-  const stopMutation = useMutation({
-    mutationFn: () => api.stopAgent(id),
-    onSuccess: invalidate,
-    onError: onError("Stop"),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: () => api.deleteAgent(id),
-    onSuccess: () => {
-      invalidate();
-      toast({ title: "Agent deleted", description: name });
-      setConfirmOpen(false);
-      router.replace("/units");
-    },
-    onError: (err) => {
-      onError("Delete")(err);
-      setConfirmOpen(false);
-    },
-  });
-
-  const pending =
-    validateMutation.isPending ||
-    revalidateMutation.isPending ||
-    startMutation.isPending ||
-    stopMutation.isPending ||
-    deleteMutation.isPending;
-
-  return (
-    <div
-      className="flex flex-wrap items-center gap-2"
-      data-testid="agent-pane-actions"
-    >
-      {/* #1463 / #1464: open the engagement view for this agent — the
-          {human, agent} 1:1 engagement, pre-selected on /engagement/mine
-          via ?agent=<id>. */}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() =>
-          router.push("/engagement/mine?agent=" + encodeURIComponent(id))
-        }
-        data-testid="agent-action-engagement"
-      >
-        <MessagesSquare className="mr-1 h-4 w-4" aria-hidden="true" />
-        Engagement
-      </Button>
-      {status === "Draft" && (
-        <Button
-          variant="default"
-          size="sm"
-          disabled={pending}
-          onClick={() => validateMutation.mutate()}
-          data-testid="agent-action-validate"
-        >
-          <CheckCircle2 className="mr-1 h-4 w-4" aria-hidden="true" />
-          {validateMutation.isPending ? "Validating…" : "Validate"}
-        </Button>
-      )}
-      {(status === "Error" || status === "Stopped") && (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={pending}
-          onClick={() => revalidateMutation.mutate()}
-          data-testid="agent-action-revalidate"
-        >
-          <RefreshCw className="mr-1 h-4 w-4" aria-hidden="true" />
-          {revalidateMutation.isPending ? "Revalidating…" : "Revalidate"}
-        </Button>
-      )}
-      {status === "Stopped" && (
-        <Button
-          variant="default"
-          size="sm"
-          disabled={pending}
-          onClick={() => startMutation.mutate()}
-          data-testid="agent-action-start"
-        >
-          <Play className="mr-1 h-4 w-4" aria-hidden="true" />
-          {startMutation.isPending ? "Starting…" : "Run"}
-        </Button>
-      )}
-      {status === "Running" && (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={pending}
-          onClick={() => stopMutation.mutate()}
-          data-testid="agent-action-stop"
-        >
-          <Square className="mr-1 h-4 w-4" aria-hidden="true" />
-          {stopMutation.isPending ? "Stopping…" : "Stop"}
-        </Button>
-      )}
-      <Button
-        variant="destructive"
-        size="sm"
-        disabled={pending}
-        onClick={() => setConfirmOpen(true)}
-        data-testid="agent-action-delete"
-      >
-        <Trash2 className="mr-1 h-4 w-4" aria-hidden="true" />
-        Delete
-      </Button>
-      <ConfirmDialog
-        open={confirmOpen}
-        title={`Delete agent "${name}"?`}
-        description="This removes the agent from the tenant and drops it from every unit membership. Activity history is preserved. This cannot be undone."
-        confirmLabel="Permanently delete"
-        confirmVariant="destructive"
-        pending={deleteMutation.isPending}
-        onConfirm={() => deleteMutation.mutate()}
-        onCancel={() => setConfirmOpen(false)}
       />
     </div>
   );

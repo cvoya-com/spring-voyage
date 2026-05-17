@@ -28,6 +28,7 @@ import {
   type TreeNode,
   visibleTabsFor,
 } from "./aggregate";
+import { AgentPaneActions } from "@/components/agents/agent-pane-actions";
 import { TabPlaceholder } from "./tab-placeholder";
 import { lookupTab } from "./tabs";
 import { UnitPaneActions } from "./unit-pane-actions";
@@ -185,7 +186,11 @@ export function DetailPane({
             <Badge variant="secondary">{node.role}</Badge>
           ) : null}
           <div className="ml-auto">
-            <UnitPaneActions node={node} />
+            {node.kind === "Unit" ? (
+              <UnitPaneActions node={node} />
+            ) : node.kind === "Agent" ? (
+              <AgentPaneActions node={node} />
+            ) : null}
           </div>
         </div>
         <div className="-mb-3 mt-3 flex items-center gap-2 overflow-x-auto">
