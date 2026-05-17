@@ -27,7 +27,8 @@ lives at [`src/Cvoya.Spring.AgentSidecar/`](../../src/Cvoya.Spring.AgentSidecar/
 | `Caddyfile`              | Single-host path-routed Caddy config (default).                   |
 | `Caddyfile.multi-host`   | Per-service hostnames variant (web / API / webhook each FQDN).    |
 | `docker-compose.yml`     | Reference compose file for Docker operators (no installer support; Podman-first stack uses `deploy.sh`). |
-| `relay.sh`               | Local-dev SSH reverse tunnel for webhook delivery to a laptop.    |
+| `gh-webhook-forward.sh`  | Local-dev webhook forwarding via the operator's `gh` CLI (recommended). |
+| `relay.sh`               | Local-dev SSH reverse tunnel for webhook delivery to a laptop (no-`gh-auth` alternative). |
 | `spring.env.example`     | Documented env template. Copy to `spring.env` and fill in.        |
 | `scripts/dispatcher-smoke.sh` | Alpine echo round-trip; gate for #1063 regressions.          |
 | `scripts/test-spring-voyage-host.sh` | 8 idempotence cases for `spring-voyage-host.sh`.      |
@@ -486,7 +487,38 @@ Each hostname gets its own certificate. Any unset `*_HOSTNAME` falls back
 to `DEPLOY_HOSTNAME`, so you can mix (e.g. share the API and portal on one
 host while giving the webhook endpoint its own).
 
+## Local-dev webhook forwarding (`gh-webhook-forward.sh`)
+
+The recommended local-dev recipe for receiving GitHub webhooks is the
+operator's own `gh` CLI: `gh webhook forward` streams deliveries from
+GitHub over the `gh` session and replays each one against the local
+API, with no public tunnel and no second hostname.
+
+`eng/deploy/gh-webhook-forward.sh` is a thin wrapper that adds the
+preflight checks Spring Voyage operators care about (env-file
+discovery, `gh-webhook` extension check, secret extraction):
+
+```bash
+./eng/deploy/gh-webhook-forward.sh --repo your-org/your-dev-repo
+```
+
+By default it reads `GitHub__WebhookSecret` from `eng/deploy/spring.env`
+and forwards to `http://localhost:8080/api/v1/webhooks/github`. Override
+either with `--env <path>` or `--url <url>`. See `--help` for the full
+flag list. Preconditions: `gh auth login` completed, **repository admin**
+on the target repo, and `gh extension install cli/gh-webhook` once per
+machine. See [`docs/guide/operator/github-app-setup.md § Local-dev
+recipe`](../../docs/guide/operator/github-app-setup.md#local-dev-recipe)
+for the operator-facing walkthrough.
+
+This is for local development only — production webhooks should hit a
+deployed `WEBHOOK_HOSTNAME` directly.
+
 ## Local-dev webhook tunnel (`relay.sh`)
+
+Use this when the operator cannot use `gh auth login` (no GitHub account
+on the dev host, blocked by policy, etc.) and therefore cannot run
+`gh-webhook-forward.sh`.
 
 Webhook providers (GitHub, etc.) must POST to a publicly reachable URL.
 During local development the `dotnet run` API is bound to `127.0.0.1`,
