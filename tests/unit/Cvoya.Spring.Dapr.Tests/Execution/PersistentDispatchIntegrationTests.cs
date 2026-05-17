@@ -95,8 +95,16 @@ public class PersistentDispatchIntegrationTests
                 ContextFiles: new Dictionary<string, string>()));
 
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
-        _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>())
-            .Returns(ci => new McpSession("test-token", ci.ArgAt<string>(0), ci.ArgAt<string>(1)));
+        // Production dispatch threads message.To.Scheme into IssueSession so
+        // the McpSession carries a materialised Subject Address (#2379). The
+        // mock mirrors that to satisfy the non-nullable contract.
+        _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(ci => new McpSession(
+                "test-token",
+                ci.ArgAt<string>(0),
+                ci.ArgAt<string>(1),
+                ci.ArgAt<string>(2),
+                Address.For(ci.ArgAt<string>(2), ci.ArgAt<string>(0))));
         _tenantContext.CurrentTenantId.Returns(Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
 
         // ADR-0039 D3: default to "no orchestration tools" — leaf-agent shape.

@@ -25,14 +25,21 @@ public interface IMcpServer
     /// <paramref name="callerKind"/> records whether the bound caller is an
     /// agent or a unit so platform tools (e.g. the Spring Voyage directory
     /// tools, #2231) can answer <c>get_self()</c>-style queries without a
-    /// follow-up DB lookup; defaults to <c>"agent"</c> to preserve the
-    /// pre-#2231 caller shape for any code path that hasn't yet been updated.
-    /// When <paramref name="agentId"/> is Guid-shaped, the implementation also
-    /// materialises <see cref="McpSession.Subject"/> so the server can resolve
-    /// effective tool grants for <c>tools/list</c> and <c>tools/call</c>
-    /// (#2379); a non-Guid id leaves the subject <c>null</c> and the runtime
-    /// authorization gate degrades to allow-all (legacy test harnesses only).
+    /// follow-up DB lookup. <paramref name="agentId"/> MUST be a Guid-shaped
+    /// id (canonical 32-char no-dash hex or dashed form) and
+    /// <paramref name="callerKind"/> MUST be either <see cref="Address.AgentScheme"/>
+    /// or <see cref="Address.UnitScheme"/>; the implementation materialises
+    /// <see cref="McpSession.Subject"/> from these so the effective-grant
+    /// gate (#2379) can call <c>IToolGrantResolver.ResolveAsync</c> for
+    /// <c>tools/list</c> filtering and <c>tools/call</c> authorization.
+    /// Implementations MUST throw when the inputs cannot materialise a
+    /// subject — there is no fail-open path; every session has a Subject.
     /// </summary>
+    /// <exception cref="System.ArgumentException">
+    /// Thrown when <paramref name="agentId"/> is not Guid-shaped or when
+    /// <paramref name="callerKind"/> is not <see cref="Address.AgentScheme"/> /
+    /// <see cref="Address.UnitScheme"/>.
+    /// </exception>
     McpSession IssueSession(string agentId, string threadId, string callerKind = "agent");
 
     /// <summary>Revokes a previously issued session.</summary>
@@ -55,18 +62,16 @@ public interface IMcpServer
 /// </param>
 /// <param name="Subject">
 /// Address of the subject this session is bound to — either an
-/// <c>agent:&lt;guid&gt;</c> or <c>unit:&lt;guid&gt;</c>. Populated when
-/// <see cref="AgentId"/> is Guid-shaped; <c>null</c> when the session was
-/// issued from a legacy code path that handed in a non-Guid id (only
-/// reachable through unit-test harnesses). The MCP server's effective-
-/// grant gate consults this to call <c>IToolGrantResolver.ResolveAsync</c>
-/// for <c>tools/list</c> filtering and <c>tools/call</c> authorization;
-/// <c>null</c> means "no subject identity — allow all" so the gate
-/// stays out of the way of legacy unit tests.
+/// <c>agent:&lt;guid&gt;</c> or <c>unit:&lt;guid&gt;</c>. Always populated;
+/// session establishment fails if the (agentId, callerKind) pair cannot
+/// materialise a valid Address. The MCP server's effective-grant gate
+/// consults this to call <c>IToolGrantResolver.ResolveAsync</c> for
+/// <c>tools/list</c> filtering and <c>tools/call</c> authorization,
+/// so every session is enforceable.
 /// </param>
 public record McpSession(
     string Token,
     string AgentId,
     string ThreadId,
-    string CallerKind = "agent",
-    Address? Subject = null);
+    string CallerKind,
+    Address Subject);

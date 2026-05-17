@@ -155,8 +155,17 @@ public class A2AExecutionDispatcherTests
                 ContextFiles: new Dictionary<string, string>()));
 
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
-        _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>())
-            .Returns(ci => new McpSession("test-token", ci.ArgAt<string>(0), ci.ArgAt<string>(1)));
+        // The dispatcher calls IssueSession(agentId, threadId, scheme); the
+        // production server materialises a Subject Address from those args
+        // (#2379). Mirror that here so the returned McpSession satisfies the
+        // non-nullable Subject contract.
+        _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(ci => new McpSession(
+                "test-token",
+                ci.ArgAt<string>(0),
+                ci.ArgAt<string>(1),
+                ci.ArgAt<string>(2),
+                Address.For(ci.ArgAt<string>(2), ci.ArgAt<string>(0))));
         _tenantContext.CurrentTenantId.Returns(TenantGuid);
 
         // ADR-0039 D3: default to "no orchestration tools" — leaf-agent shape.
@@ -423,7 +432,10 @@ public class A2AExecutionDispatcherTests
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
-        _mcpServer.Received(1).IssueSession(AgentId, message.ThreadId!);
+        // The dispatcher threads message.To.Scheme into IssueSession so the
+        // server can materialise the session subject (#2379); pin the third
+        // arg here so the assertion still matches after the contract tighten.
+        _mcpServer.Received(1).IssueSession(AgentId, message.ThreadId!, message.To.Scheme);
         await _launcher.Received(1).PrepareAsync(
             Arg.Is<AgentLaunchContext>(ctx =>
                 ctx.AgentId == AgentId &&

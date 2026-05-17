@@ -260,6 +260,59 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ToolsCall_ResolverThrows_SurfacesAsInternalErrorRatherThanAllowAll()
+    {
+        // Regression for the #2379 cleanup: an earlier draft of the gate
+        // swallowed resolver exceptions and degraded to allow-all so a
+        // transient datastore outage didn't fail every tool call. That
+        // fail-open would let any subject invoke any registered tool the
+        // moment the resolver hiccups, so the gate now propagates the
+        // failure as a JSON-RPC InternalError (-32603) and the registry
+        // is never invoked.
+        var agentId = Guid.NewGuid();
+        _resolver.NextException = new InvalidOperationException("resolver offline");
+
+        var session = _server!.IssueSession(agentId.ToString("N"), "conv-1", Address.AgentScheme);
+        var json = await PostJsonAsync(session.Token, new
+        {
+            jsonrpc = "2.0",
+            id = 1,
+            method = "tools/call",
+            @params = new { name = "github.create_issue", arguments = new { } },
+        });
+
+        json.TryGetProperty("error", out var error).ShouldBeTrue();
+        error.GetProperty("code").GetInt32().ShouldBe(McpRpcErrorCodes.InternalError);
+        _registry.LastInvokedName.ShouldBeNull();
+        _enforcer.LastToolName.ShouldBeNull();
+    }
+
+    [Fact]
+    public void IssueSession_NonGuidAgentId_ThrowsRatherThanIssuingBypassSession()
+    {
+        // Regression for the #2379 cleanup: an earlier draft accepted any
+        // agentId and left Subject null when the id wasn't Guid-shaped,
+        // silently bypassing the effective-grant gate for that session.
+        // The contract now requires every session to carry a materialised
+        // Subject so the gate applies uniformly — opaque ids fail fast.
+        var act = () => _server!.IssueSession("ada", "conv-1", Address.AgentScheme);
+
+        Should.Throw<ArgumentException>(act).ParamName.ShouldBe("agentId");
+    }
+
+    [Fact]
+    public void IssueSession_NonSubjectCallerKind_ThrowsRatherThanIssuingBypassSession()
+    {
+        // Only agent: / unit: subjects are routable through IToolGrantResolver.
+        // Connector / human / unknown schemes are rejected at session-issue
+        // time rather than being silently allow-listed past the gate.
+        var act = () => _server!.IssueSession(
+            Guid.NewGuid().ToString("N"), "conv-1", Address.HumanScheme);
+
+        Should.Throw<ArgumentException>(act).ParamName.ShouldBe("callerKind");
+    }
+
+    [Fact]
     public async Task ToolsCall_GrantedAndPolicyAllows_InvokesRegistry()
     {
         // Happy path — confirms the resolver isn't blocking grants that
@@ -307,6 +360,8 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
     {
         private readonly Dictionary<Address, IReadOnlyList<EffectiveTool>> _grants = new();
 
+        public Exception? NextException { get; set; }
+
         public void SetGrants(Address subject, params EffectiveTool[] tools)
         {
             _grants[subject] = tools;
@@ -315,6 +370,10 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         public Task<IReadOnlyList<EffectiveTool>> ResolveAsync(
             Address subject, CancellationToken cancellationToken = default)
         {
+            if (NextException is not null)
+            {
+                throw NextException;
+            }
             if (_grants.TryGetValue(subject, out var tools))
             {
                 return Task.FromResult(tools);
