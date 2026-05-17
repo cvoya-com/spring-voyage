@@ -797,28 +797,25 @@ public static class AgentEndpoints
         }
 
         var isPersistent = string.Equals(shape?.Hosting, "persistent", StringComparison.OrdinalIgnoreCase);
-        if (isPersistent)
+        if (isPersistent
+            && persistentAgentRegistry.TryGet(actorId, out var registryEntry)
+            && registryEntry is not null
+            && registryEntry.HealthStatus != AgentHealthStatus.Healthy)
         {
-            // Persistent agent: registry MUST carry an entry once the
-            // agent has been deployed. No entry => not deployed yet =>
-            // unavailable. Entry present but Unhealthy => unavailable.
-            if (!persistentAgentRegistry.TryGet(actorId, out var registryEntry) || registryEntry is null)
-            {
-                return Results.Ok(new AgentRuntimeStatusResponse(
-                    Status: "unavailable",
-                    LastUpdated: DateTimeOffset.UtcNow,
-                    InFlightThreadCount: 0,
-                    QueuedMessageCount: 0));
-            }
-
-            if (registryEntry.HealthStatus != AgentHealthStatus.Healthy)
-            {
-                return Results.Ok(new AgentRuntimeStatusResponse(
-                    Status: "unavailable",
-                    LastUpdated: DateTimeOffset.UtcNow,
-                    InFlightThreadCount: 0,
-                    QueuedMessageCount: 0));
-            }
+            // Mirrors the unit-side policy in
+            // <c>UnitEndpoints.GetUnitRuntimeStatusAsync</c> (#2440):
+            // "no registry entry" is the not-yet-deployed case which we
+            // report as `idle` (falls through below) so the chip doesn't
+            // scream on every Draft / never-deployed agent. Operators
+            // who want lifecycle-state visibility have the agent detail
+            // endpoint's `LifecycleStatus` field. Only an entry present
+            // but Unhealthy is a real reachability failure and surfaces
+            // as `unavailable`.
+            return Results.Ok(new AgentRuntimeStatusResponse(
+                Status: "unavailable",
+                LastUpdated: DateTimeOffset.UtcNow,
+                InFlightThreadCount: 0,
+                QueuedMessageCount: 0));
         }
 
         // Healthy / ephemeral path: ask the actor for its per-thread
