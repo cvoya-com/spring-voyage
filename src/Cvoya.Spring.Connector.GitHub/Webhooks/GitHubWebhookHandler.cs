@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Connector.GitHub.Webhooks;
 
+using System.Text;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
@@ -256,6 +257,33 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
 
     private static bool HasIncludePaths(UnitGitHubConfig config)
         => config.IncludePaths is { Count: > 0 };
+
+    /// <summary>
+    /// Strips control characters from attacker-controlled values before they
+    /// reach the log stream, and caps length so a crafted header or payload
+    /// field cannot forge fake log entries via CR/LF or flood logs. Mirrors
+    /// the helper on <see cref="GitHubConnector"/>; duplicated locally so the
+    /// webhook handler stays self-contained. Returns "unknown" for null/empty
+    /// input so log messages remain readable.
+    /// </summary>
+    private static string SanitizeForLog(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "unknown";
+        }
+
+        const int MaxLogValueLength = 128;
+        var length = Math.Min(value.Length, MaxLogValueLength);
+        var builder = new StringBuilder(length);
+        for (var i = 0; i < length; i++)
+        {
+            var c = value[i];
+            builder.Append(char.IsControl(c) ? '_' : c);
+        }
+
+        return builder.ToString();
+    }
 
     /// <summary>
     /// Returns a translated payload with a hydrated <c>files</c> array when
