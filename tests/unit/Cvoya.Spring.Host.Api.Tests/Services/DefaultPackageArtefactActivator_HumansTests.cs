@@ -160,6 +160,29 @@ public class DefaultPackageArtefactActivator_HumansTests
     }
 
     [Fact]
+    public async Task ActivateUnitAsync_CallerAddressIsNull_PolicyReceivesNullInstallCaller_AndSkippedIsClean()
+    {
+        // #2405: out-of-request install paths (worker, integration tests
+        // that pre-date the resolver) see the accessor return null. The
+        // activator must pass that through as null InstallCallerHumanId
+        // without try/catching — and the OSS-default-style Skipped outcome
+        // must surface cleanly (no rows persisted, no exception).
+        var fx = new Fixture();
+        fx.CallerAccessorReturnsNull();
+        Guid? observedInstallCaller = null;
+        fx.PolicyCapturesInstallCaller(req => observedInstallCaller = req.InstallCallerHumanId);
+        var unitId = Guid.NewGuid();
+        var manifest = BuildManifest(unitId, "engineering",
+            ("owner", Array.Empty<string>(), Array.Empty<string>()));
+
+        await fx.RunActivateAsync(manifest, unitId);
+
+        observedInstallCaller.ShouldBeNull();
+        var rows = await fx.GetMembershipsAsync(unitId);
+        rows.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task ActivateUnitAsync_HostedPolicyResolvesEachSlotToDifferentHuman_PersistsTwoRows()
     {
         // ADR-0044 § 3 multi-user: a hosted policy that maps two reviewer
@@ -258,6 +281,23 @@ public class DefaultPackageArtefactActivator_HumansTests
         {
             _policy.Behaviour = _ => new PackageHumanResolution(
                 PackageHumanResolutionOutcome.Resolved, new[] { humanId });
+        }
+
+        public void CallerAccessorReturnsNull()
+        {
+            _callerAccessor
+                .GetCallerAddressAsync(Arg.Any<CancellationToken>())
+                .Returns((Address?)null);
+        }
+
+        public void PolicyCapturesInstallCaller(Action<PackageHumanResolutionRequest> capture)
+        {
+            var previous = _policy.Behaviour;
+            _policy.Behaviour = req =>
+            {
+                capture(req);
+                return previous(req);
+            };
         }
 
         public void PolicyResolvesPerCall(IReadOnlyList<IReadOnlyList<Guid>> sequence)

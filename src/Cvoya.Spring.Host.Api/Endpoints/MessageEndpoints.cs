@@ -67,13 +67,18 @@ public static class MessageEndpoints
     {
         // #339: Use the authenticated subject's identity as the From address
         // so MessageRouter's permission gate evaluates against the real
-        // caller. Falls back to `human://api` only when no authenticated
-        // principal is present (e.g. out-of-request contexts) — which matches
-        // the pre-fix behaviour and the fallback used by UnitCreationService
-        // for its creator grant (#328). The local-dev branch is no longer
-        // needed: LocalDevAuthHandler surfaces the `local-dev-user`
-        // NameIdentifier, and the caller accessor picks it up automatically.
+        // caller. The endpoint is behind RequireAuthorization(TenantUser),
+        // so a null caller here means the auth pipeline accepted the
+        // request but did not surface a NameIdentifier claim — surface that
+        // as a structured 401 rather than fabricating a synthetic identity
+        // (#2405; ADR-0036 removed the non-Guid `human://api` fallback).
         var from = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (from is null)
+        {
+            return Results.Problem(
+                detail: "No authenticated caller identity available.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
 
         if (!Enum.TryParse<MessageType>(request.Type, ignoreCase: true, out var messageType))
         {

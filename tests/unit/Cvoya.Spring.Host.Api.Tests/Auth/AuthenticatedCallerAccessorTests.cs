@@ -19,9 +19,11 @@ using Xunit;
 /// <summary>
 /// Unit tests for <see cref="AuthenticatedCallerAccessor"/>.
 ///
-/// Post #1629: every <see cref="Cvoya.Spring.Core.Messaging.Address"/> is a
-/// Guid identity (no slug/identity dichotomy), so the test asserts the
-/// address scheme and Guid path directly.
+/// Post-ADR-0036 every <see cref="Cvoya.Spring.Core.Messaging.Address"/> is
+/// a Guid identity (no slug/identity dichotomy). #2405 made the
+/// "no caller available" outcome explicit at the type level — the accessor
+/// returns <see langword="null"/> instead of fabricating a non-Guid
+/// fallback address that would throw <c>InvalidAddressIdException</c>.
 /// </summary>
 public class AuthenticatedCallerAccessorTests
 {
@@ -51,8 +53,66 @@ public class AuthenticatedCallerAccessorTests
 
         var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
 
+        result.ShouldNotBeNull();
         result.Scheme.ShouldBe("human");
         result.Id.ShouldBe(AliceId);
+    }
+
+    [Fact]
+    public async Task GetCallerAddressAsync_NoHttpContext_ReturnsNull()
+    {
+        // #2405: out-of-request paths (worker, integration tests pre-dating
+        // the resolver) surface as a null address rather than throwing
+        // InvalidAddressIdException from the pre-ADR-0036 navigation-form
+        // fallback.
+        var accessor = Substitute.For<IHttpContextAccessor>();
+        accessor.HttpContext.Returns((HttpContext?)null);
+
+        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
+
+        var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetCallerAddressAsync_UnauthenticatedPrincipal_ReturnsNull()
+    {
+        // Anonymous-handler / pre-auth-pipeline paths: the HTTP context
+        // exists but the principal is not authenticated. Same outcome as
+        // out-of-request — null, not a synthetic fallback (#2405).
+        var accessor = Substitute.For<IHttpContextAccessor>();
+        var httpContext = new DefaultHttpContext();
+        // Default ClaimsPrincipal has no identity → IsAuthenticated == false.
+        httpContext.User = new ClaimsPrincipal(new ClaimsIdentity());
+        accessor.HttpContext.Returns(httpContext);
+
+        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
+
+        var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetCallerAddressAsync_AuthenticatedButNoNameIdentifierClaim_ReturnsNull()
+    {
+        // Auth handler accepted the request but did not emit a
+        // NameIdentifier claim. Pre-#2405 this hit Address.For("human", "api")
+        // and threw post-ADR-0036; now it surfaces null cleanly.
+        var accessor = Substitute.For<IHttpContextAccessor>();
+        var httpContext = new DefaultHttpContext();
+        var identity = new ClaimsIdentity(
+            new[] { new Claim(ClaimTypes.Name, "alice-display") },
+            authenticationType: "test");
+        httpContext.User = new ClaimsPrincipal(identity);
+        accessor.HttpContext.Returns(httpContext);
+
+        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
+
+        var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldBeNull();
     }
 
     [Fact]
