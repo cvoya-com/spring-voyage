@@ -73,7 +73,7 @@ public class GitHubWebhookRegistrarTests
             .Returns(hook);
 
         var result = await _registrar.RegisterAsync(
-            "owner", "repo", installationId: null, TestContext.Current.CancellationToken);
+            "owner", "repo", installationId: null, events: null, TestContext.Current.CancellationToken);
 
         result.ShouldBe(42);
 
@@ -105,7 +105,7 @@ public class GitHubWebhookRegistrarTests
             .Returns(hook);
 
         var result = await _registrar.RegisterAsync(
-            "owner", "repo", installationId: 5150, TestContext.Current.CancellationToken);
+            "owner", "repo", installationId: 5150, events: null, TestContext.Current.CancellationToken);
 
         result.ShouldBe(99);
         _capturingConnector.LastInstallationId.ShouldBe(5150);
@@ -125,7 +125,7 @@ public class GitHubWebhookRegistrarTests
             .Returns(hook);
 
         await _registrar.RegisterAsync(
-            "owner", "repo", installationId: null, TestContext.Current.CancellationToken);
+            "owner", "repo", installationId: null, events: null, TestContext.Current.CancellationToken);
 
         _capturingConnector.GlobalFallbackInvoked.ShouldBeTrue();
         _capturingConnector.LastInstallationId.ShouldBeNull();
@@ -137,10 +137,92 @@ public class GitHubWebhookRegistrarTests
         _options.WebhookUrl = string.Empty;
 
         var act = () => _registrar.RegisterAsync(
-            "owner", "repo", installationId: null, TestContext.Current.CancellationToken);
+            "owner", "repo", installationId: null, events: null, TestContext.Current.CancellationToken);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(act);
         ex.Message.ShouldContain("WebhookUrl");
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WithCustomEvents_CreatesHookWithExactlyThoseEvents()
+    {
+        // Issue #2423: when the binding supplies a non-empty Events list,
+        // the hook subscribes to exactly those events — not the hard-coded
+        // default set. The verification pins both the inclusions and the
+        // exclusions so a future regression that silently unions with the
+        // default would fail.
+        var hook = CreateRepositoryHook(id: 4242);
+        _gitHubClient.Repository.Hooks
+            .Create("owner", "repo", Arg.Any<NewRepositoryHook>())
+            .Returns(hook);
+
+        var customEvents = new[] { "issues", "pull_request" };
+
+        await _registrar.RegisterAsync(
+            "owner", "repo", installationId: null, events: customEvents, TestContext.Current.CancellationToken);
+
+        await _gitHubClient.Repository.Hooks.Received(1)
+            .Create("owner", "repo", Arg.Is<NewRepositoryHook>(h =>
+                h.Events.Count() == 2 &&
+                h.Events.Contains("issues") &&
+                h.Events.Contains("pull_request") &&
+                !h.Events.Contains("issue_comment") &&
+                !h.Events.Contains("pull_request_review") &&
+                !h.Events.Contains("pull_request_review_comment") &&
+                !h.Events.Contains("pull_request_review_thread")));
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WithNullEvents_FallsBackToDefaultEventSet()
+    {
+        // null Events is the legacy / un-configured case — the persisted
+        // UnitGitHubConfig.Events stays null when the wizard's "Connector
+        // defaults" toggle is on. Issue #2423 promises this keeps the
+        // pre-existing hard-coded set so existing bindings are unaffected.
+        var hook = CreateRepositoryHook(id: 1);
+        _gitHubClient.Repository.Hooks
+            .Create("owner", "repo", Arg.Any<NewRepositoryHook>())
+            .Returns(hook);
+
+        await _registrar.RegisterAsync(
+            "owner", "repo", installationId: null, events: null, TestContext.Current.CancellationToken);
+
+        await _gitHubClient.Repository.Hooks.Received(1)
+            .Create("owner", "repo", Arg.Is<NewRepositoryHook>(h =>
+                h.Events.Count() == 6 &&
+                h.Events.Contains("issues") &&
+                h.Events.Contains("pull_request") &&
+                h.Events.Contains("issue_comment") &&
+                h.Events.Contains("pull_request_review") &&
+                h.Events.Contains("pull_request_review_comment") &&
+                h.Events.Contains("pull_request_review_thread")));
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WithEmptyEvents_FallsBackToDefaultEventSet()
+    {
+        // PutConfigAsync collapses an empty Events list to null before
+        // persisting, but the registrar is the contract owner — it treats
+        // empty and null identically so a stale binding (or a direct
+        // platform caller bypassing PutConfigAsync) cannot accidentally
+        // create a hook with zero subscribed events. Issue #2423.
+        var hook = CreateRepositoryHook(id: 2);
+        _gitHubClient.Repository.Hooks
+            .Create("owner", "repo", Arg.Any<NewRepositoryHook>())
+            .Returns(hook);
+
+        await _registrar.RegisterAsync(
+            "owner", "repo", installationId: null, events: Array.Empty<string>(), TestContext.Current.CancellationToken);
+
+        await _gitHubClient.Repository.Hooks.Received(1)
+            .Create("owner", "repo", Arg.Is<NewRepositoryHook>(h =>
+                h.Events.Count() == 6 &&
+                h.Events.Contains("issues") &&
+                h.Events.Contains("pull_request") &&
+                h.Events.Contains("issue_comment") &&
+                h.Events.Contains("pull_request_review") &&
+                h.Events.Contains("pull_request_review_comment") &&
+                h.Events.Contains("pull_request_review_thread")));
     }
 
     [Fact]

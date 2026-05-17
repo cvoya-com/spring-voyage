@@ -25,7 +25,11 @@ public class GitHubWebhookRegistrar(
     GitHubConnectorOptions options,
     ILoggerFactory loggerFactory) : IGitHubWebhookRegistrar
 {
-    private static readonly IReadOnlyList<string> SubscribedEvents = new[]
+    // Hard-coded fallback set, consulted only when the caller does not
+    // supply an explicit Events list on the binding (issue #2423). Any unit
+    // bound through PutConfigAsync with an explicit list overrides this
+    // wholesale.
+    private static readonly IReadOnlyList<string> DefaultSubscribedEvents = new[]
     {
         "issues",
         "pull_request",
@@ -42,6 +46,7 @@ public class GitHubWebhookRegistrar(
         string owner,
         string repo,
         long? installationId,
+        IReadOnlyList<string>? events,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(owner);
@@ -69,16 +74,26 @@ public class GitHubWebhookRegistrar(
             ["insecure_ssl"] = "0",
         };
 
+        // Issue #2423: honour the per-unit Events list when the caller
+        // supplied one; otherwise fall back to the hard-coded default so
+        // legacy bindings (Events == null in the persisted config) keep
+        // working unchanged. Empty is treated the same as null — both mean
+        // "use the default set" per the issue's acceptance criteria.
+        var subscribedEvents = events is { Count: > 0 }
+            ? events
+            : DefaultSubscribedEvents;
+
         var newHook = new NewRepositoryHook("web", config)
         {
-            Events = SubscribedEvents,
+            Events = subscribedEvents,
             Active = true,
         };
 
         _logger.LogInformation(
-            "Creating GitHub webhook for {Owner}/{Repo} -> {Url} (installation {InstallationId})",
+            "Creating GitHub webhook for {Owner}/{Repo} -> {Url} (installation {InstallationId}, events {Events})",
             owner, repo, options.WebhookUrl,
-            installationId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "<global>");
+            installationId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "<global>",
+            string.Join(",", subscribedEvents));
 
         var created = await client.Repository.Hooks.Create(owner, repo, newHook);
 

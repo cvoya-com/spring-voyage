@@ -293,8 +293,18 @@ public class GitHubConnectorType : IConnectorType
             // created in the right installation scope (#2385). null falls
             // back to the connector's global default — the documented
             // OSS-fallback path.
+            //
+            // Pass the binding's Events list so the hook subscribes to the
+            // exact set the operator picked in the wizard (#2423). null /
+            // empty falls back to the registrar's hard-coded default set,
+            // preserving legacy behaviour for bindings created before the
+            // per-unit Events field existed.
             var hookId = await _webhookRegistrar.RegisterAsync(
-                config.Owner, config.Repo, config.AppInstallationId, cancellationToken);
+                config.Owner,
+                config.Repo,
+                config.AppInstallationId,
+                config.Events,
+                cancellationToken);
 
             // Persist the hook id so OnUnitStoppingAsync can tear it down.
             var runtime = JsonSerializer.SerializeToElement(
