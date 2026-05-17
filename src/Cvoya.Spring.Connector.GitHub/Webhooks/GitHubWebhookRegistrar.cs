@@ -11,13 +11,17 @@ using Octokit;
 
 /// <summary>
 /// Default <see cref="IGitHubWebhookRegistrar"/> implementation backed by
-/// Octokit. Authenticates each call through
-/// <see cref="GitHubConnector.CreateAuthenticatedClientAsync"/> so the same
-/// GitHub App installation token drives both tool calls and hook
-/// administration.
+/// Octokit. Authenticates each call through the connector using the
+/// per-unit installation id when supplied — issue #2385 made the binding-aware
+/// path canonical so platform-side hook administration matches the
+/// installation the unit was bound to. A <c>null</c> installation id falls
+/// back to <see cref="GitHubConnector.CreateAuthenticatedClientAsync()"/>'s
+/// global default; that fallback is reserved for OSS deployments that never
+/// bound a per-unit installation and is the only remaining caller of the
+/// global option.
 /// </summary>
 public class GitHubWebhookRegistrar(
-    GitHubConnector connector,
+    IGitHubConnector connector,
     GitHubConnectorOptions options,
     ILoggerFactory loggerFactory) : IGitHubWebhookRegistrar
 {
@@ -37,6 +41,7 @@ public class GitHubWebhookRegistrar(
     public async Task<long> RegisterAsync(
         string owner,
         string repo,
+        long? installationId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(owner);
@@ -54,7 +59,7 @@ public class GitHubWebhookRegistrar(
                 "GitHub:WebhookSecret must be configured before registering repository webhooks.");
         }
 
-        var client = await connector.CreateAuthenticatedClientAsync(cancellationToken);
+        var client = await CreateClientAsync(installationId, cancellationToken);
 
         var config = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -71,8 +76,9 @@ public class GitHubWebhookRegistrar(
         };
 
         _logger.LogInformation(
-            "Creating GitHub webhook for {Owner}/{Repo} -> {Url}",
-            owner, repo, options.WebhookUrl);
+            "Creating GitHub webhook for {Owner}/{Repo} -> {Url} (installation {InstallationId})",
+            owner, repo, options.WebhookUrl,
+            installationId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "<global>");
 
         var created = await client.Repository.Hooks.Create(owner, repo, newHook);
 
@@ -88,12 +94,13 @@ public class GitHubWebhookRegistrar(
         string owner,
         string repo,
         long hookId,
+        long? installationId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(owner);
         ArgumentException.ThrowIfNullOrWhiteSpace(repo);
 
-        var client = await connector.CreateAuthenticatedClientAsync(cancellationToken);
+        var client = await CreateClientAsync(installationId, cancellationToken);
 
         try
         {
@@ -115,5 +122,20 @@ public class GitHubWebhookRegistrar(
                 "GitHub webhook {HookId} not found on {Owner}/{Repo}; assuming already deleted",
                 hookId, owner, repo);
         }
+    }
+
+    /// <summary>
+    /// Mints an Octokit client scoped to <paramref name="installationId"/>
+    /// when supplied, otherwise falls back to the connector's global default.
+    /// Centralised so both register / unregister apply the same auth rule
+    /// (issue #2385).
+    /// </summary>
+    private Task<IGitHubClient> CreateClientAsync(
+        long? installationId,
+        CancellationToken cancellationToken)
+    {
+        return installationId is { } id and > 0
+            ? connector.CreateAuthenticatedClientAsync(id, cancellationToken)
+            : connector.CreateAuthenticatedClientAsync(cancellationToken);
     }
 }

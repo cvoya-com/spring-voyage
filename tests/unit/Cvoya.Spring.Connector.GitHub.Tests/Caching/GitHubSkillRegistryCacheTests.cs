@@ -58,6 +58,14 @@ public class GitHubSkillRegistryCacheTests
             AuthCalls++;
             return Task.FromResult(_client);
         }
+
+        public override Task<IGitHubClient> CreateAuthenticatedClientAsync(
+            long installationId,
+            CancellationToken cancellationToken = default)
+        {
+            AuthCalls++;
+            return Task.FromResult(_client);
+        }
     }
 
     private static (GitHubSkillRegistry registry, CountingConnector connector, IGitHubClient client, InMemoryGitHubResponseCache cache)

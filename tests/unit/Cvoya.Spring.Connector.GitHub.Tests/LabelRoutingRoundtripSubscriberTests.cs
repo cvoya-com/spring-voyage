@@ -45,6 +45,12 @@ public class LabelRoutingRoundtripSubscriberTests
         _logger = Substitute.For<ILogger<LabelRoutingRoundtripSubscriber>>();
         _connector.CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>())
             .Returns(_client);
+        // Per-binding overload added in #2385 — return the same fake client
+        // for any installation id so binding-aware tests can assert which
+        // overload was called without losing the happy-path behaviour.
+        _connector.CreateAuthenticatedClientAsync(
+            Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns(_client);
         _subscriber = new LabelRoutingRoundtripSubscriber(_bus, _connector, _configStore, _logger);
     }
 
@@ -73,6 +79,51 @@ public class LabelRoutingRoundtripSubscriberTests
                 Arg.Is<string[]>(l => l.Length == 1 && l[0] == "in-progress"));
 
         await _subscriber.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Apply_BindingInstallationId_DrivesAuth()
+    {
+        // Per-binding installation ids drive label-roundtrip auth (#2385).
+        // When AppInstallationId is set on the binding, the subscriber MUST
+        // call the connector's (long, CancellationToken) overload instead of
+        // falling through to the global-default path.
+        var unit = UnitAddress();
+        RegisterConfig(unit, new UnitGitHubConfig(
+            "acme",
+            "widgets",
+            AppInstallationId: 4242,
+            AddOnAssign: new[] { "in-progress" }));
+
+        await _subscriber.ApplyRoundtripAsync(BuildEvent(unit, number: 42),
+            TestContext.Current.CancellationToken);
+
+        await _connector.Received(1)
+            .CreateAuthenticatedClientAsync(4242, Arg.Any<CancellationToken>());
+        await _connector.DidNotReceive()
+            .CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_BindingWithoutInstallationId_FallsBackToGlobal()
+    {
+        // null AppInstallationId is the documented fallback for OSS
+        // deployments that never bound a per-unit installation (#2385).
+        // The subscriber must call the parameterless overload so the
+        // connector's global default kicks in.
+        var unit = UnitAddress();
+        RegisterConfig(unit, new UnitGitHubConfig(
+            "acme",
+            "widgets",
+            AddOnAssign: new[] { "in-progress" }));
+
+        await _subscriber.ApplyRoundtripAsync(BuildEvent(unit, number: 42),
+            TestContext.Current.CancellationToken);
+
+        await _connector.Received(1)
+            .CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>());
+        await _connector.DidNotReceive()
+            .CreateAuthenticatedClientAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -90,26 +90,20 @@ public class OctokitGitHubPullRequestFilesFetcher : IGitHubPullRequestFilesFetch
             throw new ArgumentOutOfRangeException(nameof(number));
         }
 
-        // The OSS connector only carries a single configured installation id
-        // (GitHubConnectorOptions.InstallationId), so the binding-level
-        // override is currently informational — the cloud repo, which can
-        // substitute its own IGitHubPullRequestFilesFetcher implementation,
-        // is the place to honour per-binding installations. Log the override
-        // so operators can spot the discrepancy in OSS logs.
-        if (installationId.HasValue)
-        {
-            _logger.LogDebug(
-                "Fetching changed files for {Owner}/{Repo}#{Number} with binding installation hint {InstallationId} "
-                + "(OSS fetcher uses connector default).",
-                owner, repo, number, installationId.Value);
-        }
-
+        // Authenticate against the binding's installation when the unit
+        // recorded one (#2385). null falls through to the connector's
+        // global default — the documented OSS-fallback path that lets
+        // single-installation deployments keep working without re-binding.
         IGitHubClient client;
         try
         {
             var connector = _connectorAccessor()
                 ?? throw new InvalidOperationException("Connector accessor returned null.");
-            client = await connector.CreateAuthenticatedClientAsync(cancellationToken).ConfigureAwait(false);
+            client = installationId is { } installId and > 0
+                ? await connector.CreateAuthenticatedClientAsync(installId, cancellationToken)
+                    .ConfigureAwait(false)
+                : await connector.CreateAuthenticatedClientAsync(cancellationToken)
+                    .ConfigureAwait(false);
         }
         catch (Exception ex)
         {

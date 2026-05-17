@@ -30,6 +30,7 @@ public class GitHubWebhookRegistrarTests
 {
     private readonly IGitHubClient _gitHubClient;
     private readonly GitHubConnectorOptions _options;
+    private readonly FakeGitHubConnector _capturingConnector;
     private readonly GitHubWebhookRegistrar _registrar;
 
     public GitHubWebhookRegistrarTests()
@@ -50,7 +51,7 @@ public class GitHubWebhookRegistrarTests
         var signatureValidator = new WebhookSignatureValidator();
         var retryOptions = new GitHubRetryOptions();
         var tracker = new GitHubRateLimitTracker(retryOptions, loggerFactory);
-        var connector = new FakeGitHubConnector(
+        _capturingConnector = new FakeGitHubConnector(
             _gitHubClient,
             auth,
             handler,
@@ -60,7 +61,7 @@ public class GitHubWebhookRegistrarTests
             retryOptions,
             loggerFactory);
 
-        _registrar = new GitHubWebhookRegistrar(connector, _options, loggerFactory);
+        _registrar = new GitHubWebhookRegistrar(_capturingConnector, _options, loggerFactory);
     }
 
     [Fact]
@@ -71,7 +72,8 @@ public class GitHubWebhookRegistrarTests
             .Create("owner", "repo", Arg.Any<NewRepositoryHook>())
             .Returns(hook);
 
-        var result = await _registrar.RegisterAsync("owner", "repo", TestContext.Current.CancellationToken);
+        var result = await _registrar.RegisterAsync(
+            "owner", "repo", installationId: null, TestContext.Current.CancellationToken);
 
         result.ShouldBe(42);
 
@@ -91,11 +93,51 @@ public class GitHubWebhookRegistrarTests
     }
 
     [Fact]
+    public async Task RegisterAsync_WithBindingInstallationId_AuthenticatesPerInstallation()
+    {
+        // Per-binding installation ids drive auth (#2385). The fake connector
+        // records which overload of CreateAuthenticatedClientAsync was called
+        // so the test can verify the registrar threaded the binding id
+        // through to the connector instead of using the global default.
+        var hook = CreateRepositoryHook(id: 99);
+        _gitHubClient.Repository.Hooks
+            .Create("owner", "repo", Arg.Any<NewRepositoryHook>())
+            .Returns(hook);
+
+        var result = await _registrar.RegisterAsync(
+            "owner", "repo", installationId: 5150, TestContext.Current.CancellationToken);
+
+        result.ShouldBe(99);
+        _capturingConnector.LastInstallationId.ShouldBe(5150);
+        _capturingConnector.GlobalFallbackInvoked.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WithNullInstallationId_FallsBackToGlobalDefault()
+    {
+        // null installation id is the documented fallback for OSS deployments
+        // that never bound a per-unit installation (#2385). The registrar
+        // must route through the connector's parameterless overload so the
+        // global default is honoured.
+        var hook = CreateRepositoryHook(id: 7);
+        _gitHubClient.Repository.Hooks
+            .Create("owner", "repo", Arg.Any<NewRepositoryHook>())
+            .Returns(hook);
+
+        await _registrar.RegisterAsync(
+            "owner", "repo", installationId: null, TestContext.Current.CancellationToken);
+
+        _capturingConnector.GlobalFallbackInvoked.ShouldBeTrue();
+        _capturingConnector.LastInstallationId.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task RegisterAsync_MissingWebhookUrl_Throws()
     {
         _options.WebhookUrl = string.Empty;
 
-        var act = () => _registrar.RegisterAsync("owner", "repo", TestContext.Current.CancellationToken);
+        var act = () => _registrar.RegisterAsync(
+            "owner", "repo", installationId: null, TestContext.Current.CancellationToken);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(act);
         ex.Message.ShouldContain("WebhookUrl");
@@ -104,8 +146,24 @@ public class GitHubWebhookRegistrarTests
     [Fact]
     public async Task UnregisterAsync_CallsDelete()
     {
-        await _registrar.UnregisterAsync("owner", "repo", hookId: 42, TestContext.Current.CancellationToken);
+        await _registrar.UnregisterAsync(
+            "owner", "repo", hookId: 42, installationId: null, TestContext.Current.CancellationToken);
 
+        await _gitHubClient.Repository.Hooks.Received(1).Delete("owner", "repo", 42);
+    }
+
+    [Fact]
+    public async Task UnregisterAsync_WithBindingInstallationId_AuthenticatesPerInstallation()
+    {
+        // Symmetric with RegisterAsync — the teardown call MUST authenticate
+        // against the same installation the create call did, otherwise the
+        // global-default fallback risks deleting hooks on a different
+        // installation (or 404'ing) on multi-installation deployments.
+        await _registrar.UnregisterAsync(
+            "owner", "repo", hookId: 42, installationId: 7000, TestContext.Current.CancellationToken);
+
+        _capturingConnector.LastInstallationId.ShouldBe(7000);
+        _capturingConnector.GlobalFallbackInvoked.ShouldBeFalse();
         await _gitHubClient.Repository.Hooks.Received(1).Delete("owner", "repo", 42);
     }
 
@@ -117,7 +175,8 @@ public class GitHubWebhookRegistrarTests
             .Returns(_ => throw new NotFoundException("gone", HttpStatusCode.NotFound));
 
         // Should not throw — a stale hook id must not block /stop teardown.
-        await _registrar.UnregisterAsync("owner", "repo", hookId: 99, TestContext.Current.CancellationToken);
+        await _registrar.UnregisterAsync(
+            "owner", "repo", hookId: 99, installationId: null, TestContext.Current.CancellationToken);
 
         await _gitHubClient.Repository.Hooks.Received(1).Delete("owner", "repo", 99);
     }
@@ -146,9 +205,10 @@ public class GitHubWebhookRegistrarTests
 
     /// <summary>
     /// Stub connector that returns a pre-built <see cref="IGitHubClient"/>
-    /// instead of exchanging a JWT for an installation token. The registrar
-    /// only calls <see cref="GitHubConnector.CreateAuthenticatedClientAsync"/>
-    /// to get a client, so overriding that method is enough.
+    /// instead of exchanging a JWT for an installation token. Captures which
+    /// overload of <see cref="GitHubConnector.CreateAuthenticatedClientAsync(long, CancellationToken)"/>
+    /// the registrar called so tests can pin the binding-aware auth path
+    /// introduced in #2385.
     /// </summary>
     private sealed class FakeGitHubConnector : GitHubConnector
     {
@@ -168,7 +228,23 @@ public class GitHubWebhookRegistrarTests
             _client = client;
         }
 
+        public long? LastInstallationId { get; private set; }
+        public bool GlobalFallbackInvoked { get; private set; }
+
         public override Task<IGitHubClient> CreateAuthenticatedClientAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(_client);
+        {
+            GlobalFallbackInvoked = true;
+            LastInstallationId = null;
+            return Task.FromResult(_client);
+        }
+
+        public override Task<IGitHubClient> CreateAuthenticatedClientAsync(
+            long installationId,
+            CancellationToken cancellationToken = default)
+        {
+            LastInstallationId = installationId;
+            GlobalFallbackInvoked = false;
+            return Task.FromResult(_client);
+        }
     }
 }

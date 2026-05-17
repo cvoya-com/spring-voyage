@@ -242,8 +242,14 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
         IGitHubClient client;
         try
         {
-            client = await _connector.CreateAuthenticatedClientAsync(cancellationToken)
-                .ConfigureAwait(false);
+            // Authenticate against the binding's installation when the unit
+            // recorded one (#2385). null falls through to the connector's
+            // global default — the documented OSS-fallback path.
+            client = config.AppInstallationId is { } installId and > 0
+                ? await _connector.CreateAuthenticatedClientAsync(installId, cancellationToken)
+                    .ConfigureAwait(false)
+                : await _connector.CreateAuthenticatedClientAsync(cancellationToken)
+                    .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
