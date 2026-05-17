@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 
 using A2A.V0_3;
 
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
@@ -20,6 +21,7 @@ using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -70,6 +72,7 @@ public class A2AExecutionDispatcherTests
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly IOrchestrationToolProvider _orchestrationToolProvider = Substitute.For<IOrchestrationToolProvider>();
     private readonly ICallbackTokenIssuer _callbackTokenIssuer = Substitute.For<ICallbackTokenIssuer>();
+    private readonly IConnectorRuntimeContextResolver _connectorContext = Substitute.For<IConnectorRuntimeContextResolver>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
     private readonly IContainerRuntime _persistentContainerRuntime = Substitute.For<IContainerRuntime>();
@@ -163,6 +166,11 @@ public class A2AExecutionDispatcherTests
         _callbackTokenIssuer.Issue(Arg.Any<CallbackToken>())
             .Returns(call => $"token-{call.Arg<CallbackToken>().MessageId:N}");
 
+        // #2380: by default no connector contributions (the dispatch path
+        // tests do not exercise the connector seam).
+        _connectorContext.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(ConnectorRuntimeContextContribution.Empty);
+
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId: AgentId,
@@ -207,6 +215,7 @@ public class A2AExecutionDispatcherTests
             Options.Create(daprOptions),
             transportFactory,
             _callbackTokenIssuer,
+            _connectorContext,
             _loggerFactory);
     }
 

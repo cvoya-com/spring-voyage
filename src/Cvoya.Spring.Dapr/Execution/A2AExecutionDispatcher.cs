@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using A2A.V0_3;
 
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
@@ -16,6 +17,7 @@ using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Prompts;
 
 using Microsoft.Extensions.Logging;
@@ -68,6 +70,7 @@ public class A2AExecutionDispatcher(
     IOptions<DaprSidecarOptions> daprSidecarOptions,
     IA2ATransportFactory transportFactory,
     ICallbackTokenIssuer callbackTokenIssuer,
+    IConnectorRuntimeContextResolver connectorRuntimeContextResolver,
     ILoggerFactory loggerFactory) : IExecutionDispatcher
 {
     private static readonly ISerializer _yamlSerializer = new SerializerBuilder()
@@ -100,6 +103,13 @@ public class A2AExecutionDispatcher(
         ?? throw new ArgumentNullException(nameof(runtimeCatalog));
     private readonly ICallbackTokenIssuer _callbackTokenIssuer = callbackTokenIssuer
         ?? throw new ArgumentNullException(nameof(callbackTokenIssuer));
+    // #2380: per-launch connector runtime-context contribution seam. The
+    // resolver walks the subject's direct + inherited bindings and merges
+    // each connector's IConnectorRuntimeContextContributor output. Plain-
+    // text credentials never leave this code path (the resolver is invoked
+    // here only — no API / portal surface ever calls it).
+    private readonly IConnectorRuntimeContextResolver _connectorRuntimeContextResolver = connectorRuntimeContextResolver
+        ?? throw new ArgumentNullException(nameof(connectorRuntimeContextResolver));
 
     internal const string CallbackTokenPayloadField = "callbackToken";
 
@@ -252,12 +262,24 @@ public class A2AExecutionDispatcher(
         // set regardless of tool.
         var bootstrapContext = await _agentContextBuilder.BuildAsync(launchContext, cancellationToken);
 
+        // #2380: resolve every connector binding (direct + inherited) for the
+        // dispatch subject and gather each contributor's env-vars + context
+        // files. The resolver enforces the SPRING_CONNECTOR_<SLUG>_* env-var
+        // namespace and the connectors/<slug>/* file sub-path so this merge
+        // is a pure overlay.
+        var connectorContext = await _connectorRuntimeContextResolver.ResolveAsync(
+            message.To, cancellationToken);
+
         var spec = await launcher.PrepareAsync(launchContext, cancellationToken);
 
         // D3a: merge bootstrap env vars on top of launcher-produced env vars;
         // merge context files from the bootstrap bundle into the spec. The
         // builder's env vars win on collision (they are the D1-canonical names).
         var specWithContext = MergeBootstrapContext(spec, bootstrapContext);
+
+        // #2380: merge connector contributions on top of the bootstrap-merged
+        // spec, failing fast on any collision with platform-bootstrap names.
+        var specWithConnectors = MergeConnectorContext(specWithContext, connectorContext);
 
         // D3c: provision the per-agent workspace volume before starting the
         // container. The volume survives container restarts and mid-flight
@@ -266,9 +288,9 @@ public class A2AExecutionDispatcher(
         // volume".
         var volumeName = await volumeManager.EnsureAsync(agentId, cancellationToken);
         var volumeMount = AgentVolumeManager.BuildVolumeMount(volumeName);
-        var specWithVolume = specWithContext with
+        var specWithVolume = specWithConnectors with
         {
-            ExtraVolumeMounts = MergeVolumeMounts(specWithContext.ExtraVolumeMounts, volumeMount),
+            ExtraVolumeMounts = MergeVolumeMounts(specWithConnectors.ExtraVolumeMounts, volumeMount),
         };
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
@@ -417,6 +439,68 @@ public class A2AExecutionDispatcher(
 
         foreach (var kvp in bootstrap.ContextFiles)
         {
+            mergedContext[kvp.Key] = kvp.Value;
+        }
+
+        return spec with
+        {
+            EnvironmentVariables = mergedEnv,
+            ContextFiles = mergedContext.Count > 0 ? mergedContext : null,
+        };
+    }
+
+    /// <summary>
+    /// Merges the connector runtime-context contribution (#2380) into the
+    /// launcher spec on top of the bootstrap-merged values. Fails fast when
+    /// a contributed env-var key or context-file sub-path already exists in
+    /// the spec — connector contributions are reserved-namespace by contract
+    /// (<c>SPRING_CONNECTOR_*</c> / <c>connectors/&lt;slug&gt;/</c>), so any
+    /// collision at this stage is a platform-bootstrap conflict and a real
+    /// wiring bug.
+    /// </summary>
+    internal static AgentLaunchSpec MergeConnectorContext(
+        AgentLaunchSpec spec,
+        ConnectorRuntimeContextContribution connectorContext)
+    {
+        if (connectorContext is null
+            || (connectorContext.EnvironmentVariables.Count == 0
+                && connectorContext.ContextFiles.Count == 0))
+        {
+            return spec;
+        }
+
+        var mergedEnv = new Dictionary<string, string>(spec.EnvironmentVariables, StringComparer.Ordinal);
+        foreach (var kvp in connectorContext.EnvironmentVariables)
+        {
+            if (mergedEnv.ContainsKey(kvp.Key))
+            {
+                throw new SpringException(
+                    $"Connector runtime env-var '{kvp.Key}' collides with a platform-bootstrap value " +
+                    "already present on the launch spec. Connector contributions are reserved to the " +
+                    "SPRING_CONNECTOR_* namespace; a collision here indicates a wiring bug.");
+            }
+            mergedEnv[kvp.Key] = kvp.Value;
+        }
+
+        Dictionary<string, string> mergedContext;
+        if (spec.ContextFiles is { Count: > 0 })
+        {
+            mergedContext = new Dictionary<string, string>(spec.ContextFiles, StringComparer.Ordinal);
+        }
+        else
+        {
+            mergedContext = new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        foreach (var kvp in connectorContext.ContextFiles)
+        {
+            if (mergedContext.ContainsKey(kvp.Key))
+            {
+                throw new SpringException(
+                    $"Connector context file '{kvp.Key}' collides with a platform-bootstrap file already " +
+                    "present on the launch spec. Connector contributions are reserved to the " +
+                    "connectors/<slug>/* sub-path; a collision here indicates a wiring bug.");
+            }
             mergedContext[kvp.Key] = kvp.Value;
         }
 
@@ -726,10 +810,18 @@ public class A2AExecutionDispatcher(
         // D3a: assemble the IAgentContext bootstrap bundle (env vars + /spring/context/ files).
         var bootstrapContext = await _agentContextBuilder.BuildAsync(launchContext, cancellationToken);
 
+        // #2380: resolve connector runtime contributions for the dispatch
+        // target (direct + inherited bindings).
+        var connectorContext = await _connectorRuntimeContextResolver.ResolveAsync(
+            dispatchTarget, cancellationToken);
+
         var spec = await launcher.PrepareAsync(launchContext, cancellationToken);
 
         // D3a: merge bootstrap bundle into launcher spec.
         var specWithContext = MergeBootstrapContext(spec, bootstrapContext);
+
+        // #2380: merge connector contributions; fail-fast on platform-bootstrap collisions.
+        var specWithConnectors = MergeConnectorContext(specWithContext, connectorContext);
 
         _logger.LogInformation(
             "Starting persistent agent {AgentId} with image {Image}",
@@ -740,9 +832,9 @@ public class A2AExecutionDispatcher(
         // reclamation only happens on explicit undeploy (UndeployAsync).
         var volumeName = await volumeManager.EnsureAsync(agentId, cancellationToken);
         var volumeMount = AgentVolumeManager.BuildVolumeMount(volumeName);
-        var specWithVolume = specWithContext with
+        var specWithVolume = specWithConnectors with
         {
-            ExtraVolumeMounts = MergeVolumeMounts(specWithContext.ExtraVolumeMounts, volumeMount),
+            ExtraVolumeMounts = MergeVolumeMounts(specWithConnectors.ExtraVolumeMounts, volumeMount),
         };
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
