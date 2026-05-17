@@ -8,12 +8,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The Explorer pane now hosts `<UnitPaneActions>` (#980 item 3). Stub it
-// out here so these scaffold tests don't have to wire a TanStack Query
-// client + Next router mock — those concerns are covered by
-// `unit-pane-actions.test.tsx`.
+// The Explorer pane hosts `<UnitPaneActions>` (#980 item 3) and
+// `<AgentPaneActions>` (#2372). Stub both out here so these scaffold
+// tests don't have to wire a TanStack Query client + Next router
+// mock — those concerns are covered by the per-component test files.
 vi.mock("./unit-pane-actions", () => ({
   UnitPaneActions: () => null,
+}));
+vi.mock("@/components/agents/agent-pane-actions", () => ({
+  AgentPaneActions: () => null,
 }));
 
 // #2183: <UnitTree> calls useIssueCounts which requires a QueryClient.
