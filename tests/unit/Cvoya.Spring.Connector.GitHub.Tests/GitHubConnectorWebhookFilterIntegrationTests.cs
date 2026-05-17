@@ -121,7 +121,140 @@ public class GitHubConnectorWebhookFilterIntegrationTests
             Arg.Any<CancellationToken>());
     }
 
-    private static (GitHubConnector connector, IActivityEventBus bus) BuildConnector(UnitGitHubConfig config)
+    [Fact]
+    public async Task HandleWebhookAsync_PullRequestWithIncludePaths_FetchesFilesAndDeliversOnMatch()
+    {
+        var config = new UnitGitHubConfig(
+            Owner: "acme", Repo: "platform",
+            IncludePaths: new[] { "docs/" });
+        var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
+        fetcher.FetchAsync("acme", "platform", 9, Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { "docs/feature.md", "src/Other.cs" });
+
+        var (connector, bus) = BuildConnector(config, fetcher);
+
+        const string payload = """
+        {
+            "action": "opened",
+            "repository": {
+                "name": "platform",
+                "full_name": "acme/platform",
+                "owner": { "login": "acme" }
+            },
+            "pull_request": {
+                "number": 9,
+                "title": "Docs update",
+                "body": "x",
+                "head": { "ref": "feature" },
+                "base": { "ref": "main" },
+                "user": { "login": "alice" }
+            }
+        }
+        """;
+
+        var result = await connector.HandleWebhookAsync(
+            "pull_request",
+            payload,
+            Sign(payload, Secret),
+            TestContext.Current.CancellationToken);
+
+        result.Outcome.ShouldBe(WebhookOutcome.Translated);
+        result.Message.ShouldNotBeNull();
+        await fetcher.Received(1).FetchAsync(
+            "acme", "platform", 9, Arg.Any<long?>(), Arg.Any<CancellationToken>());
+        await bus.DidNotReceive().PublishAsync(
+            Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task HandleWebhookAsync_PullRequestWithIncludePaths_DropsOnMiss_SurfacesAuditWithPathKind()
+    {
+        var config = new UnitGitHubConfig(
+            Owner: "acme", Repo: "platform",
+            IncludePaths: new[] { "docs/" });
+        var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
+        fetcher.FetchAsync("acme", "platform", 9, Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { "src/Only.cs" });
+
+        var (connector, bus) = BuildConnector(config, fetcher);
+
+        const string payload = """
+        {
+            "action": "opened",
+            "repository": {
+                "name": "platform",
+                "full_name": "acme/platform",
+                "owner": { "login": "acme" }
+            },
+            "pull_request": {
+                "number": 9,
+                "title": "Code-only PR",
+                "body": "x",
+                "head": { "ref": "feature" },
+                "base": { "ref": "main" },
+                "user": { "login": "alice" }
+            }
+        }
+        """;
+
+        var result = await connector.HandleWebhookAsync(
+            "pull_request",
+            payload,
+            Sign(payload, Secret),
+            TestContext.Current.CancellationToken);
+
+        result.Outcome.ShouldBe(WebhookOutcome.Ignored);
+        await bus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ConnectorEventFiltered
+                && e.Details!.Value.GetProperty("filter_kind").GetString() == "include_path"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task HandleWebhookAsync_PullRequestWithoutIncludePaths_DoesNotCallFetcher()
+    {
+        // Lazy-fetch invariant: PR webhooks pay zero extra GitHub API cost
+        // when IncludePaths is unset. Label-only bindings keep their
+        // single-request behaviour.
+        var config = new UnitGitHubConfig(
+            Owner: "acme", Repo: "platform",
+            IncludeLabels: new[] { "spring-voyage" });
+        var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
+
+        var (connector, _) = BuildConnector(config, fetcher);
+
+        const string payload = """
+        {
+            "action": "opened",
+            "repository": {
+                "name": "platform",
+                "full_name": "acme/platform",
+                "owner": { "login": "acme" }
+            },
+            "pull_request": {
+                "number": 9,
+                "title": "x",
+                "head": { "ref": "feature" },
+                "base": { "ref": "main" },
+                "user": { "login": "alice" }
+            }
+        }
+        """;
+
+        await connector.HandleWebhookAsync(
+            "pull_request",
+            payload,
+            Sign(payload, Secret),
+            TestContext.Current.CancellationToken);
+
+        await fetcher.DidNotReceive().FetchAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<long?>(), Arg.Any<CancellationToken>());
+    }
+
+    private static (GitHubConnector connector, IActivityEventBus bus) BuildConnector(
+        UnitGitHubConfig config,
+        IGitHubPullRequestFilesFetcher? fetcher = null)
     {
         var options = new GitHubConnectorOptions
         {
@@ -142,7 +275,8 @@ public class GitHubConnectorWebhookFilterIntegrationTests
             options,
             NullLoggerFactory.Instance,
             configStore: store,
-            activityEventBus: bus);
+            activityEventBus: bus,
+            filesFetcher: fetcher);
 
         var connector = new GitHubConnector(
             new GitHubAppAuth(options, NullLoggerFactory.Instance),

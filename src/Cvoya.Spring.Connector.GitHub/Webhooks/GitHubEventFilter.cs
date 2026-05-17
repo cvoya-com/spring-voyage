@@ -163,28 +163,29 @@ public static class GitHubEventFilter
 
     private static (bool IsPrShape, IReadOnlyList<string> Paths) ExtractPaths(JsonElement domainPayload)
     {
-        // The translated PR payloads don't enumerate changed files today —
-        // that surface is added in BuildPullRequestPayload only when a
-        // file-touching event arrives. The path filter MUST short-circuit
-        // to "matching path == none observed" rather than walking the
-        // whole webhook body again, so PR-shape detection is the gate and
-        // the changed-files list is best-effort.
-        //
         // A PR-shape event is any event whose translated payload carries a
         // "pull_request" object — covers pull_request, pull_request_review,
         // pull_request_review_comment, pull_request_review_thread. Issue
         // events do NOT carry pull_request and are ignored by the path
         // filter (see issue #2407 — IncludePaths only applies to PR-shape
         // events).
+        //
+        // The "files" array is populated lazily by
+        // GitHubWebhookHandler.ApplyInboundFilterAsync — it fetches via
+        // GET /pulls/{n}/files only when the unit binding actually
+        // configures IncludePaths, so PR webhooks without a path filter
+        // pay no extra round-trip. Review-comment events keep their own
+        // comment.path so they remain effective even without the fetch.
         if (!TryGetObject(domainPayload, "pull_request", out _))
         {
             return (false, Array.Empty<string>());
         }
 
         // PR-shape: we may have a "files" array on the translated payload
-        // (added by future extensions) or, on review-comment events, a
-        // single "comment.path". Probe both — the filter is disjunctive
-        // within the kind, so a hit on either source counts.
+        // (lazily hydrated by the handler when IncludePaths is set) or, on
+        // review-comment events, a single "comment.path". Probe both — the
+        // filter is disjunctive within the kind, so a hit on either source
+        // counts.
         var paths = new List<string>();
 
         if (domainPayload.TryGetProperty("files", out var files) && files.ValueKind == JsonValueKind.Array)

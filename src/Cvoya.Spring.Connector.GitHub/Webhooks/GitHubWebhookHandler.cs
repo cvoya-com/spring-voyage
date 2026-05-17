@@ -26,6 +26,7 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     private readonly LabelStateMachine _labelStateMachine;
     private readonly IUnitConnectorConfigStore? _configStore;
     private readonly IActivityEventBus? _activityEventBus;
+    private readonly IGitHubPullRequestFilesFetcher? _filesFetcher;
 
     /// <summary>
     /// Initializes the handler. The <paramref name="labelStateMachine"/> is
@@ -45,18 +46,31 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     /// Optional activity-event bus. When null, filter drops are silent.
     /// Real hosts always register the bus.
     /// </param>
+    /// <param name="filesFetcher">
+    /// Optional fetcher used to lazily hydrate a PR's changed-files list
+    /// when (and only when) the unit binding configures
+    /// <see cref="UnitGitHubConfig.IncludePaths"/>. When null, PR-shape
+    /// events with no embedded <c>files</c> array fall through the path
+    /// filter as if no files changed — which drops the event (consistent
+    /// with the pure-evaluator semantics in <see cref="GitHubEventFilter"/>).
+    /// Real hosts wire the OSS <see cref="OctokitGitHubPullRequestFilesFetcher"/>
+    /// (or a cloud-provided substitute) so the filter is effective for every
+    /// PR shape. Issue #2407.
+    /// </param>
     public GitHubWebhookHandler(
         GitHubConnectorOptions options,
         ILoggerFactory loggerFactory,
         LabelStateMachine? labelStateMachine = null,
         IUnitConnectorConfigStore? configStore = null,
-        IActivityEventBus? activityEventBus = null)
+        IActivityEventBus? activityEventBus = null,
+        IGitHubPullRequestFilesFetcher? filesFetcher = null)
     {
         _options = options;
         _logger = loggerFactory.CreateLogger<GitHubWebhookHandler>();
         _labelStateMachine = labelStateMachine ?? new LabelStateMachine(LabelStateMachineOptions.Default());
         _configStore = configStore;
         _activityEventBus = activityEventBus;
+        _filesFetcher = filesFetcher;
     }
 
 
@@ -166,7 +180,31 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             return translated;
         }
 
-        var result = GitHubEventFilter.Evaluate(config, translated.Payload);
+        // Lazy enrichment for IncludePaths (issue #2407 — path filter coverage
+        // expansion): the translated PR payload doesn't carry a `files` array
+        // because the webhook body itself doesn't either. Rather than paying a
+        // GET /pulls/{n}/files on every PR webhook, we fetch only when this
+        // binding actually configures IncludePaths AND we have a PR-shape
+        // translated event. Per-event review-comment payloads still carry
+        // their own comment.path so the filter is effective there without
+        // any fetch.
+        var payloadForEvaluation = translated.Payload;
+        if (HasIncludePaths(config) && _filesFetcher is not null)
+        {
+            var enriched = await TryEnrichWithChangedFilesAsync(
+                config, translated.Payload, cancellationToken).ConfigureAwait(false);
+            if (enriched is null)
+            {
+                // Fetcher signalled "fail open" — pass through unfiltered.
+                _logger.LogWarning(
+                    "GitHub inbound-filter: changed-files fetch failed for unit {UnitHex}; passing event through unfiltered.",
+                    unitHex);
+                return translated;
+            }
+            payloadForEvaluation = enriched.Value;
+        }
+
+        var result = GitHubEventFilter.Evaluate(config, payloadForEvaluation);
         if (result.Allowed)
         {
             return translated;
@@ -212,6 +250,89 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
         }
 
         return null;
+    }
+
+    private static bool HasIncludePaths(UnitGitHubConfig config)
+        => config.IncludePaths is { Count: > 0 };
+
+    /// <summary>
+    /// Returns a translated payload with a hydrated <c>files</c> array when
+    /// the event is PR-shape and the changed-files fetch succeeded. Returns
+    /// the input payload unchanged when the event isn't PR-shape (path
+    /// filter doesn't apply) or when a <c>files</c> array is already present
+    /// (e.g. a review-comment event the translator wired). Returns <c>null</c>
+    /// when the fetch was attempted and failed — caller treats that as
+    /// "fail open" consistent with the binding-load failure pattern.
+    /// </summary>
+    private async Task<JsonElement?> TryEnrichWithChangedFilesAsync(
+        UnitGitHubConfig config,
+        JsonElement domainPayload,
+        CancellationToken cancellationToken)
+    {
+        // PR-shape gate: only events whose translated payload carries a
+        // "pull_request" object qualify. Pure issue events have no changed-
+        // files surface — the filter ignores them by design (see
+        // GitHubEventFilter remarks).
+        if (!domainPayload.TryGetProperty("pull_request", out var pr)
+            || pr.ValueKind != JsonValueKind.Object
+            || !pr.TryGetProperty("number", out var numberEl)
+            || numberEl.ValueKind != JsonValueKind.Number)
+        {
+            return domainPayload;
+        }
+
+        // If the translated payload already carries `files` (e.g. cloud-side
+        // translator already enriched, or a future review-comment event with
+        // a synthetic files entry), don't re-fetch.
+        if (domainPayload.TryGetProperty("files", out var existingFiles)
+            && existingFiles.ValueKind == JsonValueKind.Array
+            && existingFiles.GetArrayLength() > 0)
+        {
+            return domainPayload;
+        }
+
+        if (!domainPayload.TryGetProperty("repository", out var repo)
+            || repo.ValueKind != JsonValueKind.Object
+            || !repo.TryGetProperty("owner", out var ownerEl)
+            || ownerEl.ValueKind != JsonValueKind.String
+            || !repo.TryGetProperty("name", out var nameEl)
+            || nameEl.ValueKind != JsonValueKind.String)
+        {
+            // PR-shape but missing the repo coordinates we need for the
+            // fetch — unusual but possible if the translator was extended
+            // without back-filling repository. Skip enrichment; the
+            // evaluator will read the empty files list and drop closed.
+            return domainPayload;
+        }
+
+        var owner = ownerEl.GetString();
+        var name = nameEl.GetString();
+        var number = numberEl.GetInt32();
+
+        if (string.IsNullOrEmpty(owner) || string.IsNullOrEmpty(name))
+        {
+            return domainPayload;
+        }
+
+        var fetched = await _filesFetcher!
+            .FetchAsync(owner, name, number, config.AppInstallationId, cancellationToken)
+            .ConfigureAwait(false);
+        if (fetched is null)
+        {
+            // Fail open.
+            return null;
+        }
+
+        // Re-serialise with a `files` property appended. The translated
+        // payload is small enough that round-tripping it through a
+        // dictionary is cheap relative to the network call we just made.
+        var dict = new Dictionary<string, JsonElement>(domainPayload.EnumerateObject().Count() + 1);
+        foreach (var prop in domainPayload.EnumerateObject())
+        {
+            dict[prop.Name] = prop.Value.Clone();
+        }
+        dict["files"] = JsonSerializer.SerializeToElement(fetched);
+        return JsonSerializer.SerializeToElement(dict);
     }
 
     /// <inheritdoc />

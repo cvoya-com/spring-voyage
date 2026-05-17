@@ -201,6 +201,190 @@ public class GitHubWebhookHandlerFilterTests
     }
 
     [Fact]
+    public async Task ApplyInboundFilterAsync_IncludePathsUnset_DoesNotInvokeFetcher()
+    {
+        // Filter that doesn't depend on changed-files (author filter,
+        // matching the PR's user). When IncludePaths isn't configured the
+        // handler must skip the /pulls/{n}/files round-trip entirely.
+        var config = new UnitGitHubConfig(
+            Owner: "acme", Repo: "platform",
+            IncludeAuthors: new[] { "opener" });
+        var binding = new UnitConnectorBinding(
+            GitHubConnectorType.GitHubTypeId,
+            JsonSerializer.SerializeToElement(config));
+        var store = Substitute.For<IUnitConnectorConfigStore>();
+        store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>()).Returns(binding);
+
+        var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
+        var handler = new GitHubWebhookHandler(
+            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
+            NullLoggerFactory.Instance,
+            configStore: store,
+            filesFetcher: fetcher);
+        var translated = BuildPullRequestMessage(prNumber: 10);
+
+        var result = await handler.ApplyInboundFilterAsync(translated, "pull_request", TestContext.Current.CancellationToken);
+
+        result.ShouldBe(translated);
+        await fetcher.DidNotReceive().FetchAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<long?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyInboundFilterAsync_IncludePathsSetAndMatches_AllowsViaFetch()
+    {
+        var config = new UnitGitHubConfig(
+            Owner: "acme", Repo: "platform",
+            IncludePaths: new[] { "docs/" });
+        var binding = new UnitConnectorBinding(
+            GitHubConnectorType.GitHubTypeId,
+            JsonSerializer.SerializeToElement(config));
+        var store = Substitute.For<IUnitConnectorConfigStore>();
+        store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>()).Returns(binding);
+
+        var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
+        fetcher.FetchAsync("acme", "platform", 42, null, Arg.Any<CancellationToken>())
+            .Returns(new[] { "docs/foo.md", "src/Bar.cs" });
+
+        var handler = new GitHubWebhookHandler(
+            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
+            NullLoggerFactory.Instance,
+            configStore: store,
+            filesFetcher: fetcher);
+        var translated = BuildPullRequestMessage(prNumber: 42);
+
+        var result = await handler.ApplyInboundFilterAsync(translated, "pull_request", TestContext.Current.CancellationToken);
+
+        result.ShouldBe(translated);
+        await fetcher.Received(1).FetchAsync("acme", "platform", 42, null, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyInboundFilterAsync_IncludePathsSetAndDoesNotMatch_DropsWithAudit()
+    {
+        var config = new UnitGitHubConfig(
+            Owner: "acme", Repo: "platform",
+            IncludePaths: new[] { "docs/" });
+        var binding = new UnitConnectorBinding(
+            GitHubConnectorType.GitHubTypeId,
+            JsonSerializer.SerializeToElement(config));
+        var store = Substitute.For<IUnitConnectorConfigStore>();
+        store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>()).Returns(binding);
+
+        var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
+        fetcher.FetchAsync("acme", "platform", 42, null, Arg.Any<CancellationToken>())
+            .Returns(new[] { "src/Bar.cs" });
+
+        var bus = Substitute.For<IActivityEventBus>();
+        ActivityEvent? captured = null;
+        await bus.PublishAsync(
+            Arg.Do<ActivityEvent>(e => captured = e),
+            Arg.Any<CancellationToken>());
+
+        var handler = new GitHubWebhookHandler(
+            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
+            NullLoggerFactory.Instance,
+            configStore: store,
+            activityEventBus: bus,
+            filesFetcher: fetcher);
+        var translated = BuildPullRequestMessage(prNumber: 42);
+
+        var result = await handler.ApplyInboundFilterAsync(translated, "pull_request", TestContext.Current.CancellationToken);
+
+        result.ShouldBeNull();
+        captured.ShouldNotBeNull();
+        captured!.Details!.Value.GetProperty("filter_kind").GetString().ShouldBe("include_path");
+        captured.Details!.Value.GetProperty("event_type").GetString().ShouldBe("pull_request");
+    }
+
+    [Fact]
+    public async Task ApplyInboundFilterAsync_IncludePathsSetButFetcherFails_PassesThroughUnfiltered()
+    {
+        var config = new UnitGitHubConfig(
+            Owner: "acme", Repo: "platform",
+            IncludePaths: new[] { "docs/" });
+        var binding = new UnitConnectorBinding(
+            GitHubConnectorType.GitHubTypeId,
+            JsonSerializer.SerializeToElement(config));
+        var store = Substitute.For<IUnitConnectorConfigStore>();
+        store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>()).Returns(binding);
+
+        var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
+        fetcher.FetchAsync("acme", "platform", 42, null, Arg.Any<CancellationToken>())
+            .Returns((IReadOnlyList<string>?)null);
+
+        var handler = new GitHubWebhookHandler(
+            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
+            NullLoggerFactory.Instance,
+            configStore: store,
+            filesFetcher: fetcher);
+        var translated = BuildPullRequestMessage(prNumber: 42);
+
+        var result = await handler.ApplyInboundFilterAsync(translated, "pull_request", TestContext.Current.CancellationToken);
+
+        // Fail open — a transient fetch failure must not silently suppress
+        // the operator's subscription.
+        result.ShouldBe(translated);
+    }
+
+    [Fact]
+    public async Task ApplyInboundFilterAsync_IncludePathsSetButIssueShape_DoesNotInvokeFetcher()
+    {
+        // Pure issue events have no PR shape — fetcher must not be called.
+        var config = new UnitGitHubConfig(
+            Owner: "acme", Repo: "platform",
+            IncludePaths: new[] { "docs/" });
+        var binding = new UnitConnectorBinding(
+            GitHubConnectorType.GitHubTypeId,
+            JsonSerializer.SerializeToElement(config));
+        var store = Substitute.For<IUnitConnectorConfigStore>();
+        store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>()).Returns(binding);
+
+        var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
+        var handler = new GitHubWebhookHandler(
+            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
+            NullLoggerFactory.Instance,
+            configStore: store,
+            filesFetcher: fetcher);
+        var translated = BuildTranslatedMessage();
+
+        var result = await handler.ApplyInboundFilterAsync(translated, "issues", TestContext.Current.CancellationToken);
+
+        result.ShouldBe(translated);
+        await fetcher.DidNotReceive().FetchAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<long?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyInboundFilterAsync_PassesBindingInstallationIdToFetcher()
+    {
+        var config = new UnitGitHubConfig(
+            Owner: "acme", Repo: "platform",
+            AppInstallationId: 9988L,
+            IncludePaths: new[] { "docs/" });
+        var binding = new UnitConnectorBinding(
+            GitHubConnectorType.GitHubTypeId,
+            JsonSerializer.SerializeToElement(config));
+        var store = Substitute.For<IUnitConnectorConfigStore>();
+        store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>()).Returns(binding);
+
+        var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
+        fetcher.FetchAsync("acme", "platform", 42, 9988L, Arg.Any<CancellationToken>())
+            .Returns(new[] { "docs/x.md" });
+
+        var handler = new GitHubWebhookHandler(
+            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
+            NullLoggerFactory.Instance,
+            configStore: store,
+            filesFetcher: fetcher);
+        var translated = BuildPullRequestMessage(prNumber: 42);
+
+        await handler.ApplyInboundFilterAsync(translated, "pull_request", TestContext.Current.CancellationToken);
+
+        await fetcher.Received(1).FetchAsync("acme", "platform", 42, 9988L, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ApplyInboundFilterAsync_NonUnitDestination_PassesThrough()
     {
         // When the connector falls back to the system-router sentinel
@@ -232,6 +416,36 @@ public class GitHubWebhookHandlerFilterTests
                 number = 42,
                 title = "T",
                 labels = labels ?? Array.Empty<string>(),
+                author = "opener",
+            },
+        });
+        return new Message(
+            Id: Guid.NewGuid(),
+            From: new Address("connector", new Guid("00000000-0000-0000-0000-006769746875")),
+            To: new Address(Address.UnitScheme, new Guid(TargetUnitHex)),
+            Type: MessageType.Domain,
+            ThreadId: null,
+            Payload: payload,
+            Timestamp: DateTimeOffset.UtcNow);
+    }
+
+    private static Message BuildPullRequestMessage(int prNumber)
+    {
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            source = "github",
+            intent = "review_request",
+            action = "opened",
+            repository = new
+            {
+                owner = "acme",
+                name = "platform",
+                full_name = "acme/platform",
+            },
+            pull_request = new
+            {
+                number = prNumber,
+                title = "T",
                 author = "opener",
             },
         });

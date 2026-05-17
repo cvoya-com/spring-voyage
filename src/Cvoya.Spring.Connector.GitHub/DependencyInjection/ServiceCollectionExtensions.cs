@@ -217,6 +217,15 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IGitHubUserScopeResolver, OctokitGitHubUserScopeResolver>();
 
         services.TryAddSingleton<IWebhookSignatureValidator, WebhookSignatureValidator>();
+        // PR-files fetcher (issue #2407 — path-filter coverage). Built on a
+        // lazy connector accessor so the singleton graph stays acyclic:
+        // GitHubWebhookHandler -> IGitHubPullRequestFilesFetcher ->
+        // (Func<IGitHubConnector>) -> GitHubConnector -> GitHubWebhookHandler.
+        // Resolving the connector accessor at call time breaks the cycle.
+        services.TryAddSingleton<IGitHubPullRequestFilesFetcher>(sp =>
+            new OctokitGitHubPullRequestFilesFetcher(
+                sp.GetRequiredService<IGitHubConnector>,
+                sp.GetRequiredService<ILoggerFactory>()));
         services.TryAddSingleton<GitHubWebhookHandler>();
         services.TryAddSingleton<IGitHubWebhookHandler>(sp => sp.GetRequiredService<GitHubWebhookHandler>());
         services.TryAddSingleton<GitHubConnector>();
