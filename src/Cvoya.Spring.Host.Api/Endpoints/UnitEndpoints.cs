@@ -897,6 +897,8 @@ public static class UnitEndpoints
         [FromServices] IUnitContainerLifecycle containerLifecycle,
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
         [FromServices] IUnitConnectorConfigStore connectorConfigStore,
+        [FromServices] IUnitMembershipRepository membershipRepository,
+        [FromServices] PersistentAgentLifecycle persistentAgentLifecycle,
         [FromServices] IActivityEventBus activityEventBus,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -942,6 +944,7 @@ public static class UnitEndpoints
             id, address, entry.ActorId, status,
             directoryService, actorProxyFactory,
             containerLifecycle, connectorTypes, connectorConfigStore,
+            membershipRepository, persistentAgentLifecycle,
             activityEventBus, logger, cancellationToken);
     }
 
@@ -963,6 +966,8 @@ public static class UnitEndpoints
         IUnitContainerLifecycle containerLifecycle,
         IEnumerable<IConnectorType> connectorTypes,
         IUnitConnectorConfigStore connectorConfigStore,
+        IUnitMembershipRepository membershipRepository,
+        PersistentAgentLifecycle persistentAgentLifecycle,
         IActivityEventBus activityEventBus,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -1000,6 +1005,20 @@ public static class UnitEndpoints
             logger.LogError(ex,
                 "Force-delete: container teardown failed for unit {UnitId}.", id);
             failures.Add("container");
+        }
+
+        try
+        {
+            // #2397: persistent-agent members own their own containers + Dapr
+            // sidecars; the unit-level teardown above does not touch them.
+            await UndeployPersistentAgentMembersAsync(
+                actorId, membershipRepository, persistentAgentLifecycle, logger, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Force-delete: persistent-agent member teardown failed for unit {UnitId}.", id);
+            failures.Add("persistent-agent-members");
         }
 
         try
@@ -1158,6 +1177,8 @@ public static class UnitEndpoints
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
         [FromServices] IUnitConnectorConfigStore connectorConfigStore,
+        [FromServices] IUnitMembershipRepository membershipRepository,
+        [FromServices] PersistentAgentLifecycle persistentAgentLifecycle,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -1192,8 +1213,25 @@ public static class UnitEndpoints
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId),
             connectorConfigStore, connectorTypes, logger, cancellationToken);
 
-        // Transition straight to Stopped. Agent-container lifecycle is
-        // managed by the A2A dispatcher (#346/#349), not by this endpoint.
+        // Undeploy any persistent-agent members so their per-agent containers
+        // + Dapr sidecars do not survive the unit's Stopped state (#2397).
+        // The A2A dispatcher only reaps ephemeral per-conversation containers;
+        // persistent deployments hang on the agent registry until something
+        // calls UndeployAsync. Best-effort — a lookup failure logs and lets
+        // the unit transition to Stopped, mirroring the connector-dispatch
+        // pattern above; the operator can fall back to force-delete.
+        try
+        {
+            await UndeployPersistentAgentMembersAsync(
+                entry.ActorId, membershipRepository, persistentAgentLifecycle, logger, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Persistent-agent member teardown failed for unit {UnitId}; continuing unit stop.",
+                id);
+        }
+
         var stoppedTransition = await proxy.TransitionAsync(LifecycleStatus.Stopped, cancellationToken);
         if (!stoppedTransition.Success)
         {
@@ -1638,6 +1676,48 @@ public static class UnitEndpoints
     /// (the start path was extracted in #2156 so it can be reused from the
     /// unit actor's auto-start hook; the stop path is endpoint-only today).
     /// </summary>
+    /// <summary>
+    /// Iterates every member of the unit and undeploys any persistent-agent
+    /// deployment so the per-agent container + Dapr sidecar do not survive
+    /// the unit's Stopped state (#2397). Best-effort per agent: an undeploy
+    /// failure on one member is logged and recorded but does not block the
+    /// others, mirroring the per-step pattern in <see cref="ForceDeleteUnitAsync"/>.
+    /// <para>
+    /// <see cref="PersistentAgentLifecycle.UndeployAsync"/> is idempotent —
+    /// it returns <c>false</c> when nothing is tracked — so non-persistent
+    /// agents (ephemeral runtime, or persistent agents that were never
+    /// deployed) cost only a registry lookup.
+    /// </para>
+    /// </summary>
+    private static async Task UndeployPersistentAgentMembersAsync(
+        Guid unitActorId,
+        IUnitMembershipRepository membershipRepository,
+        PersistentAgentLifecycle persistentAgentLifecycle,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        var memberships = await membershipRepository.ListByUnitAsync(unitActorId, ct);
+        if (memberships.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var membership in memberships)
+        {
+            var agentId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(membership.AgentId);
+            try
+            {
+                await persistentAgentLifecycle.UndeployAsync(agentId, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Undeploy failed for persistent-agent member {AgentId} of unit {UnitId}; continuing unit stop.",
+                    agentId, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorId));
+            }
+        }
+    }
+
     private static async Task DispatchConnectorStopAsync(
         string unitId,
         IUnitConnectorConfigStore configStore,
