@@ -512,6 +512,31 @@ export type CreateSecretRequest = Schemas["CreateSecretRequest"];
 /** Per-unit/per-agent membership record (GET/PUT /api/v1/units/{unitId}/memberships/{agentAddress}). */
 export type UnitMembershipResponse = Schemas["UnitMembershipResponse"];
 
+/**
+ * One row from `GET /api/v1/tenant/units/{id}/members/humans` (#2409 /
+ * #2270 / #2427) — a human's team-role membership on a unit. A single
+ * human may hold multiple roles in the same unit; each role is its own
+ * row keyed by `membershipId`. Consumed by the Unit × Members tab.
+ */
+export type UnitHumanMemberResponse = Schemas["UnitHumanMemberResponse"];
+
+/**
+ * Body for `POST /api/v1/tenant/units/{id}/members/humans` (#2409) —
+ * adds a (human, role) membership. In OSS the `humanId` is auto-filled
+ * with the operator's own Human id; the role is a free-form string;
+ * `expertise` and `notifications` are free-form tag lists.
+ */
+export type AddUnitHumanMemberRequest = Schemas["AddUnitHumanMemberRequest"];
+
+/**
+ * Body for `PATCH /api/v1/tenant/units/{id}/members/humans/{humanId}/{role}`
+ * (#2409) — partial update of `expertise` / `notifications` on an
+ * existing team-role membership. Both fields are nullable: `null`
+ * leaves the existing value, `[]` clears it.
+ */
+export type UpdateUnitHumanMemberRequest =
+  Schemas["UpdateUnitHumanMemberRequest"];
+
 // ---------------------------------------------------------------------------
 // Package install (ADR-0035 decision 11 — two-phase atomic install).
 // Endpoints: POST /api/v1/packages/install, GET/POST /api/v1/installs/{id}.

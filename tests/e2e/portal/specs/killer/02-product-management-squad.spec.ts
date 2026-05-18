@@ -55,10 +55,10 @@ test.describe("killer use case — product management squad", () => {
       throw err;
     }
 
-    // The unit's Agents tab lists the seeded agents from the package.
+    // The unit's Members tab lists the seeded agents from the package.
     // Cache invalidation between install and tab membership query can
     // be eventually consistent; reload once if the first render is empty.
-    await page.goto(`/units?node=${encodeURIComponent(unit)}&tab=Agents`);
+    await page.goto(`/units?node=${encodeURIComponent(unit)}&tab=Members`);
     const membership = page.locator('[data-testid^="unit-membership-"]').first();
     try {
       await expect(membership).toBeVisible({ timeout: 30_000 });

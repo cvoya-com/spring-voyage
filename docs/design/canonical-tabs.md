@@ -23,7 +23,7 @@ Alignment is **structural, not visual**. We are not reskinning anything. We are 
 - **No hidden options.** If alignment would force a setting to disappear, alignment yields and the option keeps its current surface. Variances are documented in § 4 / § 5.
 - **No visual reskin.** Token catalog, typography, spacing, button styling all stay as `src/Cvoya.Spring.Web/DESIGN.md` defines them today. Tab-strip chrome is unchanged.
 - **No backend wiring changes.** Endpoints are not renamed, merged, or moved. Hooks may need to accept a `kind` discriminator (the Activity tab unification under #2253 already does this); they do not gain new wire shapes.
-- **No subject-unique tab removal.** Skills, Traces, Clones, Deployment (Agent), and Agents-list (Unit), Budgets (Tenant) all keep their content. They get repositioned within the canonical order; they are not bolted on at the end and they are not deleted.
+- **No subject-unique tab removal.** Skills, Traces, Clones, Deployment (Agent), Members (Unit, renamed from `Agents` under #2270 / #2427), Budgets (Tenant) all keep their content. They get repositioned within the canonical order; they are not bolted on at the end and they are not deleted.
 - **Subject-unique sub-tab ordering inside a canonical tab is not touched** unless a sub-issue's scope explicitly calls for it.
 - **No forcing tabs onto a subject the concept doesn't apply to.** Tenant is not an agent and does not participate in threads; tabs whose purpose is bound to thread participation (Messages) or to composing thread participants (Agents) do **not** apply to Tenant. Alignment converges the canonical *order* across subjects, but a slot only renders for a subject when the concept genuinely applies to that subject. We do not add stub or deep-link content to Tenant merely to keep every column populated.
 - **Human is a fourth subject — foundation landed under #2266 / #2267.** The platform already models humans (`HumanActor`, `human:` address scheme, `/api/v1/tenant/units/{id}/humans/{humanId}/permissions`). Humans implement `IMessageReceiver` only (per [`docs/architecture/infrastructure.md`](../architecture/infrastructure.md)) — they participate in threads but do not have expertise, activity, capabilities, runtime execution, memory, skills, traces, clones, budgets, or policies as agents do. The Explorer's portal-side `NodeKind` was extended to include `Human` under #2266, and the Overview tab body landed under #2267. The Messages (#2268) and Config (#2269) tab bodies follow as Portal Wave B PRs; in the meantime the registry's `<TabPlaceholder>` renders the deferred-tab copy. See § 4 for the matrix column.
@@ -48,7 +48,7 @@ Observed misalignment:
 
 - **Memory vs. Policies order flips.** Unit puts Memory before Policies (positions 5 / 6); Tenant puts Policies before Memory (positions 3 / 5 with Budgets between). Agent puts Memory before Policies but separates them by four agent-only tabs.
 - **Config visibility flips.** Unit hides Config in overflow; Agent surfaces Config inline at position 9 of 10; Tenant has no Config tab at all today, even though it has tenant-scoped configuration (tenant-default credentials, tenant cloning policy, tenant budget) reachable only from `/settings`.
-- **The Unit `Agents` tab has no analogue** on Agent (correct — agents do not contain agents) or Tenant (correct under the § 1 principle — Tenant does not compose thread participants; the tenant root's Overview-grid of top-level units is the right surface, and the Explorer tree already surfaces every agent in the tenant).
+- **The Unit `Members` tab (renamed from `Agents` under #2270 / #2427) has no analogue** on Agent (correct — agents do not contain agents) or Tenant (correct under the § 1 principle — Tenant does not compose thread participants; the tenant root's Overview-grid of top-level units is the right surface, and the Explorer tree already surfaces every agent in the tenant).
 - **"Agent-only" tabs are mislabelled.** Skills, Traces, and Deployment exist only on Agent today, but a unit *is* an agent (see [units-vs-agents](../concepts/units-vs-agents.md)) — they apply identically to Unit. Today's `unit-skills` / `unit-traces` / `unit-deployment` absence is a portal-side gap, not a domain-model one. Clones is the only legitimately agent-only tab (units cannot be cloned today).
 - **Config sub-tabs diverge.** Unit Config has Boundary / Execution / Connector / Skills / Secrets / Expertise; Agent Config has Execution / Budget / Expertise / Debug. Each subject is missing sub-tabs the other has even though the underlying settings apply to both.
 - **Tenant has a Memory tab.** A static empty state with no v0.1 endpoint. The placeholder is removed under this design — tenant does not have memory and will not (memory is what thread participants accumulate; Tenant doesn't participate in threads, see § 1 principle).
@@ -67,7 +67,7 @@ Each row registers exactly one `(kind, tab)` pair via `registerTab` and uses a `
 | `tenant-budgets.tsx` | Tenant × Budgets | Full implementation: 24h tile + 7d sparkline + Top-N units; deep-links to `/analytics/costs` and `/budgets`. |
 | `tenant-memory.tsx` | Tenant × Memory | Static empty state — "tenant memory lands in v2.1." |
 | `unit-overview.tsx` | Unit × Overview | Validation panel + IssuesPanel + 5 StatCards + cost sparkline + expertise card + engagement-portal link. |
-| `unit-agents.tsx` | Unit × Agents | Thin wrapper around `tab-impls/agents-tab.tsx`. |
+| `unit-members.tsx` | Unit × Members | Thin wrapper around `tab-impls/members-tab.tsx`. Renamed from `unit-agents` / `Unit × Agents` under #2270 / #2427 — the slot now surfaces agents + sub-units + human team-role members in one grid. |
 | `unit-activity.tsx` | Unit × Activity | Thin wrapper around the unified `tab-impls/activity-tab.tsx` (#2253). |
 | `unit-messages.tsx` | Unit × Messages | Thin wrapper around `unit-agent-messages-view.tsx`. |
 | `unit-memory.tsx` | Unit × Memory | `useMemories("unit", id)` → empty state or list. |
@@ -156,7 +156,7 @@ The canonical order, left to right, is:
 2. **Activity** — what has been happening / costing money? *(applies to Tenant, Unit, Agent. Human is undecided pending v0.2 design.)*
 3. **Messages** — what conversations does this subject participate in? *(applies to Unit, Agent, Human; does-not-apply on Tenant — Tenant does not participate in threads. See § 1 principle.)*
 4. **Memory** — what does this subject remember? *(applies to Unit and Agent; does-not-apply on Tenant — see § 4 note. Does not apply to Human — humans implement only `IMessageReceiver`.)*
-5. **Agents** *(rename to "Members" pending v0.2 — see § 4.1)* — what subjects belong to this unit? *(applies to Unit; does-not-apply on Agent — an agent does not contain agents — and does-not-apply on Tenant — see § 1 principle. Does not apply to Human.)*
+5. **Members** *(renamed from `Agents` under #2270 / #2427 — see § 4.1)* — what subjects belong to this unit? *(applies to Unit; does-not-apply on Agent — an agent does not contain agents — and does-not-apply on Tenant — see § 1 principle. Does not apply to Human.)*
 6. **Skills** — what capabilities is this subject equipped with? *(applies to Unit and Agent — a unit is an agent; see [units-vs-agents](units-vs-agents.md). Does not apply to Human.)*
 7. **Traces** — what individual executions has this subject run? *(applies to Unit and Agent — a unit is an agent; see [units-vs-agents](units-vs-agents.md). Does not apply to Human.)*
 8. **Clones** — what spawned copies of this subject exist? *(applies to Agent only — units cannot be cloned today; see [units-vs-agents](units-vs-agents.md). Does not apply to Human.)*
@@ -170,7 +170,7 @@ The canonical order, left to right, is:
 The order is **observation → action → constraint → wiring**:
 
 - Slots **1–4** (Overview, Activity, Messages, Memory) are the **reading** slots: every subject has them, every subject puts them up front, every subject puts them in the same order. They are the high-frequency tabs and they should be the first thing an operator can tab to.
-- Slots **5–8** (Agents, Skills, Traces, Clones) are the **composition / introspection** slots: "what is this subject made of, and what came out of it?" Skills, Traces, and Deployment (slot 12) apply to Unit + Agent because a unit *is* an agent (see [units-vs-agents](units-vs-agents.md)). Agents (slot 5) is Unit-only — units contain agents, agents do not. Clones is Agent-only — units cannot be cloned (yet). Tenant has none of these slots.
+- Slots **5–8** (Members, Skills, Traces, Clones) are the **composition / introspection** slots: "what is this subject made of, and what came out of it?" Skills, Traces, and Deployment (slot 12) apply to Unit + Agent because a unit *is* an agent (see [units-vs-agents](units-vs-agents.md)). Members (slot 5, renamed from `Agents` under #2270 / #2427) is Unit-only — units contain agents, sub-units, and human team-role members; agents do not. Clones is Agent-only — units cannot be cloned (yet). Tenant has none of these slots.
 - Slot **9** (Policies) is the **constraint** slot: it sits *after* observation and composition because configuring policy is a less-frequent action than reading state. Putting Policies after Memory matches Unit's current order and pulls Tenant into line (Tenant currently surfaces Policies at position 3 — that's the misalignment we're fixing).
 - Slot **10** (Budgets) is **also a constraint**, ranked after Policies because cost guard-rails are conceptually a subset of policy — you set them less frequently still. Budgets today is Tenant-only; the slot exists in the canonical order so that if per-unit / per-agent budgets ever promote to first-class tabs (today they live inside Config) they have a home.
 - Slots **11–12** (Config, Deployment) are the **wiring** slots: the lowest-frequency, highest-detail surfaces. Config first because every subject has one; Deployment last because it only applies to Agent and it concerns the persistent-runtime layer that sits below configuration. Putting Config last brings Unit (overflow today) and Agent (position 9 today) into agreement.
@@ -187,12 +187,12 @@ Second, **conceptual grouping**: Skills/Traces/Clones describe what the subject 
 
 `UNIT_TABS` / `AGENT_TABS` / `TENANT_TABS` each declare a `visible` array and an `overflow` array. The canonical *order* lives in the union of those two arrays; the `visible` / `overflow` split is a **Detail-Pane rendering hint** — visible tabs render in the primary strip, overflow tabs render in the secondary strip after a `bg-border` separator.
 
-Unit today puts Config in overflow because the primary strip already has six visible tabs and Config is a deep editor that operators reach less often than Agents/Activity/Messages. We **keep that hint** post-alignment, and apply the same split shape to Unit as to Agent (since a unit is an agent). Concretely:
+Unit today puts Config in overflow because the primary strip already has six visible tabs and Config is a deep editor that operators reach less often than Members/Activity/Messages. We **keep that hint** post-alignment, and apply the same split shape to Unit as to Agent (since a unit is an agent). Concretely:
 
-- **Unit:** Overview, Activity, Messages, Memory, Agents, Skills, Traces, Policies visible — Config, Deployment overflow.
+- **Unit:** Overview, Activity, Messages, Memory, Members, Skills, Traces, Policies visible — Config, Deployment overflow. (Composition slot renamed from `Agents` under #2270 / #2427.)
 - **Agent:** Overview, Activity, Messages, Memory, Skills, Traces, Clones, Policies visible — Config, Deployment overflow.
-- **Tenant:** Overview, Activity, Policies, Budgets visible — Config overflow. Messages, Agents, Memory, Skills, Traces, Clones, Deployment do not apply to Tenant (see § 1 principle and § 4).
-- **Human (foundation landed under #2266):** Overview, Messages visible — Config overflow. Activity is intentionally absent (humans don't implement `IActivityObservable`). Memory, Agents, Skills, Traces, Clones, Policies, Budgets, Deployment do not apply (humans implement only `IMessageReceiver`). Catalog locked in `HUMAN_TABS` (`src/Cvoya.Spring.Web/src/components/units/aggregate.ts`); Overview body landed under #2267; Messages and Config bodies are slot-reserved placeholders pending #2268 / #2269.
+- **Tenant:** Overview, Activity, Policies, Budgets visible — Config overflow. Messages, Members, Memory, Skills, Traces, Clones, Deployment do not apply to Tenant (see § 1 principle and § 4).
+- **Human (foundation landed under #2266):** Overview, Messages visible — Config overflow. Activity is intentionally absent (humans don't implement `IActivityObservable`). Memory, Members, Skills, Traces, Clones, Policies, Budgets, Deployment do not apply (humans implement only `IMessageReceiver`). Catalog locked in `HUMAN_TABS` (`src/Cvoya.Spring.Web/src/components/units/aggregate.ts`); Overview body landed under #2267; Messages and Config bodies are slot-reserved placeholders pending #2268 / #2269.
 
 Rationale for pushing Config + Deployment to overflow on both Unit and Agent: both are deep editors / lifecycle surfaces, the activity-side cluster (Overview/Activity/Messages/Memory + the composition slots) is the high-frequency surface, and the existing `<AgentCard>` Deployment quick-action already deep-links to `?tab=Deployment`, so overflow placement does not regress that path. Unit gains Skills + Traces + Deployment slots because a unit is an agent — they apply to both subjects identically.
 
@@ -221,7 +221,7 @@ Per the § 1 principle, the canonical order does **not** invent a Tenant × Mess
 | 2. Activity | A* (deep-link to `/analytics/throughput`; cost cards may appear if a tenant-feed surface lands) | A (same control as Agent — cost cards + activity feed) | A (same control as Unit — cost cards + activity feed) | TBD (humans don't implement `IActivityObservable`; v0.2 may decide on a deep-link to thread participation history) |
 | 3. Messages | — (Tenant does not participate in threads; see § 1 principle) | A | A | A (humans participate in threads; the timeline is filtered to threads they're addressed in) |
 | 4. Memory | — (Tenant does not have memory; the existing tenant-memory empty-state is removed under this design) | A | A | — (humans implement only `IMessageReceiver`) |
-| 5. Agents *(see § 4.1 rename note)* | — (Tenant does not compose thread participants; see § 1 principle) | A (existing — children agents, nested units, and v0.2 humans) | — (agents do not contain agents) | — |
+| 5. Members *(renamed from `Agents` under #2270 / #2427; see § 4.1)* | — (Tenant does not compose thread participants; see § 1 principle) | A (agents + sub-units + human team-role members, three card kinds in one grid) | — (agents do not contain agents) | — |
 | 6. Skills | — | A (**new tab** — equipped skills surface, same shape as Agent) | A (existing) | — |
 | 7. Traces | — | A (**new tab** — trace list, same shape as Agent; v0.1 fixture) | A (existing; v0.1 fixture) | — |
 | 8. Clones | — | — (units cannot be cloned today; see [units-vs-agents](units-vs-agents.md)) | A | — |
@@ -246,7 +246,7 @@ Tenant × Messages, Tenant × Agents, and Tenant × Memory do **not** appear in 
 - **Human — Overview (#2267, landed).** Personal info card (display name, username, email, platform role, created-at) + compact 4-fact pill grid + caveat copy. The display-name row carries a "You" badge when the loaded human matches the currently-authenticated caller. No `<IssuesPanel>`, lifecycle embed, cost summary, or engagement link — humans don't have those surfaces. Memberships drill-down is deferred to v0.2 (no per-human memberships endpoint in v0.1; the v0.2 follow-up surfaces team-role rows from `unit_memberships_humans`).
 - **Human — Messages (#2268, landed).** View-only timeline for threads where the human is an addressed participant. Filters `useThreads({ participant: "human:<id>" })` and renders the most-recently-active matching thread through the canonical `<ConversationView>` primitive (same control as Unit/Agent Messages and the inbox right pane). **No composer** — the Human page is an observer surface ("the operator looking at this person's threads"); there is no meaningful outbound "send to this human from their own page". The "You" hint is implicit through `<ConversationView>`'s default `layout="dialog"`: the under-view human's own bubbles align right when the conversation includes the caller. The canonical `<MessagesTab kind="Unit|Agent">` (#2256) is *not* reused — it carries a composer that doesn't apply here; instead the Human-specific tab body wires `useThreads` + `<ConversationView>` directly.
 - **Human — Config (#2269, landed).** Two sub-tabs: **Identity** and **Connector**. The shell mirrors the canonical `<ConfigTab>` chrome (sub-tab strip + URL contract `?tab=Config&subtab=<name>` + `useSyncExternalStore` snapshot of the live URL) but builds its own body because the canonical `<ConfigTab>` is typed against Tenant \| Unit \| Agent — Humans have no budgets, secrets, expertise, or instructions to factor in. Identity is the default sub-tab. **Identity sub-tab**: list of `(connectorId, connectorUserId, displayHandle?)` rows from `GET /api/v1/tenant/humans/{id}/identities` (PR #2420), each row carries an inline outline-style Remove button (`<ConfirmDialog>`-guarded DELETE), and a four-control inline form (connector `<select>` from `useConnectorTypes`, connector-user-id `Input`, optional display-handle `Input`, Submit) POSTs new rows. **Connector sub-tab**: caveat-only for v0.1 — per-Human connector bindings ship in v0.2 (#2375); the body links the issue and points the operator at the owning unit's Config → Connector sub-tab for unit-scoped binding edits today. Distinct from Unit × Config → Connector, which is *outbound* (binds the unit to an external system to receive events). The human-side connector is inbound-only.
-- **Unit × Agents — rename to "Members" pending v0.2.** Today the Unit × Agents tab lists agents + nested sub-units; in v0.2 it will also list humans (per `/api/v1/tenant/units/{id}/humans/{humanId}/permissions`). The label is already imprecise; v0.2 renames it to "Members" and updates the canonical order accordingly. **v0.1 keeps the existing label** to avoid a copy-only rename without the human additions; the rename rides the v0.2 tracker.
+- **Unit × Members (renamed from `Agents` under #2270 / #2427).** The Members tab surfaces three card kinds in one grid: agent members (one card per `UnitMembershipResponse`), sub-units (one `<UnitCard>` per child of kind `Unit`, click-through into the sub-unit's own Members tab via the explorer-selection bridge), and human team-role members (one `<HumanMemberCard>` per row from `GET /api/v1/tenant/units/{id}/members/humans`). Add / edit / remove for both agent and human rows happens inline. The rename is hard — no `?tab=Agents` shim per the v0.1 aggressive-cleanup convention; the DetailPane's existing invalid-tab effect bounces stale deep-links back to Overview. The Add-human dialog auto-fills the operator's own Human id in OSS and renders a "You" badge (single-human surface today; hosted variants will lift the picker constraint).
 
 ### 4.2 Why Policies/Budgets are kept distinct on Tenant
 
@@ -318,15 +318,21 @@ Canonical component: a unified `<MemoryTab>` parameterised by `{ kind, id }`. To
 | Long-term memory list | A* (always empty in v0.1) | A | A | this tab |
 | Empty state ("Write API ships in v2.1") | A | A | A | this tab |
 
-### 5.5 Agents
+### 5.5 Members
 
 Subject: Unit. *(Tenant does not compose thread participants — see § 1 principle / § 4.1; Agent does not contain agents.)*
 
+Renamed from `Agents` under #2270 / #2427 — the slot now surfaces every subject that belongs to the unit.
+
 | Content | Unit | Canonical home |
 |---|---|---|
-| Children grid (agents + nested units, with type-pill) | A (`<AgentsTab>`) | this tab |
-| `+ New agent` affordance | A (existing) | this tab |
-| Membership edit dialog | A (existing) | this tab |
+| Agent membership cards (one per `UnitMembershipResponse`) | A (`<MembersTab>`) | this tab |
+| Sub-unit cards (one `<UnitCard>` per child of kind `Unit`, click drills into the sub-unit's Members tab) | A | this tab |
+| Human team-role member cards (one `<HumanMemberCard>` per row of `GET /api/v1/tenant/units/{id}/members/humans`) | A | this tab |
+| `+ Add agent` affordance | A (existing `AgentCreateDialog`) | this tab |
+| `+ Add human` affordance | A (`<HumanMemberDialog>` — operator's Human auto-filled in OSS) | this tab |
+| Agent membership edit dialog | A (existing `<MembershipDialog>`) | this tab |
+| Human membership edit dialog | A (`<HumanMemberDialog>` — PATCH expertise / notifications only) | this tab |
 
 ### 5.6 Skills
 
@@ -539,13 +545,15 @@ export const UNIT_TABS = {
   // A unit is an agent (see docs/concepts/units-vs-agents.md), so it
   // gains the agent's introspection slots (Skills, Traces) and the
   // lifecycle slot (Deployment). Clones is the only agent-only slot —
-  // units cannot be cloned today.
+  // units cannot be cloned today. The composition slot is `Members`
+  // (renamed from `Agents` under #2270 / #2427) — it surfaces agents
+  // + sub-units + human team-role members in one grid.
   visible: [
     "Overview",
     "Activity",
     "Messages",
     "Memory",
-    "Agents",
+    "Members",
     "Skills",
     "Traces",
     "Policies",
@@ -554,7 +562,7 @@ export const UNIT_TABS = {
 };
 
 export const AGENT_TABS = {
-  // Agents-list is Unit-only (agents do not contain agents). Clones is
+  // Members is Unit-only (agents do not contain agents). Clones is
   // Agent-only (units cannot be cloned today).
   visible: [
     "Overview",

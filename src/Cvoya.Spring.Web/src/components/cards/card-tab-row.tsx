@@ -2,7 +2,6 @@
 
 import {
   Activity,
-  Bot,
   Brain,
   Copy,
   Container,
@@ -12,6 +11,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Users,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -33,7 +33,11 @@ export type CardTabName = TabName;
 
 const TAB_ICON: Record<CardTabName, LucideIcon> = {
   Overview: LayoutDashboard,
-  Agents: Bot,
+  // #2270 / #2427: the Unit composition tab is `Members` (renamed
+  // from `Agents`) — it surfaces agents + sub-units + human team-role
+  // members in a single grid. The `Users` glyph matches the broader
+  // "who belongs to this unit" semantics.
+  Members: Users,
   Activity: Activity,
   Messages: MessagesSquare,
   Memory: Brain,

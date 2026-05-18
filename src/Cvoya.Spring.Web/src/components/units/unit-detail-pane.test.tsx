@@ -262,6 +262,25 @@ describe("DetailPane copy-address button (#1070)", () => {
     expect(onTabChangeB).not.toHaveBeenCalled();
   });
 
+  it("#2270 / #2427: falls back to Overview when an unknown ?tab=Agents arrives at a Unit", () => {
+    // After the rename, `Agents` is no longer in `UNIT_TABS`. The
+    // DetailPane's invalid-tab effect must bounce stale links to the
+    // unit's default visible tab (Overview) without an explicit
+    // redirect — there is no `?tab=Agents` shim in v0.1.
+    const onTabChange = vi.fn();
+    render(
+      <DetailPane
+        node={unit}
+        path={[tenant, unit]}
+        tab={"Agents" as never}
+        onTabChange={onTabChange}
+        onSelectNode={vi.fn()}
+      />,
+    );
+    expect(onTabChange).toHaveBeenCalledTimes(1);
+    expect(onTabChange).toHaveBeenCalledWith("Overview");
+  });
+
   it("swallows clipboard errors so the surface stays usable", async () => {
     const writeText = vi.fn().mockRejectedValue(new Error("denied"));
     Object.defineProperty(navigator, "clipboard", {

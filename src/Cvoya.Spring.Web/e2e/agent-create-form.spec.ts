@@ -191,7 +191,7 @@ test.describe("agent create form", () => {
     await expect(page.getByTestId("agent-create-submit")).toBeEnabled();
 
     await page.getByTestId("agent-create-submit").click();
-    await expect(page).toHaveURL(/\/units\?node=engineering&tab=Agents$/);
+    await expect(page).toHaveURL(/\/units\?node=engineering&tab=Members$/);
     expect(api.createRequests).toHaveLength(2);
   });
 });

@@ -34,8 +34,10 @@ import {
  *
  * Behaviour preserved from the pre-extraction page:
  *  - `handleCancel` calls `router.back()`.
- *  - `handleSuccess` redirects to `/units?node=<first>&tab=Agents` when
- *    at least one unit was assigned, and to `/units` otherwise.
+ *  - `handleSuccess` redirects to `/units?node=<first>&tab=Members` when
+ *    at least one unit was assigned (the `Members` tab replaced the
+ *    historical `Agents` tab in #2270 / #2427), and to `/units`
+ *    otherwise.
  *
  * Visual chrome reuses the existing Card / Input / Button primitives —
  * DESIGN.md does not need an update for this extraction.
@@ -62,7 +64,7 @@ export default function CreateAgentPage() {
     clearAgentWizardSnapshot();
     const target = unitIds[0]?.trim();
     if (target) {
-      router.push(`/units?node=${encodeURIComponent(target)}&tab=Agents`);
+      router.push(`/units?node=${encodeURIComponent(target)}&tab=Members`);
     } else {
       router.push("/units");
     }

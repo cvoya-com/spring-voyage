@@ -103,9 +103,10 @@ describe("UnitExplorer (foundation scaffold)", () => {
     render(<UnitExplorer tree={tree} />);
     fireEvent.click(screen.getByTestId("tree-row-unit-eng"));
     // Engineering is a Unit → 10 tabs (8 visible + Config + Deployment overflow,
-    // canonical-tabs.md § 7.1).
+    // canonical-tabs.md § 7.1). The composition slot is `Members`
+    // (renamed from `Agents` under #2270 / #2427).
     expect(screen.getAllByRole("tab")).toHaveLength(10);
-    expect(screen.getByTestId("detail-tab-agents")).toBeInTheDocument();
+    expect(screen.getByTestId("detail-tab-members")).toBeInTheDocument();
   });
 
   it("changes the active tab when a tab button is clicked", () => {

@@ -218,7 +218,7 @@ async function mockDialogFlowApis(page: Page) {
   );
 
   // After the dialog persists the new agent the dashboard re-renders the
-  // refreshed Agents tab, which mounts a `<RuntimeStatusBadge>` per card
+  // refreshed Members tab, which mounts a `<RuntimeStatusBadge>` per card
   // and immediately polls `/runtime-status` (#2100). Stub it as a benign
   // `idle` so the proxy doesn't try to dial the unmocked dotnet backend
   // and trip the unexpected-API-error guard at the end of the test.
@@ -239,11 +239,38 @@ async function mockDialogFlowApis(page: Page) {
     },
   );
 
+  // The Members tab (#2270 / #2427) also lists human team-role members and
+  // queries `auth/me` to decide whether the current viewer can mutate that
+  // grid. Neither is mocked above, so without explicit stubs the smoke
+  // build's non-routable backend produces 403/aborted responses that the
+  // `unexpectedApiErrors` guard at the end of each test picks up.
+  await page.route(
+    (url) =>
+      /^\/api\/v1\/tenant\/units\/[^/]+\/members\/humans$/.test(url.pathname),
+    async (route) => {
+      await route.fulfill({ json: [] });
+    },
+  );
+
+  await page.route(
+    (url) => url.pathname === "/api/v1/tenant/auth/me",
+    async (route) => {
+      await route.fulfill({
+        json: {
+          userId: "viewer",
+          displayName: "Viewer",
+          id: "00000000-0000-0000-0000-000000000000",
+          address: null,
+        },
+      });
+    },
+  );
+
   return { agents, createRequests, memberships, unexpectedApiErrors };
 }
 
-async function openCreateDialogFromAgentsTab(page: Page) {
-  await page.goto(`/units?node=${unit.id}&tab=Agents`);
+async function openCreateDialogFromMembersTab(page: Page) {
+  await page.goto(`/units?node=${unit.id}&tab=Members`);
 
   await expect(page.getByTestId("detail-title")).toHaveText(unit.displayName);
   await expect(page.getByRole("button", { name: /add agent/i })).toBeEnabled();
@@ -276,7 +303,7 @@ test.describe("agent create dialog", () => {
     page,
   }) => {
     const api = await mockDialogFlowApis(page);
-    const dialog = await openCreateDialogFromAgentsTab(page);
+    const dialog = await openCreateDialogFromMembersTab(page);
 
     await fillIdentityAndSubmit(page);
 
@@ -301,7 +328,7 @@ test.describe("agent create dialog", () => {
   }) => {
     const api = await mockDialogFlowApis(page);
 
-    await openCreateDialogFromAgentsTab(page);
+    await openCreateDialogFromMembersTab(page);
     await page.getByLabel("Agent runtime").selectOption("spring-voyage");
     await fillIdentityAndSubmit(page, "Ada Runtime");
 

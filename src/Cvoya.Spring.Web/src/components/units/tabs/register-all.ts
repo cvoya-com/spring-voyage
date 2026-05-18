@@ -8,7 +8,10 @@
 
 // Unit tabs
 import "./unit-overview";
-import "./unit-agents";
+// #2270 / #2427: renamed from `unit-agents` to `unit-members` — the
+// composition slot now surfaces agents + sub-units + human team-role
+// members in one grid. Hard rename, no `?tab=Agents` shim.
+import "./unit-members";
 import "./unit-activity";
 import "./unit-messages";
 import "./unit-memory";

@@ -59,14 +59,14 @@ describe("CardTabRow", () => {
     render(
       <CardTabRow
         id="engineering"
-        tabs={["Agents", "Messages", "Activity"]}
+        tabs={["Members", "Messages", "Activity"]}
         onOpenTab={vi.fn()}
       />,
     );
     const row = screen.getByTestId("card-tab-row");
     const chips = row.querySelectorAll("[data-tab]");
     expect(Array.from(chips).map((c) => c.getAttribute("data-tab"))).toEqual([
-      "Agents",
+      "Members",
       "Messages",
       "Activity",
     ]);

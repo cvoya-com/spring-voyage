@@ -8,7 +8,7 @@ import { expect, test } from "../../fixtures/test.js";
  *      "Mode = Template" path; the catalog branch installs a pre-built unit
  *      ("engineering-team") with all its agents wired.
  *   2. User opens the unit detail and sees the seeded agents on the
- *      Agents tab.
+ *      Members tab.
  *   3. User sends a first message via the Messages tab and verifies the
  *      orchestrator agent replies (covers #1465 — silent regression
  *      class where the dispatcher ↔ agent transport stops working).
@@ -70,11 +70,11 @@ test.describe("killer use case — software-engineering team", () => {
 
     // ── Unit detail boot ────────────────────────────────────────────────
     // Cache invalidation between the install completing and the
-    // Agents-tab membership query landing can take a few seconds; on
+    // Members-tab membership query landing can take a few seconds; on
     // a cold runner it can be longer. Reload the route once if the
     // first render came back empty (the React Query cache key is
     // tenant-tree-scoped and refetches on focus / mount).
-    await page.goto(`/units?node=${encodeURIComponent(unit)}&tab=Agents`);
+    await page.goto(`/units?node=${encodeURIComponent(unit)}&tab=Members`);
     const membership = page.locator('[data-testid^="unit-membership-"]').first();
     try {
       await expect(membership).toBeVisible({ timeout: 30_000 });

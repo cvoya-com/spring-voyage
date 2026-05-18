@@ -70,7 +70,7 @@ interface UnitCardInput {
  * the card's primary "Open" affordance).
  */
 export const UNIT_CARD_TABS: readonly CardTabName[] = [
-  "Agents",
+  "Members",
   "Messages",
   "Activity",
   "Memory",

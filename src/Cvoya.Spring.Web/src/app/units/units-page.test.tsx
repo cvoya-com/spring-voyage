@@ -240,11 +240,12 @@ describe("UnitsPage — Explorer route (EXP-route)", () => {
   });
 
   it("#1704: clears a stale ?tab when switching to a different node kind", async () => {
-    // Start with the tenant root showing and a Unit-only tab (Agents) in the
-    // URL from a prior navigation. We simulate this by seeding the URL with
-    // the tab but NOT the node so the page renders at the root (Tenant) —
-    // this avoids rendering the full Unit Agents tab which needs extra mocks.
-    currentSearchParams = new URLSearchParams("tab=Agents");
+    // Start with the tenant root showing and a Unit-only tab (Members)
+    // in the URL from a prior navigation. We simulate this by seeding
+    // the URL with the tab but NOT the node so the page renders at the
+    // root (Tenant) — this avoids rendering the full Unit Members tab
+    // which needs extra mocks.
+    currentSearchParams = new URLSearchParams("tab=Members");
     useTenantTreeMock.mockReturnValue({
       data: sampleTree,
       isLoading: false,
@@ -253,8 +254,9 @@ describe("UnitsPage — Explorer route (EXP-route)", () => {
     render(wrap(<UnitsPage />));
     await screen.findByTestId("unit-explorer");
 
-    // Click a Unit row. The stale root-level `?tab=Agents` must not ride
-    // along; switching nodes without an explicit tab clears the old value.
+    // Click a Unit row. The stale root-level `?tab=Members` must not
+    // ride along; switching nodes without an explicit tab clears the
+    // old value.
     historyReplaceStateMock.mockClear();
     fireEvent.click(screen.getByTestId("tree-row-marketing"));
     await waitFor(() => expect(historyReplaceStateMock).toHaveBeenCalled());
