@@ -12,12 +12,13 @@ readme: README.md
 # binding once via the wizard's connector step or `spring package install
 # --connector github=<owner>/<repo>@<installation-id>`.
 #
-# ADR-0043 §2 / §3: directory layout is the manifest — no `content:` block.
+# ADR-0043 §1 / §3: directory layout is the manifest — no `content:` block.
 # The package ships exactly the artefacts discovered under `units/`. The
-# two sub-units (`sv-oss-software-engineering`, `sv-oss-program-management`)
-# sit alongside the umbrella `spring-voyage-oss` under `units/`; each
-# sub-unit nests its own member agent under its local `agents/`
-# subdirectory per ADR-0043 §3.
+# umbrella `spring-voyage-oss` is the package's single top-level unit;
+# its two sub-units (`sv-oss-software-engineering`, `sv-oss-program-management`)
+# nest under the umbrella's own `units/` subdirectory per ADR-0043 §1's
+# recursive-containment rule. The membership graph (the umbrella's
+# `members:` block) and the filesystem layout agree.
 
 # Package-level execution defaults (#1679). The umbrella's container image
 # becomes the package default — the umbrella unit (which does not pin its
