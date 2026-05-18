@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   AlertTriangle,
   ChevronDown,
@@ -406,9 +408,24 @@ export function ThreadEventRow({
                 </span>
               </button>
             ) : (
-              <p className="whitespace-pre-wrap break-words">
-                {bodyText ?? event.summary}
-              </p>
+              <div className="prose prose-sm dark:prose-invert max-w-none break-words [&_a]:text-primary [&_a]:underline [&_code:not(pre_code)]:rounded [&_code:not(pre_code)]:bg-black/10 [&_code:not(pre_code)]:px-1 [&_code:not(pre_code)]:dark:bg-white/10 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/10 [&_pre]:p-2 [&_pre]:dark:bg-white/10 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    a: ({ href, children }) => (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {children}
+                      </a>
+                    ),
+                  }}
+                >
+                  {bodyText ?? event.summary ?? ""}
+                </ReactMarkdown>
+              </div>
             )}
 
             {expanded && collapsible && (
