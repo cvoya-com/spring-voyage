@@ -22,12 +22,19 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Coverage for the #2429 fix — the GitHub connector persists the installation
-/// id alongside the webhook hook id at register time, and uses that persisted
-/// value on teardown even when the operator has re-PUTed the binding to a
-/// different installation in between. Falls back to the current binding's
-/// <see cref="UnitGitHubConfig.AppInstallationId"/> only for runtime rows
-/// written before this PR (where the field is missing from the persisted JSON).
+/// Coverage for the #2429 fix — the GitHub connector persists the
+/// installation id alongside the webhook hook id at register time, and uses
+/// that persisted value on teardown even when the operator has re-PUTed the
+/// binding to a different installation in between.
+///
+/// <para>
+/// v0.1 has no released deployments, so there is no legacy-row migration
+/// shim: the register path resolves the binding's
+/// <see cref="UnitGitHubConfig.AppInstallationId"/> through the connector's
+/// global default and persists the resolved (non-null) value, and the
+/// teardown path throws when the persisted id is null/missing rather than
+/// silently falling back to the current binding.
+/// </para>
 /// </summary>
 public class GitHubConnectorTypeWebhookInstallationIdTests
 {
@@ -79,15 +86,15 @@ public class GitHubConnectorTypeWebhookInstallationIdTests
     }
 
     [Fact]
-    public async Task OnUnitStartingAsync_NullInstallationId_PersistsNullInstallationId()
+    public async Task OnUnitStartingAsync_NullBindingInstallationId_FallsBackToGlobalAndPersistsResolved()
     {
-        // The connector does not synthesise an installation id when the
-        // binding does not carry one — the global-default fallback is the
-        // registrar's contract and the persisted shape MUST round-trip the
-        // null through to teardown so the same call path is taken.
+        // When the binding's AppInstallationId is null, the connector
+        // resolves through the global default (per #2385) and persists
+        // *that* value on the runtime row. The persisted id is therefore
+        // non-null on every fresh row — no null sneaks through to teardown.
         var runtimeStore = new InMemoryRuntimeStore();
-        var sut = CreateSut(runtimeStore: runtimeStore);
-        StubBinding(unitId: "unit-1", config: new UnitGitHubConfig(
+        var sut = CreateSut(runtimeStore: runtimeStore, globalInstallationId: 8080);
+        StubBinding(unitId: "unit-globalfallback", config: new UnitGitHubConfig(
             Owner: "acme",
             Repo: "platform",
             AppInstallationId: null));
@@ -96,14 +103,19 @@ public class GitHubConnectorTypeWebhookInstallationIdTests
             Arg.Any<IReadOnlyList<string>?>(), Arg.Any<CancellationToken>())
             .Returns(99L);
 
-        await sut.OnUnitStartingAsync("unit-1", TestContext.Current.CancellationToken);
+        await sut.OnUnitStartingAsync("unit-globalfallback", TestContext.Current.CancellationToken);
 
-        var persisted = await runtimeStore.GetAsync("unit-1", TestContext.Current.CancellationToken);
+        // The registrar receives the resolved global id, not the binding's null.
+        await _webhookRegistrar.Received(1).RegisterAsync(
+            "acme", "platform", 8080L, Arg.Any<IReadOnlyList<string>?>(),
+            Arg.Any<CancellationToken>());
+
+        var persisted = await runtimeStore.GetAsync("unit-globalfallback", TestContext.Current.CancellationToken);
         persisted.ShouldNotBeNull();
         var runtime = persisted!.Value.Deserialize<GitHubConnectorRuntime>(ConfigJson);
         runtime.ShouldNotBeNull();
         runtime!.HookId.ShouldBe(99L);
-        runtime.InstallationId.ShouldBeNull();
+        runtime.InstallationId.ShouldBe(8080L);
     }
 
     [Fact]
@@ -160,19 +172,20 @@ public class GitHubConnectorTypeWebhookInstallationIdTests
     }
 
     [Fact]
-    public async Task OnUnitStoppingAsync_LegacyRuntimeRow_FallsBackToCurrentBindingAndLogsWarning()
+    public async Task OnUnitStoppingAsync_RuntimeRowMissingInstallationId_Throws()
     {
-        // Edge case for the bounded back-compat shim — a runtime row written
-        // before #2429 has only `{"HookId": 42}` in the JSON. Deserialising
-        // it leaves InstallationId == null. The teardown path falls back to
-        // the binding's current AppInstallationId and logs a warning so an
-        // operator stop + start cycle leaves clean rows on the next run.
+        // v0.1 has no released deployments — there are no pre-#2429 runtime
+        // rows in the wild. A row with null/missing `installationId` is
+        // therefore corrupt: fail loudly so operators can pinpoint and
+        // repair it, rather than silently fall back to the binding's current
+        // AppInstallationId (which may target a different installation that
+        // cannot delete the hook).
         var configStore = new InMemoryConfigStore();
         var runtimeStore = new InMemoryRuntimeStore();
         var sut = CreateSut(configStore: configStore, runtimeStore: runtimeStore);
 
         await configStore.SetAsync(
-            "unit-legacy",
+            "unit-corrupt",
             GitHubConnectorType.GitHubTypeId,
             SerializeConfig(new UnitGitHubConfig(
                 Owner: "acme",
@@ -180,77 +193,59 @@ public class GitHubConnectorTypeWebhookInstallationIdTests
                 AppInstallationId: 7777)),
             TestContext.Current.CancellationToken);
 
-        // Write a legacy-shaped runtime row directly — no InstallationId.
-        using var doc = JsonDocument.Parse("""{"HookId": 1234}""");
+        // Write a corrupt runtime row directly — no installationId field.
+        using var doc = JsonDocument.Parse("""{"hookId": 1234}""");
         await runtimeStore.SetAsync(
-            "unit-legacy",
+            "unit-corrupt",
             doc.RootElement.Clone(),
             TestContext.Current.CancellationToken);
 
-        await sut.OnUnitStoppingAsync("unit-legacy", TestContext.Current.CancellationToken);
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => sut.OnUnitStoppingAsync("unit-corrupt", TestContext.Current.CancellationToken));
 
-        // Fallback: the binding's current installation id is what the
-        // registrar receives. This is the documented best-effort path and
-        // matches the pre-#2429 behaviour for already-deployed units.
-        await _webhookRegistrar.Received(1).UnregisterAsync(
-            "acme",
-            "platform",
-            1234L,
-            7777L,
-            Arg.Any<CancellationToken>());
+        ex.Message.ShouldContain("unit-corrupt");
+        ex.Message.ShouldContain("acme/platform");
+        ex.Message.ShouldContain("1234");
 
-        // Warning must be emitted so the operator notices a legacy row that
-        // will resolve itself on the next stop + start cycle.
-        _logger.Received(1).Log(
-            LogLevel.Warning,
-            Arg.Any<EventId>(),
-            Arg.Is<object>(state => state!.ToString()!.Contains("legacy row written before #2429")),
-            Arg.Any<Exception?>(),
-            Arg.Any<Func<object, Exception?, string>>());
+        // Teardown must not have been attempted on a corrupt row.
+        await _webhookRegistrar.DidNotReceive().UnregisterAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long>(),
+            Arg.Any<long?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task OnUnitStoppingAsync_PersistedRowWithNullInstallationId_UsesNullAndDoesNotWarn()
+    public async Task OnUnitStoppingAsync_RuntimeRowExplicitNullInstallationId_Throws()
     {
-        // A binding bound without an AppInstallationId persists the null
-        // verbatim on the runtime row — that is the documented OSS fallback
-        // and is NOT a legacy row, so no warning and no fallback re-read of
-        // the binding's current value (which is also null here anyway).
+        // Same rule as the missing-field case — an explicit null is just as
+        // unusable as a missing field, so both surface the same exception.
+        // (The current register path never writes null, so this can only
+        // happen if a row is hand-edited or a future bug regresses the
+        // register path.)
         var configStore = new InMemoryConfigStore();
         var runtimeStore = new InMemoryRuntimeStore();
         var sut = CreateSut(configStore: configStore, runtimeStore: runtimeStore);
 
         await configStore.SetAsync(
-            "unit-nullinst",
+            "unit-explicit-null",
             GitHubConnectorType.GitHubTypeId,
             SerializeConfig(new UnitGitHubConfig(
                 Owner: "acme",
                 Repo: "platform",
-                AppInstallationId: null)),
+                AppInstallationId: 7777)),
             TestContext.Current.CancellationToken);
 
-        _webhookRegistrar.RegisterAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long?>(),
-            Arg.Any<IReadOnlyList<string>?>(), Arg.Any<CancellationToken>())
-            .Returns(55L);
-        await sut.OnUnitStartingAsync("unit-nullinst", TestContext.Current.CancellationToken);
+        using var doc = JsonDocument.Parse("""{"hookId": 4321, "installationId": null}""");
+        await runtimeStore.SetAsync(
+            "unit-explicit-null",
+            doc.RootElement.Clone(),
+            TestContext.Current.CancellationToken);
 
-        await sut.OnUnitStoppingAsync("unit-nullinst", TestContext.Current.CancellationToken);
+        await Should.ThrowAsync<InvalidOperationException>(
+            () => sut.OnUnitStoppingAsync("unit-explicit-null", TestContext.Current.CancellationToken));
 
-        await _webhookRegistrar.Received(1).UnregisterAsync(
-            "acme",
-            "platform",
-            55L,
-            (long?)null,
-            Arg.Any<CancellationToken>());
-
-        // Persisted row had the field — no legacy-row warning expected.
-        _logger.DidNotReceive().Log(
-            LogLevel.Warning,
-            Arg.Any<EventId>(),
-            Arg.Is<object>(state => state!.ToString()!.Contains("legacy row written before #2429")),
-            Arg.Any<Exception?>(),
-            Arg.Any<Func<object, Exception?, string>>());
+        await _webhookRegistrar.DidNotReceive().UnregisterAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long>(),
+            Arg.Any<long?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -305,7 +300,8 @@ public class GitHubConnectorTypeWebhookInstallationIdTests
 
     private GitHubConnectorType CreateSut(
         IUnitConnectorConfigStore? configStore = null,
-        IUnitConnectorRuntimeStore? runtimeStore = null)
+        IUnitConnectorRuntimeStore? runtimeStore = null,
+        long? globalInstallationId = null)
     {
         var options = new GitHubConnectorOptions
         {
@@ -313,6 +309,7 @@ public class GitHubConnectorTypeWebhookInstallationIdTests
             PrivateKeyPem = TestPemKey.Value,
             WebhookSecret = "test-secret",
             WebhookUrl = "https://example.com/api/v1/webhooks/github",
+            InstallationId = globalInstallationId,
         };
         var optionsAccessor = Options.Create(options);
         var requirement = new GitHubAppConfigurationRequirement(optionsAccessor);
