@@ -76,6 +76,7 @@ import type {
   UnitPolicyResponse,
   UnitDeploymentResponse,
   UnitReadinessResponse,
+  UnitHumanMemberResponse,
   UnitResponse,
   UnitTemplateDetail,
   UserProfileResponse,
@@ -761,6 +762,30 @@ export function useHumanIdentities(
 }
 
 /**
+ * Read the team-role human members of a unit
+ * (`GET /api/v1/tenant/units/{id}/members/humans`, #2409). Powers the
+ * human cards on the Unit × Members tab (#2270 / #2427). The endpoint
+ * returns one row per (humanId, role) pair; a single human with two
+ * roles surfaces as two cards.
+ *
+ * Mutations on the Members tab seed the cache by writing the freshly
+ * returned row instead of invalidating, so the optimistic-feeling
+ * dialogs don't refetch the whole list.
+ */
+export function useUnitHumanMembers(
+  unitId: string,
+  opts?: SliceOptions<UnitHumanMemberResponse[]>,
+): UseQueryResult<UnitHumanMemberResponse[], Error> {
+  return useQuery({
+    queryKey: queryKeys.units.humanMembers(unitId),
+    queryFn: async () => api.listUnitHumanMembers(unitId),
+    enabled: opts?.enabled ?? Boolean(unitId),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
  * Upsert a connector-identity row (#2269 / PR #2420). On success
  * invalidates the per-human identities list so the Identity sub-tab
  * re-renders with the new row. ApiError (409 conflict, 400 validation,
@@ -812,6 +837,7 @@ export function useRemoveHumanIdentity(
     },
   });
 }
+
 
 // ---------------------------------------------------------------------------
 // Activity

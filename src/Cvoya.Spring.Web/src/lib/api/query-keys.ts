@@ -61,6 +61,12 @@ export const queryKeys = {
     cost: (id: string) => ["units", "cost", id] as const,
     agents: (id: string) => ["units", "agents", id] as const,
     memberships: (id: string) => ["units", "memberships", id] as const,
+    /**
+     * Team-role human members (`GET /api/v1/tenant/units/{id}/members/humans`,
+     * #2409). One row per (humanId, role) pair. Powers the human cards on
+     * the Unit × Members tab (#2270 / #2427).
+     */
+    humanMembers: (id: string) => ["units", "humanMembers", id] as const,
     secrets: (id: string) => ["units", "secrets", id] as const,
     connector: (id: string) => ["units", "connector", id] as const,
     githubConfig: (id: string) => ["units", "githubConfig", id] as const,

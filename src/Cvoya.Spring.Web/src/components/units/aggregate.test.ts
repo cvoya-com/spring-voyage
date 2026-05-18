@@ -251,19 +251,20 @@ describe("tabsFor", () => {
     ]);
   });
 
-  it("locks the unit tab order and count (#2271/#2272/#2273 — Skills+Traces+Deployment added, canonical order)", () => {
+  it("locks the unit tab order and count (#2270 / #2427 — Members replaces Agents)", () => {
     // Canonical order per docs/design/canonical-tabs.md § 7.1: Skills,
-    // Traces, and Deployment join the Unit catalog. Activity moved up
-    // to slot 2 (matching Agent + Tenant) and Agents moved down after
-    // Memory so the reading slots (Overview/Activity/Messages/Memory)
-    // are contiguous across all subjects. Deployment sits in overflow
-    // alongside Config — both are deep editors / lifecycle surfaces.
+    // Traces, and Deployment join the Unit catalog. Activity sits at
+    // slot 2 (matching Agent + Tenant); the composition slot is now
+    // `Members` (renamed from `Agents` under #2270 / #2427) and
+    // surfaces agents + sub-units + human team-role rows. Deployment
+    // sits in overflow alongside Config — both are deep editors /
+    // lifecycle surfaces.
     expect([...UNIT_TABS.visible, ...UNIT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
       "Messages",
       "Memory",
-      "Agents",
+      "Members",
       "Skills",
       "Traces",
       "Policies",
@@ -272,6 +273,10 @@ describe("tabsFor", () => {
     ]);
     expect(UNIT_TABS.visible).toHaveLength(8);
     expect(UNIT_TABS.overflow).toEqual(["Config", "Deployment"]);
+    // Hard rename — `Agents` is no longer a valid Unit tab. The
+    // DetailPane's existing invalid-tab effect bounces stale
+    // `?tab=Agents` deep-links back to Overview.
+    expect(UNIT_TABS.visible).not.toContain("Agents");
   });
 
   it("locks the agent tab order — 8 visible + Config/Deployment overflow (canonical-tabs §3.3)", () => {
@@ -326,13 +331,13 @@ describe("tabsFor", () => {
 });
 
 describe("visibleTabsFor / overflowTabsFor", () => {
-  it("splits the Unit catalog into 8 visible + 2 overflow (#2271/#2272/#2273)", () => {
+  it("splits the Unit catalog into 8 visible + 2 overflow (#2270 / #2427)", () => {
     expect(visibleTabsFor("Unit")).toEqual([
       "Overview",
       "Activity",
       "Messages",
       "Memory",
-      "Agents",
+      "Members",
       "Skills",
       "Traces",
       "Policies",

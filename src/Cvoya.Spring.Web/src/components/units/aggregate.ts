@@ -317,12 +317,20 @@ export const UNIT_TABS = {
   // gains the agent's introspection slots (Skills, Traces) and the
   // lifecycle slot (Deployment). Clones is the only agent-only slot —
   // units cannot be cloned today. See canonical-tabs.md § 7.1.
+  //
+  // `Members` replaces the v0.1-historical `Agents` slot (#2270 /
+  // #2427) — the Unit composition tab now surfaces all three subject
+  // kinds that participate in the unit: agent members, sub-units, and
+  // human team-role members. The rename is hard (no `?tab=Agents`
+  // shim, per v0.1 aggressive-cleanup convention); the DetailPane's
+  // existing invalid-tab fallback transparently bounces stale links
+  // back to Overview.
   visible: [
     "Overview",
     "Activity",
     "Messages",
     "Memory",
-    "Agents",
+    "Members",
     "Skills",
     "Traces",
     "Policies",

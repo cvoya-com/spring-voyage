@@ -2,6 +2,7 @@ import createClient from "openapi-fetch";
 
 import type { paths } from "./schema";
 import type {
+  AddUnitHumanMemberRequest,
   AgentCloningPolicyResponse,
   AgentDetailResponse,
   AgentExecutionResponse,
@@ -38,9 +39,11 @@ import type {
   UnitConnectorBindingRequest,
   UnitExecutionResponse,
   UnitGitHubConfigRequest,
+  UnitHumanMemberResponse,
   UnitPolicyResponse,
   UnitResponse,
   UpdateAgentMetadataRequest,
+  UpdateUnitHumanMemberRequest,
   UpdateUnitRequest,
 } from "./types";
 
@@ -789,6 +792,65 @@ export const api = {
         "/api/v1/tenant/units/{unitId}/memberships/{agentAddress}",
         {
           params: { path: { unitId, agentAddress } },
+        },
+      ),
+    );
+  },
+
+  // Unit team-role human members (#2409 / #2270 / #2427).
+  //
+  // The team-role membership endpoints sit alongside the existing
+  // agent-membership surface (above). A single human may hold multiple
+  // roles on the same unit; each role is its own row keyed by
+  // `membershipId`. In OSS the only `humanId` the operator can write
+  // is their own — backend rejects others. The portal pre-fills the
+  // Add form so the dialog never asks the operator to pick.
+  listUnitHumanMembers: async (
+    unitId: string,
+  ): Promise<UnitHumanMemberResponse[]> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/units/{id}/members/humans", {
+        params: { path: { id: unitId } },
+      }),
+    ) as UnitHumanMemberResponse[],
+  addUnitHumanMember: async (
+    unitId: string,
+    body: AddUnitHumanMemberRequest,
+  ): Promise<UnitHumanMemberResponse> =>
+    unwrap(
+      await fetchClient.POST(
+        "/api/v1/tenant/units/{id}/members/humans",
+        {
+          params: { path: { id: unitId } },
+          body,
+        },
+      ),
+    ) as UnitHumanMemberResponse,
+  updateUnitHumanMember: async (
+    unitId: string,
+    humanId: string,
+    role: string,
+    body: UpdateUnitHumanMemberRequest,
+  ): Promise<UnitHumanMemberResponse> =>
+    unwrap(
+      await fetchClient.PATCH(
+        "/api/v1/tenant/units/{id}/members/humans/{humanId}/{role}",
+        {
+          params: { path: { id: unitId, humanId, role } },
+          body,
+        },
+      ),
+    ) as UnitHumanMemberResponse,
+  removeUnitHumanMember: async (
+    unitId: string,
+    humanId: string,
+    role: string,
+  ): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE(
+        "/api/v1/tenant/units/{id}/members/humans/{humanId}/{role}",
+        {
+          params: { path: { id: unitId, humanId, role } },
         },
       ),
     );

@@ -4,7 +4,7 @@ import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js"
 import { expect, test } from "../../fixtures/test.js";
 
 /**
- * Unit's Agents tab → create-agent dialog (create / remove).
+ * Unit's Members tab → create-agent dialog (create / remove).
  *
  * Mirrors `tests/e2e/scenarios/fast/06-unit-membership-roundtrip.sh`. The
  * shell scenario asserts the CLI, /memberships, and /agents read paths agree;
@@ -29,7 +29,7 @@ test.describe("units — agents tab membership", () => {
     const unitB = tracker.unit(unitName("memb"));
     const aId = tracker.agent(agentName("memb-ada"));
 
-    // Seed the unit. The Agents tab Add action now opens AgentCreateDialog,
+    // Seed the unit. The Members tab Add action now opens AgentCreateDialog,
     // so the agent itself is created through the portal rather than picked
     // from an existing-agent dropdown.
     await apiPost("/api/v1/tenant/units", {
@@ -43,10 +43,10 @@ test.describe("units — agents tab membership", () => {
       isTopLevel: true,
     });
 
-    // Open unit → Agents tab → "Add agent". The trigger opens the shared
+    // Open unit → Members tab → "Add agent". The trigger opens the shared
     // create-agent dialog preselected to this unit.
     await page.goto(
-      `/units?node=${encodeURIComponent(unitB)}&tab=Agents`,
+      `/units?node=${encodeURIComponent(unitB)}&tab=Members`,
     );
     await page.getByLabel("Add agent", { exact: true }).click();
 
@@ -117,7 +117,7 @@ test.describe("units — agents tab membership", () => {
     });
 
     await page.goto(
-      `/units?node=${encodeURIComponent(unitB)}&tab=Agents`,
+      `/units?node=${encodeURIComponent(unitB)}&tab=Members`,
     );
     await page.getByLabel("Add agent", { exact: true }).click();
 
