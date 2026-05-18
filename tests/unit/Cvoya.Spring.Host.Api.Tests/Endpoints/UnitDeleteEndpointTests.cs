@@ -289,7 +289,6 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();
         _factory.UnitContainerLifecycle.ClearReceivedCalls();
-        _factory.GitHubWebhookRegistrar.ClearReceivedCalls();
         _factory.ActivityEventBus.ClearReceivedCalls();
 
         // Reset the container stop stub to success; individual tests override

@@ -14,12 +14,22 @@ using Cvoya.Spring.Core.Messaging;
 public interface IGitHubWebhookHandler
 {
     /// <summary>
-    /// Translates a GitHub webhook event into a domain message.
+    /// Translates a GitHub webhook event into a domain message and
+    /// resolves the destination unit by matching the inbound payload's
+    /// <c>(installation_id, owner, repo)</c> triple against the unit
+    /// bindings the platform knows about (issue #2456).
     /// </summary>
     /// <param name="eventType">The GitHub event type from the X-GitHub-Event header.</param>
     /// <param name="payload">The parsed JSON payload.</param>
-    /// <returns>A domain <see cref="Message"/>, or <c>null</c> if the event type is not handled.</returns>
-    Message? TranslateEvent(string eventType, JsonElement payload);
+    /// <param name="cancellationToken">A token to cancel the binding lookup.</param>
+    /// <returns>
+    /// A unit-addressed domain <see cref="Message"/>, or <c>null</c> when
+    /// the event type is not handled or no unit is bound to the
+    /// inbound payload's <c>(installation_id, owner, repo)</c>. The
+    /// connector treats both shapes identically — silent drop, ACK 202.
+    /// </returns>
+    Task<Message?> TranslateEventAsync(
+        string eventType, JsonElement payload, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Applies the per-binding inbound filter declared on the target unit's

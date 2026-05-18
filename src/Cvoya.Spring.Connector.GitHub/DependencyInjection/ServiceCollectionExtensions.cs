@@ -206,7 +206,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IGitHubWebhookHandler>(sp => sp.GetRequiredService<GitHubWebhookHandler>());
         services.TryAddSingleton<GitHubConnector>();
         services.TryAddSingleton<IGitHubConnector>(sp => sp.GetRequiredService<GitHubConnector>());
-        services.TryAddSingleton<IGitHubWebhookRegistrar, GitHubWebhookRegistrar>();
+        // Issue #2456 removed IGitHubWebhookRegistrar — the platform no
+        // longer creates per-repo webhooks. The GitHub App's own
+        // installation scope determines what GitHub delivers.
+
         // Installation-listing is its own abstraction (IGitHubInstallationsClient)
         // so the cloud repo can substitute a tenant-scoped implementation
         // without pulling endpoint code.

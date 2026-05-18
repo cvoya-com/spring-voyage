@@ -37,16 +37,12 @@ using Xunit;
 public class GitHubConnectorTypeCredentialValidationTests
 {
     private readonly IUnitConnectorConfigStore _configStore;
-    private readonly IUnitConnectorRuntimeStore _runtimeStore;
-    private readonly IGitHubWebhookRegistrar _webhookRegistrar;
     private readonly IGitHubInstallationsClient _installationsClient;
     private readonly ILoggerFactory _loggerFactory;
 
     public GitHubConnectorTypeCredentialValidationTests()
     {
         _configStore = Substitute.For<IUnitConnectorConfigStore>();
-        _runtimeStore = Substitute.For<IUnitConnectorRuntimeStore>();
-        _webhookRegistrar = Substitute.For<IGitHubWebhookRegistrar>();
         _installationsClient = Substitute.For<IGitHubInstallationsClient>();
         _loggerFactory = Substitute.For<ILoggerFactory>();
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
@@ -272,8 +268,6 @@ public class GitHubConnectorTypeCredentialValidationTests
 
         return new GitHubConnectorType(
             _configStore,
-            _runtimeStore,
-            _webhookRegistrar,
             _installationsClient,
             Substitute.For<IGitHubCollaboratorsClient>(),
             optionsAccessor,

@@ -29,8 +29,7 @@ public class GitHubWebhookHandlerTests
         var loggerFactory = Substitute.For<ILoggerFactory>();
         var logger = Substitute.For<ILogger>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(logger);
-        var options = new GitHubConnectorOptions { DefaultTargetUnitPath = TestTeamHex };
-        _handler = new GitHubWebhookHandler(options, loggerFactory);
+        _handler = new GitHubWebhookHandler(loggerFactory);
     }
 
     [Fact]
@@ -38,7 +37,7 @@ public class GitHubWebhookHandlerTests
     {
         var payload = CreateIssuePayload("opened");
 
-        var message = _handler.TranslateEvent("issues", payload);
+        var message = _handler.TranslatePayload("issues", payload);
 
         message.ShouldNotBeNull();
         message!.Type.ShouldBe(MessageType.Domain);
@@ -51,7 +50,7 @@ public class GitHubWebhookHandlerTests
     {
         var payload = CreatePullRequestPayload("opened");
 
-        var message = _handler.TranslateEvent("pull_request", payload);
+        var message = _handler.TranslatePayload("pull_request", payload);
 
         message.ShouldNotBeNull();
         message!.Type.ShouldBe(MessageType.Domain);
@@ -64,7 +63,7 @@ public class GitHubWebhookHandlerTests
     {
         var payload = CreateCommentPayload();
 
-        var message = _handler.TranslateEvent("issue_comment", payload);
+        var message = _handler.TranslatePayload("issue_comment", payload);
 
         message.ShouldNotBeNull();
         message!.Type.ShouldBe(MessageType.Domain);
@@ -77,7 +76,7 @@ public class GitHubWebhookHandlerTests
     {
         var payload = JsonSerializer.SerializeToElement(new { action = "opened" });
 
-        var message = _handler.TranslateEvent("deployment", payload);
+        var message = _handler.TranslatePayload("deployment", payload);
 
         message.ShouldBeNull();
     }
@@ -92,7 +91,7 @@ public class GitHubWebhookHandlerTests
     {
         var payload = CreateIssuePayload(action);
 
-        var message = _handler.TranslateEvent("issues", payload);
+        var message = _handler.TranslatePayload("issues", payload);
 
         message.ShouldNotBeNull();
         message!.Type.ShouldBe(MessageType.Domain);
@@ -105,7 +104,7 @@ public class GitHubWebhookHandlerTests
     {
         var payload = CreateIssuePayload("milestoned");
 
-        var message = _handler.TranslateEvent("issues", payload);
+        var message = _handler.TranslatePayload("issues", payload);
 
         message.ShouldBeNull();
     }
@@ -135,7 +134,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("issues", payload);
+        var message = _handler.TranslatePayload("issues", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("changed_label").GetString().ShouldBe("in-progress:author");
@@ -151,7 +150,7 @@ public class GitHubWebhookHandlerTests
     {
         var payload = CreatePullRequestPayload(action);
 
-        var message = _handler.TranslateEvent("pull_request", payload);
+        var message = _handler.TranslatePayload("pull_request", payload);
 
         message.ShouldNotBeNull();
         message!.Type.ShouldBe(MessageType.Domain);
@@ -186,7 +185,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("pull_request", payload);
+        var message = _handler.TranslatePayload("pull_request", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("pull_request").GetProperty("merged").GetBoolean().ShouldBeTrue();
@@ -199,7 +198,7 @@ public class GitHubWebhookHandlerTests
     {
         var payload = CreateCommentPayloadWithAction(action);
 
-        var message = _handler.TranslateEvent("issue_comment", payload);
+        var message = _handler.TranslatePayload("issue_comment", payload);
 
         message.ShouldNotBeNull();
         message!.Type.ShouldBe(MessageType.Domain);
@@ -212,7 +211,7 @@ public class GitHubWebhookHandlerTests
     {
         var payload = CreateIssuePayload("opened");
 
-        var message = _handler.TranslateEvent("issues", payload);
+        var message = _handler.TranslatePayload("issues", payload);
 
         message.ShouldNotBeNull();
         message!.From.Scheme.ShouldBe("connector");
@@ -222,34 +221,36 @@ public class GitHubWebhookHandlerTests
     }
 
     [Fact]
-    public void TranslateEvent_WithConfiguredTargetUnit_RoutesToUnitScheme()
+    public void TranslatePayload_StampsUnresolvedPlaceholderDestination()
     {
+        // Issue #2456 — TranslatePayload no longer resolves the
+        // destination. It produces a domain-shaped message addressed to
+        // the unresolved-placeholder sentinel; the connector's webhook
+        // entry point calls TranslateEventAsync which runs the resolver
+        // and replaces the To address with the matched unit (or drops
+        // the event when no binding matches).
         var payload = CreateIssuePayload("opened");
 
-        var message = _handler.TranslateEvent("issues", payload);
+        var message = _handler.TranslatePayload("issues", payload);
 
         message.ShouldNotBeNull();
-        message!.To.Scheme.ShouldBe("unit");
-        message.To.Path.ShouldBe(TestTeamHex);
+        message!.To.ShouldBe(GitHubWebhookHandler.UnresolvedDestination);
+        message.To.Scheme.ShouldBe("system");
     }
 
     [Fact]
-    public void TranslateEvent_WithoutConfiguredTargetUnit_FallsBackToSystemRouter()
+    public async Task TranslateEventAsync_NoBindingLookup_DropsSilently()
     {
-        var loggerFactory = Substitute.For<ILoggerFactory>();
-        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        var options = new GitHubConnectorOptions { DefaultTargetUnitPath = string.Empty };
-        var handler = new GitHubWebhookHandler(options, loggerFactory);
-
+        // Without an IUnitConnectorBindingLookup wired (legacy unit-test
+        // setup) the handler has no way to address the event at a unit
+        // and returns null — surfaced to the connector as
+        // WebhookOutcome.Ignored, ACK 202 to GitHub.
         var payload = CreateIssuePayload("opened");
 
-        var message = handler.TranslateEvent("issues", payload);
+        var message = await _handler.TranslateEventAsync(
+            "issues", payload, TestContext.Current.CancellationToken);
 
-        message.ShouldNotBeNull();
-        message!.To.Scheme.ShouldBe("system");
-        // Pinned synthetic Guid for the fallback router sentinel address
-        // (greppable as ASCII "router" in the trailing 12 hex chars).
-        message.To.Path.ShouldBe("00000000000000000000726f75746572");
+        message.ShouldBeNull();
     }
 
     [Fact]
@@ -281,7 +282,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("pull_request_review", payload);
+        var message = _handler.TranslatePayload("pull_request_review", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("action").GetString().ShouldBe("submitted");
@@ -320,7 +321,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("pull_request_review", payload);
+        var message = _handler.TranslatePayload("pull_request_review", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("action").GetString().ShouldBe(action);
@@ -359,7 +360,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("pull_request_review_comment", payload);
+        var message = _handler.TranslatePayload("pull_request_review_comment", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("action").GetString().ShouldBe(action);
@@ -390,7 +391,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("pull_request_review_thread", payload);
+        var message = _handler.TranslatePayload("pull_request_review_thread", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("action").GetString().ShouldBe(action);
@@ -416,7 +417,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("installation", payload);
+        var message = _handler.TranslatePayload("installation", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("action").GetString().ShouldBe(action);
@@ -445,7 +446,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("installation", payload);
+        var message = _handler.TranslatePayload("installation", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("installation").GetProperty("suspended_by").GetString().ShouldBe("org-admin");
@@ -474,7 +475,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("installation_repositories", payload);
+        var message = _handler.TranslatePayload("installation_repositories", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("added_repositories").GetArrayLength().ShouldBe(2);
@@ -502,7 +503,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("installation_repositories", payload);
+        var message = _handler.TranslatePayload("installation_repositories", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("removed_repositories").GetArrayLength().ShouldBe(1);
@@ -538,7 +539,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("issues", payload);
+        var message = _handler.TranslatePayload("issues", payload);
 
         message.ShouldNotBeNull();
         var transition = message!.Payload.GetProperty("state_transition");
@@ -574,7 +575,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = _handler.TranslateEvent("issues", payload);
+        var message = _handler.TranslatePayload("issues", payload);
 
         message.ShouldNotBeNull();
         var transition = message!.Payload.GetProperty("state_transition");
@@ -586,7 +587,6 @@ public class GitHubWebhookHandlerTests
     {
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        var options = new GitHubConnectorOptions { DefaultTargetUnitPath = TestSlugIds.HexFor("team") };
 
         // Custom vocabulary — "needs-triage" is not in the state set anymore.
         var machine = new LabelStateMachine(new LabelStateMachineOptions
@@ -600,7 +600,7 @@ public class GitHubWebhookHandlerTests
             },
             InitialState = "queued",
         });
-        var handler = new GitHubWebhookHandler(options, loggerFactory, machine);
+        var handler = new GitHubWebhookHandler(loggerFactory, machine);
 
         var data = new
         {
@@ -624,7 +624,7 @@ public class GitHubWebhookHandlerTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = handler.TranslateEvent("issues", payload);
+        var message = handler.TranslatePayload("issues", payload);
 
         message.ShouldNotBeNull();
         var transition = message!.Payload.GetProperty("state_transition");
@@ -655,7 +655,7 @@ public class GitHubWebhookHandlerTests
             }
         };
         var unrelatedPayload = JsonSerializer.SerializeToElement(unrelated);
-        var unrelatedMessage = handler.TranslateEvent("issues", unrelatedPayload);
+        var unrelatedMessage = handler.TranslatePayload("issues", unrelatedPayload);
         unrelatedMessage.ShouldNotBeNull();
         unrelatedMessage!.Payload.GetProperty("state_transition").ValueKind.ShouldBe(JsonValueKind.Null);
     }

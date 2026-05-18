@@ -17,14 +17,25 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// Processes incoming GitHub webhook payloads and translates them into
 /// domain <see cref="Message"/> objects for the Spring Voyage platform.
+///
+/// <para>
+/// Issue #2456 — App-level delivery only. The platform no longer
+/// installs per-repo webhooks; every inbound webhook arrives at the
+/// App-wide URL carrying its own <c>(installation_id, owner, repo)</c>
+/// triple, and the handler resolves the target unit by matching that
+/// triple against per-unit bindings via
+/// <see cref="IUnitConnectorBindingLookup"/>. Deliveries that do not match
+/// any binding are dropped silently (logged at Information so operators
+/// can correlate noise).
+/// </para>
 /// </summary>
 public class GitHubWebhookHandler : IGitHubWebhookHandler
 {
     private static readonly JsonSerializerOptions ConfigJsonOptions = new(JsonSerializerDefaults.Web);
 
-    private readonly GitHubConnectorOptions _options;
     private readonly LabelStateMachine _labelStateMachine;
     private readonly IUnitConnectorConfigStore? _configStore;
+    private readonly IUnitConnectorBindingLookup? _bindingLookup;
     private readonly IActivityEventBus? _activityEventBus;
     private readonly IGitHubPullRequestFilesFetcher? _filesFetcher;
 
@@ -33,7 +44,6 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     /// optional — when omitted (e.g. in legacy test setups) label-change events
     /// are still translated but carry no derived <c>state_transition</c>.
     /// </summary>
-    /// <param name="options">Connector options (default target unit etc.).</param>
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="labelStateMachine">Optional label state machine.</param>
     /// <param name="configStore">
@@ -41,6 +51,17 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     /// filter (issue #2407) is a no-op — every translated event passes.
     /// Real hosts (Host.Api) register the store; legacy / pure-unit-test
     /// fixtures don't, which preserves their existing behaviour.
+    /// </param>
+    /// <param name="bindingLookup">
+    /// Connector-agnostic "list bindings of this type" seam used to
+    /// resolve the destination unit from the inbound payload's
+    /// <c>(installation_id, owner, repo)</c> triple (#2456). When null,
+    /// the handler has no way to address a translated message at a unit
+    /// and returns <c>null</c> from <see cref="TranslateEventAsync"/> —
+    /// the connector treats that as "no binding matched", which surfaces
+    /// to the webhook endpoint as 202 Accepted with no routing call.
+    /// Real hosts always register the lookup; pure-unit-test fixtures may
+    /// omit it when they only exercise the translate-shape path.
     /// </param>
     /// <param name="activityEventBus">
     /// Optional activity-event bus. When null, filter drops are silent.
@@ -58,47 +79,70 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     /// PR shape. Issue #2407.
     /// </param>
     public GitHubWebhookHandler(
-        GitHubConnectorOptions options,
         ILoggerFactory loggerFactory,
         LabelStateMachine? labelStateMachine = null,
         IUnitConnectorConfigStore? configStore = null,
+        IUnitConnectorBindingLookup? bindingLookup = null,
         IActivityEventBus? activityEventBus = null,
         IGitHubPullRequestFilesFetcher? filesFetcher = null)
     {
-        _options = options;
         _logger = loggerFactory.CreateLogger<GitHubWebhookHandler>();
         _labelStateMachine = labelStateMachine ?? new LabelStateMachine(LabelStateMachineOptions.Default());
         _configStore = configStore;
+        _bindingLookup = bindingLookup;
         _activityEventBus = activityEventBus;
         _filesFetcher = filesFetcher;
     }
 
-
-    /// <summary>
-    /// Fallback destination used when no target unit is configured. <see cref="IMessageRouter"/>
-    /// does not recognize this scheme, so routing will fail with <c>ADDRESS_NOT_FOUND</c>
-    /// — callers log and ack but no delivery occurs. Configure
-    /// <see cref="GitHubConnectorOptions.DefaultTargetUnitPath"/> to route to a real unit.
-    /// </summary>
-    // Stable sentinel Guids for synthetic connector addresses. These do not
-    // correspond to real directory entries — the router falls back via
-    // ADDRESS_NOT_FOUND when no target unit is configured. The Guids are
-    // pinned literals so they remain greppable across logs.
-    internal static readonly Address FallbackRouterAddress =
-        new("system", new Guid("00000000-0000-0000-0000-726f75746572"));
-
+    // Stable sentinel Guid for the GitHub connector's synthetic "from"
+    // address. Pinned literal so it stays greppable in logs (the
+    // trailing 12 hex chars spell "github" in ASCII).
     private static readonly Address ConnectorAddress =
         new("connector", new Guid("00000000-0000-0000-0000-006769746875"));
 
     private readonly ILogger _logger;
 
     /// <summary>
-    /// Translates a GitHub webhook event into a domain message.
+    /// Translates a GitHub webhook event into a domain message and
+    /// resolves the destination unit from the inbound payload's
+    /// <c>(installation_id, owner, repo)</c> triple via
+    /// <see cref="IUnitConnectorBindingLookup"/> (issue #2456). Returns
+    /// <c>null</c> when:
+    /// <list type="bullet">
+    ///   <item><description>the event type is not handled,</description></item>
+    ///   <item><description>no unit binding matches the payload's triple
+    ///   (silent drop — logged at <c>Information</c>),</description></item>
+    ///   <item><description>or no binding lookup is registered in DI.</description></item>
+    /// </list>
     /// </summary>
     /// <param name="eventType">The GitHub event type from the X-GitHub-Event header.</param>
     /// <param name="payload">The parsed JSON payload.</param>
-    /// <returns>A domain <see cref="Message"/>, or <c>null</c> if the event type is not handled.</returns>
-    public Message? TranslateEvent(string eventType, JsonElement payload)
+    /// <param name="cancellationToken">A token to cancel the binding lookup.</param>
+    /// <returns>
+    /// A unit-addressed domain <see cref="Message"/>, or <c>null</c> when
+    /// the translation produced nothing or the delivery was dropped
+    /// because no bound unit matched.
+    /// </returns>
+    public async Task<Message?> TranslateEventAsync(
+        string eventType, JsonElement payload, CancellationToken cancellationToken = default)
+    {
+        var translated = TranslatePayload(eventType, payload);
+        if (translated is null)
+        {
+            return null;
+        }
+
+        return await ResolveDestinationAsync(translated, eventType, payload, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Translates an event into its domain-shaped payload without
+    /// resolving a destination. Public so the connector's webhook entry
+    /// point can call it directly when the binding lookup isn't required
+    /// (e.g. unit tests that pin the payload shape).
+    /// </summary>
+    public Message? TranslatePayload(string eventType, JsonElement payload)
     {
         return eventType switch
         {
@@ -116,6 +160,166 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
         };
     }
 
+    /// <summary>
+    /// Resolves the destination unit by matching the inbound webhook
+    /// payload's <c>(installation_id, owner, repo)</c> triple against
+    /// the GitHub bindings the platform knows about. Returns a copy of
+    /// <paramref name="translated"/> with <c>To</c> set to the matched
+    /// unit address, or <c>null</c> when no binding matched (silent
+    /// drop, logged at <c>Information</c>).
+    ///
+    /// <para>
+    /// Installation, installation_repositories, projects_v2, and
+    /// projects_v2_item events are App-level / org-level events that do
+    /// not target a single repository; they fall back to the first
+    /// installation-matching binding so the operator still sees lifecycle
+    /// signal even when the App is installed on repos no unit is bound
+    /// to. When no binding matches the installation either, the event is
+    /// dropped silently like every other unmatched delivery.
+    /// </para>
+    /// </summary>
+    internal async Task<Message?> ResolveDestinationAsync(
+        Message translated,
+        string eventType,
+        JsonElement webhookPayload,
+        CancellationToken cancellationToken)
+    {
+        if (_bindingLookup is null)
+        {
+            // Tests that exercise the translate-shape path don't always
+            // wire the lookup. Without a lookup we have no way to address
+            // the event at a unit — drop it.
+            _logger.LogInformation(
+                "GitHub webhook: no IUnitConnectorBindingLookup registered; dropping {EventType} delivery.",
+                SanitizeForLog(eventType));
+            return null;
+        }
+
+        var (installationId, owner, repo) = ExtractRoutingCoordinates(webhookPayload);
+
+        var bindings = await _bindingLookup
+            .ListByConnectorTypeAsync(GitHubConnectorType.GitHubTypeId, cancellationToken)
+            .ConfigureAwait(false);
+
+        UnitConnectorBindingEntry? match = null;
+        UnitConnectorBindingEntry? installationFallback = null;
+
+        foreach (var entry in bindings)
+        {
+            UnitGitHubConfig? cfg;
+            try
+            {
+                cfg = entry.Binding.Config.Deserialize<UnitGitHubConfig>(ConfigJsonOptions);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+            if (cfg is null)
+            {
+                continue;
+            }
+
+            // Primary match: (installation_id, owner, repo). All three
+            // are required so a repo that happens to share an owner /
+            // name with a binding in a different installation isn't
+            // mis-routed.
+            if (installationId is not null
+                && cfg.AppInstallationId == installationId
+                && owner is not null
+                && repo is not null
+                && string.Equals(cfg.Owner, owner, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(cfg.Repo, repo, StringComparison.OrdinalIgnoreCase))
+            {
+                match = entry;
+                break;
+            }
+
+            // Installation-only fallback for org-level events: capture
+            // the first binding whose installation matches so we can use
+            // it when no full triple matched. Repo / projects events use
+            // the primary path; installation, installation_repositories,
+            // and projects_v2* events ride this fallback.
+            if (installationFallback is null
+                && installationId is not null
+                && cfg.AppInstallationId == installationId)
+            {
+                installationFallback = entry;
+            }
+        }
+
+        if (match is null
+            && installationFallback is not null
+            && IsInstallationScopedEvent(eventType))
+        {
+            match = installationFallback;
+        }
+
+        if (match is null)
+        {
+            // Silent drop — App-level deliveries naturally arrive for
+            // every repo the App can see, including ones no unit is
+            // bound to. Log at Information so operators can spot
+            // "events I'm receiving but no unit is bound" noise without
+            // grepping warning streams.
+            _logger.LogInformation(
+                "GitHub webhook: no binding matches delivery (installation={InstallationId}, owner={Owner}, repo={Repo}, event={EventType}); dropping silently.",
+                installationId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "<missing>",
+                SanitizeForLog(owner) ?? "<missing>",
+                SanitizeForLog(repo) ?? "<missing>",
+                SanitizeForLog(eventType));
+            return null;
+        }
+
+        var destination = Address.For("unit", match.UnitId);
+        _logger.LogInformation(
+            "GitHub webhook: routing {EventType} delivery (installation={InstallationId}, owner={Owner}, repo={Repo}) to unit {Unit}.",
+            SanitizeForLog(eventType),
+            installationId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "<missing>",
+            SanitizeForLog(owner) ?? "<missing>",
+            SanitizeForLog(repo) ?? "<missing>",
+            match.UnitId);
+
+        return translated with { To = destination };
+    }
+
+    private static (long? InstallationId, string? Owner, string? Repo) ExtractRoutingCoordinates(JsonElement payload)
+    {
+        long? installationId = null;
+        if (payload.TryGetProperty("installation", out var inst)
+            && inst.ValueKind == JsonValueKind.Object
+            && inst.TryGetProperty("id", out var instId)
+            && instId.ValueKind == JsonValueKind.Number)
+        {
+            installationId = instId.GetInt64();
+        }
+
+        string? owner = null;
+        string? repo = null;
+        if (payload.TryGetProperty("repository", out var r)
+            && r.ValueKind == JsonValueKind.Object)
+        {
+            if (r.TryGetProperty("owner", out var o)
+                && o.ValueKind == JsonValueKind.Object
+                && o.TryGetProperty("login", out var login)
+                && login.ValueKind == JsonValueKind.String)
+            {
+                owner = login.GetString();
+            }
+            if (r.TryGetProperty("name", out var n)
+                && n.ValueKind == JsonValueKind.String)
+            {
+                repo = n.GetString();
+            }
+        }
+
+        return (installationId, owner, repo);
+    }
+
+    private static bool IsInstallationScopedEvent(string eventType)
+        => eventType is "installation" or "installation_repositories"
+            or "projects_v2" or "projects_v2_item";
+
     /// <inheritdoc />
     public async Task<Message?> ApplyInboundFilterAsync(
         Message translated,
@@ -124,11 +328,11 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     {
         ArgumentNullException.ThrowIfNull(translated);
 
-        // The connector addresses every translated event to a single unit
-        // today (the configured DefaultTargetUnitPath). Per-binding filters
-        // apply to THAT unit's binding. Without a binding store wired (legacy
-        // / unit-test fixtures) the filter is a no-op so the existing
-        // behaviour is preserved exactly.
+        // The translated message's To address is the unit the resolver
+        // matched the inbound payload to (#2456). Per-binding filters
+        // apply to that unit's binding. Without a config store wired
+        // (legacy / unit-test fixtures) the filter is a no-op so the
+        // existing behaviour is preserved exactly.
         if (_configStore is null
             || translated.To.Scheme != Address.UnitScheme)
         {
@@ -416,8 +620,14 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
 
     private Message CreateMessage(JsonElement webhookPayload, string eventName, JsonElement domainPayload)
     {
-        // Some events (installation, installation_repositories) do not carry a repository field.
-        // Fall back to the first added/impacted repository full name, or "unknown" when unavailable.
+        // The To address is filled in by ResolveDestinationAsync (#2456)
+        // once the inbound payload's (installation_id, owner, repo) has
+        // been matched against a unit binding. CreateMessage stamps a
+        // placeholder ("system://unresolved") so the message is
+        // well-formed for the translate-shape unit tests that don't
+        // exercise the address resolution path; production callers
+        // ALWAYS run the resolver and overwrite To before the message
+        // is routed.
         string repoFullName = "unknown";
         if (webhookPayload.TryGetProperty("repository", out var repo)
             && repo.ValueKind == JsonValueKind.Object
@@ -427,19 +637,15 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             repoFullName = fn.GetString() ?? "unknown";
         }
 
-        var destination = ResolveDestination(repoFullName);
-
-        _logger.LogInformation(
-            "Translating GitHub event {EventName} from {Repository} to {Scheme}://{Path}",
+        _logger.LogDebug(
+            "Translating GitHub event {EventName} from {Repository}",
             eventName,
-            repoFullName,
-            destination.Scheme,
-            destination.Path);
+            repoFullName);
 
         return new Message(
             Id: Guid.NewGuid(),
             From: ConnectorAddress,
-            To: destination,
+            To: UnresolvedDestination,
             Type: MessageType.Domain,
             ThreadId: null,
             Payload: domainPayload,
@@ -447,27 +653,14 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     }
 
     /// <summary>
-    /// Determines the routing destination for a translated webhook message.
-    /// Until a per-installation unit lookup lands (see issue #109), we use the
-    /// single configured <see cref="GitHubConnectorOptions.DefaultTargetUnitPath"/>
-    /// for every repository. When unset, fall back to the legacy
-    /// <c>system://router</c> sentinel and warn — <see cref="IMessageRouter"/>
-    /// will Failure-route and the endpoint will still acknowledge the webhook.
+    /// Placeholder destination set on a freshly translated message before
+    /// <see cref="ResolveDestinationAsync"/> matches the payload to a
+    /// unit binding. The hex tail spells "unresolved" so the value is
+    /// greppable in logs if it ever surfaces (it shouldn't — every
+    /// translated message goes through the resolver).
     /// </summary>
-    private Address ResolveDestination(string repoFullName)
-    {
-        var unitPath = _options.DefaultTargetUnitPath;
-        if (!string.IsNullOrWhiteSpace(unitPath))
-        {
-            return Address.For("unit", unitPath);
-        }
-
-        _logger.LogWarning(
-            "No DefaultTargetUnitPath configured for the GitHub connector; webhook from {Repository} "
-            + "will be addressed to system://router which the message router does not recognize.",
-            repoFullName);
-        return FallbackRouterAddress;
-    }
+    internal static readonly Address UnresolvedDestination =
+        new("system", new Guid("00000000-0000-0000-0000-756e7265736f"));
 
     private JsonElement BuildIssuePayload(JsonElement payload, string intent, string? action)
     {

@@ -31,6 +31,19 @@ public interface IUnitConnectorBindingStore
     /// </summary>
     Task<UnitConnectorBinding?> GetAsync(Guid unitId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Returns every active binding whose connector-type id equals
+    /// <paramref name="connectorTypeId"/> in the current tenant scope.
+    /// Drives the connector-agnostic
+    /// <c>IUnitConnectorBindingLookup.ListByConnectorTypeAsync</c> seam
+    /// (issue #2456): connectors that receive App-level deliveries with
+    /// no unit pointer resolve the target unit by matching coordinates
+    /// in the payload against the bindings returned here.
+    /// </summary>
+    Task<IReadOnlyList<Data.UnitConnectorBindingRow>> ListByConnectorTypeAsync(
+        Guid connectorTypeId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Upserts the unit's binding atomically.</summary>
     Task SetAsync(
         Guid unitId,

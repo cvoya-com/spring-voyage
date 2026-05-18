@@ -109,6 +109,13 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddSingleton<IUnitConnectorConfigStore, UnitActorConnectorConfigStore>();
         services.TryAddSingleton<IUnitConnectorRuntimeStore, UnitActorConnectorRuntimeStore>();
 
+        // #2456 — connector-agnostic "list bindings of this type" seam.
+        // GitHub uses it to resolve the destination unit from
+        // (installation_id, owner, repo) on App-level webhook deliveries.
+        // Backed by the EF binding store; TryAdd so cloud overlays can
+        // substitute tenant-aware variants.
+        services.TryAddSingleton<IUnitConnectorBindingLookup, UnitActorConnectorBindingLookup>();
+
         // #2359: the unit-start connector dispatcher must register here, not
         // in the API host. UnitActor.TryAutoStartAsync runs in the Worker
         // process — which has no project reference to Cvoya.Spring.Host.Api —

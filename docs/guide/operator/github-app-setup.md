@@ -111,6 +111,8 @@ Then install the App on at least one repository / organisation:
 1. On the App's settings page, click **Install App** in the left sidebar.
 2. Pick the account / org and the repositories you want the connector to act on. You can re-scope this list later from the same screen.
 
+> **App-installation scope is the SV-side subscription model.** Per [ADR-0045](../../decisions/0045-connector-domain-agnostic-platform.md), the platform does not create per-repo hooks on github.com — it relies on the App's own delivery channel. **Which repos the App is installed on determines what events SV receives.** SV silently drops deliveries from repos no unit is bound to (logged at `Information` so operators can correlate noise); the wasted-work trade-off is fine for typical OSS deployments and is minimised by installing the App on only the repos that have units bound to them. To scope SV down later, remove the unwanted repos from the App's installation on github.com — there is no SV-side action required.
+
 ### 6. Populate `eng/deploy/spring.env`
 
 Open `eng/deploy/spring.env` and uncomment the GitHub block. Paste the four values you collected:

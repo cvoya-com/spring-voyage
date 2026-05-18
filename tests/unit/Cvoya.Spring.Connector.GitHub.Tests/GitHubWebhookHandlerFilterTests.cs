@@ -36,7 +36,6 @@ public class GitHubWebhookHandlerFilterTests
         // No IUnitConnectorConfigStore — handler must behave exactly as before
         // and return the translated message unchanged.
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance);
         var translated = BuildTranslatedMessage();
 
@@ -52,7 +51,6 @@ public class GitHubWebhookHandlerFilterTests
         store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>())
             .Returns((UnitConnectorBinding?)null);
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store);
         var translated = BuildTranslatedMessage();
@@ -71,7 +69,6 @@ public class GitHubWebhookHandlerFilterTests
         store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(nonGitHubTypeId, emptyConfig));
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store);
         var translated = BuildTranslatedMessage();
@@ -95,7 +92,6 @@ public class GitHubWebhookHandlerFilterTests
 
         var bus = Substitute.For<IActivityEventBus>();
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store,
             activityEventBus: bus);
@@ -126,7 +122,6 @@ public class GitHubWebhookHandlerFilterTests
             Arg.Any<CancellationToken>());
 
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store,
             activityEventBus: bus);
@@ -167,7 +162,6 @@ public class GitHubWebhookHandlerFilterTests
             Arg.Any<CancellationToken>());
 
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store,
             activityEventBus: bus);
@@ -189,7 +183,6 @@ public class GitHubWebhookHandlerFilterTests
         store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("simulated transient blip"));
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store);
         var translated = BuildTranslatedMessage();
@@ -217,7 +210,6 @@ public class GitHubWebhookHandlerFilterTests
 
         var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store,
             filesFetcher: fetcher);
@@ -247,7 +239,6 @@ public class GitHubWebhookHandlerFilterTests
             .Returns(new[] { "docs/foo.md", "src/Bar.cs" });
 
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store,
             filesFetcher: fetcher);
@@ -282,7 +273,6 @@ public class GitHubWebhookHandlerFilterTests
             Arg.Any<CancellationToken>());
 
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store,
             activityEventBus: bus,
@@ -314,7 +304,6 @@ public class GitHubWebhookHandlerFilterTests
             .Returns((IReadOnlyList<string>?)null);
 
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store,
             filesFetcher: fetcher);
@@ -342,7 +331,6 @@ public class GitHubWebhookHandlerFilterTests
 
         var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store,
             filesFetcher: fetcher);
@@ -373,7 +361,6 @@ public class GitHubWebhookHandlerFilterTests
             .Returns(new[] { "docs/x.md" });
 
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions { DefaultTargetUnitPath = TargetUnitHex },
             NullLoggerFactory.Instance,
             configStore: store,
             filesFetcher: fetcher);
@@ -387,12 +374,12 @@ public class GitHubWebhookHandlerFilterTests
     [Fact]
     public async Task ApplyInboundFilterAsync_NonUnitDestination_PassesThrough()
     {
-        // When the connector falls back to the system-router sentinel
-        // (no DefaultTargetUnitPath configured) the destination scheme is
-        // "system" — the filter must not attempt a lookup for that.
+        // A translated message whose destination scheme is not "unit"
+        // (sentinel placeholder from CreateMessage before the resolver
+        // runs, or a future shape) must not trigger a binding lookup —
+        // the filter is a no-op for non-unit destinations.
         var store = Substitute.For<IUnitConnectorConfigStore>();
         var handler = new GitHubWebhookHandler(
-            new GitHubConnectorOptions(),
             NullLoggerFactory.Instance,
             configStore: store);
         var translated = BuildTranslatedMessageWithDestination(

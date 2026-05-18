@@ -4,7 +4,6 @@
 namespace Cvoya.Spring.Integration.Tests;
 
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
-using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.ModelProviders;
 
@@ -49,8 +48,6 @@ public class GitHubConnectorCredentialValidationSmokeTests
         // hook never touches them — it only consults the configuration
         // requirement and the installations client.
         services.AddSingleton(Substitute.For<IUnitConnectorConfigStore>());
-        services.AddSingleton(Substitute.For<IUnitConnectorRuntimeStore>());
-        services.AddSingleton(Substitute.For<IGitHubWebhookRegistrar>());
 
         services.AddCvoyaSpringConnectorGitHub(configuration);
 

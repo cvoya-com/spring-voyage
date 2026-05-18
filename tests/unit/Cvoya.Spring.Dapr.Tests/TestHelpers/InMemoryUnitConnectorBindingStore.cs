@@ -8,6 +8,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Dapr.Connectors;
+using Cvoya.Spring.Dapr.Data;
 
 /// <summary>
 /// In-memory test double for <see cref="IUnitConnectorBindingStore"/>.
@@ -31,6 +32,18 @@ public class InMemoryUnitConnectorBindingStore : IUnitConnectorBindingStore
             _slots.TryGetValue(unitId, out var slot)
                 ? new UnitConnectorBinding(slot.ConnectorType, slot.Config)
                 : null);
+    }
+
+    public Task<IReadOnlyList<UnitConnectorBindingRow>> ListByConnectorTypeAsync(
+        Guid connectorTypeId, CancellationToken cancellationToken = default)
+    {
+        var rows = _slots
+            .Where(kvp => kvp.Value.ConnectorType == connectorTypeId)
+            .Select(kvp => new UnitConnectorBindingRow(
+                kvp.Key,
+                new UnitConnectorBinding(kvp.Value.ConnectorType, kvp.Value.Config)))
+            .ToList();
+        return Task.FromResult<IReadOnlyList<UnitConnectorBindingRow>>(rows);
     }
 
     public Task SetAsync(

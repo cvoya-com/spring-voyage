@@ -20,10 +20,19 @@ using Octokit.Internal;
 /// The GitHub connector handles inbound webhook signature validation /
 /// translation and authenticates outbound GitHub API calls (used by the
 /// runtime-context contributor that mints short-lived installation tokens
-/// for agent containers, and by the webhook registrar). Per-tool MCP
-/// surface for GitHub workloads has been removed (issues #2384 / #2383):
-/// agents run <c>gh</c> / <c>git</c> directly inside their container using
-/// the credentials delivered via <see cref="GitHubConnectorRuntimeContextContributor"/>.
+/// for agent containers). Per-tool MCP surface for GitHub workloads has
+/// been removed (issues #2384 / #2383): agents run <c>gh</c> / <c>git</c>
+/// directly inside their container using the credentials delivered via
+/// <see cref="GitHubConnectorRuntimeContextContributor"/>.
+///
+/// <para>
+/// Issue #2456 — webhook delivery is App-level only. The platform no
+/// longer creates per-repo hooks at unit start; the GitHub App's own
+/// installation scope determines what GitHub delivers. The inbound
+/// handler resolves the target unit from the payload's
+/// <c>(installation_id, owner, repo)</c> via
+/// <see cref="Cvoya.Spring.Connectors.IUnitConnectorBindingLookup"/>.
+/// </para>
 /// </summary>
 public class GitHubConnector : IGitHubConnector
 {
@@ -133,10 +142,17 @@ public class GitHubConnector : IGitHubConnector
         }
 
         using var document = JsonDocument.Parse(payload);
-        var message = _webhookHandler.TranslateEvent(eventType, document.RootElement);
+        var message = await _webhookHandler
+            .TranslateEventAsync(eventType, document.RootElement, cancellationToken)
+            .ConfigureAwait(false);
 
         if (message is null)
         {
+            // Either the event type was not handled, or no unit binding
+            // matched the inbound (installation_id, owner, repo) triple
+            // (#2456 — App-level delivery only; unbound deliveries are
+            // dropped silently). The connector treats both shapes
+            // identically — Ignored → webhook endpoint returns 202.
             return WebhookHandleResult.Ignored;
         }
 
