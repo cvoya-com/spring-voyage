@@ -1,4 +1,4 @@
-export type NodeKind = "Tenant" | "Unit" | "Agent";
+export type NodeKind = "Tenant" | "Unit" | "Agent" | "Human";
 
 export type NodeStatus =
   | "running"
@@ -62,14 +62,46 @@ export interface AgentNode extends BaseNode {
   primaryParentId?: string;
 }
 
-export type TreeNode = TenantNode | UnitNode | AgentNode;
+/**
+ * Human subject node (#2266). Humans are first-class participants in
+ * threads (per [`docs/concepts/humans.md`](../../../../docs/concepts/humans.md))
+ * but they are **not** agents — they do not carry expertise, runtime,
+ * memory, skills, traces, or budget. The node interface mirrors only
+ * the cross-subject identity fields (`id`, `name`, `status`, `desc`).
+ *
+ * The Explorer's left-rail tree does NOT include humans in v0.1 — the
+ * `GET /api/v1/tenant/tree` payload (validated by
+ * `validate-tenant-tree.ts`) returns only Tenant/Unit/Agent nodes. The
+ * Explorer reaches the Human page either via the dedicated route
+ * (`/humans/<id>`) or by selecting an id with the `human:` address
+ * scheme (`?node=human:<guid>`). Issue [#2270](https://github.com/cvoya-com/spring-voyage/issues/2270)
+ * + [#2427](https://github.com/cvoya-com/spring-voyage/issues/2427) wires
+ * humans into the Unit × Members tab so per-unit listings surface the
+ * humans on that unit's team.
+ *
+ * `status` is always `"running"` for humans — the field is required by
+ * `BaseNode` for status-rank rollups, but a human has no lifecycle. The
+ * Detail Pane's status badge suppresses the lifecycle chrome for human
+ * subjects (see `unit-detail-pane.tsx`).
+ *
+ * `email` and `platformRole` are surfaced on the Human × Overview tab
+ * body itself via the live `useHuman(id)` query — the tree-side wire
+ * shape never carries them, so the node interface stays minimal.
+ */
+export interface HumanNode extends BaseNode {
+  kind: "Human";
+}
+
+export type TreeNode = TenantNode | UnitNode | AgentNode | HumanNode;
 
 /**
  * Returns the node's children, or an empty readonly array for kinds that
- * can't have children (Agent). Lets callers iterate without re-narrowing.
+ * can't have children (Agent, Human). Lets callers iterate without
+ * re-narrowing.
  */
 export function childrenOf(node: TreeNode): readonly TreeNode[] {
-  return node.kind === "Agent" ? [] : node.children ?? [];
+  if (node.kind === "Agent" || node.kind === "Human") return [];
+  return node.children ?? [];
 }
 
 /**
@@ -115,8 +147,13 @@ const STATUS_RANK: Record<NodeStatus, number> = {
  * tree it returns the same result, so memoise around it freely.
  */
 export function aggregate(node: TreeNode): SubtreeAggregate {
-  let cost = node.kind === "Tenant" ? 0 : node.cost24h ?? 0;
-  let msgs = node.kind === "Tenant" ? 0 : node.msgs24h ?? 0;
+  // Humans and tenants carry no self cost/messages — humans don't have
+  // a runtime (they're addressable subjects, not agents; see
+  // `docs/concepts/humans.md`), tenants roll up purely through their
+  // children. Agent and Unit carry per-row 24h costs / message volumes.
+  const carriesCost = node.kind === "Unit" || node.kind === "Agent";
+  let cost = carriesCost ? node.cost24h ?? 0 : 0;
+  let msgs = carriesCost ? node.msgs24h ?? 0 : 0;
   let agents = node.kind === "Agent" ? 1 : 0;
   let units = node.kind === "Unit" ? 1 : 0;
   let worst: NodeStatus = node.status;
@@ -243,11 +280,12 @@ export function filterTree(tree: TreeNode, query: string): FilterResult {
     }
 
     // Reattach the filtered children. Only Tenant / Unit reach this
-    // branch: agents have no children, so `filteredChildren` is empty
-    // for them and we exited above. The narrowing dance keeps TS happy
-    // about the discriminated-union shape — a plain `{ ...node,
-    // children: filteredChildren }` is rejected because the compiler
-    // doesn't fold "agents have no children" through the early-return.
+    // branch: agents and humans have no children, so `filteredChildren`
+    // is empty for them and we exited above. The narrowing dance keeps
+    // TS happy about the discriminated-union shape — a plain
+    // `{ ...node, children: filteredChildren }` is rejected because the
+    // compiler doesn't fold "agents / humans have no children" through
+    // the early-return.
     if (node.kind === "Tenant") {
       return { ...node, children: filteredChildren };
     }
@@ -318,6 +356,25 @@ export const AGENT_TABS = {
   overflow: ["Config", "Deployment"] as const,
 };
 
+export const HUMAN_TABS = {
+  // Human is a fourth subject per `docs/concepts/humans.md` and ADR-0044.
+  // Humans implement only `IMessageReceiver` — they participate in
+  // threads but do not carry expertise, runtime execution, memory,
+  // skills, traces, clones, budgets, or policies. The catalog mirrors
+  // the v0.2 design in `docs/design/canonical-tabs.md` § 3.3 / § 4:
+  // Overview + Messages visible, Config in overflow.
+  //
+  // #2266 lands the catalog; #2267 lands the Overview body. Messages
+  // (#2268) and Config (#2269) follow in Portal Wave B — until then
+  // the registry's `<TabPlaceholder>` renders the "coming soon" copy
+  // for the deferred slots.
+  visible: [
+    "Overview",
+    "Messages",
+  ] as const,
+  overflow: ["Config"] as const,
+};
+
 export const TENANT_TABS = {
   // Memory, Messages, Agents, Skills, Traces, Clones, and Deployment
   // are intentionally absent — Tenant does not participate in threads,
@@ -349,7 +406,10 @@ export type AgentTabName =
 export type TenantTabName =
   | (typeof TENANT_TABS.visible)[number]
   | (typeof TENANT_TABS.overflow)[number];
-export type TabName = UnitTabName | AgentTabName | TenantTabName;
+export type HumanTabName =
+  | (typeof HUMAN_TABS.visible)[number]
+  | (typeof HUMAN_TABS.overflow)[number];
+export type TabName = UnitTabName | AgentTabName | TenantTabName | HumanTabName;
 
 /**
  * Conditional type linking a node kind to its tab catalog. Lets generic
@@ -366,7 +426,9 @@ export type TabsFor<K extends NodeKind> = K extends "Tenant"
     ? UnitTabName
     : K extends "Agent"
       ? AgentTabName
-      : never;
+      : K extends "Human"
+        ? HumanTabName
+        : never;
 
 function catalogFor<K extends NodeKind>(
   kind: K,
@@ -379,6 +441,11 @@ function catalogFor<K extends NodeKind>(
       };
     case "Tenant":
       return TENANT_TABS as unknown as {
+        visible: readonly TabsFor<K>[];
+        overflow: readonly TabsFor<K>[];
+      };
+    case "Human":
+      return HUMAN_TABS as unknown as {
         visible: readonly TabsFor<K>[];
         overflow: readonly TabsFor<K>[];
       };

@@ -10,10 +10,10 @@
 // route stays until `DEL-units-id` lands because its tabs still host
 // content the EXP-tab-unit-* issues are migrating into the Explorer.
 
-import { Suspense, useCallback, useMemo, useSyncExternalStore } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Loader2, Plus } from "lucide-react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Card, CardContent } from "@/components/ui/card";
@@ -38,6 +38,7 @@ import "@/components/units/tabs/register-all";
 
 function UnitExplorerRoute() {
   const pathname = usePathname();
+  const router = useRouter();
   const routerSearchParams = useSearchParams();
   const historySearch = useSyncExternalStore(
     subscribeExplorerUrl,
@@ -52,6 +53,23 @@ function UnitExplorerRoute() {
 
   const selectedId = searchParams.get("node") ?? undefined;
   const tab = (searchParams.get("tab") as TabName | null) ?? undefined;
+
+  // #2266: Explorer routing accepts `?node=human:<guid>` so call
+  // sites that don't know which subject they're addressing can
+  // funnel through `/units`. Humans don't live in the tenant tree
+  // (they're not addressable via the unit graph in v0.1, see
+  // docs/concepts/humans.md), so the entry point bounces to the
+  // dedicated `/humans/<guid>` route — preserving any active `tab`
+  // and surfacing the same Detail Pane chrome there.
+  useEffect(() => {
+    if (!selectedId) return;
+    const humanGuid = parseHumanSelection(selectedId);
+    if (humanGuid === null) return;
+    const qs = tab
+      ? `?tab=${encodeURIComponent(tab)}`
+      : "";
+    router.replace(`/humans/${encodeURIComponent(humanGuid)}${qs}`);
+  }, [router, selectedId, tab]);
 
   const treeQuery = useTenantTree();
 
@@ -177,6 +195,36 @@ function UnitsPageHeader() {
  */
 function adaptValidatedNode(node: ValidatedTenantTreeNode): TreeNode {
   return node as unknown as TreeNode;
+}
+
+/**
+ * #2266: parse the Guid out of an Explorer `?node=human:<guid>` value.
+ *
+ * Accepts both the canonical `human:<guid>` short-form (the same shape
+ * the platform's HumanActor address scheme uses) and the navigation
+ * `human://<guid>` form for symmetry with `agent://` / `unit://`. Both
+ * surface the same underlying address; the address-scheme prefix is
+ * the only signal the Explorer needs to redirect to the dedicated
+ * `/humans/<guid>` route.
+ *
+ * Returns the Guid string when the input matches, `null` otherwise so
+ * the caller can fall through to the existing unit-tree resolution
+ * path.
+ */
+function parseHumanSelection(raw: string): string | null {
+  const candidate = raw.startsWith("human://")
+    ? raw.slice("human://".length)
+    : raw.startsWith("human:")
+      ? raw.slice("human:".length)
+      : null;
+  if (candidate === null) return null;
+  // The Guid is the slug; anything past a `/` or `?` is unexpected
+  // and we conservatively reject. Lower-case + dashed canonical Guid
+  // is the wire form `human:<hex>` is normalised to elsewhere (see
+  // `lib/utils.ts`); accept either short-hex or dashed.
+  const UUID_RE =
+    /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+  return UUID_RE.test(candidate) ? candidate : null;
 }
 
 export default function UnitsPage() {

@@ -25,17 +25,17 @@ A human becomes a member of a unit through the unit's human-permission surface. 
 
 This makes Unit's "Agents" tab a misnomer once humans land: a unit's member set is **agents + sub-units + humans**. The canonical-tabs design ([`docs/design/canonical-tabs.md`](../design/canonical-tabs.md)) renames the tab to "Members" pending v0.2.
 
-## v0.2 portal scope
+## Portal scope
 
-The portal's `NodeKind` (`src/Cvoya.Spring.Web/src/components/units/aggregate.ts`) does not yet include `"Human"`. v0.2 adds it as a fourth subject with a minimal canonical tab set:
+The portal's `NodeKind` (`src/Cvoya.Spring.Web/src/components/units/aggregate.ts`) was extended to include `"Human"` under #2266 / #2267. Humans are a fourth Explorer subject with a minimal canonical tab set:
 
-- **Overview** — personal info (name, email, primary connector handle).
-- **Messages** — threads the human is addressed in.
-- **Config** — Identity + Connector sub-tabs (the inbound-routing binding).
+- **Overview** — personal info (display name, username, email, platform role, created-at). Renders the "You" badge when the loaded human matches the currently-authenticated caller. Landed under #2267.
+- **Messages** — threads the human is addressed in. Slot reserved by #2266; body ships under #2268 (Portal Wave B).
+- **Config** — Identity + Connector sub-tabs (the inbound-routing binding). Slot reserved by #2266; body ships under #2269 (Portal Wave B).
 
 No Memory, Agents, Skills, Traces, Clones, Policies, Budgets, or Deployment tabs — humans don't have those surfaces.
 
-The v0.2 tracker for this work is filed under the canonical-tabs umbrella.
+Human pages live at `/humans/<guid>` and are reached either directly (Cmd-K, activity-feed `human:` rows, future unit-membership rows from #2270 + #2427) or by selecting an Explorer node with the `human:` address scheme (`/units?node=human:<guid>` bounces to the dedicated route). The Detail Pane chrome is the shared `<DetailPane>` the Explorer mounts — same address-copy affordance, same tab strip — minus the lifecycle status badge (humans don't have a runtime lifecycle).
 
 ## See also
 

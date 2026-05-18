@@ -40,3 +40,15 @@ import "./tenant-activity";
 import "./tenant-policies";
 import "./tenant-budgets";
 import "./tenant-config"; // #2254
+
+// Human tabs (#2266 / #2267). Humans are a fourth Explorer subject
+// per ADR-0044 and docs/design/canonical-tabs.md § 4.1 — they implement
+// only `IMessageReceiver` so the catalog is Overview + Messages
+// visible, Config in overflow (no Memory, Agents, Skills, Traces,
+// Clones, Policies, Budgets, or Deployment slots — see § 4 matrix).
+// The Overview body lands here; Messages (#2268) and Config (#2269)
+// are slot-reserved placeholders until Portal Wave B's follow-up PRs
+// ship them.
+import "./human-overview"; // #2267
+import "./human-messages"; // slot reserved for #2268
+import "./human-config"; // slot reserved for #2269

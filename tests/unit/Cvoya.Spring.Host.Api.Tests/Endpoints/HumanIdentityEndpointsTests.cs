@@ -223,6 +223,104 @@ public class HumanIdentityEndpointsTests : IClassFixture<CustomWebApplicationFac
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
+    [Fact]
+    public async Task GetHuman_ExistingRow_Returns200_WithEnvelope()
+    {
+        // #2266 / #2267: the per-human read-side envelope powers the
+        // Explorer Human page. Verify the wire shape carries every
+        // field the portal needs (username / displayName / email /
+        // platformRole / createdAt) and the platformRole is rendered
+        // as the enum name string (Operator / Owner / Viewer).
+        var ct = TestContext.Current.CancellationToken;
+        var humanId = Guid.NewGuid();
+        var seededAt = DateTimeOffset.UtcNow;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.Humans.Add(new HumanEntity
+            {
+                Id = humanId,
+                TenantId = OssTenantIds.Default,
+                Username = $"alice-{humanId:N}",
+                DisplayName = "Alice",
+                Email = "alice@example.com",
+                PermissionLevel = Cvoya.Spring.Dapr.Actors.PermissionLevel.Owner,
+                CreatedAt = seededAt,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/humans/{humanId:N}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<HumanResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Id.ShouldBe(humanId);
+        body.Username.ShouldBe($"alice-{humanId:N}");
+        body.DisplayName.ShouldBe("Alice");
+        body.Email.ShouldBe("alice@example.com");
+        body.PlatformRole.ShouldBe("Owner");
+        // EF round-trips DateTimeOffset through Postgres-style precision,
+        // so don't assert byte-for-byte equality — assert the field
+        // landed within a second of seeding.
+        (body.CreatedAt - seededAt).Duration().ShouldBeLessThan(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task GetHuman_DisplayNameMissing_FallsBackToUsername()
+    {
+        // The HumanEntity defaults DisplayName to an empty string when
+        // the seeder doesn't set it; the read-side envelope falls back
+        // to the username so the portal's header never renders blank.
+        var ct = TestContext.Current.CancellationToken;
+        var humanId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.Humans.Add(new HumanEntity
+            {
+                Id = humanId,
+                TenantId = OssTenantIds.Default,
+                Username = $"bob-{humanId:N}",
+                DisplayName = "",
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/humans/{humanId:N}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<HumanResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.DisplayName.ShouldBe($"bob-{humanId:N}");
+    }
+
+    [Fact]
+    public async Task GetHuman_UnknownHuman_Returns404()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var unknown = Guid.NewGuid();
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/humans/{unknown:N}", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetHuman_EmptyGuid_Returns400()
+    {
+        // The route constraint `:guid` rejects truly unparseable input
+        // before the handler runs, but the all-zeros Guid still passes
+        // through. The handler treats it as a malformed request to
+        // avoid leaking the existence of a default-Guid row.
+        var ct = TestContext.Current.CancellationToken;
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/humans/{Guid.Empty:N}", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
     private static string NewLogin() => $"login-{Guid.NewGuid():N}";
 
     private async Task<Guid> SeedHumanAsync(string username)

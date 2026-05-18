@@ -86,6 +86,17 @@ export const queryKeys = {
     expertise: () => ["directory", "expertise"] as const,
   },
 
+  /**
+   * Per-human read-side slices (#2266 / #2267). Mirrors the agents / units
+   * shape so the Explorer's Human page (#2267) and the Portal Wave B
+   * briefs (#2268 Messages, #2269 Config, #2270 + #2427 Unit × Members)
+   * can dedupe identical reads through one cache slot.
+   */
+  humans: {
+    all: ["humans"] as const,
+    detail: (id: string) => ["humans", "detail", id] as const,
+  },
+
   activity: {
     all: ["activity"] as const,
     query: (params?: Record<string, string>) =>

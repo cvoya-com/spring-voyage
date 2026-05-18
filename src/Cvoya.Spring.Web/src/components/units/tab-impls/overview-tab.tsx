@@ -21,11 +21,16 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Activity,
+  AtSign,
   Bot,
+  CalendarClock,
   DollarSign,
+  IdCard,
   Layers,
   MessagesSquare,
+  ShieldCheck,
   TrendingDown,
+  UserRound,
 } from "lucide-react";
 
 import { LifecyclePanel } from "@/components/agents/tab-impls/lifecycle-panel";
@@ -42,6 +47,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useAgentCost,
   useAgentIssues,
+  useCurrentUser,
+  useHuman,
   useUnit,
   useUnitCostTimeseries,
   useUnitExecution,
@@ -52,6 +59,7 @@ import { formatCost } from "@/lib/utils";
 import {
   aggregate,
   type AgentNode,
+  type HumanNode,
   type TenantNode,
   type TreeNode,
   type UnitNode,
@@ -66,7 +74,7 @@ import { UnitOverviewExpertiseCard } from "../unit-overview-expertise-card";
  * `NodeKind` triplet — every subject in the Explorer tree has an
  * Overview slot (see `aggregate.ts` tab catalogs).
  */
-export type OverviewSubjectKind = "Tenant" | "Unit" | "Agent";
+export type OverviewSubjectKind = "Tenant" | "Unit" | "Agent" | "Human";
 
 export interface OverviewTabProps {
   /** Subject kind — drives every affordance gate inside the body. */
@@ -475,6 +483,192 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 /**
+ * Human Overview body (#2267). Renders personal info — display name,
+ * username, email, platform role, created-at — and a "You" hint when
+ * the active human is the currently-authenticated caller (the OSS
+ * single-operator case per `docs/concepts/humans.md`).
+ *
+ * No StatCard tiles, IssuesPanel, LifecyclePanel, cost summary, or
+ * engagement link — humans don't have runtime, expertise, traces, or
+ * cost (canonical-tabs.md § 4). The shape is intentionally minimal so
+ * the slot keeps its "render something useful" promise without
+ * overstating what a human has on the platform.
+ *
+ * Memberships are intentionally absent in this PR — neither
+ * `GET /api/v1/tenant/humans/{id}/memberships` nor an aggregate over
+ * the per-unit membership endpoints exists in v0.1. Follow-up issue
+ * filed for v0.2 (Human memberships drill-down).
+ */
+function HumanOverviewBody({ human }: { human: HumanNode }) {
+  const humanQuery = useHuman(human.id);
+  const meQuery = useCurrentUser();
+
+  if (humanQuery.isLoading) {
+    return (
+      <div className="space-y-3" data-testid="tab-human-overview-loading">
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-5 w-64" />
+        <Skeleton className="h-5 w-40" />
+      </div>
+    );
+  }
+
+  // TanStack types `data` as `T | undefined` even when `queryFn`
+  // resolves to `T | null`; collapse the two "no body" cases so the
+  // body that follows can assume a concrete `HumanResponse`.
+  const entity = humanQuery.data ?? null;
+  if (entity === null) {
+    return (
+      <div
+        data-testid="tab-human-overview-missing"
+        className="rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center"
+      >
+        <UserRound
+          className="mx-auto h-6 w-6 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <p className="mt-2 text-sm font-medium">Human not found</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          The human with id{" "}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">
+            {human.id}
+          </code>{" "}
+          could not be loaded. The record may have been deleted, or it
+          may belong to a different tenant.
+        </p>
+      </div>
+    );
+  }
+
+  // Match the currently-authenticated caller against this human's
+  // UUID (not the display name / username — usernames can collide
+  // across tenants, ids cannot). The "You" hint is cosmetic; in OSS
+  // there's exactly one human and the hint is informative, in hosted
+  // it disambiguates the operator's own row from teammates'.
+  const isMe = meQuery.data?.id === entity.id;
+  const createdAt = formatHumanCreatedAt(entity.createdAt);
+
+  return (
+    <div data-testid="tab-human-overview-body" className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <UserRound className="h-4 w-4" aria-hidden="true" /> Profile
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <div className="flex items-baseline justify-between gap-2">
+            <div>
+              <p className="text-xs text-muted-foreground">Display name</p>
+              <p
+                className="font-medium"
+                data-testid="tab-human-overview-display-name"
+              >
+                {entity.displayName}
+                {isMe ? (
+                  <Badge
+                    variant="outline"
+                    className="ml-2 align-middle"
+                    data-testid="tab-human-overview-you-hint"
+                  >
+                    You
+                  </Badge>
+                ) : null}
+              </p>
+            </div>
+          </div>
+
+          <Row label="Username" value={entity.username} />
+          <Row
+            label="Email"
+            value={
+              entity.email && entity.email.length > 0 ? entity.email : "—"
+            }
+          />
+          <Row label="Platform role" value={entity.platformRole} />
+          <Row label="Created" value={createdAt} />
+        </CardContent>
+      </Card>
+
+      <div
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
+        data-testid="tab-human-overview-facts"
+      >
+        <Fact
+          icon={<IdCard className="h-4 w-4" aria-hidden="true" />}
+          label="Username"
+          value={entity.username}
+        />
+        <Fact
+          icon={<AtSign className="h-4 w-4" aria-hidden="true" />}
+          label="Email"
+          value={
+            entity.email && entity.email.length > 0 ? entity.email : "—"
+          }
+        />
+        <Fact
+          icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />}
+          label="Platform role"
+          value={entity.platformRole}
+        />
+        <Fact
+          icon={<CalendarClock className="h-4 w-4" aria-hidden="true" />}
+          label="Created"
+          value={createdAt}
+        />
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        Humans participate in threads but do not have runtime, memory,
+        skills, traces, or budgets. Per-unit team-role memberships and
+        connector identities surface on dedicated v0.2 surfaces; see the
+        Messages and Config tabs once they ship.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Compact icon + label + value pill used by the Human Overview body.
+ * The StatCard component used by Tenant / Unit variants is keyed on
+ * numeric values; the human surface is purely identity, so we keep a
+ * smaller leaf-level helper local to the file.
+ */
+function Fact({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3">
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {icon}
+        {label}
+      </p>
+      <p className="mt-1 truncate text-sm font-medium" title={value}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Format the human's createdAt timestamp as `YYYY-MM-DD`. Locale-stable
+ * (ISO date) so the rendered output is deterministic across test
+ * environments and matches the API's wire-form precision (the row
+ * carries an ISO-8601 string).
+ */
+function formatHumanCreatedAt(input: string): string {
+  if (!input) return "—";
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(input);
+  return match ? match[1] : input;
+}
+
+/**
  * Subject-agnostic Overview tab. Dispatches to the per-kind body so
  * the kind-specific hooks (`useUnit*`, `useAgent*`, the explorer
  * selection context) never mount for subjects they don't apply to.
@@ -486,22 +680,26 @@ function Row({ label, value }: { label: string; value: string }) {
  */
 export function OverviewTab({ kind, node }: OverviewTabProps) {
   // The container's vertical spacing scales with the variant: Tenant
-  // is a single grid; Unit and Agent stack multiple cards. Match the
-  // pre-unification spacing (`space-y-4` / `space-y-6`) so the visual
-  // contract in DESIGN.md § 9.1 is unchanged.
+  // is a single grid; Unit, Agent, and Human stack multiple cards.
+  // Match the pre-unification spacing (`space-y-4` / `space-y-6`) so
+  // the visual contract in DESIGN.md § 9.1 is unchanged.
   const spacing = kind === "Agent" ? "space-y-6" : "space-y-4";
 
   // Test-id matches the pre-unification shells for Unit and Agent so
   // existing E2E selectors keep working. Tenant has no shell-level
   // test-id — the body emits either `tab-tenant-overview` (grid) or
   // `tab-tenant-overview-empty` (no-units placeholder); a shell id
-  // would shadow the empty-state assertion.
+  // would shadow the empty-state assertion. Human gets its own shell
+  // id (`tab-human-overview`) so the foundation PR's E2E + component
+  // tests can target it without depending on the body's inner ids.
   const shellTestId =
     kind === "Unit"
       ? "tab-unit-overview"
       : kind === "Agent"
         ? "tab-agent-overview"
-        : undefined;
+        : kind === "Human"
+          ? "tab-human-overview"
+          : undefined;
 
   return (
     <div className={spacing} data-testid={shellTestId}>
@@ -519,6 +717,10 @@ export function OverviewTab({ kind, node }: OverviewTabProps) {
 
       {kind === "Agent" && node.kind === "Agent" ? (
         <AgentOverviewBody agent={node} />
+      ) : null}
+
+      {kind === "Human" && node.kind === "Human" ? (
+        <HumanOverviewBody human={node} />
       ) : null}
     </div>
   );

@@ -65,5 +65,7 @@ function kindLabel(kind: NodeKind): string {
       return "unit";
     case "Agent":
       return "agent";
+    case "Human":
+      return "human";
   }
 }

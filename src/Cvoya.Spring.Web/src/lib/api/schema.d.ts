@@ -729,6 +729,26 @@ export interface paths {
         patch: operations["UpdateUnitHumanMember"];
         trace?: never;
     };
+    "/api/v1/tenant/humans/{humanId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a single human's read-side envelope (display name, email, platform role, created-at).
+         * @description Returns the canonical fields needed by the Explorer Human page. Identity / membership lists live on dedicated sub-resources and are NOT embedded here.
+         */
+        get: operations["GetHuman"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/humans/{humanId}/identities": {
         parameters: {
             query?: never;
@@ -3290,6 +3310,16 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        HumanResponse: {
+            /** Format: uuid */
+            id: string;
+            username: string;
+            displayName: string;
+            email: null | string;
+            platformRole: string;
+            /** Format: date-time */
+            createdAt: string;
         };
         /** Format: binary */
         IFormFile: string;
@@ -6367,6 +6397,46 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetHuman: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                humanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HumanResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

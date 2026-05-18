@@ -52,6 +52,7 @@ import type {
   CostSummaryResponse,
   DashboardSummary,
   ExpertiseDomainDto,
+  HumanResponse,
   InboxItem,
   InitiativeLevelResponse,
   InitiativePolicy,
@@ -690,6 +691,44 @@ export function useAgentLogs(
         // Agent exists but no container deployment — the server returns
         // 404 for "not deployed". Surface null so the UI can render a
         // clean "deploy first" state instead of the error boundary.
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Humans (#2266 / #2267 — Explorer Human page)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read a single human's wire envelope (display name, email, platform
+ * role, created-at) from `GET /api/v1/tenant/humans/{humanId}`. Powers
+ * the Explorer Human × Overview tab and the Portal Wave B briefs
+ * (#2268 Messages, #2269 Config, #2270 + #2427 Unit × Members).
+ *
+ * Surfaces `null` on 404 so the per-human page can render the
+ * "not found" empty state without bubbling an error to the boundary.
+ * Unlike `useAgent` / `useUnit`, the underlying endpoint is read-only
+ * — there are no mutation paths in v0.1.
+ */
+export function useHuman(
+  id: string,
+  opts?: SliceOptions<HumanResponse | null>,
+): UseQueryResult<HumanResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.humans.detail(id),
+    queryFn: async () => {
+      try {
+        return await api.getHuman(id);
+      } catch {
+        // Missing humans (404) and transient errors both fall through
+        // to a null surface so the Overview tab can render an empty
+        // state in either case. The cache slot still memoises the
+        // result so the placeholder doesn't refetch in a tight loop.
         return null;
       }
     },
