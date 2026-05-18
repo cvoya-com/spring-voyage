@@ -120,6 +120,7 @@ Each sub-unit has:
 
 - A `github` connector binding pointing at the Spring Voyage App's installation on the target repository.
 - `execution.hosting: permanent` so the agent containers stay warm across messages — appropriate for a team that runs continuously rather than per-request.
+- A per-agent persistent volume mounted at `$SPRING_WORKSPACE_PATH` (`/spring/workspace`). The sub-unit orchestrators and their engineer / PM members clone the bound repository into that volume on first use and develop subsequent tasks from worktrees alongside the clone. The volume survives container restarts, so a recycled container resumes work without re-cloning. No host-side bind mount or pre-seeded checkout is required from the operator.
 
 ---
 
