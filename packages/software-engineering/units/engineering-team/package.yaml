@@ -20,6 +20,9 @@ members:
   - agent: tech-lead
   - agent: backend-engineer
   - agent: qa-engineer
+  - human:
+      roles: [owner]
+      notifications: ["escalation", "completion"]
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 requires:
@@ -31,6 +34,3 @@ policies:
   initiative:
     max_level: attentive
     max_actions_per_hour: 10
-humans:
-  - role: owner
-    notifications: ["escalation", "completion"]

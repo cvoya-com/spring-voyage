@@ -36,6 +36,10 @@ instructions: |
 members:
   - unit: sv-oss-software-engineering
   - unit: sv-oss-program-management
+  - human:
+      roles: [overall-lead]
+      expertise: [triage, code-review, architecture, design, dotnet, web, escalation]
+      notifications: ["escalation", "completion"]
 requires:
   - connector: github
 policies:
@@ -45,7 +49,3 @@ policies:
   initiative:
     max_level: attentive
     max_actions_per_hour: 10
-humans:
-  - role: overall-lead
-    expertise: [triage, code-review, architecture, design, dotnet, web, escalation]
-    notifications: ["escalation", "completion"]

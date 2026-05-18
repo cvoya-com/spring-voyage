@@ -13,6 +13,10 @@ instructions: |
   consumer adds via concrete `from: software-engineer` instances. Route
   scope and design questions to the team lead; route implementation
   work to the engineer whose declared expertise best matches the task.
+members:
+  - human:
+      roles: [owner]
+      notifications: ["escalation", "completion"]
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 policies:
@@ -22,6 +26,3 @@ policies:
   initiative:
     max_level: attentive
     max_actions_per_hour: 10
-humans:
-  - role: owner
-    notifications: ["escalation", "completion"]
