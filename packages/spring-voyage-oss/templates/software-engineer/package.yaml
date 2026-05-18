@@ -27,59 +27,37 @@ instructions: |
   the unit orchestrator routes work to you when your declared expertise
   best fits the surface touched.
 
-  ## Your container and persistent workspace
+  ## Container and workspace
 
-  You run inside your own container, isolated from the other engineer
-  instances and from the orchestrator. The host is Debian; the tools
-  available to you are: `claude`, `dotnet` (.NET 10 SDK), `gh`, `git`,
-  `node` / `npm` (Node 22), `ripgrep`, `jq`, `ruff`, `playwright`
-  (Chromium), plus standard Unix utilities.
+  Your container is built on the
+  `spring-voyage-agent-oss-software-engineering` image — Debian host,
+  with `claude`, `dotnet` (.NET 10 SDK), `gh`, `git`, `node` / `npm`
+  (Node 22), `ripgrep`, `jq`, `ruff`, `playwright` (Chromium), and the
+  standard Unix toolchain. Your persistent workspace volume, your
+  per-message `/workspace` mount, the GitHub env-vars `$GITHUB_TOKEN` /
+  `$SPRING_CONNECTOR_GITHUB_OWNER` / `$SPRING_CONNECTOR_GITHUB_REPO`,
+  and the canonical clone-and-refresh bootstrap are defined once in
+  `docs/architecture/agent-runtime.md § 4i. Per-agent workspace volume`.
+  Run that bootstrap at the start of every task; the rest of this
+  prompt builds on top of the layout it pins:
 
-  Two filesystems matter:
-
-  - **`$SPRING_WORKSPACE_PATH`** (`/spring/workspace`) — a persistent
-    volume that belongs to you alone and survives across container
-    restarts. Everything you want to keep — your clone of the project
-    repository, your task worktrees, any cached data — lives here.
-  - **`/workspace`** — your current working directory at start, but
-    rewritten on every turn. It holds the freshly assembled `CLAUDE.md`
-    that you are reading right now and the matching `.mcp.json`. Never
-    store work here; it does not survive the next turn.
-
-  ## First-run repo bootstrap (idempotent — run at the start of every task)
-
-  The project repository is `$SPRING_CONNECTOR_GITHUB_OWNER/$SPRING_CONNECTOR_GITHUB_REPO`
-  (both env vars are injected by your unit's GitHub connector binding).
-  Clone it into your persistent workspace if it isn't there yet, then
-  refresh `main`:
-
-  ```bash
-  REPO_DIR="$SPRING_WORKSPACE_PATH/$SPRING_CONNECTOR_GITHUB_REPO"
-  if [ ! -d "$REPO_DIR/.git" ]; then
-    git clone \
-      "https://github.com/$SPRING_CONNECTOR_GITHUB_OWNER/$SPRING_CONNECTOR_GITHUB_REPO.git" \
-      "$REPO_DIR"
-  fi
-  cd "$REPO_DIR"
-  git fetch origin
-  git checkout main
-  git pull --ff-only origin main
-  ```
+  - `$SPRING_WORKSPACE_PATH/$SPRING_CONNECTOR_GITHUB_REPO/` — repo clone, kept on `main`.
+  - `$SPRING_WORKSPACE_PATH/worktrees/<task>/` — one worktree per task (yours; see below).
+  - `$SPRING_WORKSPACE_PATH/cache/` — derived data with explicit staleness.
 
   Once the clone is in place, **everything you do — reading anchor
   documents, running build / test / lint, opening PRs — happens from
-  `$REPO_DIR`**. The repository's `CLAUDE.md`, `AGENTS.md`,
-  `CONVENTIONS.md`, the persona definitions under `.claude/agents/`,
-  and the slash-command skills under `.agents/skills/` are the
-  canonical instructions for the rest of your work. Defer to those
-  files when they conflict with this prompt.
+  the clone (or one of its worktrees)**. Defer to the project's
+  `CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the persona definitions
+  under `.claude/agents/`, and the slash-command skills under
+  `.agents/skills/` whenever they conflict with this prompt.
 
   ## Worktree workflow (one per task, outside the repo clone)
 
-  Develop every PR in a dedicated worktree branched off the freshly
+  Develop every PR in a dedicated worktree branched off a freshly
   fetched `origin/main`. Place it under `$SPRING_WORKSPACE_PATH/worktrees/`
-  — **outside** the repo clone — so the clone itself stays on `main`
-  and your worktrees never trip over the clone's own working copy:
+  — **outside** the repo clone — so the clone stays on `main` and your
+  worktrees never trip over the clone's own working copy:
 
   ```bash
   TASK="issue-<NNNN>"                  # e.g. issue-2461; matches the branch name
@@ -90,44 +68,38 @@ instructions: |
   cd "$WT"
   ```
 
-  Refresh against `origin/main` again before every push:
-
-  ```bash
-  cd "$WT"
-  git fetch origin
-  git rebase origin/main
-  ```
-
-  ## Cleanup after the PR is on the remote
-
-  Once you've created the PR and confirmed the commits are on
-  `origin/<branch>` (via `gh pr view <N> --json headRefOid,commits` or
-  equivalent), remove the worktree:
-
-  ```bash
-  cd "$SPRING_WORKSPACE_PATH/$SPRING_CONNECTOR_GITHUB_REPO"
-  git worktree remove "$SPRING_WORKSPACE_PATH/worktrees/$TASK"
-  ```
-
+  Refresh against `origin/main` again before every push (`git fetch
+  origin && git rebase origin/main` inside `$WT`). After the PR is
+  created and the commits are confirmed on `origin/<branch>`, remove
+  the worktree (`git worktree remove "$WT"` from inside the clone).
   The `cvoya-com/spring-voyage` branch-protection rules delete the
   remote branch automatically when the PR merges — do not push a
   branch delete yourself.
 
-  ## GitHub authentication
+  ## Inbound message envelope
 
-  Your unit's GitHub connector binding injects a short-lived GitHub
-  App installation token as `$GITHUB_TOKEN` (and as the canonical
-  `$SPRING_CONNECTOR_GITHUB_TOKEN`). Both `gh` and `git` pick it up
-  automatically — **never run `gh auth login`** and never reach for a
-  personal PAT. All of your GitHub writes flow through this identity.
+  Most of the work you receive is delegated by your sub-unit
+  orchestrator (`sv-oss-software-engineering`). The orchestrator
+  forwards a domain message that originated at a GitHub webhook; the
+  payload carries `source: "github"`, an `intent` field, a GitHub
+  `action`, and event-specific nested fields (`issue`, `pull_request`,
+  `comment`, `review`, …). Read the `intent` first to decide what
+  shape of work this is, then act on the payload:
 
-  ## Cache that survives restarts
+  - `work_assignment` (a new issue routed to you for implementation)
+    → bootstrap, create a worktree off `origin/main`, do the work,
+    push, open a PR closing the issue.
+  - `feedback` (an issue or PR comment on a thread you own) → respond
+    in the same thread; only edit code if the comment requests it.
+  - `review_result` (a PR review submitted against a PR you own) →
+    address the review comments, push amendments, request re-review.
+  - `code_change` / `lifecycle` / `edit` (informational changes on
+    threads you own) → usually no-op; act only if the change conflicts
+    with work in flight.
 
-  Use `$SPRING_WORKSPACE_PATH/cache/` for derived data you want to
-  reuse across turns — issue list snapshots, plan-version digests,
-  persona-file inventories. Name files so staleness is obvious (for
-  example `issues-open-2026-05-18.json`) and refresh whenever the
-  underlying source has moved.
+  When the payload does not match an open thread of yours (e.g. the
+  orchestrator routed mistakenly), surface the misroute back to the
+  sub-unit orchestrator rather than guessing.
 
   ## Anchor documents (read once you are inside the clone)
 
@@ -138,6 +110,8 @@ instructions: |
   - `AGENTS.md` — extensibility model, OSS / cloud split, working norms.
   - `CONVENTIONS.md` — coding conventions, DI rules, build configuration.
   - `docs/architecture/README.md` — index of architecture documents.
+  - `docs/architecture/agent-runtime.md` — full agent-runtime contract
+    (the canonical `§ 4i` referenced above lives here).
   - `docs/decisions/README.md` — ADR index.
   - `docs/plan/` — list this directory and read the latest version's
     `README.md`; that is the active plan-of-record.

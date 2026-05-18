@@ -703,6 +703,109 @@ snapshot test in
 
 ---
 
+## 4i. Per-agent workspace volume
+
+Every agent container is launched with two distinct on-disk areas. They
+have different lifetimes; agent authors must put data in the right one
+or risk silently losing work.
+
+| Mount path | Lifetime | Owner | Purpose |
+| --- | --- | --- | --- |
+| `$SPRING_WORKSPACE_PATH` (`/spring/workspace/`) | Per-agent. Survives container restart. Reclaimed when the agent is deleted (persistent agents) or declares work done (ephemeral agents). | Agent author. | Long-lived state: repo clones, task worktrees, derived caches, Claude Code's `CLAUDE_CONFIG_DIR` session files, per-thread state under `concurrent_threads: true` (see § 10). |
+| `/workspace` | Per-message. Rewritten on every `message/send`. | Platform. | Holds the assembled `CLAUDE.md` (the four-layer system prompt) and `.mcp.json` for the launch. The container's `WORKDIR` is set here so the CLI runtime reads `CLAUDE.md` on launch. |
+
+The persistent volume is created and managed by `AgentVolumeManager`
+(`src/Cvoya.Spring.Dapr/Execution/AgentVolumeManager.cs`). The
+canonical mount path and env-var name are constants on
+`AgentWorkspaceContract` (`src/Cvoya.Spring.Core/Execution/`); launchers
+import them so the in-container `$SPRING_WORKSPACE_PATH` always matches
+the platform-side mount. `CLAUDE_CONFIG_DIR` is anchored at
+`$SPRING_WORKSPACE_PATH/.claude` so Claude Code's session files survive
+container restarts and can be resumed by id (ADR-0041, #2094).
+
+### Recommended layout
+
+Long-running agents that operate on a connector-bound repository
+converge on the following layout inside the persistent volume. Agents
+authored against this convention compose cleanly with worktree-driven
+PR workflows, derived-data caches, and the per-thread subtree that
+`concurrent_threads: true` requires.
+
+```
+$SPRING_WORKSPACE_PATH/
+├── $SPRING_CONNECTOR_GITHUB_REPO/   # clone, kept on origin/main
+│   └── .git/
+├── worktrees/                       # one subdir per task, outside the clone
+│   └── <task>/                      # the agent's PR worktree
+├── cache/                           # derived data (issue lists, plan digests, …)
+├── threads/                         # per-thread state (concurrent_threads: true)
+│   └── <thread.id>/
+└── .claude/                         # CLAUDE_CONFIG_DIR — session files
+    └── projects/.../<thread.id>.jsonl
+```
+
+Per-thread state belongs under `threads/<thread.id>/` (§ 10's contract).
+Everything else is per-agent and shared across that agent's threads.
+
+### Canonical clone-and-refresh bootstrap (connector-bound repo)
+
+An agent whose unit (or an ancestor unit) binds the GitHub connector
+inherits `$SPRING_CONNECTOR_GITHUB_OWNER`, `$SPRING_CONNECTOR_GITHUB_REPO`,
+and `$GITHUB_TOKEN` via § 4g's binding-walk. The following snippet is
+idempotent and refresh-friendly; agent authors invoke it at the start
+of every task instead of re-deriving it inline:
+
+```bash
+REPO_DIR="$SPRING_WORKSPACE_PATH/$SPRING_CONNECTOR_GITHUB_REPO"
+if [ ! -d "$REPO_DIR/.git" ]; then
+  git clone \
+    "https://github.com/$SPRING_CONNECTOR_GITHUB_OWNER/$SPRING_CONNECTOR_GITHUB_REPO.git" \
+    "$REPO_DIR"
+fi
+cd "$REPO_DIR"
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+```
+
+`$GITHUB_TOKEN` is the well-known alias `git` and `gh` pick up
+automatically; there is never a need for `gh auth login` or a personal
+PAT inside an agent container. § 4g's "PR-without-reviewer is a valid
+flow" covers how the agent should call `gh pr create` against the
+`$SPRING_CONNECTOR_GITHUB_REVIEWER` env-var.
+
+### Authoring guidance
+
+- **Long-lived state goes in `$SPRING_WORKSPACE_PATH`.** Writing to
+  `/workspace` outside the platform-provided files is lost on the next
+  turn — the dispatcher rewrites the directory.
+- **One repo clone per agent, not per task.** Cloning fresh every turn
+  is wasteful and rate-limit-relevant; the bootstrap above clones once
+  and refreshes thereafter.
+- **Develop in worktrees, not the clone.** The clone stays on
+  `main`; per-task branches live under
+  `$SPRING_WORKSPACE_PATH/worktrees/<task>/` so multiple in-flight tasks
+  on the same agent never collide.
+- **Cache derived data with explicit staleness.** Filenames like
+  `cache/issues-open-2026-05-18.json` make it obvious when a cached
+  snapshot is too old to act on. Treat the cache as accelerator, never
+  authoritative.
+- **Under `concurrent_threads: true`, scope per-thread state to the
+  thread subtree.** See § 10 for the full contract; everything outside
+  `threads/<thread.id>/` is shared across concurrent turns and races.
+
+### Why this lives here
+
+Package prompts that need a long-lived repo clone (the
+[`spring-voyage-oss`](../../packages/spring-voyage-oss/) dogfood unit
+is the first; every future code-bearing package is a likely consumer)
+reference this section rather than redefining the layout per package.
+The contract is a property of the agent runtime, not of any one
+package, so duplicating it in each package's prompts would let the
+two drift.
+
+---
+
 ## 5. Dapr Conversation wiring (Spring Voyage Agent runtime only)
 
 > **Naming disambiguation.** "Conversation" in this section refers to Dapr's [Conversation API](https://docs.dapr.io/reference/components-reference/supported-conversation/) — the building block that abstracts the LLM provider call (Ollama / OpenAI / Anthropic / Google). It is unrelated to Spring Voyage's **Thread** concept (the participant-set relationship described in [`docs/architecture/thread-model.md`](thread-model.md) and [ADR-0030](../decisions/0030-thread-model.md)).
