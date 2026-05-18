@@ -8,7 +8,7 @@
 //
 //   General   — Display name + description editor; mirrors Agent /
 //               Unit × Config × General. PATCHes
-//               `/api/v1/tenant/humans/{id}` via `useUpdateHuman`. Phase
+//               `/api/v1/tenant/humans/{id}` via an inline `useMutation`. Phase
 //               4 (ADR-0046) made this the default sub-tab so the most
 //               common edit (the operator renaming themselves) is one
 //               click in.

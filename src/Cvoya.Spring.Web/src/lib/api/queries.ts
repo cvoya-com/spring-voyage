@@ -79,7 +79,6 @@ import type {
   UnitHumanMemberResponse,
   UnitResponse,
   UnitTemplateDetail,
-  UpdateHumanRequest,
   UserProfileResponse,
   WaitTimeRollupResponse,
 } from "./types";
@@ -739,33 +738,6 @@ export function useHuman(
     enabled: opts?.enabled ?? Boolean(id),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,
-  });
-}
-
-/**
- * Patch a Human's `displayName` / `description` (ADR-0046 Phase 4 —
- * Phase 1 added the PATCH endpoint; this hook surfaces it to the
- * portal's new Human × Config × General sub-tab). On success invalidates
- * the per-human detail cache so the Overview tab + the Config General
- * form pick up the new values.
- */
-export function useUpdateHuman(
-  humanId: string,
-): UseMutationResult<HumanResponse, Error, UpdateHumanRequest> {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: UpdateHumanRequest) => api.updateHuman(humanId, body),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.humans.detail(humanId),
-      });
-      // The Explorer / directory tree caches the human's display name
-      // alongside agents and units; refresh those too so the rename
-      // propagates to every surface.
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.directory.all,
-      });
-    },
   });
 }
 
