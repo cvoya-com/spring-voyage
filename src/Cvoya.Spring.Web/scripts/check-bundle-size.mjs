@@ -63,9 +63,18 @@ const KB = 1024;
 //
 // Previous measurements (kept for reference):
 //   2026-04-21: total ~1290 KB / gz ~371 KB / largest ~224 KB
+// Updated 2026-05-18 (#2480) to account for @tailwindcss/typography plugin
+// and the remark/rehype ecosystem (react-markdown + remark-gfm) landing in
+// the shared client bundle when ThreadEventRow adopted markdown rendering.
+// react-markdown and remark-gfm were already installed; they move from the
+// admin-only packages route chunk into the shared chunk now that
+// thread-event-row.tsx (used on every conversation surface) imports them.
+//   Total uncompressed: ~3070 KB → cap 3150 KB
+//   Total gzipped:      ~ 871 KB → cap  900 KB
+//   Largest chunk (uncompressed): 356 KB → cap 450 KB (unchanged)
 const BUDGETS = {
-  totalUncompressedKb: 2950,
-  totalGzippedKb: 850,
+  totalUncompressedKb: 3150,
+  totalGzippedKb: 900,
   maxChunkUncompressedKb: 450,
 };
 
