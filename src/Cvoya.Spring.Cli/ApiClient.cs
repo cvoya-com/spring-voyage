@@ -1490,6 +1490,57 @@ public class SpringApiClient
         => _client.Api.V1.Tenant.Units[unitId].Members.Humans[humanId]
             .DeleteAsync(cancellationToken: ct);
 
+    // Agent / sub-unit member edit surfaces (#2463 / ADR-0046 §8 extended
+    // to sub-units). Mirrors the human-member PATCH semantics: null on
+    // either list leaves the existing column intact, an explicit empty
+    // array clears it, a non-null array replaces it.
+
+    /// <summary>
+    /// Updates the multi-valued <c>roles</c> / <c>expertise</c> projections
+    /// on an existing agent ↔ unit membership row (#2463). Owner-gated;
+    /// 404 when no row matches the (unit, agent) natural key.
+    /// </summary>
+    public async Task<UnitAgentMemberResponse> UpdateUnitAgentMemberAsync(
+        string unitId,
+        Guid agentId,
+        IReadOnlyList<string>? roles = null,
+        IReadOnlyList<string>? expertise = null,
+        CancellationToken ct = default)
+    {
+        var body = new UpdateUnitAgentMemberRequest
+        {
+            Roles = roles?.ToList(),
+            Expertise = expertise?.ToList(),
+        };
+        var result = await _client.Api.V1.Tenant.Units[unitId].Members.Agents[agentId]
+            .PatchAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty UpdateUnitAgentMember response for unit '{unitId}' / agent '{agentId:N}'.");
+    }
+
+    /// <summary>
+    /// Updates the multi-valued <c>roles</c> / <c>expertise</c> projections
+    /// on an existing sub-unit ↔ unit membership row (#2463). Owner-gated;
+    /// 404 when no row matches the (parent, child) natural key.
+    /// </summary>
+    public async Task<UnitSubUnitMemberResponse> UpdateUnitSubUnitMemberAsync(
+        string unitId,
+        Guid subUnitId,
+        IReadOnlyList<string>? roles = null,
+        IReadOnlyList<string>? expertise = null,
+        CancellationToken ct = default)
+    {
+        var body = new UpdateUnitSubUnitMemberRequest
+        {
+            Roles = roles?.ToList(),
+            Expertise = expertise?.ToList(),
+        };
+        var result = await _client.Api.V1.Tenant.Units[unitId].Members.Units[subUnitId]
+            .PatchAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty UpdateUnitSubUnitMember response for parent unit '{unitId}' / sub-unit '{subUnitId:N}'.");
+    }
+
     // Activity
 
     /// <summary>Queries activity events with optional filters and pagination.</summary>

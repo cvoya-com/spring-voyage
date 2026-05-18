@@ -67,6 +67,14 @@ export const queryKeys = {
      * the Unit × Members tab (#2270 / #2427).
      */
     humanMembers: (id: string) => ["units", "humanMembers", id] as const,
+    /**
+     * Sub-unit member rows with their per-membership roles + expertise
+     * (`GET /api/v1/tenant/units/{id}/members/units`, #2463). Used to
+     * seed the sub-unit edit dialog on the Members tab. Sub-unit display
+     * names come from the tenant tree — this query carries only the
+     * metadata columns.
+     */
+    subUnitMembers: (id: string) => ["units", "subUnitMembers", id] as const,
     secrets: (id: string) => ["units", "secrets", id] as const,
     connector: (id: string) => ["units", "connector", id] as const,
     githubConfig: (id: string) => ["units", "githubConfig", id] as const,

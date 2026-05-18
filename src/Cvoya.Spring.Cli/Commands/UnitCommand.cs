@@ -1393,6 +1393,12 @@ public static class UnitCommand
         // team-role membership table (separate from the unit's ACL surface
         // under `unit humans`).
         membersCommand.Subcommands.Add(UnitMembersCommand.CreateHumansSubcommand(outputOption));
+        // #2463: edit surface for the per-membership `roles` + `expertise`
+        // jsonb columns on agent ↔ unit and sub-unit ↔ unit edges
+        // (ADR-0046 §8 extended to sub-units). Mirrors the human `update`
+        // flow but only touches the multi-valued metadata.
+        membersCommand.Subcommands.Add(UnitMembersCommand.CreateAgentsSubcommand(outputOption));
+        membersCommand.Subcommands.Add(UnitMembersCommand.CreateSubUnitsSubcommand(outputOption));
 
         return membersCommand;
     }

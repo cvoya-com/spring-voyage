@@ -875,6 +875,14 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         public Task<UnitMembership?> GetAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default)
             => _inner.GetAsync(unitId, agentId, cancellationToken);
 
+        public Task<UnitMembership?> UpdateRolesAndExpertiseAsync(
+            Guid unitId,
+            Guid agentId,
+            IReadOnlyList<string> roles,
+            IReadOnlyList<string> expertise,
+            CancellationToken cancellationToken = default)
+            => _inner.UpdateRolesAndExpertiseAsync(unitId, agentId, roles, expertise, cancellationToken);
+
         public Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(Guid unitId, CancellationToken cancellationToken = default)
             => _inner.ListByUnitAsync(unitId, cancellationToken);
 

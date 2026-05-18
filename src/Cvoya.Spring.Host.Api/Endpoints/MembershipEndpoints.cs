@@ -466,6 +466,12 @@ public static class MembershipEndpoints
             m.CreatedAt,
             m.UpdatedAt,
             m.IsPrimary,
-            agentHostingMode);
+            agentHostingMode,
+            // #2463 (ADR-0046 §8): expose the per-membership multi-valued
+            // tags on the read surface so the portal Members tab can seed
+            // the edit dialog without a second round-trip and so scripts
+            // consuming `GET /memberships` see the manifest-declared values.
+            m.Roles is { Count: > 0 } ? m.Roles : null,
+            m.Expertise is { Count: > 0 } ? m.Expertise : null);
     }
 }

@@ -18,7 +18,7 @@
 // notification fields are free-form.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, Trash2, UserPlus } from "lucide-react";
+import { Pencil, Plus, Tag, Trash2, UserPlus } from "lucide-react";
 
 import { AgentCreateDialog } from "@/components/agents/create-dialog";
 import { AgentCard, type AgentCardAgent } from "@/components/cards/agent-card";
@@ -39,11 +39,13 @@ import { formatTranslatedError } from "@/lib/api/translate-error";
 import {
   useCurrentUser,
   useUnitHumanMembers,
+  useUnitSubUnitMembers,
 } from "@/lib/api/queries";
 import type {
   AgentResponse,
   UnitHumanMemberResponse,
   UnitMembershipResponse,
+  UnitSubUnitMemberResponse,
 } from "@/lib/api/types";
 import {
   MembershipDialog,
@@ -54,6 +56,10 @@ import {
   type HumanMemberFormValues,
 } from "@/components/units/human-member-dialog";
 import { HumanMemberCard } from "@/components/units/human-member-card";
+import {
+  MemberMetadataDialog,
+  type MemberMetadataFormValues,
+} from "@/components/units/member-metadata-dialog";
 import { useExplorerSelection } from "@/components/units/explorer-selection-context";
 import type { TreeNode } from "@/components/units/aggregate";
 
@@ -80,6 +86,23 @@ type HumanDialogState =
   | { mode: "closed" }
   | { mode: "add" }
   | { mode: "edit"; row: UnitHumanMemberResponse };
+
+// Issue #2463: edit-metadata dialog state for agent and sub-unit
+// members. Keyed by the membership's natural-key id so the dialog
+// reseeds when the operator opens it against a different row.
+type AgentMetadataDialogState =
+  | { mode: "closed" }
+  | { mode: "edit"; membership: UnitMembershipResponse };
+
+type SubUnitMetadataDialogState =
+  | { mode: "closed" }
+  | {
+      mode: "edit";
+      subUnitId: string;
+      displayName: string;
+      roles: readonly string[];
+      expertise: readonly string[];
+    };
 
 /**
  * Members tab for the unit's Detail Pane. Lists agent memberships,
@@ -128,6 +151,18 @@ export function MembersTab({
   const [confirmHumanRemove, setConfirmHumanRemove] =
     useState<UnitHumanMemberResponse | null>(null);
   const [removingHuman, setRemovingHuman] = useState(false);
+
+  // ---------- Agent + sub-unit metadata edit (#2463) ----------
+  // Backs the new edit affordances on agent + sub-unit member cards.
+  // Patches only the per-membership `roles` + `expertise` projections;
+  // the other membership-config edit path (model / specialty / enabled
+  // / executionMode) remains the existing `<MembershipDialog>` flow.
+  const subUnitMembersQuery = useUnitSubUnitMembers(unitId);
+  const [agentMetadataDialog, setAgentMetadataDialog] =
+    useState<AgentMetadataDialogState>({ mode: "closed" });
+  const [subUnitMetadataDialog, setSubUnitMetadataDialog] =
+    useState<SubUnitMetadataDialogState>({ mode: "closed" });
+  const [metadataSubmitting, setMetadataSubmitting] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -297,6 +332,91 @@ export function MembersTab({
     }
   };
 
+  // #2463 submit handlers. Same shape as the human-member submit
+  // wiring above: refetch the matching list query on success so cards
+  // re-render with the freshly persisted chips, surface errors via the
+  // shared toast.
+  const handleAgentMetadataSubmit = async (
+    values: MemberMetadataFormValues,
+  ) => {
+    if (agentMetadataDialog.mode !== "edit") return;
+    const target = agentMetadataDialog.membership;
+    setMetadataSubmitting(true);
+    try {
+      const updated = await api.updateUnitAgentMember(unitId, target.agentAddress, {
+        roles: values.roles,
+        expertise: values.expertise,
+      });
+      // Seed the local memberships list so the chips re-render without
+      // a full /memberships refetch — the wire shape carries the
+      // post-write `roles` + `expertise` already.
+      setMemberships((prev) =>
+        prev.map((m) =>
+          m.agentAddress === target.agentAddress
+            ? { ...m, roles: updated.roles, expertise: updated.expertise }
+            : m,
+        ),
+      );
+      toast({
+        title: "Member updated",
+        description: values.roles.join(", ") || "(no roles)",
+      });
+      setAgentMetadataDialog({ mode: "closed" });
+    } catch (err) {
+      toast({
+        title: "Update failed",
+        description: formatTranslatedError(err),
+        variant: "destructive",
+      });
+    } finally {
+      setMetadataSubmitting(false);
+    }
+  };
+
+  const handleSubUnitMetadataSubmit = async (
+    values: MemberMetadataFormValues,
+  ) => {
+    if (subUnitMetadataDialog.mode !== "edit") return;
+    const subUnitId = subUnitMetadataDialog.subUnitId;
+    setMetadataSubmitting(true);
+    try {
+      await api.updateUnitSubUnitMember(unitId, subUnitId, {
+        roles: values.roles,
+        expertise: values.expertise,
+      });
+      await subUnitMembersQuery.refetch();
+      toast({
+        title: "Sub-unit updated",
+        description: values.roles.join(", ") || "(no roles)",
+      });
+      setSubUnitMetadataDialog({ mode: "closed" });
+    } catch (err) {
+      toast({
+        title: "Update failed",
+        description: formatTranslatedError(err),
+        variant: "destructive",
+      });
+    } finally {
+      setMetadataSubmitting(false);
+    }
+  };
+
+  // Sub-unit metadata lookup keyed by the sub-unit id so the card
+  // rendering loop is a single hash hit per row.
+  const subUnitMetadataById = useMemo(() => {
+    const map: Record<
+      string,
+      { roles: readonly string[]; expertise: readonly string[] }
+    > = {};
+    for (const row of subUnitMembersQuery.data ?? []) {
+      map[row.subUnitId] = {
+        roles: row.roles ?? [],
+        expertise: row.expertise ?? [],
+      };
+    }
+    return map;
+  }, [subUnitMembersQuery.data]);
+
   const humanRows = humanMembersQuery.data ?? [];
   const humansLoading = humanMembersQuery.isLoading;
   const humansError = humanMembersQuery.error;
@@ -433,6 +553,21 @@ export function MembersTab({
                           <Button
                             variant="ghost"
                             size="icon"
+                            onClick={() =>
+                              setAgentMetadataDialog({
+                                mode: "edit",
+                                membership: m,
+                              })
+                            }
+                            aria-label={`Edit roles for ${displayName}`}
+                            data-testid={`unit-membership-edit-metadata-${m.agentAddress}`}
+                            className="h-7 w-7"
+                          >
+                            <Tag className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={() => setConfirmRemove(m)}
                             aria-label={`Remove ${displayName}`}
                             data-testid={`unit-membership-remove-${m.agentAddress}`}
@@ -455,6 +590,39 @@ export function MembersTab({
                         {m.model ?? "(inherit)"}
                       </span>
                     </div>
+                    {(m.roles?.length ?? 0) > 0 && (
+                      <div
+                        className="flex flex-wrap items-center gap-1.5 px-1"
+                        data-testid={`unit-membership-roles-${m.agentAddress}`}
+                      >
+                        {(m.roles ?? []).map((roleValue, index) => (
+                          <Badge
+                            key={`${roleValue}-${index}`}
+                            variant="secondary"
+                            data-testid={`unit-membership-role-${m.agentAddress}-${index}`}
+                          >
+                            {roleValue}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    {(m.expertise?.length ?? 0) > 0 && (
+                      <div
+                        className="flex flex-wrap items-center gap-1.5 px-1"
+                        data-testid={`unit-membership-expertise-${m.agentAddress}`}
+                      >
+                        {(m.expertise ?? []).map((exp, index) => (
+                          <Badge
+                            key={`${exp}-${index}`}
+                            variant="outline"
+                            className="text-xs"
+                            data-testid={`unit-membership-expertise-${m.agentAddress}-${index}`}
+                          >
+                            {exp}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </li>
                 );
               })}
@@ -472,28 +640,93 @@ export function MembersTab({
               Sub-units
             </h3>
             <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {subUnitChildren.map((child) => (
-                <li
-                  key={child.id}
-                  data-testid={`unit-members-sub-unit-${child.id}`}
-                >
-                  <UnitCard
-                    unit={{
-                      name: child.id,
-                      displayName: child.name,
-                      registeredAt: new Date().toISOString(),
-                      status: mapTreeStatusToLifecycle(child.status),
-                      id:
-                        "definitionId" in child &&
-                        typeof child.definitionId === "string"
-                          ? child.definitionId
-                          : undefined,
-                    }}
-                    onSelect={(id) => dispatchSelect(id)}
-                    onOpenTab={(id) => dispatchSelect(id)}
-                  />
-                </li>
-              ))}
+              {subUnitChildren.map((child) => {
+                const metadata = subUnitMetadataById[child.id] ?? {
+                  roles: [],
+                  expertise: [],
+                };
+                return (
+                  <li
+                    key={child.id}
+                    data-testid={`unit-members-sub-unit-${child.id}`}
+                    className="space-y-2"
+                  >
+                    <div className="relative">
+                      <UnitCard
+                        unit={{
+                          name: child.id,
+                          displayName: child.name,
+                          registeredAt: new Date().toISOString(),
+                          status: mapTreeStatusToLifecycle(child.status),
+                          id:
+                            "definitionId" in child &&
+                            typeof child.definitionId === "string"
+                              ? child.definitionId
+                              : undefined,
+                        }}
+                        onSelect={(id) => dispatchSelect(id)}
+                        onOpenTab={(id) => dispatchSelect(id)}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          // Stop the click from reaching the UnitCard's
+                          // drill-into handler — operators clicking the
+                          // tag icon want the metadata dialog, not a
+                          // tree navigation.
+                          e.stopPropagation();
+                          setSubUnitMetadataDialog({
+                            mode: "edit",
+                            subUnitId: child.id,
+                            displayName: child.name,
+                            roles: metadata.roles,
+                            expertise: metadata.expertise,
+                          });
+                        }}
+                        aria-label={`Edit roles for ${child.name}`}
+                        data-testid={`unit-members-sub-unit-edit-metadata-${child.id}`}
+                        className="absolute right-2 top-2 h-7 w-7"
+                      >
+                        <Tag className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    {metadata.roles.length > 0 && (
+                      <div
+                        className="flex flex-wrap items-center gap-1.5 px-1"
+                        data-testid={`unit-members-sub-unit-roles-${child.id}`}
+                      >
+                        {metadata.roles.map((roleValue, index) => (
+                          <Badge
+                            key={`${roleValue}-${index}`}
+                            variant="secondary"
+                            data-testid={`unit-members-sub-unit-role-${child.id}-${index}`}
+                          >
+                            {roleValue}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    {metadata.expertise.length > 0 && (
+                      <div
+                        className="flex flex-wrap items-center gap-1.5 px-1"
+                        data-testid={`unit-members-sub-unit-expertise-${child.id}`}
+                      >
+                        {metadata.expertise.map((exp, index) => (
+                          <Badge
+                            key={`${exp}-${index}`}
+                            variant="outline"
+                            className="text-xs"
+                            data-testid={`unit-members-sub-unit-expertise-${child.id}-${index}`}
+                          >
+                            {exp}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
@@ -551,6 +784,63 @@ export function MembersTab({
         pending={humanSubmitting}
         onCancel={() => setHumanDialog({ mode: "closed" })}
         onSubmit={handleHumanSubmit}
+      />
+
+      <MemberMetadataDialog
+        open={agentMetadataDialog.mode !== "closed"}
+        subject="agent"
+        memberLabel={
+          agentMetadataDialog.mode === "edit"
+            ? displayNameMap[agentMetadataDialog.membership.agentAddress] ??
+              agentMetadataDialog.membership.agentAddress
+            : ""
+        }
+        memberKey={
+          agentMetadataDialog.mode === "edit"
+            ? agentMetadataDialog.membership.agentAddress
+            : "closed"
+        }
+        initialRoles={
+          agentMetadataDialog.mode === "edit"
+            ? agentMetadataDialog.membership.roles ?? []
+            : []
+        }
+        initialExpertise={
+          agentMetadataDialog.mode === "edit"
+            ? agentMetadataDialog.membership.expertise ?? []
+            : []
+        }
+        pending={metadataSubmitting}
+        onCancel={() => setAgentMetadataDialog({ mode: "closed" })}
+        onSubmit={handleAgentMetadataSubmit}
+      />
+
+      <MemberMetadataDialog
+        open={subUnitMetadataDialog.mode !== "closed"}
+        subject="sub-unit"
+        memberLabel={
+          subUnitMetadataDialog.mode === "edit"
+            ? subUnitMetadataDialog.displayName
+            : ""
+        }
+        memberKey={
+          subUnitMetadataDialog.mode === "edit"
+            ? subUnitMetadataDialog.subUnitId
+            : "closed"
+        }
+        initialRoles={
+          subUnitMetadataDialog.mode === "edit"
+            ? subUnitMetadataDialog.roles
+            : []
+        }
+        initialExpertise={
+          subUnitMetadataDialog.mode === "edit"
+            ? subUnitMetadataDialog.expertise
+            : []
+        }
+        pending={metadataSubmitting}
+        onCancel={() => setSubUnitMetadataDialog({ mode: "closed" })}
+        onSubmit={handleSubUnitMetadataSubmit}
       />
 
       <ConfirmDialog

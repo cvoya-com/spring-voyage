@@ -35,6 +35,7 @@ import type {
   ScalePersistentAgentRequest,
   SendMessageRequest,
   SetBudgetRequest,
+  UnitAgentMemberResponse,
   UnitBoundaryResponse,
   UnitConnectorBindingRequest,
   UnitExecutionResponse,
@@ -42,10 +43,13 @@ import type {
   UnitHumanMemberResponse,
   UnitPolicyResponse,
   UnitResponse,
+  UnitSubUnitMemberResponse,
   UpdateAgentMetadataRequest,
   UpdateHumanRequest,
+  UpdateUnitAgentMemberRequest,
   UpdateUnitHumanMemberRequest,
   UpdateUnitRequest,
+  UpdateUnitSubUnitMemberRequest,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -872,6 +876,48 @@ export const api = {
       ),
     );
   },
+
+  // Agent + sub-unit member edit surfaces (#2463 / ADR-0046 §8 extended
+  // to sub-units). Update only the multi-valued `roles` + `expertise`
+  // jsonb columns on the existing membership row — other override
+  // columns (model / specialty / enabled / executionMode) keep flowing
+  // through the existing `/memberships/{agentAddress}` PUT surface.
+  listUnitSubUnitMembers: async (
+    unitId: string,
+  ): Promise<UnitSubUnitMemberResponse[]> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/units/{id}/members/units", {
+        params: { path: { id: unitId } },
+      }),
+    ) as UnitSubUnitMemberResponse[],
+  updateUnitAgentMember: async (
+    unitId: string,
+    agentId: string,
+    body: UpdateUnitAgentMemberRequest,
+  ): Promise<UnitAgentMemberResponse> =>
+    unwrap(
+      await fetchClient.PATCH(
+        "/api/v1/tenant/units/{id}/members/agents/{agentId}",
+        {
+          params: { path: { id: unitId, agentId } },
+          body,
+        },
+      ),
+    ) as UnitAgentMemberResponse,
+  updateUnitSubUnitMember: async (
+    unitId: string,
+    subUnitId: string,
+    body: UpdateUnitSubUnitMemberRequest,
+  ): Promise<UnitSubUnitMemberResponse> =>
+    unwrap(
+      await fetchClient.PATCH(
+        "/api/v1/tenant/units/{id}/members/units/{subUnitId}",
+        {
+          params: { path: { id: unitId, subUnitId } },
+          body,
+        },
+      ),
+    ) as UnitSubUnitMemberResponse,
 
   // Costs
   //

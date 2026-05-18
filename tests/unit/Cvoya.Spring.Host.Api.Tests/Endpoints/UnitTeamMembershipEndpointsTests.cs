@@ -444,4 +444,350 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
         await db.SaveChangesAsync(ct);
         return id;
     }
+
+    // ----------------------------------------------------------------
+    // Issue #2463: agent / sub-unit member roles + expertise PATCH
+    // surface. Tests cover the tri-state semantics (null = unchanged,
+    // empty = clear, non-null = replace), the existence-first 404 path,
+    // and the Owner gate. Mirrors the human-member PATCH tests above.
+    // ----------------------------------------------------------------
+
+    [Fact]
+    public async Task PatchAgentMember_ReplacesRolesAndExpertise()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var unitId = Guid.NewGuid();
+        ArrangeResolved(unitId);
+        ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
+        var agentId = await SeedAgentMembershipAsync(
+            unitId,
+            seedRoles: new[] { "owner" },
+            seedExpertise: new[] { "from-package" });
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{unitId:N}/members/agents/{agentId:N}",
+            new UpdateUnitAgentMemberRequest(
+                new[] { "owner", "reviewer" }, new[] { "patched" }),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitAgentMemberResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.UnitId.ShouldBe(unitId);
+        body.AgentId.ShouldBe(agentId);
+        body.Roles.ShouldBe(new[] { "owner", "reviewer" });
+        body.Expertise.ShouldBe(new[] { "patched" });
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await db.UnitMemberships
+            .AsNoTracking()
+            .SingleAsync(m => m.UnitId == unitId && m.AgentId == agentId, ct);
+        row.Roles.ShouldBe(new[] { "owner", "reviewer" });
+        row.Expertise.ShouldBe(new[] { "patched" });
+    }
+
+    [Fact]
+    public async Task PatchAgentMember_NullLeavesUnchanged()
+    {
+        // Tri-state semantics: omit both lists -> existing row is left
+        // intact. The dialog sends null on a field the operator did not
+        // touch; the server must round-trip the existing values.
+        var ct = TestContext.Current.CancellationToken;
+        var unitId = Guid.NewGuid();
+        ArrangeResolved(unitId);
+        ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
+        var agentId = await SeedAgentMembershipAsync(
+            unitId,
+            seedRoles: new[] { "tech-lead" },
+            seedExpertise: new[] { "platform" });
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{unitId:N}/members/agents/{agentId:N}",
+            new UpdateUnitAgentMemberRequest(),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitAgentMemberResponse>(ct);
+        body!.Roles.ShouldBe(new[] { "tech-lead" });
+        body.Expertise.ShouldBe(new[] { "platform" });
+    }
+
+    [Fact]
+    public async Task PatchAgentMember_EmptyArrayClears()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var unitId = Guid.NewGuid();
+        ArrangeResolved(unitId);
+        ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
+        var agentId = await SeedAgentMembershipAsync(
+            unitId,
+            seedRoles: new[] { "owner" },
+            seedExpertise: new[] { "security" });
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{unitId:N}/members/agents/{agentId:N}",
+            new UpdateUnitAgentMemberRequest(
+                Array.Empty<string>(), Array.Empty<string>()),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitAgentMemberResponse>(ct);
+        body!.Roles.ShouldBeEmpty();
+        body.Expertise.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task PatchAgentMember_UnknownRow_Returns404()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var unitId = Guid.NewGuid();
+        ArrangeResolved(unitId);
+        ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{unitId:N}/members/agents/{Guid.NewGuid():N}",
+            new UpdateUnitAgentMemberRequest(new[] { "owner" }, Array.Empty<string>()),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task PatchAgentMember_OnlyViewer_Returns403()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var unitId = Guid.NewGuid();
+        ArrangeResolved(unitId);
+        ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Viewer);
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{unitId:N}/members/agents/{Guid.NewGuid():N}",
+            new UpdateUnitAgentMemberRequest(new[] { "owner" }, null),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task PatchAgentMember_DoesNotOverwriteModelOrSpecialty()
+    {
+        // The metadata edit surface must be orthogonal to the existing
+        // membership-config edit path. Patching roles/expertise leaves
+        // `model` and `specialty` alone — regression guard for the
+        // "two seams, one row" composition.
+        var ct = TestContext.Current.CancellationToken;
+        var unitId = Guid.NewGuid();
+        ArrangeResolved(unitId);
+        ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
+        var agentId = await SeedAgentMembershipAsync(
+            unitId,
+            seedRoles: new[] { "owner" },
+            seedExpertise: Array.Empty<string>(),
+            seedModel: "gpt-4o",
+            seedSpecialty: "qa");
+
+        await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{unitId:N}/members/agents/{agentId:N}",
+            new UpdateUnitAgentMemberRequest(
+                new[] { "reviewer" }, new[] { "security" }),
+            ct);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await db.UnitMemberships
+            .AsNoTracking()
+            .SingleAsync(m => m.UnitId == unitId && m.AgentId == agentId, ct);
+        row.Model.ShouldBe("gpt-4o");
+        row.Specialty.ShouldBe("qa");
+        row.Roles.ShouldBe(new[] { "reviewer" });
+        row.Expertise.ShouldBe(new[] { "security" });
+    }
+
+    [Fact]
+    public async Task PatchSubUnitMember_ReplacesRolesAndExpertise()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var parentId = Guid.NewGuid();
+        ArrangeResolved(parentId);
+        ArrangePermission(parentId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
+        var subUnitId = await SeedSubUnitMembershipAsync(
+            parentId,
+            seedRoles: new[] { "delivery" },
+            seedExpertise: new[] { "ux" });
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{parentId:N}/members/units/{subUnitId:N}",
+            new UpdateUnitSubUnitMemberRequest(
+                new[] { "delivery", "research" }, new[] { "ux", "ml" }),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitSubUnitMemberResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.ParentUnitId.ShouldBe(parentId);
+        body.SubUnitId.ShouldBe(subUnitId);
+        body.Roles.ShouldBe(new[] { "delivery", "research" });
+        body.Expertise.ShouldBe(new[] { "ux", "ml" });
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await db.UnitSubunitMemberships
+            .AsNoTracking()
+            .SingleAsync(m => m.ParentId == parentId && m.ChildId == subUnitId, ct);
+        row.Roles.ShouldBe(new[] { "delivery", "research" });
+        row.Expertise.ShouldBe(new[] { "ux", "ml" });
+    }
+
+    [Fact]
+    public async Task PatchSubUnitMember_NullLeavesUnchanged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var parentId = Guid.NewGuid();
+        ArrangeResolved(parentId);
+        ArrangePermission(parentId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
+        var subUnitId = await SeedSubUnitMembershipAsync(
+            parentId,
+            seedRoles: new[] { "ops" },
+            seedExpertise: new[] { "incident" });
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{parentId:N}/members/units/{subUnitId:N}",
+            new UpdateUnitSubUnitMemberRequest(),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitSubUnitMemberResponse>(ct);
+        body!.Roles.ShouldBe(new[] { "ops" });
+        body.Expertise.ShouldBe(new[] { "incident" });
+    }
+
+    [Fact]
+    public async Task PatchSubUnitMember_EmptyArrayClears()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var parentId = Guid.NewGuid();
+        ArrangeResolved(parentId);
+        ArrangePermission(parentId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
+        var subUnitId = await SeedSubUnitMembershipAsync(
+            parentId,
+            seedRoles: new[] { "ops" },
+            seedExpertise: new[] { "incident" });
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{parentId:N}/members/units/{subUnitId:N}",
+            new UpdateUnitSubUnitMemberRequest(
+                Array.Empty<string>(), Array.Empty<string>()),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitSubUnitMemberResponse>(ct);
+        body!.Roles.ShouldBeEmpty();
+        body.Expertise.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task PatchSubUnitMember_UnknownRow_Returns404()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var parentId = Guid.NewGuid();
+        ArrangeResolved(parentId);
+        ArrangePermission(parentId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{parentId:N}/members/units/{Guid.NewGuid():N}",
+            new UpdateUnitSubUnitMemberRequest(new[] { "ops" }, null),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task PatchSubUnitMember_OnlyViewer_Returns403()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var parentId = Guid.NewGuid();
+        ArrangeResolved(parentId);
+        ArrangePermission(parentId, AuthConstants.DefaultLocalUserId, PermissionLevel.Viewer);
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/units/{parentId:N}/members/units/{Guid.NewGuid():N}",
+            new UpdateUnitSubUnitMemberRequest(new[] { "ops" }, null),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task ListSubUnitMembers_ReturnsRowsWithTags()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var parentId = Guid.NewGuid();
+        ArrangeResolved(parentId);
+        ArrangePermission(parentId, AuthConstants.DefaultLocalUserId, PermissionLevel.Viewer);
+        var subUnit1 = await SeedSubUnitMembershipAsync(
+            parentId, seedRoles: new[] { "delivery" }, seedExpertise: new[] { "ux" });
+        var subUnit2 = await SeedSubUnitMembershipAsync(
+            parentId, seedRoles: new[] { "research" }, seedExpertise: Array.Empty<string>());
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/units/{parentId:N}/members/units", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rows = await response.Content.ReadFromJsonAsync<List<UnitSubUnitMemberResponse>>(ct);
+        rows.ShouldNotBeNull();
+        rows!.Count.ShouldBe(2);
+        rows.ShouldContain(r => r.SubUnitId == subUnit1 && r.Roles.SequenceEqual(new[] { "delivery" }));
+        rows.ShouldContain(r => r.SubUnitId == subUnit2 && r.Roles.SequenceEqual(new[] { "research" }));
+    }
+
+    private async Task<Guid> SeedAgentMembershipAsync(
+        Guid unitId,
+        IReadOnlyList<string>? seedRoles = null,
+        IReadOnlyList<string>? seedExpertise = null,
+        string? seedModel = null,
+        string? seedSpecialty = null)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var agentId = Guid.NewGuid();
+        db.UnitMemberships.Add(new UnitMembershipEntity
+        {
+            TenantId = OssTenantIds.Default,
+            UnitId = unitId,
+            AgentId = agentId,
+            Model = seedModel,
+            Specialty = seedSpecialty,
+            Enabled = true,
+            Roles = (seedRoles ?? Array.Empty<string>()).ToList(),
+            Expertise = (seedExpertise ?? Array.Empty<string>()).ToList(),
+            IsPrimary = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync(ct);
+        return agentId;
+    }
+
+    private async Task<Guid> SeedSubUnitMembershipAsync(
+        Guid parentId,
+        IReadOnlyList<string>? seedRoles = null,
+        IReadOnlyList<string>? seedExpertise = null)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var childId = Guid.NewGuid();
+        db.UnitSubunitMemberships.Add(new UnitSubunitMembershipEntity
+        {
+            TenantId = OssTenantIds.Default,
+            ParentId = parentId,
+            ChildId = childId,
+            Roles = (seedRoles ?? Array.Empty<string>()).ToList(),
+            Expertise = (seedExpertise ?? Array.Empty<string>()).ToList(),
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync(ct);
+        return childId;
+    }
 }
