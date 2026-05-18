@@ -123,15 +123,19 @@ Each unit (umbrella and sub-units) has:
 - `execution.hosting: permanent` so the agent containers stay warm across messages — appropriate for a team that runs continuously rather than per-request.
 - A per-agent persistent volume mounted at `$SPRING_WORKSPACE_PATH` (`/spring/workspace`). The sub-unit orchestrators and their engineer / PM members clone the bound repository into that volume on first use and develop subsequent tasks from worktrees alongside the clone. The volume survives container restarts, so a recycled container resumes work without re-cloning. No host-side bind mount or pre-seeded checkout is required from the operator.
 
-Sub-units do not bind the GitHub connector themselves; they inherit `$GITHUB_TOKEN` and the other GitHub env vars from the umbrella's binding via the platform's connector binding-walk (closest binding in the parent chain wins), so `gh` and `git` work in every container without further configuration.
+Sub-units do not bind the GitHub connector themselves; they inherit `$GITHUB_TOKEN` and the other GitHub env vars from the umbrella's binding via the platform's connector binding-walk (closest binding in the parent chain wins), so `gh` and `git` work in every container without further configuration. The workspace layout, env-var contract, and clone-and-refresh bootstrap each agent runs are documented once in [`docs/architecture/agent-runtime.md` § 4i — Per-agent workspace volume](../../architecture/agent-runtime.md#4i-per-agent-workspace-volume); the package's prompts reference it rather than redefining it per role.
 
 ---
 
 ## Smoke verification
 
-### Program management
+### End-to-end (via GitHub)
 
-Send a triage prompt to the program-management sub-unit:
+The truest smoke is an actual webhook delivery. Open an issue on the bound repository with no `area:*` label and watch `spring activity list --unit spring-voyage-oss` for an `OrchestrationDecision` event delegating to `sv-oss-program-management` (PM triages first, then re-routes once an `area:*` label is on). Add an `area:*` label to a fresh issue and observe the umbrella route the resulting `label_change` to `sv-oss-software-engineering`.
+
+### Program management (direct prompt)
+
+Send a free-text triage prompt directly to the program-management sub-unit:
 
 ```bash
 spring message send sv-oss-program-management \
@@ -140,9 +144,9 @@ spring message send sv-oss-program-management \
 
 Expected response: identifies the sub-system (agent runtime / hosting mode), proposes a milestone matching whichever plan version is active under `docs/plan/`, suggests an issue type (`Bug`), proposes one or more `area:*` labels, and — if this looks like a dependency — suggests a sub-issue or `blocked-by` relationship with an existing issue.
 
-### Software engineering
+### Software engineering (direct prompt)
 
-Send a planning prompt to the software-engineering sub-unit:
+Send a free-text planning prompt directly to the software-engineering sub-unit:
 
 ```bash
 spring message send sv-oss-software-engineering \
