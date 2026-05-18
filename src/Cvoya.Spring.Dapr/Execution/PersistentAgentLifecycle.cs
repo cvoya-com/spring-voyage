@@ -110,8 +110,8 @@ public class PersistentAgentLifecycle(
         }
 
         // Idempotent fast-path: healthy entry already registered.
-        if (persistentAgentRegistry.TryGet(agentId, out var existing) && existing is not null &&
-            existing.HealthStatus == AgentHealthStatus.Healthy)
+        var existing = await persistentAgentRegistry.TryGetAsync(agentId, cancellationToken);
+        if (existing is not null && existing.HealthStatus == AgentHealthStatus.Healthy)
         {
             return existing;
         }
@@ -276,8 +276,8 @@ public class PersistentAgentLifecycle(
                 Execution = definition.Execution with { Image = image }
             };
 
-        persistentAgentRegistry.Register(
-            agentId, endpoint, containerId, effectiveDefinition, sidecarId, lifecycleNetworkName);
+        await persistentAgentRegistry.RegisterAsync(
+            agentId, endpoint, containerId, effectiveDefinition, sidecarId, lifecycleNetworkName, cancellationToken);
 
         // #2336 / Sub C: refresh the cached image_tools surface against the
         // newly-readied listener. The introspector is forgiving — failures
@@ -289,9 +289,9 @@ public class PersistentAgentLifecycle(
         // entries.
         await TryRefreshImageToolsAsync(agentId, containerId, endpoint, cancellationToken);
 
-        // TryGet immediately after Register so we return the canonical entry
-        // rather than a locally-constructed copy.
-        persistentAgentRegistry.TryGet(agentId, out var registered);
+        // TryGetAsync immediately after Register so we return the canonical
+        // entry rather than a locally-constructed copy.
+        var registered = await persistentAgentRegistry.TryGetAsync(agentId, cancellationToken);
         return registered!;
     }
 
@@ -356,7 +356,8 @@ public class PersistentAgentLifecycle(
         int tail = 200,
         CancellationToken cancellationToken = default)
     {
-        if (!persistentAgentRegistry.TryGet(agentId, out var entry) || entry?.ContainerId is null)
+        var entry = await persistentAgentRegistry.TryGetAsync(agentId, cancellationToken);
+        if (entry?.ContainerId is null)
         {
             throw new SpringException(
                 $"Persistent agent '{agentId}' is not deployed; nothing to read logs from.");

@@ -24,6 +24,7 @@ using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Execution;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -121,6 +122,10 @@ public class A2AExecutionDispatcherTests
             p => [p.GetRequiredService<IAgentRuntimeLauncher>()]);
         persistentServices.AddSingleton<PersistentAgentRegistry>();
         persistentServices.AddSingleton<PersistentAgentLifecycle>();
+        // #2468: registry now persists via EF.
+        var dbName = $"A2AExecutionDispatcherTests-{Guid.NewGuid()}";
+        persistentServices.AddDbContext<Cvoya.Spring.Dapr.Data.SpringDbContext>(options =>
+            options.UseInMemoryDatabase(dbName));
         _persistentRegistry = persistentServices
             .BuildServiceProvider()
             .GetRequiredService<PersistentAgentRegistry>();
@@ -601,10 +606,11 @@ public class A2AExecutionDispatcherTests
         _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
-        _persistentRegistry.Register(
+        await _persistentRegistry.RegisterAsync(
             AgentId,
             new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/"),
-            "existing-container");
+            "existing-container",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         var firstThreadId = Guid.Parse("eeeeeeee-0000-0000-0000-000000001943");
         var secondThreadId = Guid.Parse("eeeeeeee-0000-0000-0000-000000001944");
@@ -645,10 +651,11 @@ public class A2AExecutionDispatcherTests
         _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
-        _persistentRegistry.Register(
+        await _persistentRegistry.RegisterAsync(
             AgentId,
             new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/"),
-            "existing-container");
+            "existing-container",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         var message = CreateMessage(threadId: "not-a-guid");
 

@@ -251,6 +251,15 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<MemoryEntity> Memories => Set<MemoryEntity>();
 
+    /// <summary>
+    /// Gets the set of persistent-agent runtime rows (#2468). One row per
+    /// agent currently tracked by <c>PersistentAgentRegistry</c>. Acts as
+    /// the cross-process source of truth so an auto-deploy on the worker
+    /// surfaces in API-process reads (the agent detail badge, runtime
+    /// status chip, logs endpoint).
+    /// </summary>
+    public DbSet<PersistentAgentRuntimeEntity> PersistentAgentRuntime => Set<PersistentAgentRuntimeEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -296,6 +305,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new UnitConnectorBindingEntityConfiguration());
         modelBuilder.ApplyConfiguration(new CloningPolicyEntityConfiguration());
         modelBuilder.ApplyConfiguration(new MemoryEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new PersistentAgentRuntimeEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -427,6 +437,14 @@ public class SpringDbContext : DbContext
         // scope is enforced inside the store implementation on top of
         // the tenant filter.
         modelBuilder.Entity<MemoryEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Persistent agent runtime rows: tenant-scoped, no soft-delete
+        // (#2468). Rows are inserted on Register, mutated on Mark*
+        // / health-timer success, and hard-deleted on Undeploy /
+        // StopContainer. There is no audit value in keeping a row
+        // around once it no longer represents a tracked container.
+        modelBuilder.Entity<PersistentAgentRuntimeEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 

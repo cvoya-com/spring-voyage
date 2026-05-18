@@ -183,7 +183,8 @@ public sealed class ContainerHealthMetricsService : IHostedService, IDisposable
     /// </summary>
     private async Task RefreshHealthSnapshotAsync()
     {
-        var entries = _registry.GetAllEntries()
+        var allEntries = await _registry.GetAllEntriesAsync();
+        var entries = allEntries
             .Where(e => !string.IsNullOrEmpty(e.ContainerId))
             .ToList();
 
