@@ -244,7 +244,7 @@ Per the § 1 principle, the canonical order does **not** invent a Tenant × Mess
 Tenant × Messages, Tenant × Agents, and Tenant × Memory do **not** appear in the matrix and are not rendered in the Tenant strip. Tenant-wide thread / agent roll-ups remain reachable via `/inbox` and the Explorer tree (which already surfaces every agent in the tenant); we do not duplicate those surfaces into the Tenant Detail Pane. The pre-existing `tenant-memory.tsx` empty-state is removed.
 
 - **Human — Overview (#2267, landed).** Personal info card (display name, username, email, platform role, created-at) + compact 4-fact pill grid + caveat copy. The display-name row carries a "You" badge when the loaded human matches the currently-authenticated caller. No `<IssuesPanel>`, lifecycle embed, cost summary, or engagement link — humans don't have those surfaces. Memberships drill-down is deferred to v0.2 (no per-human memberships endpoint in v0.1; the v0.2 follow-up surfaces team-role rows from `unit_memberships_humans`).
-- **Human — Messages (#2268, in flight).** Slot reserved under #2266; body ships in Portal Wave B. Timeline of threads the human is addressed in. Same `<UnitAgentMessagesView>` body, filtered by `human:` participant.
+- **Human — Messages (#2268, landed).** View-only timeline for threads where the human is an addressed participant. Filters `useThreads({ participant: "human:<id>" })` and renders the most-recently-active matching thread through the canonical `<ConversationView>` primitive (same control as Unit/Agent Messages and the inbox right pane). **No composer** — the Human page is an observer surface ("the operator looking at this person's threads"); there is no meaningful outbound "send to this human from their own page". The "You" hint is implicit through `<ConversationView>`'s default `layout="dialog"`: the under-view human's own bubbles align right when the conversation includes the caller. The canonical `<MessagesTab kind="Unit|Agent">` (#2256) is *not* reused — it carries a composer that doesn't apply here; instead the Human-specific tab body wires `useThreads` + `<ConversationView>` directly.
 - **Human — Config (#2269, in flight).** Slot reserved under #2266; body ships in Portal Wave B. Two sub-tabs: **Identity** (name, email, display preferences) and **Connector** (the inbound-routing binding — e.g. GitHub handle, Slack handle, email — that lets the platform deliver a message addressed to `human:<id>` via the right channel). Distinct from Unit × Config → Connector, which is *outbound* (binds the unit to an external system to receive events). The human-side connector is inbound-only.
 - **Unit × Agents — rename to "Members" pending v0.2.** Today the Unit × Agents tab lists agents + nested sub-units; in v0.2 it will also list humans (per `/api/v1/tenant/units/{id}/humans/{humanId}/permissions`). The label is already imprecise; v0.2 renames it to "Members" and updates the canonical order accordingly. **v0.1 keeps the existing label** to avoid a copy-only rename without the human additions; the rename rides the v0.2 tracker.
 
@@ -293,16 +293,18 @@ Canonical component: `src/components/units/tab-impls/activity-tab.tsx` accepting
 
 ### 5.3 Messages
 
-Subjects: Unit, Agent. *(Tenant does not participate in threads — see § 1 principle / § 4.1.)*
+Subjects: Unit, Agent, Human. *(Tenant does not participate in threads — see § 1 principle / § 4.1.)*
 
-Canonical component: `src/components/units/tabs/unit-agent-messages-view.tsx`.
+Canonical components: `src/components/units/tabs/unit-agent-messages-view.tsx` (Unit + Agent — composer-bearing) and `src/components/units/tabs/human-messages.tsx` (Human — view-only). Both wrap the shared `<ConversationView>` primitive (`src/components/conversation/conversation-view.tsx`).
 
-| Content | Unit | Agent | Canonical home |
-|---|---|---|---|
-| Inline timeline (`<UnitAgentMessagesView>` body) | A | A | this tab |
-| `+ New conversation` button + modal composer | A | A | this tab |
-| Persistent composer at bottom | A | A | this tab |
-| Timeline filter dropdown (Messages / Full timeline) | A | A | this tab |
+| Content | Unit | Agent | Human | Canonical home |
+|---|---|---|---|---|
+| Inline timeline (`<ConversationView>` body) | A | A | A | this tab |
+| `+ New conversation` button + modal composer | A | A | N | this tab |
+| Persistent composer at bottom | A | A | N | this tab |
+| Timeline filter dropdown (Messages / Full timeline) | A | A | A | this tab |
+
+The Human surface is **view-only** (no composer) because the Human page is observer-view ("the operator looking at this person's threads"). There is no meaningful outbound recipient for sending a message *from* a human's own page. Threads are filtered by `participant=human:<id>` instead of by `unit=` / `agent=` (the server's `participant` filter parses any address form via `AddressIdentity.TryGetActorId`).
 
 ### 5.4 Memory
 
