@@ -20,10 +20,13 @@ using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
+using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Skills;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -118,12 +121,81 @@ public class SvDirectorySkillRegistry_HumanMembersTests
         }
     }
 
+    // ── ADR-0045 §8: agent entries surface per-membership roles ──────────
+
+    [Fact]
+    public async Task ListMembers_AgentWithMembershipRoles_EmitsRolesArray()
+    {
+        // ADR-0045 §8: agent entries surface the per-membership roles list
+        // (the same multi-valued shape the human entries carry, additive on
+        // agent rows). The supplement runs after BuildEntryAsync, so the
+        // test seeds an agent definition in EF plus a unit-membership row
+        // and asserts the resulting JSON entry carries roles[] verbatim.
+        var agentId = Guid.Parse("00000000-dddd-dddd-dddd-000000000001");
+        var sut = new Fixture()
+            .SeedAgentMembership(agentId,
+                roles: new[] { "tech-lead", "ic" },
+                expertise: new[] { "kubernetes" })
+            .Build();
+
+        var json = await sut.ListMembersAsJsonAsync();
+
+        var members = json.GetProperty("members");
+        JsonElement? agentEntry = null;
+        foreach (var entry in members.EnumerateArray())
+        {
+            if (string.Equals(entry.GetProperty("kind").GetString(),
+                Address.AgentScheme, StringComparison.Ordinal))
+            {
+                agentEntry = entry;
+                break;
+            }
+        }
+
+        agentEntry.ShouldNotBeNull();
+        agentEntry!.Value.TryGetProperty("roles", out var rolesEl).ShouldBeTrue();
+        rolesEl.ValueKind.ShouldBe(JsonValueKind.Array);
+        var roleValues = rolesEl.EnumerateArray()
+            .Select(r => r.GetString() ?? string.Empty)
+            .ToList();
+        roleValues.ShouldBe(new[] { "tech-lead", "ic" });
+    }
+
+    [Fact]
+    public async Task ListMembers_AgentWithEmptyMembershipRoles_OmitsRolesField()
+    {
+        // Mirrors ListMembers_HumanWithoutRoles_OmitsRolesField for agent
+        // entries — when the per-membership roles list is empty, the wire
+        // shape stays minimal. The agent entry must NOT carry a
+        // `roles: []` slot that consumers would have to special-case.
+        var agentId = Guid.Parse("00000000-dddd-dddd-dddd-000000000002");
+        var sut = new Fixture()
+            .SeedAgentMembership(agentId,
+                roles: Array.Empty<string>(),
+                expertise: Array.Empty<string>())
+            .Build();
+
+        var json = await sut.ListMembersAsJsonAsync();
+
+        var members = json.GetProperty("members");
+        foreach (var entry in members.EnumerateArray())
+        {
+            if (string.Equals(entry.GetProperty("kind").GetString(),
+                Address.AgentScheme, StringComparison.Ordinal))
+            {
+                entry.TryGetProperty("roles", out _).ShouldBeFalse();
+            }
+        }
+    }
+
     // ── fixture ──────────────────────────────────────────────────────────
 
     private sealed class Fixture
     {
         private readonly InMemoryUnitHumanMembershipStore _membershipStore = new();
         private readonly Dictionary<Guid, string> _humanDisplayNames = new();
+        private readonly List<UnitMembership> _agentMemberships = new();
+        private readonly List<Guid> _seededAgents = new();
 
         public Fixture WithHumanDisplayName(Guid humanId, string displayName)
         {
@@ -144,10 +216,38 @@ public class SvDirectorySkillRegistry_HumanMembersTests
             return this;
         }
 
+        /// <summary>
+        /// Seeds an agent member of <see cref="UnitId"/> with a per-membership
+        /// roles + expertise list. Adds the agent to the member graph (so it
+        /// surfaces under sv.list_members) plus a UnitMembership row that the
+        /// SvDirectorySkillRegistry reads via IUnitMembershipRepository to
+        /// supplement the entry.
+        /// </summary>
+        public Fixture SeedAgentMembership(
+            Guid agentId,
+            IReadOnlyList<string>? roles = null,
+            IReadOnlyList<string>? expertise = null)
+        {
+            _seededAgents.Add(agentId);
+            _agentMemberships.Add(new UnitMembership(
+                UnitId: UnitId,
+                AgentId: agentId,
+                Roles: roles,
+                Expertise: expertise));
+            return this;
+        }
+
         public BuiltFixture Build()
         {
             var services = new ServiceCollection();
             services.AddLogging();
+            // In-memory SpringDbContext so the registry's ReadDefinitionAsync
+            // call against AgentDefinitions resolves without a real DB.
+            services.AddDbContext<SpringDbContext>(opt => opt
+                .UseInMemoryDatabase("sv-directory-tests-" + Guid.NewGuid().ToString("N"))
+                .ConfigureWarnings(w => w.Ignore(
+                    Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning)));
+
             var identityResolver = Substitute.For<IHumanIdentityResolver>();
             foreach (var (id, name) in _humanDisplayNames)
             {
@@ -177,19 +277,51 @@ public class SvDirectorySkillRegistry_HumanMembersTests
 
             // ADR-0045 §8: BuildHumanEntryAsync no longer reads the agent /
             // unit-membership repo when emitting human entries, but the
-            // sibling agent / unit folding path does. Wire an empty repo so
-            // tests focused on human entries don't trip over a missing
-            // IUnitMembershipRepository.
+            // sibling agent / unit folding path does. Wire a fake repo that
+            // returns the seeded agent-membership rows so the test exercising
+            // agent-roles emission has somewhere to read them from.
             var membershipRepo = Substitute.For<IUnitMembershipRepository>();
             membershipRepo
                 .ListByUnitAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-                .Returns(Array.Empty<UnitMembership>());
+                .Returns(_agentMemberships);
+            membershipRepo
+                .ListByAgentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                .Returns(call =>
+                {
+                    var agentId = call.ArgAt<Guid>(0);
+                    return _agentMemberships
+                        .Where(m => m.AgentId == agentId)
+                        .ToList();
+                });
             services.AddScoped<IUnitMembershipRepository>(_ => membershipRepo);
 
             var sp = services.BuildServiceProvider();
             var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
 
+            // Seed AgentDefinitions for each agent the test wired into the
+            // member graph so ReadDefinitionAsync returns a description and
+            // BuildEntryAsync's downstream code path runs to completion.
+            using (var scope = scopeFactory.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+                foreach (var agentId in _seededAgents)
+                {
+                    db.AgentDefinitions.Add(new AgentDefinitionEntity
+                    {
+                        Id = agentId,
+                        TenantId = TenantId,
+                        DisplayName = $"agent-{agentId:N}",
+                        Description = "test agent",
+                    });
+                }
+                db.SaveChanges();
+            }
+
             var memberGraph = new InMemoryUnitMemberGraphStore();
+            foreach (var agentId in _seededAgents)
+            {
+                memberGraph.SeedAgentMembers(UnitId, agentId);
+            }
             var expertiseStore = Substitute.For<IExpertiseStore>();
             expertiseStore
                 .GetDomainsAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())

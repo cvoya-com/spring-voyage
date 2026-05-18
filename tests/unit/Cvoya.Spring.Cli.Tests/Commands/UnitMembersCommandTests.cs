@@ -103,4 +103,46 @@ public class UnitMembersCommandTests
         UnitMembersCommand.FlattenMultiValued(new[] { string.Empty })
             .ShouldBeEmpty();
     }
+
+    // --- ADR-0045 §3 / Phase 5 gaps — wire-shape mapping ------------------
+
+    [Fact]
+    public void FlattenMultiValued_MultiFlagMixedWithComma_MapsToWireShapeRolesArray()
+    {
+        // `spring unit members humans add --roles a,b --roles c` is the
+        // canonical operator invocation. System.CommandLine collects
+        // [`a,b`, `c`] into the option's string[]; the flattener emits the
+        // exact `roles: ["a", "b", "c"]` JSON-array shape the
+        // AddUnitHumanMemberRequest body expects (ADR-0045 §3 multi-valued).
+        var result = UnitMembersCommand.FlattenMultiValued(new[] { "a,b", "c" });
+
+        result.ShouldNotBeNull();
+        result!.ShouldBe(new[] { "a", "b", "c" });
+    }
+
+    [Fact]
+    public void FlattenMultiValued_ExplicitEmptyString_MapsToFullClearWireShape()
+    {
+        // ADR-0045 §5 full-replacement semantics: an explicit
+        // `--roles ""` collapses to a single empty entry which the
+        // flattener drops, producing a zero-element list. The action
+        // layer's update path then forwards `roles: []` on the PATCH
+        // body — the wire-side signal for "clear all roles".
+        var result = UnitMembersCommand.FlattenMultiValued(new[] { string.Empty });
+
+        result.ShouldNotBeNull();
+        result!.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void FlattenMultiValued_NullInput_MapsToLeaveUnchangedWireShape()
+    {
+        // The action layer keys "leave unchanged" off `null` (no flag
+        // passed at all): the resulting PATCH body's Roles slot stays
+        // null, which Kiota serialises as the absent property so the
+        // backend takes the "no change" branch. This guards against a
+        // future refactor that switches the missing-flag default to an
+        // empty list (which would silently clear roles on every update).
+        UnitMembersCommand.FlattenMultiValued(null).ShouldBeNull();
+    }
 }
