@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Globe, Layers } from "lucide-react";
+import { Bot, Globe, Layers, User } from "lucide-react";
 import {
   type KeyboardEvent,
   useCallback,
@@ -512,6 +512,12 @@ function KindIcon({
       return <Globe aria-hidden="true" className={className} />;
     case "Agent":
       return <Bot aria-hidden="true" className={className} />;
+    case "Human":
+      // #2266: Human as a fourth Explorer subject. Tree itself does not
+      // render human rows in v0.1 (humans don't appear in the tenant
+      // tree payload), but the icon helper handles the kind so the
+      // KindIcon contract stays exhaustive.
+      return <User aria-hidden="true" className={className} />;
     case "Unit":
     default:
       return <Layers aria-hidden="true" className={className} />;

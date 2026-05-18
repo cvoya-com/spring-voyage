@@ -281,6 +281,44 @@ describe("UnitsPage — Explorer route (EXP-route)", () => {
     expect(link).toHaveTextContent(/new unit/i);
   });
 
+  it("#2266: bounces ?node=human:<guid> to /humans/<guid> via router.replace", async () => {
+    // The Explorer route honours the `human:` address scheme by
+    // redirecting to the dedicated `/humans/<guid>` page. Humans don't
+    // live in the tenant-tree payload, so the routing seam is the
+    // narrowest unblocking surface for #2266 / #2267.
+    const guid = "11111111-1111-1111-1111-111111111111";
+    currentSearchParams = new URLSearchParams(`node=human:${guid}`);
+    useTenantTreeMock.mockReturnValue({
+      data: sampleTree,
+      isLoading: false,
+      isError: false,
+    });
+    render(wrap(<UnitsPage />));
+    await waitFor(() =>
+      expect(routerReplaceMock).toHaveBeenCalledWith(
+        `/humans/${encodeURIComponent(guid)}`,
+      ),
+    );
+  });
+
+  it("#2266: preserves an active tab when bouncing ?node=human://<guid>&tab=Overview", async () => {
+    const guid = "22222222-2222-2222-2222-222222222222";
+    currentSearchParams = new URLSearchParams(
+      `node=human://${guid}&tab=Overview`,
+    );
+    useTenantTreeMock.mockReturnValue({
+      data: sampleTree,
+      isLoading: false,
+      isError: false,
+    });
+    render(wrap(<UnitsPage />));
+    await waitFor(() =>
+      expect(routerReplaceMock).toHaveBeenCalledWith(
+        `/humans/${encodeURIComponent(guid)}?tab=Overview`,
+      ),
+    );
+  });
+
   it("writes node+tab to the URL when a tab is clicked", async () => {
     useTenantTreeMock.mockReturnValue({
       data: sampleTree,

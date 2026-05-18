@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Check, ChevronRight, Copy, Globe, Layers } from "lucide-react";
+import { Bot, Check, ChevronRight, Copy, Globe, Layers, User } from "lucide-react";
 import {
   createElement,
   type KeyboardEvent,
@@ -62,6 +62,8 @@ function kindLabel(kind: NodeKind): string {
       return "Unit";
     case "Agent":
       return "Agent";
+    case "Human":
+      return "Human";
   }
 }
 
@@ -261,7 +263,12 @@ export function DetailPane({
  */
 export function addressFor(node: TreeNode, path?: TreeNode[]): string {
   const id = node.id;
-  const SCHEMES = ["tenant://", "unit://", "agent://"];
+  // `human://` joins the existing schemes for #2266 / #2267 — the
+  // platform's HumanActor address scheme is `human:<guid>` (see
+  // `docs/concepts/humans.md`) and the navigation-form analogue
+  // `human://<guid>` slots into the Copy Address surface the same
+  // way `agent://` and `unit://` do.
+  const SCHEMES = ["tenant://", "unit://", "agent://", "human://"];
   if (SCHEMES.some((s) => id.startsWith(s))) return id;
   switch (node.kind) {
     case "Tenant":
@@ -283,6 +290,12 @@ export function addressFor(node: TreeNode, path?: TreeNode[]): string {
       }
       return `agent://${id}`;
     }
+    case "Human":
+      // Humans are globally addressable by Guid — they aren't scoped
+      // to a unit path the way agents are (see `docs/concepts/humans.md`
+      // — `human:` short-circuits the directory and routes via the
+      // human's configured inbound connector binding).
+      return `human://${id}`;
   }
 }
 
@@ -485,6 +498,8 @@ function KindIcon({
       return <Globe aria-hidden="true" className={className} />;
     case "Agent":
       return <Bot aria-hidden="true" className={className} />;
+    case "Human":
+      return <User aria-hidden="true" className={className} />;
     case "Unit":
     default:
       return <Layers aria-hidden="true" className={className} />;
@@ -504,6 +519,15 @@ function DetailHeaderStatus({ node }: { node: TreeNode }) {
   const isAgent = node.kind === "Agent";
   const unitQuery = useUnit(isUnit ? node.id : "", { enabled: isUnit });
   const agentQuery = useAgent(isAgent ? node.id : "", { enabled: isAgent });
+
+  // Humans don't have a lifecycle (see `docs/concepts/humans.md` —
+  // humans implement only `IMessageReceiver`; no deploy / undeploy /
+  // running surface). The status badge would render "running" against
+  // a non-runtime subject, which is meaningless to the operator, so
+  // drop the cluster entirely for Human nodes.
+  if (node.kind === "Human") {
+    return null;
+  }
 
   const liveStatus: LifecycleStatusInput = isUnit
     ? unitQuery.data?.status ?? node.status

@@ -3,14 +3,17 @@ import { describe, expect, it } from "vitest";
 import {
   aggregate,
   AGENT_TABS,
+  childrenOf,
   filterTree,
   findIndex,
   flattenTree,
+  HUMAN_TABS,
   overflowTabsFor,
   tabsFor,
   TENANT_TABS,
   UNIT_TABS,
   visibleTabsFor,
+  type HumanNode,
   type TreeNode,
 } from "./aggregate";
 
@@ -94,6 +97,26 @@ describe("aggregate", () => {
     expect(leaf.units).toBe(0);
   });
 
+  it("rolls humans up with zero cost / zero messages and zero agent/unit counts (#2266)", () => {
+    // Humans don't have a runtime (they're addressable subjects per
+    // docs/concepts/humans.md), so a Human node contributes nothing
+    // to cost / msgs and is not counted as an agent or a unit. The
+    // worst-status rank still reflects its own status so the row
+    // can paint a coloured dot if the wire shape ever emits one.
+    const human: HumanNode = {
+      id: "human-savas",
+      name: "savas",
+      kind: "Human",
+      status: "running",
+    };
+    const sub = aggregate(human);
+    expect(sub.cost).toBe(0);
+    expect(sub.msgs).toBe(0);
+    expect(sub.agents).toBe(0);
+    expect(sub.units).toBe(0);
+    expect(sub.worst).toBe("running");
+  });
+
   it("treats undefined cost24h / msgs24h as 0 without coercing other values", () => {
     const node: TreeNode = {
       id: "u",
@@ -157,6 +180,29 @@ describe("aggregate", () => {
   });
 });
 
+describe("childrenOf", () => {
+  it("returns no children for a Human node (#2266)", () => {
+    const human: HumanNode = {
+      id: "human-savas",
+      name: "savas",
+      kind: "Human",
+      status: "running",
+    };
+    expect(childrenOf(human)).toEqual([]);
+  });
+
+  it("returns no children for an Agent node (existing contract — guard)", () => {
+    expect(
+      childrenOf({
+        id: "a",
+        name: "Ada",
+        kind: "Agent",
+        status: "running",
+      }),
+    ).toEqual([]);
+  });
+});
+
 describe("flattenTree / findIndex", () => {
   it("returns nodes in depth-first order with full ancestry path", () => {
     const all = flattenTree(sampleTree);
@@ -199,6 +245,10 @@ describe("tabsFor", () => {
       ...AGENT_TABS.visible,
       ...AGENT_TABS.overflow,
     ]);
+    expect(tabsFor("Human")).toEqual([
+      ...HUMAN_TABS.visible,
+      ...HUMAN_TABS.overflow,
+    ]);
   });
 
   it("locks the unit tab order and count (#2271/#2272/#2273 — Skills+Traces+Deployment added, canonical order)", () => {
@@ -239,6 +289,21 @@ describe("tabsFor", () => {
     ]);
     expect(AGENT_TABS.visible).toHaveLength(8);
     expect(AGENT_TABS.overflow).toEqual(["Config", "Deployment"]);
+  });
+
+  it("locks the human tab order — 2 visible + Config overflow (#2266)", () => {
+    // #2266 establishes Human as a fourth Explorer subject. The
+    // catalog is intentionally minimal — humans implement only
+    // `IMessageReceiver` per docs/concepts/humans.md. No Memory,
+    // Agents, Skills, Traces, Clones, Policies, Budgets, or
+    // Deployment slots (canonical-tabs.md § 4 matrix).
+    expect([...HUMAN_TABS.visible, ...HUMAN_TABS.overflow]).toEqual([
+      "Overview",
+      "Messages",
+      "Config",
+    ]);
+    expect(HUMAN_TABS.visible).toHaveLength(2);
+    expect(HUMAN_TABS.overflow).toEqual(["Config"]);
   });
 
   it("locks the tenant tab order — 4 visible + Config overflow (#2254)", () => {
@@ -299,12 +364,17 @@ describe("visibleTabsFor / overflowTabsFor", () => {
   });
 
   it("keeps `tabsFor` = [...visible, ...overflow] for every kind", () => {
-    for (const kind of ["Tenant", "Unit", "Agent"] as const) {
+    for (const kind of ["Tenant", "Unit", "Agent", "Human"] as const) {
       expect(tabsFor(kind)).toEqual([
         ...visibleTabsFor(kind),
         ...overflowTabsFor(kind),
       ]);
     }
+  });
+
+  it("splits the Human catalog into 2 visible + Config overflow (#2266)", () => {
+    expect(visibleTabsFor("Human")).toEqual(["Overview", "Messages"]);
+    expect(overflowTabsFor("Human")).toEqual(["Config"]);
   });
 });
 

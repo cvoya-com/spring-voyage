@@ -113,6 +113,25 @@ export type RuntimeStatus =
  */
 export type CreateAgentRequest = Schemas["CreateAgentRequest"];
 
+/**
+ * GET /api/v1/tenant/humans/{humanId} response envelope (#2266 / #2267).
+ *
+ * Per ADR-0044 § 1 the read-side envelope carries two orthogonal axes
+ * stamped on the row: the static platform-role grant (Viewer / Operator /
+ * Owner) and the identity-rendering fields (username / displayName / email).
+ * Team-role memberships and connector identities are NOT embedded here —
+ * those live on dedicated sub-resources
+ * (`/api/v1/tenant/units/{id}/members/humans` and
+ * `/api/v1/tenant/humans/{id}/identities` respectively) so the per-human
+ * GET stays cheap and the portal can render the Overview tab from a single
+ * round-trip.
+ *
+ * Consumed by `useHumanQuery` (`@/lib/hooks/useHumanQuery`); the Portal
+ * Wave B briefs (#2268 Messages, #2269 Config, #2270 + #2427 Unit ×
+ * Members) build on this slice.
+ */
+export type HumanResponse = Schemas["HumanResponse"];
+
 // ---------------------------------------------------------------------------
 // Platform metadata + Auth surface — consumed by the Settings drawer (#451).
 // ---------------------------------------------------------------------------

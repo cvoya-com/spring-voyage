@@ -21,6 +21,7 @@ import type {
   DirectorySearchRequest,
   DirectorySearchResponse,
   ExpertiseDomainDto,
+  HumanResponse,
   InitiativePolicy,
   InstallPackageDetail,
   InstallStatusResponse,
@@ -437,6 +438,20 @@ export const api = {
         params: { path: { id } },
       }),
     ) as AgentRuntimeStatusResponse,
+
+  // Humans
+  //
+  // GET /api/v1/tenant/humans/{humanId} — read-side envelope consumed
+  // by the Explorer Human page (#2266 / #2267). Mirrors the agents /
+  // units pattern: single round-trip returns display name, email,
+  // platform role, and createdAt; identity / membership lists live on
+  // dedicated sub-resources and are fetched separately.
+  getHuman: async (humanId: string): Promise<HumanResponse> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/humans/{humanId}", {
+        params: { path: { humanId } },
+      }),
+    ) as HumanResponse,
 
   // Units
   //

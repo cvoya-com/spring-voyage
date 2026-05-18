@@ -1,4 +1,4 @@
-# Canonical tab catalog for Tenant, Unit, Agent (and Human, deferred to v0.2)
+# Canonical tab catalog for Tenant, Unit, Agent, and Human
 
 > **Status:** Design — gates the implementation sub-issues under [#2252](https://github.com/cvoya-com/spring-voyage/issues/2252).
 > **Issue:** [#2261](https://github.com/cvoya-com/spring-voyage/issues/2261).
@@ -26,7 +26,7 @@ Alignment is **structural, not visual**. We are not reskinning anything. We are 
 - **No subject-unique tab removal.** Skills, Traces, Clones, Deployment (Agent), and Agents-list (Unit), Budgets (Tenant) all keep their content. They get repositioned within the canonical order; they are not bolted on at the end and they are not deleted.
 - **Subject-unique sub-tab ordering inside a canonical tab is not touched** unless a sub-issue's scope explicitly calls for it.
 - **No forcing tabs onto a subject the concept doesn't apply to.** Tenant is not an agent and does not participate in threads; tabs whose purpose is bound to thread participation (Messages) or to composing thread participants (Agents) do **not** apply to Tenant. Alignment converges the canonical *order* across subjects, but a slot only renders for a subject when the concept genuinely applies to that subject. We do not add stub or deep-link content to Tenant merely to keep every column populated.
-- **Human is a fourth subject — deferred to v0.2.** The platform already models humans (`HumanActor`, `human:` address scheme, `/api/v1/tenant/units/{id}/humans/{humanId}/permissions`). Humans implement `IMessageReceiver` only (per [`docs/architecture/infrastructure.md`](../architecture/infrastructure.md)) — they participate in threads but do not have expertise, activity, capabilities, runtime execution, memory, skills, traces, clones, budgets, or policies as agents do. The Explorer's portal-side `NodeKind` does not yet include `Human`, but the **v0.1 design must not block humans from becoming a fourth subject in v0.2.** See § 4 for the matrix column (deferred) and the v0.2 tracker filed under this design's umbrella.
+- **Human is a fourth subject — foundation landed under #2266 / #2267.** The platform already models humans (`HumanActor`, `human:` address scheme, `/api/v1/tenant/units/{id}/humans/{humanId}/permissions`). Humans implement `IMessageReceiver` only (per [`docs/architecture/infrastructure.md`](../architecture/infrastructure.md)) — they participate in threads but do not have expertise, activity, capabilities, runtime execution, memory, skills, traces, clones, budgets, or policies as agents do. The Explorer's portal-side `NodeKind` was extended to include `Human` under #2266, and the Overview tab body landed under #2267. The Messages (#2268) and Config (#2269) tab bodies follow as Portal Wave B PRs; in the meantime the registry's `<TabPlaceholder>` renders the deferred-tab copy. See § 4 for the matrix column.
 
 ---
 
@@ -192,7 +192,7 @@ Unit today puts Config in overflow because the primary strip already has six vis
 - **Unit:** Overview, Activity, Messages, Memory, Agents, Skills, Traces, Policies visible — Config, Deployment overflow.
 - **Agent:** Overview, Activity, Messages, Memory, Skills, Traces, Clones, Policies visible — Config, Deployment overflow.
 - **Tenant:** Overview, Activity, Policies, Budgets visible — Config overflow. Messages, Agents, Memory, Skills, Traces, Clones, Deployment do not apply to Tenant (see § 1 principle and § 4).
-- **Human (v0.2):** Overview, Messages visible — Config overflow. Activity is undecided. Memory, Agents, Skills, Traces, Clones, Policies, Budgets, Deployment do not apply (humans implement only `IMessageReceiver`). Final shape lands with the v0.2 implementation tracker.
+- **Human (foundation landed under #2266):** Overview, Messages visible — Config overflow. Activity is intentionally absent (humans don't implement `IActivityObservable`). Memory, Agents, Skills, Traces, Clones, Policies, Budgets, Deployment do not apply (humans implement only `IMessageReceiver`). Catalog locked in `HUMAN_TABS` (`src/Cvoya.Spring.Web/src/components/units/aggregate.ts`); Overview body landed under #2267; Messages and Config bodies are slot-reserved placeholders pending #2268 / #2269.
 
 Rationale for pushing Config + Deployment to overflow on both Unit and Agent: both are deep editors / lifecycle surfaces, the activity-side cluster (Overview/Activity/Messages/Memory + the composition slots) is the high-frequency surface, and the existing `<AgentCard>` Deployment quick-action already deep-links to `?tab=Deployment`, so overflow placement does not regress that path. Unit gains Skills + Traces + Deployment slots because a unit is an agent — they apply to both subjects identically.
 
@@ -215,7 +215,7 @@ Per the § 1 principle, the canonical order does **not** invent a Tenant × Mess
 
 `A` = applies; `—` = does-not-apply; `A*` = applies with a per-subject variant noted below.
 
-| Tab | Tenant | Unit | Agent | Human (v0.2) |
+| Tab | Tenant | Unit | Agent | Human |
 |---|---|---|---|---|
 | 1. Overview | A | A | A | A (personal info — name, email; see § 4.1 / v0.2 tracker) |
 | 2. Activity | A* (deep-link to `/analytics/throughput`; cost cards may appear if a tenant-feed surface lands) | A (same control as Agent — cost cards + activity feed) | A (same control as Unit — cost cards + activity feed) | TBD (humans don't implement `IActivityObservable`; v0.2 may decide on a deep-link to thread participation history) |
@@ -243,9 +243,9 @@ Per the § 1 principle, the canonical order does **not** invent a Tenant × Mess
 
 Tenant × Messages, Tenant × Agents, and Tenant × Memory do **not** appear in the matrix and are not rendered in the Tenant strip. Tenant-wide thread / agent roll-ups remain reachable via `/inbox` and the Explorer tree (which already surfaces every agent in the tenant); we do not duplicate those surfaces into the Tenant Detail Pane. The pre-existing `tenant-memory.tsx` empty-state is removed.
 
-- **Human (v0.2) — Overview.** Personal info card (name, email, primary connector handle). Read-mostly; mutation surface TBD by the v0.2 implementation tracker.
-- **Human (v0.2) — Messages.** Timeline of threads the human is addressed in. Same `<UnitAgentMessagesView>` body, filtered by `human:` participant.
-- **Human (v0.2) — Config.** Two sub-tabs: **Identity** (name, email, display preferences) and **Connector** (the inbound-routing binding — e.g. GitHub handle, Slack handle, email — that lets the platform deliver a message addressed to `human:<id>` via the right channel). Distinct from Unit × Config → Connector, which is *outbound* (binds the unit to an external system to receive events). The human-side connector is inbound-only.
+- **Human — Overview (#2267, landed).** Personal info card (display name, username, email, platform role, created-at) + compact 4-fact pill grid + caveat copy. The display-name row carries a "You" badge when the loaded human matches the currently-authenticated caller. No `<IssuesPanel>`, lifecycle embed, cost summary, or engagement link — humans don't have those surfaces. Memberships drill-down is deferred to v0.2 (no per-human memberships endpoint in v0.1; the v0.2 follow-up surfaces team-role rows from `unit_memberships_humans`).
+- **Human — Messages (#2268, in flight).** Slot reserved under #2266; body ships in Portal Wave B. Timeline of threads the human is addressed in. Same `<UnitAgentMessagesView>` body, filtered by `human:` participant.
+- **Human — Config (#2269, in flight).** Slot reserved under #2266; body ships in Portal Wave B. Two sub-tabs: **Identity** (name, email, display preferences) and **Connector** (the inbound-routing binding — e.g. GitHub handle, Slack handle, email — that lets the platform deliver a message addressed to `human:<id>` via the right channel). Distinct from Unit × Config → Connector, which is *outbound* (binds the unit to an external system to receive events). The human-side connector is inbound-only.
 - **Unit × Agents — rename to "Members" pending v0.2.** Today the Unit × Agents tab lists agents + nested sub-units; in v0.2 it will also list humans (per `/api/v1/tenant/units/{id}/humans/{humanId}/permissions`). The label is already imprecise; v0.2 renames it to "Members" and updates the canonical order accordingly. **v0.1 keeps the existing label** to avoid a copy-only rename without the human additions; the rename rides the v0.2 tracker.
 
 ### 4.2 Why Policies/Budgets are kept distinct on Tenant
@@ -567,20 +567,19 @@ export const AGENT_TABS = {
   overflow: ["Config", "Deployment"] as const,
 };
 
-// v0.2 — deferred. NodeKind also gains "Human". HumanTabName / TabsFor
-// extend accordingly. Final shape lands with the v0.2 implementation
-// tracker; the placeholder here makes the design's intent durable so
-// v0.1 PRs don't bake in a three-subject assumption.
-//
-// export const HUMAN_TABS = {
-//   visible: ["Overview", "Messages"] as const,
-//   overflow: ["Config"] as const,
-// };
+// Landed under #2266 / #2267. NodeKind also gains "Human";
+// HumanTabName / TabsFor extend accordingly. The Overview body
+// landed under #2267; the Messages (#2268) and Config (#2269) bodies
+// are slot-reserved placeholders pending Portal Wave B follow-ups.
+export const HUMAN_TABS = {
+  visible: ["Overview", "Messages"] as const,
+  overflow: ["Config"] as const,
+};
 ```
 
 Notes:
 
-- `TabName` becomes the union `UnitTabName | AgentTabName | TenantTabName` exactly as today. `TabsFor<K>` still narrows per-kind so `("Tenant", "Skills")` rejects at compile time.
+- `TabName` is the union `UnitTabName | AgentTabName | TenantTabName | HumanTabName`. `TabsFor<K>` narrows per-kind so `("Tenant", "Skills")` rejects at compile time.
 - The `visible` / `overflow` split is unchanged in its semantics (Detail-Pane rendering hint). The `register-all` test must be updated to enumerate the new pairs.
 
 ### 7.2 Per-sub-issue migration checklist

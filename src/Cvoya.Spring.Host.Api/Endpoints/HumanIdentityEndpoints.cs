@@ -16,10 +16,11 @@ using Microsoft.EntityFrameworkCore;
 
 /// <summary>
 /// REST surface for the human ↔ connector-native identity mapping table
-/// (#2408). The table backs <see cref="IHumanConnectorIdentityResolver"/>;
-/// these endpoints let an operator manage the rows via the CLI
-/// (<c>spring human identity set/list/remove</c>) before the portal
-/// surface lands in v0.2.
+/// (#2408) and the per-human read-side envelope (#2266 / #2267 — Explorer
+/// Human page). The identity table backs
+/// <see cref="IHumanConnectorIdentityResolver"/>; the GET-by-id route
+/// powers the portal's Human × Overview tab and any v0.1 caller that
+/// needs to render a single human's display name / email / platform role.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -41,13 +42,25 @@ using Microsoft.EntityFrameworkCore;
 public static class HumanIdentityEndpoints
 {
     /// <summary>
-    /// Registers the human ↔ connector identity routes under
-    /// <c>/api/v1/tenant/humans</c>.
+    /// Registers the human ↔ connector identity routes plus the per-human
+    /// read-side envelope route under <c>/api/v1/tenant/humans</c>.
     /// </summary>
     public static RouteGroupBuilder MapHumanIdentityEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/tenant/humans")
             .WithTags("Humans");
+
+        // #2266 / #2267: per-human read-side envelope consumed by the
+        // Explorer Human page. The route is sibling to the identities
+        // sub-routes so portal callers can address one human without
+        // joining the directory or paging the larger /auth/me payload.
+        group.MapGet("/{humanId:guid}", GetHumanAsync)
+            .WithName("GetHuman")
+            .WithSummary("Read a single human's read-side envelope (display name, email, platform role, created-at).")
+            .WithDescription("Returns the canonical fields needed by the Explorer Human page. Identity / membership lists live on dedicated sub-resources and are NOT embedded here.")
+            .Produces<HumanResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/{humanId:guid}/identities", UpsertIdentityAsync)
             .WithName("UpsertHumanConnectorIdentity")
@@ -69,6 +82,40 @@ public static class HumanIdentityEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest);
 
         return group;
+    }
+
+    private static async Task<IResult> GetHumanAsync(
+        Guid humanId,
+        SpringDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (humanId == Guid.Empty)
+        {
+            return Results.Problem(
+                detail: "Human id must not be empty.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // Tenant query filter on the DbContext scopes this to the current
+        // tenant automatically — a cross-tenant id surfaces as a clean 404
+        // rather than leaking the row's existence.
+        var row = await db.Humans
+            .AsNoTracking()
+            .FirstOrDefaultAsync(h => h.Id == humanId, cancellationToken);
+        if (row is null)
+        {
+            return Results.Problem(
+                detail: $"Human '{humanId:N}' was not found in the current tenant.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Ok(new HumanResponse(
+            row.Id,
+            row.Username,
+            string.IsNullOrWhiteSpace(row.DisplayName) ? row.Username : row.DisplayName,
+            row.Email,
+            row.PermissionLevel.ToString(),
+            row.CreatedAt));
     }
 
     private static async Task<IResult> UpsertIdentityAsync(

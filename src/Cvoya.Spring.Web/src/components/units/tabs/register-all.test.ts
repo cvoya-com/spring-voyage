@@ -22,6 +22,7 @@ describe("tabs/register-all — every v2 slot has a component", () => {
     const unitTabs = tabsFor("Unit");
     const agentTabs = tabsFor("Agent");
     const tenantTabs = tabsFor("Tenant");
+    const humanTabs = tabsFor("Human");
 
     for (const tab of unitTabs) {
       expect(
@@ -41,10 +42,24 @@ describe("tabs/register-all — every v2 slot has a component", () => {
         `Tenant.${tab} should be registered`,
       ).not.toBeNull();
     }
+    // #2266: Human is the fourth Explorer subject. Every slot in
+    // HUMAN_TABS (Overview, Messages, Config) must be addressable via
+    // the registry — #2267 lands the Overview body, the others are
+    // slot-reserved placeholders pending #2268 / #2269.
+    for (const tab of humanTabs) {
+      expect(
+        lookupTab("Human", tab),
+        `Human.${tab} should be registered`,
+      ).not.toBeNull();
+    }
 
     // Sanity: registry size equals the sum of all catalog sizes
     // (including overflow tabs — they're first-class registry citizens).
-    const expected = unitTabs.length + agentTabs.length + tenantTabs.length;
+    const expected =
+      unitTabs.length +
+      agentTabs.length +
+      tenantTabs.length +
+      humanTabs.length;
     expect(registeredTabs().length).toBe(expected);
   });
 });

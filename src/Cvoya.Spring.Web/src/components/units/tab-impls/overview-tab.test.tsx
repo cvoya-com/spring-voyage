@@ -2,7 +2,12 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
-import type { AgentNode, TenantNode, UnitNode } from "../aggregate";
+import type {
+  AgentNode,
+  HumanNode,
+  TenantNode,
+  UnitNode,
+} from "../aggregate";
 
 vi.mock("next/link", () => ({
   default: ({
@@ -50,6 +55,8 @@ const useUnitExecutionMock = vi.fn();
 const useAgentCostMock = vi.fn();
 const useUnitIssuesMock = vi.fn();
 const useAgentIssuesMock = vi.fn();
+const useHumanMock = vi.fn();
+const useCurrentUserMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
   useUnitCostTimeseries: (id: string, window: string, bucket: string) =>
     useUnitCostTimeseriesMock(id, window, bucket),
@@ -58,6 +65,8 @@ vi.mock("@/lib/api/queries", () => ({
   useAgentCost: (id: string) => useAgentCostMock(id),
   useUnitIssues: (id: string, opts?: unknown) => useUnitIssuesMock(id, opts),
   useAgentIssues: (id: string) => useAgentIssuesMock(id),
+  useHuman: (id: string, opts?: unknown) => useHumanMock(id, opts),
+  useCurrentUser: () => useCurrentUserMock(),
   useModelProviders: () => ({ data: [], isPending: false, isError: false }),
 }));
 
@@ -96,11 +105,15 @@ beforeEach(() => {
   useAgentCostMock.mockReset();
   useUnitIssuesMock.mockReset();
   useAgentIssuesMock.mockReset();
+  useHumanMock.mockReset();
+  useCurrentUserMock.mockReset();
   useUnitCostTimeseriesMock.mockReturnValue(emptyTimeseries);
   useUnitMock.mockReturnValue(noUnit);
   useUnitExecutionMock.mockReturnValue(noExecution);
   useUnitIssuesMock.mockReturnValue(noIssues);
   useAgentIssuesMock.mockReturnValue(noIssues);
+  useHumanMock.mockReturnValue({ data: null, isLoading: false });
+  useCurrentUserMock.mockReturnValue({ data: null });
 });
 
 describe("OverviewTab (Tenant subject)", () => {
@@ -463,5 +476,150 @@ describe("OverviewTab (Agent subject)", () => {
     const withDesc: AgentNode = { ...node, desc: "Lead reviewer agent." };
     render(<OverviewTab kind="Agent" node={withDesc} />);
     expect(screen.getByText("Lead reviewer agent.")).toBeInTheDocument();
+  });
+});
+
+describe("OverviewTab (Human subject — #2267)", () => {
+  const SAMPLE_GUID = "11111111-1111-1111-1111-111111111111";
+  const node: HumanNode = {
+    kind: "Human",
+    id: SAMPLE_GUID,
+    name: "savas",
+    status: "running",
+  };
+
+  it("renders the loading skeleton while the human query is in flight", () => {
+    useHumanMock.mockReturnValue({ data: undefined, isLoading: true });
+    render(<OverviewTab kind="Human" node={node} />);
+    expect(
+      screen.getByTestId("tab-human-overview-loading"),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the missing empty state when the entity is null (404)", () => {
+    useHumanMock.mockReturnValue({ data: null, isLoading: false });
+    render(<OverviewTab kind="Human" node={node} />);
+    expect(
+      screen.getByTestId("tab-human-overview-missing"),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the profile card with display name, username, email, platformRole, and createdAt", () => {
+    useHumanMock.mockReturnValue({
+      data: {
+        id: SAMPLE_GUID,
+        username: "savas",
+        displayName: "Savas Parastatidis",
+        email: "savas@example.com",
+        platformRole: "Owner",
+        createdAt: "2026-01-15T10:00:00Z",
+      },
+      isLoading: false,
+    });
+    render(<OverviewTab kind="Human" node={node} />);
+    expect(
+      screen.getByTestId("tab-human-overview-display-name"),
+    ).toHaveTextContent("Savas Parastatidis");
+    // Each of these values renders twice — once in the profile card's
+    // Row and once in the facts grid Fact tile. Assert at-least-once
+    // via `getAllByText` so the test stays robust to duplicate render.
+    expect(
+      screen.getAllByText("savas@example.com").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText("Owner").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("2026-01-15").length).toBeGreaterThan(0);
+  });
+
+  it("shows the You hint when the current user matches the loaded human by Id (#2082 contract)", () => {
+    useHumanMock.mockReturnValue({
+      data: {
+        id: SAMPLE_GUID,
+        username: "savas",
+        displayName: "Savas",
+        email: null,
+        platformRole: "Operator",
+        createdAt: "2026-01-15T10:00:00Z",
+      },
+      isLoading: false,
+    });
+    useCurrentUserMock.mockReturnValue({
+      data: { id: SAMPLE_GUID, displayName: "Savas", userId: "savas" },
+    });
+    render(<OverviewTab kind="Human" node={node} />);
+    expect(
+      screen.getByTestId("tab-human-overview-you-hint"),
+    ).toHaveTextContent(/you/i);
+  });
+
+  it("hides the You hint when the current user is a different human", () => {
+    useHumanMock.mockReturnValue({
+      data: {
+        id: SAMPLE_GUID,
+        username: "teammate",
+        displayName: "Teammate",
+        email: null,
+        platformRole: "Operator",
+        createdAt: "2026-01-15T10:00:00Z",
+      },
+      isLoading: false,
+    });
+    useCurrentUserMock.mockReturnValue({
+      data: {
+        id: "99999999-9999-9999-9999-999999999999",
+        displayName: "Other",
+        userId: "other",
+      },
+    });
+    render(<OverviewTab kind="Human" node={node} />);
+    expect(
+      screen.queryByTestId("tab-human-overview-you-hint"),
+    ).toBeNull();
+  });
+
+  it("renders the facts grid with the four canonical cells", () => {
+    useHumanMock.mockReturnValue({
+      data: {
+        id: SAMPLE_GUID,
+        username: "savas",
+        displayName: "Savas",
+        email: "savas@example.com",
+        platformRole: "Owner",
+        createdAt: "2026-01-15T10:00:00Z",
+      },
+      isLoading: false,
+    });
+    render(<OverviewTab kind="Human" node={node} />);
+    expect(screen.getByTestId("tab-human-overview-facts")).toBeInTheDocument();
+    // Four <Fact> tiles → four "label" headings.
+    expect(screen.getAllByText("Username").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Email").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Platform role").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Created").length).toBeGreaterThan(0);
+  });
+
+  it("does not mount unit- or agent-side hooks", () => {
+    useHumanMock.mockReturnValue({
+      data: {
+        id: SAMPLE_GUID,
+        username: "savas",
+        displayName: "Savas",
+        email: null,
+        platformRole: "Operator",
+        createdAt: "2026-01-15T10:00:00Z",
+      },
+      isLoading: false,
+    });
+    render(<OverviewTab kind="Human" node={node} />);
+    expect(useUnitCostTimeseriesMock).not.toHaveBeenCalled();
+    expect(useAgentCostMock).not.toHaveBeenCalled();
+    expect(useUnitIssuesMock).not.toHaveBeenCalled();
+    expect(useAgentIssuesMock).not.toHaveBeenCalled();
+    expect(useUnitExecutionMock).not.toHaveBeenCalled();
+    // Lifecycle panel must not render for a human subject.
+    expect(screen.queryByTestId("legacy-lifecycle")).not.toBeInTheDocument();
+    // Expertise card must not render either.
+    expect(
+      screen.queryByTestId("expertise-card-stub"),
+    ).not.toBeInTheDocument();
   });
 });
