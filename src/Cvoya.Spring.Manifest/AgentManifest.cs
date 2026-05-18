@@ -113,6 +113,18 @@ public class AgentManifest
     /// </summary>
     [YamlMember(Alias = "execution")]
     public AgentExecutionManifest? Execution { get; set; }
+
+    /// <summary>Optional specialty label used by orchestration strategies.</summary>
+    [YamlMember(Alias = "specialty")]
+    public string? Specialty { get; set; }
+
+    /// <summary>Whether this agent participates in orchestration. Defaults to true.</summary>
+    [YamlMember(Alias = "enabled")]
+    public bool? Enabled { get; set; }
+
+    /// <summary>How this agent participates in dispatch (auto or onDemand).</summary>
+    [YamlMember(Alias = "executionMode")]
+    public string? ExecutionMode { get; set; }
 }
 
 /// <summary>
