@@ -63,21 +63,23 @@ export interface AgentNode extends BaseNode {
 }
 
 /**
- * Human subject node (#2266). Humans are first-class participants in
- * threads (per [`docs/concepts/humans.md`](../../../../docs/concepts/humans.md))
+ * Human subject node (#2266 / #2466). Humans are first-class participants
+ * in threads (per [`docs/concepts/humans.md`](../../../../docs/concepts/humans.md))
  * but they are **not** agents — they do not carry expertise, runtime,
  * memory, skills, traces, or budget. The node interface mirrors only
  * the cross-subject identity fields (`id`, `name`, `status`, `desc`).
  *
- * The Explorer's left-rail tree does NOT include humans in v0.1 — the
- * `GET /api/v1/tenant/tree` payload (validated by
- * `validate-tenant-tree.ts`) returns only Tenant/Unit/Agent nodes. The
- * Explorer reaches the Human page either via the dedicated route
- * (`/humans/<id>`) or by selecting an id with the `human:` address
- * scheme (`?node=human:<guid>`). Issue [#2270](https://github.com/cvoya-com/spring-voyage/issues/2270)
- * + [#2427](https://github.com/cvoya-com/spring-voyage/issues/2427) wires
- * humans into the Unit × Members tab so per-unit listings surface the
- * humans on that unit's team.
+ * As of #2466, `GET /api/v1/tenant/tree` emits a Human child under every
+ * unit the human is a team-role member of. The node id carries the
+ * canonical `human://<guid>` scheme prefix; clicking the row dispatches
+ * through the Explorer's existing `human:` selection handler so the
+ * dedicated `/humans/<id>` route is the target — the unit tree shows
+ * "who is on this team?" but the Human detail surface owns the
+ * per-person rendering.
+ *
+ * Multiple instances of the same human (e.g. the OSS operator listed on
+ * several units) are intentional — each `(unit, human)` membership pair
+ * is its own tree row.
  *
  * `status` is always `"running"` for humans — the field is required by
  * `BaseNode` for status-rank rollups, but a human has no lifecycle. The

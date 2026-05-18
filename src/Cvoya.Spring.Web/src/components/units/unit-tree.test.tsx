@@ -212,6 +212,92 @@ describe("UnitTree", () => {
     expect(dot).toHaveAttribute("data-status", "running");
   });
 
+  // #2466: humans render as sibling rows beneath every unit they are a
+  // team-role member of. The same human can appear under multiple units
+  // (OSS single-operator case is the obvious example); the row's id
+  // carries the `human://<guid>` scheme prefix so clicking dispatches
+  // through the Explorer's `human:` selection redirect.
+  describe("human nodes (#2466)", () => {
+    const opGuid = "0123456789abcdef0123456789abcdef";
+    const treeWithHumans: TreeNode = {
+      id: "tenant-acme",
+      name: "Acme",
+      kind: "Tenant",
+      status: "running",
+      children: [
+        {
+          id: "unit-eng",
+          name: "Engineering",
+          kind: "Unit",
+          status: "running",
+          children: [
+            { id: "agent-ada", name: "Ada", kind: "Agent", status: "running" },
+            {
+              id: `human://${opGuid}`,
+              name: "Operator",
+              kind: "Human",
+              status: "running",
+            },
+          ],
+        },
+        {
+          id: "unit-research",
+          name: "Research",
+          kind: "Unit",
+          status: "running",
+          children: [
+            {
+              id: `human://${opGuid}`,
+              name: "Operator",
+              kind: "Human",
+              status: "running",
+            },
+          ],
+        },
+      ],
+    };
+
+    it("renders a treeitem for each human, even with duplicate ids across units", () => {
+      render(
+        <UnitTree
+          tree={treeWithHumans}
+          selectedId="tenant-acme"
+          onSelect={vi.fn()}
+          defaultExpanded={{
+            "tenant-acme": true,
+            "unit-eng": true,
+            "unit-research": true,
+          }}
+        />,
+      );
+      // Both units carry their own human row, each a `treeitem`. The
+      // selector matches both because the row's id is the same — the
+      // duplicate is intentional and React keys stay unique per-parent.
+      const rows = screen.getAllByTestId(`tree-row-human://${opGuid}`);
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        expect(row).toHaveAttribute("role", "treeitem");
+        expect(row).toHaveAttribute("data-kind", "Human");
+        expect(row).toHaveTextContent("Operator");
+      }
+    });
+
+    it("dispatches onSelect with the human:// id so the Explorer redirect fires", () => {
+      const onSelect = vi.fn();
+      render(
+        <UnitTree
+          tree={treeWithHumans}
+          selectedId="tenant-acme"
+          onSelect={onSelect}
+          defaultExpanded={{ "tenant-acme": true, "unit-eng": true }}
+        />,
+      );
+      const row = screen.getAllByTestId(`tree-row-human://${opGuid}`)[0];
+      fireEvent.click(row);
+      expect(onSelect).toHaveBeenCalledWith(`human://${opGuid}`);
+    });
+  });
+
   describe("keyboard navigation (V21-tree-keyboard)", () => {
     // Local fixture so keyboard-test mutation of expansion state can't
     // leak into the colocated ARIA tests above.

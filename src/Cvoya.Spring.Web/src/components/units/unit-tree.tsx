@@ -513,10 +513,10 @@ function KindIcon({
     case "Agent":
       return <Bot aria-hidden="true" className={className} />;
     case "Human":
-      // #2266: Human as a fourth Explorer subject. Tree itself does not
-      // render human rows in v0.1 (humans don't appear in the tenant
-      // tree payload), but the icon helper handles the kind so the
-      // KindIcon contract stays exhaustive.
+      // #2466: humans render as tree rows under every unit they are a
+      // team-role member of. Same `User` glyph the Detail Pane uses
+      // for the kind-icon cluster so the tree and the page chrome
+      // share one visual language.
       return <User aria-hidden="true" className={className} />;
     case "Unit":
     default:

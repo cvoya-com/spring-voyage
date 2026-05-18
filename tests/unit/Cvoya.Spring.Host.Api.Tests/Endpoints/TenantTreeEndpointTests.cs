@@ -226,6 +226,63 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         ada.Name.ShouldBe("Ada Lovelace");
     }
 
+    [Fact]
+    public async Task GetTenantTree_EmitsHumanNodesUnderEveryUnitTheyBelongTo()
+    {
+        // #2466: human team-role members surface as a third child kind
+        // on every unit. The same human registered on two units appears
+        // twice — one node per `(unit, human)` membership row. Each
+        // node carries the canonical `human://<guid>` id so the
+        // Explorer's `human:` selection handler routes the click to
+        // `/humans/<guid>`.
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        ArrangeDirectoryEntries(
+            units: [("engineering", "Engineering"), ("research", "Research")]);
+
+        var operatorHumanId = await SeedHumanAsync("operator", "Operator");
+        await UpsertHumanMembershipAsync("engineering", operatorHumanId, roles: ["lead"]);
+        await UpsertHumanMembershipAsync("research", operatorHumanId, roles: ["reviewer"]);
+
+        var body = await FetchTreeAsync(ct);
+        var engId = _entryUuids["unit:engineering"].ToString("N");
+        var researchId = _entryUuids["unit:research"].ToString("N");
+        var engineering = body!.Tree.Children!.Single(u => u.Id == engId);
+        var research = body.Tree.Children!.Single(u => u.Id == researchId);
+
+        var humanGuid = operatorHumanId.ToString("N");
+        var expectedId = $"human://{humanGuid}";
+
+        var engHuman = engineering.Children!.Single(c => c.Id == expectedId);
+        engHuman.Kind.ShouldBe("Human");
+        engHuman.Name.ShouldBe("Operator");
+        engHuman.Status.ShouldBe("running");
+        engHuman.DefinitionId.ShouldBe(operatorHumanId);
+
+        var researchHuman = research.Children!.Single(c => c.Id == expectedId);
+        researchHuman.Kind.ShouldBe("Human");
+        researchHuman.Name.ShouldBe("Operator");
+    }
+
+    [Fact]
+    public async Task GetTenantTree_OmitsHumanRowsWithNoBackingEntity()
+    {
+        // Race window during onboarding: a membership row can exist
+        // before the Humans table has been seeded. The endpoint must
+        // skip rather than emit a half-formed node with a Guid name.
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        ArrangeDirectoryEntries(units: [("engineering", "Engineering")]);
+
+        var ghostHumanId = Guid.NewGuid();
+        await UpsertHumanMembershipAsync("engineering", ghostHumanId);
+
+        var body = await FetchTreeAsync(ct);
+        var engId = _entryUuids["unit:engineering"].ToString("N");
+        var engineering = body!.Tree.Children!.Single(u => u.Id == engId);
+        (engineering.Children ?? []).ShouldNotContain(c => c.Kind == "Human");
+    }
+
     private async Task<TenantTreeResponse?> FetchTreeAsync(CancellationToken ct)
     {
         var response = await _client.GetAsync("/api/v1/tenant/tree", ct);
@@ -244,6 +301,8 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         using var scope = _factory.Services.CreateScope();
         var ctx = scope.ServiceProvider.GetRequiredService<Cvoya.Spring.Dapr.Data.SpringDbContext>();
         ctx.UnitMemberships.RemoveRange(ctx.UnitMemberships.ToList());
+        ctx.UnitMembershipsHumans.RemoveRange(ctx.UnitMembershipsHumans.ToList());
+        ctx.Humans.RemoveRange(ctx.Humans.ToList());
         ctx.SaveChanges();
     }
 
@@ -322,5 +381,51 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         await repo.UpsertAsync(
             new UnitMembership(unitUuid, agentUuid, Enabled: enabled),
             CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Seeds a Humans row in the DB with the given username + display
+    /// name. Returns the generated stable id so the caller can wire
+    /// membership rows that point back to this human.
+    /// </summary>
+    private async Task<Guid> SeedHumanAsync(string username, string displayName)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<Cvoya.Spring.Dapr.Data.SpringDbContext>();
+        var row = new Cvoya.Spring.Dapr.Data.Entities.HumanEntity
+        {
+            Id = Guid.NewGuid(),
+            TenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+            Username = username,
+            DisplayName = displayName,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        ctx.Humans.Add(row);
+        await ctx.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return row.Id;
+    }
+
+    /// <summary>
+    /// Seeds a unit_memberships_humans row via the production store so
+    /// the tenant-tree endpoint sees the row through the same code path
+    /// the CLI / portal write surface uses.
+    /// </summary>
+    private async Task UpsertHumanMembershipAsync(
+        string unitPath,
+        Guid humanId,
+        IReadOnlyList<string>? roles = null,
+        IReadOnlyList<string>? expertise = null,
+        IReadOnlyList<string>? notifications = null)
+    {
+        var unitUuid = _entryUuids.TryGetValue($"unit:{unitPath}", out var uid) ? uid : Guid.NewGuid();
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IUnitHumanMembershipStore>();
+        await store.UpsertAsync(
+            unitUuid,
+            humanId,
+            roles ?? Array.Empty<string>(),
+            expertise ?? Array.Empty<string>(),
+            notifications ?? Array.Empty<string>(),
+            TestContext.Current.CancellationToken);
     }
 }
