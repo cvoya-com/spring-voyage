@@ -306,9 +306,16 @@ public class GitHubConnectorType : IConnectorType
                 config.Events,
                 cancellationToken);
 
-            // Persist the hook id so OnUnitStoppingAsync can tear it down.
+            // Persist both the hook id AND the installation id used to create
+            // it so OnUnitStoppingAsync can authenticate the delete against
+            // the same installation scope, even if the operator re-PUTs the
+            // binding to a different installation id between start and stop
+            // (#2429). Without the persisted installation id the teardown
+            // would read the current binding's AppInstallationId, which may
+            // no longer have permission to delete the hook the create call
+            // installed against the original installation.
             var runtime = JsonSerializer.SerializeToElement(
-                new GitHubConnectorRuntime(hookId), ConfigJson);
+                new GitHubConnectorRuntime(hookId, config.AppInstallationId), ConfigJson);
             await _runtimeStore.SetAsync(unitId, runtime, cancellationToken);
 
             _logger.LogInformation(
@@ -356,13 +363,48 @@ public class GitHubConnectorType : IConnectorType
             return;
         }
 
+        // #2429: prefer the installation id we persisted at register time so
+        // the delete authenticates against the same scope the create used,
+        // even if the operator re-PUTs the binding to a different
+        // installation id between start and stop. Fall back to the current
+        // binding's AppInstallationId only when the runtime row predates
+        // this PR — those rows have no `InstallationId` JSON field at all.
+        // We detect the legacy shape by inspecting the raw JsonElement
+        // rather than the deserialized record, because System.Text.Json
+        // collapses both "missing field" and "explicit null" to the same
+        // optional-parameter default; without this check we cannot tell a
+        // modern null-installation-id row apart from a pre-#2429 row. The
+        // fallback path is dead once every running unit has cycled through
+        // stop + start once on this code, but we keep it here so the
+        // upgrade does not orphan hooks on existing deployments.
+        //
+        // ConfigJson is configured with JsonSerializerDefaults.Web, which
+        // camel-cases property names on the wire; the persisted field is
+        // therefore "installationId", not the C# PascalCase form.
+        var hasPersistedInstallationIdField =
+            runtimeElement.Value.ValueKind == JsonValueKind.Object
+            && runtimeElement.Value.TryGetProperty("installationId", out _);
+
+        long? teardownInstallationId;
+        if (hasPersistedInstallationIdField)
+        {
+            // Modern row — use whatever we persisted (including an explicit
+            // null, which is the OSS single-installation default).
+            teardownInstallationId = runtime.InstallationId;
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Unit {UnitId} GitHub webhook runtime row has no persisted installation id (legacy row written before #2429). Falling back to the binding's current AppInstallationId {InstallationId}; this is correct only when the operator has not re-bound the unit to a different installation since the hook was created.",
+                unitId,
+                config.AppInstallationId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "<null>");
+            teardownInstallationId = config.AppInstallationId;
+        }
+
         try
         {
-            // Tear down through the binding's installation id so the delete
-            // call authenticates against the same scope the create used
-            // (#2385). null falls back to the connector's global default.
             await _webhookRegistrar.UnregisterAsync(
-                config.Owner, config.Repo, runtime.HookId, config.AppInstallationId, cancellationToken);
+                config.Owner, config.Repo, runtime.HookId, teardownInstallationId, cancellationToken);
             await _runtimeStore.ClearAsync(unitId, cancellationToken);
         }
         catch (Exception ex)
@@ -1074,7 +1116,16 @@ public class GitHubConnectorType : IConnectorType
 
 /// <summary>
 /// Serializable runtime metadata the GitHub connector persists per-unit —
-/// currently just the webhook id that /start created and /stop needs.
+/// the webhook id that /start created plus the installation id that owns
+/// it. /stop reads both so the delete call authenticates against the
+/// installation that created the hook even when the operator re-PUTs the
+/// binding to a different installation in between (#2429).
 /// </summary>
 /// <param name="HookId">The GitHub webhook id returned at registration time.</param>
-internal record GitHubConnectorRuntime(long HookId);
+/// <param name="InstallationId">
+/// The GitHub App installation id the registrar used when creating the
+/// hook. <c>null</c> on rows written before #2429 — the teardown path
+/// falls back to the binding's current <c>AppInstallationId</c> in that
+/// case.
+/// </param>
+internal record GitHubConnectorRuntime(long HookId, long? InstallationId = null);
