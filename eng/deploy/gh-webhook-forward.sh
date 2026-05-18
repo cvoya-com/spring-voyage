@@ -42,7 +42,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 REPO=""
-URL="${GH_WEBHOOK_URL:-http://localhost:8080/api/v1/webhooks/github}"
+URL="${GH_WEBHOOK_URL:-http://localhost/api/v1/webhooks/github}"
 ENV_FILE="${GH_WEBHOOK_ENV_FILE:-${SCRIPT_DIR}/spring.env}"
 EVENTS="${GH_WEBHOOK_EVENTS:-}"
 
@@ -131,7 +131,7 @@ if ! gh auth status >/dev/null 2>&1; then
     die "gh is not authenticated. Run 'gh auth login' (a personal token with repo-admin permission on ${REPO} is required)."
 fi
 
-if ! gh extension list 2>/dev/null | awk '{print $2}' | grep -qx 'cli/gh-webhook'; then
+if ! gh extension list 2>/dev/null | grep -qF 'cli/gh-webhook'; then
     die "The 'gh-webhook' extension is not installed.
        Install it manually with:
            gh extension install cli/gh-webhook
