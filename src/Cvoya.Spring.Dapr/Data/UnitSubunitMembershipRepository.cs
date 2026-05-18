@@ -3,6 +3,10 @@
 
 namespace Cvoya.Spring.Dapr.Data;
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data.Entities;
 
@@ -51,6 +55,66 @@ public class UnitSubunitMembershipRepository(SpringDbContext context) : IUnitSub
         }
 
         await context.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<UnitSubunitMembership> UpsertAsync(
+        Guid parentId,
+        Guid childId,
+        IReadOnlyList<string> roles,
+        IReadOnlyList<string> expertise,
+        CancellationToken cancellationToken = default)
+    {
+        if (parentId == Guid.Empty)
+        {
+            throw new ArgumentException("Parent id must not be Guid.Empty.", nameof(parentId));
+        }
+
+        if (childId == Guid.Empty)
+        {
+            throw new ArgumentException("Child id must not be Guid.Empty.", nameof(childId));
+        }
+
+        var existing = await context.UnitSubunitMemberships
+            .FirstOrDefaultAsync(
+                e => e.ParentId == parentId && e.ChildId == childId,
+                cancellationToken);
+
+        if (existing is null)
+        {
+            existing = new UnitSubunitMembershipEntity
+            {
+                ParentId = parentId,
+                ChildId = childId,
+                Roles = NormaliseStringList(roles),
+                Expertise = NormaliseStringList(expertise),
+            };
+            context.UnitSubunitMemberships.Add(existing);
+        }
+        else
+        {
+            existing.Roles = NormaliseStringList(roles);
+            existing.Expertise = NormaliseStringList(expertise);
+            existing.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+        return ToDto(existing);
+    }
+
+    /// <inheritdoc />
+    public async Task<UnitSubunitMembership?> GetAsync(
+        Guid parentId,
+        Guid childId,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await context.UnitSubunitMemberships
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                e => e.ParentId == parentId && e.ChildId == childId,
+                cancellationToken);
+
+        return entity is null ? null : ToDto(entity);
     }
 
     /// <inheritdoc />
@@ -125,5 +189,17 @@ public class UnitSubunitMembershipRepository(SpringDbContext context) : IUnitSub
     }
 
     private static UnitSubunitMembership ToDto(UnitSubunitMembershipEntity e) =>
-        new(e.ParentId, e.ChildId, e.CreatedAt, e.UpdatedAt);
+        new(
+            e.ParentId,
+            e.ChildId,
+            (IReadOnlyList<string>)(e.Roles ?? new List<string>()),
+            (IReadOnlyList<string>)(e.Expertise ?? new List<string>()),
+            e.CreatedAt,
+            e.UpdatedAt);
+
+    private static List<string> NormaliseStringList(IReadOnlyList<string>? raw)
+        => (raw ?? Array.Empty<string>())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim())
+            .ToList();
 }

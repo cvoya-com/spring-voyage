@@ -42,6 +42,14 @@ public class UnitDirectoryReadEnforcementTests
         public Task<UnitMembership?> GetAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default) =>
             Task.FromResult<UnitMembership?>(null);
 
+        public Task<UnitMembership?> UpdateRolesAndExpertiseAsync(
+            Guid unitId,
+            Guid agentId,
+            IReadOnlyList<string> roles,
+            IReadOnlyList<string> expertise,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<UnitMembership?>(null);
+
         public Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(Guid unitId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<UnitMembership>>(Array.Empty<UnitMembership>());
 

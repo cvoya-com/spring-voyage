@@ -729,6 +729,66 @@ export interface paths {
         patch: operations["UpdateUnitHumanMember"];
         trace?: never;
     };
+    "/api/v1/tenant/units/{id}/members/units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List sub-unit member rows on this unit with their per-membership roles + expertise.
+         * @description Returns one entry per child sub-unit of this unit with the membership row's `roles` / `expertise` jsonb projections (#2463 / ADR-0046 §8 extended to sub-units). Viewer-gated.
+         */
+        get: operations["ListUnitSubUnitMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/units/{id}/members/agents/{agentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update roles + expertise on an existing agent-member row of this unit.
+         * @description Multi-valued fields use the standard tri-state semantics: null leaves the existing list untouched, an explicit empty array clears, a non-null array replaces. Owner-gated; 404 when no membership row matches the (unit, agent) natural key. Does not modify model / specialty / enabled / executionMode — those flow through `/memberships/{agentAddress}`.
+         */
+        patch: operations["UpdateUnitAgentMember"];
+        trace?: never;
+    };
+    "/api/v1/tenant/units/{id}/members/units/{subUnitId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update roles + expertise on an existing sub-unit-member row of this unit.
+         * @description Multi-valued fields use the standard tri-state semantics: null leaves the existing list untouched, an explicit empty array clears, a non-null array replaces. Owner-gated; 404 when no parent → child sub-unit edge matches the natural key.
+         */
+        patch: operations["UpdateUnitSubUnitMember"];
+        trace?: never;
+    };
     "/api/v1/tenant/humans/{humanId}": {
         parameters: {
             query?: never;
@@ -3942,6 +4002,14 @@ export interface components {
             expiresAt: null | string;
             scopes: null | string[];
         };
+        UnitAgentMemberResponse: {
+            /** Format: uuid */
+            unitId: string;
+            /** Format: uuid */
+            agentId: string;
+            roles: string[];
+            expertise: string[];
+        };
         UnitArxivConfigRequest: {
             defaultCategories?: null | string[];
             /** Format: int32 */
@@ -4050,6 +4118,8 @@ export interface components {
             updatedAt: string;
             isPrimary: boolean;
             agentHostingMode?: null | string;
+            roles?: null | string[];
+            expertise?: null | string[];
         };
         UnitPermissionEntry: {
             humanId: string;
@@ -4095,6 +4165,14 @@ export interface components {
         UnitSecretsListResponse: {
             secrets: components["schemas"]["SecretMetadata"][];
         };
+        UnitSubUnitMemberResponse: {
+            /** Format: uuid */
+            parentUnitId: string;
+            /** Format: uuid */
+            subUnitId: string;
+            roles: string[];
+            expertise: string[];
+        };
         UnitTemplateDetail: {
             package: string;
             name: string;
@@ -4139,6 +4217,10 @@ export interface components {
         UpdateTenantRequest: {
             displayName: null | string;
         };
+        UpdateUnitAgentMemberRequest: {
+            roles?: null | string[];
+            expertise?: null | string[];
+        };
         UpdateUnitHumanMemberRequest: {
             roles?: null | string[];
             expertise?: null | string[];
@@ -4155,6 +4237,10 @@ export interface components {
             specialty?: null | string;
             enabled?: null | boolean;
             executionMode?: null | components["schemas"]["AgentExecutionMode"];
+        };
+        UpdateUnitSubUnitMemberRequest: {
+            roles?: null | string[];
+            expertise?: null | string[];
         };
         UpsertMembershipRequest: {
             model?: null | string;
@@ -6386,6 +6472,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnitHumanMemberResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    ListUnitSubUnitMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitSubUnitMemberResponse"][];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    UpdateUnitAgentMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                agentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUnitAgentMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitAgentMemberResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    UpdateUnitSubUnitMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                subUnitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUnitSubUnitMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitSubUnitMemberResponse"];
                 };
             };
             /** @description Bad Request */

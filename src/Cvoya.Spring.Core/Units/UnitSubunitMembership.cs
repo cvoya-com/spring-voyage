@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Units;
 
+using System.Collections.Generic;
+
 /// <summary>
 /// Authoritative parent → child unit edge in the unit containment
 /// graph (#2052 / ADR-0040). <c>UnitActor</c> reads / writes this row
@@ -15,13 +17,13 @@ namespace Cvoya.Spring.Core.Units;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Per #217, the related <see cref="UnitMembership"/> table is
-/// agent-scheme-only and carries per-membership configuration overrides
-/// (model, specialty, execution mode). Unit-typed members do not yet
-/// support per-edge configuration; this entity is intentionally minimal
-/// — just the edge plus audit timestamps — so #217 can extend it (or
-/// replace it with a polymorphic shared table) without churning
-/// another migration.
+/// ADR-0046 §8 added <c>roles</c> + <c>expertise</c> jsonb columns on
+/// the agent-edge <see cref="UnitMembership"/> table. Issue #2463
+/// extends the same shape to this sub-unit-edge table so a sub-unit
+/// member can advertise the same per-membership team-role + expertise
+/// metadata as an agent member (parity on the Unit × Members tab and
+/// in <c>sv.list_members</c>). The fields are runtime metadata only —
+/// no platform decision is taken on them.
 /// </para>
 /// </remarks>
 /// <param name="ParentId">
@@ -31,11 +33,23 @@ namespace Cvoya.Spring.Core.Units;
 /// enforces validity at write time.
 /// </param>
 /// <param name="ChildId">The contained unit's stable Guid id.</param>
+/// <param name="Roles">
+/// ADR-0046 §8 / #2463: free-form team-role strings the sub-unit
+/// advertises on the parent unit. Multi-valued; empty list when the
+/// manifest omitted the field.
+/// </param>
+/// <param name="Expertise">
+/// ADR-0046 §8 / #2463: free-form expertise tags the sub-unit
+/// advertises on the parent unit. Multi-valued; empty list when the
+/// manifest omitted the field.
+/// </param>
 /// <param name="CreatedAt">UTC timestamp when the edge was first persisted.</param>
 /// <param name="UpdatedAt">UTC timestamp when the edge was last touched. Equal to <see cref="CreatedAt"/> for non-mutated rows.</param>
 public record UnitSubunitMembership(
     Guid ParentId,
     Guid ChildId,
+    IReadOnlyList<string>? Roles = null,
+    IReadOnlyList<string>? Expertise = null,
     DateTimeOffset CreatedAt = default,
     DateTimeOffset UpdatedAt = default)
 {

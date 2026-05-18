@@ -4,6 +4,7 @@ using System.Text.Json;
 using Cvoya.Spring.Dapr.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Cvoya.Spring.Dapr.Data.Migrations
 {
     [DbContext(typeof(SpringDbContext))]
-    partial class SpringDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260518095237_SubunitMembersRolesAndExpertise")]
+    partial class SubunitMembersRolesAndExpertise
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -957,71 +960,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.HasIndex("TenantId", "InstallId");
 
                     b.ToTable("package_installs", "spring");
-                });
-
-            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.PersistentAgentRuntimeEntity", b =>
-                {
-                    b.Property<Guid>("AgentId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("agent_id");
-
-                    b.Property<int>("ConsecutiveFailures")
-                        .HasColumnType("integer")
-                        .HasColumnName("consecutive_failures");
-
-                    b.Property<string>("ContainerId")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("container_id");
-
-                    b.Property<string>("Endpoint")
-                        .IsRequired()
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)")
-                        .HasColumnName("endpoint");
-
-                    b.Property<int>("HealthStatus")
-                        .HasColumnType("integer")
-                        .HasColumnName("health_status");
-
-                    b.Property<string>("Image")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)")
-                        .HasColumnName("image");
-
-                    b.Property<string>("OwnerHost")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)")
-                        .HasColumnName("owner_host");
-
-                    b.Property<string>("SidecarId")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("sidecar_id");
-
-                    b.Property<string>("SidecarNetworkName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("sidecar_network_name");
-
-                    b.Property<DateTimeOffset>("StartedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("started_at");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("AgentId");
-
-                    b.HasIndex("TenantId");
-
-                    b.ToTable("persistent_agent_runtime", "spring");
                 });
 
             modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.SecretRegistryEntry", b =>
