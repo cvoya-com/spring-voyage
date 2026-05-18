@@ -97,11 +97,12 @@ public class SvDirectorySkillRegistry_HumanMembersTests
     }
 
     [Fact]
-    public async Task ListMembers_HumanWithoutRoles_OmitsRolesField()
+    public async Task ListMembers_HumanWithoutRoles_EmitsEmptyRolesArray()
     {
-        // ADR-0046 §9: the `roles` field is gated on a non-empty list so
-        // entries without roles don't drag a `"roles": []` into the wire
-        // shape. Keeps the JSON contract minimal.
+        // ADR-0046 §9: the `roles` field is emitted uniformly on every
+        // entry kind — a human with no roles still carries `"roles": []`
+        // so clients can treat the field as a stable `string[]` without
+        // distinguishing missing from empty.
         var noRolesId = Guid.Parse("00000000-cccc-cccc-cccc-000000000001");
         var sut = new Fixture()
             .WithHumanDisplayName(noRolesId, "RoleLess")
@@ -116,7 +117,9 @@ public class SvDirectorySkillRegistry_HumanMembersTests
             if (string.Equals(entry.GetProperty("kind").GetString(),
                 SvDirectorySkillRegistry.KindHuman, StringComparison.Ordinal))
             {
-                entry.TryGetProperty("roles", out _).ShouldBeFalse();
+                entry.TryGetProperty("roles", out var rolesEl).ShouldBeTrue();
+                rolesEl.ValueKind.ShouldBe(JsonValueKind.Array);
+                rolesEl.GetArrayLength().ShouldBe(0);
             }
         }
     }
@@ -162,12 +165,12 @@ public class SvDirectorySkillRegistry_HumanMembersTests
     }
 
     [Fact]
-    public async Task ListMembers_AgentWithEmptyMembershipRoles_OmitsRolesField()
+    public async Task ListMembers_AgentWithEmptyMembershipRoles_EmitsEmptyRolesArray()
     {
-        // Mirrors ListMembers_HumanWithoutRoles_OmitsRolesField for agent
-        // entries — when the per-membership roles list is empty, the wire
-        // shape stays minimal. The agent entry must NOT carry a
-        // `roles: []` slot that consumers would have to special-case.
+        // Mirrors ListMembers_HumanWithoutRoles_EmitsEmptyRolesArray for
+        // agent entries — when the per-membership roles list is empty,
+        // the agent entry still carries `"roles": []` so the wire shape
+        // stays uniform across entry kinds per ADR-0046 §9.
         var agentId = Guid.Parse("00000000-dddd-dddd-dddd-000000000002");
         var sut = new Fixture()
             .SeedAgentMembership(agentId,
@@ -183,7 +186,9 @@ public class SvDirectorySkillRegistry_HumanMembersTests
             if (string.Equals(entry.GetProperty("kind").GetString(),
                 Address.AgentScheme, StringComparison.Ordinal))
             {
-                entry.TryGetProperty("roles", out _).ShouldBeFalse();
+                entry.TryGetProperty("roles", out var rolesEl).ShouldBeTrue();
+                rolesEl.ValueKind.ShouldBe(JsonValueKind.Array);
+                rolesEl.GetArrayLength().ShouldBe(0);
             }
         }
     }

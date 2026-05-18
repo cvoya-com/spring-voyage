@@ -906,20 +906,22 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         }
         writer.WriteString("live_status", entry.LiveStatus);
 
-        // ADR-0046 §9: emit `roles: string[]` on agent / unit / human
-        // entries when the entry's roles list is non-empty. Replaces the
-        // ADR-0044 `team_role: string` field on human entries; additive on
-        // agent / unit entries (the field was absent before).
-        if (entry.Roles is { Count: > 0 })
+        // ADR-0046 §9: emit `roles: string[]` uniformly on every entry
+        // kind (agent / unit / human), serialising as `[]` when the entry
+        // has no roles. Replaces the ADR-0044 `team_role: string` field on
+        // human entries; additive on agent / unit entries (the field was
+        // absent before). Uniform shape lets clients treat `roles` as a
+        // stable `string[]` without distinguishing missing from empty.
+        writer.WritePropertyName("roles");
+        writer.WriteStartArray();
+        if (entry.Roles is { } roles)
         {
-            writer.WritePropertyName("roles");
-            writer.WriteStartArray();
-            foreach (var role in entry.Roles)
+            foreach (var role in roles)
             {
                 writer.WriteStringValue(role);
             }
-            writer.WriteEndArray();
         }
+        writer.WriteEndArray();
         writer.WriteEndObject();
     }
 
