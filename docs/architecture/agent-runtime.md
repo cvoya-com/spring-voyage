@@ -587,7 +587,7 @@ launch whose subject inherits a `UnitGitHubConfig`:
 | `SPRING_CONNECTOR_GITHUB_OWNER` | `UnitGitHubConfig.Owner` | Repository owner login. |
 | `SPRING_CONNECTOR_GITHUB_REPO` | `UnitGitHubConfig.Repo` | Repository name. |
 | `SPRING_CONNECTOR_GITHUB_INSTALLATION_ID` | `UnitGitHubConfig.AppInstallationId` | GitHub App installation id (decimal). |
-| `SPRING_CONNECTOR_GITHUB_REVIEWER` | `UnitGitHubConfig.Reviewer` | Chosen reviewer login. Omitted when the binding declares no reviewer; v0.2 will resolve this through a per-human GitHub-handle mapping in the hosted overlay. |
+| `SPRING_CONNECTOR_GITHUB_REVIEWER` | `UnitGitHubConfig.Reviewer` | Chosen reviewer login. Omitted when the binding declares no reviewer; v0.2 will resolve this through a per-human GitHub-handle mapping in the hosted overlay. See [PR-without-reviewer is a valid flow](#pr-without-reviewer-is-a-valid-flow) for the end-to-end contract. |
 | `SPRING_CONNECTOR_GITHUB_TOKEN` | `GitHubAppAuth.MintInstallationTokenAsync` | Short-lived installation access token. |
 | `SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT` | Token mint response. | ISO-8601 UTC expiry so the container can plan its work. |
 
@@ -604,6 +604,38 @@ value before every call. The contributor returns the alias in the new
 `ConnectorRuntimeContextContribution.WellKnownAliasEnvironmentVariables`
 slot, which is exempt from the `SPRING_CONNECTOR_<SLUG_UPPER>_*` namespace
 check but subject to the same no-collision rule.
+
+#### PR-without-reviewer is a valid flow
+
+`UnitGitHubConfig.Reviewer` is **optional**. When the binding declares
+no reviewer (`null` or whitespace), the agent opens pull requests
+**without** a requested reviewer — that is the supported flow, not an
+error condition. The contract is symmetric across every layer:
+
+- **Binding write** (`PUT /api/v1/connectors/github/units/{id}/config`)
+  — `GitHubConnectorType.PutConfigAsync` treats whitespace as `null`,
+  persists `Reviewer = null`, and skips the optional
+  `IConnectorIdentityAutoSeed` call (the operator-identity seed is keyed
+  on a non-empty reviewer login; with no reviewer there is nothing to
+  seed).
+- **Runtime context** — the contributor omits
+  `SPRING_CONNECTOR_GITHUB_REVIEWER` from the env-var map entirely
+  (rather than emitting an empty string), and writes `"Reviewer": null`
+  in `connectors/github/binding.json`. The container sees a clean
+  "not set" signal.
+- **Container workload** — `gh pr create` accepts a missing
+  `--reviewer` argument; the agent's prompt guidance is "set
+  `--reviewer "$SPRING_CONNECTOR_GITHUB_REVIEWER"` **if** the env-var
+  is non-empty," so the PR opens with no reviewer requested. No
+  exception, no log warning, no fallback assignment.
+- **Webhook ingestion, label roundtrip, binding lifecycle** — none of
+  these platform-side paths read `Reviewer`; they remain reviewer-agnostic.
+
+The Spring Voyage OSS package
+([`packages/spring-voyage-oss`](../../packages/spring-voyage-oss/))
+intentionally does **not** set a default reviewer on its GitHub
+connector requirement — the operator supplies one at install time, or
+leaves it unset and accepts the no-reviewer PR flow.
 
 ## 4h. Connector prompt-context contribution (#2442)
 

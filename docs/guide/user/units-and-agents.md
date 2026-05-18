@@ -349,6 +349,7 @@ spring connector bind --unit engineering-team --type github \
 - **catalog** lists slug, display name, and description for every registered connector type.
 - **show** prints the binding pointer plus typed config (for GitHub: owner, repo, events, installation id, reviewer).
 - **bind** writes the per-unit config and connector binding atomically. GitHub is the only typed bind surface today; other types show a "not yet supported" message. Removing a binding uses the unit lifecycle (stop / delete); a dedicated `unbind` command is planned.
+  - The `--reviewer` flag is **optional**. Omit it (or pass an empty value) to bind with no default reviewer — agents under the unit then open pull requests without a requested reviewer. See [Connectors § Authentication](../../concepts/connectors.md#authentication).
 - **bindings** lists every unit bound to a given connector type.
 
 For GitHub, install the GitHub App and supply the installation id on `bind`. See [Register your GitHub App](github-app-setup.md).

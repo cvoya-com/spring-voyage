@@ -129,6 +129,33 @@ or sidecar to verify. We return a passing result rather than `null` so
 the install / wizard surface renders "checked, OK" instead of
 "skipped" for the connector most operators care about.
 
+## Per-unit binding: `UnitGitHubConfig.Reviewer` is optional
+
+The binding's `Reviewer` slot (the GitHub login the unit's agents
+request as the default PR reviewer) is **optional**. When the operator
+leaves it unset on `PUT /api/v1/connectors/github/units/{id}/config`
+(`null` or whitespace), the connector treats it as "no default
+reviewer" end-to-end:
+
+- `GitHubConnectorType.PutConfigAsync` persists `Reviewer = null`
+  rather than the empty string, and skips the
+  `IConnectorIdentityAutoSeed` call (which keys on the reviewer login).
+- `GitHubConnectorRuntimeContextContributor` omits the
+  `SPRING_CONNECTOR_GITHUB_REVIEWER` env var from the container's
+  environment entirely (so the agent sees a clean "not set" signal
+  rather than `""`), and writes `"Reviewer": null` into
+  `connectors/github/binding.json`.
+- The agent container's `gh pr create` invocation runs without
+  `--reviewer` when the env var is unset, and GitHub opens the PR
+  with no reviewer requested. **This is the supported flow** — no
+  exception, no log warning, no fallback assignment.
+- The platform-side webhook registrar, label-roundtrip subscriber, and
+  binding lifecycle never read `Reviewer`, so they remain valid
+  regardless of whether one is configured.
+
+See [`docs/architecture/agent-runtime.md` § 4g — PR-without-reviewer is a valid flow](../../docs/architecture/agent-runtime.md#pr-without-reviewer-is-a-valid-flow)
+for the cross-layer contract.
+
 ## Endpoints (recap)
 
 The connector owns the route group at
