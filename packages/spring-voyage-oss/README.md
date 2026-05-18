@@ -19,7 +19,7 @@ This package ships as part of the platform and is **automatically visible in the
 
 Per ADR-0043 §5g, each engineer / PM is declared inline on the sub-unit's `members:` list as `- agent: { name: <instance>, from: <template>, displayName: "<label>" }`. At install time the inline body is stamped into a fresh concrete agent: the named template is cloned per §5d (scalars on the instance win, the template fills the rest) and the inline `displayName:` flows through to the persisted agent. Each instance gets a fresh Guid identity and runs in its own container, so multiple instances can handle independent tasks concurrently.
 
-Each sub-unit binds the `github` connector. Both rely on the repository's checked-in instructions (`CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the `docs/architecture/` and `docs/decisions/` indexes, and whichever plan version is active under `docs/plan/`) and the canonical slash-command skills under `.agents/skills/` (`/build`, `/test`, `/lint`, `/triage`, `/areas`, `/adr-new`, `/openapi-diff`, `/web`). The package itself ships no agent prompts that duplicate those documents — when the project's rules or active milestone change, the in-repo source of truth is the only thing to edit.
+The umbrella `spring-voyage-oss` unit binds the `github` connector. Webhooks delivered to the platform match a single `(installation_id, owner, repo)` binding and land on the umbrella's mailbox; the umbrella is the orchestrator and delegates the work to whichever sub-unit owns it. Sub-units do not bind the connector themselves — they inherit `$GITHUB_TOKEN` and the other GitHub env vars from the umbrella's binding via the platform's connector binding-walk (closest binding in the parent chain wins). Both sub-units rely on the repository's checked-in instructions (`CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the `docs/architecture/` and `docs/decisions/` indexes, and whichever plan version is active under `docs/plan/`) and the canonical slash-command skills under `.agents/skills/` (`/build`, `/test`, `/lint`, `/triage`, `/areas`, `/adr-new`, `/openapi-diff`, `/web`). The package itself ships no agent prompts that duplicate those documents — when the project's rules or active milestone change, the in-repo source of truth is the only thing to edit.
 
 ## Required inputs
 
@@ -95,7 +95,7 @@ The status view shows each unit moving from staging to active as activation comp
 
 ## Identity
 
-All GitHub writes from agents in this organisation go through each sub-unit's binding to the **Spring Voyage** GitHub App. No other GitHub identity is referenced anywhere in this package's YAML, prompts, or instructions — that is a non-negotiable property of the package.
+All GitHub reads and writes from agents in this organisation go through the umbrella's single binding to the **Spring Voyage** GitHub App. No other GitHub identity is referenced anywhere in this package's YAML, prompts, or instructions — that is a non-negotiable property of the package.
 
 ## Further reading
 

@@ -116,11 +116,14 @@ Should show three entries:
 | `sv-oss-software-engineering` | active |
 | `sv-oss-program-management` | active |
 
-Each sub-unit has:
+The umbrella `spring-voyage-oss` unit holds the single `github` connector binding (matching the `(installation_id, owner, repo)` you supplied). Webhooks the GitHub App delivers for that repository land on the umbrella's mailbox; the umbrella triages and delegates to whichever sub-unit owns the work.
 
-- A `github` connector binding pointing at the Spring Voyage App's installation on the target repository.
+Each unit (umbrella and sub-units) has:
+
 - `execution.hosting: permanent` so the agent containers stay warm across messages — appropriate for a team that runs continuously rather than per-request.
 - A per-agent persistent volume mounted at `$SPRING_WORKSPACE_PATH` (`/spring/workspace`). The sub-unit orchestrators and their engineer / PM members clone the bound repository into that volume on first use and develop subsequent tasks from worktrees alongside the clone. The volume survives container restarts, so a recycled container resumes work without re-cloning. No host-side bind mount or pre-seeded checkout is required from the operator.
+
+Sub-units do not bind the GitHub connector themselves; they inherit `$GITHUB_TOKEN` and the other GitHub env vars from the umbrella's binding via the platform's connector binding-walk (closest binding in the parent chain wins), so `gh` and `git` work in every container without further configuration.
 
 ---
 
