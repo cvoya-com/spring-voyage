@@ -237,27 +237,27 @@ export function MembersTab({
       if (humanDialog.mode === "add") {
         await api.addUnitHumanMember(unitId, {
           humanId: values.humanId,
-          role: values.role,
+          roles: values.roles,
           expertise: values.expertise,
           notifications: values.notifications,
         });
         toast({
           title: "Member added",
-          description: `Role: ${values.role}`,
+          description: values.roles.join(", "),
         });
       } else if (humanDialog.mode === "edit") {
         await api.updateUnitHumanMember(
           unitId,
           humanDialog.row.humanId,
-          humanDialog.row.role,
           {
+            roles: values.roles,
             expertise: values.expertise,
             notifications: values.notifications,
           },
         );
         toast({
           title: "Member updated",
-          description: `Role: ${humanDialog.row.role}`,
+          description: values.roles.join(", "),
         });
       }
       await humanMembersQuery.refetch();
@@ -279,10 +279,10 @@ export function MembersTab({
     if (!target) return;
     setRemovingHuman(true);
     try {
-      await api.removeUnitHumanMember(unitId, target.humanId, target.role);
+      await api.removeUnitHumanMember(unitId, target.humanId);
       toast({
         title: "Member removed",
-        description: `Role: ${target.role}`,
+        description: target.roles.join(", "),
       });
       await humanMembersQuery.refetch();
       setConfirmHumanRemove(null);
@@ -576,7 +576,7 @@ export function MembersTab({
         title="Remove member from unit"
         description={
           confirmHumanRemove
-            ? `This removes the "${confirmHumanRemove.role}" role for this member. The human's account is not deleted.`
+            ? `This removes this human from the unit (roles: ${confirmHumanRemove.roles.join(", ") || "(none)"}). The human's account is not deleted.`
             : undefined
         }
         confirmLabel="Remove"

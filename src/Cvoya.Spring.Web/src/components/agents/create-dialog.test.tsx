@@ -104,8 +104,7 @@ function makePackageSummary(
     unitTemplateCount: overrides.unitTemplateCount ?? 0,
     agentTemplateCount: overrides.agentTemplateCount ?? 1,
     skillCount: overrides.skillCount ?? 0,
-    connectorCount: overrides.connectorCount ?? 0,
-    workflowCount: overrides.workflowCount ?? 0,
+    humanTemplateCount: overrides.humanTemplateCount ?? 0,
     version: overrides.version ?? null,
   } as PackageSummary;
 }
@@ -121,8 +120,7 @@ function makePackageDetail(
     unitTemplates: overrides.unitTemplates ?? [],
     agentTemplates: overrides.agentTemplates ?? [],
     skills: overrides.skills ?? [],
-    connectors: overrides.connectors ?? [],
-    workflows: overrides.workflows ?? [],
+    humanTemplates: overrides.humanTemplates ?? [],
     connectorDeclarations: overrides.connectorDeclarations ?? [],
     content: overrides.content ?? [],
     execution: overrides.execution ?? null,

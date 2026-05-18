@@ -1,8 +1,17 @@
 "use client";
 
-// Human × Config tab (#2269 — Portal Wave B).
+// Human × Config tab (#2269 — Portal Wave B; ADR-0045 Phase 4 added
+// the General sub-tab for the newly-editable `displayName` /
+// `description` Human-entity-level fields).
 //
-// Two sub-tabs:
+// Three sub-tabs:
+//
+//   General   — Display name + description editor; mirrors Agent /
+//               Unit × Config × General. PATCHes
+//               `/api/v1/tenant/humans/{id}` via `useUpdateHuman`. Phase
+//               4 (ADR-0045) made this the default sub-tab so the most
+//               common edit (the operator renaming themselves) is one
+//               click in.
 //
 //   Identity  — connector-identity rows mapping `(connector, user-id)`
 //               tuples to this Human, so messages addressed via the
@@ -35,7 +44,8 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { IdCard, Link2, Plug, Trash2, UserRound } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { IdCard, Link2, Plug, Settings2, Trash2, UserRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,7 +65,9 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
-import { ApiError } from "@/lib/api/client";
+import { api, ApiError } from "@/lib/api/client";
+import { queryKeys } from "@/lib/api/query-keys";
+import { formatTranslatedError } from "@/lib/api/translate-error";
 import {
   useConnectorTypes,
   useCurrentUser,
@@ -64,7 +76,10 @@ import {
   useRemoveHumanIdentity,
   useUpsertHumanIdentity,
 } from "@/lib/api/queries";
-import type { HumanConnectorIdentityResponse } from "@/lib/api/types";
+import type {
+  HumanConnectorIdentityResponse,
+  UpdateHumanRequest,
+} from "@/lib/api/types";
 import {
   dispatchExplorerUrlChange,
   getExplorerUrlSnapshot,
@@ -75,15 +90,16 @@ import {
 import { registerTab, type TabContentProps } from "./index";
 
 // ---------------------------------------------------------------------------
-// Sub-tab catalog. Identity is default-active per the brief; Connector
-// is the read-only summary slot.
+// Sub-tab catalog. General is default-active (ADR-0045 Phase 4 — humans
+// now have editable displayName + description, so the most common edit
+// is one click in). Identity / Connector follow.
 // ---------------------------------------------------------------------------
 
-const HUMAN_SUBTABS = ["Identity", "Connector"] as const;
+const HUMAN_SUBTABS = ["General", "Identity", "Connector"] as const;
 type HumanSubTab = (typeof HUMAN_SUBTABS)[number];
 
 function parseSubTab(raw: string | null): HumanSubTab {
-  const fallback: HumanSubTab = "Identity";
+  const fallback: HumanSubTab = "General";
   if (!raw) return fallback;
   const match = HUMAN_SUBTABS.find((s) => s === raw);
   return match ?? fallback;
@@ -169,6 +185,9 @@ function HumanConfigBody({ humanId }: { humanId: string }) {
             </TabsTrigger>
           ))}
         </TabsList>
+        <TabsContent value="General" className="space-y-2">
+          <HumanGeneralSubTab humanId={humanId} />
+        </TabsContent>
         <TabsContent value="Identity" className="space-y-2">
           <HumanIdentitySubTab humanId={humanId} />
         </TabsContent>
@@ -177,6 +196,157 @@ function HumanConfigBody({ humanId }: { humanId: string }) {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// General sub-tab — Human-entity-level editable metadata (ADR-0045
+// Phase 4). Two fields: displayName (text input) + description
+// (textarea). Mirrors the Agent × Config × General and Unit × Config ×
+// General panels: same Card + label/input layout, same dirty-detection
+// + Save + Revert pattern, same `useMutation` + cache-invalidation
+// wiring. Surfaces the loading skeleton until the human envelope
+// resolves so the form never seeds against empty strings.
+// ---------------------------------------------------------------------------
+
+interface HumanGeneralDraft {
+  displayName: string;
+  description: string;
+}
+
+const EMPTY_HUMAN_DRAFT: HumanGeneralDraft = {
+  displayName: "",
+  description: "",
+};
+
+function HumanGeneralSubTab({ humanId }: { humanId: string }) {
+  const humanQuery = useHuman(humanId);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const persisted: HumanGeneralDraft = useMemo(() => {
+    const data = humanQuery.data;
+    return data
+      ? {
+          displayName: data.displayName ?? "",
+          description: data.description ?? "",
+        }
+      : EMPTY_HUMAN_DRAFT;
+  }, [humanQuery.data]);
+
+  const [draft, setDraft] = useState<HumanGeneralDraft>(EMPTY_HUMAN_DRAFT);
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  const fingerprint = `${humanId}:${persisted.displayName}:${persisted.description}`;
+
+  // Render-phase derived-state pattern — same shape <AgentGeneralPanel>
+  // and <UnitGeneralPanel> use. React optimizes setState during render
+  // when it matches an existing setter, so this seeds without paying a
+  // cascading effect render.
+  if (fingerprint !== seededFor) {
+    setDraft(persisted);
+    setSeededFor(fingerprint);
+  }
+
+  const dirty =
+    draft.displayName !== persisted.displayName ||
+    draft.description !== persisted.description;
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const patch: UpdateHumanRequest = {};
+      if (draft.displayName !== persisted.displayName) {
+        patch.displayName = draft.displayName;
+      }
+      if (draft.description !== persisted.description) {
+        patch.description = draft.description;
+      }
+      await api.updateHuman(humanId, patch);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.humans.detail(humanId),
+      });
+      // Directory cache surfaces the display name on every human chip
+      // in the Explorer tree, so refresh it on rename too.
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.directory.all,
+      });
+      toast({ title: "Human details saved" });
+    },
+    onError: (err) => {
+      toast({
+        title: "Save failed",
+        description: formatTranslatedError(err),
+        variant: "destructive",
+      });
+    },
+  });
+
+  if (humanQuery.isPending) {
+    return <Skeleton className="h-64" data-testid="human-general-skeleton" />;
+  }
+
+  return (
+    <Card data-testid="tab-human-config-general">
+      <CardHeader className="flex flex-row items-center gap-2 space-y-0 pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Settings2 className="h-4 w-4" aria-hidden="true" />
+          <span>General</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-xs text-muted-foreground">
+          Core metadata for this human. Each field maps 1:1 to a flag on{" "}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">
+            spring human set
+          </code>
+          .
+        </p>
+
+        <label className="block space-y-1">
+          <span className="text-xs text-muted-foreground">Display name</span>
+          <Input
+            data-testid="human-general-display-name"
+            value={draft.displayName}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, displayName: e.target.value }))
+            }
+          />
+        </label>
+
+        <label className="block space-y-1">
+          <span className="text-xs text-muted-foreground">Description</span>
+          <textarea
+            data-testid="human-general-description"
+            className="min-h-[96px] w-full rounded-md border border-input bg-background p-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            value={draft.description}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, description: e.target.value }))
+            }
+          />
+        </label>
+
+        <div className="flex items-center gap-2 pt-2">
+          <Button
+            onClick={() => saveMutation.mutate()}
+            disabled={!dirty || saveMutation.isPending}
+            data-testid="human-general-save"
+          >
+            {saveMutation.isPending ? "Saving…" : "Save"}
+          </Button>
+          {dirty && (
+            <Button
+              variant="outline"
+              onClick={() => setDraft(persisted)}
+              disabled={saveMutation.isPending}
+              data-testid="human-general-revert"
+            >
+              Revert
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

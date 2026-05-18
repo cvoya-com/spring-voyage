@@ -122,6 +122,7 @@ const OPERATOR_HUMAN: HumanResponse = {
   id: OPERATOR_GUID,
   username: "savas",
   displayName: "Savas",
+  description: null,
   email: "savas@example.com",
   platformRole: "Owner",
   createdAt: new Date("2024-01-01").toISOString(),
@@ -190,7 +191,7 @@ function makeHumanMember(
   return {
     membershipId: "44444444-4444-4444-4444-444444444444",
     humanId: OPERATOR_GUID,
-    role: "tech-lead",
+    roles: ["tech-lead"],
     expertise: [],
     notifications: [],
     ...overrides,
@@ -337,19 +338,19 @@ describe("MembersTab (#2270 / #2427)", () => {
     expect(screen.getByText("Backend")).toBeInTheDocument();
   });
 
-  it("renders one human-member card per (humanId, role) row with role chip", async () => {
+  it("renders one human-member card per (unit, human) row with role chips", async () => {
     listUnitMemberships.mockResolvedValue([]);
     listAgents.mockResolvedValue([]);
     listUnitHumanMembers.mockResolvedValue([
       makeHumanMember({
         membershipId: "row-1",
-        role: "tech-lead",
+        roles: ["tech-lead", "reviewer"],
         expertise: ["databases"],
         notifications: ["pull-requests"],
       }),
       makeHumanMember({
         membershipId: "row-2",
-        role: "reviewer",
+        roles: ["on-call"],
       }),
     ]);
 
@@ -359,8 +360,9 @@ describe("MembersTab (#2270 / #2427)", () => {
       expect(screen.getByTestId("unit-human-member-card-row-1")).toBeInTheDocument();
       expect(screen.getByTestId("unit-human-member-card-row-2")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("unit-human-member-role-row-1")).toHaveTextContent("tech-lead");
-    expect(screen.getByTestId("unit-human-member-role-row-2")).toHaveTextContent("reviewer");
+    expect(screen.getByTestId("unit-human-member-role-row-1-0")).toHaveTextContent("tech-lead");
+    expect(screen.getByTestId("unit-human-member-role-row-1-1")).toHaveTextContent("reviewer");
+    expect(screen.getByTestId("unit-human-member-role-row-2-0")).toHaveTextContent("on-call");
     expect(screen.getByTestId("unit-human-member-expertise-row-1-0")).toHaveTextContent("databases");
   });
 
@@ -405,16 +407,38 @@ describe("MembersTab (#2270 / #2427)", () => {
       within(dialog).getByTestId("human-member-dialog-you-hint"),
     ).toBeInTheDocument();
 
-    fireEvent.change(within(dialog).getByTestId("human-member-dialog-role"), {
-      target: { value: "tech-lead" },
-    });
+    // Add a role chip.
     fireEvent.change(
-      within(dialog).getByTestId("human-member-dialog-expertise"),
-      { target: { value: "databases, security" } },
+      within(dialog).getByTestId("human-member-dialog-roles-input"),
+      { target: { value: "tech-lead" } },
+    );
+    fireEvent.click(
+      within(dialog).getByTestId("human-member-dialog-roles-add"),
+    );
+
+    // Add two expertise chips via the stack editor.
+    fireEvent.change(
+      within(dialog).getByTestId("human-member-dialog-expertise-input"),
+      { target: { value: "databases" } },
+    );
+    fireEvent.click(
+      within(dialog).getByTestId("human-member-dialog-expertise-add"),
     );
     fireEvent.change(
-      within(dialog).getByTestId("human-member-dialog-notifications"),
+      within(dialog).getByTestId("human-member-dialog-expertise-input"),
+      { target: { value: "security" } },
+    );
+    fireEvent.click(
+      within(dialog).getByTestId("human-member-dialog-expertise-add"),
+    );
+
+    // Add a notifications chip.
+    fireEvent.change(
+      within(dialog).getByTestId("human-member-dialog-notifications-input"),
       { target: { value: "pull-requests" } },
+    );
+    fireEvent.click(
+      within(dialog).getByTestId("human-member-dialog-notifications-add"),
     );
 
     fireEvent.click(
@@ -426,7 +450,7 @@ describe("MembersTab (#2270 / #2427)", () => {
         "engineering",
         expect.objectContaining({
           humanId: OPERATOR_GUID,
-          role: "tech-lead",
+          roles: ["tech-lead"],
           expertise: ["databases", "security"],
           notifications: ["pull-requests"],
         }),
@@ -437,14 +461,14 @@ describe("MembersTab (#2270 / #2427)", () => {
     );
   });
 
-  it("PATCHes expertise / notifications when editing a human member", async () => {
+  it("PATCHes roles / expertise / notifications when editing a human member", async () => {
     listUnitMemberships.mockResolvedValue([]);
     listAgents.mockResolvedValue([]);
     listUnitHumanMembers.mockResolvedValue([
       makeHumanMember({
         membershipId: "row-edit",
         humanId: OPERATOR_GUID,
-        role: "tech-lead",
+        roles: ["tech-lead"],
         expertise: ["databases"],
         notifications: ["pull-requests"],
       }),
@@ -464,15 +488,23 @@ describe("MembersTab (#2270 / #2427)", () => {
     fireEvent.click(screen.getByTestId("unit-human-member-edit-row-edit"));
 
     const dialog = await screen.findByRole("dialog");
-    // The role field is read-only on edit (PATCH only touches
-    // expertise + notifications per #2409).
-    expect(
-      within(dialog).getByTestId("human-member-dialog-role-readonly"),
-    ).toHaveTextContent("tech-lead");
 
+    // Add a second role chip alongside the existing one.
     fireEvent.change(
-      within(dialog).getByTestId("human-member-dialog-expertise"),
+      within(dialog).getByTestId("human-member-dialog-roles-input"),
+      { target: { value: "reviewer" } },
+    );
+    fireEvent.click(
+      within(dialog).getByTestId("human-member-dialog-roles-add"),
+    );
+
+    // Append a new expertise chip.
+    fireEvent.change(
+      within(dialog).getByTestId("human-member-dialog-expertise-input"),
       { target: { value: "frontend" } },
+    );
+    fireEvent.click(
+      within(dialog).getByTestId("human-member-dialog-expertise-add"),
     );
 
     fireEvent.click(
@@ -483,8 +515,11 @@ describe("MembersTab (#2270 / #2427)", () => {
       expect(updateUnitHumanMember).toHaveBeenCalledWith(
         "engineering",
         OPERATOR_GUID,
-        "tech-lead",
-        expect.objectContaining({ expertise: ["frontend"] }),
+        expect.objectContaining({
+          roles: ["tech-lead", "reviewer"],
+          expertise: ["databases", "frontend"],
+          notifications: ["pull-requests"],
+        }),
       );
     });
     expect(toastMock).toHaveBeenCalledWith(
@@ -499,7 +534,7 @@ describe("MembersTab (#2270 / #2427)", () => {
       makeHumanMember({
         membershipId: "row-delete",
         humanId: OPERATOR_GUID,
-        role: "tech-lead",
+        roles: ["tech-lead"],
       }),
     ]);
     removeUnitHumanMember.mockResolvedValue(undefined);
@@ -526,7 +561,6 @@ describe("MembersTab (#2270 / #2427)", () => {
       expect(removeUnitHumanMember).toHaveBeenCalledWith(
         "engineering",
         OPERATOR_GUID,
-        "tech-lead",
       );
     });
     expect(toastMock).toHaveBeenCalledWith(

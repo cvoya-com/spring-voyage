@@ -696,7 +696,7 @@ export interface paths {
         put?: never;
         /**
          * Add a human as a unit team-role member.
-         * @description Idempotent on the natural key (unit, human, role) — re-posting the same tuple updates expertise + notifications in place rather than returning 409. Owner-gated.
+         * @description Idempotent on the natural key (unit, human) — re-posting the same tuple updates roles + expertise + notifications in place rather than returning 409. Owner-gated.
          */
         post: operations["AddUnitHumanMember"];
         delete?: never;
@@ -705,7 +705,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tenant/units/{id}/members/humans/{humanId}/{role}": {
+    "/api/v1/tenant/units/{id}/members/humans/{humanId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -723,8 +723,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update expertise / notifications on an existing team-role membership row.
-         * @description Replaces the whole expertise + notifications tag sets — omitted properties are treated as empty lists. Owner-gated; 404 when no row matches.
+         * Update roles / expertise / notifications on an existing team-role membership row.
+         * @description Multi-valued fields use replace semantics — omitted properties are treated as empty lists. Owner-gated; 404 when no row matches.
          */
         patch: operations["UpdateUnitHumanMember"];
         trace?: never;
@@ -737,7 +737,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read a single human's read-side envelope (display name, email, platform role, created-at).
+         * Read a single human's read-side envelope (display name, description, email, platform role, created-at).
          * @description Returns the canonical fields needed by the Explorer Human page. Identity / membership lists live on dedicated sub-resources and are NOT embedded here.
          */
         get: operations["GetHuman"];
@@ -746,7 +746,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update a human's editable identity fields (display name, description).
+         * @description Omitted fields leave the existing value untouched (PATCH semantics). DisplayName is validated via DisplayNameProblems.ValidateOrProblem; description has no length limit. Returns the post-write HumanResponse.
+         */
+        patch: operations["UpdateHuman"];
         trace?: never;
     };
     "/api/v1/tenant/humans/{humanId}/identities": {
@@ -2814,7 +2818,7 @@ export interface components {
         AddUnitHumanMemberRequest: {
             /** Format: uuid */
             humanId: string;
-            role: string;
+            roles?: null | string[];
             expertise?: null | string[];
             notifications?: null | string[];
         };
@@ -2990,11 +2994,6 @@ export interface components {
         };
         ConnectorInstallRequest: {
             config: components["schemas"]["JsonElement"];
-        };
-        ConnectorSummary: {
-            package: string;
-            name: string;
-            path: string;
         };
         ConnectorUnitBindingResponse: {
             /** Format: uuid */
@@ -3316,10 +3315,18 @@ export interface components {
             id: string;
             username: string;
             displayName: string;
+            description: null | string;
             email: null | string;
             platformRole: string;
             /** Format: date-time */
             createdAt: string;
+        };
+        HumanTemplateSummary: {
+            package: string;
+            name: string;
+            displayName: null | string;
+            description: null | string;
+            path: string;
         };
         /** Format: binary */
         IFormFile: string;
@@ -3585,8 +3592,7 @@ export interface components {
             unitTemplates: components["schemas"]["UnitTemplateSummary"][];
             agentTemplates: components["schemas"]["AgentTemplateSummary"][];
             skills: components["schemas"]["SkillSummary"][];
-            connectors: components["schemas"]["ConnectorSummary"][];
-            workflows: components["schemas"]["WorkflowSummary"][];
+            humanTemplates: components["schemas"]["HumanTemplateSummary"][];
             connectorDeclarations: components["schemas"]["RequiredConnectorSummary"][];
             content: components["schemas"]["PackageContentEntry"][];
             execution?: null | components["schemas"]["PackageExecutionSummary"];
@@ -3637,9 +3643,7 @@ export interface components {
             /** Format: int32 */
             skillCount: number;
             /** Format: int32 */
-            connectorCount: number;
-            /** Format: int32 */
-            workflowCount: number;
+            humanTemplateCount: number;
             version?: null | string;
         };
         ParticipantRef: {
@@ -4022,7 +4026,7 @@ export interface components {
             membershipId: string;
             /** Format: uuid */
             humanId: string;
-            role: string;
+            roles: string[];
             expertise: string[];
             notifications: string[];
         };
@@ -4128,10 +4132,15 @@ export interface components {
             executionMode?: null | components["schemas"]["AgentExecutionMode"];
             instructions?: null | string;
         };
+        UpdateHumanRequest: {
+            displayName?: null | string;
+            description?: null | string;
+        };
         UpdateTenantRequest: {
             displayName: null | string;
         };
         UpdateUnitHumanMemberRequest: {
+            roles?: null | string[];
             expertise?: null | string[];
             notifications?: null | string[];
         };
@@ -4181,11 +4190,6 @@ export interface components {
         WebSearchProviderDescriptor: {
             id: string;
             displayName: string;
-        };
-        WorkflowSummary: {
-            package: string;
-            name: string;
-            path: string;
         };
     };
     responses: never;
@@ -6327,7 +6331,6 @@ export interface operations {
             path: {
                 id: string;
                 humanId: string;
-                role: string;
             };
             cookie?: never;
         };
@@ -6367,7 +6370,6 @@ export interface operations {
             path: {
                 id: string;
                 humanId: string;
-                role: string;
             };
             cookie?: never;
         };
@@ -6425,6 +6427,50 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HumanResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    UpdateHuman: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                humanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["UpdateHumanRequest"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {

@@ -529,13 +529,23 @@ export type UnitHumanMemberResponse = Schemas["UnitHumanMemberResponse"];
 export type AddUnitHumanMemberRequest = Schemas["AddUnitHumanMemberRequest"];
 
 /**
- * Body for `PATCH /api/v1/tenant/units/{id}/members/humans/{humanId}/{role}`
- * (#2409) — partial update of `expertise` / `notifications` on an
- * existing team-role membership. Both fields are nullable: `null`
- * leaves the existing value, `[]` clears it.
+ * Body for `PATCH /api/v1/tenant/units/{id}/members/humans/{humanId}`
+ * (ADR-0045 Phase 1) — partial update of `roles` / `expertise` /
+ * `notifications` on an existing membership. Each field is nullable:
+ * `null` (omitted) leaves the existing value untouched; `[]` clears.
+ * The roles field is multi-valued because a single human ↔ unit pair
+ * may hold several roles simultaneously (ADR-0045).
  */
 export type UpdateUnitHumanMemberRequest =
   Schemas["UpdateUnitHumanMemberRequest"];
+
+/**
+ * Body for `PATCH /api/v1/tenant/humans/{humanId}` (ADR-0045 Phase 1).
+ * Patches the human's `displayName` / `description`. Mirrors the CLI's
+ * `spring human set` and parallels `UpdateUnitRequest` /
+ * `UpdateAgentMetadataRequest`.
+ */
+export type UpdateHumanRequest = Schemas["UpdateHumanRequest"];
 
 // ---------------------------------------------------------------------------
 // Package install (ADR-0035 decision 11 — two-phase atomic install).

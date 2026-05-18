@@ -25,6 +25,7 @@ const mockUpsertIdentity = vi.fn();
 const mockRemoveIdentity = vi.fn();
 const mockListConnectors = vi.fn();
 const mockGetHuman = vi.fn();
+const mockUpdateHuman = vi.fn();
 const mockGetCurrentUser = vi.fn();
 const mockToast = vi.fn();
 
@@ -46,6 +47,7 @@ vi.mock("@/lib/api/client", async () => {
         mockRemoveIdentity(...args),
       listConnectors: (...args: unknown[]) => mockListConnectors(...args),
       getHuman: (...args: unknown[]) => mockGetHuman(...args),
+      updateHuman: (...args: unknown[]) => mockUpdateHuman(...args),
       getCurrentUser: (...args: unknown[]) => mockGetCurrentUser(...args),
     },
   };
@@ -99,6 +101,7 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
     mockRemoveIdentity.mockReset();
     mockListConnectors.mockReset();
     mockGetHuman.mockReset();
+    mockUpdateHuman.mockReset();
     mockGetCurrentUser.mockReset();
     mockToast.mockReset();
 
@@ -109,6 +112,7 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
       id: HUMAN_ID,
       username: "savas",
       displayName: "Savas",
+      description: null,
       email: "savas@example.com",
       platformRole: "Operator",
       createdAt: "2026-05-01T00:00:00Z",
@@ -147,6 +151,7 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
   // -------------------------------------------------------------------------
 
   it("renders the Identity loading skeleton while the list resolves", async () => {
+    setSearchParams(new URLSearchParams({ subtab: "Identity" }));
     let resolve: (rows: unknown[]) => void = () => undefined;
     mockListIdentities.mockImplementationOnce(
       () =>
@@ -173,6 +178,7 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
   });
 
   it("renders the empty state when the human has no identities", async () => {
+    setSearchParams(new URLSearchParams({ subtab: "Identity" }));
     render(
       <Wrapper>
         <HumanConfigTab node={humanNode} path={[humanNode]} />
@@ -190,6 +196,7 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
   });
 
   it("renders one row per connector-identity entry", async () => {
+    setSearchParams(new URLSearchParams({ subtab: "Identity" }));
     mockListIdentities.mockResolvedValueOnce([
       {
         humanId: HUMAN_ID,
@@ -282,6 +289,7 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
   // -------------------------------------------------------------------------
 
   it("submits the add form against the upsert endpoint with the right payload", async () => {
+    setSearchParams(new URLSearchParams({ subtab: "Identity" }));
     mockListConnectors.mockResolvedValueOnce([
       {
         typeId: "github-id",
@@ -344,6 +352,7 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
   });
 
   it("surfaces an inline error when the upsert returns 409", async () => {
+    setSearchParams(new URLSearchParams({ subtab: "Identity" }));
     mockListConnectors.mockResolvedValueOnce([
       {
         typeId: "github-id",
@@ -405,6 +414,7 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
   // -------------------------------------------------------------------------
 
   it("opens the confirmation modal and DELETEs against the right endpoint", async () => {
+    setSearchParams(new URLSearchParams({ subtab: "Identity" }));
     mockListIdentities.mockResolvedValueOnce([
       {
         humanId: HUMAN_ID,
@@ -448,10 +458,30 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Sub-tab routing — Identity default, Connector caveat reachable via subtab=
+  // General sub-tab (ADR-0045 Phase 4)
   // -------------------------------------------------------------------------
 
-  it("defaults to the Identity sub-tab when ?subtab= is absent", async () => {
+  it("seeds the General form from the persisted human envelope and PATCHes dirty fields", async () => {
+    mockGetHuman.mockReset();
+    mockGetHuman.mockResolvedValue({
+      id: HUMAN_ID,
+      username: "savas",
+      displayName: "Savas",
+      description: "Original description",
+      email: "savas@example.com",
+      platformRole: "Operator",
+      createdAt: "2026-05-01T00:00:00Z",
+    });
+    mockUpdateHuman.mockResolvedValue({
+      id: HUMAN_ID,
+      username: "savas",
+      displayName: "Savas Updated",
+      description: "Original description",
+      email: "savas@example.com",
+      platformRole: "Operator",
+      createdAt: "2026-05-01T00:00:00Z",
+    });
+
     render(
       <Wrapper>
         <HumanConfigTab node={humanNode} path={[humanNode]} />
@@ -460,9 +490,51 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByTestId("tab-human-config-identity"),
+        (screen.getByTestId("human-general-display-name") as HTMLInputElement)
+          .value,
+      ).toBe("Savas");
+    });
+    expect(
+      (screen.getByTestId("human-general-description") as HTMLTextAreaElement)
+        .value,
+    ).toBe("Original description");
+
+    // Save is disabled while nothing is dirty.
+    expect(screen.getByTestId("human-general-save")).toBeDisabled();
+
+    fireEvent.change(screen.getByTestId("human-general-display-name"), {
+      target: { value: "Savas Updated" },
+    });
+
+    fireEvent.click(screen.getByTestId("human-general-save"));
+
+    await waitFor(() => {
+      expect(mockUpdateHuman).toHaveBeenCalledWith(HUMAN_ID, {
+        displayName: "Savas Updated",
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Sub-tab routing — General default (ADR-0045 Phase 4), Identity +
+  // Connector reachable via ?subtab=.
+  // -------------------------------------------------------------------------
+
+  it("defaults to the General sub-tab when ?subtab= is absent", async () => {
+    render(
+      <Wrapper>
+        <HumanConfigTab node={humanNode} path={[humanNode]} />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("tab-human-config-general"),
       ).toBeInTheDocument();
     });
+    expect(
+      screen.queryByTestId("tab-human-config-identity"),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("tab-human-config-connector"),
     ).not.toBeInTheDocument();

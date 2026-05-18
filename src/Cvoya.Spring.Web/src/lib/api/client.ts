@@ -43,6 +43,7 @@ import type {
   UnitPolicyResponse,
   UnitResponse,
   UpdateAgentMetadataRequest,
+  UpdateHumanRequest,
   UpdateUnitHumanMemberRequest,
   UpdateUnitRequest,
 } from "./types";
@@ -458,6 +459,24 @@ export const api = {
       }),
     ) as HumanResponse,
 
+  /**
+   * Patch a Human's `displayName` / `description` (ADR-0045 Phase 4 —
+   * humans now have post-install editable metadata parallel to agents
+   * and units). Mirrors the CLI's `spring human set --display-name …
+   * --description …`. Omitted fields leave the existing value
+   * untouched; passing `null` clears.
+   */
+  updateHuman: async (
+    humanId: string,
+    body: UpdateHumanRequest,
+  ): Promise<HumanResponse> =>
+    unwrap(
+      await fetchClient.PATCH("/api/v1/tenant/humans/{humanId}", {
+        params: { path: { humanId } },
+        body,
+      }),
+    ) as HumanResponse,
+
   // Human ↔ connector-identity rows (PR #2420 / closes #2408). Backs the
   // Human × Config → Identity sub-tab (#2269). Same wire the CLI's
   // `spring human identity {add,list,remove}` commands consume, keeping
@@ -829,14 +848,13 @@ export const api = {
   updateUnitHumanMember: async (
     unitId: string,
     humanId: string,
-    role: string,
     body: UpdateUnitHumanMemberRequest,
   ): Promise<UnitHumanMemberResponse> =>
     unwrap(
       await fetchClient.PATCH(
-        "/api/v1/tenant/units/{id}/members/humans/{humanId}/{role}",
+        "/api/v1/tenant/units/{id}/members/humans/{humanId}",
         {
-          params: { path: { id: unitId, humanId, role } },
+          params: { path: { id: unitId, humanId } },
           body,
         },
       ),
@@ -844,13 +862,12 @@ export const api = {
   removeUnitHumanMember: async (
     unitId: string,
     humanId: string,
-    role: string,
   ): Promise<void> => {
     assertOk(
       await fetchClient.DELETE(
-        "/api/v1/tenant/units/{id}/members/humans/{humanId}/{role}",
+        "/api/v1/tenant/units/{id}/members/humans/{humanId}",
         {
-          params: { path: { id: unitId, humanId, role } },
+          params: { path: { id: unitId, humanId } },
         },
       ),
     );

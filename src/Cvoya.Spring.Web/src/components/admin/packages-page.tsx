@@ -206,9 +206,8 @@ function PackageCard({ pkg }: { pkg: PackageSummary }) {
         <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
           <CountBadge label="units" value={pkg.unitTemplateCount} />
           <CountBadge label="agents" value={pkg.agentTemplateCount} />
+          <CountBadge label="humans" value={pkg.humanTemplateCount} />
           <CountBadge label="skills" value={pkg.skillCount} />
-          <CountBadge label="connectors" value={pkg.connectorCount} />
-          <CountBadge label="workflows" value={pkg.workflowCount} />
         </div>
       </CardContent>
     </Card>

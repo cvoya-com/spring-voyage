@@ -21,10 +21,8 @@ import {
   ArrowRight,
   BookOpen,
   Download,
-  FileText,
   Layers,
   Package as PackageIcon,
-  Puzzle,
   Users,
   Wrench,
   X,
@@ -197,9 +195,8 @@ export default function PackageDetailClient({ name }: Props) {
   const counts = [
     { label: "Unit templates", value: pkg.unitTemplates?.length ?? 0 },
     { label: "Agent templates", value: pkg.agentTemplates?.length ?? 0 },
+    { label: "Human templates", value: pkg.humanTemplates?.length ?? 0 },
     { label: "Skills", value: pkg.skills?.length ?? 0 },
-    { label: "Connectors", value: pkg.connectors?.length ?? 0 },
-    { label: "Workflows", value: pkg.workflows?.length ?? 0 },
   ];
 
   return (
@@ -348,36 +345,25 @@ export default function PackageDetailClient({ name }: Props) {
         </Section>
 
         <Section
-          title="Connectors"
-          icon={<Puzzle className="h-4 w-4" />}
-          count={pkg.connectors?.length ?? 0}
+          title="Human templates"
+          icon={<Users className="h-4 w-4" />}
+          count={pkg.humanTemplates?.length ?? 0}
         >
-          {(pkg.connectors ?? []).map((c) => (
+          {(pkg.humanTemplates ?? []).map((h) => (
             <div
-              key={`${c.package}/${c.name}`}
+              key={`${h.package}/${h.name}`}
               className="rounded border border-border p-3 text-sm"
             >
-              <p className="font-medium">{c.name}</p>
-              {c.path && (
-                <p className="text-xs text-muted-foreground">{c.path}</p>
-              )}
-            </div>
-          ))}
-        </Section>
-
-        <Section
-          title="Workflows"
-          icon={<FileText className="h-4 w-4" />}
-          count={pkg.workflows?.length ?? 0}
-        >
-          {(pkg.workflows ?? []).map((w) => (
-            <div
-              key={`${w.package}/${w.name}`}
-              className="rounded border border-border p-3 text-sm"
-            >
-              <p className="font-medium">{w.name}</p>
-              {w.path && (
-                <p className="text-xs text-muted-foreground">{w.path}</p>
+              <p className="font-medium">
+                {h.displayName ?? h.name}{" "}
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({h.name})
+                </span>
+              </p>
+              {h.description && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {h.description}
+                </p>
               )}
             </div>
           ))}

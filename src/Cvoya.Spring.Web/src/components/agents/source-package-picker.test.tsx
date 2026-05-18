@@ -20,8 +20,7 @@ function makePackage(
     unitTemplateCount: overrides.unitTemplateCount ?? 0,
     agentTemplateCount: overrides.agentTemplateCount ?? 1,
     skillCount: overrides.skillCount ?? 0,
-    connectorCount: overrides.connectorCount ?? 0,
-    workflowCount: overrides.workflowCount ?? 0,
+    humanTemplateCount: overrides.humanTemplateCount ?? 0,
     version: overrides.version ?? null,
   } as PackageSummary;
 }

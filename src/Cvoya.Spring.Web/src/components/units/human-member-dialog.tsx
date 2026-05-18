@@ -1,39 +1,44 @@
 "use client";
 
-// Add / edit a human team-role membership on a unit (#2270 / #2427).
+// Add / edit a human team-role membership on a unit (ADR-0045 Phase 4).
+//
+// ADR-0045 collapsed the previous role-per-row shape into a single row
+// per (unit, human) carrying `roles: string[]` plus `expertise` /
+// `notifications`. The dialog now drives all three through the shared
+// `<TagChipEditor>`:
+//
+//   - Roles      → `variant="row"` (chips wrap on multiple lines).
+//   - Expertise  → `variant="stack"` (one chip per line — expertise
+//                  values are often long).
+//   - Notifications → `variant="stack"` (same long-string rationale).
 //
 // Add mode (`mode="add"`):
-//   - The operator picks a role + free-form expertise + free-form
-//     notifications. The Human field is auto-filled with the
-//     operator's own Human id and rendered as the disabled "You"
-//     row — OSS exposes exactly one human and the backend rejects
-//     writes targeting any other humanId.
+//   - The Human field is auto-filled with the operator's own Human id
+//     and rendered as the disabled "You" row — OSS exposes exactly one
+//     human and the backend rejects writes targeting any other humanId.
 //   - On submit the dialog POSTs to
 //     `POST /api/v1/tenant/units/{id}/members/humans`.
 //
 // Edit mode (`mode="edit"`):
-//   - The dialog is seeded from the existing row. Role + humanId
-//     are immutable (PATCH only touches expertise / notifications);
-//     the dialog renders them as read-only context.
+//   - The dialog is seeded from the existing row. humanId is immutable;
+//     roles, expertise, and notifications are all editable through
+//     their respective TagChipEditors.
 //   - On submit the dialog PATCHes
-//     `PATCH /api/v1/tenant/units/{id}/members/humans/{humanId}/{role}`.
-//
-// Free-form tag fields (expertise + notifications) accept
-// comma-separated input and emit a deduped string[] on submit.
+//     `PATCH /api/v1/tenant/units/{id}/members/humans/{humanId}`.
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { TagChipEditor } from "@/components/ui/tag-chip-editor";
 import { useHuman } from "@/lib/api/queries";
 import type { UnitHumanMemberResponse } from "@/lib/api/types";
 
 export interface HumanMemberFormValues {
   /** Target human id. In add-mode this is the operator's own id. */
   humanId: string;
-  role: string;
+  roles: string[];
   expertise: string[];
   notifications: string[];
 }
@@ -86,49 +91,36 @@ export function HumanMemberDialog({
     ? `${mode}:${initial?.membershipId ?? "add"}`
     : "closed";
   const [lastSeedKey, setLastSeedKey] = useState(seedKey);
-  const [role, setRole] = useState(() =>
-    mode === "edit" && initial ? initial.role : "",
+  const [roles, setRoles] = useState<string[]>(() =>
+    mode === "edit" && initial ? [...initial.roles] : [],
   );
-  const [expertiseText, setExpertiseText] = useState(() =>
-    mode === "edit" && initial ? initial.expertise.join(", ") : "",
+  const [expertise, setExpertise] = useState<string[]>(() =>
+    mode === "edit" && initial ? [...initial.expertise] : [],
   );
-  const [notificationsText, setNotificationsText] = useState(() =>
-    mode === "edit" && initial ? initial.notifications.join(", ") : "",
+  const [notifications, setNotifications] = useState<string[]>(() =>
+    mode === "edit" && initial ? [...initial.notifications] : [],
   );
   const [error, setError] = useState<string | null>(null);
 
   if (open && seedKey !== lastSeedKey) {
     setLastSeedKey(seedKey);
     if (mode === "edit" && initial) {
-      setRole(initial.role);
-      setExpertiseText(initial.expertise.join(", "));
-      setNotificationsText(initial.notifications.join(", "));
+      setRoles([...initial.roles]);
+      setExpertise([...initial.expertise]);
+      setNotifications([...initial.notifications]);
     } else {
-      setRole("");
-      setExpertiseText("");
-      setNotificationsText("");
+      setRoles([]);
+      setExpertise([]);
+      setNotifications([]);
     }
     setError(null);
   }
 
-  const trimmedRole = role.trim();
-  const expertiseList = useMemo(
-    () => parseTagInput(expertiseText),
-    [expertiseText],
-  );
-  const notificationsList = useMemo(
-    () => parseTagInput(notificationsText),
-    [notificationsText],
-  );
-
-  const submitDisabled =
-    pending ||
-    !humanId ||
-    (mode === "add" && trimmedRole.length === 0);
+  const submitDisabled = pending || !humanId || roles.length === 0;
 
   const handleSubmit = async () => {
-    if (mode === "add" && trimmedRole.length === 0) {
-      setError("Role is required.");
+    if (roles.length === 0) {
+      setError("At least one role is required.");
       return;
     }
     if (!humanId) {
@@ -138,17 +130,17 @@ export function HumanMemberDialog({
     setError(null);
     await onSubmit({
       humanId,
-      role: mode === "edit" && initial ? initial.role : trimmedRole,
-      expertise: expertiseList,
-      notifications: notificationsList,
+      roles,
+      expertise,
+      notifications,
     });
   };
 
   const title = mode === "add" ? "Add human member" : "Edit human member";
   const description =
     mode === "add"
-      ? "Add yourself to this unit with a team role and optional expertise / notifications."
-      : "Update this membership's expertise and notification tags. The team role is immutable — remove and re-add to change it.";
+      ? "Add yourself to this unit with one or more team roles and optional expertise / notifications."
+      : "Update the team roles, expertise, and notification tags for this membership.";
 
   return (
     <Dialog
@@ -190,59 +182,43 @@ export function HumanMemberDialog({
           </p>
         </Field>
 
-        <Field label="Role">
-          {mode === "edit" && initial ? (
-            <div
-              className="rounded-md border border-input bg-muted/30 px-3 py-2 text-sm"
-              data-testid="human-member-dialog-role-readonly"
-            >
-              {initial.role}
-            </div>
-          ) : (
-            <Input
-              type="text"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              placeholder="e.g. tech-lead, reviewer, on-call"
-              required
-              data-testid="human-member-dialog-role"
-              disabled={pending}
-            />
-          )}
+        <Field label="Roles">
+          <TagChipEditor
+            values={roles}
+            onChange={setRoles}
+            placeholder="e.g. tech-lead, reviewer, on-call"
+            variant="row"
+            disabled={pending}
+            testId="human-member-dialog-roles"
+            aria-label="Roles"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            At least one role is required.
+          </p>
         </Field>
 
-        <Field label="Expertise (comma-separated)">
-          <Input
-            type="text"
-            value={expertiseText}
-            onChange={(e) => setExpertiseText(e.target.value)}
+        <Field label="Expertise">
+          <TagChipEditor
+            values={expertise}
+            onChange={setExpertise}
             placeholder="e.g. databases, security, frontend"
-            data-testid="human-member-dialog-expertise"
+            variant="stack"
             disabled={pending}
+            testId="human-member-dialog-expertise"
+            aria-label="Expertise"
           />
-          {expertiseList.length > 0 && (
-            <PreviewChips
-              items={expertiseList}
-              testId="human-member-dialog-expertise-preview"
-            />
-          )}
         </Field>
 
-        <Field label="Notifications (comma-separated)">
-          <Input
-            type="text"
-            value={notificationsText}
-            onChange={(e) => setNotificationsText(e.target.value)}
+        <Field label="Notifications">
+          <TagChipEditor
+            values={notifications}
+            onChange={setNotifications}
             placeholder="e.g. pull-requests, incidents"
-            data-testid="human-member-dialog-notifications"
+            variant="stack"
             disabled={pending}
+            testId="human-member-dialog-notifications"
+            aria-label="Notifications"
           />
-          {notificationsList.length > 0 && (
-            <PreviewChips
-              items={notificationsList}
-              testId="human-member-dialog-notifications-preview"
-            />
-          )}
         </Field>
 
         {error && (
@@ -266,47 +242,9 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="block space-y-1.5">
+    <div className="block space-y-1.5">
       <span className="text-sm font-medium">{label}</span>
       {children}
-    </label>
-  );
-}
-
-function PreviewChips({
-  items,
-  testId,
-}: {
-  items: readonly string[];
-  testId: string;
-}) {
-  return (
-    <div
-      className="mt-1.5 flex flex-wrap gap-1"
-      data-testid={testId}
-    >
-      {items.map((item, i) => (
-        <Badge key={`${item}-${i}`} variant="outline" className="text-xs">
-          {item}
-        </Badge>
-      ))}
     </div>
   );
-}
-
-/**
- * Split a comma-separated tag string into a clean, deduped list.
- * Whitespace-only tokens are dropped; preserves first-occurrence order.
- */
-function parseTagInput(raw: string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const part of raw.split(",")) {
-    const trimmed = part.trim();
-    if (trimmed.length === 0) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-  return out;
 }
