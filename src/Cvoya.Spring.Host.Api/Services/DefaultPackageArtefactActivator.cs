@@ -886,6 +886,23 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             defObj["execution"] = projected;
         }
 
+        // Capture instructions (template-merged or agent's own). Stored in
+        // Definition JSON so TryReadAgentInstructionsAsync and the dispatcher
+        // can read it without re-parsing the manifest YAML.
+        var instructionsValue = ScalarValue(agentNode, "instructions");
+        if (!string.IsNullOrEmpty(instructionsValue))
+        {
+            defObj["instructions"] = instructionsValue;
+        }
+
+        // Capture expertise seed so DbExpertiseSeedProvider can apply it on
+        // first actor activation (same path as unit expertise via #488).
+        if (agentNode.Children.TryGetValue(new YamlScalarNode("expertise"), out var expertiseRaw)
+            && expertiseRaw is YamlSequenceNode expertiseSeq)
+        {
+            defObj["expertise"] = ToObject(expertiseSeq);
+        }
+
         JsonElement? defJson = null;
         if (defObj.Count > 0)
         {
