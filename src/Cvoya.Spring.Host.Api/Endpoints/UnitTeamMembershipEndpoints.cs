@@ -96,6 +96,48 @@ public static class UnitTeamMembershipEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // Issue #2463: read surface for sub-unit-member rows on a unit.
+        // Agent-member rows already surface their roles + expertise via
+        // `/memberships`; sub-unit rows do not (sub-units are rendered
+        // from the tree). This thin endpoint returns the per-edge
+        // roles + expertise so the portal Unit × Members tab can seed
+        // the edit dialog without re-reading the entire tenant tree.
+        group.MapGet("/{id}/members/units", ListSubUnitMembersAsync)
+            .WithName("ListUnitSubUnitMembers")
+            .WithSummary("List sub-unit member rows on this unit with their per-membership roles + expertise.")
+            .WithDescription(
+                "Returns one entry per child sub-unit of this unit with the membership row's `roles` / `expertise` jsonb projections (#2463 / ADR-0046 §8 extended to sub-units). Viewer-gated.")
+            .Produces<IReadOnlyList<UnitSubUnitMemberResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // Issue #2463: edit surface for the per-membership `roles` +
+        // `expertise` jsonb columns on agent ↔ unit and sub-unit ↔ unit
+        // edges. Mirrors the human-member PATCH semantics one row up
+        // (`null` = leave unchanged; explicit empty array clears;
+        // non-null array replaces).
+        group.MapPatch("/{id}/members/agents/{agentId:guid}", UpdateAgentMemberAsync)
+            .WithName("UpdateUnitAgentMember")
+            .WithSummary("Update roles + expertise on an existing agent-member row of this unit.")
+            .WithDescription(
+                "Multi-valued fields use the standard tri-state semantics: null leaves the existing list untouched, an explicit empty array clears, a non-null array replaces. " +
+                "Owner-gated; 404 when no membership row matches the (unit, agent) natural key. Does not modify model / specialty / enabled / executionMode — those flow through `/memberships/{agentAddress}`.")
+            .Produces<UnitAgentMemberResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPatch("/{id}/members/units/{subUnitId:guid}", UpdateSubUnitMemberAsync)
+            .WithName("UpdateUnitSubUnitMember")
+            .WithSummary("Update roles + expertise on an existing sub-unit-member row of this unit.")
+            .WithDescription(
+                "Multi-valued fields use the standard tri-state semantics: null leaves the existing list untouched, an explicit empty array clears, a non-null array replaces. " +
+                "Owner-gated; 404 when no parent → child sub-unit edge matches the natural key.")
+            .Produces<UnitSubUnitMemberResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return group;
     }
 
@@ -282,6 +324,150 @@ public static class UnitTeamMembershipEndpoints
         return Results.NoContent();
     }
 
+    private static async Task<IResult> ListSubUnitMembersAsync(
+        string id,
+        HttpContext httpContext,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IPermissionService permissionService,
+        [FromServices] IUnitSubunitMembershipRepository subunitRepository,
+        CancellationToken cancellationToken)
+    {
+        var auth = await UnitPermissionCheck.AuthorizeAsync(
+            id,
+            PermissionLevel.Viewer,
+            directoryService,
+            permissionService,
+            httpContext,
+            cancellationToken);
+        if (!auth.Authorized)
+        {
+            return auth.ToErrorResult(id);
+        }
+
+        var rows = await subunitRepository.ListByParentAsync(auth.Entry!.ActorId, cancellationToken);
+        return Results.Ok(rows.Select(ToSubUnitResponse).ToList());
+    }
+
+    private static async Task<IResult> UpdateAgentMemberAsync(
+        string id,
+        Guid agentId,
+        UpdateUnitAgentMemberRequest request,
+        HttpContext httpContext,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IPermissionService permissionService,
+        [FromServices] IUnitMembershipRepository membershipRepository,
+        CancellationToken cancellationToken)
+    {
+        var body = request ?? new UpdateUnitAgentMemberRequest();
+
+        if (agentId == Guid.Empty)
+        {
+            return Results.Problem(
+                detail: "'agentId' segment in the URL must not be empty.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var auth = await UnitPermissionCheck.AuthorizeAsync(
+            id,
+            PermissionLevel.Owner,
+            directoryService,
+            permissionService,
+            httpContext,
+            cancellationToken);
+        if (!auth.Authorized)
+        {
+            return auth.ToErrorResult(id);
+        }
+
+        var existing = await membershipRepository.GetAsync(
+            auth.Entry!.ActorId, agentId, cancellationToken);
+        if (existing is null)
+        {
+            return Results.Problem(
+                detail: $"No membership row exists for agent '{agentId:N}' on unit '{id}'.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // Tri-state semantics (mirrors UpdateUnitHumanMember). Each list
+        // is either left unchanged (null), cleared (empty array), or
+        // replaced wholesale (non-null array). The repository overwrites
+        // both columns in a single SaveChanges; we read the post-write
+        // projection back to return the canonical state.
+        var roles = body.Roles is null
+            ? (existing.Roles ?? Array.Empty<string>())
+            : NormaliseTags(body.Roles);
+        var expertise = body.Expertise is null
+            ? (existing.Expertise ?? Array.Empty<string>())
+            : NormaliseTags(body.Expertise);
+
+        var updated = await membershipRepository.UpdateRolesAndExpertiseAsync(
+            auth.Entry!.ActorId, agentId, roles, expertise, cancellationToken);
+        if (updated is null)
+        {
+            // The row vanished between our Get and Update — surface as 404
+            // rather than 500. The race window is small but real (delete
+            // agent path), and 404 matches the human-member contract.
+            return Results.Problem(
+                detail: $"Membership row for agent '{agentId:N}' on unit '{id}' was removed concurrently.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Ok(ToAgentResponse(updated));
+    }
+
+    private static async Task<IResult> UpdateSubUnitMemberAsync(
+        string id,
+        Guid subUnitId,
+        UpdateUnitSubUnitMemberRequest request,
+        HttpContext httpContext,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IPermissionService permissionService,
+        [FromServices] IUnitSubunitMembershipRepository subunitRepository,
+        CancellationToken cancellationToken)
+    {
+        var body = request ?? new UpdateUnitSubUnitMemberRequest();
+
+        if (subUnitId == Guid.Empty)
+        {
+            return Results.Problem(
+                detail: "'subUnitId' segment in the URL must not be empty.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var auth = await UnitPermissionCheck.AuthorizeAsync(
+            id,
+            PermissionLevel.Owner,
+            directoryService,
+            permissionService,
+            httpContext,
+            cancellationToken);
+        if (!auth.Authorized)
+        {
+            return auth.ToErrorResult(id);
+        }
+
+        var existing = await subunitRepository.GetAsync(
+            auth.Entry!.ActorId, subUnitId, cancellationToken);
+        if (existing is null)
+        {
+            return Results.Problem(
+                detail: $"No sub-unit edge exists for sub-unit '{subUnitId:N}' under parent '{id}'.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var roles = body.Roles is null
+            ? (existing.Roles ?? Array.Empty<string>())
+            : NormaliseTags(body.Roles);
+        var expertise = body.Expertise is null
+            ? (existing.Expertise ?? Array.Empty<string>())
+            : NormaliseTags(body.Expertise);
+
+        var updated = await subunitRepository.UpsertAsync(
+            auth.Entry!.ActorId, subUnitId, roles, expertise, cancellationToken);
+
+        return Results.Ok(ToSubUnitResponse(updated));
+    }
+
     private static List<string> NormaliseTags(IReadOnlyList<string>? raw) =>
         (raw ?? Array.Empty<string>())
             .Where(t => !string.IsNullOrWhiteSpace(t))
@@ -290,4 +476,18 @@ public static class UnitTeamMembershipEndpoints
 
     private static UnitHumanMemberResponse ToResponse(UnitHumanMembership row) =>
         new(row.MembershipId, row.HumanId, row.Roles, row.Expertise, row.Notifications);
+
+    private static UnitAgentMemberResponse ToAgentResponse(UnitMembership row) =>
+        new(
+            row.UnitId,
+            row.AgentId,
+            row.Roles ?? Array.Empty<string>(),
+            row.Expertise ?? Array.Empty<string>());
+
+    private static UnitSubUnitMemberResponse ToSubUnitResponse(UnitSubunitMembership row) =>
+        new(
+            row.ParentId,
+            row.ChildId,
+            row.Roles ?? Array.Empty<string>(),
+            row.Expertise ?? Array.Empty<string>());
 }

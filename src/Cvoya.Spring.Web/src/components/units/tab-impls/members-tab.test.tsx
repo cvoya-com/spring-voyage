@@ -17,6 +17,7 @@ import type {
   InstalledModelProviderResponse,
   UnitHumanMemberResponse,
   UnitMembershipResponse,
+  UnitSubUnitMemberResponse,
   UserProfileResponse,
 } from "@/lib/api/types";
 
@@ -42,6 +43,11 @@ const listUnitHumanMembers =
 const addUnitHumanMember = vi.fn();
 const updateUnitHumanMember = vi.fn();
 const removeUnitHumanMember = vi.fn();
+// #2463: agent + sub-unit member edit surface mocks.
+const listUnitSubUnitMembers =
+  vi.fn<(unitId: string) => Promise<UnitSubUnitMemberResponse[]>>();
+const updateUnitAgentMember = vi.fn();
+const updateUnitSubUnitMember = vi.fn();
 const getHuman = vi.fn<(id: string) => Promise<HumanResponse>>();
 const getCurrentUser = vi.fn<() => Promise<UserProfileResponse>>();
 // ADR-0038: MembershipDialog sources its Model dropdown from the
@@ -64,6 +70,11 @@ vi.mock("@/lib/api/client", () => ({
       updateUnitHumanMember(...args),
     removeUnitHumanMember: (...args: unknown[]) =>
       removeUnitHumanMember(...args),
+    listUnitSubUnitMembers: (u: string) => listUnitSubUnitMembers(u),
+    updateUnitAgentMember: (...args: unknown[]) =>
+      updateUnitAgentMember(...args),
+    updateUnitSubUnitMember: (...args: unknown[]) =>
+      updateUnitSubUnitMember(...args),
     getHuman: (id: string) => getHuman(id),
     getCurrentUser: () => getCurrentUser(),
     listModelProviders: () => listModelProviders(),
@@ -225,6 +236,9 @@ describe("MembersTab (#2270 / #2427)", () => {
     addUnitHumanMember.mockReset();
     updateUnitHumanMember.mockReset();
     removeUnitHumanMember.mockReset();
+    listUnitSubUnitMembers.mockReset();
+    updateUnitAgentMember.mockReset();
+    updateUnitSubUnitMember.mockReset();
     getHuman.mockReset();
     getCurrentUser.mockReset();
     listModelProviders.mockReset();
@@ -234,6 +248,7 @@ describe("MembersTab (#2270 / #2427)", () => {
     // Default benign stubs so unrelated tests do not throw on the
     // human surface; tests that exercise the human path override.
     listUnitHumanMembers.mockResolvedValue([]);
+    listUnitSubUnitMembers.mockResolvedValue([]);
     getHuman.mockResolvedValue(OPERATOR_HUMAN);
     getCurrentUser.mockResolvedValue(OPERATOR_PROFILE);
   });
@@ -694,6 +709,163 @@ describe("MembersTab (#2270 / #2427)", () => {
     });
     expect(toastMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Agent removed" }),
+    );
+  });
+
+  // ------------------------------------------------------------------
+  // #2463: agent + sub-unit member metadata edit dialog flows.
+  // ------------------------------------------------------------------
+
+  it("renders roles + expertise chips on agent member cards (#2463)", async () => {
+    const ada = makeAgent({ name: "ada", displayName: "Ada" });
+    listAgents.mockResolvedValue([ada]);
+    listUnitMemberships.mockResolvedValue([
+      makeMembership({
+        agentAddress: "ada",
+        roles: ["owner", "reviewer"],
+        expertise: ["platform"],
+      }),
+    ]);
+
+    renderMembersTab("engineering");
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("unit-membership-roles-ada"),
+      ).toBeInTheDocument();
+    });
+
+    const rolesRow = screen.getByTestId("unit-membership-roles-ada");
+    expect(within(rolesRow).getByText("owner")).toBeInTheDocument();
+    expect(within(rolesRow).getByText("reviewer")).toBeInTheDocument();
+
+    const expertiseRow = screen.getByTestId("unit-membership-expertise-ada");
+    expect(within(expertiseRow).getByText("platform")).toBeInTheDocument();
+  });
+
+  it("PATCHes the agent member's roles + expertise on Save (#2463)", async () => {
+    const ada = makeAgent({ name: "ada", displayName: "Ada" });
+    listAgents.mockResolvedValue([ada]);
+    listUnitMemberships.mockResolvedValue([
+      makeMembership({
+        agentAddress: "ada",
+        roles: ["owner"],
+        expertise: [],
+      }),
+    ]);
+    updateUnitAgentMember.mockResolvedValue({
+      unitId: "engineering",
+      agentId: "ada",
+      roles: ["owner", "reviewer"],
+      expertise: ["security"],
+    });
+
+    renderMembersTab("engineering");
+
+    // Open the metadata-edit dialog from the agent card.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("unit-membership-edit-metadata-ada"),
+      ).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("unit-membership-edit-metadata-ada"));
+
+    // Add a second role + an expertise tag via the chip editor.
+    const rolesInput = await screen.findByTestId(
+      "member-metadata-dialog-roles-input",
+    );
+    fireEvent.change(rolesInput, { target: { value: "reviewer" } });
+    fireEvent.click(screen.getByTestId("member-metadata-dialog-roles-add"));
+
+    const expertiseInput = screen.getByTestId(
+      "member-metadata-dialog-expertise-input",
+    );
+    fireEvent.change(expertiseInput, { target: { value: "security" } });
+    fireEvent.click(
+      screen.getByTestId("member-metadata-dialog-expertise-add"),
+    );
+
+    fireEvent.click(screen.getByTestId("member-metadata-dialog-submit"));
+
+    await waitFor(() => {
+      expect(updateUnitAgentMember).toHaveBeenCalledWith("engineering", "ada", {
+        roles: ["owner", "reviewer"],
+        expertise: ["security"],
+      });
+    });
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Member updated" }),
+    );
+  });
+
+  it("renders sub-unit chips and PATCHes sub-unit metadata on Save (#2463)", async () => {
+    listUnitMemberships.mockResolvedValue([]);
+    listAgents.mockResolvedValue([]);
+    const subUnitId = "55555555-5555-5555-5555-555555555555";
+    listUnitSubUnitMembers.mockResolvedValue([
+      {
+        parentUnitId: "engineering",
+        subUnitId,
+        roles: ["delivery"],
+        expertise: [],
+      },
+    ]);
+    updateUnitSubUnitMember.mockResolvedValue({
+      parentUnitId: "engineering",
+      subUnitId,
+      roles: ["delivery", "research"],
+      expertise: ["ux"],
+    });
+
+    const subUnitNode: UnitNode = {
+      id: subUnitId,
+      kind: "Unit",
+      name: "Platform",
+      status: "running",
+      children: [],
+    };
+    renderMembersTab("engineering", "Engineering", [subUnitNode]);
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId(`unit-members-sub-unit-roles-${subUnitId}`),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByTestId(
+        `unit-members-sub-unit-edit-metadata-${subUnitId}`,
+      ),
+    );
+
+    const rolesInput = await screen.findByTestId(
+      "member-metadata-dialog-roles-input",
+    );
+    fireEvent.change(rolesInput, { target: { value: "research" } });
+    fireEvent.click(screen.getByTestId("member-metadata-dialog-roles-add"));
+
+    const expertiseInput = screen.getByTestId(
+      "member-metadata-dialog-expertise-input",
+    );
+    fireEvent.change(expertiseInput, { target: { value: "ux" } });
+    fireEvent.click(
+      screen.getByTestId("member-metadata-dialog-expertise-add"),
+    );
+
+    fireEvent.click(screen.getByTestId("member-metadata-dialog-submit"));
+
+    await waitFor(() => {
+      expect(updateUnitSubUnitMember).toHaveBeenCalledWith(
+        "engineering",
+        subUnitId,
+        {
+          roles: ["delivery", "research"],
+          expertise: ["ux"],
+        },
+      );
+    });
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Sub-unit updated" }),
     );
   });
 });

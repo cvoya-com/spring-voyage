@@ -536,6 +536,14 @@ public class DefaultUnitPolicyEnforcerTests
         public Task<UnitMembership?> GetAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<UnitMembership?> UpdateRolesAndExpertiseAsync(
+            Guid unitId,
+            Guid agentId,
+            IReadOnlyList<string> roles,
+            IReadOnlyList<string> expertise,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(Guid unitId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<UnitMembership>>(
                 _rows.Where(r => r.UnitId == unitId).ToList());

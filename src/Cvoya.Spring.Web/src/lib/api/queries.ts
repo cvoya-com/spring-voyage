@@ -78,6 +78,7 @@ import type {
   UnitReadinessResponse,
   UnitHumanMemberResponse,
   UnitResponse,
+  UnitSubUnitMemberResponse,
   UnitTemplateDetail,
   UserProfileResponse,
   WaitTimeRollupResponse,
@@ -779,6 +780,27 @@ export function useUnitHumanMembers(
   return useQuery({
     queryKey: queryKeys.units.humanMembers(unitId),
     queryFn: async () => api.listUnitHumanMembers(unitId),
+    enabled: opts?.enabled ?? Boolean(unitId),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Read the sub-unit member rows of a unit with their per-membership
+ * `roles` + `expertise` projections (#2463 / ADR-0046 §8 extended to
+ * sub-units). The list is sourced from the persistent edge table;
+ * sub-unit display names live on the tenant tree, so the Members tab
+ * joins by `subUnitId` to render cards. Seeded by the sub-unit edit
+ * dialog so opening it never needs an extra round-trip.
+ */
+export function useUnitSubUnitMembers(
+  unitId: string,
+  opts?: SliceOptions<UnitSubUnitMemberResponse[]>,
+): UseQueryResult<UnitSubUnitMemberResponse[], Error> {
+  return useQuery({
+    queryKey: queryKeys.units.subUnitMembers(unitId),
+    queryFn: async () => api.listUnitSubUnitMembers(unitId),
     enabled: opts?.enabled ?? Boolean(unitId),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,

@@ -547,6 +547,30 @@ export type UpdateUnitHumanMemberRequest =
  */
 export type UpdateHumanRequest = Schemas["UpdateHumanRequest"];
 
+/**
+ * Body for `PATCH /api/v1/tenant/units/{id}/members/agents/{agentId}`
+ * (#2463). Partial update of `roles` / `expertise` on an existing
+ * agent ↔ unit membership row. Tri-state semantics: omit (`null`)
+ * leaves the existing list untouched; `[]` clears; a non-null array
+ * replaces.
+ */
+export type UpdateUnitAgentMemberRequest =
+  Schemas["UpdateUnitAgentMemberRequest"];
+
+/** Response shape for the agent-member edit endpoint (#2463). */
+export type UnitAgentMemberResponse = Schemas["UnitAgentMemberResponse"];
+
+/**
+ * Body for `PATCH /api/v1/tenant/units/{id}/members/units/{subUnitId}`
+ * (#2463). Same tri-state semantics as {@link UpdateUnitAgentMemberRequest}
+ * but targets the sub-unit ↔ parent-unit edge.
+ */
+export type UpdateUnitSubUnitMemberRequest =
+  Schemas["UpdateUnitSubUnitMemberRequest"];
+
+/** Response shape for the sub-unit-member edit endpoint (#2463). */
+export type UnitSubUnitMemberResponse = Schemas["UnitSubUnitMemberResponse"];
+
 // ---------------------------------------------------------------------------
 // Package install (ADR-0035 decision 11 — two-phase atomic install).
 // Endpoints: POST /api/v1/packages/install, GET/POST /api/v1/installs/{id}.

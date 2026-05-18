@@ -2933,6 +2933,223 @@
         }
       }
     },
+    "/api/v1/tenant/units/{id}/members/units": {
+      "get": {
+        "tags": [
+          "Units"
+        ],
+        "summary": "List sub-unit member rows on this unit with their per-membership roles + expertise.",
+        "description": "Returns one entry per child sub-unit of this unit with the membership row's `roles` / `expertise` jsonb projections (#2463 / ADR-0046 §8 extended to sub-units). Viewer-gated.",
+        "operationId": "ListUnitSubUnitMembers",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UnitSubUnitMemberResponse"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/units/{id}/members/agents/{agentId}": {
+      "patch": {
+        "tags": [
+          "Units"
+        ],
+        "summary": "Update roles + expertise on an existing agent-member row of this unit.",
+        "description": "Multi-valued fields use the standard tri-state semantics: null leaves the existing list untouched, an explicit empty array clears, a non-null array replaces. Owner-gated; 404 when no membership row matches the (unit, agent) natural key. Does not modify model / specialty / enabled / executionMode — those flow through `/memberships/{agentAddress}`.",
+        "operationId": "UpdateUnitAgentMember",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUnitAgentMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitAgentMemberResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/units/{id}/members/units/{subUnitId}": {
+      "patch": {
+        "tags": [
+          "Units"
+        ],
+        "summary": "Update roles + expertise on an existing sub-unit-member row of this unit.",
+        "description": "Multi-valued fields use the standard tri-state semantics: null leaves the existing list untouched, an explicit empty array clears, a non-null array replaces. Owner-gated; 404 when no parent → child sub-unit edge matches the natural key.",
+        "operationId": "UpdateUnitSubUnitMember",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subUnitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUnitSubUnitMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitSubUnitMemberResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/humans/{humanId}": {
       "get": {
         "tags": [
@@ -14636,6 +14853,37 @@
           }
         }
       },
+      "UnitAgentMemberResponse": {
+        "required": [
+          "unitId",
+          "agentId",
+          "roles",
+          "expertise"
+        ],
+        "type": "object",
+        "properties": {
+          "unitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expertise": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "UnitArxivConfigRequest": {
         "type": "object",
         "properties": {
@@ -15153,6 +15401,24 @@
               "null",
               "string"
             ]
+          },
+          "roles": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "expertise": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -15338,6 +15604,37 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SecretMetadata"
+            }
+          }
+        }
+      },
+      "UnitSubUnitMemberResponse": {
+        "required": [
+          "parentUnitId",
+          "subUnitId",
+          "roles",
+          "expertise"
+        ],
+        "type": "object",
+        "properties": {
+          "parentUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expertise": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         }
@@ -15540,6 +15837,29 @@
           }
         }
       },
+      "UpdateUnitAgentMemberRequest": {
+        "type": "object",
+        "properties": {
+          "roles": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "expertise": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "UpdateUnitHumanMemberRequest": {
         "type": "object",
         "properties": {
@@ -15638,6 +15958,29 @@
                 "$ref": "#/components/schemas/AgentExecutionMode"
               }
             ]
+          }
+        }
+      },
+      "UpdateUnitSubUnitMemberRequest": {
+        "type": "object",
+        "properties": {
+          "roles": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "expertise": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

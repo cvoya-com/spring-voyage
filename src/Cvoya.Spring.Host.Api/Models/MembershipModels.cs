@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Host.Api.Models;
 
+using System.Collections.Generic;
+
 using Cvoya.Spring.Core.Agents;
 
 /// <summary>
@@ -76,7 +78,9 @@ public record UnitMembershipResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     bool IsPrimary,
-    string? AgentHostingMode = null);
+    string? AgentHostingMode = null,
+    IReadOnlyList<string>? Roles = null,
+    IReadOnlyList<string>? Expertise = null);
 
 /// <summary>
 /// Request body for <c>PUT /api/v1/units/{unitId}/memberships/{agentAddress}</c>.

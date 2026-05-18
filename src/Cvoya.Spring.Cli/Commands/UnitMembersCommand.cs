@@ -481,4 +481,255 @@ public static class UnitMembersCommand
         }
         return tokens;
     }
+
+    /// <summary>
+    /// Issue #2463: <c>spring unit members agents</c> verb tree. Single
+    /// child verb <c>set</c> — the parallel to <c>members humans update</c>
+    /// for editing the per-membership <c>roles</c> + <c>expertise</c>
+    /// metadata on an agent ↔ unit membership row introduced by
+    /// ADR-0046 §8. Does not touch <c>model</c>, <c>specialty</c>, or the
+    /// other override columns (those flow through <c>unit members config</c>
+    /// and the existing PUT membership endpoint).
+    /// </summary>
+    public static Command CreateAgentsSubcommand(Option<string> outputOption)
+    {
+        var agents = new Command(
+            "agents",
+            "Edit roles + expertise on agent members of a unit (ADR-0046 §8 / #2463).");
+        agents.Subcommands.Add(CreateAgentMemberSetCommand(outputOption));
+        return agents;
+    }
+
+    /// <summary>
+    /// Issue #2463: <c>spring unit members units</c> verb tree. Edit
+    /// surface for sub-unit-member <c>roles</c> + <c>expertise</c>
+    /// projections — symmetric to <c>members agents set</c>. The
+    /// <c>set</c> verb PATCHes the sub-unit ↔ parent-unit edge row;
+    /// adding / removing sub-units themselves flows through the
+    /// existing <c>spring unit members add</c> / <c>remove</c> verbs.
+    /// </summary>
+    public static Command CreateSubUnitsSubcommand(Option<string> outputOption)
+    {
+        var units = new Command(
+            "units",
+            "Edit roles + expertise on sub-unit members of a unit (ADR-0046 §8 extended to sub-units / #2463).");
+        units.Subcommands.Add(CreateSubUnitMemberSetCommand(outputOption));
+        return units;
+    }
+
+    private static Command CreateAgentMemberSetCommand(Option<string> outputOption)
+    {
+        var unitArg = new Argument<string>("unit") { Description = "The parent unit identifier." };
+        var agentOption = new Option<string>("--agent")
+        {
+            Description = "Stable agent UUID (32-char no-dash hex or dashed Guid form).",
+            Required = true,
+        };
+        var rolesOption = new Option<string[]?>("--roles")
+        {
+            Description =
+                "Replacement team-role list (free-form per ADR-0046 §8). Repeatable or comma-separated. " +
+                "Omit to leave the existing roles unchanged; pass --roles \"\" to clear.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var expertiseOption = new Option<string?>("--expertise")
+        {
+            Description =
+                "Replacement expertise tags (comma-separated). Omit to leave unchanged; pass '' to clear.",
+        };
+
+        var command = new Command(
+            "set",
+            "Set the per-membership roles + expertise on an agent member row (keyed by (unit, agent)). " +
+            "Each list-flag uses full-replacement semantics: omit to leave unchanged, pass an empty value to clear.");
+        command.Arguments.Add(unitArg);
+        command.Options.Add(agentOption);
+        command.Options.Add(rolesOption);
+        command.Options.Add(expertiseOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var unitArgVal = parseResult.GetValue(unitArg)!;
+            var agentArg = parseResult.GetValue(agentOption)!;
+            var rolesRaw = parseResult.GetValue(rolesOption);
+            var expertiseRaw = parseResult.GetValue(expertiseOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+
+            if (!Guid.TryParse(agentArg, out var agentGuid))
+            {
+                await Console.Error.WriteLineAsync(
+                    $"--agent '{agentArg}' is not a valid Guid. Use the no-dash hex (32 chars) or dashed Guid form.");
+                Environment.Exit(1);
+                return;
+            }
+
+            // Tri-state: null when --roles was not passed at all (leave
+            // unchanged); otherwise the supplied tokens become the full
+            // replacement list. An explicit empty argument collapses to
+            // Array.Empty<string>() via FlattenMultiValued.
+            var rolesSupplied = parseResult.GetResult(rolesOption) is not null;
+            var roles = rolesSupplied ? FlattenMultiValued(rolesRaw) ?? Array.Empty<string>() : null;
+            var expertise = ParseTagList(expertiseRaw);
+
+            if (roles is null && expertise is null)
+            {
+                await Console.Error.WriteLineAsync(
+                    "At least one of --roles or --expertise must be supplied (omit both = no-op).");
+                Environment.Exit(1);
+                return;
+            }
+
+            var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(unitArgVal, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            try
+            {
+                var response = await client.UpdateUnitAgentMemberAsync(
+                    unitId,
+                    agentGuid,
+                    roles,
+                    expertise,
+                    ct);
+
+                if (output == "json")
+                {
+                    Console.WriteLine(OutputFormatter.FormatJson(response));
+                }
+                else
+                {
+                    var rolesDisplay = response.Roles is { Count: > 0 } r ? string.Join(", ", r) : "(none)";
+                    var expertiseDisplay = response.Expertise is { Count: > 0 } x ? string.Join(", ", x) : "(none)";
+                    Console.WriteLine(
+                        $"Updated agent-member row for agent '{agentGuid:N}' on unit '{unitArgVal}' " +
+                        $"(roles=[{rolesDisplay}], expertise=[{expertiseDisplay}]).");
+                }
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to update agent-member roles/expertise for agent '{agentGuid:N}' on unit '{unitArgVal}': {ProblemDetailsTranslator.Format(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    private static Command CreateSubUnitMemberSetCommand(Option<string> outputOption)
+    {
+        var unitArg = new Argument<string>("unit") { Description = "The parent unit identifier." };
+        var subUnitOption = new Option<string>("--sub-unit")
+        {
+            Description = "Stable sub-unit UUID (32-char no-dash hex or dashed Guid form).",
+            Required = true,
+        };
+        var rolesOption = new Option<string[]?>("--roles")
+        {
+            Description =
+                "Replacement team-role list (free-form per ADR-0046 §8). Repeatable or comma-separated. " +
+                "Omit to leave the existing roles unchanged; pass --roles \"\" to clear.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var expertiseOption = new Option<string?>("--expertise")
+        {
+            Description =
+                "Replacement expertise tags (comma-separated). Omit to leave unchanged; pass '' to clear.",
+        };
+
+        var command = new Command(
+            "set",
+            "Set the per-membership roles + expertise on a sub-unit member row (keyed by (parent unit, sub-unit)). " +
+            "Each list-flag uses full-replacement semantics: omit to leave unchanged, pass an empty value to clear.");
+        command.Arguments.Add(unitArg);
+        command.Options.Add(subUnitOption);
+        command.Options.Add(rolesOption);
+        command.Options.Add(expertiseOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var unitArgVal = parseResult.GetValue(unitArg)!;
+            var subUnitArg = parseResult.GetValue(subUnitOption)!;
+            var rolesRaw = parseResult.GetValue(rolesOption);
+            var expertiseRaw = parseResult.GetValue(expertiseOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+
+            if (!Guid.TryParse(subUnitArg, out var subUnitGuid))
+            {
+                await Console.Error.WriteLineAsync(
+                    $"--sub-unit '{subUnitArg}' is not a valid Guid. Use the no-dash hex (32 chars) or dashed Guid form.");
+                Environment.Exit(1);
+                return;
+            }
+
+            var rolesSupplied = parseResult.GetResult(rolesOption) is not null;
+            var roles = rolesSupplied ? FlattenMultiValued(rolesRaw) ?? Array.Empty<string>() : null;
+            var expertise = ParseTagList(expertiseRaw);
+
+            if (roles is null && expertise is null)
+            {
+                await Console.Error.WriteLineAsync(
+                    "At least one of --roles or --expertise must be supplied (omit both = no-op).");
+                Environment.Exit(1);
+                return;
+            }
+
+            var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+
+            string unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitIdAsync(unitArgVal, parentContext: null, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            try
+            {
+                var response = await client.UpdateUnitSubUnitMemberAsync(
+                    unitId,
+                    subUnitGuid,
+                    roles,
+                    expertise,
+                    ct);
+
+                if (output == "json")
+                {
+                    Console.WriteLine(OutputFormatter.FormatJson(response));
+                }
+                else
+                {
+                    var rolesDisplay = response.Roles is { Count: > 0 } r ? string.Join(", ", r) : "(none)";
+                    var expertiseDisplay = response.Expertise is { Count: > 0 } x ? string.Join(", ", x) : "(none)";
+                    Console.WriteLine(
+                        $"Updated sub-unit-member row for sub-unit '{subUnitGuid:N}' on parent unit '{unitArgVal}' " +
+                        $"(roles=[{rolesDisplay}], expertise=[{expertiseDisplay}]).");
+                }
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to update sub-unit-member roles/expertise for sub-unit '{subUnitGuid:N}' on parent unit '{unitArgVal}': {ProblemDetailsTranslator.Format(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
 }

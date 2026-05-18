@@ -36,9 +36,47 @@ public interface IUnitSubunitMembershipRepository
     /// Creates the row for <c>(parentUnitId, childUnitId)</c> if it does
     /// not already exist; refreshes <c>UpdatedAt</c> otherwise. Idempotent
     /// — safe to call repeatedly from the actor write-through path and
-    /// from the startup reconciliation service.
+    /// from the startup reconciliation service. Preserves existing
+    /// <c>roles</c> / <c>expertise</c> columns on re-upsert; callers that
+    /// want to overwrite those projections use
+    /// <see cref="UpsertAsync(Guid, Guid, IReadOnlyList{string}, IReadOnlyList{string}, CancellationToken)"/>.
     /// </summary>
     Task UpsertAsync(Guid parentId, Guid childId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Idempotently asserts a sub-unit-edge row and overwrites the
+    /// per-membership <c>roles</c> + <c>expertise</c> projections in
+    /// place. Used by the PATCH edit surface (#2463 / ADR-0046 §8
+    /// extended to sub-units) — the membership row is the source of
+    /// truth for these multi-valued tags. When the row does not yet
+    /// exist this method falls back to insert with the supplied lists;
+    /// the OSS PATCH endpoint refuses that branch in favour of a 404
+    /// so the install-vs-edit boundary stays clean.
+    /// </summary>
+    /// <param name="parentId">The container unit's stable Guid id.</param>
+    /// <param name="childId">The contained sub-unit's stable Guid id.</param>
+    /// <param name="roles">Replacement roles list; empty list clears.</param>
+    /// <param name="expertise">Replacement expertise list; empty list clears.</param>
+    /// <param name="cancellationToken">Propagates request cancellation.</param>
+    Task<UnitSubunitMembership> UpsertAsync(
+        Guid parentId,
+        Guid childId,
+        IReadOnlyList<string> roles,
+        IReadOnlyList<string> expertise,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads a single sub-unit-edge row by the
+    /// <c>(parent, child)</c> natural key. Returns <see langword="null"/>
+    /// when no row matches.
+    /// </summary>
+    /// <param name="parentId">The container unit's stable Guid id.</param>
+    /// <param name="childId">The contained sub-unit's stable Guid id.</param>
+    /// <param name="cancellationToken">Propagates request cancellation.</param>
+    Task<UnitSubunitMembership?> GetAsync(
+        Guid parentId,
+        Guid childId,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Removes the row for the given composite key. No-op when no row

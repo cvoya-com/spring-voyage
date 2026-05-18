@@ -3,6 +3,9 @@
 
 namespace Cvoya.Spring.Cli.Tests.Commands;
 
+using System.CommandLine;
+using System.Linq;
+
 using Cvoya.Spring.Cli.Commands;
 
 using Shouldly;
@@ -144,5 +147,50 @@ public class UnitMembersCommandTests
         // future refactor that switches the missing-flag default to an
         // empty list (which would silently clear roles on every update).
         UnitMembersCommand.FlattenMultiValued(null).ShouldBeNull();
+    }
+
+    // --- #2463: agent / sub-unit member edit verb wiring -----------------
+
+    [Fact]
+    public void AgentsSubcommand_HasSetVerb_WithRolesAndExpertiseAndAgentOptions()
+    {
+        // `spring unit members agents set --unit <name> --agent <id>
+        //   --roles ... --expertise ...` is the canonical shape from the
+        // issue. This pins the verb tree + flag names so a future refactor
+        // can't silently rename one of them and break operator muscle
+        // memory + scripts.
+        var outputOption = new Option<string>("--output");
+        var agents = UnitMembersCommand.CreateAgentsSubcommand(outputOption);
+
+        agents.Name.ShouldBe("agents");
+        agents.Subcommands.Count.ShouldBe(1);
+
+        var set = agents.Subcommands[0];
+        set.Name.ShouldBe("set");
+        set.Arguments.Any(a => a.Name == "unit").ShouldBeTrue();
+
+        var optionNames = set.Options.Select(o => o.Name).ToHashSet();
+        optionNames.ShouldContain("--agent");
+        optionNames.ShouldContain("--roles");
+        optionNames.ShouldContain("--expertise");
+    }
+
+    [Fact]
+    public void SubUnitsSubcommand_HasSetVerb_WithRolesAndExpertiseAndSubUnitOption()
+    {
+        var outputOption = new Option<string>("--output");
+        var subUnits = UnitMembersCommand.CreateSubUnitsSubcommand(outputOption);
+
+        subUnits.Name.ShouldBe("units");
+        subUnits.Subcommands.Count.ShouldBe(1);
+
+        var set = subUnits.Subcommands[0];
+        set.Name.ShouldBe("set");
+        set.Arguments.Any(a => a.Name == "unit").ShouldBeTrue();
+
+        var optionNames = set.Options.Select(o => o.Name).ToHashSet();
+        optionNames.ShouldContain("--sub-unit");
+        optionNames.ShouldContain("--roles");
+        optionNames.ShouldContain("--expertise");
     }
 }

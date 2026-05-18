@@ -157,6 +157,32 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
     }
 
     /// <inheritdoc />
+    public async Task<UnitMembership?> UpdateRolesAndExpertiseAsync(
+        Guid unitId,
+        Guid agentId,
+        IReadOnlyList<string> roles,
+        IReadOnlyList<string> expertise,
+        CancellationToken cancellationToken = default)
+    {
+        var existing = await context.UnitMemberships
+            .FirstOrDefaultAsync(
+                m => m.UnitId == unitId && m.AgentId == agentId,
+                cancellationToken);
+
+        if (existing is null)
+        {
+            return null;
+        }
+
+        existing.Roles = NormaliseStringList(roles);
+        existing.Expertise = NormaliseStringList(expertise);
+        // UpdatedAt stamped by the SaveChangesAsync audit hook.
+
+        await context.SaveChangesAsync(cancellationToken);
+        return ToDto(existing);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(Guid unitId, CancellationToken cancellationToken = default)
     {
         var rows = await context.UnitMemberships

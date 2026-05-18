@@ -64,6 +64,34 @@ public interface IUnitMembershipRepository
     Task<UnitMembership?> GetAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Overwrites only the <c>roles</c> + <c>expertise</c> jsonb columns
+    /// on the existing membership row for <c>(unitId, agentId)</c>.
+    /// Leaves <c>model</c>, <c>specialty</c>, <c>enabled</c>,
+    /// <c>executionMode</c>, and <c>isPrimary</c> untouched — these flow
+    /// through <see cref="UpsertAsync(UnitMembership, CancellationToken)"/>
+    /// from the existing membership-edit surface. Returns the row's
+    /// post-write projection.
+    /// <para>
+    /// Surfaced as a dedicated method (issue #2463) so the PATCH edit
+    /// surface for agent-member <c>roles</c> + <c>expertise</c> never
+    /// reads-and-rewrites the other override columns — keeping the
+    /// two edit paths orthogonal. Returns <see langword="null"/> when
+    /// no membership row exists for the key.
+    /// </para>
+    /// </summary>
+    /// <param name="unitId">The unit's stable Guid identity.</param>
+    /// <param name="agentId">The agent's stable Guid identity.</param>
+    /// <param name="roles">Replacement roles list; empty list clears.</param>
+    /// <param name="expertise">Replacement expertise list; empty list clears.</param>
+    /// <param name="cancellationToken">Propagates request cancellation.</param>
+    Task<UnitMembership?> UpdateRolesAndExpertiseAsync(
+        Guid unitId,
+        Guid agentId,
+        IReadOnlyList<string> roles,
+        IReadOnlyList<string> expertise,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns every membership attached to the given unit UUID, in stable
     /// <c>CreatedAt</c> order so callers that treat the first entry as the
     /// "primary" unit see a deterministic choice.
