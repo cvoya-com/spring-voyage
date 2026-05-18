@@ -1,7 +1,5 @@
 # Research Domain Package
 
-> **Tier 4 of 7.** Adds package-level skills shared across multiple agents and demonstrates **optional** connectors (arxiv, web-search) that the unit can use but does not require. Builds on the template patterns from [`example-templated`](../example-templated/). The next package ([`product-management`](../product-management/)) adds a **required** connector and inputs collected at install time.
-
 A domain package that ships agents, unit templates, and skills for research workflows. Use it as-is to spin up a small research team, or as a starting point for your own research-specific orchestration.
 
 ## What this package ships
