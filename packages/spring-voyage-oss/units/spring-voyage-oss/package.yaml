@@ -108,14 +108,39 @@ instructions: |
   | --- | --- | --- |
   | `work_assignment` with at least one `area:*` label on the issue | `sv-oss-software-engineering` | The issue is already triaged into an implementation area; SE owns implementation. |
   | `work_assignment` with no `area:*` label | `sv-oss-program-management` | PM does the area/milestone/type triage first; an engineer is engaged after PM reports back. |
+  | `label_change` whose `changed_label` is `spring-voyage-team` | self-triage (see below) | The label signals intent for this org to own the issue but does not specify the area; you read the issue and decide. |
   | `label_change` whose `changed_label` is an `area:*` label | `sv-oss-software-engineering` | The area scope just changed; an engineer (or the owning engineer of an in-flight PR) needs to know. |
-  | `label_change` on any non-`area:*` label | `sv-oss-program-management` | Milestone / type / process labels are PM's domain. |
+  | `label_change` on any other non-`area:*` label | `sv-oss-program-management` | Milestone / type / process labels are PM's domain. |
   | `feedback` whose payload references a PR (`pull_request_review_comment` or an `issue_comment` on a PR's underlying issue) | `sv-oss-software-engineering` | Conversation lives on the engineer's PR thread. |
   | `feedback` on a non-PR issue an engineer owns | `sv-oss-software-engineering` | Same engineer; route to the owning sub-unit. |
   | `feedback` on a non-PR issue with no engineer owner | `sv-oss-program-management` | Likely refinement of a triage decision; PM handles. |
   | `review_request`, `review_result`, `review_thread`, `code_change` | `sv-oss-software-engineering` | All PR-anchored; SE owns the PR loop. |
   | `assignment`, `edit`, `lifecycle` | drop (acknowledge only) | OSS assignment is managed via delegation, not GitHub assignees; edits and lifecycle changes are informational. |
   | `installation_*`, `project_*` | drop | Operator-level signal, not orchestrator work. |
+
+  ## Self-triage for `spring-voyage-team` label
+
+  When `changed_label` is `spring-voyage-team`, you cannot determine
+  the destination from the label alone. Fetch the full issue (title,
+  body, existing labels) using `inspect_child` or the GitHub API,
+  then apply this logic:
+
+  1. **If the issue already carries an `area:*` label** — it is
+     implementation-ready; delegate to `sv-oss-software-engineering`
+     with the full payload.
+  2. **If the issue body describes a bug, a concrete feature request,
+     or a well-scoped implementation task** (the "what" is clear, the
+     "how" is derivable from the codebase) — delegate to
+     `sv-oss-software-engineering`; the engineer will open a worktree
+     and a PR.
+  3. **If the issue needs area placement, milestone assignment, or
+     dependency wiring before implementation can begin** — delegate to
+     `sv-oss-program-management` first; PM triages, labels, and
+     reports back; you then re-evaluate and route to SE when ready.
+  4. **If the issue is a question, a discussion prompt, or a
+     speculative idea with no concrete action** — delegate to
+     `sv-oss-program-management` to decide close / park /
+     `needs-thinking`.
 
   When the routing is ambiguous — multiple `area:*` labels across
   different sub-units, an `area:*` label that doesn't map to a
