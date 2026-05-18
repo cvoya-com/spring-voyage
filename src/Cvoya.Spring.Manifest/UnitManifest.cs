@@ -96,10 +96,6 @@ public class UnitManifest
     [YamlMember(Alias = "policies")]
     public Dictionary<string, object>? Policies { get; set; }
 
-    /// <summary>Humans associated with the unit. Parsed but not yet applied.</summary>
-    [YamlMember(Alias = "humans")]
-    public List<HumanManifest>? Humans { get; set; }
-
     /// <summary>
     /// Optional seed own-expertise entries for the unit (#488).
     /// </summary>
@@ -287,6 +283,16 @@ public class MemberManifest
     public InlineArtefactDefinition? Unit { get; set; }
 
     /// <summary>
+    /// Human-participant declaration (ADR-0045 §1). Inline body only —
+    /// humans own no sub-artefacts so the folder form is rejected (ADR-0045
+    /// §6). The body may also carry <c>from:</c> to stamp from a
+    /// <c>HumanTemplate</c> (ADR-0045 §4). Bare-scalar form is reserved for
+    /// future cross-package Guid addressing but is not authored in v0.1.
+    /// </summary>
+    [YamlMember(Alias = "human")]
+    public InlineArtefactDefinition? Human { get; set; }
+
+    /// <summary>
     /// Returns the agent reference as a bare string when the member uses
     /// the scalar form, or the inline body's <c>name:</c> when the member
     /// uses the inline form. <c>null</c> when the <c>agent:</c> slot is
@@ -302,6 +308,15 @@ public class MemberManifest
     /// </summary>
     [YamlIgnore]
     public string? UnitName => ExtractName(Unit);
+
+    /// <summary>
+    /// Returns the human reference as a bare string when the member uses
+    /// the scalar form, or the inline body's <c>name:</c> when the member
+    /// uses the inline form. <c>null</c> when the <c>human:</c> slot is
+    /// absent.
+    /// </summary>
+    [YamlIgnore]
+    public string? HumanName => ExtractName(Human);
 
     private static string? ExtractName(InlineArtefactDefinition? def)
     {
@@ -441,24 +456,60 @@ public class BoundarySynthesisManifestEntry
 }
 
 /// <summary>
-/// Human participant declaration (ADR-0044). Carries domain-side team
-/// membership facts: the team role the human plays on the unit, the
-/// expertise tags they bring, and the event notifications they subscribe
-/// to. Platform ACLs (<c>PermissionLevel</c>) are deliberately NOT a
+/// Human-participant declaration (ADR-0045 §1, §3). One entry under a unit's
+/// <c>members:</c> list with the <c>human:</c> key prefix. Carries the
+/// multi-valued team roles, expertise, and notification subscriptions for the
+/// participant. Platform ACLs (<c>PermissionLevel</c>) are deliberately NOT a
 /// manifest concern — package authors have no authority to grant tenant
-/// permissions, and the install resolver fills the role with the
-/// install caller's UUID (OSS default) or a tenant-policy-resolved
-/// identity (hosted).
+/// permissions; the install resolver mints a fresh <see cref="HumanEntity"/>
+/// row per declaration (OSS default) or binds to a tenant member (hosted).
 /// </summary>
+/// <remarks>
+/// Per ADR-0045 §3, <c>roles</c> and <c>expertise</c> are case-insensitive sets
+/// (duplicates collapse at parse time); empty list and absent field are
+/// equivalent. <c>notifications</c> stays human-only — agents have no
+/// notification surface, so the field does not appear on agent / unit member
+/// bodies.
+/// </remarks>
 public class HumanManifest
 {
     /// <summary>
-    /// Team role the human plays on the unit (e.g. <c>owner</c>,
-    /// <c>reviewer</c>, <c>security_lead</c>). Free-form string in v0.1
-    /// per ADR-0044 § 2; mandatory.
+    /// Optional human-friendly display name. When set, overrides the
+    /// install policy's derived default (e.g. OSS "Operator · &lt;roles[0]&gt;")
+    /// on the persisted <see cref="HumanEntity.DisplayName"/>.
     /// </summary>
-    [YamlMember(Alias = "role")]
-    public string? Role { get; set; }
+    [YamlMember(Alias = "displayName")]
+    public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// Optional single-line description carried verbatim onto the
+    /// persisted <see cref="HumanEntity.Description"/> column. Lets the
+    /// portal's Human × Config tab show what the package author intended
+    /// this team slot to do.
+    /// </summary>
+    [YamlMember(Alias = "description")]
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Optional template chain reference (ADR-0045 §4). Bare name resolves
+    /// within the package's <c>templates/</c> tree (the
+    /// <c>HumanTemplate</c> with matching <c>name:</c>); qualified name
+    /// <c>&lt;pkg&gt;/&lt;name&gt;@&lt;version&gt;</c> resolves cross-package per
+    /// ADR-0037 §5. When set, the install pipeline clones the template's
+    /// fields and overlays this entry's values per ADR-0045 §5 (full
+    /// replacement on multi-valued lists).
+    /// </summary>
+    [YamlMember(Alias = "from")]
+    public string? From { get; set; }
+
+    /// <summary>
+    /// Free-form team roles the human plays on the unit (e.g.
+    /// <c>[owner]</c>, <c>[reviewer, security_lead]</c>). ADR-0045 §3 makes
+    /// this multi-valued and case-insensitive within an entry; duplicates
+    /// collapse at parse time. Empty list and absent field are equivalent.
+    /// </summary>
+    [YamlMember(Alias = "roles")]
+    public List<string>? Roles { get; set; }
 
     /// <summary>
     /// Optional list of free-form expertise tags the human brings to the

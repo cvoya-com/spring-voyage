@@ -10,11 +10,12 @@ using System.Threading.Tasks;
 
 /// <summary>
 /// Read / write seam over the <c>unit_memberships_humans</c> table introduced
-/// in ADR-0044. Surfaces the unit's team-role membership rows (one per
-/// <c>(human, role)</c> tuple) for callers that need the domain
-/// participation view — primarily the <c>sv.list_members</c> MCP tool, the
-/// operator-facing CLI / REST add-member surface (#2409), and any future
-/// "who is the security lead on my team?" routing surface.
+/// in ADR-0044 and reshaped by ADR-0045 §7. Surfaces the unit's team-role
+/// membership rows (one per <c>(unit, human)</c> pair; <c>roles</c> is now a
+/// jsonb list on the row) for callers that need the domain participation
+/// view — primarily the <c>sv.list_members</c> MCP tool, the operator-facing
+/// CLI / REST add-member surface (#2409), and any future "who is the
+/// security lead on my team?" routing surface.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,12 +26,12 @@ using System.Threading.Tasks;
 /// extensibility rules so the cloud registration takes precedence.
 /// </para>
 /// <para>
-/// Writes share the set-semantic invariant from ADR-0044 § 3: the natural
-/// key is <c>(tenant, unit, human, role)</c> and re-asserting the same key
-/// updates <c>expertise</c> + <c>notifications</c> rather than inserting a
-/// duplicate row. Tenant scoping is applied by the underlying provider's
-/// query filter (the <see cref="UnitHumanMembership"/> projection never
-/// exposes the tenant id).
+/// Writes share the set-semantic invariant from ADR-0045 §7: the natural
+/// key is <c>(tenant, unit, human)</c> and re-asserting the same key
+/// updates <c>roles</c> / <c>expertise</c> / <c>notifications</c> rather
+/// than inserting a duplicate row. Tenant scoping is applied by the
+/// underlying provider's query filter (the <see cref="UnitHumanMembership"/>
+/// projection never exposes the tenant id).
 /// </para>
 /// </remarks>
 public interface IUnitHumanMembershipStore
@@ -40,8 +41,8 @@ public interface IUnitHumanMembershipStore
     /// in stable order (by <c>created_at</c>, then by membership Guid for
     /// equal timestamps). Each entry carries the membership row's
     /// synthetic Guid (addressable for edit surfaces), the human's Guid,
-    /// the team role, and the row's <c>expertise</c> / <c>notifications</c>
-    /// jsonb projections.
+    /// the row's multi-valued team roles list, and the row's
+    /// <c>expertise</c> / <c>notifications</c> jsonb projections.
     /// </summary>
     /// <param name="unitId">The unit's stable Guid identity.</param>
     /// <param name="cancellationToken">Propagates request cancellation.</param>
@@ -50,56 +51,54 @@ public interface IUnitHumanMembershipStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reads a single membership row by the <c>(unit, human, role)</c>
-    /// natural key. Returns <see langword="null"/> when no row matches.
+    /// Reads a single membership row by the <c>(unit, human)</c> natural
+    /// key (ADR-0045 §7). Returns <see langword="null"/> when no row
+    /// matches.
     /// </summary>
     /// <param name="unitId">The unit's stable Guid identity.</param>
     /// <param name="humanId">The human's stable Guid identity.</param>
-    /// <param name="role">The team role string (case-sensitive).</param>
     /// <param name="cancellationToken">Propagates request cancellation.</param>
     Task<UnitHumanMembership?> GetAsync(
         Guid unitId,
         Guid humanId,
-        string role,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Idempotently asserts a membership row for the
-    /// <c>(unit, human, role)</c> natural key. When a row already exists
-    /// the implementation overwrites <c>expertise</c> + <c>notifications</c>
-    /// in place; when no row exists it inserts a fresh one with a new
-    /// synthetic id and the current UTC timestamp. The returned record is
-    /// the post-write projection of the row.
+    /// <c>(unit, human)</c> natural key (ADR-0045 §7). When a row already
+    /// exists the implementation overwrites <c>roles</c> +
+    /// <c>expertise</c> + <c>notifications</c> in place; when no row
+    /// exists it inserts a fresh one with a new synthetic id and the
+    /// current UTC timestamp. The returned record is the post-write
+    /// projection of the row.
     /// </summary>
     /// <param name="unitId">The unit's stable Guid identity.</param>
     /// <param name="humanId">The human's stable Guid identity.</param>
-    /// <param name="role">The team role string (case-sensitive; non-empty).</param>
+    /// <param name="roles">The free-form team-role list (may be empty).</param>
     /// <param name="expertise">The expertise tag list (may be empty).</param>
     /// <param name="notifications">The notification event tag list (may be empty).</param>
     /// <param name="cancellationToken">Propagates request cancellation.</param>
     Task<UnitHumanMembership> UpsertAsync(
         Guid unitId,
         Guid humanId,
-        string role,
+        IReadOnlyList<string> roles,
         IReadOnlyList<string> expertise,
         IReadOnlyList<string> notifications,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Removes the membership row for the <c>(unit, human, role)</c>
-    /// natural key. Returns <see langword="true"/> when a row was deleted
-    /// and <see langword="false"/> when nothing matched — both outcomes are
-    /// terminal for the caller (the CLI / REST DELETE surface treats the
-    /// "no row" case as a no-op).
+    /// Removes the membership row for the <c>(unit, human)</c> natural
+    /// key (ADR-0045 §7). Returns <see langword="true"/> when a row was
+    /// deleted and <see langword="false"/> when nothing matched — both
+    /// outcomes are terminal for the caller (the CLI / REST DELETE
+    /// surface treats the "no row" case as a no-op).
     /// </summary>
     /// <param name="unitId">The unit's stable Guid identity.</param>
     /// <param name="humanId">The human's stable Guid identity.</param>
-    /// <param name="role">The team role string (case-sensitive).</param>
     /// <param name="cancellationToken">Propagates request cancellation.</param>
     Task<bool> RemoveAsync(
         Guid unitId,
         Guid humanId,
-        string role,
         CancellationToken cancellationToken = default);
 }
 
@@ -113,13 +112,12 @@ public interface IUnitHumanMembershipStore
 /// reads; future "edit this membership" surfaces take this Guid.
 /// </param>
 /// <param name="HumanId">
-/// The human's stable Guid identity. Multiple membership rows may share
-/// the same <see cref="HumanId"/> when one human fills multiple roles on
-/// the same unit (e.g. OSS operator filling every declared team role).
+/// The human's stable Guid identity. ADR-0045 §7 makes this the natural
+/// key alongside the unit id — one row per human per unit.
 /// </param>
-/// <param name="Role">
-/// The team role string from the manifest (free-form in v0.1). Never null
-/// or whitespace.
+/// <param name="Roles">
+/// Free-form team-role strings from the manifest (ADR-0045 §3). Multi-
+/// valued; empty list when the manifest omitted the field.
 /// </param>
 /// <param name="Expertise">
 /// The membership row's <c>expertise</c> tags. Empty list when the
@@ -132,6 +130,6 @@ public interface IUnitHumanMembershipStore
 public sealed record UnitHumanMembership(
     Guid MembershipId,
     Guid HumanId,
-    string Role,
+    IReadOnlyList<string> Roles,
     IReadOnlyList<string> Expertise,
     IReadOnlyList<string> Notifications);

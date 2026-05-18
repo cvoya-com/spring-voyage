@@ -14,12 +14,13 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 /// <summary>
 /// EF Core configuration for <see cref="UnitMembershipHumanEntity"/>
-/// (ADR-0044 § 3). Synthetic membership Guid PK; unique index on
-/// <c>(tenant_id, unit_id, human_id, role)</c> enforces the set-semantic
-/// invariant; secondary non-unique index on <c>(tenant_id, unit_id, human_id)</c>
-/// supports "list my roles on this unit" reads. The tenant query filter
-/// itself is applied on the DbContext per CONVENTIONS § 12 so it can
-/// reference the per-instance <c>CurrentTenantId</c> closure.
+/// (ADR-0044 § 3, amended by ADR-0045 §7). Synthetic membership Guid PK;
+/// unique index on <c>(tenant_id, unit_id, human_id)</c> enforces the
+/// "one row per participant" invariant introduced in ADR-0045 §7. The
+/// per-row <c>role</c> column from ADR-0044 is replaced by a multi-valued
+/// <c>roles jsonb</c> column. The tenant query filter itself is applied on
+/// the DbContext per CONVENTIONS § 12 so it can reference the per-instance
+/// <c>CurrentTenantId</c> closure.
 /// </summary>
 internal class UnitMembershipHumanEntityConfiguration : IEntityTypeConfiguration<UnitMembershipHumanEntity>
 {
@@ -34,7 +35,17 @@ internal class UnitMembershipHumanEntityConfiguration : IEntityTypeConfiguration
         builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.UnitId).HasColumnName("unit_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.HumanId).HasColumnName("human_id").IsRequired().HasColumnType("uuid");
-        builder.Property(e => e.Role).HasColumnName("role").IsRequired().HasMaxLength(128);
+
+        builder.Property(e => e.Roles)
+            .HasColumnName("roles")
+            .HasColumnType("jsonb")
+            .IsRequired()
+            .HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => string.IsNullOrEmpty(v)
+                    ? new List<string>()
+                    : JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>())
+            .Metadata.SetValueComparer(StringListValueComparer);
 
         builder.Property(e => e.Expertise)
             .HasColumnName("expertise")
@@ -60,12 +71,12 @@ internal class UnitMembershipHumanEntityConfiguration : IEntityTypeConfiguration
 
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
 
-        builder.HasIndex(e => new { e.TenantId, e.UnitId, e.HumanId, e.Role })
-            .IsUnique()
-            .HasDatabaseName("ux_unit_memberships_humans_tenant_unit_human_role");
-
+        // ADR-0045 §7: one row per (tenant, unit, human). Roles are now a
+        // jsonb list on the row itself; the old ADR-0044 unique-index on
+        // (tenant, unit, human, role) is gone.
         builder.HasIndex(e => new { e.TenantId, e.UnitId, e.HumanId })
-            .HasDatabaseName("ix_unit_memberships_humans_tenant_unit_human");
+            .IsUnique()
+            .HasDatabaseName("ux_unit_memberships_humans_tenant_unit_human");
     }
 
     /// <summary>

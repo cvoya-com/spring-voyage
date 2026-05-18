@@ -19,10 +19,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
 /// Default singleton implementation of <see cref="IUnitHumanMembershipStore"/>
-/// (ADR-0044 § 5). Creates a fresh <c>IServiceScope</c> per call so the
-/// underlying scoped <see cref="SpringDbContext"/> resolves cleanly from
-/// singleton callers (e.g. the MCP skill registry). Mirrors the
-/// scope-per-call shape used by <see cref="UnitMemberGraphStore"/>.
+/// (ADR-0044 § 5 + ADR-0045 §7). Creates a fresh <c>IServiceScope</c> per
+/// call so the underlying scoped <see cref="SpringDbContext"/> resolves
+/// cleanly from singleton callers (e.g. the MCP skill registry). Mirrors
+/// the scope-per-call shape used by <see cref="UnitMemberGraphStore"/>.
 /// </summary>
 public sealed class EfUnitHumanMembershipStore(
     IServiceScopeFactory scopeFactory) : IUnitHumanMembershipStore
@@ -44,7 +44,7 @@ public sealed class EfUnitHumanMembershipStore(
             {
                 m.Id,
                 m.HumanId,
-                m.Role,
+                m.Roles,
                 m.Expertise,
                 m.Notifications,
             })
@@ -54,7 +54,7 @@ public sealed class EfUnitHumanMembershipStore(
             .Select(r => new UnitHumanMembership(
                 MembershipId: r.Id,
                 HumanId: r.HumanId,
-                Role: r.Role,
+                Roles: (IReadOnlyList<string>)(r.Roles ?? new List<string>()),
                 Expertise: (IReadOnlyList<string>)(r.Expertise ?? new List<string>()),
                 Notifications: (IReadOnlyList<string>)(r.Notifications ?? new List<string>())))
             .ToList();
@@ -64,25 +64,19 @@ public sealed class EfUnitHumanMembershipStore(
     public async Task<UnitHumanMembership?> GetAsync(
         Guid unitId,
         Guid humanId,
-        string role,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(role))
-        {
-            return null;
-        }
-
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
         var row = await db.UnitMembershipsHumans
             .AsNoTracking()
-            .Where(m => m.UnitId == unitId && m.HumanId == humanId && m.Role == role)
+            .Where(m => m.UnitId == unitId && m.HumanId == humanId)
             .Select(m => new
             {
                 m.Id,
                 m.HumanId,
-                m.Role,
+                m.Roles,
                 m.Expertise,
                 m.Notifications,
             })
@@ -96,7 +90,7 @@ public sealed class EfUnitHumanMembershipStore(
         return new UnitHumanMembership(
             MembershipId: row.Id,
             HumanId: row.HumanId,
-            Role: row.Role,
+            Roles: (IReadOnlyList<string>)(row.Roles ?? new List<string>()),
             Expertise: (IReadOnlyList<string>)(row.Expertise ?? new List<string>()),
             Notifications: (IReadOnlyList<string>)(row.Notifications ?? new List<string>()));
     }
@@ -105,41 +99,31 @@ public sealed class EfUnitHumanMembershipStore(
     public async Task<UnitHumanMembership> UpsertAsync(
         Guid unitId,
         Guid humanId,
-        string role,
+        IReadOnlyList<string> roles,
         IReadOnlyList<string> expertise,
         IReadOnlyList<string> notifications,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(role))
-        {
-            throw new ArgumentException("Role must be non-empty.", nameof(role));
-        }
-
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         var tenantContext = scope.ServiceProvider.GetRequiredService<ITenantContext>();
 
-        var trimmedRole = role.Trim();
-        var expertiseList = (expertise ?? Array.Empty<string>())
-            .Where(e => !string.IsNullOrWhiteSpace(e))
-            .Select(e => e.Trim())
-            .ToList();
-        var notificationsList = (notifications ?? Array.Empty<string>())
-            .Where(n => !string.IsNullOrWhiteSpace(n))
-            .Select(n => n.Trim())
-            .ToList();
+        var rolesList = Normalise(roles);
+        var expertiseList = Normalise(expertise);
+        var notificationsList = Normalise(notifications);
 
-        // Existing row → update expertise + notifications in place. The
-        // tenant query filter on the DbContext scopes the lookup to the
-        // current tenant; the unique index in ADR-0044 § 3 guarantees there
-        // is at most one match.
+        // Existing row → update roles + expertise + notifications in place.
+        // The tenant query filter on the DbContext scopes the lookup to the
+        // current tenant; the unique index in ADR-0045 §7 guarantees there
+        // is at most one match per (unit, human).
         var existing = await db.UnitMembershipsHumans
             .FirstOrDefaultAsync(
-                m => m.UnitId == unitId && m.HumanId == humanId && m.Role == trimmedRole,
+                m => m.UnitId == unitId && m.HumanId == humanId,
                 cancellationToken);
 
         if (existing is not null)
         {
+            existing.Roles = rolesList;
             existing.Expertise = expertiseList;
             existing.Notifications = notificationsList;
             await db.SaveChangesAsync(cancellationToken);
@@ -147,7 +131,7 @@ public sealed class EfUnitHumanMembershipStore(
             return new UnitHumanMembership(
                 MembershipId: existing.Id,
                 HumanId: existing.HumanId,
-                Role: existing.Role,
+                Roles: rolesList,
                 Expertise: expertiseList,
                 Notifications: notificationsList);
         }
@@ -158,7 +142,7 @@ public sealed class EfUnitHumanMembershipStore(
             TenantId = tenantContext.CurrentTenantId,
             UnitId = unitId,
             HumanId = humanId,
-            Role = trimmedRole,
+            Roles = new List<string>(rolesList),
             Expertise = new List<string>(expertiseList),
             Notifications = new List<string>(notificationsList),
             CreatedAt = DateTimeOffset.UtcNow,
@@ -174,13 +158,14 @@ public sealed class EfUnitHumanMembershipStore(
         {
             // Lost a race against a concurrent UpsertAsync for the same
             // natural key; detach and re-read the winning row, then apply
-            // our expertise / notifications on top so the caller still sees
-            // their POSTed values reflected per the idempotency contract.
+            // our roles / expertise / notifications on top so the caller
+            // still sees their POSTed values reflected per the idempotency
+            // contract.
             db.Entry(inserted).State = EntityState.Detached;
 
             var winner = await db.UnitMembershipsHumans
                 .FirstOrDefaultAsync(
-                    m => m.UnitId == unitId && m.HumanId == humanId && m.Role == trimmedRole,
+                    m => m.UnitId == unitId && m.HumanId == humanId,
                     cancellationToken);
             if (winner is null)
             {
@@ -188,6 +173,7 @@ public sealed class EfUnitHumanMembershipStore(
                 // expected; surface the original failure.
                 throw;
             }
+            winner.Roles = rolesList;
             winner.Expertise = expertiseList;
             winner.Notifications = notificationsList;
             await db.SaveChangesAsync(cancellationToken);
@@ -195,7 +181,7 @@ public sealed class EfUnitHumanMembershipStore(
             return new UnitHumanMembership(
                 MembershipId: winner.Id,
                 HumanId: winner.HumanId,
-                Role: winner.Role,
+                Roles: rolesList,
                 Expertise: expertiseList,
                 Notifications: notificationsList);
         }
@@ -203,7 +189,7 @@ public sealed class EfUnitHumanMembershipStore(
         return new UnitHumanMembership(
             MembershipId: inserted.Id,
             HumanId: inserted.HumanId,
-            Role: inserted.Role,
+            Roles: rolesList,
             Expertise: expertiseList,
             Notifications: notificationsList);
     }
@@ -212,21 +198,14 @@ public sealed class EfUnitHumanMembershipStore(
     public async Task<bool> RemoveAsync(
         Guid unitId,
         Guid humanId,
-        string role,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(role))
-        {
-            return false;
-        }
-
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
-        var trimmedRole = role.Trim();
         var existing = await db.UnitMembershipsHumans
             .FirstOrDefaultAsync(
-                m => m.UnitId == unitId && m.HumanId == humanId && m.Role == trimmedRole,
+                m => m.UnitId == unitId && m.HumanId == humanId,
                 cancellationToken);
         if (existing is null)
         {
@@ -237,4 +216,10 @@ public sealed class EfUnitHumanMembershipStore(
         await db.SaveChangesAsync(cancellationToken);
         return true;
     }
+
+    private static List<string> Normalise(IReadOnlyList<string>? raw)
+        => (raw ?? Array.Empty<string>())
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim())
+            .ToList();
 }

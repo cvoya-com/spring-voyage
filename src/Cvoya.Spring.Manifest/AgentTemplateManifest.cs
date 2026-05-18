@@ -93,6 +93,17 @@ public class AgentTemplateManifest
     public List<ExpertiseManifestEntry>? Expertise { get; set; }
 
     /// <summary>
+    /// ADR-0045 §5 stamping-override slot. When an agent member entry
+    /// references this template via <c>- agent: { from: &lt;name&gt;, roles: […] }</c>,
+    /// the entry's roles list fully replaces this list on the stamped
+    /// instance; otherwise this list flows through unchanged. Free-form
+    /// strings; orthogonal to the agent's own <see cref="Role"/> label
+    /// (which is a single-valued identity field, not membership-side).
+    /// </summary>
+    [YamlMember(Alias = "roles")]
+    public List<string>? Roles { get; set; }
+
+    /// <summary>
     /// Optional <c>requires:</c> block declaring this template's own
     /// requirements (ADR-0037 decision 3). Each entry is a single-key
     /// mapping (<c>connector: github</c>, etc.).

@@ -17,16 +17,16 @@ using System.Collections.Generic;
 /// <param name="UnitTemplateCount">Number of unit templates under <c>units/</c>.</param>
 /// <param name="AgentTemplateCount">Number of agent templates under <c>agents/</c>.</param>
 /// <param name="SkillCount">Number of skills under <c>skills/</c>.</param>
-/// <param name="ConnectorCount">Number of connector assets under <c>connectors/</c>.</param>
-/// <param name="WorkflowCount">Number of workflow bundles under <c>workflows/</c>.</param>
+/// <param name="HumanTemplateCount">
+/// Number of <c>HumanTemplate</c> bundles under <c>templates/</c> (ADR-0045 §4).
+/// </param>
 public record PackageSummary(
     string Name,
     string? Description,
     int UnitTemplateCount,
     int AgentTemplateCount,
     int SkillCount,
-    int ConnectorCount,
-    int WorkflowCount,
+    int HumanTemplateCount,
     string? Version = null);
 
 /// <summary>
@@ -45,8 +45,11 @@ public record PackageSummary(
 /// <param name="UnitTemplates">Unit templates offered by the package.</param>
 /// <param name="AgentTemplates">Agent templates offered by the package.</param>
 /// <param name="Skills">Skill bundles offered by the package.</param>
-/// <param name="Connectors">Connector assets shipped with the package.</param>
-/// <param name="Workflows">Workflow bundles shipped with the package.</param>
+/// <param name="HumanTemplates">
+/// <c>HumanTemplate</c> bundles shipped with the package (ADR-0045 §4).
+/// Stamped via <c>- human: { from: &lt;template-name&gt; }</c> on a unit's
+/// <c>members:</c> list.
+/// </param>
 /// <param name="ConnectorDeclarations">
 /// Connector slugs the package effectively requires (ADR-0037 D3). Each
 /// entry is one slug from the union of every contained artefact's
@@ -56,8 +59,8 @@ public record PackageSummary(
 /// <param name="Content">
 /// Top-level artefacts declared in the manifest's <c>content:</c> list.
 /// Each entry carries the artefact discriminator (<c>unit</c>,
-/// <c>agent</c>, <c>skill</c>, <c>workflow</c>) and the reference value
-/// the manifest declares.
+/// <c>agent</c>, <c>skill</c>) and the reference value the manifest
+/// declares.
 /// </param>
 /// <param name="Execution">
 /// Package-level <c>execution:</c> declaration (#1679), or null when
@@ -75,8 +78,7 @@ public record PackageDetail(
     IReadOnlyList<UnitTemplateSummary> UnitTemplates,
     IReadOnlyList<AgentTemplateSummary> AgentTemplates,
     IReadOnlyList<SkillSummary> Skills,
-    IReadOnlyList<ConnectorSummary> Connectors,
-    IReadOnlyList<WorkflowSummary> Workflows,
+    IReadOnlyList<HumanTemplateSummary> HumanTemplates,
     IReadOnlyList<RequiredConnectorSummary> ConnectorDeclarations,
     IReadOnlyList<PackageContentEntry> Content,
     PackageExecutionSummary? Execution = null);
@@ -174,28 +176,20 @@ public record SkillSummary(
     string Path);
 
 /// <summary>
-/// A connector asset shipped inside a package. Package connectors
-/// augment the platform connector registry but remain discoverable via
-/// browse even when no compiled assembly is loaded.
+/// A <c>HumanTemplate</c> shipped inside a package (ADR-0045 §4). One
+/// row per <c>./templates/&lt;name&gt;/package.yaml</c> document with
+/// <c>kind: HumanTemplate</c>.
 /// </summary>
 /// <param name="Package">The owning package name.</param>
-/// <param name="Name">The connector asset's basename.</param>
-/// <param name="Path">Repo-relative path to the asset.</param>
-public record ConnectorSummary(
+/// <param name="Name">The template's name (matches the containing folder).</param>
+/// <param name="DisplayName">Optional human-readable display name.</param>
+/// <param name="Description">Optional short description.</param>
+/// <param name="Path">Repo-relative path to the manifest, for display.</param>
+public record HumanTemplateSummary(
     string Package,
     string Name,
-    string Path);
-
-/// <summary>
-/// A workflow bundle shipped inside a package (e.g. a Dockerfile +
-/// associated manifests for a multi-step flow).
-/// </summary>
-/// <param name="Package">The owning package name.</param>
-/// <param name="Name">The workflow's directory name.</param>
-/// <param name="Path">Repo-relative path to the workflow root.</param>
-public record WorkflowSummary(
-    string Package,
-    string Name,
+    string? DisplayName,
+    string? Description,
     string Path);
 
 /// <summary>

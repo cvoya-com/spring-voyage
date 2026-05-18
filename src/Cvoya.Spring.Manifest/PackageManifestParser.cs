@@ -37,9 +37,13 @@ public static class PackageManifestParser
 {
     /// <summary>
     /// Conventional subdirectories that the catalog walker descends at every
-    /// depth (ADR-0043 §2). Each name maps to the artefact kind(s) that may
-    /// live directly beneath it. <c>templates/</c> hosts both kinds — the
-    /// inner <c>kind:</c> field disambiguates.
+    /// depth (ADR-0043 §2, amended by ADR-0045 §2). Each name maps to the
+    /// artefact kind(s) that may live directly beneath it. <c>templates/</c>
+    /// hosts <see cref="ArtefactKind.Unit"/> / <see cref="ArtefactKind.Agent"/>
+    /// / <see cref="ArtefactKind.HumanTemplate"/> — the inner <c>kind:</c>
+    /// field disambiguates. ADR-0045 §2 removed <c>workflows/</c> and
+    /// <c>connectors/</c>; both subdirectories surface a structured
+    /// <see cref="PackageParseException"/> when encountered at any depth.
     /// </summary>
     internal static readonly IReadOnlyDictionary<string, IReadOnlyList<ArtefactKind>> ConventionalSubdirs =
         new Dictionary<string, IReadOnlyList<ArtefactKind>>(StringComparer.Ordinal)
@@ -47,9 +51,26 @@ public static class PackageManifestParser
             ["units"] = new[] { ArtefactKind.Unit },
             ["agents"] = new[] { ArtefactKind.Agent },
             ["skills"] = new[] { ArtefactKind.Skill },
-            ["workflows"] = new[] { ArtefactKind.Workflow },
-            ["templates"] = new[] { ArtefactKind.Unit, ArtefactKind.Agent }, // UnitTemplate / AgentTemplate
-            ["connectors"] = Array.Empty<ArtefactKind>(), // reserved (ADR-0037 §1) — walked, but no kind
+            ["templates"] = new[] { ArtefactKind.Unit, ArtefactKind.Agent, ArtefactKind.HumanTemplate },
+        };
+
+    /// <summary>
+    /// Subdirectory names that were valid under ADR-0043 §2 but were removed
+    /// from the package vocabulary in ADR-0045 §2. Encountering one at any
+    /// depth raises a structured <see cref="PackageParseException"/> with
+    /// the migration hint pointing at this ADR.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string> RejectedSubdirs =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["workflows"] =
+                "LegacyWorkflowsSubdir: `workflows/` is no longer part of the package vocabulary in v0.1 " +
+                "(ADR-0045 §2). The one shipped workflow has been removed; re-introduce the conventional " +
+                "directory if a future ADR adds a real workflow artefact type.",
+            ["connectors"] =
+                "LegacyConnectorsSubdir: `connectors/` is no longer part of the package vocabulary in v0.1 " +
+                "(ADR-0045 §2). Connector bindings stay supported via `requires: [ { connector: <slug> } ]` " +
+                "on consumer artefacts (ADR-0037 §3); the shipped artefact type has been removed.",
         };
 
     /// <summary>
@@ -188,14 +209,14 @@ public static class PackageManifestParser
         var skills = resolved
             .Where(r => r.Kind == ArtefactKind.Skill)
             .ToList();
-        var workflows = resolved
-            .Where(r => r.Kind == ArtefactKind.Workflow)
+        var humanTemplates = resolved
+            .Where(r => r.Kind == ArtefactKind.HumanTemplate)
             .ToList();
 
         // ADR-0037 D3: compute the package-level requires union from each
         // artefact's per-artefact `requires:` block.
         var (requiredConnectorSlugs, connectorRequiresByArtefact) =
-            ComputeRequiresUnion(units, agents, skills, workflows);
+            ComputeRequiresUnion(units, agents, skills, humanTemplates);
 
         // #1679: project the package-level `execution:` block (when
         // present) into the resolved declaration.
@@ -214,7 +235,7 @@ public static class PackageManifestParser
             Units = units,
             Agents = agents,
             Skills = skills,
-            Workflows = workflows,
+            HumanTemplates = humanTemplates,
             RequiredConnectorSlugs = requiredConnectorSlugs,
             ConnectorRequiresByArtefact = connectorRequiresByArtefact,
             Execution = execution,
@@ -282,6 +303,21 @@ public static class PackageManifestParser
         if (!Directory.Exists(folder))
         {
             return;
+        }
+
+        // ADR-0045 §2: `workflows/` and `connectors/` are dropped from the
+        // vocabulary. Reject either subdirectory at any depth with the
+        // structured error from RejectedSubdirs so authors see the migration
+        // hint, not a silent skip.
+        foreach (var (rejectedName, message) in RejectedSubdirs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var rejectedPath = Path.Combine(folder, rejectedName);
+            if (Directory.Exists(rejectedPath))
+            {
+                throw new PackageParseException(
+                    $"{message} (path='{rejectedPath}')");
+            }
         }
 
         foreach (var (subdirName, allowedKinds) in ConventionalSubdirs)
@@ -436,6 +472,18 @@ public static class PackageManifestParser
 
         var trimmed = declaredKind!.Trim();
 
+        // ADR-0045 §2: `kind: Workflow` is rejected at parse time. The
+        // shipped workflow artefact type is gone; the explicit error
+        // surfaces the migration hint instead of falling through to the
+        // generic "unknown kind" branch.
+        if (string.Equals(trimmed, "Workflow", StringComparison.Ordinal))
+        {
+            throw new PackageParseException(
+                $"LegacyWorkflowKind: artefact at '{folder}' declares 'kind: Workflow' but " +
+                "the Workflow artefact type was dropped in v0.1 (ADR-0045 §2). Connector " +
+                "bindings continue to work via `requires:` on consumer artefacts.");
+        }
+
         // Template folders live under `templates/` and disambiguate via
         // their inner kind. Concrete kinds live under their own subdirs.
         ArtefactKind? resolved = trimmed switch
@@ -443,9 +491,9 @@ public static class PackageManifestParser
             "Unit" => ArtefactKind.Unit,
             "Agent" => ArtefactKind.Agent,
             "Skill" => ArtefactKind.Skill,
-            "Workflow" => ArtefactKind.Workflow,
             "UnitTemplate" => ArtefactKind.Unit,    // templates project onto the concrete kind for indexing
             "AgentTemplate" => ArtefactKind.Agent,
+            "HumanTemplate" => ArtefactKind.HumanTemplate,
             "Package" => null,
             _ => null,
         };
@@ -454,19 +502,19 @@ public static class PackageManifestParser
         {
             throw new PackageParseException(
                 $"Artefact at '{folder}': unknown 'kind:' value '{trimmed}'. " +
-                "Expected one of: Unit, Agent, Skill, Workflow, UnitTemplate, AgentTemplate.");
+                "Expected one of: Unit, Agent, Skill, UnitTemplate, AgentTemplate, HumanTemplate.");
         }
 
         // Validate the kind matches the subdirectory convention. Templates
         // live under `templates/`; the rest must match their subdir 1:1.
         if (subdirName == "templates")
         {
-            if (trimmed is not ("UnitTemplate" or "AgentTemplate"))
+            if (trimmed is not ("UnitTemplate" or "AgentTemplate" or "HumanTemplate"))
             {
                 throw new PackageParseException(
                     $"Artefact at '{folder}' under 'templates/' declares kind '{trimmed}' " +
-                    "but the templates/ subdirectory expects 'UnitTemplate' or 'AgentTemplate' " +
-                    "(ADR-0043 §5b).");
+                    "but the templates/ subdirectory expects 'UnitTemplate', 'AgentTemplate', " +
+                    "or 'HumanTemplate' (ADR-0043 §5b + ADR-0045 §4).");
             }
         }
         else
@@ -476,8 +524,6 @@ public static class PackageManifestParser
                 "units" => "Unit",
                 "agents" => "Agent",
                 "skills" => "Skill",
-                "workflows" => "Workflow",
-                "connectors" => null, // reserved
                 _ => null,
             };
             if (expected is not null && !string.Equals(trimmed, expected, StringComparison.Ordinal))
@@ -563,6 +609,15 @@ public static class PackageManifestParser
 
             foreach (var member in unit.Members)
             {
+                // ADR-0045 §1: members may also carry a `human:` slot. The
+                // `human:` slot is inline-only (humans own no sub-artefacts,
+                // ADR-0045 §6), and the install activator materialises each
+                // declaration into a fresh `HumanEntity` row at install time
+                // rather than synthesising a peer artefact in the resolved
+                // set. We therefore skip the human slot here — the cycle
+                // detector and name-uniqueness check have nothing to do with
+                // package-declared humans (which have no name-symbol shared
+                // with the catalog).
                 var inline = member.Agent?.IsInline == true ? member.Agent
                            : member.Unit?.IsInline == true ? member.Unit
                            : null;
@@ -822,7 +877,7 @@ public static class PackageManifestParser
         IReadOnlyList<ResolvedArtefact> units,
         IReadOnlyList<ResolvedArtefact> agents,
         IReadOnlyList<ResolvedArtefact> skills,
-        IReadOnlyList<ResolvedArtefact> workflows)
+        IReadOnlyList<ResolvedArtefact> humanTemplates)
     {
         var union = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -837,7 +892,7 @@ public static class PackageManifestParser
             ExtractRequires<AgentManifest>(artefact, m => m?.Requires, union, seen, byArtefact);
         }
         _ = skills;
-        _ = workflows;
+        _ = humanTemplates;
 
         return (union, byArtefact);
     }

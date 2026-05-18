@@ -56,8 +56,20 @@ public static class HumanIdentityEndpoints
         // joining the directory or paging the larger /auth/me payload.
         group.MapGet("/{humanId:guid}", GetHumanAsync)
             .WithName("GetHuman")
-            .WithSummary("Read a single human's read-side envelope (display name, email, platform role, created-at).")
+            .WithSummary("Read a single human's read-side envelope (display name, description, email, platform role, created-at).")
             .WithDescription("Returns the canonical fields needed by the Explorer Human page. Identity / membership lists live on dedicated sub-resources and are NOT embedded here.")
+            .Produces<HumanResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // ADR-0045 §7: Human × Config × General PATCH (parallel to the
+        // existing agent / unit PATCH surfaces). Lets the portal edit the
+        // displayName / description without disturbing the connector
+        // identity rows below.
+        group.MapPatch("/{humanId:guid}", UpdateHumanAsync)
+            .WithName("UpdateHuman")
+            .WithSummary("Update a human's editable identity fields (display name, description).")
+            .WithDescription("Omitted fields leave the existing value untouched (PATCH semantics). DisplayName is validated via DisplayNameProblems.ValidateOrProblem; description has no length limit. Returns the post-write HumanResponse.")
             .Produces<HumanResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
@@ -113,6 +125,68 @@ public static class HumanIdentityEndpoints
             row.Id,
             row.Username,
             string.IsNullOrWhiteSpace(row.DisplayName) ? row.Username : row.DisplayName,
+            row.Description,
+            row.Email,
+            row.PermissionLevel.ToString(),
+            row.CreatedAt));
+    }
+
+    private static async Task<IResult> UpdateHumanAsync(
+        Guid humanId,
+        [FromBody] UpdateHumanRequest? request,
+        SpringDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (humanId == Guid.Empty)
+        {
+            return Results.Problem(
+                detail: "Human id must not be empty.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var body = request ?? new UpdateHumanRequest();
+
+        // Validate only when the caller actually supplied a new display
+        // name — null means "leave unchanged" on the PATCH surface and
+        // must stay a no-op for the validator. Mirrors the gate
+        // AgentEndpoints.UpdateAgentAsync uses.
+        if (body.DisplayName is not null)
+        {
+            var displayNameProblem = DisplayNameProblems.ValidateOrProblem(body.DisplayName);
+            if (displayNameProblem is not null)
+            {
+                return displayNameProblem;
+            }
+        }
+
+        var row = await db.Humans
+            .FirstOrDefaultAsync(h => h.Id == humanId, cancellationToken);
+        if (row is null)
+        {
+            return Results.Problem(
+                detail: $"Human '{humanId:N}' was not found in the current tenant.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (body.DisplayName is not null)
+        {
+            row.DisplayName = body.DisplayName;
+        }
+        if (body.Description is not null)
+        {
+            // Empty / whitespace-only description clears the column; the
+            // underlying type is nullable so the wire surface can both set
+            // and unset the field with one verb.
+            row.Description = string.IsNullOrWhiteSpace(body.Description) ? null : body.Description.Trim();
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(new HumanResponse(
+            row.Id,
+            row.Username,
+            string.IsNullOrWhiteSpace(row.DisplayName) ? row.Username : row.DisplayName,
+            row.Description,
             row.Email,
             row.PermissionLevel.ToString(),
             row.CreatedAt));

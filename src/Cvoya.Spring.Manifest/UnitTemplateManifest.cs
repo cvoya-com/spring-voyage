@@ -102,15 +102,21 @@ public class UnitTemplateManifest
     [YamlMember(Alias = "policies")]
     public Dictionary<string, object>? Policies { get; set; }
 
-    /// <summary>Humans associated with the template. Parsed but not yet applied.</summary>
-    [YamlMember(Alias = "humans")]
-    public List<HumanManifest>? Humans { get; set; }
-
     /// <summary>
     /// Optional seed own-expertise entries for the template (#488).
     /// </summary>
     [YamlMember(Alias = "expertise")]
     public List<ExpertiseManifestEntry>? Expertise { get; set; }
+
+    /// <summary>
+    /// ADR-0045 §5 stamping-override slot. When a unit member entry
+    /// references this template via <c>- unit: { from: &lt;name&gt;, roles: […] }</c>,
+    /// the entry's roles list fully replaces this list on the stamped
+    /// instance; otherwise this list flows through unchanged. Free-form
+    /// strings.
+    /// </summary>
+    [YamlMember(Alias = "roles")]
+    public List<string>? Roles { get; set; }
 
     /// <summary>
     /// Optional boundary configuration for the template (#494).

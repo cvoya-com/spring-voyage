@@ -18,8 +18,8 @@ using Cvoya.Spring.Core.Lifecycle;
 /// or an <see cref="ArtefactKind.Agent"/>. Drives the terminal callback in
 /// <c>CompleteArtefactValidationActivity</c> (routes to <c>IUnitActor</c>
 /// vs <c>IAgentActor</c>). <see cref="ArtefactKind.Skill"/> and
-/// <see cref="ArtefactKind.Workflow"/> are rejected by the scheduler — they
-/// have no container lifecycle.
+/// <see cref="ArtefactKind.HumanTemplate"/> are rejected by the scheduler —
+/// they have no container lifecycle.
 /// </param>
 /// <param name="ArtefactId">
 /// Dapr actor id of the artefact being validated. Used for log correlation

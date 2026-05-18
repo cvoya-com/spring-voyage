@@ -36,10 +36,11 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for the ADR-0044 § 5 extension: <c>sv.list_members</c> folds
-/// package-declared human team members into the homogeneous response,
-/// gated by <c>kind == "human"</c> and carrying an additional
-/// <c>team_role</c> field.
+/// Tests for the ADR-0044 § 5 / ADR-0045 §9 extension:
+/// <c>sv.list_members</c> folds package-declared human team members into
+/// the homogeneous response, gated by <c>kind == "human"</c>. ADR-0045 §9
+/// replaces the per-row <c>team_role: string</c> field with a multi-valued
+/// <c>roles: string[]</c> array.
 /// </summary>
 public class SvDirectorySkillRegistry_HumanMembersTests
 {
@@ -53,7 +54,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
         var aliceId = Guid.Parse("00000000-aaaa-aaaa-aaaa-000000000001");
         var sut = new Fixture()
             .WithHumanDisplayName(aliceId, "Alice")
-            .SeedHuman(aliceId, role: "owner", expertise: new[] { "security" })
+            .SeedHuman(aliceId, roles: new[] { "owner" }, expertise: new[] { "security" })
             .Build();
 
         var entries = await sut.ListMembersAsync();
@@ -63,7 +64,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
         var entry = humans[0];
         entry.Uuid.ShouldBe(GuidFormatter.Format(aliceId));
         entry.DisplayName.ShouldBe("Alice");
-        entry.TeamRole.ShouldBe("owner");
+        entry.Roles.ShouldBe(new[] { "owner" });
         entry.Expertise.Select(e => e.Name).ShouldBe(new[] { "security" });
         entry.ParentUuids.ShouldHaveSingleItem().ShouldBe(GuidFormatter.Format(UnitId));
         // member_count is not populated for humans (humans aren't aggregates).
@@ -72,46 +73,47 @@ public class SvDirectorySkillRegistry_HumanMembersTests
     }
 
     [Fact]
-    public async Task ListMembers_HumanWithMultipleRoles_EmitsOneEntryPerRole()
+    public async Task ListMembers_HumanWithMultipleRoles_EmitsOneEntryWithRolesArray()
     {
-        // ADR-0044 § 3 + § 5: a single human filling multiple team roles
-        // surfaces as one entry per (human, role) row, with the same uuid
-        // and different team_role.
+        // ADR-0045 §7 + §9: a single human filling multiple team roles
+        // surfaces as ONE entry whose roles array carries every role —
+        // a behaviour change from ADR-0044's "one entry per (human, role)
+        // row".
         var bobId = Guid.Parse("00000000-bbbb-bbbb-bbbb-000000000001");
         var sut = new Fixture()
             .WithHumanDisplayName(bobId, "Bob")
-            .SeedHuman(bobId, role: "owner")
-            .SeedHuman(bobId, role: "security_lead", expertise: new[] { "infra" })
+            .SeedHuman(bobId, roles: new[] { "owner", "security_lead" }, expertise: new[] { "infra" })
             .Build();
 
         var entries = await sut.ListMembersAsync();
 
         var humans = entries.Where(e => e.Kind == SvDirectorySkillRegistry.KindHuman).ToList();
-        humans.Count.ShouldBe(2);
-        humans.All(e => e.Uuid == GuidFormatter.Format(bobId)).ShouldBeTrue();
-        humans.Select(e => e.TeamRole).ShouldBe(new[] { "owner", "security_lead" }, ignoreOrder: true);
+        humans.Count.ShouldBe(1);
+        humans[0].Uuid.ShouldBe(GuidFormatter.Format(bobId));
+        humans[0].Roles.ShouldBe(new[] { "owner", "security_lead" });
     }
 
     [Fact]
-    public async Task ListMembers_TeamRoleOnlyGatedOnHumanKind()
+    public async Task ListMembers_HumanWithoutRoles_OmitsRolesField()
     {
-        // Regression guard for the gating rule in WriteEntry: agent / unit
-        // entries never emit a team_role field. The byte-for-byte
-        // compatibility claim in the ADR depends on this.
+        // ADR-0045 §9: the `roles` field is gated on a non-empty list so
+        // entries without roles don't drag a `"roles": []` into the wire
+        // shape. Keeps the JSON contract minimal.
+        var noRolesId = Guid.Parse("00000000-cccc-cccc-cccc-000000000001");
         var sut = new Fixture()
-            .SeedHuman(Guid.NewGuid(), role: "owner")
+            .WithHumanDisplayName(noRolesId, "RoleLess")
+            .SeedHuman(noRolesId, roles: Array.Empty<string>())
             .Build();
 
         var json = await sut.ListMembersAsJsonAsync();
 
-        // Every non-human entry must NOT have a team_role property.
         var members = json.GetProperty("members");
         foreach (var entry in members.EnumerateArray())
         {
-            if (!string.Equals(entry.GetProperty("kind").GetString(),
+            if (string.Equals(entry.GetProperty("kind").GetString(),
                 SvDirectorySkillRegistry.KindHuman, StringComparison.Ordinal))
             {
-                entry.TryGetProperty("team_role", out _).ShouldBeFalse();
+                entry.TryGetProperty("roles", out _).ShouldBeFalse();
             }
         }
     }
@@ -131,11 +133,12 @@ public class SvDirectorySkillRegistry_HumanMembersTests
 
         public Fixture SeedHuman(
             Guid humanId,
-            string role,
+            IReadOnlyList<string>? roles = null,
             IReadOnlyList<string>? expertise = null,
             IReadOnlyList<string>? notifications = null)
         {
-            _membershipStore.Seed(UnitId, humanId, role,
+            _membershipStore.Seed(UnitId, humanId,
+                roles ?? Array.Empty<string>(),
                 expertise ?? Array.Empty<string>(),
                 notifications ?? Array.Empty<string>());
             return this;
@@ -171,6 +174,17 @@ public class SvDirectorySkillRegistry_HumanMembersTests
                 .ResolveAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
                 .Returns(call => new ValueTask<string>(call.ArgAt<string>(0)));
             services.AddScoped<IParticipantDisplayNameResolver>(_ => participantResolver);
+
+            // ADR-0045 §8: BuildHumanEntryAsync no longer reads the agent /
+            // unit-membership repo when emitting human entries, but the
+            // sibling agent / unit folding path does. Wire an empty repo so
+            // tests focused on human entries don't trip over a missing
+            // IUnitMembershipRepository.
+            var membershipRepo = Substitute.For<IUnitMembershipRepository>();
+            membershipRepo
+                .ListByUnitAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                .Returns(Array.Empty<UnitMembership>());
+            services.AddScoped<IUnitMembershipRepository>(_ => membershipRepo);
 
             var sp = services.BuildServiceProvider();
             var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
@@ -262,7 +276,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
         IReadOnlyList<ExpertiseProjection> Expertise,
         int? MemberCount,
         string LiveStatus,
-        string? TeamRole)
+        IReadOnlyList<string> Roles)
     {
         public static EntryProjection From(JsonElement el)
         {
@@ -272,10 +286,16 @@ public class SvDirectorySkillRegistry_HumanMembersTests
                 .Select(e => new ExpertiseProjection(
                     Name: e.GetProperty("name").GetString() ?? string.Empty))
                 .ToList();
-            string? teamRole = null;
-            if (el.TryGetProperty("team_role", out var tr) && tr.ValueKind == JsonValueKind.String)
+            var roles = new List<string>();
+            if (el.TryGetProperty("roles", out var rs) && rs.ValueKind == JsonValueKind.Array)
             {
-                teamRole = tr.GetString();
+                foreach (var r in rs.EnumerateArray())
+                {
+                    if (r.ValueKind == JsonValueKind.String)
+                    {
+                        roles.Add(r.GetString() ?? string.Empty);
+                    }
+                }
             }
             int? memberCount = null;
             if (el.GetProperty("member_count").ValueKind == JsonValueKind.Number)
@@ -290,7 +310,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
                 Expertise: expertise,
                 MemberCount: memberCount,
                 LiveStatus: el.GetProperty("live_status").GetString() ?? string.Empty,
-                TeamRole: teamRole);
+                Roles: roles);
         }
     }
 

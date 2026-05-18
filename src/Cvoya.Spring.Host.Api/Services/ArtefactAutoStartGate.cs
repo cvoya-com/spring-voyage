@@ -38,8 +38,8 @@ public class ArtefactAutoStartGate(
     {
         if (kind is not (ArtefactKind.Unit or ArtefactKind.Agent))
         {
-            // Skill / Workflow have no container lifecycle; the gate is a
-            // no-op for them.
+            // Skill / HumanTemplate have no container lifecycle; the gate
+            // is a no-op for them.
             return LifecycleStatus.Draft;
         }
 

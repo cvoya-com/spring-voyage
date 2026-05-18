@@ -37,8 +37,7 @@ public static class PackageCommand
         new("units", p => p.UnitTemplateCount?.ToString()),
         new("agents", p => p.AgentTemplateCount?.ToString()),
         new("skills", p => p.SkillCount?.ToString()),
-        new("connectors", p => p.ConnectorCount?.ToString()),
-        new("workflows", p => p.WorkflowCount?.ToString()),
+        new("humanTemplates", p => p.HumanTemplateCount?.ToString()),
         new("description", p => p.Description),
     };
 
@@ -64,16 +63,18 @@ public static class PackageCommand
         new("path", s => s.Path),
     };
 
-    private static readonly OutputFormatter.Column<ConnectorSummary>[] ConnectorColumns =
+    /// <summary>
+    /// Columns for the <c>humanTemplates:</c> list surfaced by
+    /// <c>spring package show</c> (ADR-0045 §4). Each row describes one
+    /// <c>HumanTemplate</c> shipped by the package; stamped via
+    /// <c>- human: { from: &lt;name&gt; }</c> on a unit's <c>members:</c> list.
+    /// </summary>
+    private static readonly OutputFormatter.Column<HumanTemplateSummary>[] HumanTemplateColumns =
     {
-        new("name", c => c.Name),
-        new("path", c => c.Path),
-    };
-
-    private static readonly OutputFormatter.Column<WorkflowSummary>[] WorkflowColumns =
-    {
-        new("name", w => w.Name),
-        new("path", w => w.Path),
+        new("name", h => h.Name),
+        new("displayName", h => h.DisplayName),
+        new("description", h => h.Description),
+        new("path", h => h.Path),
     };
 
     /// <summary>
@@ -766,8 +767,7 @@ public static class PackageCommand
             WriteSection("Unit templates", detail.UnitTemplates, UnitTemplateColumns);
             WriteSection("Agent templates", detail.AgentTemplates, AgentTemplateColumns);
             WriteSection("Skills", detail.Skills, SkillColumns);
-            WriteSection("Connectors", detail.Connectors, ConnectorColumns);
-            WriteSection("Workflows", detail.Workflows, WorkflowColumns);
+            WriteSection("Human templates", detail.HumanTemplates, HumanTemplateColumns);
         });
 
         return command;

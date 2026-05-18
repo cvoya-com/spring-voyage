@@ -30,6 +30,7 @@ internal class HumanEntityConfiguration : IEntityTypeConfiguration<HumanEntity>
         builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.Username).HasColumnName("username").IsRequired().HasMaxLength(256);
         builder.Property(e => e.DisplayName).HasColumnName("display_name").IsRequired().HasMaxLength(256);
+        builder.Property(e => e.Description).HasColumnName("description");
         builder.Property(e => e.Email).HasColumnName("email").HasMaxLength(512);
         builder.Property(e => e.PermissionLevel)
             .HasColumnName("permission_level")

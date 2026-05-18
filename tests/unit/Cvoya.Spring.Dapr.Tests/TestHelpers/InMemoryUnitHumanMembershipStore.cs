@@ -37,7 +37,6 @@ public sealed class InMemoryUnitHumanMembershipStore : IUnitHumanMembershipStore
     public Task<UnitHumanMembership?> GetAsync(
         Guid unitId,
         Guid humanId,
-        string role,
         CancellationToken cancellationToken = default)
     {
         if (!_byUnit.TryGetValue(unitId, out var list))
@@ -46,7 +45,7 @@ public sealed class InMemoryUnitHumanMembershipStore : IUnitHumanMembershipStore
         }
         lock (list)
         {
-            var match = list.FirstOrDefault(m => m.HumanId == humanId && m.Role == role);
+            var match = list.FirstOrDefault(m => m.HumanId == humanId);
             return Task.FromResult<UnitHumanMembership?>(match);
         }
     }
@@ -55,25 +54,25 @@ public sealed class InMemoryUnitHumanMembershipStore : IUnitHumanMembershipStore
     public Task<UnitHumanMembership> UpsertAsync(
         Guid unitId,
         Guid humanId,
-        string role,
+        IReadOnlyList<string> roles,
         IReadOnlyList<string> expertise,
         IReadOnlyList<string> notifications,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(role))
-        {
-            throw new ArgumentException("Role must be non-empty.", nameof(role));
-        }
-
         var list = _byUnit.GetOrAdd(unitId, _ => new List<UnitHumanMembership>());
         lock (list)
         {
-            var existingIndex = list.FindIndex(m => m.HumanId == humanId && m.Role == role);
+            var existingIndex = list.FindIndex(m => m.HumanId == humanId);
             UnitHumanMembership updated;
             if (existingIndex >= 0)
             {
                 var existing = list[existingIndex];
-                updated = existing with { Expertise = expertise.ToList(), Notifications = notifications.ToList() };
+                updated = existing with
+                {
+                    Roles = roles.ToList(),
+                    Expertise = expertise.ToList(),
+                    Notifications = notifications.ToList(),
+                };
                 list[existingIndex] = updated;
             }
             else
@@ -81,7 +80,7 @@ public sealed class InMemoryUnitHumanMembershipStore : IUnitHumanMembershipStore
                 updated = new UnitHumanMembership(
                     MembershipId: Guid.NewGuid(),
                     HumanId: humanId,
-                    Role: role,
+                    Roles: roles.ToList(),
                     Expertise: expertise.ToList(),
                     Notifications: notifications.ToList());
                 list.Add(updated);
@@ -94,7 +93,6 @@ public sealed class InMemoryUnitHumanMembershipStore : IUnitHumanMembershipStore
     public Task<bool> RemoveAsync(
         Guid unitId,
         Guid humanId,
-        string role,
         CancellationToken cancellationToken = default)
     {
         if (!_byUnit.TryGetValue(unitId, out var list))
@@ -103,7 +101,7 @@ public sealed class InMemoryUnitHumanMembershipStore : IUnitHumanMembershipStore
         }
         lock (list)
         {
-            var index = list.FindIndex(m => m.HumanId == humanId && m.Role == role);
+            var index = list.FindIndex(m => m.HumanId == humanId);
             if (index < 0)
             {
                 return Task.FromResult(false);
@@ -121,7 +119,7 @@ public sealed class InMemoryUnitHumanMembershipStore : IUnitHumanMembershipStore
     public UnitHumanMembership Seed(
         Guid unitId,
         Guid humanId,
-        string role,
+        IReadOnlyList<string>? roles = null,
         IReadOnlyList<string>? expertise = null,
         IReadOnlyList<string>? notifications = null,
         Guid? membershipId = null)
@@ -129,7 +127,7 @@ public sealed class InMemoryUnitHumanMembershipStore : IUnitHumanMembershipStore
         var membership = new UnitHumanMembership(
             MembershipId: membershipId ?? Guid.NewGuid(),
             HumanId: humanId,
-            Role: role,
+            Roles: roles ?? Array.Empty<string>(),
             Expertise: expertise ?? Array.Empty<string>(),
             Notifications: notifications ?? Array.Empty<string>());
 

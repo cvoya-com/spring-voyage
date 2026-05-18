@@ -124,13 +124,14 @@ public class ArtefactAutoStartGateTests
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Skip / Workflow kinds — no container lifecycle
+    // Skip kinds — no container lifecycle (ADR-0045 §2 dropped Workflow;
+    // HumanTemplate is package-resolution-only).
     // ──────────────────────────────────────────────────────────────────────
 
     [Theory]
     [InlineData(ArtefactKind.Skill)]
-    [InlineData(ArtefactKind.Workflow)]
-    public async Task TryAutoStartAsync_SkillOrWorkflowKind_ReturnsDraft(ArtefactKind kind)
+    [InlineData(ArtefactKind.HumanTemplate)]
+    public async Task TryAutoStartAsync_NonLifecycleKind_ReturnsDraft(ArtefactKind kind)
     {
         var result = await _gate.TryAutoStartAsync(kind, Guid.NewGuid(), "x", TestContext.Current.CancellationToken);
 

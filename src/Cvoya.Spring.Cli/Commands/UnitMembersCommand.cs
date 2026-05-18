@@ -41,7 +41,7 @@ public static class UnitMembersCommand
     private static readonly OutputFormatter.Column<UnitHumanMemberResponse>[] MemberColumns =
     {
         new("humanId", e => e.HumanId is { } id ? id.ToString("N") : null),
-        new("role", e => e.Role),
+        new("roles", e => e.Roles is { Count: > 0 } r ? string.Join(",", r) : null),
         new("expertise", e => e.Expertise is { Count: > 0 } x ? string.Join(",", x) : null),
         new("notifications", e => e.Notifications is { Count: > 0 } n ? string.Join(",", n) : null),
         new("membershipId", e => e.MembershipId is { } mid ? mid.ToString("N") : null),
@@ -137,7 +137,7 @@ public static class UnitMembersCommand
                 var response = await client.AddUnitHumanMemberAsync(
                     unitId,
                     humanGuid,
-                    role,
+                    new[] { role },
                     ParseTagList(expertiseRaw),
                     ParseTagList(notificationsRaw),
                     ct);
@@ -148,8 +148,9 @@ public static class UnitMembersCommand
                 }
                 else
                 {
+                    var rolesDisplay = response.Roles is { Count: > 0 } r ? string.Join(", ", r) : "(none)";
                     Console.WriteLine(
-                        $"Human '{humanGuid:N}' added to unit '{unitArgVal}' as '{response.Role}'.");
+                        $"Human '{humanGuid:N}' added to unit '{unitArgVal}' with roles [{rolesDisplay}].");
                 }
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
@@ -282,7 +283,7 @@ public static class UnitMembersCommand
                 var response = await client.UpdateUnitHumanMemberAsync(
                     unitId,
                     humanGuid,
-                    role,
+                    new[] { role },
                     ParseTagList(expertiseRaw),
                     ParseTagList(notificationsRaw),
                     ct);
@@ -293,8 +294,9 @@ public static class UnitMembersCommand
                 }
                 else
                 {
+                    var rolesDisplay = response.Roles is { Count: > 0 } r ? string.Join(", ", r) : "(none)";
                     Console.WriteLine(
-                        $"Updated team-role membership for human '{humanGuid:N}' / role '{response.Role}' on unit '{unitArgVal}'.");
+                        $"Updated team-role membership for human '{humanGuid:N}' on unit '{unitArgVal}' (roles=[{rolesDisplay}]).");
                 }
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
@@ -363,9 +365,9 @@ public static class UnitMembersCommand
 
             try
             {
-                await client.RemoveUnitHumanMemberAsync(unitId, humanGuid, role, ct);
+                await client.RemoveUnitHumanMemberAsync(unitId, humanGuid, ct);
                 Console.WriteLine(
-                    $"Removed team-role membership for human '{humanGuid:N}' / role '{role}' on unit '{unitArgVal}'.");
+                    $"Removed team-role membership for human '{humanGuid:N}' on unit '{unitArgVal}'.");
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {

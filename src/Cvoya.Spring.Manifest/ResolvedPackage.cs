@@ -48,8 +48,12 @@ public class ResolvedPackage
     /// <summary>Resolved skill artefacts, in declaration order.</summary>
     public required IReadOnlyList<ResolvedArtefact> Skills { get; init; }
 
-    /// <summary>Resolved workflow artefacts, in declaration order.</summary>
-    public required IReadOnlyList<ResolvedArtefact> Workflows { get; init; }
+    /// <summary>
+    /// Resolved <c>HumanTemplate</c> artefacts, in declaration order
+    /// (ADR-0045 §4). Stamped via <c>- human: { from: &lt;template-name&gt; }</c>
+    /// at install time.
+    /// </summary>
+    public required IReadOnlyList<ResolvedArtefact> HumanTemplates { get; init; }
 
     /// <summary>
     /// Connector slugs the package effectively requires — the union of
