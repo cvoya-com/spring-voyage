@@ -253,6 +253,14 @@ async function mockDialogFlowApis(page: Page) {
   );
 
   await page.route(
+    (url) =>
+      /^\/api\/v1\/tenant\/units\/[^/]+\/members\/units$/.test(url.pathname),
+    async (route) => {
+      await route.fulfill({ json: [] });
+    },
+  );
+
+  await page.route(
     (url) => url.pathname === "/api/v1/tenant/auth/me",
     async (route) => {
       await route.fulfill({
