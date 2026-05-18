@@ -224,7 +224,13 @@ function parseHumanSelection(raw: string): string | null {
   // `lib/utils.ts`); accept either short-hex or dashed.
   const UUID_RE =
     /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
-  return UUID_RE.test(candidate) ? candidate : null;
+  if (!UUID_RE.test(candidate)) return null;
+  // Normalise no-dash compact hex (`8adb6dd4bb7b4998a413e1d1528bf71b`) to
+  // the dashed canonical form the `/humans/[id]` route validates against.
+  if (candidate.length === 32) {
+    return `${candidate.slice(0, 8)}-${candidate.slice(8, 12)}-${candidate.slice(12, 16)}-${candidate.slice(16, 20)}-${candidate.slice(20)}`;
+  }
+  return candidate;
 }
 
 export default function UnitsPage() {
