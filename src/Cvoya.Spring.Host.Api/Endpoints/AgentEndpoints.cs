@@ -721,7 +721,7 @@ public static class AgentEndpoints
         try
         {
             var logs = await lifecycle.GetLogsAsync(actorId, effectiveTail, cancellationToken);
-            registry.TryGet(actorId, out var registered);
+            var registered = await registry.TryGetAsync(actorId, cancellationToken);
             return Results.Ok(new PersistentAgentLogsResponse(
                 AgentId: id,
                 ContainerId: registered?.ContainerId ?? string.Empty,
@@ -747,7 +747,8 @@ public static class AgentEndpoints
         }
 
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
-        if (registry.TryGet(actorId, out var deployment) && deployment is not null)
+        var deployment = await registry.TryGetAsync(actorId, cancellationToken);
+        if (deployment is not null)
         {
             return Results.Ok(ToDeploymentResponse(deployment, replicas: 1));
         }
@@ -797,8 +798,13 @@ public static class AgentEndpoints
         }
 
         var isPersistent = string.Equals(shape?.Hosting, "persistent", StringComparison.OrdinalIgnoreCase);
+        PersistentAgentEntry? registryEntry = null;
+        if (isPersistent)
+        {
+            registryEntry = await persistentAgentRegistry.TryGetAsync(actorId, cancellationToken);
+        }
+
         if (isPersistent
-            && persistentAgentRegistry.TryGet(actorId, out var registryEntry)
             && registryEntry is not null
             && registryEntry.HealthStatus != AgentHealthStatus.Healthy)
         {
@@ -888,7 +894,10 @@ public static class AgentEndpoints
                 _ => "unknown",
             },
             Replicas: replicas,
-            Image: entry.Definition?.Execution?.Image,
+            // #2468: prefer the cross-process Image column on the entry
+            // over the locally-cached AgentDefinition; the Definition slot
+            // is null for entries rehydrated from the shared EF row.
+            Image: entry.Image ?? entry.Definition?.Execution?.Image,
             Endpoint: entry.Endpoint?.ToString(),
             ContainerId: entry.ContainerId,
             StartedAt: entry.StartedAt,
@@ -1129,7 +1138,8 @@ public static class AgentEndpoints
         // payload so `spring agent status <id>` is a single stop for both
         // ephemeral-actor state and persistent-container state.
         PersistentAgentDeploymentResponse? deployment = null;
-        if (persistentAgentRegistry.TryGet(actorId, out var persistentEntry) && persistentEntry is not null)
+        var persistentEntry = await persistentAgentRegistry.TryGetAsync(actorId, cancellationToken);
+        if (persistentEntry is not null)
         {
             deployment = ToDeploymentResponse(persistentEntry, replicas: 1);
         }

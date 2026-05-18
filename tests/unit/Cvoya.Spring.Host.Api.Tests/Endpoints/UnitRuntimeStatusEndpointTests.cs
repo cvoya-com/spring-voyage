@@ -93,11 +93,12 @@ public class UnitRuntimeStatusEndpointTests : IClassFixture<CustomWebApplication
         var registry = _factory.Services
             .GetRequiredService<PersistentAgentRegistry>();
         var actorId = unitId.ToString("N");
-        registry.Register(
+        await registry.RegisterAsync(
             actorId,
             new Uri("http://test/unit"),
-            containerId: "container-unit");
-        registry.MarkUnhealthy(actorId);
+            containerId: "container-unit",
+            cancellationToken: ct);
+        await registry.MarkUnhealthyAsync(actorId, cancellationToken: ct);
 
         var response = await _client.GetAsync(
             $"/api/v1/tenant/units/{unitId:N}/runtime-status", ct);
@@ -109,7 +110,7 @@ public class UnitRuntimeStatusEndpointTests : IClassFixture<CustomWebApplication
         body.Status.ShouldBe("unavailable");
 
         // Cleanup so a sibling test doesn't see this entry.
-        registry.Remove(actorId);
+        await registry.RemoveAsync(actorId, ct);
     }
 
     private void ArrangeUnitDirectoryEntry(Guid unitId, string displayName)

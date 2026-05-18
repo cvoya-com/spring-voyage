@@ -679,10 +679,8 @@ public class A2AExecutionDispatcher(
         }
 
         // Check if the agent service is already running and healthy.
-        var entryFound = persistentAgentRegistry.TryGet(agentId, out var entry);
-        var entryHealthy = entryFound
-            && entry is not null
-            && entry.HealthStatus == AgentHealthStatus.Healthy;
+        var entry = await persistentAgentRegistry.TryGetAsync(agentId, cancellationToken);
+        var entryHealthy = entry is not null && entry.HealthStatus == AgentHealthStatus.Healthy;
 
         if (entryHealthy)
         {
@@ -702,7 +700,7 @@ public class A2AExecutionDispatcher(
                     "Persistent agent {AgentId} pre-flight probe failed; " +
                     "marking unhealthy and restarting before dispatch (#2092)",
                     agentId);
-                persistentAgentRegistry.MarkUnhealthy(agentId, entry!.ContainerId);
+                await persistentAgentRegistry.MarkUnhealthyAsync(agentId, entry!.ContainerId, cancellationToken);
                 entryHealthy = false;
             }
         }
@@ -720,7 +718,7 @@ public class A2AExecutionDispatcher(
             // pre-allocates the container name; a leaked container with the
             // same name would refuse to launch). StopContainerAsync preserves
             // the per-agent workspace volume across restart per ADR-0029.
-            if (entryFound && entry is not null)
+            if (entry is not null)
             {
                 _logger.LogInformation(
                     "Persistent agent {AgentId} is unhealthy; tearing down old container {ContainerId} before restart",
@@ -786,7 +784,7 @@ public class A2AExecutionDispatcher(
             _logger.LogWarning(ex,
                 "A2A call to persistent agent {AgentId} failed; marking unhealthy for restart",
                 agentId);
-            persistentAgentRegistry.MarkUnhealthy(agentId, containerId);
+            await persistentAgentRegistry.MarkUnhealthyAsync(agentId, containerId, cancellationToken);
             throw;
         }
     }
@@ -946,8 +944,12 @@ public class A2AExecutionDispatcher(
                 $"Persistent agent '{agentId}' did not become ready within {EffectiveReadinessTimeout}.");
         }
 
-        // Register in the persistent registry.
-        persistentAgentRegistry.Register(agentId, endpoint, containerId, definition, sidecarId, lifecycleNetworkName);
+        // Register in the persistent registry. The row is the cross-process
+        // source of truth (#2468) so the API host's deployment / runtime-
+        // status / logs endpoints see the auto-deployed container even
+        // though the write happens in the worker host.
+        await persistentAgentRegistry.RegisterAsync(
+            agentId, endpoint, containerId, definition, sidecarId, lifecycleNetworkName, cancellationToken);
 
         _logger.LogInformation(
             "Persistent agent {AgentId} started and registered at {Endpoint} (container {ContainerId})",

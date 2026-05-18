@@ -9,14 +9,17 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Connectors;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Execution;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -149,6 +152,10 @@ public class PersistentDispatchIntegrationTests
         persistentServices.AddSingleton(_runtimeCatalog);
         persistentServices.AddSingleton<PersistentAgentRegistry>();
         persistentServices.AddSingleton<PersistentAgentLifecycle>();
+        // #2468: registry now persists via EF.
+        var dbName = $"PersistentDispatchIntegrationTests-{Guid.NewGuid()}";
+        persistentServices.AddDbContext<SpringDbContext>(options =>
+            options.UseInMemoryDatabase(dbName));
         _persistentRegistry = persistentServices
             .BuildServiceProvider()
             .GetRequiredService<PersistentAgentRegistry>();
@@ -198,26 +205,24 @@ public class PersistentDispatchIntegrationTests
     }
 
     [Fact]
-    public void PersistentAgent_PreRegistered_ReusesEndpoint_NoContainerRestart()
+    public async Task PersistentAgent_PreRegistered_ReusesEndpoint_NoContainerRestart()
     {
         // Pre-register the agent as already running.
         var endpoint = new Uri("http://persistent-container:8999/");
-        _persistentRegistry.Register(AgentId, endpoint, "existing-container");
+        await _persistentRegistry.RegisterAsync(AgentId, endpoint, "existing-container", cancellationToken: TestContext.Current.CancellationToken);
 
         // Verify the registry returns the endpoint without starting a new container.
-        var found = _persistentRegistry.TryGetEndpoint(AgentId, out var result);
-        found.ShouldBeTrue();
+        var result = await _persistentRegistry.TryGetEndpointAsync(AgentId, cancellationToken: TestContext.Current.CancellationToken);
         result.ShouldBe(endpoint);
 
-        // Verify TryGetEndpoint works multiple times (reuse, not re-start).
-        found = _persistentRegistry.TryGetEndpoint(AgentId, out result);
-        found.ShouldBeTrue();
+        // Verify TryGetEndpointAsync works multiple times (reuse, not re-start).
+        result = await _persistentRegistry.TryGetEndpointAsync(AgentId, cancellationToken: TestContext.Current.CancellationToken);
         result.ShouldBe(endpoint);
 
         // Container runtime should NOT have been called (no container started).
-        _containerRuntime.DidNotReceive().StartAsync(
+        await _containerRuntime.DidNotReceive().StartAsync(
             Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
-        _containerRuntime.DidNotReceive().RunAsync(
+        await _containerRuntime.DidNotReceive().RunAsync(
             Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
     }
 
@@ -225,7 +230,7 @@ public class PersistentDispatchIntegrationTests
     public async Task PersistentAgent_A2AFailure_MarksUnhealthy()
     {
         var endpoint = new Uri("http://persistent-container:8999/");
-        _persistentRegistry.Register(AgentId, endpoint, "existing-container");
+        await _persistentRegistry.RegisterAsync(AgentId, endpoint, "existing-container", cancellationToken: TestContext.Current.CancellationToken);
 
         // #2092 pre-flight probe must succeed so we exercise the
         // mid-dispatch failure path (the SendA2AMessageAsync catch block)
@@ -250,7 +255,7 @@ public class PersistentDispatchIntegrationTests
         }
 
         // Agent should now be marked unhealthy.
-        _persistentRegistry.TryGet(AgentId, out var entry);
+        var entry = await _persistentRegistry.TryGetAsync(AgentId, cancellationToken: TestContext.Current.CancellationToken);
         entry.ShouldNotBeNull();
         entry!.HealthStatus.ShouldBe(AgentHealthStatus.Unhealthy);
     }
@@ -264,7 +269,7 @@ public class PersistentDispatchIntegrationTests
         // and routes through the auto-restart path. The doomed A2A call
         // is never issued.
         var endpoint = new Uri("http://dead-container:8999/");
-        _persistentRegistry.Register(AgentId, endpoint, "dead-container");
+        await _persistentRegistry.RegisterAsync(AgentId, endpoint, "dead-container", cancellationToken: TestContext.Current.CancellationToken);
 
         // Probe always returns false — agent endpoint is unreachable.
         _containerRuntime.ProbeContainerHttpAsync(
@@ -327,7 +332,7 @@ public class PersistentDispatchIntegrationTests
         // existing entry and goes straight to the A2A call without
         // tearing the container down or re-launching.
         var endpoint = new Uri("http://healthy-container:8999/");
-        _persistentRegistry.Register(AgentId, endpoint, "healthy-container");
+        await _persistentRegistry.RegisterAsync(AgentId, endpoint, "healthy-container", cancellationToken: TestContext.Current.CancellationToken);
 
         _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -363,7 +368,7 @@ public class PersistentDispatchIntegrationTests
             Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
 
         // Entry remains healthy.
-        _persistentRegistry.TryGet(AgentId, out var entry);
+        var entry = await _persistentRegistry.TryGetAsync(AgentId, cancellationToken: TestContext.Current.CancellationToken);
         entry.ShouldNotBeNull();
         entry!.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
 
@@ -375,21 +380,22 @@ public class PersistentDispatchIntegrationTests
     }
 
     [Fact]
-    public void Registry_ConcurrentRegisterAndLookup_ThreadSafe()
+    public async Task Registry_ConcurrentRegisterAndLookup_ThreadSafe()
     {
         var tasks = new List<Task>();
 
         for (var i = 0; i < 20; i++)
         {
-            var agentId = $"agent-{i}";
+            var agentGuid = new Guid($"aaaaaaaa-cccc-2222-1111-0000000000{i:D2}");
+            var agentId = GuidFormatter.Format(agentGuid);
             var endpoint = new Uri($"http://localhost:{8999 + i}/");
-            tasks.Add(Task.Run(() =>
+            tasks.Add(Task.Run(async () =>
             {
-                _persistentRegistry.Register(agentId, endpoint, $"c-{i}");
-                _persistentRegistry.TryGetEndpoint(agentId, out _);
+                await _persistentRegistry.RegisterAsync(agentId, endpoint, $"c-{i}", cancellationToken: TestContext.Current.CancellationToken);
+                await _persistentRegistry.TryGetEndpointAsync(agentId, cancellationToken: TestContext.Current.CancellationToken);
             }, TestContext.Current.CancellationToken));
         }
 
-        Task.WhenAll(tasks).ShouldNotThrow();
+        await Task.WhenAll(tasks);
     }
 }

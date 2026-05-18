@@ -6,11 +6,14 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Execution;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -32,6 +35,13 @@ using Xunit;
 /// </summary>
 public class PersistentAgentLifecycleTests
 {
+    private static readonly Guid AgentAGuid = new("aaaaaaaa-bbbb-1111-1111-000000000001");
+    private static readonly Guid AgentEGuid = new("aaaaaaaa-bbbb-1111-1111-000000000002");
+    private static readonly Guid GhostGuid = new("aaaaaaaa-bbbb-1111-1111-000000000099");
+    private static readonly string AgentAId = GuidFormatter.Format(AgentAGuid);
+    private static readonly string AgentEId = GuidFormatter.Format(AgentEGuid);
+    private static readonly string GhostId = GuidFormatter.Format(GhostGuid);
+
     private readonly IContainerRuntime _containerRuntime = Substitute.For<IContainerRuntime>();
     private readonly IAgentDefinitionProvider _agentProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
@@ -98,6 +108,12 @@ public class PersistentAgentLifecycleTests
         services.AddSingleton(agentContextBuilder);
         services.AddSingleton<PersistentAgentRegistry>();
         services.AddSingleton<PersistentAgentLifecycle>();
+        // #2468: registry now persists state via EF. Tests share an
+        // in-memory DB per fixture so the Deploy / Undeploy round-trips
+        // observe each other.
+        var dbName = $"PersistentAgentLifecycleTests-{Guid.NewGuid()}";
+        services.AddDbContext<SpringDbContext>(options =>
+            options.UseInMemoryDatabase(dbName));
         var sp = services.BuildServiceProvider();
         _registry = sp.GetRequiredService<PersistentAgentRegistry>();
         _lifecycle = sp.GetRequiredService<PersistentAgentLifecycle>();
@@ -107,24 +123,24 @@ public class PersistentAgentLifecycleTests
     public async Task Deploy_WhenAgentMissing_Throws()
     {
         var ct = TestContext.Current.CancellationToken;
-        _agentProvider.GetByIdAsync("ghost", Arg.Any<CancellationToken>())
+        _agentProvider.GetByIdAsync(GhostId, Arg.Any<CancellationToken>())
             .Returns((AgentDefinition?)null);
 
         var ex = await Should.ThrowAsync<SpringException>(
-            () => _lifecycle.DeployAsync("ghost", cancellationToken: ct));
+            () => _lifecycle.DeployAsync(GhostId, cancellationToken: ct));
 
-        ex.Message.ShouldContain("ghost");
+        ex.Message.ShouldContain(GhostId);
     }
 
     [Fact]
     public async Task Deploy_WhenExecutionMissing_Throws()
     {
         var ct = TestContext.Current.CancellationToken;
-        _agentProvider.GetByIdAsync("a", Arg.Any<CancellationToken>())
-            .Returns(new AgentDefinition("a", "A", null, Execution: null));
+        _agentProvider.GetByIdAsync(AgentAId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(AgentAId, "A", null, Execution: null));
 
         var ex = await Should.ThrowAsync<SpringException>(
-            () => _lifecycle.DeployAsync("a", cancellationToken: ct));
+            () => _lifecycle.DeployAsync(AgentAId, cancellationToken: ct));
 
         ex.Message.ShouldContain("execution");
     }
@@ -133,15 +149,15 @@ public class PersistentAgentLifecycleTests
     public async Task Deploy_WhenAgentIsEphemeral_Throws()
     {
         var ct = TestContext.Current.CancellationToken;
-        _agentProvider.GetByIdAsync("e", Arg.Any<CancellationToken>())
+        _agentProvider.GetByIdAsync(AgentEId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
-                "e",
+                AgentEId,
                 "E",
                 null,
                 new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Ephemeral)));
 
         var ex = await Should.ThrowAsync<SpringException>(
-            () => _lifecycle.DeployAsync("e", cancellationToken: ct));
+            () => _lifecycle.DeployAsync(AgentEId, cancellationToken: ct));
 
         ex.Message.ShouldContain("persistent");
     }
@@ -150,15 +166,15 @@ public class PersistentAgentLifecycleTests
     public async Task Deploy_WhenDefinitionMissingImageAndNoOverride_Throws()
     {
         var ct = TestContext.Current.CancellationToken;
-        _agentProvider.GetByIdAsync("a", Arg.Any<CancellationToken>())
+        _agentProvider.GetByIdAsync(AgentAId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
-                "a",
+                AgentAId,
                 "A",
                 null,
                 new AgentExecutionConfig("claude", Image: null, Hosting: AgentHostingMode.Persistent)));
 
         var ex = await Should.ThrowAsync<SpringException>(
-            () => _lifecycle.DeployAsync("a", cancellationToken: ct));
+            () => _lifecycle.DeployAsync(AgentAId, cancellationToken: ct));
 
         ex.Message.ShouldContain("image");
     }
@@ -168,24 +184,25 @@ public class PersistentAgentLifecycleTests
     {
         var ct = TestContext.Current.CancellationToken;
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register(
-            "a",
+        await _registry.RegisterAsync(
+            AgentAId,
             endpoint,
             "container-abc",
             new AgentDefinition(
-                "a",
+                AgentAId,
                 "A",
                 null,
-                new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Persistent)),
+            cancellationToken: ct);
 
-        _agentProvider.GetByIdAsync("a", Arg.Any<CancellationToken>())
+        _agentProvider.GetByIdAsync(AgentAId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
-                "a",
+                AgentAId,
                 "A",
                 null,
                 new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Persistent)));
 
-        var result = await _lifecycle.DeployAsync("a", cancellationToken: ct);
+        var result = await _lifecycle.DeployAsync(AgentAId, cancellationToken: ct);
 
         result.ContainerId.ShouldBe("container-abc");
         // No StartAsync call because the idempotent fast-path returned the
@@ -198,7 +215,7 @@ public class PersistentAgentLifecycleTests
     public async Task Undeploy_WhenAgentNotRegistered_ReturnsFalse()
     {
         var ct = TestContext.Current.CancellationToken;
-        var result = await _lifecycle.UndeployAsync("unknown", ct);
+        var result = await _lifecycle.UndeployAsync(GhostId, ct);
         result.ShouldBeFalse();
     }
 
@@ -207,14 +224,14 @@ public class PersistentAgentLifecycleTests
     {
         var ct = TestContext.Current.CancellationToken;
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("a", endpoint, "container-abc", definition: null);
+        await _registry.RegisterAsync(AgentAId, endpoint, "container-abc", definition: null, cancellationToken: ct);
 
-        var result = await _lifecycle.UndeployAsync("a", ct);
+        var result = await _lifecycle.UndeployAsync(AgentAId, ct);
 
         result.ShouldBeTrue();
         await _containerRuntime.Received()
             .StopAsync("container-abc", Arg.Any<CancellationToken>());
-        _registry.TryGet("a", out var entry).ShouldBeFalse();
+        var entry = await _registry.TryGetAsync(AgentAId, ct);
         entry.ShouldBeNull();
     }
 
@@ -223,11 +240,12 @@ public class PersistentAgentLifecycleTests
     {
         var ct = TestContext.Current.CancellationToken;
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("a", endpoint, "container-abc", definition: null);
+        await _registry.RegisterAsync(AgentAId, endpoint, "container-abc", definition: null, cancellationToken: ct);
 
-        await _lifecycle.ScaleAsync("a", 0, ct);
+        await _lifecycle.ScaleAsync(AgentAId, 0, ct);
 
-        _registry.TryGet("a", out _).ShouldBeFalse();
+        var entry = await _registry.TryGetAsync(AgentAId, ct);
+        entry.ShouldBeNull();
     }
 
     [Fact]
@@ -235,7 +253,7 @@ public class PersistentAgentLifecycleTests
     {
         var ct = TestContext.Current.CancellationToken;
         var ex = await Should.ThrowAsync<SpringException>(
-            () => _lifecycle.ScaleAsync("a", 2, ct));
+            () => _lifecycle.ScaleAsync(AgentAId, 2, ct));
 
         ex.Message.ShouldContain("Horizontal scaling");
     }
@@ -245,7 +263,7 @@ public class PersistentAgentLifecycleTests
     {
         var ct = TestContext.Current.CancellationToken;
         var ex = await Should.ThrowAsync<SpringException>(
-            () => _lifecycle.GetLogsAsync("ghost", cancellationToken: ct));
+            () => _lifecycle.GetLogsAsync(GhostId, cancellationToken: ct));
 
         ex.Message.ShouldContain("not deployed");
     }
@@ -255,13 +273,13 @@ public class PersistentAgentLifecycleTests
     {
         var ct = TestContext.Current.CancellationToken;
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("a", endpoint, "container-abc", definition: null);
+        await _registry.RegisterAsync(AgentAId, endpoint, "container-abc", definition: null, cancellationToken: ct);
 
         _containerRuntime
             .GetLogsAsync("container-abc", 50, Arg.Any<CancellationToken>())
             .Returns("line 1\nline 2\n");
 
-        var logs = await _lifecycle.GetLogsAsync("a", 50, ct);
+        var logs = await _lifecycle.GetLogsAsync(AgentAId, 50, ct);
 
         logs.ShouldBe("line 1\nline 2\n");
     }
