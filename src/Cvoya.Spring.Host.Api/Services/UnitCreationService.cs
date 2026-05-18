@@ -269,6 +269,15 @@ public class UnitCreationService : IUnitCreationService
             await PersistUnitDefinitionExpertiseAsync(name, manifest.Expertise, cancellationToken);
         }
 
+        // Persist the manifest's `instructions:` block so the unit's
+        // Instructions slot is populated at install time (same seam as the
+        // PATCH /api/v1/units/{id} `instructions` field). Template-derived
+        // instructions land here after the TemplateResolver has merged them.
+        if (!string.IsNullOrEmpty(manifest.Instructions))
+        {
+            await PersistUnitDefinitionInstructionsAsync(result.Unit.Id, manifest.Instructions, cancellationToken);
+        }
+
         // #494: persist the manifest's `boundary:` block through
         // IUnitBoundaryStore so the unit actor's boundary state matches what
         // a `PUT /api/v1/units/{id}/boundary` call would have produced. We
@@ -467,6 +476,63 @@ public class UnitCreationService : IUnitCreationService
             _logger.LogWarning(ex,
                 "Unit '{UnitName}': failed to persist seed expertise on UnitDefinition; actor will activate without seed.",
                 unitId);
+        }
+    }
+
+    /// <summary>
+    /// Writes the manifest <c>instructions:</c> scalar onto the
+    /// <see cref="Data.Entities.UnitDefinitionEntity.Definition"/> JSON so the
+    /// unit's Instructions slot matches the YAML-authored value. Idempotent:
+    /// a re-apply replaces the instructions slot without touching sibling
+    /// fields (expertise, execution, …).
+    /// </summary>
+    private async Task PersistUnitDefinitionInstructionsAsync(
+        Guid unitActorId,
+        string instructions,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            var entity = await db.UnitDefinitions
+                .FirstOrDefaultAsync(u => u.Id == unitActorId && u.DeletedAt == null, cancellationToken);
+
+            if (entity is null)
+            {
+                _logger.LogWarning(
+                    "Unit '{UnitId}': could not locate UnitDefinition row to persist instructions; unit will have no instructions seed.",
+                    unitActorId);
+                return;
+            }
+
+            var payload = new Dictionary<string, object?> { ["instructions"] = instructions };
+
+            // Preserve sibling fields already on the Definition document.
+            if (entity.Definition is { ValueKind: System.Text.Json.JsonValueKind.Object } existing)
+            {
+                foreach (var prop in existing.EnumerateObject())
+                {
+                    if (!string.Equals(prop.Name, "instructions", StringComparison.OrdinalIgnoreCase))
+                    {
+                        payload[prop.Name] = prop.Value;
+                    }
+                }
+            }
+
+            entity.Definition = System.Text.Json.JsonSerializer.SerializeToElement(payload);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Unit '{UnitId}': failed to persist instructions from manifest; unit will have no instructions seed.",
+                unitActorId);
         }
     }
 
